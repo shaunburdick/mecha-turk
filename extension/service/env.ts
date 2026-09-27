@@ -20,8 +20,8 @@ const TOKEN_VARIABLE = 'OPENCHAMBER_SERVICE_TOKEN';
 /** Largest legal TCP port number. */
 const MAX_PORT = 65_535;
 
-/** Shortest token the service will serve with, in characters. */
-const MIN_TOKEN_LENGTH = 16;
+/** Shortest token the service will serve with, in characters (SEC-02a floor; supersedes the Wave 1 value of 16). */
+const MIN_TOKEN_LENGTH = 32;
 
 /** Service environment after validation: the only inputs the server trusts. */
 export interface ServiceEnv {

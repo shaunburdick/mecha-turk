@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 var PORT_VARIABLE = "OPENCHAMBER_SERVICE_PORT";
 var TOKEN_VARIABLE = "OPENCHAMBER_SERVICE_TOKEN";
 var MAX_PORT = 65535;
-var MIN_TOKEN_LENGTH = 16;
+var MIN_TOKEN_LENGTH = 32;
 
 class ServiceEnvError extends Error {
   name = "ServiceEnvError";

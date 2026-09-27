@@ -37,6 +37,9 @@ const TOKEN_KEY = 'OPENCHAMBER_SERVICE_TOKEN';
 /** A token that satisfies the service's length floor. */
 const VALID_TOKEN = 'a'.repeat(40);
 
+/** Minimum `OPENCHAMBER_SERVICE_TOKEN` length the service accepts (contract §1 Startup). */
+const TOKEN_FLOOR = 32;
+
 /** Prefix the host puts in front of the bearer secret. */
 const BEARER_PREFIX = 'Bearer ';
 
@@ -189,6 +192,21 @@ describe('service environment', () => {
         expect(() => readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: 'short' })).toThrow(
             new RegExp(`${TOKEN_KEY} must be at least`),
         );
+    });
+
+    it('enforces the 32-character floor without echoing the value (SEC-02a)', () => {
+        const belowFloor = 'b'.repeat(TOKEN_FLOOR - 1);
+        const atFloor = 'c'.repeat(TOKEN_FLOOR);
+
+        expect(() => readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: belowFloor })).toThrow(ServiceEnvError);
+        try {
+            readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: belowFloor });
+        } catch (error) {
+            expect(error).toBeInstanceOf(ServiceEnvError);
+            expect((error as Error).message).not.toContain(belowFloor);
+        }
+
+        expect(readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: atFloor }).token).toBe(atFloor);
     });
 
     it('refuses a port that is not an in-range integer', () => {

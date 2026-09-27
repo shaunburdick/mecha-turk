@@ -32,6 +32,9 @@ const OS_ASSIGNED_PORT = '0';
 /** Bearer token the service is spawned with (past the length floor). */
 const TOKEN = 'e'.repeat(40);
 
+/** Minimum `OPENCHAMBER_SERVICE_TOKEN` length the service accepts (contract §1 Startup). */
+const TOKEN_FLOOR = 32;
+
 /** How long the bundle may take to log its listening port. */
 const STARTUP_MS = 8_000;
 
@@ -109,6 +112,31 @@ function readListeningPort(child: ChildProcess): Promise<number> {
 }
 
 /**
+ * Wait for the spawned service to exit, capturing everything it printed.
+ *
+ * Used by the fail-closed startup test, where the *absence* of a listening
+ * service is the expectation and the captured output is what proves the
+ * refusal was secret-free.
+ *
+ * @param child - Spawned bundle.
+ * @returns The exit code (`null` when killed by a signal) and combined output.
+ */
+function readExitWithOutput(child: ChildProcess): Promise<{ readonly code: number | null; readonly output: string }> {
+    return new Promise((resolve) => {
+        let output = '';
+        const capture = (chunk: Buffer): void => {
+            output += chunk.toString('utf8');
+        };
+
+        child.stdout?.on('data', capture);
+        child.stderr?.on('data', capture);
+        child.once('exit', (code) => {
+            resolve({ code, output });
+        });
+    });
+}
+
+/**
  * Wait for the spawned service to exit.
  *
  * @param child - Spawned bundle.
@@ -142,6 +170,25 @@ describe('service entry (spawned bundle)', () => {
             const exited = waitForExit(entry);
             entry.kill('SIGTERM');
             expect(await exited).toBe(0);
+        },
+        TEST_MS,
+    );
+
+    it(
+        'refuses to start on a short service token, exit non-zero, log secret-free (SEC-02a)',
+        async () => {
+            home = await mkdtemp(join(tmpdir(), 'mecha-turk-entry-'));
+            const shortToken = 'f'.repeat(TOKEN_FLOOR - 1);
+            const env = buildEnv(home);
+            env.OPENCHAMBER_SERVICE_TOKEN = shortToken;
+            entry = spawn(process.execPath, [ENTRY], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+
+            const { code, output } = await readExitWithOutput(entry);
+
+            expect(code).not.toBe(0);
+            expect(output).toContain('OPENCHAMBER_SERVICE_TOKEN');
+            expect(output).not.toContain(shortToken);
+            expect(output).not.toContain('listening');
         },
         TEST_MS,
     );
