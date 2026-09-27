@@ -1,0 +1,64 @@
+{
+    "name": "mecha-turk-spike",
+    "version": "1.0.0",
+    "private": true,
+    "description": "OpenChamber extension spike: one GitHub repository issue poll, one matching rule, one host.startSession() dispatch.",
+    "openchamber": {
+        "apiVersion": 1,
+        "engines": {
+            "openchamber": ">=1.24.0"
+        },
+        "contributes": {
+            "panel": {
+                "id": "mecha-turk-spike",
+                "name": "Mecha Turk Spike",
+                "icon": "github",
+                "entry": "panel/index.html"
+            },
+            "capabilities": [
+                "sessions",
+                "prompt"
+            ],
+            "integration": {
+                "name": "GitHub (token)",
+                "description": "Read one repository issue list for the spike. The token stays with OpenChamber and never reaches the panel.",
+                "token": {
+                    "apiOrigin": "https://api.github.com",
+                    "account": {
+                        "path": "/user",
+                        "name": "login"
+                    },
+                    "scheme": "bearer"
+                },
+                "settings": [
+                    {
+                        "id": "repository",
+                        "label": "Repository (owner/name)"
+                    },
+                    {
+                        "id": "expected-login",
+                        "label": "Expected GitHub login (validation only, optional)"
+                    },
+                    {
+                        "id": "project-id",
+                        "label": "OpenChamber project ID"
+                    },
+                    {
+                        "id": "worktree-option",
+                        "label": "Worktree option (none | generated | new:branch-name)"
+                    },
+                    {
+                        "id": "poll-interval-ms",
+                        "label": "Poll interval in milliseconds (15000-300000)"
+                    }
+                ]
+            }
+        }
+    },
+    "scripts": {
+        "build": "bunx openchamber-guest-bundle panel/main.ts panel/main.js"
+    },
+    "dependencies": {
+        "@openchamber/sdk": "1.24.2"
+    }
+}
