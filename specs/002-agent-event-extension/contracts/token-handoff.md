@@ -99,7 +99,7 @@ panel: clear token (finally)  →  render "Connected as <login>"  →  audit (se
 | F7 | `expectedLogin` mismatch | `422 account-rejected`, fail closed, nothing persisted | FR-009 |
 | F8 | Duplicate numeric id | `409` → panel offers rotation flow | FR-012 |
 | F9 | Network offline | reason `network`; checkpoint/rate state untouched (no account yet) | FR-024 |
-| F10 | Storage dir unwritable | `503 storage-unavailable` **before** accepting the token (pre-flight check on `/health` + `/v1/status.service.storage.writable`, SEC-08) | FR-039 |
+| F10 | Storage dir unwritable | `503 storage-unavailable` **before** accepting the token: pre-flight reads `GET /v1/status` → `service.storage.writable` (`/health` is deliberately store-independent, so it cannot carry this signal, SEC-08) | FR-039 |
 | F11 | Consent declined/gated | Handoff button disabled with reason; no token typed state leaves the input | FR-008 |
 | F12 | Token pasted into wrong field/other screens | Only the handoff input accepts a credential; all other renders use redaction guard. **Named negative-path test (T-019)**: each non-handoff input, on every screen, is asserted to reject/ignore credential text — render-redaction alone is not the test (SEC-10e) | NFR-004 |
 | F13 | Crash mid-handoff (service dies around verify/persist) | The service persists only after `/user` succeeds and responds only after the persist; on **startup** any account left in `pending_handoff`/`verifying` is **re-verified or marked `error:interrupted-handoff`** (audited, `account.error`) — an account is never left in a transient state across restarts | NFR-006, SEC-05 |
