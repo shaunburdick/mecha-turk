@@ -15,9 +15,21 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { handoffInputEnabled, renderHandoff } from '../extension/src/accounts-ui.ts';
+import { adoptServiceAccounts } from '../extension/src/account-adoption.ts';
+import { handoffInputEnabled, refreshHandoff, renderHandoff } from '../extension/src/accounts-ui.ts';
 import { CONSENT_COPY_V1 } from '../extension/src/consent.ts';
-import { PANEL_TOKEN, initialState, recordingView } from './support/handoff.ts';
+import { ACCOUNTS_STORAGE_KEY } from '../extension/src/handoff.ts';
+import {
+    CONNECTED_ID,
+    CONNECTED_LOGIN,
+    GIVEN_AT,
+    PANEL_TOKEN,
+    STATUS_BODY,
+    initialState,
+    recordingView,
+    scopeResults,
+    scriptedRuntime,
+} from './support/handoff.ts';
 
 /** Filesystem path of the DOM adapter, for the static rendering scan. */
 const DOM_SOURCE_PATH = resolve(import.meta.dirname, '../extension/src/accounts-ui.ts');
@@ -109,6 +121,44 @@ describe('rendering (contract §1.1, §4 rule 5, SEC-17)', () => {
                 expect(source, `${relative} must not call ${sink.source}`).not.toMatch(sink);
             }
         }
+    });
+});
+
+describe('silent account adoption (MVP blocker 2)', () => {
+    it('adopts a service-side account after a reinstall and hides the paste form', async () => {
+        const accountsBody = JSON.stringify({
+            accounts: [
+                {
+                    numericUserId: CONNECTED_ID,
+                    login: CONNECTED_LOGIN,
+                    state: 'active',
+                    scopeCheck: { checkedAt: GIVEN_AT, results: scopeResults('ok') },
+                },
+            ],
+        });
+        // Reinstall state: host.storage is wiped — no consent mirror, no
+        // account mirror. Only the service still holds the account.
+        const host = await scriptedRuntime(
+            (request) => {
+                return request.path === '/v1/accounts'
+                    ? { status: 200, body: accountsBody }
+                    : { status: 200, body: STATUS_BODY };
+            },
+            {},
+        );
+
+        await adoptServiceAccounts(host.rt);
+        refreshHandoff(host.rt);
+
+        expect(host.rt.state.handoff.connected).toEqual({ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN });
+        expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
+        expect(host.record.pasteVisible).toBe(false);
+        expect(host.record.consentShown).toBe(false);
+        // The adoption rewrote the mirror the reinstall deleted, so the
+        // next mount adopts from storage without touching the service.
+        const mirrored = host.storage.values.get(ACCOUNTS_STORAGE_KEY);
+        expect(mirrored).toBeDefined();
+        expect(JSON.stringify(mirrored)).toContain(CONNECTED_ID);
     });
 });
 

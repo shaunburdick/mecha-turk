@@ -106,6 +106,13 @@ export interface PanelState {
     /** Latest settings snapshot from the host, or `null` before the first one. */
     settings: Readonly<Record<string, string>> | null;
     /**
+     * How many service bindings are enabled, as the last bindings read
+     * reported. `0` until a read lands; anything above zero puts the panel
+     * into bindings-authoritative mode (see `bindings-mode.ts`), where the
+     * legacy single-repo settings no longer gate the banner or the loop.
+     */
+    bindingsActive: number;
+    /**
      * Project id chosen by the panel picker, restored from extension storage.
      *
      * `null` means "no panel selection": configuration resolution then falls
@@ -288,6 +295,7 @@ export function createPanelRuntime(
             }),
             config: null,
             settings: null,
+            bindingsActive: 0,
             projectSelection: null,
             projects: initialProjectPicker(),
             login: null,

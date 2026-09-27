@@ -22,6 +22,7 @@
  * are emptied on every exit.
  */
 
+import { adoptServiceAccounts } from './account-adoption.ts';
 import { CONSENT_COPY_V1 } from './consent.ts';
 import { connectedLine } from './handoff-copy.ts';
 import { acceptHandoffConsent, runHandoff } from './handoff.ts';
@@ -53,6 +54,8 @@ export interface HandoffView {
     setNote(text: string): void;
     /** Render `Connected as <login>`, or hide the line with `null`. */
     setConnected(text: string | null): void;
+    /** Show or hide the paste row (consent field, credential input, submit). */
+    setPasteVisible(visible: boolean): void;
     /** Enable or disable the submit button. */
     setSubmitEnabled(enabled: boolean): void;
     /** Remove every node this view created. */
@@ -75,12 +78,19 @@ export function handoffInputEnabled(state: HandoffState): boolean {
 /**
  * Apply the handoff state to a view.
  *
+ * A connected account — adopted from the service or handed off one-shot —
+ * hides both the consent step and the paste row: consent governs NEW token
+ * handoff only, and the paste field must not offer a credential the service
+ * already holds (MVP blocker 2).
+ *
  * @param state - Current handoff state.
  * @param view - Surface to write to; the consent copy is passed verbatim.
  */
 export function renderHandoff(state: HandoffState, view: HandoffView): void {
     view.setConsentText(CONSENT_COPY_V1);
-    view.showConsent(!state.consentGiven);
+    const connected = state.connected !== null;
+    view.showConsent(!state.consentGiven && !connected);
+    view.setPasteVisible(!connected);
     const enabled = handoffInputEnabled(state);
     view.setTokenEnabled(enabled);
     view.setSubmitEnabled(enabled);
@@ -105,9 +115,15 @@ export function refreshHandoff(rt: PanelRuntime): void {
 /**
  * Run the handoff pre-flight after mount and repaint the group.
  *
+ * The pre-flight is preceded by the silent account adoption: a service-side
+ * account the mirror lost (extension reinstall) is adopted from
+ * `GET /v1/accounts` before the operator is shown a paste form that could
+ * only end in the service's duplicate refusal (MVP blocker 2).
+ *
  * @param rt - Panel runtime whose handoff group may be mounted.
  */
 export async function preflightAndRepaint(rt: PanelRuntime): Promise<void> {
+    await adoptServiceAccounts(rt);
     await preflightHandoff(rt);
     if (!rt.disposed) {
         refreshHandoff(rt);
@@ -331,6 +347,10 @@ export function mountHandoffDom(input: DomInput): HandoffView {
         setConnected: (text: string | null): void => {
             connected.textContent = text ?? '';
             connected.hidden = text === null;
+        },
+        setPasteVisible: (visible: boolean): void => {
+            credential.field.hidden = !visible;
+            submit.hidden = !visible;
         },
         setSubmitEnabled: (enabled: boolean): void => {
             submit.disabled = !enabled;

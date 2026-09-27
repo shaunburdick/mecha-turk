@@ -58,8 +58,8 @@ type ScopeCapability = (typeof SCOPE_CAPABILITIES)[number];
 /** Result recorded for one capability: `ok`, `missing`, or `unknown` (FR-010). */
 type ScopeResult = 'ok' | 'missing' | 'unknown';
 
-/** Scope matrix as the account mirror records it (contract §3, review M1). */
-interface ScopeMirror {
+/** FR-010 scope matrix as the account mirror records it (contract §3, review M1). */
+export interface ScopeMirror {
     /** RFC 3339 timestamp of the check. */
     readonly checkedAt: string;
     /** One result per FR-010 capability. */
@@ -100,12 +100,13 @@ function readScopeResults(raw: unknown): Readonly<Record<ScopeCapability, ScopeR
  * A matrix this panel cannot trust is never guessed into existence, and an
  * absent one (the F4 status re-read reports no scopes at all) becomes `null`
  * rather than a fabricated verdict — `unknown` is reserved for a check that
- * actually ran (FR-010, review M1).
+ * actually ran (FR-010, review M1). Exported for the silent account
+ * adoption, which mirrors the scope matrix the service DTO carries.
  *
  * @param raw - `scopeCheck` from the `201` body, or anything else.
  * @returns The matrix, or `null` when this surface has no usable one.
  */
-function readScopeMirror(raw: unknown): ScopeMirror | null {
+export function readScopeMirror(raw: unknown): ScopeMirror | null {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
         return null;
     }
@@ -124,7 +125,7 @@ function readScopeMirror(raw: unknown): ScopeMirror | null {
 }
 
 /** Account mirror shape contract §3 records in `host.storage` after a success. */
-interface AccountMirror {
+export interface AccountMirror {
     /** GitHub numeric user id. */
     readonly numericUserId: string;
     /** Display login. */
@@ -332,10 +333,13 @@ function serviceFailureCopy(result: GuestRequestResult): string {
 /**
  * Read the account mirror list this panel wrote earlier.
  *
+ * Exported for the silent account adoption, which must know which service
+ * accounts the mirror already covers before it writes any.
+ *
  * @param rt - Panel runtime.
  * @returns The mirrors; anything unreadable is treated as an empty list.
  */
-async function readStoredAccounts(rt: PanelRuntime): Promise<readonly AccountMirror[]> {
+export async function readStoredAccounts(rt: PanelRuntime): Promise<readonly AccountMirror[]> {
     try {
         const stored = await rt.host.storage.get(ACCOUNTS_STORAGE_KEY);
         const entries: readonly unknown[] = Array.isArray(stored) ? stored : [];
@@ -349,11 +353,14 @@ async function readStoredAccounts(rt: PanelRuntime): Promise<readonly AccountMir
 /**
  * Persist the account mirror contract §3 records after a success.
  *
+ * Exported for the silent account adoption, which records an account the
+ * service already holds without any credential handoff.
+ *
  * @param rt - Panel runtime.
  * @param identity - Identity and FR-010 matrix the service answered with
  *   (`scopeCheck: null` for the F4 status re-read, which reports no scopes).
  */
-async function writeAccountMirror(
+export async function writeAccountMirror(
     rt: PanelRuntime,
     identity: {
         readonly numericUserId: string;

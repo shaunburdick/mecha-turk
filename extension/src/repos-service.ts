@@ -385,6 +385,16 @@ function parseEventEntry(value: unknown): RelayEvent | null {
 }
 
 /**
+ * Count the enabled bindings in a list.
+ *
+ * @param bindings - Bindings as the panel last read (or granted) them.
+ * @returns How many are currently `active`.
+ */
+export function countEnabledBindings(bindings: readonly PanelBinding[]): number {
+    return bindings.filter((binding) => binding.state === 'active').length;
+}
+
+/**
  * Parse the bindings response body.
  *
  * @param text - Response body text.

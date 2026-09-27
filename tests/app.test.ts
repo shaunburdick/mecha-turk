@@ -8,6 +8,7 @@ import { startPolling, stopPolling } from '../extension/src/panel-actions.ts';
 import { createPanelRuntime } from '../extension/src/panel-state.ts';
 import type { PanelRuntime } from '../extension/src/panel-state.ts';
 import { PROJECT_STORAGE_KEY } from '../extension/src/project-actions.ts';
+import type { PanelBinding } from '../extension/src/repos-service.ts';
 import {
     FIXTURE_TIMESTAMP,
     INTERVAL_MS,
@@ -51,6 +52,26 @@ function completeSettings(intervalMs: number): Readonly<Record<string, string>> 
     ];
 
     return Object.fromEntries(entries);
+}
+
+/**
+ * Build one enabled service binding, as `GET /v1/bindings` answers.
+ *
+ * @returns A binding row matching the panel test fixtures.
+ */
+function activeBinding(): PanelBinding {
+    return {
+        bindingId: 'bnd-fixture-1',
+        accountNumericUserId: '77331',
+        accountLogin: LOGIN,
+        repository: REPOSITORY,
+        projectId: PROJECT_ID,
+        worktreeOption: 'generated',
+        triggers: { assignment: true, mention: false },
+        state: 'active',
+        createdAt: FIXTURE_TIMESTAMP,
+        updatedAt: FIXTURE_TIMESTAMP,
+    };
 }
 
 describe('teardown', () => {
@@ -168,6 +189,25 @@ describe('applySettings', () => {
             stopPolling(runtime);
             vi.useRealTimers();
         }
+    });
+
+    it('does not block on a missing repository setting while a binding is active', () => {
+        const runtime = createTestRuntime(fakeHost());
+        runtime.state.repos.bindings = [activeBinding()];
+        runtime.state.bindingsActive = 1;
+
+        // No `repository` setting at all: the legacy parse would refuse with
+        // "repository must be owner/name…", but the binding is authoritative.
+        const settings = Object.fromEntries([['project-id', PROJECT_ID]]);
+        applySettings(runtime, settings);
+
+        expect(runtime.state.status.tone).toBe('info');
+        expect(runtime.state.status.title).toBe('Bindings active');
+        expect(runtime.state.status.body).toBe('1 binding(s) active; legacy single-repo settings ignored');
+        expect(runtime.state.config).not.toBeNull();
+        expect(runtime.state.config?.repository).toEqual({ owner: 'acme', name: 'widget' });
+        expect(runtime.state.config?.projectId).toBe(PROJECT_ID);
+        expect(runtime.state.config?.worktree).toEqual({ kind: 'generated' });
     });
 });
 

@@ -13,7 +13,7 @@ import { parseRepository, repositoryLabel } from './config.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
-import { parseAccountsBody, parseBindingsBody } from './repos-service.ts';
+import { countEnabledBindings, parseAccountsBody, parseBindingsBody } from './repos-service.ts';
 import type { BindingStatusRow, PanelAccount, PanelBinding, PanelTriggers } from './repos-service.ts';
 import { BINDINGS_PATH, serviceGet, servicePut } from './service-calls.ts';
 import type { PanelRuntime, Repositories } from './panel-state.ts';
@@ -253,6 +253,7 @@ async function grantBindings(input: {
 
     rt.state.repos.bindings = parsed.bindings;
     rt.state.repos.statusRows = parsed.status;
+    rt.state.bindingsActive = countEnabledBindings(parsed.bindings);
     rt.state.repos.note = note;
     refresh(rt);
 }
@@ -277,6 +278,7 @@ export async function loadRepositories(rt: PanelRuntime): Promise<void> {
     if (stillMounted(rt)) {
         if (bindings !== null) {
             rt.state.repos.bindings = bindings;
+            rt.state.bindingsActive = countEnabledBindings(bindings);
         }
 
         rt.state.repos.status = bindings !== null && accounts !== null ? 'ready' : 'error';

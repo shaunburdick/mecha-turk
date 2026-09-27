@@ -16,6 +16,7 @@
 
 import type { HostReadyContext, JsonValue } from '@openchamber/sdk';
 import { applyHostReady } from '@openchamber/sdk/ui';
+import { applyBindingsMode, loadInitialBindings } from './bindings-mode.ts';
 import {
     acceptConsentAndRepaint,
     mountHandoffDom,
@@ -55,6 +56,7 @@ import {
     storeProjectSelection,
 } from './project-actions.ts';
 import { redact } from './redaction.ts';
+import { startRelayPolling } from './relay.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
 
@@ -83,6 +85,12 @@ export interface SpikeApp {
  * the runtime so a later selection can re-run exactly this resolution instead
  * of re-implementing it.
  *
+ * When the service reports at least one enabled repository binding, the
+ * settings take a back seat entirely: the panel switches to bindings mode
+ * (see {@link applyBindingsMode}), where the first enabled binding is the
+ * authoritative dispatch context and the legacy single-repo demand can no
+ * longer block the banner (MVP blocker 1).
+ *
  * Exported so the settings flow — including the poll-timer restart when
  * `pollIntervalMs` changes while polling runs — can be exercised directly by
  * the orchestration tests; the panel itself reaches this through the
@@ -93,6 +101,12 @@ export interface SpikeApp {
  */
 export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string, string>>): void {
     rt.state.settings = settings;
+    if (rt.state.bindingsActive > 0) {
+        applyBindingsMode(rt);
+        refresh(rt);
+        return;
+    }
+
     const result = parseSpikeConfig(settings, rt.state.projectSelection);
     if (!result.ok) {
         rt.state.config = null;
@@ -183,6 +197,15 @@ function handleConnection(rt: PanelRuntime, connected: boolean): void {
         stopPolling(rt);
         const body = 'Connect a GitHub token at Settings → Integrations → GitHub (token).';
         setStatus(rt, { tone: 'warning', title: 'Not connected', body });
+        refresh(rt);
+        return;
+    }
+
+    if (rt.state.bindingsActive > 0) {
+        // Bindings mode: the relay is the loop, so the legacy identity check
+        // and single-repo poll loop stay out of the way.
+        applyBindingsMode(rt);
+        startRelayPolling(rt);
         refresh(rt);
         return;
     }
@@ -367,6 +390,9 @@ async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void>
     applySettings(rt, context.settings);
     handleConnection(rt, context.connection.connected);
     void loadProjects(rt);
+    // Bindings land before the handoff pre-flight so the banner reflects
+    // them and the relay is armed for the operator's loop test.
+    void loadInitialBindings(rt);
     // The handoff input stays disabled until this pre-flight proves the
     // service storage is writable (F10/SEC-08); a failed pre-flight leaves
     // the reason on screen instead of a usable credential field.

@@ -12,6 +12,12 @@
  * The project id has two operator-facing sources — the panel's project picker
  * (written to extension storage) and the `project-id` integration setting —
  * resolved by {@link resolveProjectId}, which prefers the panel selection.
+ *
+ * MVP-DEBT (blocker fix 2026-09-27): when the service reports enabled
+ * repository bindings, the panel resolves its configuration from the first
+ * enabled binding instead (see `bindings-mode.ts`) and the legacy
+ * single-repo settings parsed here are ignored. The full settings/bindings
+ * merge and precedence rules land post-MVP.
  */
 
 /** GitHub repository coordinates as shown in the `owner/name` form. */
