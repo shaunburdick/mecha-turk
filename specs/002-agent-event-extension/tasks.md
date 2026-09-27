@@ -6,7 +6,7 @@ Rules: dependency-ordered, each task completable in one sitting, tests land **wi
 
 **Gates**
 
-- **G1 — Security gate**: closes when T-001 findings are resolved and signed off in `contracts/token-handoff.md` §8. **No credential, account-handoff, or token-persistence code exists before G1.**
+- **G1 — Security gate**: closes when T-001 findings are resolved and signed off in `contracts/token-handoff.md` §8. **No credential, account-handoff, or token-persistence code exists before G1.** → **CLOSED 2026-09-27** (T-002 sign-off; SEC-01…SEC-17 all resolved, none rejected).
 - **G2 — Live durability gate**: closes when T-033 proves the audit store survives uninstall on a live instance. **No user-facing copy may claim audit survival before G2.**
 
 ---
@@ -14,7 +14,8 @@ Rules: dependency-ordered, each task completable in one sitting, tests land **wi
 ## Wave 0 — Security gate FIRST (contract review before any secret code)
 
 - [ ] **T-001** Dispatch the `security-auditor` agent to review `contracts/token-handoff.md` + `contracts/panel-service.md` and the FR-008 consent copy: bearer auth on loopback, token custody lifecycle, F1–F12 failure modes, oracle/timing surface, response redaction, advisory-permission honesty, at-rest file permissions. Output: findings list with severity. **First gate task — Wave 2 cannot start until it passes.**
-- [ ] **T-002** Resolve every G1 finding: update the two contracts (or record a justified rejection), then record reviewer, findings, resolution, and `Gate G1 status: CLOSED` in `token-handoff.md` §8. **Closes G1. Blocks: T-007, T-008, T-009.**
+- [x] **T-002** Resolve every G1 finding: update the two contracts (or record a justified rejection), then record reviewer, findings, resolution, and `Gate G1 status: CLOSED` in `token-handoff.md` §8. **Closes G1. Blocks: T-007, T-008, T-009.** *(Done 2026-09-27: SEC-01…SEC-17 all Resolved-by-amendment — none rejected — both contracts amended, token floor 16 → 32 in `extension/service/env.ts` + tests, §8 sign-off recorded, **G1 CLOSED**.)*
+- [ ] **T-036** [P] Move panel redaction to `shared/redaction.ts` per plan.md layout (service consumes it); update imports in panel + service; port tests. **After T-012 creates `shared/`.**
 
 ## Wave 1 — Service core (parallel with Wave 0 — no secrets involved)
 
