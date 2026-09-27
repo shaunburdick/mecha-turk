@@ -7,11 +7,13 @@
  * the input must stay gated on consent **and** a writable pre-flight, and no
  * rendered string may carry a credential. The DOM adapter itself is checked
  * by a static scan — it must write through `textContent`/`setAttribute` only
- * and must pin `type="password"` with `autocomplete="new-password"`.
+ * and must pin `type="password"` with `autocomplete="new-password"` — and
+ * (review F-E) that sink scan now covers **every** module under
+ * `extension/src`, not just the adapter.
  */
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { handoffInputEnabled, renderHandoff } from '../extension/src/accounts-ui.ts';
 import { CONSENT_COPY_V1 } from '../extension/src/consent.ts';
@@ -19,6 +21,18 @@ import { PANEL_TOKEN, initialState, recordingView } from './support/handoff.ts';
 
 /** Filesystem path of the DOM adapter, for the static rendering scan. */
 const DOM_SOURCE_PATH = resolve(import.meta.dirname, '../extension/src/accounts-ui.ts');
+
+/** Directory holding every panel module the widened scan reads (F-E). */
+const SRC_DIR = resolve(import.meta.dirname, '../extension/src');
+
+/** Usage patterns of the HTML sinks contract §4 rule 5 forbids. */
+const HTML_SINKS: readonly RegExp[] = [
+    /\.innerHTML\b/,
+    /insertAdjacentHTML\s*\(/,
+    /\.outerHTML\b/,
+    /\.insertAdjacentText\s*\(/,
+    /\bdocument\.write\s*\(/,
+];
 /** Assert that a list of rendered strings carries no registered credential. */
 function expectNoCredentialInStrings(strings: readonly string[]): void {
     expect(strings.join('\n')).not.toContain(PANEL_TOKEN);
@@ -80,6 +94,21 @@ describe('rendering (contract §1.1, §4 rule 5, SEC-17)', () => {
         expect(source).not.toMatch(/\.innerHTML\b/);
         expect(source).not.toMatch(/insertAdjacentHTML\s*\(/);
         expect(source).not.toMatch(/\.outerHTML\b/);
+    });
+
+    it('keeps every module of extension/src on text-only sinks (F-E)', () => {
+        const modules = readdirSync(SRC_DIR, { recursive: true })
+            .map((entry) => String(entry))
+            .filter((entry) => entry.endsWith('.ts'));
+
+        // A scan that matched nothing would be reading the wrong directory.
+        expect(modules.length).toBeGreaterThan(1);
+        for (const relative of modules) {
+            const source = readFileSync(join(SRC_DIR, relative), 'utf8');
+            for (const sink of HTML_SINKS) {
+                expect(source, `${relative} must not call ${sink.source}`).not.toMatch(sink);
+            }
+        }
     });
 });
 

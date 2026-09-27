@@ -42,6 +42,9 @@ export const CONSENT_REQUIRED = 'consent-required';
 /** Throttle wait header asserted by the GitHub-429 tests (contract §4). */
 export const RETRY_AFTER = 'retry-after';
 
+/** Error name `AbortSignal.timeout` rejects with (review W2-7's classification). */
+export const TIMEOUT_ERROR_NAME = 'TimeoutError';
+
 /** Response header GitHub lists a classic token's granted scopes in (FR-010). */
 export const OAUTH_SCOPES_HEADER = 'x-oauth-scopes';
 

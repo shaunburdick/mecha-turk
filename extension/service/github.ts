@@ -47,6 +47,15 @@ const USER_AGENT = 'mecha-turk-extension';
 /** Fallback wait after a rate-limit refusal that carries no `retry-after`. */
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 
+/**
+ * Error name `AbortSignal.timeout` gives its rejection.
+ *
+ * Node raises a `DOMException` named `TimeoutError` when the shared 15-second
+ * budget fires; a refused connection raises a `TypeError` instead, which is
+ * the distinction the classification below depends on (review W2-7).
+ */
+const TIMEOUT_ERROR_NAME = 'TimeoutError';
+
 /** Capabilities of the FR-010 scope matrix, in reporting order. */
 export type ScopeCapability = 'metadata' | 'issues' | 'pull-requests' | 'contents';
 
@@ -387,6 +396,23 @@ async function readRateBaselineQuietly(fetchImpl: FetchLike, token: string): Pro
 }
 
 /**
+ * Classify why an upstream call never produced a response.
+ *
+ * Only the rejection's *kind* is read: the caught value can quote the URL, the
+ * cause chain, or the request options, and none of that may reach a log line
+ * or an error body (SEC-11 — no upstream text in logs). The two classes the
+ * panel shows different copy for are the 15-second abort (`timeout`: "GitHub
+ * did not answer in time") and everything else (`offline`: "check the
+ * network"), so a hung upstream never masquerades as a connectivity problem.
+ *
+ * @param error - The rejection from the aborted or failed `fetch`.
+ * @returns `timeout` for the shared abort, `offline` for transport failures.
+ */
+function transportDetail(error: unknown): UnavailableDetail {
+    return error instanceof Error && error.name === TIMEOUT_ERROR_NAME ? 'timeout' : 'offline';
+}
+
+/**
  * Create the GitHub verifier the service uses for handoffs and rotation.
  *
  * @param fetchImpl - Injectable `fetch`; defaults to the process global so
@@ -405,11 +431,11 @@ export function createGitHubVerifier(
                     headers: requestHeaders(token),
                     signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
                 });
-            } catch {
+            } catch (error) {
                 // Transport failures are classified, never described: the
                 // caught message can quote the URL, the cause chain, or the
                 // request options (SEC-11 — no upstream text in logs).
-                return { kind: 'unavailable', detail: 'offline' };
+                return { kind: 'unavailable', detail: transportDetail(error) };
             }
 
             const scopeCheck = buildScopeCheck(response.headers.get(OAUTH_SCOPES_HEADER));

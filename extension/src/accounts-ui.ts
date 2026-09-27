@@ -14,6 +14,12 @@
  * The consent block renders `CONSENT_COPY_V1` verbatim: the view receives the
  * contract's own copy and is never handed a paraphrase, a trim, or a
  * concatenation with other copy (token-handoff §1.1, SEC-12).
+ *
+ * The credential input never retains a paste: the mount step writes the value
+ * through at capture (read + `value = ''` in the same tick) and
+ * {@link submitHandoffAndRepaint} clears the view again in `finally`, so both
+ * halves of contract §2 step ⑧ — the module-scoped variable *and* the input —
+ * are emptied on every exit.
  */
 
 import { CONSENT_COPY_V1 } from './consent.ts';
@@ -41,7 +47,7 @@ export interface HandoffView {
     showConsent(show: boolean): void;
     /** Enable or disable the credential input (F10 pre-flight gate). */
     setTokenEnabled(enabled: boolean): void;
-    /** Replace the credential input's value; `''` clears it. */
+    /** Replace the credential input's value; `''` clears it (§2 step ⑧). */
     setTokenValue(value: string): void;
     /** Render the operator-facing note; never credential material. */
     setNote(text: string): void;
@@ -122,14 +128,26 @@ export async function acceptConsentAndRepaint(rt: PanelRuntime): Promise<void> {
  * Run one handoff and repaint twice: once as it starts (the group disables
  * itself while the credential is in flight) and once when it settles.
  *
+ * The credential input is cleared in `finally`, on **every** exit — success,
+ * service refusal, host failure, timeout, or a thrown error — so a paste never
+ * survives the handoff it belonged to (contract §2 step ⑧, FR-007). The mount
+ * step already wrote the value through at capture time (it reads the input and
+ * empties it before the request starts); this second clear is what removes a
+ * value that reappeared while the request was in flight, and it is why
+ * {@link HandoffView.setTokenValue} has a production call site.
+ *
  * @param rt - Panel runtime.
  * @param token - The credential the operator pasted.
  */
 export async function submitHandoffAndRepaint(rt: PanelRuntime, token: string): Promise<void> {
-    const inFlight = runHandoff(rt, { token });
-    refreshHandoff(rt);
-    await inFlight;
-    refreshHandoff(rt);
+    try {
+        const inFlight = runHandoff(rt, { token });
+        refreshHandoff(rt);
+        await inFlight;
+    } finally {
+        rt.handoffView?.setTokenValue('');
+        refreshHandoff(rt);
+    }
 }
 
 /** What the mount step needs: a root to append to and the handlers to wire. */
@@ -246,6 +264,35 @@ function mountCredentialField(doc: Document): CredentialField {
 }
 
 /**
+ * Mount the submit button with the capture-time write-through.
+ *
+ * The pasted credential is read and the input emptied in the **same tick**, so
+ * the DOM holds the value only between the paste and the click — one shot, no
+ * cache, no retry buffer (contract §2 steps ② and ⑧, FR-007).
+ *
+ * @param spec - Document, the credential input to read, and the callbacks.
+ * @returns The wired submit button.
+ */
+function mountSubmitButton(spec: {
+    /** Document to create the button in. */
+    readonly doc: Document;
+    /** Credential input the button reads (and immediately empties). */
+    readonly input: HTMLInputElement;
+    /** Callback that runs the handoff with what was pasted. */
+    readonly handlers: HandoffHandlers;
+}): HTMLButtonElement {
+    return makeButton({
+        doc: spec.doc,
+        label: 'Connect account',
+        onClick: () => {
+            const pasted = spec.input.value;
+            spec.input.value = '';
+            spec.handlers.submit(pasted);
+        },
+    });
+}
+
+/**
  * Mount the handoff group: consent step, credential input, and outcome lines.
  *
  * @param input - Panel root and the callbacks the buttons invoke.
@@ -257,11 +304,7 @@ export function mountHandoffDom(input: DomInput): HandoffView {
     const group = makeElement({ doc, tag: 'div', className: 'oc-sdk' });
     const consent = mountConsentStep({ doc, handlers });
     const credential = mountCredentialField(doc);
-    const submit = makeButton({
-        doc,
-        label: 'Connect account',
-        onClick: () => handlers.submit(credential.input.value),
-    });
+    const submit = mountSubmitButton({ doc, input: credential.input, handlers });
     const connected = makeElement({ doc, tag: 'span', className: 'oc-sdk-text' });
     connected.hidden = true;
 

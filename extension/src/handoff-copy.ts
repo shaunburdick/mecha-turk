@@ -7,6 +7,13 @@
  * `Map`s rather than object literals because the codes themselves are not
  * camelCase identifiers, and because one lookup per code keeps the routing
  * logic branch-free.
+ *
+ * **Canonical side (review W2-4/W2-8, reconciled in T-009l/T-009m)**: where
+ * panel-service.md §4 quotes operator copy, §4 and this file must carry the
+ * *same* string. §4 wins for the `credential-rejected` reason classes
+ * (`auth-failed` names a PAT, `scope-missing` names the token to update); the
+ * shipped wording wins for `account-rejected` and for the `SERVICE_FAILED`
+ * startup line, and §4 was amended to quote those (T-009m).
  */
 
 /** Host transport failures the panel must map to copy (panel-service §1). */
@@ -25,7 +32,7 @@ export const HOST_COPY: ReadonlyMap<string, string> = new Map([
 export const SERVICE_COPY: ReadonlyMap<string, string> = new Map([
     ['consent-required', 'Consent needs renewing — review and accept the handoff notice again.'],
     ['account-rejected', 'The token belongs to a different account than the one expected.'],
-    ['credential-rejected', 'GitHub rejected this token — check the reason, then paste a new one.'],
+    ['credential-rejected', 'GitHub rejected this token — create a fresh PAT and paste it again.'],
     ['duplicate-account', 'This GitHub account is already registered — rotate its token instead.'],
     ['verify-busy', 'A verification is already running — wait a moment, then retry.'],
     ['rate-limited', 'Verification was rate-limited — wait the stated time, then paste the token again.'],
@@ -42,12 +49,15 @@ export const SERVICE_COPY: ReadonlyMap<string, string> = new Map([
 
 /** Credential-rejection reason classes and their reason-specific copy (§4). */
 export const REASON_COPY: ReadonlyMap<string, string> = new Map([
-    ['auth-failed', 'GitHub rejected this token — create a fresh token and paste it again.'],
+    ['auth-failed', 'GitHub rejected this token — create a fresh PAT and paste it again.'],
     ['sso-required', 'Your organization requires SSO — authorize the token for this org, then paste it again.'],
-    ['scope-missing:metadata', 'This token is missing the Metadata scope — update it, then paste it again.'],
-    ['scope-missing:issues', 'This token is missing the Issues scope — update it, then paste it again.'],
-    ['scope-missing:pull-requests', 'This token is missing the Pull requests scope — update it, then paste it again.'],
-    ['scope-missing:contents', 'This token is missing the Contents scope — update it, then paste it again.'],
+    ['scope-missing:metadata', 'This token is missing the Metadata scope — update the token, then paste it again.'],
+    ['scope-missing:issues', 'This token is missing the Issues scope — update the token, then paste it again.'],
+    [
+        'scope-missing:pull-requests',
+        'This token is missing the Pull requests scope — update the token, then paste it again.',
+    ],
+    ['scope-missing:contents', 'This token is missing the Contents scope — update the token, then paste it again.'],
 ]);
 
 /** Shown when the consent step has not been accepted for the current copy. */

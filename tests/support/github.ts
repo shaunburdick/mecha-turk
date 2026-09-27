@@ -27,6 +27,13 @@ export interface EndpointResponse {
     readonly headers?: Readonly<Record<string, string>>;
     /** When set, the call rejects with this message (a transport failure). */
     readonly failWith?: string;
+    /**
+     * When set, the call rejects with an `Error` carrying this `name`.
+     *
+     * Used to reproduce `AbortSignal.timeout`'s `TimeoutError` rejection
+     * without waiting out the real 15-second budget (review W2-7).
+     */
+    readonly failWithName?: string;
 }
 
 /** Script for the endpoints a handoff calls. */
@@ -130,6 +137,12 @@ export function fakeGitHub(script: GitHubScript): FakeGitHub {
             : current.user;
         if (endpoint.failWith !== undefined) {
             throw new Error(endpoint.failWith);
+        }
+
+        if (endpoint.failWithName !== undefined) {
+            const failure = new Error('upstream call did not complete');
+            failure.name = endpoint.failWithName;
+            throw failure;
         }
 
         return new Response(endpoint.body ?? '', {

@@ -42,13 +42,30 @@ export const CURRENT_CONSENT: JsonValue = { givenAt: GIVEN_AT, version: CONSENT_
 /** Body answering the pre-flight with a writable store and no accounts. */
 export const STATUS_BODY = JSON.stringify({ service: { storage: { writable: true } }, accounts: [] });
 
+/** FR-010 capability names, in the contract matrix's reporting order. */
+const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] as const;
+
+/**
+ * Build an FR-010 scope matrix where every capability carries one result.
+ *
+ * Built from the capability list rather than an object literal so the
+ * kebab-case capability names stay array elements instead of quoted object
+ * keys (repo lint keeps object keys camelCase).
+ *
+ * @param result - `ok`, `missing`, or `unknown`.
+ * @returns The matrix exactly as the service and the account mirror record it.
+ */
+export function scopeResults(result: 'ok' | 'missing' | 'unknown'): Record<string, string> {
+    return Object.fromEntries(SCOPE_CAPABILITIES.map((capability) => [capability, result]));
+}
+
 /** Body answering the handoff with the fixture identity. */
 export const VERIFY_BODY = JSON.stringify({
     numericUserId: CONNECTED_ID,
     login: CONNECTED_LOGIN,
     state: 'active',
     verifiedAt: GIVEN_AT,
-    scopeCheck: { checkedAt: GIVEN_AT, results: { metadata: 'ok', issues: 'ok', pull: 'ok' } },
+    scopeCheck: { checkedAt: GIVEN_AT, results: scopeResults('ok') },
 });
 /** Recorded view the render step writes into; every string is collected. */
 export interface RecordingView {
@@ -162,6 +179,12 @@ export async function scriptedRuntime(
     const rt = createTestRuntime(host);
     const record = recordingView();
     rt.handoffView = record.view;
+    // The mounted credential input holds the paste this test is about to hand
+    // off, exactly as the real DOM would. Clearing it on every exit is
+    // contract §2 step ⑧, and seeding it here is what makes
+    // `expectNoCredential`'s `tokenValue` assertion a real check instead of a
+    // comparison against an untouched default (review H1/W2-1).
+    record.tokenValue = PANEL_TOKEN;
     await tick();
 
     return { storage, requests, rt, record };
@@ -208,6 +231,9 @@ export function expectNoCredential(host: ScriptedHost): void {
 
     expect(surfaces).not.toContain(PANEL_TOKEN);
     expect(currentHandoffToken()).toBeUndefined();
+    // `scriptedRuntime` seeds this with the pasted credential; the handoff
+    // must have cleared it (contract §2 step ⑧). The DOM-level proof — paste,
+    // click, assert — lives in `tests/handoff-dom.test.ts`.
     expect(host.record.tokenValue).toBe('');
 }
 /** Empty handoff state, for building render inputs in the tests. */

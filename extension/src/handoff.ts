@@ -49,6 +49,80 @@ const HTTP_STORAGE_UNAVAILABLE = 503;
 /** The credential in flight; cleared in `finally` on every exit (§2 step ⑧). */
 let activeToken: string | undefined;
 
+/** FR-010 capabilities, in the order the contract's matrix reports them. */
+const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] as const;
+
+/** One FR-010 capability name (contract §2 step ⑥). */
+type ScopeCapability = (typeof SCOPE_CAPABILITIES)[number];
+
+/** Result recorded for one capability: `ok`, `missing`, or `unknown` (FR-010). */
+type ScopeResult = 'ok' | 'missing' | 'unknown';
+
+/** Scope matrix as the account mirror records it (contract §3, review M1). */
+interface ScopeMirror {
+    /** RFC 3339 timestamp of the check. */
+    readonly checkedAt: string;
+    /** One result per FR-010 capability. */
+    readonly results: Readonly<Record<ScopeCapability, ScopeResult>>;
+}
+
+/**
+ * Narrow a service `scopeCheck.results` payload to the four-capability matrix.
+ *
+ * Every FR-010 capability must carry a legal verdict; anything else is not a
+ * matrix this panel can record.
+ *
+ * @param raw - The `results` field, or anything else.
+ * @returns The matrix, or `null` when any capability is missing or illegal.
+ */
+function readScopeResults(raw: unknown): Readonly<Record<ScopeCapability, ScopeResult>> | null {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+        return null;
+    }
+
+    const results = raw as Record<string, unknown>;
+    const entries: (readonly [ScopeCapability, ScopeResult])[] = [];
+    for (const capability of SCOPE_CAPABILITIES) {
+        const verdict = results[capability];
+        if (verdict !== 'ok' && verdict !== 'missing' && verdict !== 'unknown') {
+            return null;
+        }
+
+        entries.push([capability, verdict]);
+    }
+
+    return Object.fromEntries(entries) as Record<ScopeCapability, ScopeResult>;
+}
+
+/**
+ * Narrow a service `scopeCheck` payload to the matrix the mirror records.
+ *
+ * A matrix this panel cannot trust is never guessed into existence, and an
+ * absent one (the F4 status re-read reports no scopes at all) becomes `null`
+ * rather than a fabricated verdict — `unknown` is reserved for a check that
+ * actually ran (FR-010, review M1).
+ *
+ * @param raw - `scopeCheck` from the `201` body, or anything else.
+ * @returns The matrix, or `null` when this surface has no usable one.
+ */
+function readScopeMirror(raw: unknown): ScopeMirror | null {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+        return null;
+    }
+
+    const payload = raw as { readonly checkedAt?: unknown; readonly results?: unknown };
+    if (typeof payload.checkedAt !== 'string') {
+        return null;
+    }
+
+    const results = readScopeResults(payload.results);
+    if (results === null) {
+        return null;
+    }
+
+    return { checkedAt: payload.checkedAt, results };
+}
+
 /** Account mirror shape contract §3 records in `host.storage` after a success. */
 interface AccountMirror {
     /** GitHub numeric user id. */
@@ -57,22 +131,38 @@ interface AccountMirror {
     readonly login: string;
     /** Connection state the mirror reports. */
     readonly state: 'active';
+    /**
+     * FR-010 matrix the service reported, or `null` when this surface learned
+     * the account without one (the F4 status re-read carries no scopes).
+     */
+    readonly scopeCheck: ScopeMirror | null;
 }
 
 /**
  * Narrow a stored entry to an account mirror.
  *
  * @param value - One entry from the `accounts` storage key.
- * @returns `true` only for a mirror this panel wrote itself.
+ * @returns `true` only for a mirror this panel wrote itself (contract §3's
+ *   four fields; a pre-M1 entry without `scopeCheck` is not one).
  */
 function isAccountMirror(value: unknown): value is AccountMirror {
     if (typeof value !== 'object' || value === null) {
         return false;
     }
 
-    const mirror = value as { numericUserId?: unknown; login?: unknown; state?: unknown };
+    const mirror = value as {
+        readonly numericUserId?: unknown;
+        readonly login?: unknown;
+        readonly state?: unknown;
+        readonly scopeCheck?: unknown;
+    };
 
-    return typeof mirror.numericUserId === 'string' && typeof mirror.login === 'string' && mirror.state === 'active';
+    return (
+        typeof mirror.numericUserId === 'string' &&
+        typeof mirror.login === 'string' &&
+        mirror.state === 'active' &&
+        (mirror.scopeCheck === null || readScopeMirror(mirror.scopeCheck) !== null)
+    );
 }
 
 /** What the panel knows about one handoff attempt. */
@@ -260,13 +350,23 @@ async function readStoredAccounts(rt: PanelRuntime): Promise<readonly AccountMir
  * Persist the account mirror contract §3 records after a success.
  *
  * @param rt - Panel runtime.
- * @param identity - Identity the service answered with.
+ * @param identity - Identity and FR-010 matrix the service answered with
+ *   (`scopeCheck: null` for the F4 status re-read, which reports no scopes).
  */
 async function writeAccountMirror(
     rt: PanelRuntime,
-    identity: { readonly numericUserId: string; readonly login: string },
+    identity: {
+        readonly numericUserId: string;
+        readonly login: string;
+        readonly scopeCheck: ScopeMirror | null;
+    },
 ): Promise<void> {
-    const mirror: AccountMirror = { numericUserId: identity.numericUserId, login: identity.login, state: 'active' };
+    const mirror: AccountMirror = {
+        numericUserId: identity.numericUserId,
+        login: identity.login,
+        state: 'active',
+        scopeCheck: identity.scopeCheck,
+    };
     const stored = await readStoredAccounts(rt);
     const others = stored.filter((entry) => entry.numericUserId !== identity.numericUserId);
     await writeStorage(rt, { key: ACCOUNTS_STORAGE_KEY, value: [...others, mirror] });
@@ -295,8 +395,8 @@ async function completeHandoff(rt: PanelRuntime, result: GuestRequestResult): Pr
         return false;
     }
 
-    const identity = { numericUserId, login };
-    rt.state.handoff.connected = identity;
+    const identity = { numericUserId, login, scopeCheck: readScopeMirror(root.scopeCheck) };
+    rt.state.handoff.connected = { numericUserId, login };
     rt.state.handoff.note = connectedLine(login);
     await writeAccountMirror(rt, identity);
 

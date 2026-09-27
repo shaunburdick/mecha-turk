@@ -26,9 +26,13 @@ import {
     STATUS_BODY,
     VERIFY_BODY,
     expectNoCredential,
+    scopeResults,
     scriptedRuntime,
     serviceScript,
 } from './support/handoff.ts';
+
+/** Catalog code the `422 credential-rejected` refusals answer with (§4). */
+const CREDENTIAL_REJECTED = 'credential-rejected';
 
 describe('consent gate (AC-002, contract §1)', () => {
     it('refuses the handoff before any request when no consent was given', async () => {
@@ -85,7 +89,12 @@ describe('successful handoff (contract §2 steps ⑧⑨)', () => {
         expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
         expect(host.rt.state.handoff.connected).toMatchObject({ numericUserId: CONNECTED_ID });
         expect(host.storage.values.get(ACCOUNTS_STORAGE_KEY)).toEqual([
-            { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, state: 'active' },
+            {
+                numericUserId: CONNECTED_ID,
+                login: CONNECTED_LOGIN,
+                state: 'active',
+                scopeCheck: { checkedAt: GIVEN_AT, results: scopeResults('ok') },
+            },
         ]);
         expect(host.storage.values.has(CONSENT_STORAGE_KEY)).toBe(true);
         expectNoCredential(host);
@@ -145,6 +154,11 @@ describe('host transport failures (F1–F4, F16, panel-service §1)', () => {
 
         expect(statusCalls).toBe(2);
         expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
+        // The status re-read carries no scope matrix, so the mirror records
+        // `null` instead of inventing an `unknown` verdict (FR-010, M1).
+        expect(host.storage.values.get(ACCOUNTS_STORAGE_KEY)).toEqual([
+            { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, state: 'active', scopeCheck: null },
+        ]);
         expectNoCredential(host);
     });
 });
@@ -153,7 +167,7 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
     /** Service answers and the phrase each one must surface. */
     const SERVICE_FAILURES: readonly (readonly [number, string, string])[] = [
         [409, 'duplicate-account', 'already registered'],
-        [422, 'credential-rejected', 'check the reason, then paste a new one'],
+        [422, CREDENTIAL_REJECTED, 'create a fresh PAT and paste it again'],
         [422, 'account-rejected', 'different account than the one expected'],
         [429, 'rate-limited', 'rate-limited'],
         [401, 'unauthorized', 'reinstall or re-approve'],
@@ -175,7 +189,7 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
 
     it('renders reason-specific copy for a credential rejection (AC-003)', async () => {
         const envelope = JSON.stringify({
-            error: { code: 'credential-rejected', message: 'fixed', reasonClass: 'sso-required' },
+            error: { code: CREDENTIAL_REJECTED, message: 'fixed', reasonClass: 'sso-required' },
         });
         const host = await scriptedRuntime(serviceScript({ status: 422, body: envelope }));
 
@@ -183,6 +197,25 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
 
         expect(host.record.note).toContain('SSO');
         expectNoCredential(host);
+    });
+
+    it("renders §4's reason-class wording verbatim for auth-failed and scope-missing (W2-4)", async () => {
+        const catalog: readonly (readonly [string, string])[] = [
+            ['auth-failed', 'create a fresh PAT and paste it again'],
+            ['scope-missing:contents', 'missing the Contents scope — update the token'],
+        ];
+
+        for (const [reason, phrase] of catalog) {
+            const envelope = JSON.stringify({
+                error: { code: CREDENTIAL_REJECTED, message: 'fixed', reasonClass: reason },
+            });
+            const host = await scriptedRuntime(serviceScript({ status: 422, body: envelope }));
+
+            await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+
+            expect(host.record.note).toContain(phrase);
+            expectNoCredential(host);
+        }
     });
 
     it('drops the stored consent when the service answers consent-required (§1.2)', async () => {
