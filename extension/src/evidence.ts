@@ -18,6 +18,15 @@ export const EVIDENCE_SCHEMA_VERSION = 'extension-spike-1';
 /** Storage key for the most recent evidence record. */
 export const EVIDENCE_STORAGE_KEY = 'mecha-turk-spike:evidence';
 
+/** How the spike selects issues; the only trigger this contract defines. */
+const TRIGGER = 'configured-match';
+
+/** Canonical GitHub issue URL shape; the same rule writes and reads records. */
+const ISSUE_URL_PATTERN = /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/\d+$/;
+
+/** Issue identifier shape; the record stores the issue number as a string. */
+const ISSUE_ID_PATTERN = /^\d+$/;
+
 /** Normalized evidence record produced by a configured match. */
 export interface SpikeEvidence {
     /** Contract schema version. */
@@ -29,7 +38,7 @@ export interface SpikeEvidence {
     /** Canonical issue URL. */
     readonly issueUrl: string;
     /** How the issue was selected; always the configured rule for this spike. */
-    readonly trigger: 'configured-match';
+    readonly trigger: typeof TRIGGER;
     /** Login discovered from `GET /user` — the machine identity, never the token. */
     readonly authenticatedLogin: string;
     /** Correlation identifier shared with the ledger entries. */
@@ -110,7 +119,7 @@ export function buildEvidence(input: EvidenceInput): SpikeEvidence {
         throw new EvidenceError('issue number must be a positive integer');
     }
 
-    if (!/^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/\d+$/.test(input.issueUrl)) {
+    if (!ISSUE_URL_PATTERN.test(input.issueUrl)) {
         throw new EvidenceError('issue URL must be an https GitHub issue URL');
     }
 
@@ -135,7 +144,7 @@ export function buildEvidence(input: EvidenceInput): SpikeEvidence {
         repository: input.repository,
         issueId: String(input.issueNumber),
         issueUrl: input.issueUrl,
-        trigger: 'configured-match',
+        trigger: TRIGGER,
         authenticatedLogin: input.authenticatedLogin,
         correlationId: input.correlationId,
         detectedAt: input.detectedAt,
@@ -148,36 +157,119 @@ export function buildEvidence(input: EvidenceInput): SpikeEvidence {
 }
 
 /**
+ * Narrow a stored JSON value to a record.
+ *
+ * @param value - Value read from `host.storage`.
+ * @returns The value as a record, or `null` for anything else.
+ */
+function asRecord(value: JsonValue | undefined): Record<string, JsonValue> | null {
+    if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+
+    return value;
+}
+
+/**
+ * Read a non-empty string field from a stored record.
+ *
+ * @param record - Stored record.
+ * @param field - Field name.
+ * @returns The value, or `null` when it is missing or not usable text.
+ */
+function readTextField(record: Record<string, JsonValue>, field: string): string | null {
+    const value = record[field];
+    return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+/**
+ * Read the panel generation from a stored record.
+ *
+ * @param record - Stored record.
+ * @returns The generation, or `null` when it is not a positive integer.
+ */
+function readGenerationField(record: Record<string, JsonValue>): number | null {
+    const { panelGeneration } = record;
+    if (typeof panelGeneration !== 'number' || !Number.isInteger(panelGeneration) || panelGeneration < 1) {
+        return null;
+    }
+
+    return panelGeneration;
+}
+
+/** Contract fields read from storage, before the format checks run. */
+interface EvidenceFields {
+    /** `owner/name` of the polled repository. */
+    readonly repository: string;
+    /** Issue number as a string. */
+    readonly issueId: string;
+    /** Canonical issue URL. */
+    readonly issueUrl: string;
+    /** Login discovered from `GET /user`. */
+    readonly authenticatedLogin: string;
+    /** Correlation identifier shared with the ledger entries. */
+    readonly correlationId: string;
+    /** RFC 3339 detection time. */
+    readonly detectedAt: string;
+    /** Panel mount generation that observed the match. */
+    readonly panelGeneration: number;
+}
+
+/**
+ * Read every typed field of a stored evidence record.
+ *
+ * @param record - Stored record.
+ * @returns The fields when every one is present and well-typed, else `null`.
+ */
+function readEvidenceFields(record: Record<string, JsonValue>): EvidenceFields | null {
+    const repository = readTextField(record, 'repository');
+    const issueId = readTextField(record, 'issueId');
+    const issueUrl = readTextField(record, 'issueUrl');
+    const authenticatedLogin = readTextField(record, 'authenticatedLogin');
+    const correlationId = readTextField(record, 'correlationId');
+    const detectedAt = readTextField(record, 'detectedAt');
+    const panelGeneration = readGenerationField(record);
+
+    if (
+        repository === null ||
+        issueId === null ||
+        issueUrl === null ||
+        authenticatedLogin === null ||
+        correlationId === null ||
+        detectedAt === null ||
+        panelGeneration === null
+    ) {
+        return null;
+    }
+
+    return { repository, issueId, issueUrl, authenticatedLogin, correlationId, detectedAt, panelGeneration };
+}
+
+/**
  * Parse a stored evidence record.
+ *
+ * Storage is untrusted: every field is checked against the shape
+ * {@link buildEvidence} produces — types, formats, and the fixed trigger —
+ * rather than cast into the interface, so a hand-edited or partially written
+ * value cannot reach the dispatch path as a half-valid record.
  *
  * @param value - Value read from `host.storage`.
  * @returns The record, or `null` when the shape does not match the contract.
  */
 export function readEvidence(value?: JsonValue): SpikeEvidence | null {
-    if (value === undefined || typeof value !== 'object' || value === null || Array.isArray(value)) {
+    const record = asRecord(value);
+    if (record?.schemaVersion !== EVIDENCE_SCHEMA_VERSION) {
         return null;
     }
 
-    const candidate = value as Record<string, JsonValue>;
-    if (candidate.schemaVersion !== EVIDENCE_SCHEMA_VERSION) {
+    const fields = readEvidenceFields(record);
+    if (fields === null || record.trigger !== TRIGGER || Number.isNaN(Date.parse(fields.detectedAt))) {
         return null;
     }
 
-    const required: readonly (keyof SpikeEvidence)[] = [
-        'repository',
-        'issueId',
-        'issueUrl',
-        'trigger',
-        'authenticatedLogin',
-        'correlationId',
-        'detectedAt',
-        'panelGeneration',
-    ];
-    for (const field of required) {
-        if (!(field in candidate)) {
-            return null;
-        }
+    if (!ISSUE_ID_PATTERN.test(fields.issueId) || !ISSUE_URL_PATTERN.test(fields.issueUrl)) {
+        return null;
     }
 
-    return candidate as unknown as SpikeEvidence;
+    return { schemaVersion: EVIDENCE_SCHEMA_VERSION, ...fields, trigger: TRIGGER };
 }

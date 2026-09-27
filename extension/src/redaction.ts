@@ -16,7 +16,7 @@ type Scalar = string | number | boolean | null;
 interface SecretPattern {
     /** Stable identifier reported in the error, never the matched text. */
     readonly label: string;
-    /** Pattern that recognises the secret shape. Kept linear to avoid backtracking. */
+    /** Pattern that recognises the shape, global so one pass covers every match. Kept linear to avoid backtracking. */
     readonly pattern: RegExp;
 }
 
@@ -27,12 +27,16 @@ interface SecretPattern {
  * `ghr_`, `github_pat_`) plus the two transport spellings that would appear
  * if a header were ever copied into a record: `Authorization:` and
  * `Bearer <credential>`.
+ *
+ * Patterns are global so {@link redact} replaces every occurrence in one pass;
+ * detection uses `String.match`, which scans from the start and never inherits
+ * the `lastIndex` state a `RegExp.test()` call would carry over.
  */
 const SECRET_PATTERNS: readonly SecretPattern[] = [
-    { label: 'github-token-classic', pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/ },
-    { label: 'github-token-fine-grained', pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}/ },
-    { label: 'authorization-header', pattern: /\bAuthorization\s*[:=]\s*["']?\S+/ },
-    { label: 'bearer-credential', pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/ },
+    { label: 'github-token-classic', pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/g },
+    { label: 'github-token-fine-grained', pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}/g },
+    { label: 'authorization-header', pattern: /\bAuthorization\s*[:=]\s*["']?\S+/g },
+    { label: 'bearer-credential', pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/g },
 ];
 
 /** Key names that imply the value is credential material. */
@@ -65,7 +69,9 @@ export class RedactionError extends Error {
  */
 export function findSecretLeak(text: string): string | null {
     for (const { label, pattern } of SECRET_PATTERNS) {
-        if (pattern.test(text)) {
+        // `match` on a global pattern restarts from the beginning on every call,
+        // so detection cannot miss a match because an earlier call advanced state.
+        if (text.match(pattern) !== null) {
             return label;
         }
     }
@@ -91,7 +97,9 @@ export function assertRedacted(subject: string, text: string): void {
  * Replace secret-shaped material with a labelled placeholder.
  *
  * Used when a diagnostic string must still be recorded for the audit trail
- * without carrying the secret itself.
+ * without carrying the secret itself. Every occurrence of every pattern is
+ * replaced, not just the first: a single diagnostic can quote more than one
+ * token, and a half-redacted string is still a leak.
  *
  * @param text - Candidate text.
  * @returns The text with every secret-shaped match replaced by `[redacted:<label>]`.
@@ -99,7 +107,9 @@ export function assertRedacted(subject: string, text: string): void {
 export function redact(text: string): string {
     let result = text;
     for (const { label, pattern } of SECRET_PATTERNS) {
-        result = result.replace(pattern, `[redacted:${label}]`);
+        // `replaceAll` requires a global pattern, so an accidental non-global
+        // pattern fails loudly here instead of silently replacing one match.
+        result = result.replaceAll(pattern, `[redacted:${label}]`);
     }
 
     return result;

@@ -19,6 +19,9 @@ const FINE_GRAINED_TOKEN = `github_pat_${'b'.repeat(TOKEN_BODY)}`;
 /** An Authorization header spelling that must never be persisted. */
 const AUTH_HEADER = 'Authorization: Bearer 0123456789abcdef0123456789abcdef';
 
+/** Label {@link findSecretLeak} reports for the Authorization header shape. */
+const AUTH_LABEL = 'authorization-header';
+
 describe('findSecretLeak', () => {
     it('detects a classic GitHub token', () => {
         expect(findSecretLeak(`the value is ${CLASSIC_TOKEN} in transit`)).toBe('github-token-classic');
@@ -29,7 +32,7 @@ describe('findSecretLeak', () => {
     });
 
     it('detects an Authorization header', () => {
-        expect(findSecretLeak(AUTH_HEADER)).toBe('authorization-header');
+        expect(findSecretLeak(AUTH_HEADER)).toBe(AUTH_LABEL);
     });
 
     it('detects a long bearer credential', () => {
@@ -70,8 +73,38 @@ describe('redact', () => {
         expect(redact(`token=${CLASSIC_TOKEN}`)).toBe('token=[redacted:github-token-classic]');
     });
 
+    it('replaces every token in a string, not just the first', () => {
+        const second = `ghp_${'z'.repeat(TOKEN_BODY)}`;
+        const redacted = redact(`first=${CLASSIC_TOKEN} second=${second}`);
+
+        expect(redacted).toBe('first=[redacted:github-token-classic] second=[redacted:github-token-classic]');
+        expect(redacted).not.toContain(CLASSIC_TOKEN);
+        expect(redacted).not.toContain(second);
+    });
+
+    it('replaces every bearer credential in a string, not just the first', () => {
+        const first = `Bearer ${'c'.repeat(TOKEN_BODY)}`;
+        const second = `Bearer ${'d'.repeat(TOKEN_BODY)}`;
+        const redacted = redact(`${first} then ${second}`);
+        const placeholders = redacted.split('[redacted:bearer-credential]');
+
+        expect(placeholders).toHaveLength(3);
+        expect(redacted).not.toContain('cccc');
+        expect(redacted).not.toContain('dddd');
+    });
+
     it('keeps clean text unchanged', () => {
         expect(redact('issue #7 assigned')).toBe('issue #7 assigned');
+    });
+});
+
+describe('findSecretLeak on global patterns', () => {
+    it('reports the same first match on every call', () => {
+        const text = `header ${AUTH_HEADER} then ${AUTH_HEADER}`;
+
+        expect(findSecretLeak(text)).toBe(AUTH_LABEL);
+        expect(findSecretLeak(text)).toBe(AUTH_LABEL);
+        expect(findSecretLeak(text)).toBe(AUTH_LABEL);
     });
 });
 

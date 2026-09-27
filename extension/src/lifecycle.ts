@@ -8,7 +8,7 @@
  * (see {@link analyzeLastCloseGap}).
  */
 
-import { analyzePollingGap    } from './ledger.ts';
+import { analyzePollingGap } from './ledger.ts';
 import type { GapAnalysis, LifecyclePhase, SpikeLedger } from './ledger.ts';
 
 /** One step of the lifecycle experiment. */

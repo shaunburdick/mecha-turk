@@ -61,8 +61,17 @@ export const MAX_POLL_INTERVAL_MS = 300_000;
 /** Characters GitHub allows in an owner or repository name. */
 const REPOSITORY_PART_PATTERN = /^[A-Za-z0-9_.-]+$/;
 
-/** Characters the spike accepts in a generated worktree/branch name. */
-const BRANCH_NAME_PATTERN = /^[A-Za-z0-9._/-]+$/;
+/**
+ * Characters the spike accepts in a new worktree/branch name.
+ *
+ * Path separators are excluded on purpose: OpenChamber turns the name into a
+ * worktree directory under the project, so a name shaped like a path could
+ * address somewhere other than the project's own worktrees.
+ */
+const BRANCH_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+/** Substring no new-branch name may contain, because it addresses a parent path. */
+const PARENT_PATH_REFERENCE = '..';
 
 /** Blocking problems reported when a setting is missing or malformed. */
 const PROBLEMS = {
@@ -100,7 +109,8 @@ export function parseRepository(value: string): RepositoryRef | null {
  * Parse the worktree option setting.
  *
  * Accepted values are `none` (and the empty string), `generated`, and
- * `new:<branch-name>`.
+ * `new:<branch-name>`. A new-branch name must be a plain branch name: no path
+ * separators and no `..`, because the host derives a directory from it.
  *
  * @param value - Raw setting value.
  * @returns The worktree selection, or `null` when the value is not understood.
@@ -120,7 +130,7 @@ export function parseWorktreeOption(value: string): WorktreeSelection | null {
     }
 
     const name = trimmed.slice('new:'.length).trim();
-    if (name === '' || !BRANCH_NAME_PATTERN.test(name)) {
+    if (name === '' || name.includes(PARENT_PATH_REFERENCE) || !BRANCH_NAME_PATTERN.test(name)) {
         return null;
     }
 

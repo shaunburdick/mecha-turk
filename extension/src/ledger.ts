@@ -16,7 +16,8 @@
 
 import { GUEST_STORAGE_VALUE_BYTES } from '@openchamber/sdk';
 import type { JsonValue } from '@openchamber/sdk';
-import { assertRedacted, stripCredentialKeys } from './redaction.ts';
+import { utf8ByteLength } from './json.ts';
+import { assertRedacted, redact, stripCredentialKeys } from './redaction.ts';
 
 /** Schema version stamped on every ledger. */
 export const LEDGER_SCHEMA_VERSION = 'spike-ledger-1';
@@ -36,30 +37,19 @@ export type LifecyclePhase = 'mounted' | 'closed' | 'paused' | 'removed' | 'serv
 /** All lifecycle phases, in experiment order. */
 export const LIFECYCLE_PHASES: readonly LifecyclePhase[] = ['mounted', 'closed', 'paused', 'removed', 'server-switch'];
 
-/** What a ledger entry records. */
-export type LedgerEntryKind =
-    | 'phase'
-    | 'identity'
-    | 'poll'
-    | 'match'
-    | 'evidence'
-    | 'session'
-    | 'host-verify'
-    | 'lifecycle'
-    | 'error';
+/**
+ * Every entry kind the ledger accepts, used to validate stored values.
+ *
+ * The runtime list is the single source of truth for {@link LedgerEntryKind},
+ * so the type and the validator cannot drift apart.
+ */
+const LEDGER_KINDS = [
+    'phase', 'identity', 'poll', 'match', 'evidence',
+    'session', 'host-verify', 'lifecycle', 'error',
+] as const;
 
-/** Every entry kind the ledger accepts, used to validate stored values. */
-const LEDGER_KINDS: readonly LedgerEntryKind[] = [
-    'phase',
-    'identity',
-    'poll',
-    'match',
-    'evidence',
-    'session',
-    'host-verify',
-    'lifecycle',
-    'error',
-];
+/** What a ledger entry records; derived from {@link LEDGER_KINDS}. */
+export type LedgerEntryKind = (typeof LEDGER_KINDS)[number];
 
 /** Scalar values allowed inside a ledger detail; keeps storage JSON-safe. */
 export type LedgerScalar = string | number | boolean | null;
@@ -387,16 +377,21 @@ export function createLedger(input: CreateLedgerInput): SpikeLedger {
 }
 
 /**
- * Truncate and de-credential a detail payload before it is appended.
+ * Truncate, de-credential, and redact a detail payload before it is appended.
+ *
+ * `error` is the one free-form field: it stringifies whatever was thrown, so a
+ * provider message could carry a secret shape. Redacting it here neutralizes
+ * the value at append time instead of leaving the persist gate to discover it.
  *
  * @param detail - Raw detail values from the panel.
- * @returns A copy whose strings are bounded and whose credential-named keys are gone.
+ * @returns A copy whose strings are bounded, credential-free, and redacted.
  */
 function sanitizeDetail(detail: LedgerDetail): LedgerDetail {
     const clean = stripCredentialKeys(detail);
     for (const [key, value] of Object.entries(clean)) {
-        if (typeof value === 'string' && value.length > MAX_DETAIL_CHARS) {
-            clean[key] = `${value.slice(0, MAX_DETAIL_CHARS - 1)}…`;
+        if (typeof value === 'string') {
+            const safe = key === 'error' ? redact(value) : value;
+            clean[key] = safe.length > MAX_DETAIL_CHARS ? `${safe.slice(0, MAX_DETAIL_CHARS - 1)}…` : safe;
         }
     }
 
@@ -476,6 +471,10 @@ export function recordPhase(ledger: SpikeLedger, input: PhaseInput): SpikeLedger
 /**
  * Serialize a ledger for storage.
  *
+ * Size is measured in UTF-8 bytes, exactly like the host's own gate, because
+ * `String.length` under-counts non-ASCII content and would let a ledger the
+ * host refuses pass here.
+ *
  * @param ledger - Ledger to serialize.
  * @returns Compact JSON asserted to be secret-free and within the host's value limit.
  * @throws {RedactionError} When the ledger matches a secret shape.
@@ -484,7 +483,7 @@ export function recordPhase(ledger: SpikeLedger, input: PhaseInput): SpikeLedger
 export function serializeLedger(ledger: SpikeLedger): string {
     const json = JSON.stringify(ledger);
     assertRedacted('spike ledger', json);
-    if (json.length > GUEST_STORAGE_VALUE_BYTES) {
+    if (utf8ByteLength(json) > GUEST_STORAGE_VALUE_BYTES) {
         throw new Error(`spike ledger exceeds the ${GUEST_STORAGE_VALUE_BYTES} byte host.storage value limit`);
     }
 

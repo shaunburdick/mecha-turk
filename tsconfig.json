@@ -20,5 +20,5 @@
         "noEmit": true,
         "types": ["node"]
     },
-    "include": ["extension/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
+    "include": ["extension/**/*.ts", "tests/**/*.ts"]
 }

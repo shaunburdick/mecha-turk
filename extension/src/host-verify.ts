@@ -9,7 +9,7 @@
 
 import type { GuestProjectsSnapshot, GuestSessionsSnapshot, GuestWorktreesSnapshot } from '@openchamber/sdk';
 import type { LedgerDetail } from './ledger.ts';
-import { describeError  } from './session.ts';
+import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
 
 /** Result of probing one host subscription. */
@@ -18,8 +18,22 @@ export interface SubscriptionProbe {
     readonly surface: 'projects' | 'worktrees' | 'sessions' | 'session-lifecycle';
     /** Whether registration succeeded. */
     readonly registered: boolean;
-    /** Whether a snapshot replayed while the probe listened. */
+    /**
+     * Whether the subscription delivered something while the probe listened.
+     *
+     * The three snapshot surfaces replay their current state on registration;
+     * `session-lifecycle` is an event stream that replays only when the host
+     * has seen a lifecycle event before. A silent listener is therefore only a
+     * failure when {@link SubscriptionProbe.replayExpected} says it is.
+     */
     readonly snapshotReplayed: boolean;
+    /**
+     * Whether this surface is documented to replay on registration.
+     *
+     * `false` for `session-lifecycle`: registration is the only guarantee the
+     * host makes, so "nothing replayed" is a fresh host, not a broken probe.
+     */
+    readonly replayExpected: boolean;
     /** Failure description when registration failed; never secret material. */
     readonly error: string | null;
 }
@@ -142,6 +156,7 @@ async function addProbe<T>(input: ProbeInput<T>, state: ProbeState): Promise<voi
         surface: input.surface,
         registered: probe.error === null,
         snapshotReplayed: probe.snapshot !== null,
+        replayExpected: true,
         error: probe.error,
     });
     if (probe.error !== null) {
@@ -150,28 +165,67 @@ async function addProbe<T>(input: ProbeInput<T>, state: ProbeState): Promise<voi
 }
 
 /**
- * Probe `host.onSessionLifecycle` and collect the phases it reports.
+ * Register the lifecycle listener, recording the probe when registration fails.
  *
  * @param host - Host client.
  * @param state - Collector to update.
+ * @returns The teardown for the registered listener, or `null` on refusal.
  */
-function probeLifecycle(host: Pick<SpikeHost, 'onSessionLifecycle'>, state: ProbeState): void {
+function registerLifecycleListener(
+    host: Pick<SpikeHost, 'onSessionLifecycle'>,
+    state: ProbeState,
+): (() => void) | null {
     try {
-        const stop = host.onSessionLifecycle((event) => {
+        return host.onSessionLifecycle((event) => {
             state.lifecyclePhases.push(event.phase);
-        });
-        state.teardowns.push(stop);
-        state.probes.push({
-            surface: 'session-lifecycle',
-            registered: true,
-            snapshotReplayed: state.lifecyclePhases.length > 0,
-            error: null,
         });
     } catch (cause) {
         const message = describeError(cause);
-        state.probes.push({ surface: 'session-lifecycle', registered: false, snapshotReplayed: false, error: message });
+        state.probes.push({
+            surface: 'session-lifecycle',
+            registered: false,
+            snapshotReplayed: false,
+            replayExpected: false,
+            error: message,
+        });
         state.problems.push(`session-lifecycle: ${message}`);
+        return null;
     }
+}
+
+/**
+ * Observe `host.onSessionLifecycle` for one probe window, then release it.
+ *
+ * The host replays a lifecycle event only when it has seen one before, so a
+ * fresh host stays silent for the whole window. Registration is therefore the
+ * only guarantee this surface makes (`replayExpected: false`); the probe still
+ * records whether an event arrived while it listened.
+ *
+ * @param input - Host client, collector, and probe window.
+ */
+async function probeLifecycle(input: {
+    /** Host client. */
+    readonly host: Pick<SpikeHost, 'onSessionLifecycle'>;
+    /** Collector to update. */
+    readonly state: ProbeState;
+    /** How long to observe for a lifecycle event. */
+    readonly waitMs: number;
+}): Promise<void> {
+    const { host, state, waitMs } = input;
+    const stop = registerLifecycleListener(host, state);
+    if (stop === null) {
+        return;
+    }
+
+    await delay(waitMs);
+    state.teardowns.push(stop);
+    state.probes.push({
+        surface: 'session-lifecycle',
+        registered: true,
+        snapshotReplayed: state.lifecyclePhases.length > 0,
+        replayExpected: false,
+        error: null,
+    });
 }
 
 /**
@@ -184,7 +238,7 @@ async function probeSubscriptions(input: { host: SpikeHost; projectId: string; w
     const state: ProbeState = { probes: [], teardowns: [], problems: [], lifecyclePhases: [] };
     const { host, projectId, waitMs } = input;
 
-    probeLifecycle(host, state);
+    await probeLifecycle({ host, state, waitMs });
     const projects: ProbeInput<GuestProjectsSnapshot> = {
         surface: 'projects',
         subscribe: (listener) => host.onProjects(listener),
@@ -319,7 +373,9 @@ export async function verifyHostState(input: VerifyHostInput): Promise<HostVerif
 export function summarizeHostVerification(verification: HostVerification): LedgerDetail {
     const registered = verification.probes.filter((probe) => probe.registered);
     const replayed = verification.probes.filter((probe) => probe.snapshotReplayed);
-    const failed = verification.probes.filter((probe) => !probe.registered || !probe.snapshotReplayed);
+    const failed = verification.probes.filter(
+        (probe) => !probe.registered || (probe.replayExpected && !probe.snapshotReplayed),
+    );
 
     return {
         projectFound: verification.projectFound,

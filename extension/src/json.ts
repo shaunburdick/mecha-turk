@@ -9,6 +9,24 @@
 
 import type { JsonValue } from '@openchamber/sdk';
 
+/** Encoder reused for every byte measurement; `TextEncoder` is stateless per call. */
+const UTF8_ENCODER = new TextEncoder();
+
+/**
+ * Measure text the way the host measures stored values: UTF-8 bytes.
+ *
+ * The host refuses a `host.storage.set` value whose UTF-8 encoding exceeds
+ * `GUEST_STORAGE_VALUE_BYTES`, while `String.length` counts UTF-16 code units
+ * — two units for a character the encoder writes as four bytes. Measuring in
+ * bytes keeps the spike's own gate honest against the host's own limit.
+ *
+ * @param text - Serialized text, typically `JSON.stringify` output.
+ * @returns The length of the text in UTF-8 bytes.
+ */
+export function utf8ByteLength(text: string): number {
+    return UTF8_ENCODER.encode(text).length;
+}
+
 /**
  * Raised when serialized JSON does not parse into the host's value type.
  */

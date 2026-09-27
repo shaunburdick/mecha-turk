@@ -8,30 +8,48 @@
  * working and the evidence stays honest.
  */
 
-import { repositoryLabel  } from './config.ts';
+import { repositoryLabel } from './config.ts';
 import type { SpikeConfig } from './config.ts';
-import { buildEvidence, EVIDENCE_STORAGE_KEY, serializeEvidence  } from './evidence.ts';
+import { buildEvidence, EVIDENCE_STORAGE_KEY, EvidenceError, serializeEvidence } from './evidence.ts';
 import type { SpikeEvidence } from './evidence.ts';
-import { fetchAuthenticatedLogin, fetchOpenIssues, GitHubApiError  } from './github.ts';
+import { fetchAuthenticatedLogin, fetchOpenIssues, GitHubApiError } from './github.ts';
 import type { GitHubIssue } from './github.ts';
 import { summarizeHostVerification, verifyHostState } from './host-verify.ts';
 import type { HostVerification } from './host-verify.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { parseJsonValue } from './json.ts';
+import { repairLedger } from './ledger-repair.ts';
 import { appendEntry, LEDGER_STORAGE_KEY, recordPhase, serializeLedger } from './ledger.ts';
 import type { LedgerDetail, LedgerEntryInput, LedgerEntryKind } from './ledger.ts';
 import { checkMachineIdentity, sweepIssues } from './matching.ts';
 import { refresh } from './panel-ui.ts';
 import { setStatus } from './panel-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
-import { redact } from './redaction.ts';
+import { RedactionError, redact } from './redaction.ts';
 import { describeError, resolveProject } from './session.ts';
+
+/**
+ * Write the serialized ledger to host storage.
+ *
+ * @param rt - Panel runtime.
+ * @throws {RedactionError} When the ledger matches a secret shape.
+ * @throws {Error} When the ledger exceeds the host's value limit, or the host
+ * refuses the write for its own reasons.
+ */
+async function writeLedger(rt: PanelRuntime): Promise<void> {
+    const json = serializeLedger(rt.state.ledger);
+    await rt.host.storage.set(LEDGER_STORAGE_KEY, parseJsonValue(json));
+}
 
 /**
  * Persist the ledger, asserting redaction and the host value limit first.
  *
- * Never rejects: a failed write is reported through the banner so the panel
- * cannot claim durable progress it does not have.
+ * Never rejects. When a write fails because an entry carries secret-shaped
+ * material or the ledger outgrew the host's value limit, the offending entry is
+ * repaired ({@link repairLedger}) and the write is retried exactly once, so one
+ * bad entry cannot poison every later write. Whatever is left is reported
+ * through the banner so the panel never claims durable progress it does not
+ * have.
  *
  * @param rt - Panel runtime.
  */
@@ -41,10 +59,21 @@ export async function persistLedger(rt: PanelRuntime): Promise<void> {
     }
 
     try {
-        const json = serializeLedger(rt.state.ledger);
-        await rt.host.storage.set(LEDGER_STORAGE_KEY, parseJsonValue(json));
+        await writeLedger(rt);
     } catch (cause) {
-        setStatus(rt, { tone: 'error', title: 'Ledger write failed', body: describeError(cause) });
+        const repair = repairLedger({ ledger: rt.state.ledger, cause });
+        if (repair === null) {
+            setStatus(rt, { tone: 'error', title: 'Ledger write failed', body: describeError(cause) });
+            return;
+        }
+
+        rt.state.ledger = repair.ledger;
+        setStatus(rt, { tone: 'warning', title: 'Ledger repaired', body: repair.summary });
+        try {
+            await writeLedger(rt);
+        } catch (retryCause) {
+            setStatus(rt, { tone: 'error', title: 'Ledger write failed', body: describeError(retryCause) });
+        }
     }
 }
 
@@ -53,12 +82,16 @@ export async function persistLedger(rt: PanelRuntime): Promise<void> {
  *
  * @param rt - Panel runtime.
  * @param evidence - Evidence record to store.
+ * @returns `true` when the record is durable, `false` when the write failed —
+ * which is also reported through the banner.
  */
-async function persistEvidence(rt: PanelRuntime, evidence: SpikeEvidence): Promise<void> {
+async function persistEvidence(rt: PanelRuntime, evidence: SpikeEvidence): Promise<boolean> {
     try {
         await rt.host.storage.set(EVIDENCE_STORAGE_KEY, parseJsonValue(serializeEvidence(evidence)));
+        return true;
     } catch (cause) {
         setStatus(rt, { tone: 'error', title: 'Evidence write failed', body: describeError(cause) });
+        return false;
     }
 }
 
@@ -84,6 +117,28 @@ export interface FailureInput {
 }
 
 /**
+ * Choose a banner title that names what actually failed.
+ *
+ * A rejected evidence record or a redaction refusal is not a failed request, so
+ * the title says what went wrong instead of blaming the network for every
+ * exception.
+ *
+ * @param cause - Caught value.
+ * @returns The banner title for this failure.
+ */
+function failureTitle(cause: unknown): string {
+    if (cause instanceof EvidenceError) {
+        return 'Evidence rejected';
+    }
+
+    if (cause instanceof RedactionError) {
+        return 'Redaction refused the write';
+    }
+
+    return 'Request failed';
+}
+
+/**
  * Record a failure without leaking provider payloads.
  *
  * @param rt - Panel runtime.
@@ -97,7 +152,7 @@ export function recordFailure(rt: PanelRuntime, input: FailureInput): void {
         correlationId: input.correlationId,
         detail: { error: describeError(input.cause), httpStatus: status, correlationId: input.correlationId },
     });
-    setStatus(rt, { tone: 'error', title: 'Request failed', body: redact(describeError(input.cause)) });
+    setStatus(rt, { tone: 'error', title: failureTitle(input.cause), body: redact(describeError(input.cause)) });
 }
 
 /** A single matching issue accepted as the configured match. */
@@ -127,6 +182,9 @@ interface SweepInput {
 /**
  * Accept a single matching issue and persist its evidence record.
  *
+ * Panel state takes the record only after it is durable, so a failed write can
+ * never leave the dispatch button offering an issue storage refused to keep.
+ *
  * @param rt - Panel runtime.
  * @param input - Matched issue plus its observation context.
  */
@@ -142,13 +200,18 @@ async function acceptMatch(rt: PanelRuntime, input: MatchInput): Promise<void> {
             panelGeneration: rt.state.ledger.panelGeneration,
         });
 
+        const stored = await persistEvidence(rt, evidence);
+        if (!stored) {
+            return;
+        }
+
         rt.state.match = input.issue;
         rt.state.evidence = evidence;
-        await persistEvidence(rt, evidence);
 
         const detail: LedgerDetail = {
             correlationId: evidence.correlationId,
             issueId: evidence.issueId,
+            issueUrl: evidence.issueUrl,
             authenticatedLogin: evidence.authenticatedLogin,
             detectedAt: evidence.detectedAt,
             panelGeneration: evidence.panelGeneration,
@@ -244,6 +307,18 @@ export async function runPoll(rt: PanelRuntime): Promise<void> {
 }
 
 /**
+ * Arm the poll loop with the given cadence.
+ *
+ * @param rt - Panel runtime.
+ * @param intervalMs - Cadence for the interval timer.
+ */
+function armPollTimer(rt: PanelRuntime, intervalMs: number): void {
+    rt.pollTimer = setInterval(() => {
+        void runPoll(rt);
+    }, intervalMs);
+}
+
+/**
  * Start the poll loop if it is not already running.
  *
  * @param rt - Panel runtime.
@@ -255,9 +330,29 @@ export function startPolling(rt: PanelRuntime): void {
     }
 
     void runPoll(rt);
-    rt.pollTimer = setInterval(() => {
-        void runPoll(rt);
-    }, config.pollIntervalMs);
+    armPollTimer(rt, config.pollIntervalMs);
+}
+
+/**
+ * Re-arm a running poll loop with the interval the configuration holds now.
+ *
+ * Settings can change `pollIntervalMs` while a timer is already running; the
+ * timer keeps its old cadence otherwise. Only an existing loop is re-armed —
+ * this never starts polling by itself and never fires an immediate poll.
+ *
+ * @param rt - Panel runtime.
+ * @returns `true` when a running timer was re-armed, `false` when none was.
+ */
+export function restartPolling(rt: PanelRuntime): boolean {
+    const { config } = rt.state;
+    if (rt.pollTimer === null || config === null) {
+        return false;
+    }
+
+    clearInterval(rt.pollTimer);
+    armPollTimer(rt, config.pollIntervalMs);
+
+    return true;
 }
 
 /**
@@ -327,14 +422,19 @@ const HOST_VERIFY_KIND: LedgerEntryKind = 'host-verify';
 /**
  * Render a one-line summary of the verification result.
  *
+ * The replay ratio counts only the snapshot surfaces: `onSessionLifecycle` is
+ * an event stream with no replay guarantee, so a host that never saw a session
+ * lifecycle event is not a failure (see `replayExpected`).
+ *
  * @param verification - Verification result.
  * @returns Banner text with project, worktree, session, and probe counts.
  */
 function summarizeVerification(verification: HostVerification): string {
-    const replayed = verification.probes.filter((probe) => probe.snapshotReplayed).length;
+    const expected = verification.probes.filter((probe) => probe.replayExpected);
+    const replayed = expected.filter((probe) => probe.snapshotReplayed).length;
     const totals = `worktrees=${verification.worktreeCount}; sessions=${verification.sessionCount}`;
     const found = String(verification.projectFound);
-    return `project=${found}; ${totals}; probes replayed ${replayed}/${verification.probes.length}`;
+    return `project=${found}; ${totals}; snapshots replayed ${replayed}/${expected.length}`;
 }
 
 /**

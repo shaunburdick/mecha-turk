@@ -119,11 +119,20 @@ describe('parseWorktreeOption', () => {
     });
 
     it('accepts a named new worktree', () => {
-        expect(parseWorktreeOption('new:feature/spike')).toEqual({ kind: 'new', name: 'feature/spike' });
+        expect(parseWorktreeOption('new:feature-spike')).toEqual({ kind: 'new', name: 'feature-spike' });
     });
 
     it('rejects a named worktree with unsafe characters', () => {
         expect(parseWorktreeOption('new:bad name')).toBeNull();
+    });
+
+    it('rejects a path-shaped name that contains a separator', () => {
+        expect(parseWorktreeOption('new:feature/spike')).toBeNull();
+    });
+
+    it('rejects a name that references a parent path', () => {
+        expect(parseWorktreeOption('new:..')).toBeNull();
+        expect(parseWorktreeOption('new:spike..branch')).toBeNull();
     });
 
     it('rejects an unknown keyword', () => {
@@ -233,7 +242,7 @@ describe('rendering helpers', () => {
     it('formats a worktree selection back into its setting syntax', () => {
         expect(formatWorktreeOption({ kind: 'none' })).toBe('none');
         expect(formatWorktreeOption({ kind: 'generated' })).toBe('generated');
-        expect(formatWorktreeOption({ kind: 'new', name: 'feature/x' })).toBe('new:feature/x');
+        expect(formatWorktreeOption({ kind: 'new', name: 'feature-x' })).toBe('new:feature-x');
     });
 
     it('labels a repository as owner/name', () => {

@@ -7,10 +7,10 @@
  * line of defence: even a diagnostic string cannot render secret-shaped text.
  */
 
-import { mountBanner, mountButton, mountList, mountSelect, mountText   } from '@openchamber/sdk/ui';
+import { mountBanner, mountButton, mountList, mountSelect, mountText } from '@openchamber/sdk/ui';
 import type { ListItem, SelectOption } from '@openchamber/sdk/ui';
 import { repositoryLabel } from './config.ts';
-import { isLifecyclePhase, ledgerTail  } from './ledger.ts';
+import { isLifecyclePhase, ledgerTail } from './ledger.ts';
 import type { LifecyclePhase } from './ledger.ts';
 import { redact } from './redaction.ts';
 import type { PanelRuntime, PanelState, PanelUi } from './panel-state.ts';

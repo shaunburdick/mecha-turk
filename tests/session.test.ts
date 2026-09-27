@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type {
-    GuestProjectsSnapshot,
-    GuestSessionsSnapshot,
-    GuestWorktreesSnapshot,
-    StartSessionResult,
-} from '@openchamber/sdk';
-import type { SpikeConfig } from '../extension/src/config.ts';
-import type { SpikeEvidence } from '../extension/src/evidence.ts';
+import type { GuestProjectsSnapshot, GuestWorktreesSnapshot, StartSessionResult } from '@openchamber/sdk';
 import type { GitHubIssue } from '../extension/src/github.ts';
 import { summarizeHostVerification, verifyHostState } from '../extension/src/host-verify.ts';
 import { appendEntry, createLedger } from '../extension/src/ledger.ts';
@@ -20,27 +13,24 @@ import {
     summarizeStartSessionResult,
 } from '../extension/src/session.ts';
 import type { SpikeHost } from '../extension/src/session.ts';
-
-/** Project id the spike configuration targets. */
-const PROJECT_ID = 'prj_42';
-
-/** Name of the generated worktree the host reports. */
-const WORKTREE_NAME = 'spike';
-
-/** Directory of the project the host reports. */
-const PROJECT_DIR = '/home/agent/acme/widget';
-
-/** Login used as the authenticated machine account. */
-const LOGIN = 'mecha-bot';
-
-/** Canonical URL of the matched issue. */
-const ISSUE_URL = 'https://github.com/acme/widget/issues/7';
+import {
+    IDLE_UNSUBSCRIBE,
+    ISSUE_URL,
+    LOGIN,
+    PROJECT_DIR,
+    PROJECT_ID,
+    PROJECTS,
+    REPOSITORY,
+    SESSION_ID,
+    SESSIONS,
+    WORKTREES,
+    fakeHost,
+    testConfig,
+    testEvidence,
+} from './support/panel.ts';
 
 /** Number of milliseconds each subscription probe waits in tests. */
 const PROBE_WAIT_MS = 1;
-
-/** Repository string shared by the configuration and the context assertions. */
-const REPOSITORY = 'acme/widget';
 
 /** Correlation id used by the bounded-context assertions. */
 const CONTEXT_CORRELATION = 'abc-123';
@@ -48,104 +38,20 @@ const CONTEXT_CORRELATION = 'abc-123';
 /** The bounded context text used when no issue detail matters. */
 const CONTEXT_TEXT = 'bounded context';
 
-/** Session id returned by the successful dispatch fixture. */
-const SESSION_ID = 'ses_1';
+/** Context budget small enough to force the untrusted excerpt to be trimmed. */
+const TIGHT_CONTEXT_CHARS = 500;
+
+/** Failure reason reported by a partial worktree bootstrap. */
+const BOOTSTRAP_FAILURE = 'bootstrap-failed';
 
 /** Timestamp used by the fixture records. */
 const T0 = '2026-09-26T12:00:00.000Z';
-
-/** Default poll interval used by the configuration fixture. */
-const DEFAULT_INTERVAL_MS = 60000;
 
 /** Documented character cap for `title` on `startSession`. */
 const CLAMPED_TITLE = 200;
 
 /** Title length used to prove the clamp. */
 const LONG_TITLE = 400;
-
-/** A project snapshot with one registered project. */
-const PROJECTS: GuestProjectsSnapshot = {
-    kind: 'projects',
-    state: 'ready',
-    projects: [{ id: PROJECT_ID, name: 'widget', directory: PROJECT_DIR }],
-};
-
-/** A worktree snapshot reporting one generated worktree. */
-const WORKTREES: GuestWorktreesSnapshot = {
-    kind: 'worktrees',
-    projectId: PROJECT_ID,
-    state: 'ready',
-    worktrees: [
-        {
-            directory: `${PROJECT_DIR}/.worktrees/${WORKTREE_NAME}`,
-            name: WORKTREE_NAME,
-            branch: WORKTREE_NAME,
-            status: 'ready',
-        },
-    ],
-};
-
-/** A sessions snapshot with no sessions yet. */
-const SESSIONS: GuestSessionsSnapshot = {
-    kind: 'sessions',
-    projectId: PROJECT_ID,
-    state: 'ready',
-    coverage: [],
-    sessions: [],
-};
-
-/** Status the request double answers with when a test does not override it. */
-const DEFAULT_STATUS = 404;
-
-/** Body the request double answers with when a test does not override it. */
-const DEFAULT_BODY = '{"message":"unconfigured"}';
-
-/** Unsubscribe double: the base host registers nothing, so nothing is released. */
-const IDLE_UNSUBSCRIBE = (): boolean => false;
-
-/** Result double for `startSession` when a test does not exercise dispatch. */
-const NO_SESSION: StartSessionResult = {
-    sessionId: null,
-    sent: 'skipped',
-    directory: PROJECT_DIR,
-    worktree: { directory: PROJECT_DIR, name: 'none', branch: 'none', status: 'missing' },
-    failure: 'session-create-failed',
-};
-
-/**
- * Build a host double; only the members a test exercises need overriding.
- *
- * Every default is a neutral, type-correct answer rather than a throw, so a
- * test only fails where it genuinely diverges from the documented behaviour.
- *
- * @param overrides - Members to replace with test behaviour.
- * @returns A complete {@link SpikeHost}.
- */
-function fakeHost(overrides: Partial<SpikeHost> = {}): SpikeHost {
-    return {
-        request: async () => ({ status: DEFAULT_STATUS, body: DEFAULT_BODY }),
-        storage: {
-            get: async () => null,
-            set: () => Promise.resolve(),
-            delete: () => Promise.resolve(),
-            keys: async () => [],
-        },
-        openUrl: () => Promise.resolve(),
-        startSession: async () => NO_SESSION,
-        listProjects: async () => PROJECTS,
-        listWorktrees: async () => WORKTREES,
-        listSessions: async () => SESSIONS,
-        onProjects: async () => IDLE_UNSUBSCRIBE,
-        onWorktrees: async () => IDLE_UNSUBSCRIBE,
-        onSessions: async () => IDLE_UNSUBSCRIBE,
-        onSessionLifecycle: () => IDLE_UNSUBSCRIBE,
-        onReady: () => IDLE_UNSUBSCRIBE,
-        onSettings: () => IDLE_UNSUBSCRIBE,
-        onConnection: () => IDLE_UNSUBSCRIBE,
-        dispose: IDLE_UNSUBSCRIBE,
-        ...overrides,
-    };
-}
 
 /**
  * A project listing that fails the way a closed host does.
@@ -175,22 +81,6 @@ async function deniedSessions(): Promise<() => void> {
 }
 
 /**
- * Build the validated configuration used across these tests.
- *
- * @returns A complete spike configuration.
- */
-function config(overrides: Partial<SpikeConfig> = {}): SpikeConfig {
-    return {
-        repository: { owner: 'acme', name: 'widget' },
-        expectedLogin: LOGIN,
-        projectId: PROJECT_ID,
-        worktree: { kind: 'generated' },
-        pollIntervalMs: DEFAULT_INTERVAL_MS,
-        ...overrides,
-    };
-}
-
-/**
  * Build the matched issue used across these tests.
  *
  * @returns A normalised, matching issue.
@@ -205,25 +95,6 @@ function issue(overrides: Partial<GitHubIssue> = {}): GitHubIssue {
         assignees: [LOGIN],
         isPullRequest: false,
         ...overrides,
-    };
-}
-
-/**
- * Build the evidence record for the matched issue.
- *
- * @returns A valid evidence record.
- */
-function evidence(): SpikeEvidence {
-    return {
-        schemaVersion: 'extension-spike-1',
-        repository: REPOSITORY,
-        issueId: '7',
-        issueUrl: ISSUE_URL,
-        trigger: 'configured-match',
-        authenticatedLogin: LOGIN,
-        correlationId: '7b3e2d5a-1c4b-4e8f-9d0a-5c6b7a8f9e01',
-        detectedAt: T0,
-        panelGeneration: 1,
     };
 }
 
@@ -255,6 +126,32 @@ function recordingHost(teardowns: string[]): SpikeHost {
         onSessionLifecycle: (listener) => {
             listener({ sessionId: SESSION_ID, phase: 'started' });
             return stopLifecycle;
+        },
+    });
+}
+
+/**
+ * Build a host that models a fresh installation.
+ *
+ * The snapshot surfaces replay their current state, but the lifecycle stream
+ * is silent: the host has never seen a session lifecycle event, so it has
+ * nothing to replay. Registration is the only guarantee that surface makes.
+ *
+ * @returns A host double whose session-lifecycle listener never fires.
+ */
+function freshHost(): SpikeHost {
+    return fakeHost({
+        onProjects: async (listener) => {
+            listener(PROJECTS);
+            return IDLE_UNSUBSCRIBE;
+        },
+        onWorktrees: async (projectId, listener) => {
+            listener({ ...WORKTREES, projectId });
+            return IDLE_UNSUBSCRIBE;
+        },
+        onSessions: async (projectId, listener) => {
+            listener({ ...SESSIONS, projectId });
+            return IDLE_UNSUBSCRIBE;
         },
     });
 }
@@ -331,6 +228,21 @@ describe('buildBoundedContext', () => {
         expect(context.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
     });
 
+    it('keeps both untrusted-text delimiters when the budget forces truncation', () => {
+        const huge = issue({ body: 'z'.repeat(CONTEXT_MAX_CHARS * 2) });
+        const context = buildBoundedContext({
+            repository: REPOSITORY,
+            issue: huge,
+            authenticatedLogin: LOGIN,
+            correlationId: CONTEXT_CORRELATION,
+            maxChars: TIGHT_CONTEXT_CHARS,
+        });
+
+        expect(context.length).toBeLessThanOrEqual(TIGHT_CONTEXT_CHARS);
+        expect(context).toContain('--- BEGIN UNTRUSTED ISSUE TEXT');
+        expect(context.endsWith('--- END UNTRUSTED ISSUE TEXT ---')).toBe(true);
+    });
+
     it('never carries the token or an Authorization header', () => {
         const context = buildBoundedContext({
             repository: REPOSITORY,
@@ -347,8 +259,8 @@ describe('buildBoundedContext', () => {
 describe('buildStartSessionRequest', () => {
     it('carries the project, issue attachment, worktree option, and context', () => {
         const request = buildStartSessionRequest({
-            config: config(),
-            evidence: evidence(),
+            config: testConfig(),
+            evidence: testEvidence(),
             issue: issue(),
             context: CONTEXT_TEXT,
         });
@@ -368,8 +280,8 @@ describe('buildStartSessionRequest', () => {
 
     it('omits the worktree option when the operator chose none', () => {
         const request = buildStartSessionRequest({
-            config: config({ worktree: { kind: 'none' } }),
-            evidence: evidence(),
+            config: testConfig({ worktree: { kind: 'none' } }),
+            evidence: testEvidence(),
             issue: issue(),
             context: CONTEXT_TEXT,
         });
@@ -379,19 +291,19 @@ describe('buildStartSessionRequest', () => {
 
     it('asks for a named new worktree when configured', () => {
         const request = buildStartSessionRequest({
-            config: config({ worktree: { kind: 'new', name: 'spike/dispatch' } }),
-            evidence: evidence(),
+            config: testConfig({ worktree: { kind: 'new', name: 'spike-dispatch' } }),
+            evidence: testEvidence(),
             issue: issue(),
             context: CONTEXT_TEXT,
         });
 
-        expect(request.worktree).toEqual({ kind: 'new', name: 'spike/dispatch' });
+        expect(request.worktree).toEqual({ kind: 'new', name: 'spike-dispatch' });
     });
 
     it('clamps an over-long title', () => {
         const request = buildStartSessionRequest({
-            config: config(),
-            evidence: evidence(),
+            config: testConfig(),
+            evidence: testEvidence(),
             issue: issue({ title: 'x'.repeat(LONG_TITLE) }),
             context: CONTEXT_TEXT,
         });
@@ -427,7 +339,7 @@ describe('summarizeStartSessionResult', () => {
             sent: 'skipped',
             directory: PROJECT_DIR,
             worktree: { directory: '/tmp/left-behind', name: 'spike', branch: 'spike', status: 'pending' },
-            failure: 'bootstrap-failed',
+            failure: BOOTSTRAP_FAILURE,
         };
         const summary = summarizeStartSessionResult(result);
 
@@ -436,7 +348,7 @@ describe('summarizeStartSessionResult', () => {
             sent: 'skipped',
             linked: null,
             directory: PROJECT_DIR,
-            failure: 'bootstrap-failed',
+            failure: BOOTSTRAP_FAILURE,
             worktreeDirectory: '/tmp/left-behind',
             worktreeBranch: 'spike',
             worktreeStatus: 'pending',
@@ -471,6 +383,41 @@ describe('findDispatchForIssue', () => {
         });
 
         expect(findDispatchForIssue(ledger, '7')).toBe(false);
+    });
+
+    it('ignores blocked and failed attempts recorded before a session existed', () => {
+        let ledger: SpikeLedger = createLedger({
+            correlationId: 'corr',
+            panelGeneration: 1,
+            storagePresentBeforeMount: false,
+            createdAt: T0,
+        });
+        ledger = appendEntry(ledger, {
+            at: '2026-09-26T12:00:01.000Z',
+            kind: 'session',
+            detail: { issueId: '7', problem: 'project "prj_42" is not registered in OpenChamber', available: '' },
+        });
+        ledger = appendEntry(ledger, {
+            at: '2026-09-26T12:00:02.000Z',
+            kind: 'session',
+            detail: { issueId: '7', problem: 'source changed: notAssigned' },
+        });
+        ledger = appendEntry(ledger, {
+            at: '2026-09-26T12:00:03.000Z',
+            kind: 'session',
+            detail: { issueId: '7', sessionId: null, failure: BOOTSTRAP_FAILURE },
+        });
+
+        expect(findDispatchForIssue(ledger, '7')).toBe(false);
+
+        ledger = appendEntry(ledger, {
+            at: '2026-09-26T12:00:04.000Z',
+            kind: 'session',
+            detail: { issueId: '7', sessionId: SESSION_ID },
+        });
+
+        expect(findDispatchForIssue(ledger, '7')).toBe(true);
+        expect(findDispatchForIssue(ledger, '8')).toBe(false);
     });
 });
 
@@ -527,5 +474,21 @@ describe('verifyHostState', () => {
         expect(detail.probesReplayed).toBe(4);
         expect(typeof detail.worktreeBranches).toBe('string');
         expect(detail.problems).toBe('');
+    });
+
+    it('treats a silent session-lifecycle stream on a fresh host as registration', async () => {
+        const host = freshHost();
+
+        const verification = await verifyHostState({ host, projectId: PROJECT_ID, waitMs: PROBE_WAIT_MS });
+        const probe = verification.probes.find((candidate) => candidate.surface === 'session-lifecycle');
+        const snapshots = verification.probes.filter((candidate) => candidate.replayExpected);
+
+        expect(snapshots.every((candidate) => candidate.snapshotReplayed)).toBe(true);
+        expect(probe?.registered).toBe(true);
+        expect(probe?.replayExpected).toBe(false);
+        expect(probe?.snapshotReplayed).toBe(false);
+        expect(probe?.error).toBeNull();
+        expect(verification.problems).toEqual([]);
+        expect(summarizeHostVerification(verification).failedProbeSurfaces).toBe('');
     });
 });

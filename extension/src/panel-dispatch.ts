@@ -11,13 +11,13 @@ import type { StartSessionResult } from '@openchamber/sdk';
 import type { LedgerDetail } from './ledger.ts';
 import type { SpikeConfig } from './config.ts';
 import type { SpikeEvidence } from './evidence.ts';
-import { fetchIssueDetail  } from './github.ts';
+import { fetchIssueDetail } from './github.ts';
 import type { GitHubIssue } from './github.ts';
 import { nowIso } from './ids.ts';
 import { evaluateIssue } from './matching.ts';
 import { appendEntryAndPersist, recordFailure } from './panel-actions.ts';
 import { refresh } from './panel-ui.ts';
-import { setStatus  } from './panel-state.ts';
+import { setStatus } from './panel-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import {
     buildBoundedContext,

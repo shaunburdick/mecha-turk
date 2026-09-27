@@ -113,3 +113,45 @@ describe('evidence serialization', () => {
         expect(readEvidence(null)).toBeNull();
     });
 });
+
+describe('readEvidence validation', () => {
+    it('rejects a field whose type does not match the contract', () => {
+        const stored: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
+        stored.repository = 42;
+        expect(readEvidence(stored)).toBeNull();
+    });
+
+    it('rejects an empty string field', () => {
+        const stored: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
+        stored.correlationId = '   ';
+        expect(readEvidence(stored)).toBeNull();
+    });
+
+    it('rejects a trigger that is not the configured rule', () => {
+        const stored: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
+        stored.trigger = 'manual';
+        expect(readEvidence(stored)).toBeNull();
+    });
+
+    it('rejects an issue id that is not a number', () => {
+        const stored: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
+        stored.issueId = 'issue-12';
+        expect(readEvidence(stored)).toBeNull();
+    });
+
+    it('rejects an issue url that is not a GitHub issue URL', () => {
+        const stored: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
+        stored.issueUrl = 'https://example.com/acme/widget/issues/12';
+        expect(readEvidence(stored)).toBeNull();
+    });
+
+    it('rejects a panel generation that is not a positive integer', () => {
+        const fractional: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
+        fractional.panelGeneration = 1.5;
+        expect(readEvidence(fractional)).toBeNull();
+
+        const negative: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
+        negative.panelGeneration = -1;
+        expect(readEvidence(negative)).toBeNull();
+    });
+});

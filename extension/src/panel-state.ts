@@ -11,7 +11,7 @@ import type { SpikeConfig } from './config.ts';
 import type { SpikeEvidence } from './evidence.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import type { GitHubIssue } from './github.ts';
-import { createLedger   } from './ledger.ts';
+import { createLedger } from './ledger.ts';
 import type { LifecyclePhase, SpikeLedger } from './ledger.ts';
 import type { SpikeHost } from './session.ts';
 

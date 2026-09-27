@@ -17,6 +17,7 @@
 import type { HostReadyContext, JsonValue } from '@openchamber/sdk';
 import { applyHostReady } from '@openchamber/sdk/ui';
 import { parseSpikeConfig, repositoryLabel } from './config.ts';
+import { EVIDENCE_STORAGE_KEY, readEvidence } from './evidence.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { analyzeLastCloseGap, buildMountContext, LIFECYCLE_EXPERIMENT_PLAN } from './lifecycle.ts';
 import { createLedger, LEDGER_STORAGE_KEY, readLedger, recordPhase } from './ledger.ts';
@@ -26,6 +27,7 @@ import {
     ensureIdentity,
     markPhase,
     persistLedger,
+    restartPolling,
     runPoll,
     startPolling,
     stopPolling,
@@ -58,10 +60,15 @@ export interface SpikeApp {
 /**
  * Apply operator settings from the host.
  *
+ * Exported so the settings flow — including the poll-timer restart when
+ * `pollIntervalMs` changes while polling runs — can be exercised directly by
+ * the orchestration tests; the panel itself reaches this through the
+ * `onSettings` subscription registered in {@link createSpikeApp}.
+ *
  * @param rt - Panel runtime.
  * @param settings - Values from `ctx.settings`.
  */
-function applySettings(rt: PanelRuntime, settings: Readonly<Record<string, string>>): void {
+export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string, string>>): void {
     const result = parseSpikeConfig(settings);
     if (!result.ok) {
         rt.state.config = null;
@@ -71,6 +78,7 @@ function applySettings(rt: PanelRuntime, settings: Readonly<Record<string, strin
         return;
     }
 
+    const previous = rt.state.config;
     rt.state.config = result.config;
     const notes = result.notes.length > 0 ? ` (${result.notes.join('; ')})` : '';
     const label = repositoryLabel(result.config.repository);
@@ -78,6 +86,10 @@ function applySettings(rt: PanelRuntime, settings: Readonly<Record<string, strin
     setStatus(rt, { tone: 'info', title: 'Configuration loaded', body });
     if (rt.state.connected && rt.state.login === null) {
         void ensureIdentity(rt);
+    }
+
+    if (previous !== null && previous.pollIntervalMs !== result.config.pollIntervalMs) {
+        restartPolling(rt);
     }
 
     refresh(rt);
@@ -116,15 +128,46 @@ function handleConnection(rt: PanelRuntime, connected: boolean): void {
 }
 
 /**
- * Read whatever ledger storage holds and record this mount.
+ * Restore the stored evidence record after a remount.
+ *
+ * The evidence record is written before a dispatch is attempted, so a panel
+ * that is closed and reopened must find it again: without this the reopened
+ * panel would show a match it can no longer dispatch (S6 lifecycle).
+ *
+ * @param rt - Panel runtime.
+ */
+async function restoreEvidence(rt: PanelRuntime): Promise<void> {
+    let stored: JsonValue | undefined;
+    try {
+        stored = await rt.host.storage.get(EVIDENCE_STORAGE_KEY);
+    } catch (cause) {
+        setStatus(rt, { tone: 'error', title: 'Storage unavailable', body: describeError(cause) });
+        return;
+    }
+
+    if (rt.disposed) {
+        return;
+    }
+
+    const evidence = readEvidence(stored);
+    if (evidence !== null) {
+        rt.state.evidence = evidence;
+    }
+}
+
+/**
+ * Read whatever ledger storage holds, restore the evidence record, and record
+ * this mount.
  *
  * Absence is evidence: a removed extension or another server's namespace
- * yields no ledger, and that is recorded rather than papered over.
+ * yields no ledger, and that is recorded rather than papered over. Exported so
+ * the remount path — including restoring the evidence a reopened panel needs to
+ * dispatch — can be driven directly by the orchestration tests.
  *
  * @param rt - Panel runtime.
  * @param mountedAt - RFC 3339 time of this mount.
  */
-async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<void> {
+export async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<void> {
     let stored: JsonValue | undefined;
     try {
         stored = await rt.host.storage.get(LEDGER_STORAGE_KEY);
@@ -160,6 +203,7 @@ async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<void> {
         appendEntryAndPersist(rt, { at: mountedAt, kind: 'lifecycle', detail });
     }
 
+    await restoreEvidence(rt);
     await persistLedger(rt);
     refresh(rt);
 }
@@ -167,12 +211,13 @@ async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<void> {
 /**
  * Release timers, subscriptions, UI, and the host client.
  *
- * Called by the panel's unload hook and by the `dispose()` handed back from
- * {@link createSpikeApp}.
+ * Exported for the orchestration tests, which assert that every subscription
+ * collected on the runtime is released; the panel reaches it through the
+ * `pagehide` hook and the `dispose()` handed back from {@link createSpikeApp}.
  *
  * @param rt - Panel runtime to tear down.
  */
-function teardown(rt: PanelRuntime): void {
+export function teardown(rt: PanelRuntime): void {
     if (rt.disposed) {
         return;
     }
@@ -204,13 +249,15 @@ function teardown(rt: PanelRuntime): void {
 /**
  * Record the unload phase and tear the panel down.
  *
- * The ledger write is started before teardown because the frame is about to go
- * away; if it does not survive, the next mount still detects the gap from its
- * last stored entry.
+ * Exported for the ordering test: the ledger write is started before teardown
+ * because the frame is about to go away; if it does not survive, the next mount
+ * still detects the gap from its last stored entry. The persist call happens
+ * before `disposed` is set, so the write is never skipped by the runtime's own
+ * guard.
  *
  * @param rt - Panel runtime.
  */
-function handlePagehide(rt: PanelRuntime): void {
+export function handlePagehide(rt: PanelRuntime): void {
     if (rt.disposed) {
         return;
     }

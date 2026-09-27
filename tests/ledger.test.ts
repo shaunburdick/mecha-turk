@@ -154,6 +154,15 @@ describe('appendEntry', () => {
 
         expect(detail).toEqual({ error: 'boom' });
     });
+
+    it('redacts a secret-shaped error message as the entry is appended', () => {
+        const token = `ghp_${'a'.repeat(TOKEN_BODY)}`;
+        const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'error', detail: { error: `boom ${token}` } });
+        const detail = ledger.entries.at(-1)?.detail;
+
+        expect(detail?.error).toBe('boom [redacted:github-token-classic]');
+        expect(() => serializeLedger(ledger)).not.toThrow();
+    });
 });
 
 describe('recordPhase', () => {
