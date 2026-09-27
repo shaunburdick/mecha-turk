@@ -15,7 +15,7 @@
 
 import type { GuestRequest, GuestRequestResult, HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
-import { mountHandoffDom, submitHandoffAndRepaint } from '../extension/src/accounts-ui.ts';
+import { mountHandoffDom, refreshHandoff, submitHandoffAndRepaint } from '../extension/src/accounts-ui.ts';
 import { CONSENT_STORAGE_KEY } from '../extension/src/consent.ts';
 import { currentHandoffToken } from '../extension/src/handoff.ts';
 import type { HandoffHandlers } from '../extension/src/accounts-ui.ts';
@@ -81,6 +81,8 @@ interface MountedHandoff {
     readonly input: FakeElement;
     /** The submit button. */
     readonly submit: FakeElement;
+    /** Every element the adapter created, in creation order. */
+    readonly created: readonly FakeElement[];
     /** Element text the adapter rendered, for the credential scan. */
     renderedText(): string;
     /**
@@ -128,6 +130,7 @@ async function mountHandoff(spec: ExitSpec): Promise<MountedHandoff> {
         rt,
         input,
         submit,
+        created: dom.created,
         renderedText: (): string => dom.created.map((node) => node.textContent).join('\n'),
         submitted: (): Promise<void> => {
             if (pending === undefined) {
@@ -187,4 +190,31 @@ describe('credential input clearing (contract §2 step ⑧, FR-007)', () => {
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
         });
     }
+});
+
+describe('hostile service-supplied strings (invariant 11, M5a)', () => {
+    /** What a hostile upstream would put in a login field. */
+    const HOSTILE_LOGIN = '<img src=x onerror="alert(1)">';
+
+    it('renders a hostile login as literal text, never as markup', async () => {
+        const mounted = await mountHandoff({
+            name: 'hostile login render',
+            verify: { status: 201, body: VERIFY_BODY },
+        });
+
+        mounted.rt.state.handoff.connected = { numericUserId: '1', login: HOSTILE_LOGIN };
+        refreshHandoff(mounted.rt);
+
+        const lines = mounted.created.filter((node) => node.textContent.startsWith('Connected as'));
+        expect(lines).toHaveLength(1);
+        const line = lines[0];
+        // The bytes arrive verbatim as text — no escaping, no parsing, no
+        // element built out of them (redaction ≠ output-encoding, §4 rule 5).
+        expect(line?.textContent).toBe(`Connected as ${HOSTILE_LOGIN}`);
+        expect(line?.children).toHaveLength(0);
+        expect(mounted.created.some((node) => node.tagName === 'img')).toBe(false);
+        // The fake document has no HTML sink at all, so a sink would have
+        // thrown before any of these assertions could run.
+        expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
+    });
 });

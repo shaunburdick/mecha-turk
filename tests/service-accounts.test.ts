@@ -460,9 +460,12 @@ describe('F13 — startup reconciliation of interrupted handoffs', () => {
         const rejecter = scriptedVerifier(() => ({ kind: 'rejected' as const, reason: 'auth-failed' as const }));
         const service = await startWithVerifier(rejecter.verifier, dataDir);
 
+        // Await the reconciliation pass before reading anything it writes —
+        // the helper already waited once, this states the dependency for the
+        // assertions that follow (T-009o flake-guard).
+        const summary = await service.handle.reconciled;
         const account = await readStoredAccount(dataDir);
         const audit = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
-        const summary = await service.handle.reconciled;
 
         expect(summary).toMatchObject({ examined: 1, marked: 1, restored: 0 });
         expect(account.state).toBe('error');
@@ -475,9 +478,11 @@ describe('F13 — startup reconciliation of interrupted handoffs', () => {
         const dataDir = await plantTransientAccount('pending_handoff');
         const service = await startService({ user: USER_RENAMED }, dataDir);
 
+        // Await the reconciliation pass before reading anything it writes
+        // (T-009o flake-guard; see the sibling case above).
+        const summary = await service.handle.reconciled;
         const account = await readStoredAccount(dataDir);
         const audit = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
-        const summary = await service.handle.reconciled;
 
         expect(summary).toMatchObject({ examined: 1, marked: 1, restored: 1 });
         expect(account.state).toBe('active');

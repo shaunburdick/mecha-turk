@@ -63,8 +63,11 @@ const OVERSIZED_TOKEN_LENGTH = 4_097;
 
 export const REGISTERED_TOKEN = `registered-credential-${'x'.repeat(TOKEN_BODY_LENGTH)}`;
 
+/** Credential the rotation tests replace the fixture token with. */
+export const ROTATED_TOKEN = `${REGISTERED_TOKEN}-rotated`;
+
 /** Every credential this suite hands a service, for registered-token scans. */
-export const REGISTERED_TOKENS: readonly string[] = [REGISTERED_TOKEN];
+export const REGISTERED_TOKENS: readonly string[] = [REGISTERED_TOKEN, ROTATED_TOKEN];
 
 /** Numeric id the fixture token belongs to. */
 export const ACCOUNT_ID = 77_331;

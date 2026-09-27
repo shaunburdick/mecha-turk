@@ -9,14 +9,20 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { CONSENT_VERSION } from '../extension/src/consent.ts';
+import { ACCOUNT_PATH, ACCOUNT_TOKEN_PATH } from '../extension/service/routes/accounts.ts';
+import { VERIFY_MAX_ATTEMPTS } from '../extension/service/throttle.ts';
 import type { VerifyOutcome } from '../extension/service/github.ts';
 import { startTestService } from './support/service.ts';
 import { scriptedVerifier } from './support/github.ts';
+import type { TestService } from './support/service.ts';
 import {
+    ACCOUNT_ID,
+    JSON_HEADERS,
     OK_OUTCOME,
     OVERSIZED_TOKEN,
     REGISTERED_TOKEN,
     RETRY_AFTER,
+    ROTATED_TOKEN,
     USER_OK,
     accountFileExists,
     errorOf,
@@ -31,6 +37,26 @@ import {
 } from './support/verify.ts';
 
 afterEach(stopAllServices);
+
+/** Path parameter placeholder shared by the account route paths. */
+const ACCOUNT_PATH_PARAM = ':numericUserId';
+
+/** Routed path of the fixture account's credential resource. */
+const ROTATION_PATH = ACCOUNT_TOKEN_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+
+/** Routed path of the fixture account resource (delete). */
+const DELETE_PATH = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+
+/**
+ * Rotate the fixture account's credential (contract §2.2, M5b).
+ *
+ * @param service - Harness instance; its bearer token is attached for you.
+ * @param token - Replacement credential.
+ * @returns The rotation response.
+ */
+function rotateFixture(service: TestService, token: string): Promise<Response> {
+    return service.call(ROTATION_PATH, { method: 'POST', headers: JSON_HEADERS, body: verifyBody(token) });
+}
 
 describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {
     it('fails closed on an expectedLogin mismatch with nothing persisted', async () => {
@@ -138,6 +164,59 @@ describe('POST /v1/accounts/verify — throttles (SEC-04, invariant 9)', () => {
     });
 });
 
+describe('POST /v1/accounts/:id/token — the same throttle rules as verify (M5b)', () => {
+    it('answers 429 verify-busy while another rotation holds the single slot', async () => {
+        let release: (() => void) | undefined;
+        let hang = false;
+        const scripted = scriptedVerifier(async (): Promise<VerifyOutcome> => {
+            if (!hang) {
+                return OK_OUTCOME;
+            }
+
+            return await new Promise<VerifyOutcome>((resolve) => {
+                release = () => resolve(OK_OUTCOME);
+            });
+        });
+        const service = await startTestService({ github: scripted.verifier });
+        running.push(service);
+        await service.handle.reconciled;
+        const registered = await postVerify(service, verifyBody(REGISTERED_TOKEN));
+        expect(registered.status).toBe(201);
+
+        hang = true;
+        const rotation = rotateFixture(service, ROTATED_TOKEN);
+        expect(await waitFor(() => release !== undefined)).toBe(true);
+        const second = await rotateFixture(service, REGISTERED_TOKEN);
+        const busy = await errorOf(second);
+
+        expect(second.status).toBe(429);
+        expect(busy.code).toBe('verify-busy');
+
+        release?.();
+        const completed = await rotation;
+        expect(completed.status).toBe(200);
+    });
+
+    it('shares the rolling attempt window with verify rather than opening a second one (M5b)', async () => {
+        const { service } = await startWithGitHub({ user: USER_OK });
+        const registered = await postVerify(service, verifyBody(REGISTERED_TOKEN));
+        expect(registered.status).toBe(201);
+        // Fill the window with attempts that are refused *after* the throttle
+        // slot is taken, so the count reaches VERIFY_MAX_ATTEMPTS exactly.
+        for (let attempt = 1; attempt < VERIFY_MAX_ATTEMPTS; attempt += 1) {
+            const duplicate = await postVerify(service, verifyBody(`${REGISTERED_TOKEN}-${attempt}`));
+            expect(duplicate.status).toBe(409);
+        }
+
+        const rotation = await rotateFixture(service, ROTATED_TOKEN);
+        const error = await errorOf(rotation);
+
+        expect(rotation.status).toBe(429);
+        expect(error.code).toBe('rate-limited');
+        expect(rotation.headers.get(RETRY_AFTER)).not.toBeNull();
+    });
+});
+
 describe('secret containment (NFR-004, contract §3 assertion)', () => {
     it('keeps the registered token out of every response, log line, and audit row', async () => {
         const { service } = await startWithGitHub({ user: USER_OK });
@@ -177,6 +256,25 @@ describe('secret containment (NFR-004, contract §3 assertion)', () => {
         expect(log).toContain('credential route failed');
         expectNoSecret('forced-500 log', log);
         expectNoSecret('forced-500 audit', await secretSurfaces(service));
+    });
+
+    it('keeps both credentials out of the rotation and delete responses (M5c)', async () => {
+        const { service } = await startWithGitHub({ user: USER_OK });
+        const registered = await postVerify(service, verifyBody(REGISTERED_TOKEN));
+        expect(registered.status).toBe(201);
+
+        const rotation = await rotateFixture(service, ROTATED_TOKEN);
+        const rotationText = await rotation.text();
+        const removal = await service.call(DELETE_PATH, { method: 'DELETE' });
+        const removalText = await removal.text();
+
+        expect(rotation.status).toBe(200);
+        expect(removal.status).toBe(200);
+        expectNoSecret('rotation response', rotationText);
+        expectNoSecret('delete response', removalText);
+        expectNoSecret('rotation/delete logs and audit', await secretSurfaces(service));
+        expect(rotationText).not.toContain('"credential"');
+        expect(removalText).not.toContain('"credential"');
     });
 });
 
