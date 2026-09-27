@@ -32,6 +32,7 @@ import type { LedgerDetail, SpikeLedger } from './ledger.ts';
 export type SpikeHost = Pick<
     HostClient,
     | 'request'
+    | 'serviceRequest'
     | 'storage'
     | 'openUrl'
     | 'writeClipboard'

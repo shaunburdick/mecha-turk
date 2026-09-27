@@ -89,3 +89,32 @@ export function parseJsonValue(text: string): JsonValue {
 
     return parsed;
 }
+
+/**
+ * Parse JSON without throwing, returning `null` for anything unusable.
+ *
+ * @param text - Candidate JSON text, typically a response body.
+ * @returns The parsed value, or `null` when the text is not valid JSON.
+ */
+export function tryParseJson(text: string): JsonValue | null {
+    try {
+        return parseJsonValue(text);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Parse JSON and require a plain object (never an array or a primitive).
+ *
+ * @param text - Candidate JSON text.
+ * @returns The object, or `null` when the text is not a JSON object.
+ */
+export function parseJsonObject(text: string): Record<string, unknown> | null {
+    const parsed = tryParseJson(text);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return null;
+    }
+
+    return parsed;
+}

@@ -11,6 +11,7 @@
 
 import { mountBanner, mountButton, mountList, mountSelect, mountText } from '@openchamber/sdk/ui';
 import type { ListItem, SelectOption } from '@openchamber/sdk/ui';
+import { refreshHandoff } from './accounts-ui.ts';
 import { repositoryLabel } from './config.ts';
 import { isLifecyclePhase, ledgerTail } from './ledger.ts';
 import type { LifecyclePhase } from './ledger.ts';
@@ -317,4 +318,5 @@ export function refresh(rt: PanelRuntime): void {
     ui.dispatch.update({ disabled: state.evidence === null || state.busy, loading: state.busy });
     ui.verify.update({ disabled: state.config === null || state.busy });
     refreshProjectPicker(state, ui);
+    refreshHandoff(rt);
 }

@@ -91,6 +91,554 @@ function createLogger(options) {
 // service/server.ts
 import { createServer } from "node:http";
 
+// src/ids.ts
+function newCorrelationId() {
+  if (typeof crypto === "undefined" || typeof crypto.randomUUID !== "function") {
+    throw new Error("crypto.randomUUID is unavailable; refusing to record an observation without a correlation id");
+  }
+  return crypto.randomUUID();
+}
+function nowIso() {
+  return new Date().toISOString();
+}
+
+// service/json.ts
+function parseJsonText(text) {
+  try {
+    const value = JSON.parse(text);
+    return { ok: true, value };
+  } catch {
+    return { ok: false };
+  }
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// service/audit.ts
+var AUDIT_FILE = "audit.ndjson";
+var AUDIT_ENTITY_KINDS = new Set([
+  "service",
+  "account",
+  "binding",
+  "run",
+  "delivery"
+]);
+function isAuditEntityKind(value) {
+  return typeof value === "string" && AUDIT_ENTITY_KINDS.has(value);
+}
+function redactDeep(input) {
+  const { value, path, fields } = input;
+  if (typeof value === "string") {
+    const cleaned = redact(value);
+    if (cleaned !== value) {
+      fields.push(path);
+    }
+    return cleaned;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item, index) => redactDeep({ value: item, path: `${path}[${index}]`, fields }));
+  }
+  if (isRecord(value)) {
+    const result = {};
+    for (const [key, child] of Object.entries(value)) {
+      result[key] = redactDeep({ value: child, path: path === "" ? key : `${path}.${key}`, fields });
+    }
+    return result;
+  }
+  return value;
+}
+function redactInput(input) {
+  const fields = [];
+  const details = redactDeep({ value: input.details ?? {}, path: "details", fields });
+  const reason = typeof input.reason === "string" ? redactDeep({ value: input.reason, path: "reason", fields }) : null;
+  return {
+    details: isRecord(details) ? details : {},
+    reason,
+    redaction: { redacted: fields.length > 0, fields }
+  };
+}
+function isAuditHeader(raw) {
+  return typeof raw.seq === "number" && typeof raw.timestamp === "string" && typeof raw.correlationId === "string" && typeof raw.eventType === "string" && typeof raw.actorSource === "string";
+}
+function isAuditEntity(raw) {
+  return isRecord(raw) && isAuditEntityKind(raw.kind) && typeof raw.id === "string";
+}
+function readRedaction(raw) {
+  if (!isRecord(raw)) {
+    return { redacted: false, fields: [] };
+  }
+  const fields = Array.isArray(raw.fields) ? raw.fields.filter((entry) => typeof entry === "string") : [];
+  return { redacted: raw.redacted === true, fields };
+}
+function parseAuditEntry(raw) {
+  if (!isRecord(raw) || !isAuditHeader(raw) || !isAuditEntity(raw.entity) || !isRecord(raw.details)) {
+    return null;
+  }
+  return {
+    seq: raw.seq,
+    timestamp: raw.timestamp,
+    correlationId: raw.correlationId,
+    eventType: raw.eventType,
+    actorSource: raw.actorSource,
+    entity: raw.entity,
+    decision: typeof raw.decision === "string" ? raw.decision : null,
+    reason: typeof raw.reason === "string" ? raw.reason : null,
+    redaction: readRedaction(raw.redaction),
+    details: raw.details
+  };
+}
+async function readAuditEntries(store) {
+  const result = await store.readLines(AUDIT_FILE, parseAuditEntry);
+  return result.entries;
+}
+async function appendAudit(store, input) {
+  const existing = await readAuditEntries(store);
+  const nextSeq = existing.reduce((max, entry2) => Math.max(max, entry2.seq), 0) + 1;
+  const { details, reason, redaction } = redactInput(input);
+  const entry = {
+    seq: nextSeq,
+    timestamp: nowIso(),
+    correlationId: input.correlationId ?? newCorrelationId(),
+    eventType: input.eventType,
+    actorSource: input.actorSource,
+    entity: input.entity,
+    decision: input.decision ?? null,
+    reason,
+    redaction,
+    details
+  };
+  await store.appendLine(AUDIT_FILE, entry);
+  return entry;
+}
+
+// service/accounts/model.ts
+var ACCOUNT_STATES = new Set([
+  "pending_handoff",
+  "verifying",
+  "active",
+  "rejected",
+  "revoked",
+  "error"
+]);
+var CONNECTION_STATES = new Set([
+  "connected",
+  "auth-failed",
+  "rate-limited",
+  "offline"
+]);
+var CREDENTIAL_KINDS = new Set(["fine-grained", "classic", "unknown"]);
+var NUMERIC_ID_MAX_CHARS = 20;
+function isNumericUserId(value) {
+  return typeof value === "string" && /^\d+$/.test(value) && value.length <= NUMERIC_ID_MAX_CHARS;
+}
+function isAccountState(value) {
+  return typeof value === "string" && ACCOUNT_STATES.has(value);
+}
+function isConnectionState(value) {
+  return typeof value === "string" && CONNECTION_STATES.has(value);
+}
+function isCredentialKind(value) {
+  return typeof value === "string" && CREDENTIAL_KINDS.has(value);
+}
+function isScopeCheck(raw) {
+  if (!isRecord(raw) || typeof raw.checkedAt !== "string" || !isRecord(raw.results)) {
+    return false;
+  }
+  const { results } = raw;
+  return ["metadata", "issues", "pull-requests", "contents"].every((capability) => {
+    const value = results[capability];
+    return value === "ok" || value === "missing" || value === "unknown";
+  });
+}
+function isCredentialRecord(raw) {
+  return isRecord(raw) && typeof raw.token === "string" && raw.token !== "" && isCredentialKind(raw.kind) && typeof raw.verifiedAt === "string";
+}
+function isNullableString(value) {
+  return value === null || typeof value === "string";
+}
+function readAccountStrings(raw) {
+  const { login, expectedLogin, verifiedAt, errorReason, createdAt, updatedAt } = raw;
+  if (typeof login !== "string" || login === "") {
+    return null;
+  }
+  if (!isNullableString(expectedLogin) || !isNullableString(errorReason)) {
+    return null;
+  }
+  if (typeof verifiedAt !== "string" || typeof createdAt !== "string" || typeof updatedAt !== "string") {
+    return null;
+  }
+  return { login, expectedLogin, verifiedAt, errorReason, createdAt, updatedAt };
+}
+function parseStoredAccount(raw) {
+  if (!isRecord(raw) || !isNumericUserId(raw.numericUserId)) {
+    return null;
+  }
+  const strings = readAccountStrings(raw);
+  if (strings === null) {
+    return null;
+  }
+  if (!isCredentialRecord(raw.credential) || !isScopeCheck(raw.scopeCheck)) {
+    return null;
+  }
+  if (!isAccountState(raw.state) || !isConnectionState(raw.connectionState)) {
+    return null;
+  }
+  return {
+    numericUserId: raw.numericUserId,
+    ...strings,
+    credential: raw.credential,
+    scopeCheck: raw.scopeCheck,
+    state: raw.state,
+    connectionState: raw.connectionState
+  };
+}
+function toAccountDto(account) {
+  return {
+    numericUserId: account.numericUserId,
+    login: account.login,
+    expectedLogin: account.expectedLogin,
+    state: account.state,
+    connectionState: account.connectionState,
+    verifiedAt: account.verifiedAt,
+    scopeCheck: account.scopeCheck,
+    errorReason: account.errorReason,
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt
+  };
+}
+
+// service/accounts/store.ts
+var ACCOUNTS_DIR = "accounts";
+var BINDINGS_FILE = "bindings.json";
+var ACCOUNT_FILE_SUFFIX = ".json";
+function accountPath(numericUserId) {
+  if (!isNumericUserId(numericUserId)) {
+    throw new Error("account paths key on a numeric GitHub user id only");
+  }
+  return `${ACCOUNTS_DIR}/${numericUserId}${ACCOUNT_FILE_SUFFIX}`;
+}
+function reportQuarantine(input) {
+  const { result, subject, log } = input;
+  if (result.status === "quarantined" && log !== undefined) {
+    log.warn("stored record was unusable and has been set aside", {
+      subject,
+      quarantinePath: result.quarantinePath
+    });
+  }
+}
+async function readAccount(input) {
+  const { store, numericUserId, log } = input;
+  const result = await store.readJson(accountPath(numericUserId), parseStoredAccount);
+  reportQuarantine({ result, subject: `account ${numericUserId}`, log });
+  return result.status === "ok" ? result.value : null;
+}
+async function listAccounts(store, log) {
+  const names = await store.listDir(ACCOUNTS_DIR);
+  const accounts = [];
+  for (const name of names) {
+    if (!name.endsWith(ACCOUNT_FILE_SUFFIX)) {
+      continue;
+    }
+    const id = name.slice(0, -ACCOUNT_FILE_SUFFIX.length);
+    if (!isNumericUserId(id)) {
+      continue;
+    }
+    const account = await readAccount({ store, numericUserId: id, log });
+    if (account !== null) {
+      accounts.push(account);
+    }
+  }
+  return accounts.sort((left, right) => left.numericUserId.localeCompare(right.numericUserId));
+}
+async function writeAccount(store, account) {
+  await store.writeJson(accountPath(account.numericUserId), account);
+}
+async function removeAccount(store, numericUserId) {
+  await store.removeFile(accountPath(numericUserId));
+}
+async function bindingsReferencing(store, numericUserId) {
+  const result = await store.readJson(BINDINGS_FILE, (raw) => Array.isArray(raw) ? raw : null);
+  if (result.status !== "ok") {
+    return [];
+  }
+  const matches = [];
+  for (const entry of result.value) {
+    if (!isRecord(entry) || entry.accountNumericUserId !== numericUserId) {
+      continue;
+    }
+    if (typeof entry.bindingId === "string") {
+      matches.push({ bindingId: entry.bindingId, raw: entry });
+    }
+  }
+  return matches;
+}
+async function disableBindings(store, bindings) {
+  const disabled = bindings.map((binding) => ({
+    bindingId: binding.bindingId,
+    raw: { ...binding.raw, state: "disabled" }
+  }));
+  const result = await store.readJson(BINDINGS_FILE, (raw) => Array.isArray(raw) ? raw : null);
+  const entries = result.status === "ok" ? result.value.map((entry) => {
+    const replaced = disabled.find((binding) => isRecord(entry) && entry.bindingId === binding.bindingId);
+    return replaced?.raw ?? entry;
+  }) : disabled.map((binding) => binding.raw);
+  await store.writeJson(BINDINGS_FILE, entries);
+  return disabled;
+}
+
+// service/accounts/reconcile.ts
+var INTERRUPTED_HANDOFF_REASON = "interrupted-handoff";
+var TRANSIENT_STATES = ["pending_handoff", "verifying"];
+async function markInterrupted(input) {
+  const { store, account, correlationId } = input;
+  const marked = {
+    ...account,
+    state: "error",
+    errorReason: INTERRUPTED_HANDOFF_REASON,
+    updatedAt: nowIso()
+  };
+  await writeAccount(store, marked);
+  await appendAudit(store, {
+    eventType: "account.error",
+    actorSource: "service",
+    entity: { kind: "account", id: account.numericUserId },
+    decision: "error",
+    reason: INTERRUPTED_HANDOFF_REASON,
+    correlationId,
+    details: { previousState: account.state, operation: "startup-reconciliation" }
+  });
+  return marked;
+}
+async function restoreAccount(input) {
+  const { store, marked, outcome, correlationId } = input;
+  const at = nowIso();
+  const restored = {
+    ...marked,
+    login: outcome.identity.login,
+    credential: { ...marked.credential, kind: outcome.credentialKind, verifiedAt: at },
+    scopeCheck: outcome.scopeCheck,
+    state: "active",
+    connectionState: "connected",
+    verifiedAt: at,
+    errorReason: null,
+    updatedAt: at
+  };
+  await writeAccount(store, restored);
+  await appendAudit(store, {
+    eventType: "account.verified",
+    actorSource: "service",
+    entity: { kind: "account", id: restored.numericUserId },
+    decision: "accept",
+    reason: "interrupted handoff re-verified at startup",
+    correlationId,
+    details: { login: restored.login, operation: "startup-reconciliation" }
+  });
+  return restored;
+}
+async function reconcileAccount(deps, account) {
+  const { store } = deps;
+  if (store === null) {
+    return { marked: false, restored: false };
+  }
+  const correlationId = newCorrelationId();
+  const marked = await markInterrupted({ store, account, correlationId });
+  deps.log.info("interrupted handoff found at startup", {
+    numericUserId: account.numericUserId,
+    previousState: account.state
+  });
+  let outcome;
+  try {
+    outcome = await deps.github.verify(account.credential.token);
+  } catch (error) {
+    deps.log.warn("startup re-verification failed to run", {
+      numericUserId: account.numericUserId,
+      errorKind: error instanceof Error ? error.name : typeof error
+    });
+    return { marked: true, restored: false };
+  }
+  if (outcome.kind !== "ok" || outcome.identity.numericUserId !== account.numericUserId) {
+    deps.log.info("startup re-verification did not restore the account", {
+      numericUserId: account.numericUserId,
+      outcome: outcome.kind
+    });
+    return { marked: true, restored: false };
+  }
+  await restoreAccount({ store, marked, outcome, correlationId });
+  deps.log.info("interrupted handoff restored at startup", {
+    numericUserId: account.numericUserId
+  });
+  return { marked: true, restored: true };
+}
+async function reconcileInterruptedAccounts(deps) {
+  if (deps.store === null) {
+    return { examined: 0, marked: 0, restored: 0 };
+  }
+  const accounts = await listAccounts(deps.store, deps.log);
+  const stranded = accounts.filter((account) => TRANSIENT_STATES.includes(account.state));
+  let marked = 0;
+  let restored = 0;
+  for (const account of stranded) {
+    const outcome = await reconcileAccount(deps, account);
+    marked += outcome.marked ? 1 : 0;
+    restored += outcome.restored ? 1 : 0;
+  }
+  return { examined: stranded.length, marked, restored };
+}
+
+// service/github.ts
+var API_ORIGIN = "https://api.github.com";
+var USER_PATH = "/user";
+var RATE_LIMIT_PATH = "/rate_limit";
+var GITHUB_TIMEOUT_MS = 15000;
+var API_VERSION = "2022-11-28";
+var USER_AGENT = "mecha-turk-extension";
+var DEFAULT_RETRY_AFTER_SECONDS = 60;
+var SCOPE_CAPABILITIES = ["metadata", "issues", "pull-requests", "contents"];
+var CLASSIC_READ_SCOPES = ["repo", "public_repo"];
+var MS_PER_SECOND = 1000;
+var STATUS_UNAUTHORIZED = 401;
+var STATUS_FORBIDDEN = 403;
+var STATUS_NOT_FOUND = 404;
+var STATUS_TOO_MANY_REQUESTS = 429;
+var RATE_REMAINING_HEADER = "x-ratelimit-remaining";
+var RETRY_AFTER_HEADER = "retry-after";
+var SSO_HEADER = "x-github-sso";
+var OAUTH_SCOPES_HEADER = "x-oauth-scopes";
+function credentialKindOf(token) {
+  if (token.startsWith("github_pat_")) {
+    return "fine-grained";
+  }
+  return /^gh[pousr]_/.test(token) ? "classic" : "unknown";
+}
+function requestHeaders(token) {
+  const entries = [
+    ["authorization", `Bearer ${token}`],
+    ["accept", "application/vnd.github+json"],
+    ["x-github-api-version", API_VERSION],
+    ["user-agent", USER_AGENT]
+  ];
+  return Object.fromEntries(entries);
+}
+function readIdentity(text) {
+  const parsed = parseJsonText(text);
+  if (!parsed.ok || !isRecord(parsed.value)) {
+    return null;
+  }
+  const { id, login } = parsed.value;
+  if (typeof id !== "number" || !Number.isInteger(id) || typeof login !== "string" || login === "") {
+    return null;
+  }
+  return { numericUserId: String(id), login };
+}
+function scopeVerdict(granted) {
+  if (granted.length === 0) {
+    return "unknown";
+  }
+  return CLASSIC_READ_SCOPES.some((scope) => granted.includes(scope)) ? "ok" : "missing";
+}
+function scopeResults(granted) {
+  const verdict = scopeVerdict(granted);
+  const entries = SCOPE_CAPABILITIES.map((capability) => [capability, verdict]);
+  return Object.fromEntries(entries);
+}
+function buildScopeCheck(header) {
+  const granted = (header ?? "").split(",").map((scope) => scope.trim()).filter((scope) => scope !== "");
+  return { checkedAt: nowIso(), results: scopeResults(granted) };
+}
+function retryAfterOf(response) {
+  const header = response.headers.get(RETRY_AFTER_HEADER);
+  if (header === null || !/^\d+$/.test(header)) {
+    return DEFAULT_RETRY_AFTER_SECONDS;
+  }
+  return Number(header);
+}
+async function readRateBaseline(response) {
+  const parsed = parseJsonText(await response.text());
+  if (!parsed.ok || !isRecord(parsed.value) || !isRecord(parsed.value.core)) {
+    return null;
+  }
+  const { limit, remaining, reset } = parsed.value.core;
+  if (typeof limit !== "number" || typeof remaining !== "number" || typeof reset !== "number" || !Number.isFinite(reset)) {
+    return null;
+  }
+  const resetDate = new Date(reset * MS_PER_SECOND);
+  if (Number.isNaN(resetDate.getTime())) {
+    return null;
+  }
+  return { limit, remaining, resetAt: resetDate.toISOString() };
+}
+function isRateLimited(response) {
+  return response.status === STATUS_TOO_MANY_REQUESTS || response.headers.get(RATE_REMAINING_HEADER) === "0" || response.headers.has(RETRY_AFTER_HEADER);
+}
+function isSsoRefusal(response) {
+  const sso = response.headers.get(SSO_HEADER);
+  return response.status === STATUS_FORBIDDEN && sso?.includes("required") === true;
+}
+function missingScopeReason(scopeCheck) {
+  const missing = SCOPE_CAPABILITIES.find((capability) => scopeCheck.results[capability] === "missing");
+  return `scope-missing:${missing ?? "metadata"}`;
+}
+function classifyRejection(response, scopeCheck) {
+  const { status } = response;
+  if (isRateLimited(response)) {
+    return { kind: "rate-limited", retryAfterSeconds: retryAfterOf(response) };
+  }
+  if (status === STATUS_UNAUTHORIZED || status === STATUS_NOT_FOUND) {
+    return { kind: "rejected", reason: "auth-failed" };
+  }
+  if (isSsoRefusal(response)) {
+    return { kind: "rejected", reason: "sso-required" };
+  }
+  if (status === STATUS_FORBIDDEN) {
+    return { kind: "rejected", reason: missingScopeReason(scopeCheck) };
+  }
+  return { kind: "unavailable", detail: "upstream" };
+}
+async function readRateBaselineQuietly(fetchImpl, token) {
+  try {
+    const response = await fetchImpl(`${API_ORIGIN}${RATE_LIMIT_PATH}`, {
+      method: "GET",
+      headers: requestHeaders(token),
+      signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
+    });
+    return response.ok ? await readRateBaseline(response) : null;
+  } catch {
+    return null;
+  }
+}
+function createGitHubVerifier(fetchImpl = (url, init) => globalThis.fetch(url, init)) {
+  return {
+    verify: async (token) => {
+      let response;
+      try {
+        response = await fetchImpl(`${API_ORIGIN}${USER_PATH}`, {
+          method: "GET",
+          headers: requestHeaders(token),
+          signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
+        });
+      } catch {
+        return { kind: "unavailable", detail: "offline" };
+      }
+      const scopeCheck = buildScopeCheck(response.headers.get(OAUTH_SCOPES_HEADER));
+      if (!response.ok) {
+        return classifyRejection(response, scopeCheck);
+      }
+      const identity = readIdentity(await response.text());
+      if (identity === null) {
+        return { kind: "rejected", reason: "auth-failed" };
+      }
+      return {
+        kind: "ok",
+        identity,
+        scopeCheck,
+        credentialKind: credentialKindOf(token),
+        rateBaseline: await readRateBaselineQuietly(fetchImpl, token)
+      };
+    }
+  };
+}
+
 // service/http.ts
 var LOOPBACK_HOST = "127.0.0.1";
 var MAX_TARGET_CHARS = 2000;
@@ -99,20 +647,46 @@ var RESPONSE_BODY_MAX_CHARS = 256000;
 var JSON_CONTENT_TYPE = "application/json; charset=utf-8";
 var STATUS = {
   ok: 200,
+  created: 201,
   badRequest: 400,
   unauthorized: 401,
   notFound: 404,
   methodNotAllowed: 405,
+  conflict: 409,
   payloadTooLarge: 413,
   validation: 422,
+  tooManyRequests: 429,
   internal: 500,
+  badGateway: 502,
   storageUnavailable: 503
 };
+function validationResponse(issues) {
+  return {
+    status: STATUS.validation,
+    body: {
+      error: {
+        code: "validation",
+        message: issues.map((issue) => `${issue.field}: ${issue.remediation}`).join("; "),
+        issues
+      }
+    }
+  };
+}
 function errorBody(details) {
   if (details.correlationId === undefined) {
     return { error: { code: details.code, message: details.message } };
   }
   return { error: { code: details.code, message: details.message, correlationId: details.correlationId } };
+}
+var RETRY_AFTER_HEADER2 = "retry-after";
+function throttleResponse(options) {
+  const headers = {};
+  headers[RETRY_AFTER_HEADER2] = String(options.retryAfterSeconds);
+  return {
+    status: options.status,
+    body: errorBody({ code: options.code, message: options.message }),
+    headers
+  };
 }
 function errorResponse(status, details) {
   return { status, body: errorBody(details) };
@@ -164,17 +738,6 @@ function serializeBody(body) {
   }
 }
 
-// src/ids.ts
-function newCorrelationId() {
-  if (typeof crypto === "undefined" || typeof crypto.randomUUID !== "function") {
-    throw new Error("crypto.randomUUID is unavailable; refusing to record an observation without a correlation id");
-  }
-  return crypto.randomUUID();
-}
-function nowIso() {
-  return new Date().toISOString();
-}
-
 // service/auth.ts
 import { createHash, timingSafeEqual } from "node:crypto";
 var BEARER_PREFIX = "Bearer ";
@@ -192,19 +755,6 @@ function digestsMatch(presented, expected) {
 }
 function isAuthorized(header, token) {
   return digestsMatch(bearerCredential(header), token);
-}
-
-// service/json.ts
-function parseJsonText(text) {
-  try {
-    const value = JSON.parse(text);
-    return { ok: true, value };
-  } catch {
-    return { ok: false };
-  }
-}
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // service/body.ts
@@ -265,6 +815,7 @@ async function readJsonBody(request) {
 }
 
 // service/store/index.ts
+import { promises as fs5 } from "node:fs";
 import { isAbsolute, resolve as resolve2 } from "node:path";
 
 // service/store/dir.ts
@@ -305,7 +856,7 @@ async function ensureDir(dirPath) {
 // service/store/json.ts
 import { randomUUID } from "node:crypto";
 import { promises as fs3 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 // service/store/files.ts
 import { promises as fs2 } from "node:fs";
@@ -334,7 +885,7 @@ async function removeIfPresent(filePath) {
 var QUARANTINE_MARKER = ".corrupt-";
 var TEMP_SUFFIX = ".tmp";
 var JSON_INDENT = 2;
-async function writeAndSync(tempPath, text) {
+async function writeSyncedTempFile(tempPath, text) {
   const handle = await fs3.open(tempPath, "w", DATA_FILE_MODE);
   try {
     await handle.writeFile(text, "utf8");
@@ -356,14 +907,41 @@ async function writeJsonAtomic(filePath, value) {
   const text = `${JSON.stringify(value, null, JSON_INDENT)}
 `;
   const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID()}`;
-  await fs3.mkdir(dirname(filePath), { recursive: true, mode: DATA_DIR_MODE });
+  await ensureDir(dirname(filePath));
   try {
-    await writeAndSync(tempPath, text);
+    await writeSyncedTempFile(tempPath, text);
     await fs3.rename(tempPath, filePath);
   } catch (error) {
     await removeIfPresent(tempPath);
     throw new StorageUnavailableError(`store file cannot be written: ${filePath}`, error);
   }
+}
+var TEMP_DEBRIS_PATTERN = /\.tmp[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+var SWEEP_MAX_DEPTH = 3;
+function isTempDebris(name) {
+  return TEMP_DEBRIS_PATTERN.test(name);
+}
+async function sweepTempDebris(dirPath, depth = SWEEP_MAX_DEPTH) {
+  if (depth < 0) {
+    return 0;
+  }
+  let entries;
+  try {
+    entries = await fs3.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const entry of entries) {
+    const target = join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      removed += await sweepTempDebris(target, depth - 1);
+    } else if (entry.isFile() && isTempDebris(entry.name)) {
+      removed += 1;
+      await removeIfPresent(target);
+    }
+  }
+  return removed;
 }
 async function readJsonFile(filePath, validate) {
   const text = await readTextFile(filePath);
@@ -457,6 +1035,25 @@ function resolveStorePath(dataDir, relativePath) {
   }
   return resolve2(dataDir, relativePath);
 }
+async function listStoreDir(dataDir, relativePath) {
+  const target = resolveStorePath(dataDir, relativePath);
+  try {
+    return await fs5.readdir(target);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return [];
+    }
+    throw new StorageUnavailableError(`store directory cannot be listed: ${target}`, error);
+  }
+}
+async function removeStoreFile(dataDir, relativePath) {
+  const target = resolveStorePath(dataDir, relativePath);
+  try {
+    await fs5.rm(target, { force: true });
+  } catch (error) {
+    throw new StorageUnavailableError(`store file cannot be removed: ${target}`, error);
+  }
+}
 function createStore(dataDir, schemaVersion) {
   const locate = (relativePath) => resolveStorePath(dataDir, relativePath);
   return {
@@ -465,12 +1062,15 @@ function createStore(dataDir, schemaVersion) {
     readJson: async (relativePath, validate) => await readJsonFile(locate(relativePath), validate),
     writeJson: async (relativePath, value) => await writeJsonAtomic(locate(relativePath), value),
     appendLine: async (relativePath, entry) => await appendJsonLine(locate(relativePath), entry),
-    readLines: async (relativePath, parse) => await readJsonLines(locate(relativePath), parse)
+    readLines: async (relativePath, parse) => await readJsonLines(locate(relativePath), parse),
+    listDir: async (relativePath) => await listStoreDir(dataDir, relativePath),
+    removeFile: async (relativePath) => await removeStoreFile(dataDir, relativePath)
   };
 }
 async function openStore(options) {
   const { dataDir } = options;
   await ensureDir(dataDir);
+  await sweepTempDebris(dataDir);
   const schemaVersion = await readOrCreateSchemaVersion(dataDir);
   return createStore(dataDir, schemaVersion);
 }
@@ -479,6 +1079,34 @@ async function openStore(options) {
 var CONTENT_TYPE_HEADER = "content-type";
 var CONTENT_LENGTH_HEADER = "content-length";
 var CONNECTION_HEADER = "connection";
+var PARAM_PREFIX = ":";
+function matchPathPattern(routePath, pathname) {
+  const pattern = routePath.split("/");
+  const segments = pathname.split("/");
+  if (pattern.length !== segments.length) {
+    return null;
+  }
+  const params = {};
+  for (let index = 0;index < pattern.length; index += 1) {
+    const expected = pattern[index];
+    const actual = segments[index];
+    if (expected === undefined || actual === undefined) {
+      return null;
+    }
+    if (expected.startsWith(PARAM_PREFIX)) {
+      if (actual === "") {
+        return null;
+      }
+      params[expected.slice(PARAM_PREFIX.length)] = actual;
+    } else if (expected !== actual) {
+      return null;
+    }
+  }
+  return params;
+}
+function isPatternPath(routePath) {
+  return routePath.split("/").some((segment) => segment.startsWith(PARAM_PREFIX));
+}
 function writeResponse(call, response) {
   const outgoing = call.response;
   if (call.sent || outgoing.headersSent) {
@@ -488,7 +1116,8 @@ function writeResponse(call, response) {
   call.sent = true;
   const serialized = serializeBody(response.body);
   const status = serialized.ok ? response.status : STATUS.internal;
-  const text = serialized.ok ? serialized.text : JSON.stringify(serialized.fallback.body);
+  const body = serialized.ok ? serialized.text : JSON.stringify(serialized.fallback.body);
+  const text = redact(body);
   const headers = {
     [CONTENT_TYPE_HEADER]: JSON_CONTENT_TYPE,
     [CONTENT_LENGTH_HEADER]: String(Buffer.byteLength(text))
@@ -514,17 +1143,24 @@ function describeFailure(error, call) {
     correlationId
   });
 }
+function patternRoutes(routes, pathname) {
+  return routes.filter((route) => route.path !== pathname && isPatternPath(route.path) && matchPathPattern(route.path, pathname) !== null);
+}
 function matchRoute(call, url) {
   const method = call.request.method ?? "";
-  const atPath = call.deps.routes.filter((route2) => route2.path === url.pathname);
-  if (atPath.length === 0) {
+  const { routes } = call.deps;
+  const candidates = [
+    ...routes.filter((route2) => route2.path === url.pathname),
+    ...patternRoutes(routes, url.pathname)
+  ];
+  if (candidates.length === 0) {
     return { kind: "not-found" };
   }
-  const route = atPath.find((candidate) => candidate.method === method);
+  const route = candidates.find((candidate) => candidate.method === method);
   if (route === undefined) {
-    return { kind: "method-not-allowed", allow: atPath.map((candidate) => candidate.method) };
+    return { kind: "method-not-allowed", allow: candidates.map((candidate) => candidate.method) };
   }
-  return { kind: "matched", route };
+  return { kind: "matched", route, params: matchPathPattern(route.path, url.pathname) ?? {} };
 }
 function refusalResponse(match) {
   if (match.kind === "not-found") {
@@ -574,7 +1210,7 @@ function matchRequest(call) {
     writeResponse(call, refusalResponse(match));
     return null;
   }
-  return { url, route: match.route };
+  return { url, route: match.route, params: match.params };
 }
 async function runPipeline(call) {
   const matched = matchRequest(call);
@@ -585,7 +1221,12 @@ async function runPipeline(call) {
   if (body === null) {
     return;
   }
-  const request = { method: call.request.method ?? "GET", url: matched.url, body };
+  const request = {
+    method: call.request.method ?? "GET",
+    url: matched.url,
+    body,
+    params: matched.params
+  };
   let response;
   try {
     response = await matched.route.handler(call.deps.context, request);
@@ -629,6 +1270,435 @@ function createRequestHandler(deps) {
     });
   };
 }
+// src/consent-copy.json
+var consent_copy_default = {
+  version: 1,
+  paragraphs: [
+    "Mecha Turk wants to send a GitHub token to a local service.",
+    "This local service is allowed but sandbox-advisory: Phase 1 does not enforce an OS sandbox; an allowed service has your full user access — it can run any command and read or write any file your user can.",
+    "Your GitHub token is sent over the loopback proxy to this service and stored outside OpenChamber extension storage, protected by file permissions you can back up. It is stored unencrypted (plaintext) on disk, readable by anything running as your user.",
+    "Consent is recorded in the service audit as an occurrence only — a version and a time, never the token."
+  ]
+};
+
+// src/consent.ts
+var CONSENT_VERSION = consent_copy_default.version;
+var CONSENT_COPY_PARAGRAPHS = consent_copy_default.paragraphs;
+var CONSENT_COPY_V1 = CONSENT_COPY_PARAGRAPHS.join(`
+
+`);
+
+// service/consent.ts
+function checkConsent(body) {
+  const raw = body.consentVersion;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < CONSENT_VERSION) {
+    return { ok: false };
+  }
+  return { ok: true, version: raw };
+}
+function consentRequiredResponse() {
+  return errorResponse(STATUS.validation, {
+    code: "consent-required",
+    message: "consent needs renewing — review and accept the handoff notice again"
+  });
+}
+async function recordConsentOccurrence(store, version) {
+  const entries = await readAuditEntries(store);
+  const recorded = entries.some((entry) => entry.eventType === "consent" && entry.details.version === version);
+  if (recorded) {
+    return;
+  }
+  await appendAudit(store, {
+    eventType: "consent",
+    actorSource: "panel",
+    entity: { kind: "service", id: "consent" },
+    reason: "operator accepted the handoff consent",
+    details: { version, givenAt: nowIso() }
+  });
+}
+
+// service/routes/credential.ts
+var TOKEN_MAX_CHARS = 4096;
+var EXPECTED_LOGIN_MAX_CHARS = 200;
+var SCOPE_MISSING_PREFIX = "scope-missing:";
+function readToken2(raw) {
+  if (typeof raw !== "string") {
+    return { issues: [{ field: "token", remediation: "send the GitHub token as a JSON string" }] };
+  }
+  const issues = [];
+  if (raw === "") {
+    issues.push({ field: "token", remediation: "the token must not be empty" });
+  }
+  if (/\s/.test(raw)) {
+    issues.push({ field: "token", remediation: "the token must not contain whitespace" });
+  }
+  if (raw.length > TOKEN_MAX_CHARS) {
+    issues.push({ field: "token", remediation: `the token must be at most ${TOKEN_MAX_CHARS} characters` });
+  }
+  return issues.length > 0 ? { issues } : { token: raw, issues };
+}
+function expectedLoginIssues(raw) {
+  if (raw === undefined) {
+    return [];
+  }
+  if (typeof raw === "string" && raw !== "" && raw.length <= EXPECTED_LOGIN_MAX_CHARS) {
+    return [];
+  }
+  return [
+    {
+      field: "expectedLogin",
+      remediation: `send a non-empty string of at most ${EXPECTED_LOGIN_MAX_CHARS} characters, or omit the field`
+    }
+  ];
+}
+function parseCredentialBody(raw, allowExpectedLogin) {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return {
+      ok: false,
+      consentVersion: null,
+      response: validationResponse([{ field: "body", remediation: "send a JSON object" }])
+    };
+  }
+  const body = raw;
+  const consent = checkConsent(body);
+  if (!consent.ok) {
+    return { ok: false, consentVersion: null, response: consentRequiredResponse() };
+  }
+  const read = readToken2(body.token);
+  const issues = [...read.issues, ...allowExpectedLogin ? expectedLoginIssues(body.expectedLogin) : []];
+  if (issues.length > 0 || read.token === undefined) {
+    return { ok: false, consentVersion: consent.version, response: validationResponse(issues) };
+  }
+  return {
+    ok: true,
+    credential: {
+      token: read.token,
+      consentVersion: consent.version,
+      expectedLogin: allowExpectedLogin && typeof body.expectedLogin === "string" ? body.expectedLogin : null
+    }
+  };
+}
+async function acceptCredentialRequest(input) {
+  const parsed = parseCredentialBody(input.body, input.allowExpectedLogin);
+  const consentVersion = parsed.ok ? parsed.credential.consentVersion : parsed.consentVersion;
+  if (consentVersion !== null) {
+    await recordConsentOccurrence(input.store, consentVersion);
+  }
+  return parsed.ok ? { ok: true, credential: parsed.credential } : { ok: false, response: parsed.response };
+}
+function capabilityLabel(reason) {
+  const capability = reason.slice(SCOPE_MISSING_PREFIX.length);
+  switch (capability) {
+    case "metadata":
+      return "Metadata";
+    case "issues":
+      return "Issues";
+    case "pull-requests":
+      return "Pull requests";
+    default:
+      return "Contents";
+  }
+}
+function reasonCopy(reason) {
+  if (reason === "auth-failed") {
+    return "GitHub rejected this token — create a fresh PAT and paste it again";
+  }
+  if (reason === "sso-required") {
+    return "Your organization requires SSO — authorize the token for this org, then paste it again";
+  }
+  return `This token is missing the ${capabilityLabel(reason)} scope — update the token, then paste it again`;
+}
+function credentialRejectedResponse(reason, correlationId) {
+  return {
+    status: STATUS.validation,
+    body: {
+      error: {
+        code: "credential-rejected",
+        message: reasonCopy(reason),
+        correlationId,
+        reasonClass: reason
+      }
+    }
+  };
+}
+function upstreamUnavailableResponse(detail, correlationId) {
+  const messages = {
+    offline: "GitHub could not be reached — check the network, then paste the token again",
+    timeout: "GitHub did not answer in time — wait a moment, then paste the token again",
+    upstream: "GitHub returned an unexpected response — wait a moment, then paste the token again"
+  };
+  return errorResponse(STATUS.badGateway, {
+    code: "upstream-unavailable",
+    message: messages[detail],
+    correlationId
+  });
+}
+function githubRateLimitedResponse(retryAfterSeconds) {
+  return throttleResponse({
+    status: STATUS.tooManyRequests,
+    code: "rate-limited",
+    message: "GitHub rate-limited this verification — wait the stated time, then paste the token again",
+    retryAfterSeconds
+  });
+}
+var VERIFY_BUSY_MESSAGE = "a verification is already running — wait a moment, then retry";
+function throttleRefusal(code, retryAfterSeconds) {
+  const message = code === "verify-busy" ? VERIFY_BUSY_MESSAGE : `verification attempts are limited — retry after ${retryAfterSeconds} seconds`;
+  return throttleResponse({ status: STATUS.tooManyRequests, code, message, retryAfterSeconds });
+}
+function accountRejectedResponse(message, correlationId) {
+  return errorResponse(STATUS.validation, {
+    code: "account-rejected",
+    message,
+    correlationId
+  });
+}
+function duplicateAccountResponse(correlationId) {
+  return errorResponse(STATUS.conflict, {
+    code: "duplicate-account",
+    message: "an account with this GitHub id already exists — rotate its token instead",
+    correlationId
+  });
+}
+function guardCredentialRoute(handler) {
+  return async (context, request) => {
+    try {
+      return await handler(context, request);
+    } catch (error) {
+      if (error instanceof StorageUnavailableError) {
+        return storageUnavailableResponse();
+      }
+      const correlationId = newCorrelationId();
+      context.log.error("credential route failed", {
+        correlationId,
+        errorKind: error instanceof Error ? error.name : typeof error
+      });
+      return errorResponse(STATUS.internal, {
+        code: "internal",
+        message: "unexpected service failure",
+        correlationId
+      });
+    }
+  };
+}
+
+// service/routes/accounts.ts
+var ACCOUNTS_PATH = "/v1/accounts";
+var ACCOUNT_TOKEN_PATH = `${ACCOUNTS_PATH}/:numericUserId/token`;
+var ACCOUNT_PATH = `${ACCOUNTS_PATH}/:numericUserId`;
+var FORCE_QUERY_FLAG = "force";
+var FORCE_QUERY_VALUE = "1";
+var ROTATION_ID_MISMATCH = "the new token belongs to a different GitHub account than this one";
+var ROTATION_LOGIN_MISMATCH = "the new token belongs to a different GitHub login";
+var REJECTED_EVENT = "account.rejected";
+var REJECT_DECISION = "reject";
+var ACCOUNT_KIND = "account";
+function unknownAccountResponse() {
+  return errorResponse(STATUS.notFound, {
+    code: "unknown-account",
+    message: "no account with this GitHub id is registered"
+  });
+}
+function bindingsRefusalResponse(count) {
+  return errorResponse(STATUS.conflict, {
+    code: "invalid-transition",
+    message: `${count} binding(s) still reference this account — remove them, or confirm a force delete`
+  });
+}
+function pathAccountId(request) {
+  const raw = request.params.numericUserId;
+  return isNumericUserId(raw) ? raw : null;
+}
+async function handleListAccounts(context) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const accounts = await listAccounts(store, context.log);
+  return { status: STATUS.ok, body: { accounts: accounts.map(toAccountDto) } };
+}
+function rotatedAccount(input) {
+  const { account, outcome, token } = input;
+  const recovering = account.state !== "active";
+  const verifiedAt = nowIso();
+  return {
+    ...account,
+    login: outcome.identity.login,
+    credential: { token, kind: outcome.credentialKind, verifiedAt },
+    scopeCheck: outcome.scopeCheck,
+    verifiedAt,
+    ...recovering ? { state: "active", connectionState: "connected", errorReason: null } : {}
+  };
+}
+async function recordRotationRejection(subject, reason) {
+  await appendAudit(subject.store, {
+    eventType: REJECTED_EVENT,
+    actorSource: "service",
+    entity: { kind: ACCOUNT_KIND, id: subject.account.numericUserId },
+    decision: REJECT_DECISION,
+    reason,
+    correlationId: subject.correlationId,
+    details: { reasonClass: reason, operation: "rotation" }
+  });
+}
+async function rotationRefusal(subject, outcome) {
+  if (outcome.kind === "rate-limited") {
+    return githubRateLimitedResponse(outcome.retryAfterSeconds);
+  }
+  if (outcome.kind === "unavailable") {
+    return upstreamUnavailableResponse(outcome.detail, subject.correlationId);
+  }
+  if (outcome.kind === "rejected") {
+    await recordRotationRejection(subject, outcome.reason);
+    return credentialRejectedResponse(outcome.reason, subject.correlationId);
+  }
+  if (outcome.identity.numericUserId !== subject.account.numericUserId) {
+    await recordRotationRejection(subject, "rotation-id-mismatch");
+    return accountRejectedResponse(ROTATION_ID_MISMATCH, subject.correlationId);
+  }
+  const expected = subject.account.expectedLogin;
+  if (expected !== null && expected.toLowerCase() !== outcome.identity.login.toLowerCase()) {
+    await recordRotationRejection(subject, "expected-login-mismatch");
+    return accountRejectedResponse(ROTATION_LOGIN_MISMATCH, subject.correlationId);
+  }
+  return null;
+}
+async function recordRotation(input) {
+  try {
+    await appendAudit(input.store, {
+      eventType: "account.rotated",
+      actorSource: "operator",
+      entity: { kind: ACCOUNT_KIND, id: input.account.numericUserId },
+      decision: "accept",
+      reason: "replacement token verified against GitHub /user",
+      correlationId: input.correlationId,
+      details: { login: input.account.login, scopeCheck: input.account.scopeCheck.results }
+    });
+  } catch (error) {
+    input.log.warn("account rotated but the audit row could not be appended", {
+      numericUserId: input.account.numericUserId,
+      errorKind: error instanceof Error ? error.name : typeof error
+    });
+  }
+}
+async function persistRotation(input) {
+  const rotated = rotatedAccount({ account: input.account, outcome: input.outcome, token: input.token });
+  await writeAccount(input.store, rotated);
+  await recordRotation({ store: input.store, log: input.log, account: rotated, correlationId: input.correlationId });
+  return {
+    status: STATUS.ok,
+    body: { numericUserId: rotated.numericUserId, login: rotated.login, verifiedAt: rotated.verifiedAt }
+  };
+}
+async function prepareRotation(input) {
+  const parsed = await acceptCredentialRequest({
+    store: input.store,
+    body: input.body,
+    allowExpectedLogin: false
+  });
+  if (!parsed.ok) {
+    return { ok: false, response: parsed.response };
+  }
+  const account = input.pathId === null ? null : await readAccount({ store: input.store, numericUserId: input.pathId });
+  if (input.pathId === null || account === null) {
+    return { ok: false, response: unknownAccountResponse() };
+  }
+  return { ok: true, account, credential: parsed.credential };
+}
+async function handleRotateToken(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const prepared = await prepareRotation({ store, pathId: pathAccountId(request), body: request.body });
+  if (!prepared.ok) {
+    return prepared.response;
+  }
+  const decision = context.throttle.attempt();
+  if (!decision.allowed) {
+    return throttleRefusal(decision.code, decision.retryAfterSeconds);
+  }
+  try {
+    const outcome = await context.github.verify(prepared.credential.token);
+    const subject = { store, account: prepared.account, correlationId: newCorrelationId() };
+    const refusal = await rotationRefusal(subject, outcome);
+    if (refusal !== null) {
+      return refusal;
+    }
+    if (outcome.kind !== "ok") {
+      return upstreamUnavailableResponse("upstream", subject.correlationId);
+    }
+    return await persistRotation({
+      store,
+      log: context.log,
+      account: prepared.account,
+      token: prepared.credential.token,
+      outcome,
+      correlationId: subject.correlationId
+    });
+  } finally {
+    decision.lease.release();
+  }
+}
+async function recordDisabledBindings(store, bindings) {
+  for (const binding of bindings) {
+    await appendAudit(store, {
+      eventType: "binding.disabled",
+      actorSource: "operator",
+      entity: { kind: "binding", id: binding.bindingId },
+      decision: "disable",
+      reason: "account deleted with force=1",
+      details: {}
+    });
+  }
+}
+async function recordAccountDeleted(store, numericUserId) {
+  await appendAudit(store, {
+    eventType: "account.deleted",
+    actorSource: "operator",
+    entity: { kind: ACCOUNT_KIND, id: numericUserId },
+    decision: "remove",
+    reason: "operator deleted the account",
+    details: { credentialFile: accountPath(numericUserId) }
+  });
+}
+async function handleDeleteAccount(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const pathId = pathAccountId(request);
+  const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId });
+  if (pathId === null || account === null) {
+    return unknownAccountResponse();
+  }
+  const bindings = await bindingsReferencing(store, pathId);
+  const forced = request.url.searchParams.get(FORCE_QUERY_FLAG) === FORCE_QUERY_VALUE;
+  if (bindings.length > 0 && !forced) {
+    return bindingsRefusalResponse(bindings.length);
+  }
+  if (bindings.length > 0) {
+    await recordDisabledBindings(store, await disableBindings(store, bindings));
+  }
+  await removeAccount(store, pathId);
+  await recordAccountDeleted(store, pathId);
+  return { status: STATUS.ok, body: { removed: true } };
+}
+var listAccountsRoute = {
+  method: "GET",
+  path: ACCOUNTS_PATH,
+  handler: guardCredentialRoute(handleListAccounts)
+};
+var rotateTokenRoute = {
+  method: "POST",
+  path: ACCOUNT_TOKEN_PATH,
+  handler: guardCredentialRoute(handleRotateToken)
+};
+var deleteAccountRoute = {
+  method: "DELETE",
+  path: ACCOUNT_PATH,
+  handler: guardCredentialRoute(handleDeleteAccount)
+};
 
 // service/config.ts
 var CONFIG_FILE = "config.json";
@@ -778,18 +1848,6 @@ function configFromStore(result, log) {
   }
   return DEFAULT_CONFIG;
 }
-function validationResponse(issues) {
-  return {
-    status: STATUS.validation,
-    body: {
-      error: {
-        code: "validation",
-        message: issues.map((issue) => `${issue.field}: ${issue.remediation}`).join("; "),
-        issues
-      }
-    }
-  };
-}
 
 // service/routes/config.ts
 var CONFIG_PATH = "/v1/config";
@@ -840,6 +1898,37 @@ var healthRoute = {
 // service/routes/status.ts
 var STATUS_PATH = "/v1/status";
 var PAUSED_REASON = "config-incomplete";
+function statusAccountRow(account) {
+  return {
+    numericUserId: account.numericUserId,
+    login: account.login,
+    connectionState: account.connectionState,
+    rate: {
+      remaining: null,
+      limit: null,
+      resetAt: null,
+      usedLastHour: 0,
+      secondaryBlockedUntil: null,
+      conditionalSupport: "unknown",
+      updatedAt: account.updatedAt
+    },
+    streams: []
+  };
+}
+async function statusAccounts(context) {
+  if (context.store === null) {
+    return [];
+  }
+  try {
+    const accounts = await listAccounts(context.store, context.log);
+    return accounts.map(statusAccountRow);
+  } catch (error) {
+    context.log.warn("accounts could not be listed for status", {
+      errorKind: error instanceof Error ? error.name : typeof error
+    });
+    return [];
+  }
+}
 async function readConfig(context) {
   if (context.store === null) {
     return DEFAULT_CONFIG;
@@ -855,9 +1944,10 @@ async function buildStatusBody(context) {
       status: store === null ? "degraded" : "ok",
       uptimeMs: Date.now() - context.startedAt,
       dataDir: context.dataDir,
-      schemaVersion: store?.schemaVersion ?? null
+      schemaVersion: store?.schemaVersion ?? null,
+      storage: { writable: store !== null }
     },
-    accounts: [],
+    accounts: await statusAccounts(context),
     repositories: [],
     agentPin: { expectedAgent: null, lastVerification: null },
     polling: {
@@ -879,8 +1969,216 @@ var statusRoute = {
   handler: (context) => handleGetStatus(context)
 };
 
+// service/routes/verify.ts
+var VERIFY_PATH = "/v1/accounts/verify";
+var LOGIN_MISMATCH_MESSAGE = "the token belongs to a different GitHub login than the expected one";
+async function recordRejection(input) {
+  const { deps, reason, identity, correlationId } = input;
+  const entity = identity === null ? { kind: "service", id: "credential-handoff" } : { kind: "account", id: identity.numericUserId };
+  const details = identity === null ? { reasonClass: reason } : { reasonClass: reason, login: identity.login };
+  await appendAudit(deps.store, {
+    eventType: "account.rejected",
+    actorSource: "service",
+    entity,
+    decision: "reject",
+    reason,
+    correlationId,
+    details
+  });
+}
+async function refusalFor(attempt) {
+  const { outcome, deps, correlationId } = attempt;
+  if (outcome.kind === "rate-limited") {
+    return githubRateLimitedResponse(outcome.retryAfterSeconds);
+  }
+  if (outcome.kind === "unavailable") {
+    return upstreamUnavailableResponse(outcome.detail, correlationId);
+  }
+  if (outcome.kind === "rejected") {
+    await recordRejection({ deps, reason: outcome.reason, identity: null, correlationId });
+    return credentialRejectedResponse(outcome.reason, correlationId);
+  }
+  throw new Error("verify route received a successful outcome without a handler");
+}
+function reportRateBaseline(input) {
+  const { deps, identity, baseline } = input;
+  if (baseline === null) {
+    deps.log.debug("rate baseline unavailable", { numericUserId: identity.numericUserId });
+    return;
+  }
+  deps.log.info("rate baseline", {
+    numericUserId: identity.numericUserId,
+    limit: baseline.limit,
+    remaining: baseline.remaining,
+    resetAt: baseline.resetAt
+  });
+}
+async function recordVerified(input) {
+  const { deps, account, correlationId } = input;
+  try {
+    await appendAudit(deps.store, {
+      eventType: "account.verified",
+      actorSource: "service",
+      entity: { kind: "account", id: account.numericUserId },
+      decision: "accept",
+      reason: "token verified against GitHub /user",
+      correlationId,
+      details: {
+        login: account.login,
+        scopeCheck: account.scopeCheck.results,
+        redaction: { redacted: false, fields: [] }
+      }
+    });
+  } catch (error) {
+    deps.log.warn("account verified but the audit row could not be appended", {
+      numericUserId: account.numericUserId,
+      errorKind: error instanceof Error ? error.name : typeof error
+    });
+  }
+}
+async function persistVerified(attempt) {
+  const { deps, credential, correlationId, outcome } = attempt;
+  const at = nowIso();
+  const account = {
+    numericUserId: outcome.identity.numericUserId,
+    login: outcome.identity.login,
+    expectedLogin: credential.expectedLogin,
+    credential: { token: credential.token, kind: outcome.credentialKind, verifiedAt: at },
+    scopeCheck: outcome.scopeCheck,
+    state: "active",
+    connectionState: "connected",
+    verifiedAt: at,
+    errorReason: null,
+    createdAt: at,
+    updatedAt: at
+  };
+  await writeAccount(deps.store, account);
+  reportRateBaseline({ deps, identity: outcome.identity, baseline: outcome.rateBaseline });
+  await recordVerified({ deps, account, correlationId });
+  return {
+    status: STATUS.created,
+    body: {
+      numericUserId: account.numericUserId,
+      login: account.login,
+      state: account.state,
+      verifiedAt: account.verifiedAt,
+      scopeCheck: account.scopeCheck
+    }
+  };
+}
+async function acceptVerified(attempt) {
+  const { deps, credential, correlationId, outcome } = attempt;
+  const { identity } = outcome;
+  const expected = credential.expectedLogin;
+  if (expected !== null && expected.toLowerCase() !== identity.login.toLowerCase()) {
+    await recordRejection({ deps, reason: "expected-login-mismatch", identity, correlationId });
+    return accountRejectedResponse(LOGIN_MISMATCH_MESSAGE, correlationId);
+  }
+  const existing = await readAccount({
+    store: deps.store,
+    numericUserId: identity.numericUserId,
+    log: deps.log
+  });
+  if (existing !== null) {
+    await recordRejection({ deps, reason: "duplicate-account", identity, correlationId });
+    return duplicateAccountResponse(correlationId);
+  }
+  return await persistVerified(attempt);
+}
+async function handleVerify(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const parsed = await acceptCredentialRequest({ store, body: request.body, allowExpectedLogin: true });
+  if (!parsed.ok) {
+    return parsed.response;
+  }
+  const decision = context.throttle.attempt();
+  if (!decision.allowed) {
+    return throttleRefusal(decision.code, decision.retryAfterSeconds);
+  }
+  try {
+    const outcome = await context.github.verify(parsed.credential.token);
+    const attempt = {
+      deps: { store, log: context.log },
+      credential: parsed.credential,
+      outcome,
+      correlationId: newCorrelationId()
+    };
+    if (outcome.kind === "ok") {
+      return await acceptVerified({ ...attempt, outcome });
+    }
+    return await refusalFor(attempt);
+  } finally {
+    decision.lease.release();
+  }
+}
+var verifyRoute = {
+  method: "POST",
+  path: VERIFY_PATH,
+  handler: guardCredentialRoute(handleVerify)
+};
+
 // service/routes/index.ts
-var ROUTES = [healthRoute, getConfigRoute, putConfigRoute, statusRoute];
+var ROUTES = [
+  healthRoute,
+  getConfigRoute,
+  putConfigRoute,
+  statusRoute,
+  listAccountsRoute,
+  verifyRoute,
+  rotateTokenRoute,
+  deleteAccountRoute
+];
+
+// service/throttle.ts
+var VERIFY_WINDOW_MS = 5 * 60000;
+var VERIFY_MAX_ATTEMPTS = 10;
+var MS_PER_SECOND2 = 1000;
+function createVerifyThrottle(now = Date.now) {
+  const stamps = [];
+  let active = 0;
+  const prune = (at) => {
+    while (stamps.length > 0 && at - (stamps[0] ?? 0) >= VERIFY_WINDOW_MS) {
+      stamps.shift();
+    }
+  };
+  return {
+    attempt: () => {
+      const at = now();
+      prune(at);
+      if (active > 0) {
+        return { allowed: false, code: "verify-busy", retryAfterSeconds: 1 };
+      }
+      const oldest = stamps[0];
+      if (stamps.length >= VERIFY_MAX_ATTEMPTS && oldest !== undefined) {
+        const waitMs = VERIFY_WINDOW_MS - (at - oldest);
+        return {
+          allowed: false,
+          code: "rate-limited",
+          retryAfterSeconds: Math.max(1, Math.ceil(waitMs / MS_PER_SECOND2))
+        };
+      }
+      stamps.push(at);
+      active += 1;
+      let released = false;
+      return {
+        allowed: true,
+        lease: {
+          release: () => {
+            if (released) {
+              return;
+            }
+            released = true;
+            active -= 1;
+          }
+        }
+      };
+    },
+    inFlight: () => active
+  };
+}
 
 // service/server.ts
 var DRAIN_TIMEOUT_MS = 5000;
@@ -957,27 +2255,46 @@ function createHandle(parts) {
     closing ??= performShutdown(parts.server, parts.state);
     return closing;
   };
-  return { port: parts.port, dataDir: parts.dataDir, store: parts.store, shutdown };
+  return {
+    port: parts.port,
+    dataDir: parts.dataDir,
+    store: parts.store,
+    reconciled: parts.reconciled,
+    shutdown
+  };
+}
+function startReconciliation(input) {
+  return reconcileInterruptedAccounts(input).catch((error) => {
+    input.log.error("startup reconciliation failed", {
+      errorKind: error instanceof Error ? error.name : typeof error
+    });
+    return { examined: 0, marked: 0, restored: 0 };
+  });
 }
 async function startService(options) {
   const store = await openStoreSafe(options);
+  const github = options.github ?? createGitHubVerifier();
   const state = { inFlight: 0 };
   const context = {
     store,
     dataDir: options.dataDir,
     startedAt: Date.now(),
     log: options.log,
-    schemaVersion: SERVICE_SCHEMA_VERSION
+    schemaVersion: SERVICE_SCHEMA_VERSION,
+    github,
+    throttle: createVerifyThrottle()
   };
   const deps = { env: options.env, context, routes: ROUTES, log: options.log, state };
   const server = createServer(createRequestHandler(deps));
   await listen(server, options.env.port);
+  const reconciled = startReconciliation({ store, github, log: options.log });
   return createHandle({
     server,
     state,
     store,
     dataDir: options.dataDir,
-    port: boundPort(server)
+    port: boundPort(server),
+    reconciled
   });
 }
 

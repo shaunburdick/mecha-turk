@@ -13,7 +13,10 @@ import type { SpikeEvidence } from './evidence.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import type { GitHubIssue } from './github.ts';
 import { createLedger } from './ledger.ts';
+import { initialHandoffState } from './handoff.ts';
 import type { LifecyclePhase, SpikeLedger } from './ledger.ts';
+import type { HandoffState } from './handoff.ts';
+import type { HandoffView } from './accounts-ui.ts';
 import type { SpikeHost } from './session.ts';
 
 /** Banner content shown at the top of the panel. */
@@ -76,6 +79,8 @@ export interface PanelState {
     connected: boolean;
     /** Whether an action is running; blocks concurrent dispatches. */
     busy: boolean;
+    /** One-shot handoff state: consent, storage pre-flight, and outcome. */
+    handoff: HandoffState;
 }
 
 /** UI handles, assigned once when the panel mounts. */
@@ -120,6 +125,8 @@ export interface PanelRuntime {
     readonly unsubscribes: (() => void)[];
     /** UI handles once mounted. */
     ui: PanelUi | null;
+    /** Mounted handoff group, when this surface shows one. */
+    handoffView: HandoffView | null;
     /** `true` once the panel has been torn down. */
     disposed: boolean;
     /** `true` once the first `onReady` snapshot has been handled. */
@@ -176,9 +183,11 @@ export function createPanelRuntime(
             status: { tone: 'info', title: 'Mecha Turk Spike', body: 'Waiting for the host.' },
             connected: false,
             busy: false,
+            handoff: initialHandoffState(),
         },
         unsubscribes: [],
         ui: null,
+        handoffView: null,
         disposed: false,
         started: false,
         pollTimer: null,

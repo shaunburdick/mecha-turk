@@ -233,6 +233,7 @@ export function countingRequest(answers: Readonly<Record<string, string>>): Coun
 export function fakeHost(overrides: Partial<SpikeHost> = {}): SpikeHost {
     return {
         request: async () => ({ status: DEFAULT_STATUS, body: DEFAULT_BODY }),
+        serviceRequest: async () => ({ status: DEFAULT_STATUS, body: DEFAULT_BODY }),
         storage: {
             get: async () => null,
             set: () => Promise.resolve(),

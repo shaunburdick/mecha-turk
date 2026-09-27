@@ -16,8 +16,16 @@
 
 import type { HostReadyContext, JsonValue } from '@openchamber/sdk';
 import { applyHostReady } from '@openchamber/sdk/ui';
+import {
+    acceptConsentAndRepaint,
+    mountHandoffDom,
+    preflightAndRepaint,
+    refreshHandoff,
+    submitHandoffAndRepaint,
+} from './accounts-ui.ts';
 import { parseProjectId, parseSpikeConfig, repositoryLabel } from './config.ts';
 import { EVIDENCE_STORAGE_KEY, readEvidence } from './evidence.ts';
+import { declineHandoffConsent } from './handoff.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { analyzeLastCloseGap, buildMountContext, LIFECYCLE_EXPERIMENT_PLAN } from './lifecycle.ts';
 import { createLedger, LEDGER_STORAGE_KEY, readLedger, recordPhase } from './ledger.ts';
@@ -311,6 +319,11 @@ export function teardown(rt: PanelRuntime): void {
         rt.ui = null;
     }
 
+    if (rt.handoffView !== null) {
+        rt.handoffView.dispose();
+        rt.handoffView = null;
+    }
+
     rt.host.dispose();
 }
 
@@ -354,6 +367,10 @@ async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void>
     applySettings(rt, context.settings);
     handleConnection(rt, context.connection.connected);
     void loadProjects(rt);
+    // The handoff input stays disabled until this pre-flight proves the
+    // service storage is writable (F10/SEC-08); a failed pre-flight leaves
+    // the reason on screen instead of a usable credential field.
+    void preflightAndRepaint(rt);
     refresh(rt);
 }
 
@@ -422,6 +439,22 @@ export function createSpikeApp(options: SpikeAppOptions): SpikeApp {
     };
 
     rt.ui = mountPanelUi(rt, { root, handlers });
+    rt.handoffView = mountHandoffDom({
+        root,
+        handlers: {
+            accept: () => {
+                void acceptConsentAndRepaint(rt);
+            },
+            decline: () => {
+                declineHandoffConsent(rt);
+                refreshHandoff(rt);
+            },
+            submit: (token) => {
+                void submitHandoffAndRepaint(rt, token);
+            },
+        },
+    });
+    refreshHandoff(rt);
     rt.pagehideListener = () => handlePagehide(rt);
     panelWindow.addEventListener('pagehide', rt.pagehideListener);
     registerHostListeners(rt, root);
