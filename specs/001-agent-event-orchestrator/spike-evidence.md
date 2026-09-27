@@ -7,6 +7,8 @@ for a human operator with a live OpenChamber instance and a GitHub PAT.
 **Branch:** `001-agent-event-orchestrator`
 **Status:** implementation complete; every live step is
 `PENDING LIVE VERIFICATION` — no pass/fail decision is claimed.
+**Remediation:** 2026-09-27T01:35Z (UTC) — code-review findings
+T009a–T009i applied to the spike; see §2.1. No live step was executed.
 
 ## 1. Version record (T001)
 
@@ -38,8 +40,8 @@ TypeScript is pinned to `6.0.3` rather than the newer `7.0.2` because
 | Format | `npm run format` (ESLint `--fix`, the org config's stylistic rules) | no changes pending, exit 0 |
 | Lint | `npm run lint` | **0 errors, 0 warnings** (zero suppressions; no `eslint-disable`, no `@ts-ignore`, no `any`) |
 | Types | `npm run typecheck` (`tsc --noEmit`, `strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`) | **0 errors** |
-| Tests | `npm test` (vitest) | **145 passed / 145** across 10 files |
-| Build | `npm run build` (`bunx openchamber-guest-bundle`) | `extension/panel/main.js` produced (classic IIFE, ~73 KB) |
+| Tests | `npm test` (vitest) | **186 passed / 186** across 14 files |
+| Build | `npm run build` (`bunx openchamber-guest-bundle`) | `extension/panel/main.js` produced (classic IIFE, ~75 KB) |
 
 Test coverage by concern (offline):
 
@@ -52,25 +54,75 @@ Test coverage by concern (offline):
 - `matching.test.ts` — the single rule plus rejection reasons and identity
   validation (fail closed on mismatch/empty login).
 - `redaction.test.ts` — token/`Authorization`/`Bearer` detection,
-  `assertRedacted` throws without echoing the secret, credential-key stripping.
+  `assertRedacted` throws without echoing the secret, credential-key stripping,
+  **global** replacement of every occurrence (two tokens, two bearer
+  credentials in one string) and stable first-match labelling across repeated
+  calls (M1/T009c).
 - `ledger.test.ts` — phases, correlation ids, monotonic `seq`, entry cap,
-  detail truncation, credential-key stripping, schema validation on read,
-  serialization size/redaction assertions, gap analysis verdicts.
+  detail truncation, credential-key stripping, append-time redaction of a
+  secret-shaped `detail.error` (H2/T009b), schema validation on read, gap
+  analysis verdicts. **Size gates live in `ledger-repair.test.ts`.**
+- `ledger-repair.test.ts` — the host's size gate is measured in **UTF-8
+  bytes**, with a fixture whose UTF-16 length passes while its byte length does
+  not; byte-budget eviction drops the oldest entries until the ledger writes
+  again (M2/T009d); redaction failures quarantine only the offending entry and
+  leave every other entry untouched (H2/T009b).
 - `evidence.test.ts` — contract record shape (camelCase fields), input
-  validation, round-trip, no secret-shaped content, read-back rejection.
+  validation, round-trip, no secret-shaped content, and field-by-field type and
+  format validation on read: wrong types, empty strings, wrong trigger, bad
+  issue id/URL, non-integer generation (M4/T009f).
 - `config.test.ts` — fail-closed settings validation, interval clamping
-  (15000–300000), worktree option parsing.
+  (15000–300000), worktree option parsing including rejection of path-shaped
+  new-branch names (separators and `..`, L7/T009h).
 - `github.test.ts` — request builders, payload normalisation (PRs detected via
   `pull_request`), malformed payloads fail closed without echoing bodies,
   host-backed fetches with a fake host.
 - `lifecycle.test.ts` — mount bookkeeping, gap baseline selection, the
   five-step plan covering exactly the five phases.
 - `session.test.ts` — project resolution (incl. failure paths), bounded
-  context (incl. character budget and no-secret assertions),
-  `startSession` request shape (projectId, issue attachment, worktree options,
-  clamped title), success and partial-failure result summaries, dispatch
-  idempotency, host verification against a fake host (lists, four
-  subscriptions, replay, teardown, problem recording).
+  context (character budget, untrusted-text delimiters preserved under
+  truncation, no-secret assertions), `startSession` request shape (projectId,
+  issue attachment, worktree options, clamped title), success and
+  partial-failure result summaries, dispatch idempotency that counts **only
+  created sessions** (H1/T009a), host verification against a fake host (lists,
+  four subscriptions, replay, teardown, problem recording) including a
+  **fresh host whose session-lifecycle stream never fires** — registration, not
+  failure (M3/T009e).
+- `panel-dispatch.test.ts` — end-to-end dispatch retry paths: unresolved
+  project → retry dispatches, source changed → re-match dispatches, failed
+  `startSession` → retryable, created session → refused a second time (H1/T009a).
+- `panel-actions.test.ts` — `runPoll` in-flight guard and failure recording,
+  the single-match and ambiguous-match sweep paths, evidence-write failure
+  leaving no dispatchable state (L6/T009h), `ensureIdentity` mismatch and
+  success, poll-timer re-arm on interval change (L8/T009h), fail-safe ledger
+  persistence that quarantines and retries (H2/T009b), kind-accurate failure
+  banners (L5/T009h).
+- `app.test.ts` — teardown releasing every subscription exactly once,
+  `handlePagehide` persisting before teardown, `applySettings` stopping or
+  re-arming the poll loop (L8/T009h), and evidence restore on remount so a
+  reopened panel can dispatch (M4/T009f).
+- `tests/support/panel.ts` — the shared host/runtime doubles every panel test
+  drives; not a test file itself.
+
+### 2.1 Wave 0 remediation (T009a–T009i)
+
+Findings from the `code-quality-reviewer` pass over the spike (base HEAD
+`c68c795`), all applied and re-verified with `npm run verify`
+(build, lint, typecheck, 186 tests):
+
+| ID | Finding | Fix |
+| --- | --- | --- |
+| H1 / T009a | `findDispatchForIssue` counted blocked and failed `session` entries as "already dispatched", so one transient failure disabled dispatch forever | only entries carrying a **created session id** count; a retry after an unresolved project, a changed source, or a failed `startSession` dispatches |
+| H2 / T009b | one secret-shaped detail value failed every later ledger write | `detail.error` is redacted at append time, and a failed persist **quarantines the offending entry and retries once** (`extension/src/ledger-repair.ts`) |
+| M1 / T009c | `redact()` replaced only the first match per pattern | patterns are global; `findSecretLeak` keeps first-match semantics through `String.match`, which never inherits `lastIndex` |
+| M2 / T009d | the size gate counted UTF-16 units while the host counts UTF-8 bytes, with no eviction path | `TextEncoder` measurement plus byte-budget eviction (oldest first, 60 KiB working budget under the host's 64 KiB limit) |
+| M3 / T009e | the `session-lifecycle` probe reported `failed` on a fresh host | the probe records `replayExpected: false` and observes its window; registration is the only guarantee that surface makes |
+| M4 / T009f | `readEvidence` checked key presence only and was never called | field-by-field type and format validation, wired into `loadLedger` so a remount restores the evidence record (S6) |
+| M5 / T009g | the orchestration layer had no tests | `panel-actions`, `panel-dispatch`, and `app` covered: poll guard/failure, ambiguous sweep, identity mismatch, pagehide ordering, teardown release |
+| L1–L8 / T009h | cleanup batch | `issueUrl` in evidence detail, import formatting, stale `tsconfig` include, excerpt-vs-frame truncation (FR-026 markers survive), kind-accurate failure banners, evidence-write failure leaves no dispatchable state, path-shaped `new:` branch names rejected, poll timer re-arms when the interval changes |
+
+No live step was executed or claimed by the remediation pass: §4 remains
+`PENDING LIVE VERIFICATION`.
 
 ## 3. Blockers
 
@@ -144,8 +196,11 @@ bootstrap failure — is recorded in full.
 1. Press **Verify host state** and read the `host-verify` entry.
 2. Confirm the project is found, the worktree list reflects what OpenChamber
    owns (generated/reused as configured), the new session appears in
-   `listSessions`, all four probes registered and replayed, and no problem is
-   recorded.
+   `listSessions`, the three snapshot probes (`projects`, `worktrees`,
+   `sessions`) registered and replayed, the `session-lifecycle` probe
+   registered, and no problem is recorded. A silent `session-lifecycle` stream
+   is expected on a host that has never seen a lifecycle event: that probe
+   reports registration, not replay (M3).
 3. Confirm nothing in the repo or the project directory was created or
    modified by the spike (`git status` in the project checkout).
 
@@ -202,3 +257,10 @@ here.
   resolved by amending the contract, not the rule.
 - The ledger is spike evidence only — explicitly not a production durability
   substitute (plan.md "Lifecycle design").
+- Persistence recovery lives in `extension/src/ledger-repair.ts` instead of
+  growing `extension/src/ledger.ts`: source files in this repo sit under the
+  lint configuration's 500-line ceiling, and repair is a separate
+  responsibility from the ledger format itself.
+- `tests/support/panel.ts` is the single host/runtime double used by every
+  panel test; `tests/session.test.ts` now imports it instead of carrying its
+  own copy.
