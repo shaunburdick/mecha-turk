@@ -8,13 +8,13 @@
  * directory cannot be used at all (FR-039, data-model.md storage tier 1).
  */
 
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { isRecord } from '../extension/service/json.ts';
 import { DATA_DIR_MODE, DATA_FILE_MODE } from '../extension/service/store/dir.ts';
-import { readJsonFile, writeJsonAtomic } from '../extension/service/store/json.ts';
+import { isTempDebris, readJsonFile, writeJsonAtomic, writeSyncedTempFile } from '../extension/service/store/json.ts';
 import { appendJsonLine, readJsonLines } from '../extension/service/store/ndjson.ts';
 import {
     openStore,
@@ -131,7 +131,7 @@ describe('atomic json writes', () => {
 
         expect(await modeOf(join(dataDir, CONFIG_FILE))).toBe(DATA_FILE_MODE);
         const files = await readdir(dataDir);
-        expect(files.filter((name) => name.endsWith('.tmp'))).toEqual([]);
+        expect(files.filter((name) => isTempDebris(name))).toEqual([]);
     });
 
     it('replaces an existing document in one rename', async () => {
@@ -142,7 +142,7 @@ describe('atomic json writes', () => {
         const result = await readJsonFile(target, (raw) => (isRecord(raw) ? raw : null));
         expect(result).toEqual({ status: 'ok', value: { revision: 2 } });
         const files = await readdir(dataDir);
-        expect(files.filter((name) => name.endsWith('.tmp'))).toEqual([]);
+        expect(files.filter((name) => isTempDebris(name))).toEqual([]);
     });
 
     it('reports a missing document as absent', async () => {
@@ -234,5 +234,81 @@ describe('unwritable data directory', () => {
 
         expect(failure).toBeInstanceOf(StorageUnavailableError);
         expect(failure).toHaveProperty('code', 'storage-unavailable');
+    });
+});
+
+describe('SEC-13 atomic credential window', () => {
+    it('creates the temporary file 0600 inside the target directory before the rename', async () => {
+        const target = join(dataDir, 'accounts', '123.json');
+        const tempPath = `${target}.tmpdeadbeef-0000-4000-8000-000000000000`;
+        await mkdir(join(dataDir, 'accounts'), { recursive: true });
+
+        await writeSyncedTempFile(tempPath, '{"token":"x"}');
+
+        expect(await modeOf(tempPath)).toBe(DATA_FILE_MODE);
+        expect(dirname(tempPath)).toBe(join(dataDir, 'accounts'));
+    });
+
+    it('ignores the umask when creating that temporary file', async () => {
+        const previousUmask = process.umask(0o000);
+        try {
+            const target = join(dataDir, 'state.json');
+            const tempPath = `${target}.tmpdeadbeef-0000-4000-8000-000000000001`;
+
+            await writeSyncedTempFile(tempPath, '{}');
+
+            expect(await modeOf(tempPath)).toBe(DATA_FILE_MODE);
+        } finally {
+            process.umask(previousUmask);
+        }
+    });
+
+    it('leaves no temporary debris behind a completed write', async () => {
+        const store = await openStore({ dataDir });
+
+        await store.writeJson('accounts/123.json', { token: 'x' });
+        const entries = await readdir(dataDir, { recursive: true });
+        const debris = entries.filter((entry) => isTempDebris(String(entry)));
+
+        expect(debris).toEqual([]);
+    });
+
+    it('sweeps orphaned temporary files at startup without touching real ones', async () => {
+        await mkdir(join(dataDir, 'accounts'), { recursive: true });
+        const orphanTop = join(dataDir, 'state.json.tmpdeadbeef-0000-4000-8000-000000000002');
+        const orphanNested = join(dataDir, 'accounts', '123.json.tmpdeadbeef-0000-4000-8000-000000000003');
+        await writeFile(orphanTop, 'half-written', 'utf8');
+        await writeFile(orphanNested, 'half-written', 'utf8');
+        await writeFile(join(dataDir, 'keepme.json'), '{"keep":true}', 'utf8');
+
+        const store = await openStore({ dataDir });
+
+        expect(store.schemaVersion).toBe(SERVICE_SCHEMA_VERSION);
+        await expect(stat(orphanTop)).rejects.toThrow();
+        await expect(stat(orphanNested)).rejects.toThrow();
+        expect(await readFile(join(dataDir, 'keepme.json'), 'utf8')).toBe('{"keep":true}');
+    });
+
+    it('corrects a permissive store directory back to owner-only at startup', async () => {
+        await openStore({ dataDir });
+        await chmod(dataDir, 0o755);
+        expect(await modeOf(dataDir)).not.toBe(DATA_DIR_MODE);
+
+        await openStore({ dataDir });
+
+        expect(await modeOf(dataDir)).toBe(DATA_DIR_MODE);
+    });
+
+    it('reasserts owner-only modes on directories a write creates', async () => {
+        await openStore({ dataDir });
+        const previousUmask = process.umask(0o000);
+        try {
+            const store = await openStore({ dataDir });
+            await store.writeJson('accounts/123.json', { token: 'x' });
+        } finally {
+            process.umask(previousUmask);
+        }
+
+        expect(await modeOf(join(dataDir, 'accounts'))).toBe(DATA_DIR_MODE);
     });
 });

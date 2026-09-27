@@ -17,7 +17,9 @@ import { join } from 'node:path';
 import { readServiceEnv } from '../../extension/service/env.ts';
 import { createLogger } from '../../extension/service/log.ts';
 import { startService } from '../../extension/service/server.ts';
+import type { GitHubVerifier } from '../../extension/service/github.ts';
 import type { ServiceHandle } from '../../extension/service/server.ts';
+import { offlineVerifier } from './github.ts';
 
 /** Port value the harness hands the service so the OS picks one. */
 const OS_ASSIGNED_PORT = '0';
@@ -37,6 +39,14 @@ export interface StartTestServiceOptions {
     readonly dataDir?: string;
     /** Extra environment merged over the harness defaults (env overrides). */
     readonly env?: Readonly<Record<string, string | undefined>>;
+    /**
+     * GitHub verifier handed to the credential routes (T-007/T-008).
+     *
+     * Defaults to a verifier whose `fetch` never leaves the test process, so
+     * no suite run can reach the network; a test that needs GitHub behaviour
+     * injects one over `createGitHubVerifier(fakeGitHub(...).fetch)`.
+     */
+    readonly github?: GitHubVerifier;
 }
 
 /** A running service instance plus everything a test needs to poke it. */
@@ -87,7 +97,12 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
             logLines.push(line);
         },
     });
-    const handle = await startService({ env: readServiceEnv(env), dataDir, log });
+    const handle = await startService({
+        env: readServiceEnv(env),
+        dataDir,
+        log,
+        github: options.github ?? offlineVerifier(),
+    });
     const baseUrl = `http://${HOST}:${handle.port}`;
 
     return {

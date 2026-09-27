@@ -12,10 +12,13 @@
 
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
+import { createGitHubVerifier } from './github.ts';
 import { LOOPBACK_HOST } from './http.ts';
 import { createRequestHandler } from './pipeline.ts';
 import { ROUTES } from './routes/index.ts';
 import { openStore, SERVICE_SCHEMA_VERSION, StorageUnavailableError } from './store/index.ts';
+import { createVerifyThrottle } from './throttle.ts';
+import type { GitHubVerifier } from './github.ts';
 import type { PipelineDeps, PipelineState } from './pipeline.ts';
 import type { ServiceEnv } from './env.ts';
 import type { ServiceLogger } from './log.ts';
@@ -39,6 +42,13 @@ export interface StartServiceOptions {
     readonly dataDir: string;
     /** Structured logger shared by the pipeline and routes. */
     readonly log: ServiceLogger;
+    /**
+     * GitHub verifier for the credential routes and startup reconciliation.
+     *
+     * Defaults to the process `fetch`-backed client; tests inject a fake so
+     * no suite run ever reaches the network.
+     */
+    readonly github?: GitHubVerifier;
 }
 
 /** Handle to a running service instance. */
@@ -197,7 +207,12 @@ function createHandle(parts: HandleParts): ServiceHandle {
         return closing;
     };
 
-    return { port: parts.port, dataDir: parts.dataDir, store: parts.store, shutdown };
+    return {
+        port: parts.port,
+        dataDir: parts.dataDir,
+        store: parts.store,
+        shutdown,
+    };
 }
 
 /**
@@ -210,6 +225,7 @@ function createHandle(parts: HandleParts): ServiceHandle {
  */
 export async function startService(options: StartServiceOptions): Promise<ServiceHandle> {
     const store = await openStoreSafe(options);
+    const github = options.github ?? createGitHubVerifier();
     const state: PipelineState = { inFlight: 0 };
     const context: RouteContext = {
         store,
@@ -217,6 +233,8 @@ export async function startService(options: StartServiceOptions): Promise<Servic
         startedAt: Date.now(),
         log: options.log,
         schemaVersion: SERVICE_SCHEMA_VERSION,
+        github,
+        throttle: createVerifyThrottle(),
     };
     const deps: PipelineDeps = { env: options.env, context, routes: ROUTES, log: options.log, state };
     const server = createServer(createRequestHandler(deps));

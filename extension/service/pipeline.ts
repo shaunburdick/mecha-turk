@@ -15,6 +15,7 @@
 
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import { newCorrelationId } from '../src/ids.ts';
+import { redact } from '../src/redaction.ts';
 import { isAuthorized } from './auth.ts';
 import { readJsonBody } from './body.ts';
 import {
@@ -42,6 +43,9 @@ const CONTENT_LENGTH_HEADER = 'content-length';
 
 /** Header used to close a connection the pipeline refused to reuse. */
 const CONNECTION_HEADER = 'connection';
+
+/** Marker introducing a captured segment in a route path. */
+const PARAM_PREFIX = ':';
 
 /** Mutable counters shared by the pipeline and the shutdown drain. */
 export interface PipelineState {
@@ -80,12 +84,69 @@ type RouteRefusal =
     | { readonly kind: 'method-not-allowed'; readonly allow: readonly string[] };
 
 /** Match of a request target against the route table. */
-type RouteMatch = RouteRefusal | { readonly kind: 'matched'; readonly route: Route };
+type RouteMatch =
+    | RouteRefusal
+    | {
+        readonly kind: 'matched';
+        readonly route: Route;
+        readonly params: Readonly<Record<string, string>>;
+    };
 
-/** A target that matched exactly one method on the route table. */
+/** A target that matched at least one method on the route table. */
 interface MatchedRequest {
     readonly url: URL;
     readonly route: Route;
+    readonly params: Readonly<Record<string, string>>;
+}
+
+/** Captured parameters of one pattern match; `null` when the path differs. */
+type PatternMatch = Readonly<Record<string, string>> | null;
+
+/**
+ * Match a pathname against a route path, capturing its `:name` segments.
+ *
+ * Segments must line up one-for-one: a pattern segment starting with `:` binds
+ * the path segment of the same position (and must not be empty), any other
+ * pattern segment must be identical. Encoded characters stay as they arrived —
+ * the caller validates what it captures rather than decoding it here, so no
+ * `%2e%2e` can be reinterpreted after the fact.
+ *
+ * @param routePath - Route path, exact or `:name`-parameterised.
+ * @param pathname - Request pathname.
+ * @returns The captured parameters, or `null` when the path does not match.
+ */
+function matchPathPattern(routePath: string, pathname: string): PatternMatch {
+    const pattern = routePath.split('/');
+    const segments = pathname.split('/');
+    if (pattern.length !== segments.length) {
+        return null;
+    }
+
+    const params: Record<string, string> = {};
+    for (let index = 0; index < pattern.length; index += 1) {
+        const expected = pattern[index];
+        const actual = segments[index];
+        if (expected === undefined || actual === undefined) {
+            return null;
+        }
+
+        if (expected.startsWith(PARAM_PREFIX)) {
+            if (actual === '') {
+                return null;
+            }
+
+            params[expected.slice(PARAM_PREFIX.length)] = actual;
+        } else if (expected !== actual) {
+            return null;
+        }
+    }
+
+    return params;
+}
+
+/** Whether a route path declares at least one captured segment. */
+function isPatternPath(routePath: string): boolean {
+    return routePath.split('/').some((segment) => segment.startsWith(PARAM_PREFIX));
 }
 
 /**
@@ -109,7 +170,11 @@ function writeResponse(call: ServiceCall, response: HttpResponse): void {
     call.sent = true;
     const serialized = serializeBody(response.body);
     const status = serialized.ok ? response.status : STATUS.internal;
-    const text = serialized.ok ? serialized.text : JSON.stringify(serialized.fallback.body);
+    // Contract §2 step ⑦: response construction runs through the same
+    // redaction guard as audit writes, so a body that somehow carried a
+    // token-shaped substring is neutralised on the way out (NFR-004).
+    const body = serialized.ok ? serialized.text : JSON.stringify(serialized.fallback.body);
+    const text = redact(body);
     const headers: Record<string, string> = {
         [CONTENT_TYPE_HEADER]: JSON_CONTENT_TYPE,
         [CONTENT_LENGTH_HEADER]: String(Buffer.byteLength(text)),
@@ -153,25 +218,51 @@ function describeFailure(error: unknown, call: ServiceCall): HttpResponse {
 }
 
 /**
+ * Collect the parameterised routes whose pattern captures this pathname.
+ *
+ * @param routes - Full route table.
+ * @param pathname - Request pathname.
+ * @returns The pattern routes that match, in declaration order.
+ */
+function patternRoutes(routes: readonly Route[], pathname: string): readonly Route[] {
+    return routes.filter(
+        (route) =>
+            route.path !== pathname &&
+            isPatternPath(route.path) &&
+            matchPathPattern(route.path, pathname) !== null,
+    );
+}
+
+/**
  * Match the current request against the route table.
+ *
+ * Exact routes are preferred over parameterised ones for the same target, so
+ * a literal path like `POST /v1/accounts/verify` can never be swallowed by
+ * `POST /v1/accounts/:numericUserId/token`'s pattern sibling. The `Allow`
+ * list of a `405` covers every method declared for the target, by either
+ * route kind (contract §4).
  *
  * @param call - The exchange to match.
  * @param url - The parsed, loopback-confined target.
- * @returns The matched route, or why the target was refused.
+ * @returns The matched route and its captures, or why the target was refused.
  */
 function matchRoute(call: ServiceCall, url: URL): RouteMatch {
     const method = call.request.method ?? '';
-    const atPath = call.deps.routes.filter((route) => route.path === url.pathname);
-    if (atPath.length === 0) {
+    const { routes } = call.deps;
+    const candidates = [
+        ...routes.filter((route) => route.path === url.pathname),
+        ...patternRoutes(routes, url.pathname),
+    ];
+    if (candidates.length === 0) {
         return { kind: 'not-found' };
     }
 
-    const route = atPath.find((candidate) => candidate.method === method);
+    const route = candidates.find((candidate) => candidate.method === method);
     if (route === undefined) {
-        return { kind: 'method-not-allowed', allow: atPath.map((candidate) => candidate.method) };
+        return { kind: 'method-not-allowed', allow: candidates.map((candidate) => candidate.method) };
     }
 
-    return { kind: 'matched', route };
+    return { kind: 'matched', route, params: matchPathPattern(route.path, url.pathname) ?? {} };
 }
 
 /**
@@ -264,7 +355,7 @@ function matchRequest(call: ServiceCall): MatchedRequest | null {
         return null;
     }
 
-    return { url, route: match.route };
+    return { url, route: match.route, params: match.params };
 }
 
 /**
@@ -283,7 +374,12 @@ async function runPipeline(call: ServiceCall): Promise<void> {
         return;
     }
 
-    const request: RouteRequest = { method: call.request.method ?? 'GET', url: matched.url, body };
+    const request: RouteRequest = {
+        method: call.request.method ?? 'GET',
+        url: matched.url,
+        body,
+        params: matched.params,
+    };
     let response: HttpResponse;
     try {
         response = await matched.route.handler(call.deps.context, request);

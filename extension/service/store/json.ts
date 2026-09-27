@@ -13,9 +13,10 @@
 
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
-import { dirname } from 'node:path';
+import type { Dirent } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { parseJsonText } from '../json.ts';
-import { DATA_DIR_MODE, DATA_FILE_MODE } from './dir.ts';
+import { DATA_FILE_MODE, ensureDir } from './dir.ts';
 import { StorageUnavailableError } from './errors.ts';
 import { readTextFile, removeIfPresent } from './files.ts';
 
@@ -50,10 +51,15 @@ export type JsonReadResult<T> =
 /**
  * Write text to a fresh file and flush it to disk before it is renamed.
  *
+ * The mode is passed to `open` explicitly: `0600` must hold whatever umask the
+ * host runtime runs with, so the pre-rename window never exposes the bytes to
+ * anyone but the owner (SEC-13 rule 1). Tests observe that window directly by
+ * calling this function against a path inside the target directory.
+ *
  * @param tempPath - Absolute path of the temporary file to create.
  * @param text - Serialized content to write.
  */
-async function writeAndSync(tempPath: string, text: string): Promise<void> {
+export async function writeSyncedTempFile(tempPath: string, text: string): Promise<void> {
     const handle = await fs.open(tempPath, 'w', DATA_FILE_MODE);
     try {
         await handle.writeFile(text, 'utf8');
@@ -94,14 +100,71 @@ async function quarantine(filePath: string): Promise<QuarantinedOutcome> {
 export async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
     const text = `${JSON.stringify(value, null, JSON_INDENT)}\n`;
     const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID()}`;
-    await fs.mkdir(dirname(filePath), { recursive: true, mode: DATA_DIR_MODE });
+    // `ensureDir` chmods after mkdir so `0700` survives a permissive umask,
+    // the same guarantee the store directory itself gets at startup (SEC-13).
+    await ensureDir(dirname(filePath));
     try {
-        await writeAndSync(tempPath, text);
+        await writeSyncedTempFile(tempPath, text);
         await fs.rename(tempPath, filePath);
     } catch (error) {
         await removeIfPresent(tempPath);
         throw new StorageUnavailableError(`store file cannot be written: ${filePath}`, error);
     }
+}
+
+/** Name shape of an orphaned temporary file left behind by an interrupted write. */
+const TEMP_DEBRIS_PATTERN = /\.tmp[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** How deep the startup sweep descends (`accounts/`, `checkpoints/`, `runs/`, `rate/`). */
+const SWEEP_MAX_DEPTH = 3;
+
+/**
+ * Recognise the temporary file of an interrupted write.
+ *
+ * Readers ignore these by construction (they open exact target names), so the
+ * only thing left to do with one is sweep it — it must never shadow a real
+ * target or linger world-readable (contract §6 rule 5).
+ *
+ * @param name - File name inside the store.
+ * @returns `true` for `<target>.tmp<uuid>` debris.
+ */
+export function isTempDebris(name: string): boolean {
+    return TEMP_DEBRIS_PATTERN.test(name);
+}
+
+/**
+ * Remove orphaned temporary files under a directory, recursively but bounded.
+ *
+ * @param dirPath - Absolute directory to sweep; a missing one sweeps nothing.
+ * @param depth - Remaining recursion depth.
+ * @returns How many debris files were removed (removal is best-effort).
+ */
+export async function sweepTempDebris(dirPath: string, depth = SWEEP_MAX_DEPTH): Promise<number> {
+    if (depth < 0) {
+        return 0;
+    }
+
+    let entries: Dirent[];
+    try {
+        entries = await fs.readdir(dirPath, { withFileTypes: true });
+    } catch {
+        // Absent or unreadable: there is nothing to sweep, and the open path
+        // is the place that reports storage trouble, not the cleanup.
+        return 0;
+    }
+
+    let removed = 0;
+    for (const entry of entries) {
+        const target = join(dirPath, entry.name);
+        if (entry.isDirectory()) {
+            removed += await sweepTempDebris(target, depth - 1);
+        } else if (entry.isFile() && isTempDebris(entry.name)) {
+            removed += 1;
+            await removeIfPresent(target);
+        }
+    }
+
+    return removed;
 }
 
 /**

@@ -18,9 +18,7 @@
 
 import { findSecretLeak } from '../src/redaction.ts';
 import { isRecord } from './json.ts';
-import { STATUS } from './http.ts';
 import type { JsonReadResult } from './store/index.ts';
-import type { HttpResponse } from './http.ts';
 import type { LogLevel, ServiceLogger } from './log.ts';
 
 /** Store file this configuration is persisted to. */
@@ -346,25 +344,9 @@ export function configFromStore(result: JsonReadResult<ServiceConfig>, log: Serv
 /**
  * Build the contract's 422 response for a list of field issues.
  *
- * The body is a superset of the contract §1 error envelope: `message`
- * restates every `field: remediation` pair so an envelope-only consumer can
- * render it verbatim, while `issues` carries the structured list that
- * contract §2.1 requires ("validation errors list field + remediation") so
- * the panel can show each error against its own field. No submitted value is
- * echoed anywhere in either form.
- *
- * @param issues - Every rejected field with its remediation.
- * @returns The `validation` error response (contract §4).
+ * The implementation lives with the other transport-level response builders
+ * in `http.ts` (it is the envelope every validation failure uses, not a
+ * configuration concern); it is re-exported here so configuration consumers
+ * keep a single import site.
  */
-export function validationResponse(issues: readonly ConfigIssue[]): HttpResponse {
-    return {
-        status: STATUS.validation,
-        body: {
-            error: {
-                code: 'validation',
-                message: issues.map((issue) => `${issue.field}: ${issue.remediation}`).join('; '),
-                issues,
-            },
-        },
-    };
-}
+export { validationResponse } from './http.ts';

@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "paragraphs": [
+        "Mecha Turk wants to send a GitHub token to a local service.",
+        "This local service is allowed but sandbox-advisory: Phase 1 does not enforce an OS sandbox; an allowed service has your full user access — it can run any command and read or write any file your user can.",
+        "Your GitHub token is sent over the loopback proxy to this service and stored outside OpenChamber extension storage, protected by file permissions you can back up. It is stored unencrypted (plaintext) on disk, readable by anything running as your user.",
+        "Consent is recorded in the service audit as an occurrence only — a version and a time, never the token."
+    ]
+}

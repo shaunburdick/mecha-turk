@@ -27,13 +27,17 @@ export const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 /** HTTP status codes the service emits (contract §4 error catalog). */
 export const STATUS = {
     ok: 200,
+    created: 201,
     badRequest: 400,
     unauthorized: 401,
     notFound: 404,
     methodNotAllowed: 405,
+    conflict: 409,
     payloadTooLarge: 413,
     validation: 422,
+    tooManyRequests: 429,
     internal: 500,
+    badGateway: 502,
     storageUnavailable: 503,
 } as const;
 
@@ -72,6 +76,43 @@ export type SerializedBody =
     | { readonly ok: false; readonly fallback: HttpResponse };
 
 /**
+ * One rejected field: its name plus how to fix it.
+ *
+ * The pair is the whole vocabulary a validation error may use — a received
+ * value is never echoed, at any level, in any format (SEC-11 / contract §1).
+ */
+export interface FieldIssue {
+    /** Name of the offending field, or `'body'` for a structurally invalid body. */
+    readonly field: string;
+    /** Operator-facing remediation text; never quotes what was received. */
+    readonly remediation: string;
+}
+
+/**
+ * Build the contract's `422 validation` response for a list of field issues.
+ *
+ * The body is the ratified superset of the §1 error envelope: `message`
+ * restates every `field: remediation` pair so an envelope-only consumer can
+ * render it verbatim, while `issues` carries the structured list. No submitted
+ * value appears anywhere in either form.
+ *
+ * @param issues - Every rejected field with its remediation.
+ * @returns The `validation` error response (contract §4).
+ */
+export function validationResponse(issues: readonly FieldIssue[]): HttpResponse {
+    return {
+        status: STATUS.validation,
+        body: {
+            error: {
+                code: 'validation',
+                message: issues.map((issue) => `${issue.field}: ${issue.remediation}`).join('; '),
+                issues,
+            },
+        },
+    };
+}
+
+/**
  * Build the standard error envelope.
  *
  * @param details - Code, message, and optional correlation id.
@@ -83,6 +124,42 @@ export function errorBody(details: ErrorDetails): ErrorBody {
     }
 
     return { error: { code: details.code, message: details.message, correlationId: details.correlationId } };
+}
+
+/** Response header carrying a throttle's wait time, in seconds (RFC 9110). */
+const RETRY_AFTER_HEADER = 'retry-after';
+
+/** Inputs for {@link throttleResponse}. */
+export interface ThrottleOptions {
+    /** HTTP status; the catalog uses `429` for both throttle codes. */
+    readonly status: number;
+    /** Catalog code: `verify-busy` or `rate-limited`. */
+    readonly code: string;
+    /** Fixed, secret-free explanation. */
+    readonly message: string;
+    /** Seconds the caller should wait before retrying. */
+    readonly retryAfterSeconds: number;
+}
+
+/**
+ * Build a throttled response that tells the caller when to come back.
+ *
+ * The body stays inside the error envelope so the panel can render its delay
+ * copy from a code rather than from prose (contract §4 `rate-limited` /
+ * `verify-busy`), and the wait travels in the documented `retry-after` header.
+ *
+ * @param options - Status, code, message, and wait time.
+ * @returns The response carrying the `retry-after` header.
+ */
+export function throttleResponse(options: ThrottleOptions): HttpResponse {
+    const headers: Record<string, string> = {};
+    headers[RETRY_AFTER_HEADER] = String(options.retryAfterSeconds);
+
+    return {
+        status: options.status,
+        body: errorBody({ code: options.code, message: options.message }),
+        headers,
+    };
 }
 
 /**
