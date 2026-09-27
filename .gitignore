@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Local secrets and environment files — credentials never enter source control.
+.env
+.env.*
+!.env.example
+
+# Test/coverage output. The panel IIFE (extension/panel/main.js) is
+# intentionally committed: OpenChamber does not build TypeScript on install.
+coverage/
+*.tsbuildinfo
+
+# Logs and OS noise
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Editor state
+.vscode/
+.idea/
+*.swp

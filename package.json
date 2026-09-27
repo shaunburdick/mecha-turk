@@ -1,0 +1,32 @@
+{
+    "name": "mecha-turk",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "Mecha Turk — agent event orchestrator. Wave 0 ships the OpenChamber extension spike harness only.",
+    "license": "MIT",
+    "engines": {
+        "node": ">=20.19.0"
+    },
+    "workspaces": [
+        "extension"
+    ],
+    "scripts": {
+        "build": "npm run build --workspace extension",
+        "format": "eslint . --fix",
+        "format:check": "eslint .",
+        "lint": "eslint .",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "verify": "npm run build && npm run lint && npm run typecheck && npm run test"
+    },
+    "devDependencies": {
+        "@openchamber/sdk": "1.24.2",
+        "@types/node": "26.6.3",
+        "eslint": "10.11.0",
+        "eslint-config-shaunburdick": "9.0.1",
+        "typescript": "6.0.3",
+        "vitest": "5.0.2"
+    }
+}
