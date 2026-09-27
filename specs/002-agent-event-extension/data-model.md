@@ -40,9 +40,11 @@ $HOME/.config/openchamber/mecha-turk/
 | `scopeCheck` | `{ checkedAt: string, results: Record<'metadata'\|'issues'\|'pull-requests'\|'contents', 'ok'\|'missing'\|'unknown'> }` | missing → affected streams block with the capability named (FR-010) |
 | `state` | `'pending_handoff' \| 'verifying' \| 'active' \| 'rejected' \| 'revoked' \| 'error'` | see transitions |
 | `connectionState` | `'connected' \| 'auth-failed' \| 'rate-limited' \| 'offline'` | derived from last poll outcome, exposed in health |
-| `createdAt`, `updatedAt` | string | RFC3339 |
+| `createdAt`, `updatedAt` | string | RFC3339. `updatedAt` stamps **record-shape** changes only: a rotation refreshes `verifiedAt` and deliberately leaves `updatedAt` untouched (contract §6), so "when was this credential last proven?" is answered by `verifiedAt`, not by the file's rewrite time (T-009m) |
 
 **Transitions**: `pending_handoff → verifying` (handoff received) → `active` (verified) | `rejected` (login mismatch / `/user` failure). `active → error` (transient auth/network failure), `active → revoked` (401 on poll), `error → active` (next successful poll). Only `active` accounts poll (spec States).
+
+**Stale states (T-009m)**: `pending_handoff` and `verifying` are declared by this model but are **not produced by the current handoff flow** — the service persists an account only after `/user` succeeds, so an interrupted handoff leaves either a complete `active` record or no record at all. They are retained for crash/foreign-file recovery: startup reconciliation defensively re-verifies any record found in them or marks it `error:interrupted-handoff` (F13). The transition is therefore reachable *in storage* (an older build, a hand edit) but is never written by application code today.
 
 **Rotation**: `POST /v1/accounts/:numericUserId/token` replaces `credential` **in place** — `numericUserId`, checkpoints, deliveries, runs, audit untouched (FR-012).
 

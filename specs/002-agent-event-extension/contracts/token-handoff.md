@@ -22,8 +22,11 @@ Governing requirements: FR-006 (N-account custody flow), FR-007 (panel never ret
 
 Rules for this block:
 
-- **One source**: this quoted block is the *only* definition of the consent string in the repository. T-009 must render it **verbatim** (no paraphrase, no trimming, no concatenation with other copy).
+- **One source**: this quoted block is the *only normative* definition of the consent string in the repository (SEC-12). T-009 renders it **verbatim** (no paraphrase, no trimming, no concatenation with other copy); the machine mirror below exists so a browser-side panel can render it without shipping a Markdown file, and it may never drift from this block.
+- **Machine mirror (approved, L1/W2-5)**: `extension/src/consent-copy.json` — `{ version, paragraphs }` — is the **approved machine-readable mirror** of this block and the panel's render source. `tests/consent.test.ts` extracts *this* block and fails the build whenever the JSON mirror, the shipped string, and the contract disagree by a single character, so the mirror is verification-enforced, not convention-enforced.
+- **Sole permitted transformation (W2-5)**: Markdown `**emphasis**` markers are stripped when this block is mirrored, because the panel renders through `textContent` where those characters would appear literally. That strip is the **only** permitted transformation — never trimming, re-wrapping, re-ordering, punctuation changes, or paraphrase — and it is applied to the contract side of the comparison only.
 - **Version**: `CONSENT_VERSION = 1`. The version **bumps by +1 whenever any character of `CONSENT_COPY_V1` changes**, so a stale consent can always be told apart from a current one.
+- **Version-bump checklist**: every copy change updates **both** version fields in the same change — the `CONSENT_VERSION = N` line above **and** `version` in `consent-copy.json`. Changing the copy without bumping, or bumping one without the other, fails `tests/consent.test.ts` (its single pinned literal carries the copy *and* the version together), so copy and version cannot drift independently.
 - **Mirror**: panel state stores `{ givenAt, version }` (`host.storage` consent key); the service audit stores the occurrence `{ version, givenAt }` — never a token, never a login.
 
 ### 1.2 Consent version enforcement (contract invariant, SEC-01)
@@ -98,7 +101,7 @@ panel: clear token (finally)  →  render "Connected as <login>"  →  audit (se
 | F6 | GitHub 403 (SSO/org policy/scope) | `422 credential-rejected`, `reasonClass: 'scope-missing:<name>'` or `'sso-required'`; account rejected or stored with pre-blocked streams per FR-010 | FR-010 |
 | F7 | `expectedLogin` mismatch | `422 account-rejected`, fail closed, nothing persisted | FR-009 |
 | F8 | Duplicate numeric id | `409` → panel offers rotation flow | FR-012 |
-| F9 | Network offline | reason `network`; checkpoint/rate state untouched (no account yet) | FR-024 |
+| F9 | Network offline | `502 upstream-unavailable`, `detail` = `offline` (transport failure); a 15-second hang is `detail: 'timeout'` with timeout copy, never "check the network" (W2-7). Nothing persisted; checkpoint/rate state untouched (no account yet) | FR-024 |
 | F10 | Storage dir unwritable | `503 storage-unavailable` **before** accepting the token: pre-flight reads `GET /v1/status` → `service.storage.writable` (`/health` is deliberately store-independent, so it cannot carry this signal, SEC-08) | FR-039 |
 | F11 | Consent declined/gated | Handoff button disabled with reason; no token typed state leaves the input | FR-008 |
 | F12 | Token pasted into wrong field/other screens | Only the handoff input accepts a credential; all other renders use redaction guard. **Named negative-path test (T-019)**: each non-handoff input, on every screen, is asserted to reject/ignore credential text — render-redaction alone is not the test (SEC-10e) | NFR-004 |
@@ -124,8 +127,9 @@ panel: clear token (finally)  →  render "Connected as <login>"  →  audit (se
   - the new token is verified through `/user` **before** anything is written;
   - the numeric id GitHub reports **must equal the path id** — a mismatch is `422 account-rejected`, **nothing is persisted**, the old credential stays untouched;
   - on success only `login`, `scopeCheck`, and `verifiedAt` are refreshed: `numericUserId`, checkpoints, deliveries, runs, and audit history are **unchanged**;
+  - **state recovery (M4)**: a successful rotation also returns a **non-active** account to `active`/`connected` and clears `errorReason` — a revoked or errored credential comes back into service through this one route, with no second data path. For an account that was already `active`, the stored document still differs in exactly credential/`login`/`scopeCheck`/`verifiedAt`; the recovery fields move only when the account was not `active`;
   - old token bytes are not retained anywhere (no history of secrets), and the replaced copy is gone atomically.
-  *Contract test note: rotate with a different-id token → 422 + byte-identical store; rotate with a same-id token → store diff shows only credential/login/scopeCheck/verifiedAt.*
+  *Contract test note: rotate with a different-id token → 422 + byte-identical store; rotate with a same-id token → store diff shows only credential/login/scopeCheck/verifiedAt (plus state/connectionState/errorReason when the account was not `active`, the recovery documented above).*
 - Revocation (on GitHub) + next poll → account `revoked`/`error` state, streams block with capability named, other accounts unaffected (spec Edge Case).
 - The panel's *host-managed* optional integration card (FR-011) is a **separate** credential OpenChamber owns; it is never read into panel state and never used for polling/dispatch.
 
