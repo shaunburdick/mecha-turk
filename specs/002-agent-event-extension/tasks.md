@@ -8,10 +8,10 @@ Rules for this cut: build the missing product loop; tests only where they keep u
 - Spike panel: polling, matching (assigned issues), evidence, dispatch to host.startSession + worktree options, project picker, lifecycle (proven live S1–S7)
 
 ## Slice 1 — Minimal working loop (validate TODAY)
-- [ ] **M1** Service minimal poll loop: poll bound repos' issues on interval (reuse existing github client), detect issue assignment to a bound account → enqueue event. Simple in-memory/file state; no checkpoint architecture. **(the main engine piece)**
-- [ ] **M2** Relay: panel long-poll (single endpoint ok) or simple interval fetch of pending events from service; lease optional (dedupe by event id is enough for one panel).
-- [ ] **M3** Repos tab: add repo (owner/name) → account picker → project picker → triggers checkboxes (assignment, mention) → enabled toggle. Panel storage. **(the missing UI piece)**
-- [ ] **M4** Wiring: panel receives event → dispatch (reuse spike dispatch + picker + worktree option + PM prompt) → mark event dispatched in service.
+- [x] **M1** Service minimal poll loop: poll bound repos' issues on interval (reuse existing github client), detect issue assignment to a bound account → enqueue event. Simple in-memory/file state; no checkpoint architecture. **(the main engine piece)** *(commit ad052da)*
+- [x] **M2** Relay: panel long-poll (single endpoint ok) or simple interval fetch of pending events from service; lease optional (dedupe by event id is enough for one panel). *(commit ad052da)*
+- [x] **M3** Repos tab: add repo (owner/name) → account picker → project picker → triggers checkboxes (assignment, mention) → enabled toggle. Panel storage. **(the missing UI piece)** *(commit ad052da)*
+- [x] **M4** Wiring: panel receives event → dispatch (reuse spike dispatch + picker + worktree option + PM prompt) → mark event dispatched in service. *(commit ad052da)*
 - [ ] **M5** Live validation on operator's OpenChamber: create account, bind 1 repo w/ project, assign an issue, see PM session start in a worktree. Record what breaks.
 
 ## Slice 2 — Complete MVP (after slice 1 proves)
