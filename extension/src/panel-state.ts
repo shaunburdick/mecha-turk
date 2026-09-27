@@ -7,6 +7,7 @@
  */
 
 import type { BannerTone, ButtonHandle, ListHandle, SelectHandle, TextHandle, BannerHandle } from '@openchamber/sdk/ui';
+import type { GuestProject } from '@openchamber/sdk';
 import type { SpikeConfig } from './config.ts';
 import type { SpikeEvidence } from './evidence.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
@@ -25,12 +26,44 @@ export interface PanelStatus {
     readonly body: string;
 }
 
+/** Lifecycle of the project picker's project list. */
+export type ProjectPickerStatus =
+    /** Nothing requested yet; the picker shows its idle text. */
+    | 'idle'
+    /** `host.listProjects()` is in flight. */
+    | 'loading'
+    /** The host answered with a usable snapshot. */
+    | 'ready'
+    /** The host refused, failed, or reported an error snapshot. */
+    | 'error';
+
+/** Project picker state carried by the panel runtime. */
+export interface ProjectPickerState {
+    /** Where the last `host.listProjects()` call got to. */
+    status: ProjectPickerStatus;
+    /** Projects the host reported; retained across a failed refresh. */
+    projects: readonly GuestProject[];
+    /** Operator-facing note about the picker, already redacted. */
+    note: string;
+}
+
 /** Mutable panel state. */
 export interface PanelState {
     /** Ledger being built for this mount. */
     ledger: SpikeLedger;
     /** Validated operator settings, or `null` until they parse. */
     config: SpikeConfig | null;
+    /** Latest settings snapshot from the host, or `null` before the first one. */
+    settings: Readonly<Record<string, string>> | null;
+    /**
+     * Project id chosen by the panel picker, restored from extension storage.
+     *
+     * `null` means "no panel selection": configuration resolution then falls
+     * back to the `project-id` integration setting.
+     */
+    projectSelection: string | null;
+    /** Project list backing the picker. */
+    projects: ProjectPickerState;
     /** Login discovered from `GET /user`, or `null` before authentication. */
     login: string | null;
     /** Current single matching issue. */
@@ -51,6 +84,16 @@ export interface PanelUi {
     banner: BannerHandle;
     /** Context summary line. */
     summary: TextHandle;
+    /** Project picker select. */
+    projectSelect: SelectHandle;
+    /** Project picker status line (loading / error / empty / note). */
+    projectStatus: TextHandle;
+    /** Selected project id, shown with its source. */
+    projectDetail: TextHandle;
+    /** Reload-projects button. */
+    projectRefresh: ButtonHandle;
+    /** Copy-the-selected-id button. */
+    projectCopy: ButtonHandle;
     /** Poll-now button. */
     poll: ButtonHandle;
     /** Start-session button. */
@@ -92,6 +135,15 @@ export interface PanelRuntime {
 }
 
 /**
+ * Create the empty picker state shown before the first `listProjects()` call.
+ *
+ * @returns The initial project picker state.
+ */
+export function initialProjectPicker(): ProjectPickerState {
+    return { status: 'idle', projects: [], note: '' };
+}
+
+/**
  * Create the runtime with a fresh, unmounted state.
  *
  * @param host - Documented host client.
@@ -115,6 +167,9 @@ export function createPanelRuntime(
                 createdAt,
             }),
             config: null,
+            settings: null,
+            projectSelection: null,
+            projects: initialProjectPicker(),
             login: null,
             match: null,
             evidence: null,

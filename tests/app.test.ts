@@ -1,16 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { JsonValue } from '@openchamber/sdk';
-import { applySettings, handlePagehide, loadLedger, teardown } from '../extension/src/app.ts';
+import type { GuestProjectsSnapshot, JsonValue } from '@openchamber/sdk';
+import { applySettings, handlePagehide, loadLedger, selectProject, teardown } from '../extension/src/app.ts';
 import { EVIDENCE_STORAGE_KEY, serializeEvidence } from '../extension/src/evidence.ts';
 import { parseJsonValue } from '../extension/src/json.ts';
 import { LEDGER_STORAGE_KEY, readLedger } from '../extension/src/ledger.ts';
 import { startPolling, stopPolling } from '../extension/src/panel-actions.ts';
 import { createPanelRuntime } from '../extension/src/panel-state.ts';
+import type { PanelRuntime } from '../extension/src/panel-state.ts';
+import { PROJECT_STORAGE_KEY } from '../extension/src/project-actions.ts';
 import {
     FIXTURE_TIMESTAMP,
+    INTERVAL_MS,
     ISSUE_LIST_PATH,
     LOGIN,
     NO_ISSUES,
+    PROJECT_DIR,
     PROJECT_ID,
     REPOSITORY,
     countingRequest,
@@ -24,6 +28,9 @@ import {
 
 /** Interval a settings change switches the running poll timer to. */
 const SHORT_INTERVAL_MS = 30_000;
+
+/** Second registered project used by the picker tests. */
+const OTHER_ID = 'prj_7';
 
 /**
  * Build the complete settings record the spike accepts.
@@ -188,5 +195,91 @@ describe('loadLedger on remount', () => {
 
         expect(runtime.state.evidence).toBeNull();
         expect(runtime.state.ledger.entries.at(-1)?.phase).toBe('mounted');
+    });
+});
+
+/** Two registered projects, so a pick has somewhere else to go. */
+const TWO_PROJECTS: GuestProjectsSnapshot = {
+    kind: 'projects',
+    state: 'ready',
+    projects: [
+        { id: PROJECT_ID, name: 'widget', directory: PROJECT_DIR },
+        { id: OTHER_ID, name: 'gadget', directory: '/home/agent/acme/gadget' },
+    ],
+};
+
+/**
+ * Load the complete settings record and mark the picker list as loaded.
+ *
+ * @param runtime - Runtime under test.
+ */
+function configureWithLoadedProjects(runtime: PanelRuntime): void {
+    applySettings(runtime, completeSettings(INTERVAL_MS));
+    runtime.state.projects.status = 'ready';
+    runtime.state.projects.projects = TWO_PROJECTS.projects;
+}
+
+describe('project selection', () => {
+    it('resolves the project id from the restored panel selection', () => {
+        const runtime = createTestRuntime(fakeHost());
+        runtime.state.projectSelection = OTHER_ID;
+
+        applySettings(runtime, completeSettings(INTERVAL_MS));
+
+        expect(runtime.state.config?.projectId).toBe(OTHER_ID);
+        expect(runtime.state.status.body).toContain('projectId from the panel picker');
+    });
+
+    it('adopts a pick, stores it, and re-resolves the config', async () => {
+        const storage = createStorageDouble();
+        const runtime = createTestRuntime(
+            fakeHost({ storage: storage.storage, listProjects: async () => TWO_PROJECTS }),
+        );
+        configureWithLoadedProjects(runtime);
+        expect(runtime.state.config?.projectId).toBe(PROJECT_ID);
+
+        await selectProject(runtime, OTHER_ID);
+
+        expect(runtime.state.projectSelection).toBe(OTHER_ID);
+        expect(runtime.state.config?.projectId).toBe(OTHER_ID);
+        expect(storage.values.get(PROJECT_STORAGE_KEY)).toBe(OTHER_ID);
+        expect(runtime.state.projects.note).toContain('stored for the next mount');
+    });
+
+    it('refuses a pick from outside the loaded list and stores nothing', async () => {
+        const storage = createStorageDouble();
+        const runtime = createTestRuntime(
+            fakeHost({ storage: storage.storage, listProjects: async () => TWO_PROJECTS }),
+        );
+        configureWithLoadedProjects(runtime);
+
+        await selectProject(runtime, 'prj_invented');
+
+        expect(runtime.state.projectSelection).toBeNull();
+        expect(runtime.state.config?.projectId).toBe(PROJECT_ID);
+        expect(storage.values.has(PROJECT_STORAGE_KEY)).toBe(false);
+        expect(runtime.state.projects.note).toContain('prj_invented');
+    });
+
+    it('keeps the pick in memory when the storage write is refused', async () => {
+        const storage = createStorageDouble();
+        const runtime = createTestRuntime(
+            fakeHost({
+                storage: {
+                    ...storage.storage,
+                    set: async () => {
+                        throw new Error('storage offline');
+                    },
+                },
+                listProjects: async () => TWO_PROJECTS,
+            }),
+        );
+        configureWithLoadedProjects(runtime);
+
+        await selectProject(runtime, OTHER_ID);
+
+        expect(runtime.state.projectSelection).toBe(OTHER_ID);
+        expect(runtime.state.config?.projectId).toBe(OTHER_ID);
+        expect(runtime.state.projects.note).toContain('for this session only');
     });
 });

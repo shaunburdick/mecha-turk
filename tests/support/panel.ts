@@ -240,6 +240,7 @@ export function fakeHost(overrides: Partial<SpikeHost> = {}): SpikeHost {
             keys: async () => [],
         },
         openUrl: () => Promise.resolve(),
+        writeClipboard: () => Promise.resolve(),
         startSession: async () => NO_SESSION,
         listProjects: async () => PROJECTS,
         listWorktrees: async () => WORKTREES,

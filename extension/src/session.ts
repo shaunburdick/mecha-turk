@@ -34,6 +34,7 @@ export type SpikeHost = Pick<
     | 'request'
     | 'storage'
     | 'openUrl'
+    | 'writeClipboard'
     | 'startSession'
     | 'listProjects'
     | 'listWorktrees'

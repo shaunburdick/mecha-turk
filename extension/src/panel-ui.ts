@@ -3,8 +3,10 @@
  *
  * The UI is built once from `@openchamber/sdk/ui` controls and repainted from
  * state, so `onReady` refreshes never replace a control the user is
- * interacting with. Ledger rows are rendered through {@link redact} as a last
- * line of defence: even a diagnostic string cannot render secret-shaped text.
+ * interacting with. The project picker renders from the picker state alone —
+ * loading, error, empty, and ready are all values, not code paths — and ledger
+ * rows are rendered through {@link redact} as a last line of defence: even a
+ * diagnostic string cannot render secret-shaped text.
  */
 
 import { mountBanner, mountButton, mountList, mountSelect, mountText } from '@openchamber/sdk/ui';
@@ -12,6 +14,13 @@ import type { ListItem, SelectOption } from '@openchamber/sdk/ui';
 import { repositoryLabel } from './config.ts';
 import { isLifecyclePhase, ledgerTail } from './ledger.ts';
 import type { LifecyclePhase } from './ledger.ts';
+import {
+    describeProjectSelection,
+    pickerNote,
+    pickerOptions,
+    pickerPlaceholder,
+    selectedProjectId,
+} from './project-picker.ts';
 import { redact } from './redaction.ts';
 import type { PanelRuntime, PanelState, PanelUi } from './panel-state.ts';
 
@@ -37,6 +46,12 @@ export interface PanelHandlers {
     readonly verify: () => void;
     /** Record the selected lifecycle phase marker. */
     readonly mark: () => void;
+    /** Reload the project list behind the picker. */
+    readonly refreshProjects: () => void;
+    /** Adopt the project the operator picked in the picker. */
+    readonly selectProject: (id: string) => void;
+    /** Copy the effective project id to the host clipboard. */
+    readonly copyProjectId: () => void;
 }
 
 /**
@@ -95,6 +110,83 @@ function createControlsRow(root: HTMLElement): HTMLElement {
 }
 
 /**
+ * Create the container that groups the project picker's controls.
+ *
+ * The picker sits above the action row because it is configuration, not an
+ * action: a control row for the select and its buttons, with the status and
+ * selection lines underneath.
+ *
+ * @param root - Panel root element.
+ * @returns The group element and the control row inside it.
+ */
+function createProjectGroup(root: HTMLElement): { readonly group: HTMLElement; readonly row: HTMLElement } {
+    const group = root.ownerDocument.createElement('div');
+    group.style.display = 'grid';
+    group.style.gap = '4px';
+    group.style.marginBottom = '8px';
+
+    const row = root.ownerDocument.createElement('div');
+    row.style.display = 'flex';
+    row.style.flexWrap = 'wrap';
+    row.style.gap = '8px';
+    row.style.alignItems = 'flex-end';
+    group.append(row);
+    root.append(group);
+
+    return { group, row };
+}
+
+/** Picker handles returned by {@link mountProjectPicker}. */
+type ProjectPickerUi = Pick<
+    PanelUi,
+    'projectSelect' | 'projectStatus' | 'projectDetail' | 'projectRefresh' | 'projectCopy'
+>;
+
+/**
+ * Mount the project picker: list select, reload, copy, and its two lines.
+ *
+ * The select starts empty and disabled; `refresh` fills it in from the picker
+ * state, so the loading, error, and empty states are painted from state rather
+ * than from whatever the mount happened to see.
+ *
+ * @param input - Runtime, panel root, and the callbacks the picker invokes.
+ * @returns The picker handles used for later repaints.
+ */
+function mountProjectPicker(input: {
+    readonly rt: PanelRuntime;
+    readonly root: HTMLElement;
+    readonly handlers: PanelHandlers;
+}): ProjectPickerUi {
+    const { rt, root, handlers } = input;
+    const { group, row } = createProjectGroup(root);
+
+    const projectSelect = mountSelect(row, {
+        label: 'OpenChamber project',
+        value: rt.state.projectSelection,
+        options: [],
+        searchable: true,
+        searchPlaceholder: 'Search by name or id',
+        placeholder: 'Select a project',
+        disabled: true,
+        onChange: (id) => handlers.selectProject(id),
+    });
+    const projectRefresh = mountButton(row, {
+        label: 'Reload projects',
+        variant: 'secondary',
+        onClick: handlers.refreshProjects,
+    });
+    const projectCopy = mountButton(row, {
+        label: 'Copy project id',
+        variant: 'outline',
+        onClick: handlers.copyProjectId,
+    });
+    const projectStatus = mountText(group, { text: pickerNote(rt.state.projects) });
+    const projectDetail = mountText(group, { text: describeProjectSelection(rt.state) });
+
+    return { projectSelect, projectStatus, projectDetail, projectRefresh, projectCopy };
+}
+
+/**
  * Mount every panel control once.
  *
  * @param rt - Panel runtime.
@@ -105,6 +197,7 @@ export function mountPanelUi(rt: PanelRuntime, input: { root: HTMLElement; handl
     const { root, handlers } = input;
     const banner = mountBanner(root, { tone: 'info', title: 'Mecha Turk Spike', body: 'Waiting for the host.' });
     const summary = mountText(root, { text: 'Starting…' });
+    const picker = mountProjectPicker({ rt, root, handlers });
     const controls = createControlsRow(root);
 
     const poll = mountButton(controls, {
@@ -135,7 +228,7 @@ export function mountPanelUi(rt: PanelRuntime, input: { root: HTMLElement; handl
         onSelect: (id) => void openEntry(rt, id),
     });
 
-    return { banner, summary, poll, dispatch, verify, phaseSelect, mark, list };
+    return { banner, summary, ...picker, poll, dispatch, verify, phaseSelect, mark, list };
 }
 
 /**
@@ -181,6 +274,31 @@ function buildListItems(state: PanelState): ListItem[] {
 }
 
 /**
+ * Repaint the project picker from the picker state.
+ *
+ * @param state - Panel state.
+ * @param ui - Mounted UI handles.
+ */
+function refreshProjectPicker(state: PanelState, ui: PanelUi): void {
+    const picker = state.projects;
+    const selected = selectedProjectId(state);
+
+    ui.projectSelect.update({
+        options: pickerOptions(picker),
+        // The picker's own value, not the effective one: a project that only
+        // the integration setting supplies has not been picked yet, and the
+        // SDK select skips `onChange` when a click matches the current value —
+        // so showing it here would silently block the operator from storing it.
+        value: state.projectSelection,
+        disabled: picker.status !== 'ready' || picker.projects.length === 0,
+        placeholder: pickerPlaceholder(picker),
+    });
+    ui.projectStatus.update({ text: pickerNote(picker) });
+    ui.projectDetail.update({ text: describeProjectSelection(state) });
+    ui.projectCopy.update({ disabled: selected === null });
+}
+
+/**
  * Repaint every mounted control from the current state.
  *
  * @param rt - Panel runtime.
@@ -198,4 +316,5 @@ export function refresh(rt: PanelRuntime): void {
     ui.poll.update({ disabled: !state.connected || state.config === null || rt.pollInFlight });
     ui.dispatch.update({ disabled: state.evidence === null || state.busy, loading: state.busy });
     ui.verify.update({ disabled: state.config === null || state.busy });
+    refreshProjectPicker(state, ui);
 }

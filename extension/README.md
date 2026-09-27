@@ -36,6 +36,8 @@ Module map:
 | `panel-ui.ts` | Rendering with `@openchamber/sdk/ui` |
 | `panel-actions.ts` | Poll, identity, verify, phase-marker actions |
 | `panel-dispatch.ts` | The single dispatch path |
+| `project-picker.ts` | Pure project-picker state, options, and selection text |
+| `project-actions.ts` | `listProjects()` and the stored project selection |
 | `app.ts` | Wiring: mount, subscribe, teardown |
 | `redaction.ts` | Secret-shape detection and assertions |
 | `json.ts` | Typed bridge from `JSON.stringify` to the host's `JsonValue` |
@@ -78,6 +80,29 @@ values and their meaning):
 Setting ids must match the SDK's `^[a-z][a-z0-9-]*$` pattern; the manifest
 enforces it.
 
+### Project id precedence
+
+OpenChamber has no Settings surface that prints project ids, and the panel
+cannot write integration settings — SDK 1.24.2 exposes `host.onSettings()` as
+a host→guest push with no setter — so the panel ships a project picker that
+lists `host.listProjects()` and stores the pick in extension storage. The
+effective `projectId` is resolved in this order:
+
+1. **Panel picker selection** — stored under the extension-namespaced
+   `host.storage` key `mecha-turk-spike:project`. Picking a project writes it
+   and re-resolves the configuration immediately.
+2. **`project-id` integration setting** — used when no stored selection
+   exists, which is the fresh-install and headless-configuration path.
+
+Both sources are validated by the same rule (printable ASCII, at most 128
+characters, no surrounding whitespace), neither can create a project, and a
+source that holds nothing leaves dispatch blocked. The panel shows the
+effective id and its source, with a **Copy project id** button for operators
+who would rather also record it in the integration setting. The selection
+changes only by picking another project from the list; a failed
+`listProjects()` or a refused storage write never clears a selection that
+already works, and never disturbs polling, dispatch, or the ledger.
+
 ## Tests
 
 ```sh
@@ -86,7 +111,8 @@ npm test
 
 Offline coverage: manifest validation against the official SDK parser, the
 matching rule, redaction, the ledger format and gap analysis, evidence
-normalization, GitHub payload parsing, configuration validation, host
-verification against a fake host, and the shipped bundle's IIFE/secret
+normalization, GitHub payload parsing, configuration validation (including
+project-id precedence), the project picker's state and storage handling,
+host verification against a fake host, and the shipped bundle's IIFE/secret
 assertions. Anything that needs a live OpenChamber instance or a real PAT is
 recorded as pending in `specs/001-agent-event-orchestrator/spike-evidence.md`.

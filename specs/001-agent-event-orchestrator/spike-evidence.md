@@ -40,7 +40,7 @@ TypeScript is pinned to `6.0.3` rather than the newer `7.0.2` because
 | Format | `npm run format` (ESLint `--fix`, the org config's stylistic rules) | no changes pending, exit 0 |
 | Lint | `npm run lint` | **0 errors, 0 warnings** (zero suppressions; no `eslint-disable`, no `@ts-ignore`, no `any`) |
 | Types | `npm run typecheck` (`tsc --noEmit`, `strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`) | **0 errors** |
-| Tests | `npm test` (vitest) | **186 passed / 186** across 14 files |
+| Tests | `npm test` (vitest) | **229 passed / 229** across 15 files |
 | Build | `npm run build` (`bunx openchamber-guest-bundle`) | `extension/panel/main.js` produced (classic IIFE, ~75 KB) |
 
 Test coverage by concern (offline):
@@ -73,7 +73,14 @@ Test coverage by concern (offline):
   issue id/URL, non-integer generation (M4/T009f).
 - `config.test.ts` — fail-closed settings validation, interval clamping
   (15000–300000), worktree option parsing including rejection of path-shaped
-  new-branch names (separators and `..`, L7/T009h).
+  new-branch names (separators and `..`, L7/T009h), and project-id resolution:
+  panel selection beats the `project-id` setting, a malformed stored value
+  falls back to the setting, and neither source alone unblocks (T009j).
+- `project-picker.test.ts` — picker state and selection handling (T009j):
+  option/placeholder/note rendering for idle, loading, error, empty, and ready;
+  stale lists are never selectable; storage read/write results are reported
+  rather than swallowed; `listProjects` failure leaves config, dispatch state,
+  and the ledger untouched; teardown stops every write.
 - `github.test.ts` — request builders, payload normalisation (PRs detected via
   `pull_request`), malformed payloads fail closed without echoing bodies,
   host-backed fetches with a fake host.
@@ -123,6 +130,28 @@ Findings from the `code-quality-reviewer` pass over the spike (base HEAD
 
 No live step was executed or claimed by the remediation pass: §4 remains
 `PENDING LIVE VERIFICATION`.
+
+### 2.2 Project picker (T009j)
+
+Live verification could not obtain a `projectId`: OpenChamber prints no
+project ids in its Settings surface, and the documented host API in
+`@openchamber/sdk` 1.24.2 offers the panel no way to write integration
+settings — `host.onSettings()` is a host→guest push and `HostClient` declares
+no settings writer (confirmed against `dist/host.d.ts`, `API.md`, and the wire
+protocol's `type: 'settings'` message).
+
+The panel therefore gained a project picker: `host.listProjects()` on mount
+and on demand (capability `sessions`, no new capability requested), the pick
+persisted in the extension-namespaced `host.storage` key
+`mecha-turk-spike:project`, and `resolveProjectId` resolving **panel selection
+→ `project-id` integration setting → blocked**. Loading, error, and empty
+states are rendered from picker state; a refused list or a refused write never
+touches configuration, polling, dispatch, or the ledger, and dispatch stays
+blocked without a resolved id. The effective id and its source are shown with
+a **Copy project id** button (`host.writeClipboard`) for operators who still
+want it in the integration setting. Re-verified with `npm run verify`
+(build, lint, typecheck, 229 tests); see `contracts/openchamber.md` amendment 4
+and `extension/README.md`.
 
 ## 3. Blockers
 

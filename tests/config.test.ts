@@ -8,6 +8,7 @@ import {
     parseSpikeConfig,
     parseWorktreeOption,
     repositoryLabel,
+    resolveProjectId,
 } from '../extension/src/config.ts';
 import type { SpikeSettings } from '../extension/src/config.ts';
 
@@ -19,6 +20,12 @@ const PROJECT_ID = 'prj_123';
 
 /** Repository string shared by the settings fixture and the assertions. */
 const REPOSITORY = 'acme/widget';
+
+/** Project id the panel picker's stored selection supplies. */
+const PANEL_PICK = 'prj_panel';
+
+/** Setting id of the project field declared in the manifest. */
+const PROJECT_SETTING_ID = 'project-id';
 
 /** Owner of {@link REPOSITORY}. */
 const OWNER = 'acme';
@@ -46,7 +53,7 @@ type SettingId = 'repository' | 'expected-login' | 'project-id' | 'worktree-opti
 const VALID_ENTRIES: readonly (readonly [SettingId, string])[] = [
     ['repository', REPOSITORY],
     ['expected-login', LOGIN],
-    ['project-id', PROJECT_ID],
+    [PROJECT_SETTING_ID, PROJECT_ID],
     ['worktree-option', GENERATED],
     [INTERVAL_ID, String(VALID_INTERVAL_MS)],
 ];
@@ -166,7 +173,7 @@ describe('parseSpikeConfig', () => {
     });
 
     it('blocks when the project reference is missing', () => {
-        const settings = withSetting(validSettings(), ['project-id', '  ']);
+        const settings = withSetting(validSettings(), [PROJECT_SETTING_ID, '  ']);
         const result = parseSpikeConfig(settings);
 
         expect(result.ok).toBe(false);
@@ -235,6 +242,73 @@ describe('parseSpikeConfig', () => {
         if (result.ok) {
             expect(result.config.expectedLogin).toBeNull();
         }
+    });
+});
+
+describe('parseSpikeConfig project id precedence', () => {
+    it('prefers the panel selection over the integration setting', () => {
+        const result = parseSpikeConfig(validSettings(), PANEL_PICK);
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.config.projectId).toBe(PANEL_PICK);
+            expect(result.notes.join(' ')).toContain('projectId from the panel picker');
+        }
+    });
+
+    it('falls back to the integration setting when nothing is selected', () => {
+        const result = parseSpikeConfig(validSettings(), null);
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.config.projectId).toBe(PROJECT_ID);
+            expect(result.notes).toEqual([]);
+        }
+    });
+
+    it('falls back to the integration setting when the stored selection is malformed', () => {
+        for (const malformed of ['   ', 'bad\nid', 'x'.repeat(200)]) {
+            const result = parseSpikeConfig(validSettings(), malformed);
+
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.config.projectId).toBe(PROJECT_ID);
+            }
+        }
+    });
+
+    it('accepts a panel selection when the integration setting is empty', () => {
+        const settings = withSetting(validSettings(), [PROJECT_SETTING_ID, '']);
+        const result = parseSpikeConfig(settings, PANEL_PICK);
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.config.projectId).toBe(PANEL_PICK);
+        }
+    });
+
+    it('blocks when neither source holds a project id', () => {
+        const settings = withSetting(validSettings(), [PROJECT_SETTING_ID, '']);
+        const result = parseSpikeConfig(settings, null);
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.problems.join(' ')).toContain('projectId');
+        }
+    });
+});
+
+describe('resolveProjectId', () => {
+    it('reports which source supplied the id', () => {
+        expect(resolveProjectId(PANEL_PICK, PROJECT_ID)).toEqual({
+            projectId: PANEL_PICK,
+            source: 'panel-picker',
+        });
+        expect(resolveProjectId(null, PROJECT_ID)).toEqual({
+            projectId: PROJECT_ID,
+            source: 'integration-setting',
+        });
+        expect(resolveProjectId(null, '')).toEqual({ projectId: null, source: null });
     });
 });
 
