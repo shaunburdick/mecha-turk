@@ -12,12 +12,14 @@
 
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
+import { reconcileInterruptedAccounts } from './accounts/reconcile.ts';
 import { createGitHubVerifier } from './github.ts';
 import { LOOPBACK_HOST } from './http.ts';
 import { createRequestHandler } from './pipeline.ts';
 import { ROUTES } from './routes/index.ts';
 import { openStore, SERVICE_SCHEMA_VERSION, StorageUnavailableError } from './store/index.ts';
 import { createVerifyThrottle } from './throttle.ts';
+import type { ReconcileSummary } from './accounts/reconcile.ts';
 import type { GitHubVerifier } from './github.ts';
 import type { PipelineDeps, PipelineState } from './pipeline.ts';
 import type { ServiceEnv } from './env.ts';
@@ -59,6 +61,14 @@ export interface ServiceHandle {
     readonly dataDir: string;
     /** Open store, or `null` when the directory was unusable at start. */
     readonly store: ServiceStore | null;
+    /**
+     * Settles when the F13 startup reconciliation pass has finished.
+     *
+     * The pass runs *after* the listener is accepting connections, so
+     * readiness is never held open behind an upstream call; tests await this
+     * before asserting on post-crash account states.
+     */
+    readonly reconciled: Promise<ReconcileSummary>;
     /** Drain in-flight requests and close the listener; safe to call twice. */
     shutdown(): Promise<void>;
 }
@@ -70,6 +80,7 @@ interface HandleParts {
     readonly store: ServiceStore | null;
     readonly dataDir: string;
     readonly port: number;
+    readonly reconciled: Promise<ReconcileSummary>;
 }
 
 /**
@@ -211,8 +222,38 @@ function createHandle(parts: HandleParts): ServiceHandle {
         port: parts.port,
         dataDir: parts.dataDir,
         store: parts.store,
+        reconciled: parts.reconciled,
         shutdown,
     };
+}
+
+/**
+ * Kick off the F13 startup reconciliation pass.
+ *
+ * It never rejects: a failure to reconcile is logged with an error *kind*
+ * (never upstream text) and reported as a zeroed summary, because the panel
+ * needs a running service to learn why an account looks the way it does.
+ *
+ * @param store - Open store, or `null` when the directory is unusable.
+ * @param github - Verifier used for the re-verification step.
+ * @param log - Structured logger.
+ * @returns The pass's completion promise.
+ */
+function startReconciliation(input: {
+    /** Open store, or `null` when the directory is unusable. */
+    readonly store: ServiceStore | null;
+    /** Verifier used for the re-verification step. */
+    readonly github: GitHubVerifier;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+}): Promise<ReconcileSummary> {
+    return reconcileInterruptedAccounts(input).catch((error: unknown) => {
+        input.log.error('startup reconciliation failed', {
+            errorKind: error instanceof Error ? error.name : typeof error,
+        });
+
+        return { examined: 0, marked: 0, restored: 0 };
+    });
 }
 
 /**
@@ -239,6 +280,10 @@ export async function startService(options: StartServiceOptions): Promise<Servic
     const deps: PipelineDeps = { env: options.env, context, routes: ROUTES, log: options.log, state };
     const server = createServer(createRequestHandler(deps));
     await listen(server, options.env.port);
+    // Reconciliation runs after the listener is up: an upstream call must
+    // never hold the host's readiness probe hostage (F16 readiness is about
+    // *this* process answering, not about GitHub being reachable).
+    const reconciled = startReconciliation({ store, github, log: options.log });
 
     return createHandle({
         server,
@@ -246,5 +291,6 @@ export async function startService(options: StartServiceOptions): Promise<Servic
         store,
         dataDir: options.dataDir,
         port: boundPort(server),
+        reconciled,
     });
 }

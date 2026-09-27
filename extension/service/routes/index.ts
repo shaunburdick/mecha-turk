@@ -12,6 +12,7 @@
  * convention; precedence itself is decided by the pipeline, not by order.
  */
 
+import { deleteAccountRoute, listAccountsRoute, rotateTokenRoute } from './accounts.ts';
 import { getConfigRoute, putConfigRoute } from './config.ts';
 import { healthRoute } from './health.ts';
 import { statusRoute } from './status.ts';
@@ -24,5 +25,8 @@ export const ROUTES: readonly Route[] = [
     getConfigRoute,
     putConfigRoute,
     statusRoute,
+    listAccountsRoute,
     verifyRoute,
+    rotateTokenRoute,
+    deleteAccountRoute,
 ];

@@ -116,6 +116,7 @@ async function startWithGitHub(script: GitHubScript): Promise<{ service: TestSer
     const github = fakeGitHub(script);
     const service = await startTestService({ github: github.verifier });
     running.push(service);
+    await service.handle.reconciled;
 
     return { service, github };
 }
@@ -517,6 +518,7 @@ describe('POST /v1/accounts/verify — throttles (SEC-04, invariant 9)', () => {
         );
         const service = await startTestService({ github: scripted.verifier });
         running.push(service);
+        await service.handle.reconciled;
 
         const first = postVerify(service, verifyBody(REGISTERED_TOKEN));
         expect(await waitFor(() => scripted.tokens.length === 1)).toBe(true);
@@ -580,6 +582,7 @@ describe('secret containment (NFR-004, contract §3 assertion)', () => {
         });
         const service = await startTestService({ github: thrower.verifier });
         running.push(service);
+        await service.handle.reconciled;
 
         const response = await postVerify(service, verifyBody(REGISTERED_TOKEN));
         const text = await response.text();

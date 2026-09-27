@@ -1,24 +1,27 @@
 /**
  * `GET /v1/status` — the health model the panel renders (contract §2.1).
  *
- * Wave 1 ships the skeleton honestly: the service reports itself, where its
- * data lives, and why nothing is polling yet, while the `accounts`,
- * `repositories`, and `agentPin` sections are present but empty because no
- * account, binding, or agent pin exists before Waves 2–5. Reporting a fixed
- * shape with truthful contents beats a shape that grows under the panel's
- * feet — and `service.status: 'degraded'` with a `null` schema version is how
- * an unusable data directory reaches the operator (FR-039).
+ * The service reports itself, where its data lives, why nothing is polling
+ * yet, and — since custody landed in Wave 2 — the registered accounts with
+ * their connection state, projected without credential material. The
+ * `repositories` and `agentPin` sections stay empty until their waves; a
+ * fixed shape with truthful contents beats a shape that grows under the
+ * panel's feet, and `service.status: 'degraded'` with a `null` schema version
+ * is how an unusable data directory reaches the operator (FR-039).
  *
- * `surface.supported` is `true` by construction: a service process only runs
- * where the host spawns services (desktop and web), and VS Code and mobile
- * never spawn one, so an answering process cannot be on an unsupported
+ * `service.storage.writable` is the handoff pre-flight the panel reads before
+ * it enables the token input (SEC-08/F10), and `surface.supported` is `true`
+ * by construction: a service process only runs where the host spawns services
+ * (desktop and web), so an answering process cannot be on an unsupported
  * surface — the panel owns the unsupported-surface banner (AC-017).
  */
 
 import { DEFAULT_CONFIG, CONFIG_FILE, configFromStore, parseStoredConfig } from '../config.ts';
+import { listAccounts } from '../accounts/store.ts';
 import { STATUS } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
 import type { ServiceConfig } from '../config.ts';
+import type { Account, ConnectionState } from '../accounts/model.ts';
 import type { Route, RouteContext } from './types.ts';
 
 /** Path of the status resource. */
@@ -26,6 +29,38 @@ export const STATUS_PATH = '/v1/status';
 
 /** Why polling is paused: a fresh store has no accounts to poll for (FR-039). */
 const PAUSED_REASON = 'config-incomplete';
+
+/** Per-account rate state as the health model reports it (data-model RateState). */
+export interface RateStateReport {
+    /** Requests left in GitHub's current window; `null` before the first poll. */
+    readonly remaining: number | null;
+    /** Hourly budget; `null` before the first poll. */
+    readonly limit: number | null;
+    /** Window reset time; `null` before the first poll. */
+    readonly resetAt: string | null;
+    /** Requests used in the rolling hour; zero before the first poll. */
+    readonly usedLastHour: number;
+    /** Secondary-limit cooldown; `null` while GitHub is not cooling us down. */
+    readonly secondaryBlockedUntil: string | null;
+    /** Whether GitHub supports conditional requests; unknown until measured. */
+    readonly conditionalSupport: 'unknown' | 'yes' | 'no';
+    /** When this state was last written. */
+    readonly updatedAt: string;
+}
+
+/** One account as `GET /v1/status` reports it (contract §2.1). */
+export interface StatusAccount {
+    /** GitHub numeric user id. */
+    readonly numericUserId: string;
+    /** Display login. */
+    readonly login: string;
+    /** Last observed connection state. */
+    readonly connectionState: ConnectionState;
+    /** Rate budget; baseline values until the poller lands (T-014). */
+    readonly rate: RateStateReport;
+    /** Bound streams; empty until repository bindings land (T-020). */
+    readonly streams: readonly unknown[];
+}
 
 /** Health of the service process itself, as `GET /v1/status` reports it. */
 export type ServiceHealth = 'ok' | 'degraded';
@@ -42,9 +77,15 @@ export interface ServiceStatusBody {
         readonly dataDir: string;
         /** Store schema version, or `null` while the store is unavailable. */
         readonly schemaVersion: number | null;
+        /**
+         * Whether the data directory can serve writes right now — the handoff
+         * pre-flight the panel reads *before* enabling the token input
+         * (contract §2.1, SEC-08/F10).
+         */
+        readonly storage: { readonly writable: boolean };
     };
-    /** Per-account identity and rate state; populated once custody lands. */
-    readonly accounts: readonly unknown[];
+    /** Registered accounts, projected without any credential material. */
+    readonly accounts: readonly StatusAccount[];
     /** Per-repository poll state; populated once the poller lands. */
     readonly repositories: readonly unknown[];
     /** Agent pin state; `expectedAgent` arrives with the panel's setting mirror. */
@@ -70,6 +111,60 @@ export interface ServiceStatusBody {
         /** Always `true` here; see the module note. */
         readonly supported: boolean;
     };
+}
+
+/**
+ * Project one account into the status document's account row.
+ *
+ * The rate block reports the honest pre-poll baseline (data-model RateState
+ * with `null` budget fields and zero usage): the poller that fills it lands
+ * with T-014, and a truthful "not measured yet" beats a plausible-looking
+ * number for a system that has never polled (FR-036, NFR-009).
+ *
+ * @param account - The stored account.
+ * @returns The status row; no credential material crosses this boundary.
+ */
+function statusAccountRow(account: Account): StatusAccount {
+    return {
+        numericUserId: account.numericUserId,
+        login: account.login,
+        connectionState: account.connectionState,
+        rate: {
+            remaining: null,
+            limit: null,
+            resetAt: null,
+            usedLastHour: 0,
+            secondaryBlockedUntil: null,
+            conditionalSupport: 'unknown',
+            updatedAt: account.updatedAt,
+        },
+        streams: [],
+    };
+}
+
+/**
+ * Read the account rows for the status document.
+ *
+ * @param context - Route context carrying the open store.
+ * @returns The rows, or none when the store is down or unreadable — the
+ *   status route answers with the storage signal instead of failing.
+ */
+async function statusAccounts(context: RouteContext): Promise<readonly StatusAccount[]> {
+    if (context.store === null) {
+        return [];
+    }
+
+    try {
+        const accounts = await listAccounts(context.store, context.log);
+
+        return accounts.map(statusAccountRow);
+    } catch (error) {
+        context.log.warn('accounts could not be listed for status', {
+            errorKind: error instanceof Error ? error.name : typeof error,
+        });
+
+        return [];
+    }
 }
 
 /**
@@ -104,8 +199,9 @@ async function buildStatusBody(context: RouteContext): Promise<ServiceStatusBody
             uptimeMs: Date.now() - context.startedAt,
             dataDir: context.dataDir,
             schemaVersion: store?.schemaVersion ?? null,
+            storage: { writable: store !== null },
         },
-        accounts: [],
+        accounts: await statusAccounts(context),
         repositories: [],
         agentPin: { expectedAgent: null, lastVerification: null },
         polling: {
