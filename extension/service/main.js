@@ -38,6 +38,14 @@ var SECRET_PATTERNS = [
   { label: "authorization-header", pattern: /\bAuthorization\s*[:=]\s*["']?\S+/g },
   { label: "bearer-credential", pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/g }
 ];
+function findSecretLeak(text) {
+  for (const { label, pattern } of SECRET_PATTERNS) {
+    if (text.match(pattern) !== null) {
+      return label;
+    }
+  }
+  return null;
+}
 function redact(text) {
   let result = text;
   for (const { label, pattern } of SECRET_PATTERNS) {
@@ -113,6 +121,12 @@ function unauthorizedResponse() {
   return errorResponse(STATUS.unauthorized, {
     code: "unauthorized",
     message: "service authentication failed"
+  });
+}
+function storageUnavailableResponse() {
+  return errorResponse(STATUS.storageUnavailable, {
+    code: "storage-unavailable",
+    message: "the data directory is not writable; setup cannot continue until it is"
   });
 }
 function parseRequestTarget(raw) {
@@ -616,6 +630,199 @@ function createRequestHandler(deps) {
   };
 }
 
+// service/config.ts
+var CONFIG_FILE = "config.json";
+var MAX_ECHOED_FIELD_CHARS = 64;
+var LOG_LEVELS = new Set(["debug", "info", "warn", "error"]);
+var NUMERIC_BOUNDS = {
+  intervalMs: { min: 15000, max: 300000, unit: "milliseconds" },
+  overlapMs: { min: 60000, max: 7200000, unit: "milliseconds" },
+  perPage: { min: 1, max: 30, unit: "items per page" },
+  retryMaxAttempts: { min: 1, max: 10, unit: "attempts" },
+  retryBaseMs: { min: 1000, max: 60000, unit: "milliseconds" },
+  retryMaxMs: { min: 5000, max: 300000, unit: "milliseconds" },
+  auditRetentionDays: { min: 7, max: 3650, unit: "days" },
+  auditMaxEntries: { min: 1000, max: 1e6, unit: "entries" },
+  excerptRetentionDays: { min: 1, max: 365, unit: "days" }
+};
+var NUMERIC_FIELDS = Object.keys(NUMERIC_BOUNDS);
+var DEFAULT_CONFIG = {
+  intervalMs: 60000,
+  overlapMs: 600000,
+  perPage: 30,
+  retryMaxAttempts: 5,
+  retryBaseMs: 5000,
+  retryMaxMs: 60000,
+  auditRetentionDays: 180,
+  auditMaxEntries: 50000,
+  excerptRetentionDays: 30,
+  logLevel: "info"
+};
+function isLogLevel(value) {
+  return typeof value === "string" && LOG_LEVELS.has(value);
+}
+function numericIssue(raw, field) {
+  const bounds = NUMERIC_BOUNDS[field];
+  const value = raw[field];
+  if (typeof value === "number" && Number.isInteger(value) && value >= bounds.min && value <= bounds.max) {
+    return [];
+  }
+  return [
+    {
+      field,
+      remediation: `set ${field} to an integer between ${bounds.min} and ${bounds.max} ${bounds.unit}`
+    }
+  ];
+}
+function retryOrderIssue(raw) {
+  const base = raw.retryBaseMs;
+  const ceiling = raw.retryMaxMs;
+  if (typeof base === "number" && typeof ceiling === "number" && base > ceiling) {
+    return [
+      {
+        field: "retryMaxMs",
+        remediation: "set retryMaxMs to a value greater than or equal to retryBaseMs"
+      }
+    ];
+  }
+  return [];
+}
+function unknownFieldIssue(key) {
+  if (findSecretLeak(key) !== null) {
+    return {
+      field: "<withheld>",
+      remediation: "remove this key; only the documented ServiceConfig fields are accepted"
+    };
+  }
+  const name = key.length > MAX_ECHOED_FIELD_CHARS ? `${key.slice(0, MAX_ECHOED_FIELD_CHARS)}…` : key;
+  return {
+    field: name,
+    remediation: "remove this key; only the documented ServiceConfig fields are accepted"
+  };
+}
+function isKnownField(key) {
+  return key === "logLevel" || Object.hasOwn(NUMERIC_BOUNDS, key);
+}
+function collectIssues(raw) {
+  const issues = [];
+  for (const field of NUMERIC_FIELDS) {
+    issues.push(...numericIssue(raw, field));
+  }
+  if (!isLogLevel(raw.logLevel)) {
+    issues.push({
+      field: "logLevel",
+      remediation: "set logLevel to one of debug, info, warn, error"
+    });
+  }
+  issues.push(...retryOrderIssue(raw));
+  for (const key of Object.keys(raw)) {
+    if (!isKnownField(key)) {
+      issues.push(unknownFieldIssue(key));
+    }
+  }
+  return issues;
+}
+function readNumber(raw, field) {
+  const value = raw[field];
+  if (typeof value !== "number") {
+    throw new Error(`validated configuration is missing ${field}`);
+  }
+  return value;
+}
+function readLogLevel(raw) {
+  const value = raw.logLevel;
+  if (!isLogLevel(value)) {
+    throw new Error("validated configuration is missing logLevel");
+  }
+  return value;
+}
+function buildConfig(raw) {
+  return {
+    intervalMs: readNumber(raw, "intervalMs"),
+    overlapMs: readNumber(raw, "overlapMs"),
+    perPage: readNumber(raw, "perPage"),
+    retryMaxAttempts: readNumber(raw, "retryMaxAttempts"),
+    retryBaseMs: readNumber(raw, "retryBaseMs"),
+    retryMaxMs: readNumber(raw, "retryMaxMs"),
+    auditRetentionDays: readNumber(raw, "auditRetentionDays"),
+    auditMaxEntries: readNumber(raw, "auditMaxEntries"),
+    excerptRetentionDays: readNumber(raw, "excerptRetentionDays"),
+    logLevel: readLogLevel(raw)
+  };
+}
+function validateConfig(raw) {
+  if (!isRecord(raw)) {
+    return {
+      ok: false,
+      issues: [{ field: "body", remediation: "send a JSON object holding the full ServiceConfig" }]
+    };
+  }
+  const issues = collectIssues(raw);
+  if (issues.length > 0) {
+    return { ok: false, issues };
+  }
+  return { ok: true, config: buildConfig(raw) };
+}
+function parseStoredConfig(raw) {
+  const validation = validateConfig(raw);
+  return validation.ok ? validation.config : null;
+}
+function configFromStore(result, log) {
+  if (result.status === "ok") {
+    return result.value;
+  }
+  if (result.status === "quarantined") {
+    log.warn("stored configuration was unusable and has been set aside", {
+      quarantinePath: result.quarantinePath
+    });
+  }
+  return DEFAULT_CONFIG;
+}
+function validationResponse(issues) {
+  return {
+    status: STATUS.validation,
+    body: {
+      error: {
+        code: "validation",
+        message: issues.map((issue) => `${issue.field}: ${issue.remediation}`).join("; "),
+        issues
+      }
+    }
+  };
+}
+
+// service/routes/config.ts
+var CONFIG_PATH = "/v1/config";
+async function handleGetConfig(context) {
+  if (context.store === null) {
+    return storageUnavailableResponse();
+  }
+  const result = await context.store.readJson(CONFIG_FILE, parseStoredConfig);
+  const config = configFromStore(result, context.log);
+  return { status: STATUS.ok, body: { config } };
+}
+async function handlePutConfig(context, request) {
+  const validation = validateConfig(request.body);
+  if (!validation.ok) {
+    return validationResponse(validation.issues);
+  }
+  if (context.store === null) {
+    return storageUnavailableResponse();
+  }
+  await context.store.writeJson(CONFIG_FILE, validation.config);
+  return { status: STATUS.ok, body: { config: validation.config } };
+}
+var getConfigRoute = {
+  method: "GET",
+  path: CONFIG_PATH,
+  handler: (context) => handleGetConfig(context)
+};
+var putConfigRoute = {
+  method: "PUT",
+  path: CONFIG_PATH,
+  handler: (context, request) => handlePutConfig(context, request)
+};
+
 // service/routes/health.ts
 var SERVICE_VERSION = "1.0.0";
 function healthResponse(context) {
@@ -630,8 +837,50 @@ var healthRoute = {
   handler: (context) => healthResponse(context)
 };
 
+// service/routes/status.ts
+var STATUS_PATH = "/v1/status";
+var PAUSED_REASON = "config-incomplete";
+async function readConfig(context) {
+  if (context.store === null) {
+    return DEFAULT_CONFIG;
+  }
+  const result = await context.store.readJson(CONFIG_FILE, parseStoredConfig);
+  return configFromStore(result, context.log);
+}
+async function buildStatusBody(context) {
+  const config = await readConfig(context);
+  const { store } = context;
+  return {
+    service: {
+      status: store === null ? "degraded" : "ok",
+      uptimeMs: Date.now() - context.startedAt,
+      dataDir: context.dataDir,
+      schemaVersion: store?.schemaVersion ?? null
+    },
+    accounts: [],
+    repositories: [],
+    agentPin: { expectedAgent: null, lastVerification: null },
+    polling: {
+      intervalMs: config.intervalMs,
+      nextPollAt: null,
+      paused: true,
+      pausedReason: PAUSED_REASON
+    },
+    surface: { supported: true }
+  };
+}
+async function handleGetStatus(context) {
+  const body = await buildStatusBody(context);
+  return { status: STATUS.ok, body };
+}
+var statusRoute = {
+  method: "GET",
+  path: STATUS_PATH,
+  handler: (context) => handleGetStatus(context)
+};
+
 // service/routes/index.ts
-var ROUTES = [healthRoute];
+var ROUTES = [healthRoute, getConfigRoute, putConfigRoute, statusRoute];
 
 // service/server.ts
 var DRAIN_TIMEOUT_MS = 5000;

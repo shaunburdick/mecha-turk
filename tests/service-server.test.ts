@@ -40,8 +40,20 @@ const VALID_TOKEN = 'a'.repeat(40);
 /** Prefix the host puts in front of the bearer secret. */
 const BEARER_PREFIX = 'Bearer ';
 
-/** The only route declared by the wave-1 route table. */
+/** The only route declared by the wave-1 health table. */
 const HEALTH_PATH = '/health';
+
+/** Route table entry used by the readiness probe. */
+const GET_METHOD = 'GET';
+
+/** Configuration resource added by task T-006. */
+const CONFIG_PATH = '/v1/config';
+
+/** Status resource added by task T-006. */
+const STATUS_PATH = '/v1/status';
+
+/** A token that must be refused wherever it is presented. */
+const WRONG_TOKEN = 'wrong-wrong-wrong-wrong';
 
 /** Token-shaped value that must never appear in a log line. */
 const TOKEN_SHAPED_VALUE = 'ghp_abcdefghijklmnop123456';
@@ -199,7 +211,7 @@ describe('bearer authentication', () => {
         const service = await startServiceForTest();
 
         const response = await fetch(`${service.baseUrl}${HEALTH_PATH}`, {
-            headers: { authorization: `${BEARER_PREFIX}wrong-wrong-wrong-wrong` },
+            headers: { authorization: `${BEARER_PREFIX}${WRONG_TOKEN}` },
         });
 
         expect(response.status).toBe(401);
@@ -240,6 +252,30 @@ describe('bearer authentication', () => {
     });
 });
 
+describe('bearer authentication on every wave-1 route', () => {
+    const routes: readonly { readonly method: string; readonly path: string }[] = [
+        { method: GET_METHOD, path: HEALTH_PATH },
+        { method: GET_METHOD, path: CONFIG_PATH },
+        { method: 'PUT', path: CONFIG_PATH },
+        { method: GET_METHOD, path: STATUS_PATH },
+    ];
+
+    for (const route of routes) {
+        it(`refuses ${route.method} ${route.path} with a missing or wrong token`, async () => {
+            const service = await startServiceForTest();
+            const missing = await fetch(`${service.baseUrl}${route.path}`, { method: route.method });
+            const wrong = await fetch(`${service.baseUrl}${route.path}`, {
+                method: route.method,
+                headers: { authorization: `${BEARER_PREFIX}${WRONG_TOKEN}` },
+            });
+
+            expect(missing.status).toBe(401);
+            expect(wrong.status).toBe(401);
+            expect(await wrong.text()).toBe(await missing.text());
+        });
+    }
+});
+
 describe('GET /health', () => {
     it('answers the host readiness probe with the documented body', async () => {
         const service = await startServiceForTest();
@@ -270,7 +306,7 @@ describe('method and path validation', () => {
         const failure = await errorOf(response);
 
         expect(response.status).toBe(405);
-        expect(response.headers.get('allow')).toBe('GET');
+        expect(response.headers.get('allow')).toBe(GET_METHOD);
         expect(failure.code).toBe('method-not-allowed');
     });
 

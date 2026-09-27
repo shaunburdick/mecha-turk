@@ -113,6 +113,22 @@ export function unauthorizedResponse(): HttpResponse {
 }
 
 /**
+ * The documented refusal when the data directory cannot serve a request.
+ *
+ * FR-039 names unavailable storage as a setup prerequisite failure the panel
+ * must surface explicitly rather than start degraded, which is why this is a
+ * stable code the panel can render guidance for.
+ *
+ * @returns The `503 storage-unavailable` response (contract §4).
+ */
+export function storageUnavailableResponse(): HttpResponse {
+    return errorResponse(STATUS.storageUnavailable, {
+        code: 'storage-unavailable',
+        message: 'the data directory is not writable; setup cannot continue until it is',
+    });
+}
+
+/**
  * Parse and confine a request target to this service.
  *
  * @param raw - `req.url`, normally an origin-form path with an optional query.
