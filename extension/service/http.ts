@@ -41,7 +41,15 @@ export const STATUS = {
     storageUnavailable: 503,
 } as const;
 
-/** Fields of the error envelope every failure uses (contract §1). */
+/**
+ * Fields of the error envelope every failure uses (contract §1).
+ *
+ * The optional members are the ratified supersets the §1 grammar names:
+ * `issues` for `422 validation` (Wave 1, T-002) and `reasonClass` for
+ * `422 credential-rejected` (SEC-03, ratified by T-009m). Every builder in
+ * this module goes through {@link errorBody}, so the wire shape and the type
+ * cannot drift apart (review L13).
+ */
 export interface ErrorDetails {
     /** Stable machine-readable code from the catalog. */
     readonly code: string;
@@ -49,6 +57,10 @@ export interface ErrorDetails {
     readonly message: string;
     /** Chain identifier when the failure is unexpected. */
     readonly correlationId?: string;
+    /** Field-level remediation list for `422 validation` (never echoes values). */
+    readonly issues?: readonly FieldIssue[];
+    /** Machine-readable rejection class for `422 credential-rejected` (§4). */
+    readonly reasonClass?: string;
 }
 
 /** The wire shape of an error body. */
@@ -57,6 +69,8 @@ export interface ErrorBody {
         readonly code: string;
         readonly message: string;
         readonly correlationId?: string;
+        readonly issues?: readonly FieldIssue[];
+        readonly reasonClass?: string;
     };
 }
 
@@ -89,6 +103,39 @@ export interface FieldIssue {
 }
 
 /**
+ * Build the standard error envelope.
+ *
+ * Optional members are copied through only when present, so `exactOptional`
+ * types and the JSON wire shape agree: an absent `correlationId`, `issues`, or
+ * `reasonClass` is omitted from the body rather than written as `null`.
+ *
+ * @param details - Code, message, and the optional ratified members.
+ * @returns The envelope body.
+ */
+export function errorBody(details: ErrorDetails): ErrorBody {
+    return {
+        error: {
+            code: details.code,
+            message: details.message,
+            ...(details.correlationId === undefined ? {} : { correlationId: details.correlationId }),
+            ...(details.issues === undefined ? {} : { issues: details.issues }),
+            ...(details.reasonClass === undefined ? {} : { reasonClass: details.reasonClass }),
+        },
+    };
+}
+
+/**
+ * Build an error response.
+ *
+ * @param status - HTTP status code.
+ * @param details - Code, message, and the optional ratified envelope members.
+ * @returns The response to write.
+ */
+export function errorResponse(status: number, details: ErrorDetails): HttpResponse {
+    return { status, body: errorBody(details) };
+}
+
+/**
  * Build the contract's `422 validation` response for a list of field issues.
  *
  * The body is the ratified superset of the §1 error envelope: `message`
@@ -100,30 +147,11 @@ export interface FieldIssue {
  * @returns The `validation` error response (contract §4).
  */
 export function validationResponse(issues: readonly FieldIssue[]): HttpResponse {
-    return {
-        status: STATUS.validation,
-        body: {
-            error: {
-                code: 'validation',
-                message: issues.map((issue) => `${issue.field}: ${issue.remediation}`).join('; '),
-                issues,
-            },
-        },
-    };
-}
-
-/**
- * Build the standard error envelope.
- *
- * @param details - Code, message, and optional correlation id.
- * @returns The envelope body.
- */
-export function errorBody(details: ErrorDetails): ErrorBody {
-    if (details.correlationId === undefined) {
-        return { error: { code: details.code, message: details.message } };
-    }
-
-    return { error: { code: details.code, message: details.message, correlationId: details.correlationId } };
+    return errorResponse(STATUS.validation, {
+        code: 'validation',
+        message: issues.map((issue) => `${issue.field}: ${issue.remediation}`).join('; '),
+        issues,
+    });
 }
 
 /** Response header carrying a throttle's wait time, in seconds (RFC 9110). */
@@ -160,17 +188,6 @@ export function throttleResponse(options: ThrottleOptions): HttpResponse {
         body: errorBody({ code: options.code, message: options.message }),
         headers,
     };
-}
-
-/**
- * Build an error response.
- *
- * @param status - HTTP status code.
- * @param details - Code, message, and optional correlation id.
- * @returns The response to write.
- */
-export function errorResponse(status: number, details: ErrorDetails): HttpResponse {
-    return { status, body: errorBody(details) };
 }
 
 /**

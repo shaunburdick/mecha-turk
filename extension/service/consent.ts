@@ -17,7 +17,7 @@
 
 import { CONSENT_VERSION } from '../src/consent.ts';
 import { nowIso } from '../src/ids.ts';
-import { appendAudit, readAuditEntries } from './audit.ts';
+import { appendAudit, claimConsentVersion, releaseConsentVersion } from './audit.ts';
 import { errorResponse, STATUS } from './http.ts';
 import type { HttpResponse } from './http.ts';
 import type { ServiceStore } from './store/index.ts';
@@ -60,25 +60,34 @@ export function consentRequiredResponse(): HttpResponse {
 /**
  * Record the consent occurrence exactly once per version (§1.2 idempotency).
  *
+ * The per-version claim is taken *before* anything is awaited and released if
+ * the write fails, so two concurrent credential requests carrying the same
+ * `consentVersion` — a race the rolling throttle does not prevent, since
+ * consent is recorded before the slot is acquired — produce exactly one audit
+ * row (review W2-2).
+ *
  * @param store - Open store holding the audit trail.
  * @param version - The version the operator accepted.
  * @throws {StorageUnavailableError} When the audit read or append fails, so a
  *   request that cannot record its consent fails instead of proceeding.
  */
 export async function recordConsentOccurrence(store: ServiceStore, version: number): Promise<void> {
-    const entries = await readAuditEntries(store);
-    const recorded = entries.some(
-        (entry) => entry.eventType === 'consent' && entry.details.version === version,
-    );
-    if (recorded) {
+    if (!await claimConsentVersion(store, version)) {
+        // Already recorded, or another request is writing this version right
+        // now: either way exactly one row will exist for it.
         return;
     }
 
-    await appendAudit(store, {
-        eventType: 'consent',
-        actorSource: 'panel',
-        entity: { kind: 'service', id: 'consent' },
-        reason: 'operator accepted the handoff consent',
-        details: { version, givenAt: nowIso() },
-    });
+    try {
+        await appendAudit(store, {
+            eventType: 'consent',
+            actorSource: 'panel',
+            entity: { kind: 'service', id: 'consent' },
+            reason: 'operator accepted the handoff consent',
+            details: { version, givenAt: nowIso() },
+        });
+    } catch (error) {
+        await releaseConsentVersion(store, version);
+        throw error;
+    }
 }

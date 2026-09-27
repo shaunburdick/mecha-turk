@@ -238,17 +238,12 @@ function reasonCopy(reason: RejectReason): string {
  * @returns The response.
  */
 export function credentialRejectedResponse(reason: RejectReason, correlationId: string): HttpResponse {
-    return {
-        status: STATUS.validation,
-        body: {
-            error: {
-                code: 'credential-rejected',
-                message: reasonCopy(reason),
-                correlationId,
-                reasonClass: reason,
-            },
-        },
-    };
+    return errorResponse(STATUS.validation, {
+        code: 'credential-rejected',
+        message: reasonCopy(reason),
+        correlationId,
+        reasonClass: reason,
+    });
 }
 
 /**

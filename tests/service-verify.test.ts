@@ -93,6 +93,27 @@ describe('POST /v1/accounts/verify — happy path', () => {
         expect(rows.filter((row) => row.eventType === 'consent')).toHaveLength(1);
     });
 
+    it('records exactly one consent row and unique sequence numbers when two verifies race (W2-2)', async () => {
+        const { service } = await startWithGitHub({ user: USER_OK });
+
+        const [first, second] = await Promise.all([
+            postVerify(service, verifyBody(REGISTERED_TOKEN)),
+            postVerify(service, verifyBody(`${REGISTERED_TOKEN}-racing`)),
+        ]);
+
+        const rows = await auditRows(service);
+        const consent = rows.filter((row) => row.eventType === 'consent');
+        expect(consent).toHaveLength(1);
+        expect(consent[0]?.details.version).toBe(CONSENT_VERSION);
+
+        const seqs = rows.map((row) => row.seq);
+        expect(new Set(seqs).size).toBe(seqs.length);
+
+        // One request wins the single verify slot, the other is refused —
+        // whichever order they arrive in, only one account is ever created.
+        expect([first.status, second.status].filter((status) => status === 201)).toHaveLength(1);
+    });
+
     it('applies expectedLogin case-insensitively when it matches', async () => {
         const { service } = await startWithGitHub({ user: USER_OK });
 

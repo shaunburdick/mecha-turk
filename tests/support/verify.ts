@@ -203,7 +203,14 @@ export async function secretSurfaces(service: TestService): Promise<string> {
 }
 
 /** One decoded audit row, narrowed to the fields these tests assert on. */
-export interface AuditRow { readonly eventType: string; readonly details: Record<string, unknown> }
+export interface AuditRow {
+    /** Monotonic sequence number the writer assigned. */
+    readonly seq: number;
+    /** Event vocabulary name. */
+    readonly eventType: string;
+    /** Event payload; never credential material. */
+    readonly details: Record<string, unknown>;
+}
 
 /**
  * Read the audit trail of a harness instance.
