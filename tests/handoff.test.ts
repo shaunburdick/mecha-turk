@@ -2,247 +2,33 @@
  * Panel one-shot handoff tests (task T-009, token-handoff §2/§5, FR-007/FR-008).
  *
  * Every path drives the real orchestration through a scripted `serviceRequest`
- * double and asserts the contract's panel-side promises: the consent refusal
- * path (AC-002), the `finally`-clear of the credential on success **and on
- * every failure class F1–F16**, the storage-write secret scan (AC-001), the
- * rendered-string secret scan, the F10 pre-flight gate, the F4 status re-read,
- * and the re-consent rule when a stored version is older than the current one.
- *
- * The DOM half is covered by a static scan of its source: rendering must go
- * through `textContent`/`setAttribute` and never through an HTML sink
- * (contract §4 rule 5, SEC-14), and the input must stay `type="password"` with
- * `autocomplete="new-password"` (SEC-17).
+ * double (shared via `tests/support/handoff.ts`) and asserts the contract's
+ * panel-side promises: the consent refusal path (AC-002), the `finally`-clear
+ * of the credential on success **and on every failure class F1–F16**, the
+ * storage-write secret scan (AC-001), the F10 pre-flight gate, the F4 status
+ * re-read, and the re-consent rule when a stored version is older than the
+ * current one. Rendering itself lives in `tests/accounts-ui.test.ts`.
  */
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { HostRequestError } from '@openchamber/sdk';
-import type { GuestRequest, GuestRequestResult, HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
+import type { HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
-import { handoffInputEnabled, renderHandoff, submitHandoffAndRepaint } from '../extension/src/accounts-ui.ts';
-import { CONSENT_COPY_V1, CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../extension/src/consent.ts';
-import {
-    ACCOUNTS_STORAGE_KEY,
-    VERIFY_PATH,
-    acceptHandoffConsent,
-    currentHandoffToken,
-} from '../extension/src/handoff.ts';
-import type { HandoffState } from '../extension/src/handoff.ts';
+import { handoffInputEnabled, submitHandoffAndRepaint } from '../extension/src/accounts-ui.ts';
+import { CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../extension/src/consent.ts';
+import { ACCOUNTS_STORAGE_KEY, VERIFY_PATH, acceptHandoffConsent } from '../extension/src/handoff.ts';
 import { STATUS_PATH, preflightHandoff } from '../extension/src/handoff-status.ts';
 import { CONSENT_REFUSAL, STORAGE_REFUSAL } from '../extension/src/handoff-copy.ts';
-import type { HandoffView } from '../extension/src/accounts-ui.ts';
-import type { PanelRuntime } from '../extension/src/panel-state.ts';
-import { createTestRuntime, createStorageDouble, fakeHost, tick } from './support/panel.ts';
-import type { StorageDouble } from './support/panel.ts';
-
-/** Credential registered with this suite's scans; deliberately un-prefixed. */
-const PANEL_TOKEN = `panel-handoff-credential-${'z'.repeat(32)}`;
-
-/** Fixture identity the service answers the handoff with. */
-const CONNECTED_LOGIN = 'octocat-mt';
-
-/** Numeric id the fixture identity carries. */
-const CONNECTED_ID = '77331';
-
-/** Acceptance timestamp used by the consent fixtures. */
-const GIVEN_AT = '2026-09-27T00:00:00.000Z';
-
-/** A current consent mirror for the fixtures. */
-const CURRENT_CONSENT: JsonValue = { givenAt: GIVEN_AT, version: CONSENT_VERSION };
-
-/** Body answering the pre-flight with a writable store and no accounts. */
-const STATUS_BODY = JSON.stringify({ service: { storage: { writable: true } }, accounts: [] });
-
-/** Body answering the handoff with the fixture identity. */
-const VERIFY_BODY = JSON.stringify({
-    numericUserId: CONNECTED_ID,
-    login: CONNECTED_LOGIN,
-    state: 'active',
-    verifiedAt: GIVEN_AT,
-    scopeCheck: { checkedAt: GIVEN_AT, results: { metadata: 'ok', issues: 'ok', pull: 'ok' } },
-});
-
-/** Filesystem path of the DOM adapter, for the static rendering scan. */
-const DOM_SOURCE_PATH = resolve(import.meta.dirname, '../extension/src/accounts-ui.ts');
-
-/** Recorded view the render step writes into; every string is collected. */
-interface RecordingView {
-    /** The view handed to `renderHandoff`. */
-    readonly view: HandoffView;
-    /** Every non-empty string the render step produced, for secret scans. */
-    readonly rendered: string[];
-    /** Consent copy as rendered. */
-    consentText: string;
-    /** Whether the consent step is visible. */
-    consentShown: boolean;
-    /** Whether the credential input accepts typing. */
-    tokenEnabled: boolean;
-    /** The credential input's current value. */
-    tokenValue: string;
-    /** The operator-facing note. */
-    note: string;
-    /** The connected line, when one is shown. */
-    connected: string | null;
-    /** Whether the submit button is enabled. */
-    submitEnabled: boolean;
-    /** Whether the view was disposed. */
-    disposed: boolean;
-}
-
-/**
- * Build a recording view that captures everything the render writes.
- *
- * @returns The view plus its mutable record.
- */
-function recordingView(): RecordingView {
-    const record: RecordingView = {
-        view: {
-            setConsentText: (text: string): void => {
-                record.consentText = text;
-                record.rendered.push(text);
-            },
-            showConsent: (show: boolean): void => {
-                record.consentShown = show;
-            },
-            setTokenEnabled: (enabled: boolean): void => {
-                record.tokenEnabled = enabled;
-            },
-            setTokenValue: (value: string): void => {
-                record.tokenValue = value;
-            },
-            setNote: (text: string): void => {
-                record.note = text;
-                record.rendered.push(text);
-            },
-            setConnected: (text: string | null): void => {
-                record.connected = text;
-                if (text !== null) {
-                    record.rendered.push(text);
-                }
-            },
-            setSubmitEnabled: (enabled: boolean): void => {
-                record.submitEnabled = enabled;
-            },
-            dispose: (): void => {
-                record.disposed = true;
-            },
-        },
-        rendered: [],
-        consentText: '',
-        consentShown: true,
-        tokenEnabled: false,
-        tokenValue: '',
-        note: '',
-        connected: null,
-        submitEnabled: false,
-        disposed: false,
-    };
-
-    return record;
-}
-
-/** Scripted `serviceRequest` behaviour plus the requests it observed. */
-interface ScriptedHost {
-    /** Storage double backing the host. */
-    readonly storage: StorageDouble;
-    /** Requests the panel made, in order. */
-    readonly requests: readonly GuestRequest[];
-    /** Runtime bound to the scripted host. */
-    readonly rt: PanelRuntime;
-    /** The recording view mounted on the runtime. */
-    readonly record: RecordingView;
-}
-
-/**
- * Build a runtime whose `serviceRequest` answers from a handler.
- *
- * @param handler - Decides the answer for each request; may throw a host error.
- * @param initial - Values pre-loaded into `host.storage`.
- * @returns The runtime, its storage, and the recorded requests.
- */
-async function scriptedRuntime(
-    handler: (request: GuestRequest, index: number) => GuestRequestResult | Promise<GuestRequestResult>,
-    initial: Readonly<Record<string, JsonValue>> = { [CONSENT_STORAGE_KEY]: CURRENT_CONSENT },
-): Promise<ScriptedHost> {
-    const storage = createStorageDouble(initial);
-    const requests: GuestRequest[] = [];
-    const host = fakeHost({
-        storage: storage.storage,
-        serviceRequest: async (request) => {
-            requests.push(request);
-
-            return await handler(request, requests.length);
-        },
-    });
-    const rt = createTestRuntime(host);
-    const record = recordingView();
-    rt.handoffView = record.view;
-    await tick();
-
-    return { storage, requests, rt, record };
-}
-
-/**
- * Answer the pre-flight, and refuse or accept the verification afterwards.
- *
- * @param verify - What the `POST /v1/accounts/verify` leg should do.
- * @param status - Optional status body for both status reads.
- * @returns A handler for {@link scriptedRuntime}.
- */
-function serviceScript(
-    verify: GuestRequestResult | { readonly throws: HostRequestErrorCode },
-    status: string = STATUS_BODY,
-): (request: GuestRequest) => GuestRequestResult {
-    return (request) => {
-        if (request.path === STATUS_PATH) {
-            return { status: 200, body: status };
-        }
-
-        if ('throws' in verify) {
-            throw new HostRequestError(verify.throws, 'scripted host failure');
-        }
-
-        return verify;
-    };
-}
-
-/**
- * Assert that no registered credential survived anywhere the test can see.
- *
- * @param host - Scripted runtime holding storage, requests, and rendered text.
- */
-function expectNoCredential(host: ScriptedHost): void {
-    const surfaces = [
-        // The outbound request body is the one surface that *must* carry the
-        // credential (that is the handoff); everything the panel stores,
-        // renders, or echoes must not.
-        ...[...host.storage.values.values()].map((value) => JSON.stringify(value)),
-        ...host.requests.map((request) => request.path),
-        ...host.record.rendered,
-    ].join('\n');
-
-    expect(surfaces).not.toContain(PANEL_TOKEN);
-    expect(currentHandoffToken()).toBeUndefined();
-    expect(host.record.tokenValue).toBe('');
-}
-
-/** Empty handoff state, for building render inputs in the tests. */
-function initialState(): HandoffState {
-    return {
-        consentGiven: false,
-        storageWritable: false,
-        preflighted: false,
-        knownAccountIds: [],
-        connected: null,
-        note: '',
-        busy: false,
-    };
-}
-
-/** Assert that a list of rendered strings carries no registered credential. */
-function expectNoCredentialInStrings(strings: readonly string[]): void {
-    expect(strings.join('\n')).not.toContain(PANEL_TOKEN);
-}
+import {
+    CONNECTED_ID,
+    CONNECTED_LOGIN,
+    GIVEN_AT,
+    PANEL_TOKEN,
+    STATUS_BODY,
+    VERIFY_BODY,
+    expectNoCredential,
+    scriptedRuntime,
+    serviceScript,
+} from './support/handoff.ts';
 
 describe('consent gate (AC-002, contract §1)', () => {
     it('refuses the handoff before any request when no consent was given', async () => {
@@ -448,62 +234,3 @@ describe('storage pre-flight (F10/F14, SEC-08)', () => {
     });
 });
 
-describe('rendering (contract §1.1, §4 rule 5, SEC-17)', () => {
-    it('renders CONSENT_COPY_V1 verbatim into the consent step', () => {
-        const record = recordingView();
-
-        renderHandoff(
-            { ...initialState(), consentGiven: false },
-            record.view,
-        );
-
-        expect(record.consentText).toBe(CONSENT_COPY_V1);
-        expect(record.consentShown).toBe(true);
-        expectNoCredentialInStrings(record.rendered);
-    });
-
-    it('hides the consent step once the current copy is accepted', () => {
-        const record = recordingView();
-
-        renderHandoff({ ...initialState(), consentGiven: true }, record.view);
-
-        expect(record.consentShown).toBe(false);
-    });
-
-    it('enables the credential input only after consent and a writable pre-flight', () => {
-        const base = initialState();
-        const record = recordingView();
-
-        expect(handoffInputEnabled({ ...base, consentGiven: true })).toBe(false);
-        expect(handoffInputEnabled({ ...base, storageWritable: true })).toBe(false);
-        expect(
-            handoffInputEnabled({ ...base, consentGiven: true, storageWritable: true }),
-        ).toBe(true);
-        expect(handoffInputEnabled({ ...base, consentGiven: true, storageWritable: true, busy: true })).toBe(false);
-
-        renderHandoff({ ...base, consentGiven: true, storageWritable: true }, record.view);
-        expect(record.tokenEnabled).toBe(true);
-        expect(record.submitEnabled).toBe(true);
-    });
-
-    it('renders the connected line through the view, never as markup', () => {
-        const record = recordingView();
-
-        renderHandoff({ ...initialState(), connected: { numericUserId: '1', login: 'octocat' } }, record.view);
-
-        expect(record.connected).toBe('Connected as octocat');
-    });
-
-    it('keeps DOM rendering on textContent and the pinned input attributes', () => {
-        const source = readFileSync(DOM_SOURCE_PATH, 'utf8');
-
-        expect(source).toContain('textContent');
-        expect(source).toContain("setAttribute('type', 'password')");
-        expect(source).toContain("setAttribute('autocomplete', 'new-password')");
-        // Usage, not vocabulary: the module's own docs name the forbidden
-        // sinks, so the scan looks for how they would actually be called.
-        expect(source).not.toMatch(/\.innerHTML\b/);
-        expect(source).not.toMatch(/insertAdjacentHTML\s*\(/);
-        expect(source).not.toMatch(/\.outerHTML\b/);
-    });
-});
