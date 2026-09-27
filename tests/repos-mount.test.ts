@@ -15,7 +15,15 @@ import { repaintReposSection } from '../extension/src/panel-ui.ts';
 import type { PanelRuntime, ReposSection } from '../extension/src/panel-state.ts';
 import type { ReposPane } from '../extension/src/repos-ui.ts';
 import { createRepositoriesHandlers } from '../extension/src/repos-mount.ts';
-import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { BINDINGS_PATH } from '../extension/src/service-calls.ts';
+import {
+    createTestRuntime,
+    DEFAULT_BODY,
+    DEFAULT_STATUS,
+    fakeHost,
+    LOGIN,
+    tick,
+} from './support/panel.ts';
 import { fakeDom } from './support/dom.ts';
 import { stubPaints, stubPanelUi, stubReposPane } from './support/ui-stubs.ts';
 
@@ -132,6 +140,46 @@ describe('createRepositoriesHandlers (handler table wired to real actions)', () 
         // 404, so the reads fail closed and the note says so.
         expect(rt.state.repos.status).toBe('error');
         expect(rt.state.repos.note).toBe('One of the reads failed — refresh to retry.');
+    });
+
+    it('wires refresh to loadRepositories, which loads the accounts the picker offers', async () => {
+        // MVP blocker fix regression guard: the GET /v1/accounts read must
+        // land in state, or the "Poll as account" select renders zero options
+        // and every add is refused with "Pick the account this repository
+        // polls under.". The service double answers both reads by path.
+        const accountsBody = JSON.stringify({
+            accounts: [
+                {
+                    numericUserId: '77331',
+                    login: LOGIN,
+                    state: 'active',
+                    connectionState: 'connected',
+                },
+            ],
+        });
+        const bindingsBody = JSON.stringify({ bindings: [], status: [] });
+        const host = fakeHost({
+            serviceRequest: async (request) => {
+                if (request.path === '/v1/accounts') {
+                    return { status: 200, body: accountsBody };
+                }
+
+                if (request.path === BINDINGS_PATH) {
+                    return { status: 200, body: bindingsBody };
+                }
+
+                return { status: DEFAULT_STATUS, body: DEFAULT_BODY };
+            },
+        });
+        const rt = createTestRuntime(host);
+        const handlers = createRepositoriesHandlers(rt);
+
+        handlers.refresh();
+        await tick();
+
+        expect(rt.state.repos.status).toBe('ready');
+        expect(rt.state.repos.note).toBe('');
+        expect(rt.state.repos.accounts).toEqual([{ numericUserId: '77331', login: LOGIN, usable: true }]);
     });
 });
 

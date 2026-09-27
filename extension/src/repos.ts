@@ -281,6 +281,12 @@ export async function loadRepositories(rt: PanelRuntime): Promise<void> {
             rt.state.bindingsActive = countEnabledBindings(bindings);
         }
 
+        // Assign only a read that produced a list: a failed read must not
+        // wipe the accounts the picker already offers.
+        if (accounts !== null) {
+            rt.state.repos.accounts = accounts;
+        }
+
         rt.state.repos.status = bindings !== null && accounts !== null ? 'ready' : 'error';
         if (bindings === null || accounts === null) {
             rt.state.repos.note = 'One of the reads failed — refresh to retry.';
