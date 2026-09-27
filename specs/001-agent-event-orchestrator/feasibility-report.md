@@ -6,6 +6,8 @@
 **Scope:** Research only. No `extension/` or `contracts/` changes. T010–T018 scope not started.
 **Questions:** Q1 agent/model selection · Q2 multi-account · Q3 project creation · Q4 GitHub rate limits · Q5 service path.
 
+> **Status note (2026-09-27) — added at 001 close-out.** Findings below are recorded evidence and are **unchanged**. Two things moved on around them: (1) the S1–S7 spike completed and passed on 2026-09-27 (`spike-evidence.md` §4.6), so "post S1–S7 spike" in the scope line is now literally true; (2) the product owner approved **Option B** — the `contributes.service` multi-account path — over this report's Option A recommendation, and production moved to `specs/002-agent-event-extension`. Task references inside the findings (T010–T018) are annotated as superseded/moved-to-002 in `tasks.md`. The findings themselves, including the Option A recommendation, stand as written. Consolidated summaries live in `research.md`.
+
 ---
 
 ## 0. Method, sources, and version stamps
