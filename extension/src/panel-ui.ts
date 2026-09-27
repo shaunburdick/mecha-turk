@@ -23,6 +23,7 @@ import {
     selectedProjectId,
 } from './project-picker.ts';
 import { redact } from './redaction.ts';
+import { repaintReposPane } from './repos-ui.ts';
 import type { PanelRuntime, PanelState, PanelUi } from './panel-state.ts';
 
 /** Number of ledger rows shown, newest first. */
@@ -275,6 +276,29 @@ function buildListItems(state: PanelState): ListItem[] {
 }
 
 /**
+ * Repaint the tab bodies from `repos.activeTab`.
+ *
+ * The shared tab strip's active state and each body's `hidden` flag are all
+ * decided from `rt.state.repos.activeTab` — the switch handler only writes
+ * state, and every repaint (including the first, which `mountReposSection`
+ * runs before returning) applies visibility here. A runtime without the
+ * mounted section (headless orchestration tests) has nothing to show.
+ *
+ * @param rt - Panel runtime.
+ */
+export function repaintReposSection(rt: PanelRuntime): void {
+    const section = rt.reposSection;
+    if (section === null) {
+        return;
+    }
+
+    const reposShows = rt.state.repos.activeTab === 'repos';
+    section.spike.hidden = reposShows;
+    section.repos.pane.hidden = !reposShows;
+    repaintReposPane(rt, section.repos);
+}
+
+/**
  * Repaint the project picker from the picker state.
  *
  * @param state - Panel state.
@@ -302,21 +326,29 @@ function refreshProjectPicker(state: PanelState, ui: PanelUi): void {
 /**
  * Repaint every mounted control from the current state.
  *
+ * Nothing runs on a disposed runtime; each surface repaints only when it is
+ * mounted, so a runtime without the spike UI (headless tests) can still
+ * repaint the Repositories tab it actually holds.
+ *
  * @param rt - Panel runtime.
  */
 export function refresh(rt: PanelRuntime): void {
-    const { ui } = rt;
-    if (ui === null || rt.disposed) {
+    if (rt.disposed) {
         return;
     }
 
-    const { state } = rt;
-    ui.banner.update({ tone: state.status.tone, title: state.status.title, body: state.status.body });
-    ui.summary.update({ text: summarizeState(state) });
-    ui.list.update({ items: buildListItems(state) });
-    ui.poll.update({ disabled: !state.connected || state.config === null || rt.pollInFlight });
-    ui.dispatch.update({ disabled: state.evidence === null || state.busy, loading: state.busy });
-    ui.verify.update({ disabled: state.config === null || state.busy });
-    refreshProjectPicker(state, ui);
+    const { ui } = rt;
+    if (ui !== null) {
+        const { state } = rt;
+        ui.banner.update({ tone: state.status.tone, title: state.status.title, body: state.status.body });
+        ui.summary.update({ text: summarizeState(state) });
+        ui.list.update({ items: buildListItems(state) });
+        ui.poll.update({ disabled: !state.connected || state.config === null || rt.pollInFlight });
+        ui.dispatch.update({ disabled: state.evidence === null || state.busy, loading: state.busy });
+        ui.verify.update({ disabled: state.config === null || state.busy });
+        refreshProjectPicker(state, ui);
+    }
+
+    repaintReposSection(rt);
     refreshHandoff(rt);
 }

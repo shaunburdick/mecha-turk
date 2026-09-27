@@ -25,7 +25,8 @@ import {
     submitHandoffAndRepaint,
 } from './accounts-ui.ts';
 import { parseProjectId, parseSpikeConfig, repositoryLabel } from './config.ts';
-import { EVIDENCE_STORAGE_KEY, readEvidence } from './evidence.ts';
+import { restoreStoredConsent } from './consent.ts';
+import { restoreStoredEvidence } from './evidence.ts';
 import { declineHandoffConsent } from './handoff.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { analyzeLastCloseGap, buildMountContext, LIFECYCLE_EXPERIMENT_PLAN } from './lifecycle.ts';
@@ -56,6 +57,7 @@ import {
     storeProjectSelection,
 } from './project-actions.ts';
 import { redact } from './redaction.ts';
+import { mountReposSection } from './repos-mount.ts';
 import { startRelayPolling } from './relay.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
@@ -227,34 +229,6 @@ function handleConnection(rt: PanelRuntime, connected: boolean): void {
 }
 
 /**
- * Restore the stored evidence record after a remount.
- *
- * The evidence record is written before a dispatch is attempted, so a panel
- * that is closed and reopened must find it again: without this the reopened
- * panel would show a match it can no longer dispatch (S6 lifecycle).
- *
- * @param rt - Panel runtime.
- */
-async function restoreEvidence(rt: PanelRuntime): Promise<void> {
-    let stored: JsonValue | undefined;
-    try {
-        stored = await rt.host.storage.get(EVIDENCE_STORAGE_KEY);
-    } catch (cause) {
-        setStatus(rt, { tone: 'error', title: 'Storage unavailable', body: describeError(cause) });
-        return;
-    }
-
-    if (rt.disposed) {
-        return;
-    }
-
-    const evidence = readEvidence(stored);
-    if (evidence !== null) {
-        rt.state.evidence = evidence;
-    }
-}
-
-/**
  * Read whatever ledger storage holds, restore the evidence record, and record
  * this mount.
  *
@@ -302,7 +276,7 @@ export async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<v
         appendEntryAndPersist(rt, { at: mountedAt, kind: 'lifecycle', detail });
     }
 
-    await restoreEvidence(rt);
+    await restoreStoredEvidence(rt);
     await persistLedger(rt);
     refresh(rt);
 }
@@ -347,6 +321,14 @@ export function teardown(rt: PanelRuntime): void {
         rt.handoffView = null;
     }
 
+    if (rt.reposSection !== null) {
+        // The pane handle removes its body; the shared tab strip removes its
+        // own node and listeners through `tabs.dispose`.
+        rt.reposSection.repos.tabs.dispose();
+        rt.reposSection.repos.dispose();
+        rt.reposSection = null;
+    }
+
     rt.host.dispose();
 }
 
@@ -386,6 +368,11 @@ async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void>
     if (rt.disposed) {
         return;
     }
+
+    // The accepted-consent mirror must land before the first handoff repaint:
+    // a panel that remounted after accepting must not re-ask for §1.1 consent.
+    // It only flips one state flag, so the dispose check above covers it too.
+    await restoreStoredConsent(rt);
 
     applySettings(rt, context.settings);
     handleConnection(rt, context.connection.connected);
@@ -464,9 +451,10 @@ export function createSpikeApp(options: SpikeAppOptions): SpikeApp {
         copyProjectId: () => void copyProjectId(rt),
     };
 
-    rt.ui = mountPanelUi(rt, { root, handlers });
+    rt.reposSection = mountReposSection(rt, root);
+    rt.ui = mountPanelUi(rt, { root: rt.reposSection.spike, handlers });
     rt.handoffView = mountHandoffDom({
-        root,
+        root: rt.reposSection.spike,
         handlers: {
             accept: () => {
                 void acceptConsentAndRepaint(rt);

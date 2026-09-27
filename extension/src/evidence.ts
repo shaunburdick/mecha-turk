@@ -11,6 +11,9 @@
 
 import type { JsonValue } from '@openchamber/sdk';
 import { assertRedacted } from './redaction.ts';
+import { setStatus } from './panel-state.ts';
+import type { PanelRuntime } from './panel-state.ts';
+import { describeError } from './session.ts';
 
 /** Schema version stamped on every evidence record. */
 export const EVIDENCE_SCHEMA_VERSION = 'extension-spike-1';
@@ -272,4 +275,45 @@ export function readEvidence(value?: JsonValue): SpikeEvidence | null {
     }
 
     return { schemaVersion: EVIDENCE_SCHEMA_VERSION, ...fields, trigger: TRIGGER };
+}
+
+/**
+ * Report an unavailable storage surface on the panel banner.
+ *
+ * The record's home is the operator's own `host.storage`; when the frame
+ * cannot read it, the panel says so instead of silently showing no record.
+ *
+ * @param rt - Panel runtime whose banner shows the problem.
+ * @param cause - The caught storage failure.
+ */
+function describeStorageFailure(rt: PanelRuntime, cause: unknown): void {
+    setStatus(rt, { tone: 'error', title: 'Storage unavailable', body: describeError(cause) });
+}
+
+/**
+ * Restore the stored evidence record after a remount.
+ *
+ * The evidence record is written before a dispatch is attempted, so a panel
+ * that is closed and reopened must find it again: without this the reopened
+ * panel would show a match it can no longer dispatch (S6 lifecycle).
+ *
+ * @param rt - Panel runtime to restore the record onto.
+ */
+export async function restoreStoredEvidence(rt: PanelRuntime): Promise<void> {
+    let stored: JsonValue | undefined;
+    try {
+        stored = await rt.host.storage.get(EVIDENCE_STORAGE_KEY);
+    } catch (cause) {
+        describeStorageFailure(rt, cause);
+        return;
+    }
+
+    if (rt.disposed) {
+        return;
+    }
+
+    const evidence = readEvidence(stored);
+    if (evidence !== null) {
+        rt.state.evidence = evidence;
+    }
 }

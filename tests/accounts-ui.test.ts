@@ -16,9 +16,20 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { adoptServiceAccounts } from '../extension/src/account-adoption.ts';
-import { handoffInputEnabled, refreshHandoff, renderHandoff } from '../extension/src/accounts-ui.ts';
-import { CONSENT_COPY_V1 } from '../extension/src/consent.ts';
+import {
+    acceptConsentAndRepaint,
+    handoffInputEnabled,
+    refreshHandoff,
+    renderHandoff,
+} from '../extension/src/accounts-ui.ts';
+import {
+    CONSENT_COPY_V1,
+    CONSENT_STORAGE_KEY,
+    CONSENT_VERSION,
+    restoreStoredConsent,
+} from '../extension/src/consent.ts';
 import { ACCOUNTS_STORAGE_KEY } from '../extension/src/handoff.ts';
+import { STORAGE_REFUSAL } from '../extension/src/handoff-copy.ts';
 import {
     CONNECTED_ID,
     CONNECTED_LOGIN,
@@ -30,6 +41,7 @@ import {
     scopeResults,
     scriptedRuntime,
 } from './support/handoff.ts';
+import { createStorageDouble, createTestRuntime, fakeHost } from './support/panel.ts';
 
 /** Filesystem path of the DOM adapter, for the static rendering scan. */
 const DOM_SOURCE_PATH = resolve(import.meta.dirname, '../extension/src/accounts-ui.ts');
@@ -159,6 +171,145 @@ describe('silent account adoption (MVP blocker 2)', () => {
         const mirrored = host.storage.values.get(ACCOUNTS_STORAGE_KEY);
         expect(mirrored).toBeDefined();
         expect(JSON.stringify(mirrored)).toContain(CONNECTED_ID);
+    });
+});
+
+describe('accepting the consent step (MVP blocker: Accept did not stick)', () => {
+    it('persists the mirror and hides the consent card after Accept', async () => {
+        // No stored mirror: this install has not encountered the copy yet.
+        const host = await scriptedRuntime(
+            () => ({ status: 200, body: STATUS_BODY }),
+            {},
+        );
+
+        await acceptConsentAndRepaint(host.rt);
+
+        expect(host.storage.values.get(CONSENT_STORAGE_KEY)).toMatchObject({ version: CONSENT_VERSION });
+        expect(host.rt.state.handoff.consentGiven).toBe(true);
+        // Working storage: the card is gone for this mount and the mirror
+        // the re-consent gate reads at submit time now exists.
+        expect(host.record.consentShown).toBe(false);
+        expect(host.record.note).toBe('');
+    });
+
+    it('keeps the consent card and names the storage refusal when the write fails', async () => {
+        const storage = createStorageDouble({});
+        const host = fakeHost({
+            storage: {
+                ...storage.storage,
+                set: async () => {
+                    throw new Error('storage offline');
+                },
+            },
+        });
+        const rt = createTestRuntime(host);
+        const record = recordingView();
+        rt.handoffView = record.view;
+
+        await acceptConsentAndRepaint(rt);
+
+        // Fail closed and show it: no mirror stored, no pretend-accepted
+        // state, and the operator sees why the card is still there.
+        expect(storage.values.has(CONSENT_STORAGE_KEY)).toBe(false);
+        expect(rt.state.handoff.consentGiven).toBe(false);
+        expect(record.consentShown).toBe(true);
+        expect(record.note).toBe(STORAGE_REFUSAL);
+        // The pasted-token gate stays shut without a stored mirror, so the
+        // input can never appear while the consent step is unresolved.
+        expect(handoffInputEnabled(rt.state.handoff)).toBe(false);
+    });
+
+    it('re-accepting after a refused write retries the mirror write', async () => {
+        const storage = createStorageDouble({});
+        let refused = true;
+        const host = fakeHost({
+            storage: {
+                ...storage.storage,
+                set: async (key, value) => {
+                    if (refused) {
+                        throw new Error('storage offline');
+                    }
+                    await storage.storage.set(key, value);
+                },
+            },
+        });
+        const rt = createTestRuntime(host);
+        const record = recordingView();
+        rt.handoffView = record.view;
+
+        await acceptConsentAndRepaint(rt);
+        expect(rt.state.handoff.consentGiven).toBe(false);
+
+        refused = false;
+        await acceptConsentAndRepaint(rt);
+
+        expect(rt.state.handoff.consentGiven).toBe(true);
+        expect(storage.values.get(CONSENT_STORAGE_KEY)).toMatchObject({ version: CONSENT_VERSION });
+        expect(record.consentShown).toBe(false);
+    });
+});
+
+describe('restoring accepted consent at mount (remount must not re-ask)', () => {
+    it('sets consentGiven from the current stored mirror before the first repaint', async () => {
+        const host = await scriptedRuntime(
+            () => ({ status: 200, body: STATUS_BODY }),
+            { [CONSENT_STORAGE_KEY]: { givenAt: GIVEN_AT, version: CONSENT_VERSION } },
+        );
+
+        await restoreStoredConsent(host.rt);
+        refreshHandoff(host.rt);
+
+        expect(host.rt.state.handoff.consentGiven).toBe(true);
+        expect(host.record.consentShown).toBe(false);
+    });
+
+    it('treats a missing, stale, or unreadable mirror as no consent', async () => {
+        const absent = createTestRuntime(fakeHost({ storage: createStorageDouble({}).storage }));
+        await restoreStoredConsent(absent);
+        expect(absent.state.handoff.consentGiven).toBe(false);
+
+        const stale = createTestRuntime(
+            fakeHost({
+                storage: createStorageDouble({ [CONSENT_STORAGE_KEY]: { givenAt: GIVEN_AT, version: 0 } }).storage,
+            }),
+        );
+        await restoreStoredConsent(stale);
+        expect(stale.state.handoff.consentGiven).toBe(false);
+
+        const broken = createTestRuntime(
+            fakeHost({
+                storage: {
+                    get: async () => {
+                        throw new Error('storage unavailable');
+                    },
+                    set: () => Promise.resolve(),
+                    delete: () => Promise.resolve(),
+                    keys: async () => [],
+                },
+            }),
+        );
+        await restoreStoredConsent(broken);
+        expect(broken.state.handoff.consentGiven).toBe(false);
+
+        // Repaint from the broken read: the card shows, with no crash.
+        const record = recordingView();
+        broken.handoffView = record.view;
+        refreshHandoff(broken);
+        expect(record.consentShown).toBe(true);
+    });
+
+    it('leaves the gate exactly as the stored mirror says, not the memory', async () => {
+        // An in-memory "true" from a previous mount must not survive when the
+        // stored mirror says otherwise — the mirror is the durable record.
+        const host = await scriptedRuntime(
+            () => ({ status: 200, body: STATUS_BODY }),
+            {},
+        );
+        host.rt.state.handoff.consentGiven = true;
+
+        await restoreStoredConsent(host.rt);
+
+        expect(host.rt.state.handoff.consentGiven).toBe(false);
     });
 });
 

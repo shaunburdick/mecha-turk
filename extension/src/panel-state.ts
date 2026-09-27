@@ -24,6 +24,7 @@ import { initialHandoffState } from './handoff.ts';
 import type { LifecyclePhase, SpikeLedger } from './ledger.ts';
 import type { HandoffState } from './handoff.ts';
 import type { HandoffView } from './accounts-ui.ts';
+import type { ReposPane } from './repos-ui.ts';
 import type { PanelAccount, PanelBinding, BindingStatusRow } from './repos-service.ts';
 import type { SpikeHost } from './session.ts';
 
@@ -198,6 +199,20 @@ export interface Repositories {
     statusRows: readonly BindingStatusRow[];
 }
 
+/**
+ * The two tab bodies the shared strip switches between.
+ *
+ * The Repositories pane (mount order first, so the strip lands on top) and
+ * the spike body the legacy UI and handoff group mount into; the repaint step
+ * in `panel-ui.ts` hides exactly one of them from `repos.activeTab`.
+ */
+export interface ReposSection {
+    /** The mounted Repositories pane (strip, rows, and add form). */
+    readonly repos: ReposPane;
+    /** Spike-tab body; hidden while the Repositories tab shows. */
+    readonly spike: HTMLElement;
+}
+
 /** UI handles, assigned once when the panel mounts. */
 export interface PanelUi {
     /** Status banner. */
@@ -242,6 +257,8 @@ export interface PanelRuntime {
     ui: PanelUi | null;
     /** Mounted handoff group, when this surface shows one. */
     handoffView: HandoffView | null;
+    /** Mounted Repositories tab and spike body, when this surface shows them. */
+    reposSection: ReposSection | null;
     /** `true` once the panel has been torn down. */
     disposed: boolean;
     /** `true` once the first `onReady` snapshot has been handled. */
@@ -311,6 +328,7 @@ export function createPanelRuntime(
         unsubscribes: [],
         ui: null,
         handoffView: null,
+        reposSection: null,
         disposed: false,
         started: false,
         pollTimer: null,

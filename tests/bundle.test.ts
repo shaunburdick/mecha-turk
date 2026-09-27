@@ -51,6 +51,19 @@ describe('built panel bundle', () => {
             expect(bundle).not.toMatch(pattern);
         }
     });
+
+    it('ships the Repositories pane and its tab (MVP blocker, 2026-09-27)', () => {
+        const bundle = readFileSync(BUNDLE, UTF8);
+
+        // The mount-time gate greps the bundle for the pane's marker; the
+        // minifier renames identifiers and strips comments, so the marker
+        // rides a runtime attribute instead: `data-mount="mountRepositoriesPane"`.
+        expect(bundle).toContain('mountRepositoriesPane');
+        // And a semantic proof that is only true when the pane's code is
+        // actually bundled: the empty-list copy the pane itself renders.
+        expect(bundle).toContain('No repository bound yet — add one below or refresh.');
+        expect(bundle).toContain('Repository bindings');
+    });
 });
 
 describe('panel html', () => {

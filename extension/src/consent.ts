@@ -19,6 +19,7 @@
  */
 
 import consentCopy from './consent-copy.json';
+import type { PanelRuntime } from './panel-state.ts';
 
 /** Current consent copy version; bumps whenever any character of the copy changes. */
 export const CONSENT_VERSION: number = consentCopy.version;
@@ -78,4 +79,24 @@ export function readConsentMirror(raw: unknown): ConsentMirror | null {
  */
 export function consentCurrent(mirror: ConsentMirror | null, currentVersion: number = CONSENT_VERSION): boolean {
     return mirror !== null && mirror.version >= currentVersion;
+}
+
+/**
+ * Restore the consent repaint state from the stored mirror (§1.1/§1.2).
+ *
+ * The stored acceptance is the durable record, but until now it was read only
+ * when a credential was submitted: a panel that remounted after Accepting
+ * re-showed the consent step, so the operator's "yes" never appeared to stick.
+ * Run this at mount, before the first handoff repaint — an unreadable or
+ * stale mirror is *no* consent, exactly as {@link consentCurrent} rules.
+ *
+ * @param rt - Panel runtime whose handoff state receives the restored flag.
+ */
+export async function restoreStoredConsent(rt: PanelRuntime): Promise<void> {
+    try {
+        const mirror = readConsentMirror(await rt.host.storage.get(CONSENT_STORAGE_KEY));
+        rt.state.handoff.consentGiven = consentCurrent(mirror);
+    } catch {
+        rt.state.handoff.consentGiven = false;
+    }
 }

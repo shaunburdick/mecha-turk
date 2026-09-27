@@ -261,12 +261,22 @@ async function writeStorage(
 /**
  * Mark the current consent copy as accepted and persist the mirror (§1.1).
  *
+ * The state flag follows the **write outcome**, not the wish: the stored
+ * mirror — not this mount's memory — is what the re-consent gate reads at
+ * submit time, so a refused write would make this mount believe a "yes" the
+ * next submit (or the next mount) would contradict. A refused write keeps the
+ * consent step on screen and puts the refusal copy on the note line, where
+ * the silent swallow used to leave the operator guessing.
+ *
  * @param rt - Panel runtime.
  */
 export async function acceptHandoffConsent(rt: PanelRuntime): Promise<void> {
     const mirror: ConsentMirror = { givenAt: new Date().toISOString(), version: CONSENT_VERSION };
-    rt.state.handoff.consentGiven = consentCurrent(mirror);
-    await writeStorage(rt, { key: CONSENT_STORAGE_KEY, value: mirror });
+    const stored = await writeStorage(rt, { key: CONSENT_STORAGE_KEY, value: mirror });
+    rt.state.handoff.consentGiven = stored;
+    if (!stored) {
+        rt.state.handoff.note = STORAGE_REFUSAL;
+    }
 }
 
 /**
