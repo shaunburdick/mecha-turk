@@ -15,12 +15,19 @@
  * `consentVersion` → map the outcome. A `HOST_TIMEOUT` re-reads `/v1/status`
  * before the panel declares failure (F4/SEC-05): the service, not the clock,
  * is the authority on whether an account appeared.
+ *
+ * One refusal is a *positive* signal instead of a failure: the service's 409
+ * `duplicate-account` means the pasted token belongs to an account the service
+ * already holds, so {@link applyServiceFailure} asks the adoption module to
+ * connect it silently (no consent — consent governs NEW tokens only) and
+ * renders the adopted identity instead of the rotate-the-token copy. Only a
+ * failed adoption falls back to the refusal wording.
  */
 
 import type { GuestRequestResult } from '@openchamber/sdk';
+import { adoptOnDuplicate, isDuplicateRefusal } from './account-adoption.ts';
+import { readScopeMirror, writeAccountMirror } from './account-mirror.ts';
 import { CONSENT_STORAGE_KEY, CONSENT_VERSION, consentCurrent, readConsentMirror } from './consent.ts';
-import { isJsonValue, parseJsonObject } from './json.ts';
-import { assertRedacted } from './redaction.ts';
 import {
     CONSENT_REFUSAL,
     HOST_COPY,
@@ -31,14 +38,13 @@ import {
     connectedLine,
 } from './handoff-copy.ts';
 import { hostErrorCode, preflightHandoff, rereadStatusAfterTimeout } from './handoff-status.ts';
+import { parseJsonObject } from './json.ts';
+import { writeStorage } from './storage-write.ts';
 import type { ConsentMirror } from './consent.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
 /** Path the handoff posts to (contract §2.2). */
 export const VERIFY_PATH = '/v1/accounts/verify';
-
-/** `host.storage` key holding the account mirror from contract §3. */
-export const ACCOUNTS_STORAGE_KEY = 'accounts';
 
 /** Success status of `POST /v1/accounts/verify` (contract §2.2). */
 const HTTP_CREATED = 201;
@@ -48,123 +54,6 @@ const HTTP_STORAGE_UNAVAILABLE = 503;
 
 /** The credential in flight; cleared in `finally` on every exit (§2 step ⑧). */
 let activeToken: string | undefined;
-
-/** FR-010 capabilities, in the order the contract's matrix reports them. */
-const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] as const;
-
-/** One FR-010 capability name (contract §2 step ⑥). */
-type ScopeCapability = (typeof SCOPE_CAPABILITIES)[number];
-
-/** Result recorded for one capability: `ok`, `missing`, or `unknown` (FR-010). */
-type ScopeResult = 'ok' | 'missing' | 'unknown';
-
-/** FR-010 scope matrix as the account mirror records it (contract §3, review M1). */
-export interface ScopeMirror {
-    /** RFC 3339 timestamp of the check. */
-    readonly checkedAt: string;
-    /** One result per FR-010 capability. */
-    readonly results: Readonly<Record<ScopeCapability, ScopeResult>>;
-}
-
-/**
- * Narrow a service `scopeCheck.results` payload to the four-capability matrix.
- *
- * Every FR-010 capability must carry a legal verdict; anything else is not a
- * matrix this panel can record.
- *
- * @param raw - The `results` field, or anything else.
- * @returns The matrix, or `null` when any capability is missing or illegal.
- */
-function readScopeResults(raw: unknown): Readonly<Record<ScopeCapability, ScopeResult>> | null {
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-        return null;
-    }
-
-    const results = raw as Record<string, unknown>;
-    const entries: (readonly [ScopeCapability, ScopeResult])[] = [];
-    for (const capability of SCOPE_CAPABILITIES) {
-        const verdict = results[capability];
-        if (verdict !== 'ok' && verdict !== 'missing' && verdict !== 'unknown') {
-            return null;
-        }
-
-        entries.push([capability, verdict]);
-    }
-
-    return Object.fromEntries(entries) as Record<ScopeCapability, ScopeResult>;
-}
-
-/**
- * Narrow a service `scopeCheck` payload to the matrix the mirror records.
- *
- * A matrix this panel cannot trust is never guessed into existence, and an
- * absent one (the F4 status re-read reports no scopes at all) becomes `null`
- * rather than a fabricated verdict — `unknown` is reserved for a check that
- * actually ran (FR-010, review M1). Exported for the silent account
- * adoption, which mirrors the scope matrix the service DTO carries.
- *
- * @param raw - `scopeCheck` from the `201` body, or anything else.
- * @returns The matrix, or `null` when this surface has no usable one.
- */
-export function readScopeMirror(raw: unknown): ScopeMirror | null {
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-        return null;
-    }
-
-    const payload = raw as { readonly checkedAt?: unknown; readonly results?: unknown };
-    if (typeof payload.checkedAt !== 'string') {
-        return null;
-    }
-
-    const results = readScopeResults(payload.results);
-    if (results === null) {
-        return null;
-    }
-
-    return { checkedAt: payload.checkedAt, results };
-}
-
-/** Account mirror shape contract §3 records in `host.storage` after a success. */
-export interface AccountMirror {
-    /** GitHub numeric user id. */
-    readonly numericUserId: string;
-    /** Display login. */
-    readonly login: string;
-    /** Connection state the mirror reports. */
-    readonly state: 'active';
-    /**
-     * FR-010 matrix the service reported, or `null` when this surface learned
-     * the account without one (the F4 status re-read carries no scopes).
-     */
-    readonly scopeCheck: ScopeMirror | null;
-}
-
-/**
- * Narrow a stored entry to an account mirror.
- *
- * @param value - One entry from the `accounts` storage key.
- * @returns `true` only for a mirror this panel wrote itself (contract §3's
- *   four fields; a pre-M1 entry without `scopeCheck` is not one).
- */
-function isAccountMirror(value: unknown): value is AccountMirror {
-    if (typeof value !== 'object' || value === null) {
-        return false;
-    }
-
-    const mirror = value as {
-        readonly numericUserId?: unknown;
-        readonly login?: unknown;
-        readonly state?: unknown;
-        readonly scopeCheck?: unknown;
-    };
-
-    return (
-        typeof mirror.numericUserId === 'string' &&
-        typeof mirror.login === 'string' &&
-        mirror.state === 'active' &&
-        (mirror.scopeCheck === null || readScopeMirror(mirror.scopeCheck) !== null)
-    );
-}
 
 /** What the panel knows about one handoff attempt. */
 export interface HandoffState {
@@ -230,32 +119,6 @@ async function readStoredConsent(rt: PanelRuntime): Promise<ConsentMirror | null
     } catch {
         return null;
     }
-}
-
-/**
- * Persist a value in `host.storage` behind the redaction guard.
- *
- * @param rt - Panel runtime.
- * @param key - Storage key.
- * @param value - JSON value to write; must be credential-free.
- * @returns `true` when the write succeeded, `false` when it was refused.
- */
-async function writeStorage(
-    rt: PanelRuntime,
-    entry: { readonly key: string; readonly value: unknown },
-): Promise<boolean> {
-    if (!isJsonValue(entry.value)) {
-        return false;
-    }
-
-    try {
-        assertRedacted(entry.key, JSON.stringify(entry.value));
-        await rt.host.storage.set(entry.key, entry.value);
-    } catch {
-        return false;
-    }
-
-    return true;
 }
 
 /**
@@ -338,55 +201,6 @@ function serviceFailureCopy(result: GuestRequestResult): string {
     }
 
     return SERVICE_COPY.get(code) ?? UNKNOWN_FAILURE;
-}
-
-/**
- * Read the account mirror list this panel wrote earlier.
- *
- * Exported for the silent account adoption, which must know which service
- * accounts the mirror already covers before it writes any.
- *
- * @param rt - Panel runtime.
- * @returns The mirrors; anything unreadable is treated as an empty list.
- */
-export async function readStoredAccounts(rt: PanelRuntime): Promise<readonly AccountMirror[]> {
-    try {
-        const stored = await rt.host.storage.get(ACCOUNTS_STORAGE_KEY);
-        const entries: readonly unknown[] = Array.isArray(stored) ? stored : [];
-
-        return entries.filter(isAccountMirror);
-    } catch {
-        return [];
-    }
-}
-
-/**
- * Persist the account mirror contract §3 records after a success.
- *
- * Exported for the silent account adoption, which records an account the
- * service already holds without any credential handoff.
- *
- * @param rt - Panel runtime.
- * @param identity - Identity and FR-010 matrix the service answered with
- *   (`scopeCheck: null` for the F4 status re-read, which reports no scopes).
- */
-export async function writeAccountMirror(
-    rt: PanelRuntime,
-    identity: {
-        readonly numericUserId: string;
-        readonly login: string;
-        readonly scopeCheck: ScopeMirror | null;
-    },
-): Promise<void> {
-    const mirror: AccountMirror = {
-        numericUserId: identity.numericUserId,
-        login: identity.login,
-        state: 'active',
-        scopeCheck: identity.scopeCheck,
-    };
-    const stored = await readStoredAccounts(rt);
-    const others = stored.filter((entry) => entry.numericUserId !== identity.numericUserId);
-    await writeStorage(rt, { key: ACCOUNTS_STORAGE_KEY, value: [...others, mirror] });
 }
 
 /**
@@ -473,10 +287,26 @@ async function clearStoredConsent(rt: PanelRuntime): Promise<boolean> {
 /**
  * Handle a non-2xx answer from the credential route (F5–F15).
  *
+ * The 409 `duplicate-account` refusal is the service's own statement that the
+ * pasted credential belongs to an account it already holds, so it routes to
+ * the silent adoption instead of the failure copy: the account is connected
+ * from `GET /v1/accounts`, and the operator sees the adopted identity rather
+ * than an instruction to rotate a token that is actually fine. Adoption only
+ * needs the service's own answer, so the consent gate stays closed on this
+ * path — consent governs new token handoff, not adopting what is registered.
+ * A genuinely unreachable service (adoption still fails) keeps the catalogue
+ * copy for the code on the note line.
+ *
  * @param rt - Panel runtime.
  * @param result - The service's failure response.
  */
 async function applyServiceFailure(rt: PanelRuntime, result: GuestRequestResult): Promise<void> {
+    if (isDuplicateRefusal(result)) {
+        await adoptOnDuplicate(rt);
+
+        return;
+    }
+
     rt.state.handoff.connected = null;
     rt.state.handoff.note = serviceFailureCopy(result);
     if (result.status === HTTP_STORAGE_UNAVAILABLE) {

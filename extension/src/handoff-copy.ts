@@ -72,6 +72,23 @@ export const STATUS_UNREADABLE = 'The service status could not be read — check
 /** Shown when a request failed without a code the panel recognises. */
 export const UNKNOWN_FAILURE = 'The handoff failed — paste the token again.';
 
+/** Shown after a 409 duplicate-account refusal ends in a silent adoption. */
+export const DUPLICATE_ADOPTED_CODE = 'duplicate-account';
+
+/**
+ * The copy line the duplicate-refusal adoption renders (Fix 1, MVP 2026-09-27).
+ *
+ * One line, built only from the login the *service* reported — the wording
+ * says "already registered" so the operator understands no second paste was
+ * needed, then names who was connected.
+ *
+ * @param login - Login reported by the service's accounts list.
+ * @returns The adopted note line.
+ */
+export function duplicateAdoptedLine(login: string): string {
+    return `This GitHub account is already registered — connected as ${login}.`;
+}
+
 /**
  * The copy line a successful handoff renders (contract §2 step ⑨).
  *

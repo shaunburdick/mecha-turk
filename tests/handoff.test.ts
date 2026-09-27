@@ -15,7 +15,8 @@ import type { HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
 import { handoffInputEnabled, submitHandoffAndRepaint } from '../extension/src/accounts-ui.ts';
 import { CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../extension/src/consent.ts';
-import { ACCOUNTS_STORAGE_KEY, VERIFY_PATH, acceptHandoffConsent } from '../extension/src/handoff.ts';
+import { VERIFY_PATH, acceptHandoffConsent } from '../extension/src/handoff.ts';
+import { ACCOUNTS_STORAGE_KEY } from '../extension/src/account-mirror.ts';
 import { STATUS_PATH, preflightHandoff } from '../extension/src/handoff-status.ts';
 import { CONSENT_REFUSAL, STORAGE_REFUSAL } from '../extension/src/handoff-copy.ts';
 import {
@@ -227,6 +228,65 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
         expect(host.record.note).toContain('Consent needs renewing');
         expect(host.storage.values.has(CONSENT_STORAGE_KEY)).toBe(false);
         expect(host.rt.state.handoff.consentGiven).toBe(false);
+        expectNoCredential(host);
+    });
+});
+
+describe('duplicate-account adoption (operator re-paste after reinstall)', () => {
+    /** The service's duplicate refusal exactly as the routes build it (§4). */
+    const DUPLICATE_BODY = JSON.stringify({ error: { code: 'duplicate-account', message: 'contract-fixed' } });
+
+    /** The credential-free accounts answer, run once per describe. */
+    const ACCOUNTS_BODY = JSON.stringify({
+        accounts: [{ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, state: 'active' }],
+    });
+
+    it('adopts the registered account instead of offering another paste that 409s', async () => {
+        const host = await scriptedRuntime((request) => {
+            if (request.path === STATUS_PATH) {
+                return { status: 200, body: STATUS_BODY };
+            }
+
+            if (request.path === VERIFY_PATH) {
+                return { status: 409, body: DUPLICATE_BODY };
+            }
+
+            if (request.path === '/v1/accounts') {
+                return { status: 200, body: ACCOUNTS_BODY };
+            }
+
+            return { status: 404, body: JSON.stringify({ error: { code: 'not-found', message: 'unrouted' } }) };
+        });
+
+        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+
+        // The adoption filled the identity from the service's own answer and
+        // the panel shows the connected line — not the rotate-the-token copy.
+        expect(host.rt.state.handoff.connected).toEqual({ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN });
+        expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
+        expect(host.record.note).toBe(`This GitHub account is already registered — connected as ${CONNECTED_LOGIN}.`);
+        expect(host.record.consentShown).toBe(false);
+        expect(host.record.pasteVisible).toBe(false);
+        // Consent governs NEW token handoff only: the stored mirror survives.
+        expect(host.storage.values.has(CONSENT_STORAGE_KEY)).toBe(true);
+        // The mirror was rewritten for the account the mirror lost.
+        expect(host.storage.values.get(ACCOUNTS_STORAGE_KEY)).toEqual([
+            { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, state: 'active', scopeCheck: null },
+        ]);
+        expectNoCredential(host);
+    });
+
+    it('keeps the duplicate-refusal copy when the adoption read still fails', async () => {
+        // The default scripted double answers every non-status path (the
+        // adoption's GET /v1/accounts included) with the 409 envelope, so the
+        // adoption read fails closed and the catalogue copy stands.
+        const host = await scriptedRuntime(serviceScript({ status: 409, body: DUPLICATE_BODY }));
+
+        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+
+        expect(host.rt.state.handoff.connected).toBeNull();
+        expect(host.record.note).toContain('already registered');
+        expect(host.record.pasteVisible).toBe(true);
         expectNoCredential(host);
     });
 });

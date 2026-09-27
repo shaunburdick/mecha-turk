@@ -20,7 +20,15 @@
 import { loadProjects } from './project-actions.ts';
 import { repaintReposSection } from './panel-ui.ts';
 import type { PanelRuntime, ReposSection } from './panel-state.ts';
-import { bindRepository, editRepos, loadRepositories, toggleBinding } from './repos.ts';
+import {
+    armAccountRemoval,
+    bindRepository,
+    editRepos,
+    loadRepositories,
+    removeAccount,
+    removeBinding,
+    toggleBinding,
+} from './repos.ts';
 import { mountRepositoriesPane } from './repos-ui.ts';
 import type { ReposPaneHandlers } from './repos-ui.ts';
 
@@ -40,6 +48,16 @@ export function createRepositoriesHandlers(rt: PanelRuntime): ReposPaneHandlers 
         refresh: () => void loadRepositories(rt),
         submit: () => void bindRepository(rt),
         toggle: () => void toggleBinding(rt),
+        removeBinding: () => void removeBinding(rt),
+        removeAccount: () => {
+            if (rt.state.repos.removeAccountArmed) {
+                void removeAccount(rt);
+
+                return;
+            }
+
+            armAccountRemoval(rt);
+        },
         setRepoInput: (value) => editRepos(rt, { repoInput: value }),
         selectAccount: (id) => editRepos(rt, { accountSelection: id }),
         selectProject: (id) => editRepos(rt, { repoProjectSelection: id }),

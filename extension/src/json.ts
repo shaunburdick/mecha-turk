@@ -118,3 +118,20 @@ export function parseJsonObject(text: string): Record<string, unknown> | null {
 
     return parsed;
 }
+
+/**
+ * Narrow a value to a plain record.
+ *
+ * One guard for the "is this object-shaped input?" check the response and
+ * storage parsers share; arrays and primitives read as absent.
+ *
+ * @param value - Candidate value.
+ * @returns The record, or `null` for arrays and others.
+ */
+export function asRecord(value: unknown): Record<string, unknown> | null {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+
+    return value as Record<string, unknown>;
+}

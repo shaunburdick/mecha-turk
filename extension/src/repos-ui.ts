@@ -61,6 +61,10 @@ export interface ReposPane {
     readonly addBinding: ButtonHandle;
     /** Enable/disable toggle for the selected row. */
     readonly toggleSelected: ButtonHandle;
+    /** Removal button for the selected row. */
+    readonly removeSelected: ButtonHandle;
+    /** Two-step Remove-account control (arm, then confirm). */
+    readonly removeAccount: ButtonHandle;
     /** Note under the form. */
     readonly note: TextHandle;
     /** Remove every node this pane mounted. */
@@ -77,6 +81,10 @@ export interface ReposPaneHandlers {
     readonly submit: () => void;
     /** Operators toggled a binding's enabled state (selected row). */
     readonly toggle: () => void;
+    /** Operators removed the selected binding from the granted list. */
+    readonly removeBinding: () => void;
+    /** Operators clicked the Remove-account control (arm, then confirm). */
+    readonly removeAccount: () => void;
     /** Operators changed the repository input. */
     readonly setRepoInput: (value: string) => void;
     /** Operators picked an account. */
@@ -103,6 +111,12 @@ const WORKTREE_OPTIONS = [
 
 /** Note under the mention checkbox (M6's comment scan ships later). */
 export const COMMENT_SCAN_NOTE = 'Mention detection ships in a later build; the flag is stored now.';
+
+/** Idle label of the two-step Remove-account control. */
+export const REMOVE_ACCOUNT_IDLE_LABEL = 'Remove account';
+
+/** Confirm-step label after the first click (no `confirm()` in the frame). */
+export const REMOVE_ACCOUNT_CONFIRM_LABEL = 'Confirm remove';
 
 /** The slice of one status row the binding rows read. */
 interface StatusRowView {
@@ -230,6 +244,10 @@ interface Form {
     readonly add: ButtonHandle;
     /** Toggle button. */
     readonly toggle: ButtonHandle;
+    /** Removal button for the selected row. */
+    readonly removeSelected: ButtonHandle;
+    /** Two-step Remove-account control. */
+    readonly removeAccount: ButtonHandle;
     /** Note under the form. */
     readonly note: TextHandle;
 }
@@ -343,6 +361,19 @@ function mountAddForm(input: MountInputs): Form {
         input.pane,
         { label: 'Toggle enabled', variant: 'outline', disabled: true, onClick: input.handlers.toggle },
     );
+    const removeSelected = mountButton(
+        input.pane,
+        { label: 'Remove', variant: 'outline', disabled: true, onClick: input.handlers.removeBinding },
+    );
+    const removeAccount = mountButton(
+        input.pane,
+        {
+            label: REMOVE_ACCOUNT_IDLE_LABEL,
+            variant: 'outline',
+            disabled: true,
+            onClick: input.handlers.removeAccount,
+        },
+    );
 
     return {
         repoField,
@@ -353,6 +384,8 @@ function mountAddForm(input: MountInputs): Form {
         worktree,
         add,
         toggle,
+        removeSelected,
+        removeAccount,
         note: mountText(input.pane, { text: input.rt.state.repos.note }),
     };
 }
@@ -438,6 +471,8 @@ export function mountRepositoriesPane(input: {
         worktreeSelect: form.worktree,
         addBinding: form.add,
         toggleSelected: form.toggle,
+        removeSelected: form.removeSelected,
+        removeAccount: form.removeAccount,
         note: form.note,
         dispose: () => {
             pane.remove();
@@ -493,5 +528,10 @@ export function repaintReposPane(rt: PanelRuntime, view: ReposPane): void {
     view.worktreeSelect.update({ value: repos.worktreeSelection });
     view.addBinding.update({ disabled: repos.status !== 'ready' });
     view.toggleSelected.update({ disabled: repos.selectedBinding === null });
+    view.removeSelected.update({ disabled: repos.selectedBinding === null });
+    view.removeAccount.update({
+        label: repos.removeAccountArmed ? REMOVE_ACCOUNT_CONFIRM_LABEL : REMOVE_ACCOUNT_IDLE_LABEL,
+        disabled: repos.status !== 'ready' && !repos.removeAccountArmed,
+    });
     view.note.update({ text: repos.note });
 }

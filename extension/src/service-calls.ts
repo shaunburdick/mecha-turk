@@ -12,6 +12,7 @@
 
 import type { GuestRequestResult } from '@openchamber/sdk';
 import type { SpikeHost } from './session.ts';
+import { parseJsonObject } from './json.ts';
 
 /** The one method the wrappers call, typed as the documented host surface. */
 export type ServiceRequester = Pick<SpikeHost, 'serviceRequest'>['serviceRequest'];
@@ -25,6 +26,9 @@ export const EVENTS_PENDING_PATH = '/v1/events/pending';
 /** Path pattern for one dispatch-result POST. */
 const DISPATCH_PATH_PATTERN = '/v1/events/:eventId/dispatched';
 
+/** Path pattern for one account resource (the delete route). */
+const ACCOUNT_DELETE_PATTERN = '/v1/accounts/:numericUserId';
+
 /** Lowest HTTP status code a service answer counts as success. */
 const STATUS_OK_MIN = 200;
 
@@ -34,10 +38,18 @@ const STATUS_OK_MAX_EXCLUSIVE = 300;
 /** HTTP status the service answers with a `validation` error body. */
 const STATUS_VALIDATION = 422;
 
+/** Lowest HTTP status that carries the documented error envelope (§1). */
+const STATUS_ERROR_MIN = 400;
+
 /** Result of one service round trip through the host bridge. */
 export type ServiceResult =
     | { readonly ok: true; readonly body: string }
     | { readonly ok: false; readonly problem: string };
+
+/** Result of one call where the service's error code matters to the caller. */
+export type ServiceErrorResult =
+    | { readonly ok: true; readonly body: string }
+    | { readonly ok: false; readonly problem: string; readonly code: string | null };
 
 /**
  * Decide whether one HTTP status lands in the 2xx band.
@@ -47,6 +59,19 @@ export type ServiceResult =
  */
 function isOkStatus(status: number): boolean {
     return status >= STATUS_OK_MIN && status < STATUS_OK_MAX_EXCLUSIVE;
+}
+
+/**
+ * Decide whether one HTTP status carries the documented error envelope.
+ *
+ * Every status from 400 up answers with `{ error: { code, ... } }`
+ * (contract §1), so the extraction only needs the band boundary.
+ *
+ * @param status - Status to check.
+ * @returns `true` inside the error band.
+ */
+function isErrorStatus(status: number): boolean {
+    return status >= STATUS_ERROR_MIN;
 }
 
 /**
@@ -64,6 +89,24 @@ function httpProblem(status: number): string {
 }
 
 /**
+ * Read the error code out of one error envelope, without trusting it.
+ *
+ * @param body - Response body text (unchecked).
+ * @returns The envelope's code, or `null` when absent.
+ */
+function envelopeCodeOf(body: string): string | null {
+    const root = parseJsonObject(body);
+    const error = root?.error;
+    if (error === null || typeof error !== 'object' || Array.isArray(error)) {
+        return null;
+    }
+
+    const { code } = error as { readonly code?: unknown };
+
+    return typeof code === 'string' ? code : null;
+}
+
+/**
  * Turn one service answer into the wrapper's result.
  *
  * @param answer - The result the host bridged back.
@@ -75,6 +118,27 @@ function resultOf(answer: GuestRequestResult): ServiceResult {
     }
 
     return { ok: false, problem: httpProblem(answer.status) };
+}
+
+/**
+ * Turn one service answer into the error-aware wrapper's result.
+ *
+ * Same as {@link resultOf}, except a refusal in the error bands also carries
+ * the envelope's machine code — extracted from the body, never quoted — so a
+ * caller can distinguish a documented refusal from anything else without
+ * parsing the body twice.
+ *
+ * @param answer - The result the host bridged back.
+ * @returns The body, or a problem plus the error code when one was sent.
+ */
+function resultWithErrorOf(answer: GuestRequestResult): ServiceErrorResult {
+    if (isOkStatus(answer.status)) {
+        return { ok: true, body: answer.body };
+    }
+
+    const code = isErrorStatus(answer.status) ? envelopeCodeOf(answer.body) : null;
+
+    return { ok: false, problem: httpProblem(answer.status), code };
 }
 
 /**
@@ -158,6 +222,42 @@ export async function servicePost(input: {
     } catch (cause) {
         return { ok: false, problem: describeTransport(cause) };
     }
+}
+
+/**
+ * Run one DELETE through `host.serviceRequest`, reading the error code.
+ *
+ * The account delete route refuses with a *documented* envelope (409
+ * invalid-transition while bindings still reference the account), and the
+ * removal affordance needs that code to tell the operator to remove the
+ * binding first — so this wrapper surfaces the code next to the problem.
+ *
+ * @param input - Host surface and the path to delete.
+ * @returns The wrapper's error-aware result.
+ */
+export async function serviceDelete(input: {
+    /** Host surface. */
+    readonly serviceRequest: ServiceRequester;
+    /** Path to delete. */
+    readonly path: string;
+}): Promise<ServiceErrorResult> {
+    try {
+        const answer = await input.serviceRequest({ method: 'DELETE', path: input.path });
+
+        return resultWithErrorOf(answer);
+    } catch (cause) {
+        return { ok: false, problem: describeTransport(cause), code: null };
+    }
+}
+
+/**
+ * Build the delete path for one account.
+ *
+ * @param numericUserId - GitHub numeric user id of the account to delete.
+ * @returns The path segment to DELETE.
+ */
+export function accountDeletePath(numericUserId: string): string {
+    return ACCOUNT_DELETE_PATTERN.replace(':numericUserId', numericUserId);
 }
 
 /**

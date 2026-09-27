@@ -28,7 +28,7 @@ import {
     CONSENT_VERSION,
     restoreStoredConsent,
 } from '../extension/src/consent.ts';
-import { ACCOUNTS_STORAGE_KEY } from '../extension/src/handoff.ts';
+import { ACCOUNTS_STORAGE_KEY } from '../extension/src/account-mirror.ts';
 import { STORAGE_REFUSAL } from '../extension/src/handoff-copy.ts';
 import {
     CONNECTED_ID,

@@ -101,6 +101,8 @@ export function stubReposPane(paneBody: HTMLElement): ReposPane {
         worktreeSelect: stubHandle(),
         addBinding: stubHandle(),
         toggleSelected: stubHandle(),
+        removeSelected: stubHandle(),
+        removeAccount: stubHandle(),
         note: stubHandle(),
         pane: paneBody,
         dispose: (): void => undefined,

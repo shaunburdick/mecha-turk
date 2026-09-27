@@ -12,7 +12,7 @@
  * per-binding PATCH and lease machinery roundtrips later.
  */
 
-import { parseJsonObject } from './json.ts';
+import { asRecord, parseJsonObject } from './json.ts';
 
 /** Path of the bindings collection. */
 
@@ -164,20 +164,6 @@ const EVENT_STRING_FIELDS = [
     'triggerNote',
     'detectedAt',
 ] as const;
-
-/**
- * Narrow a value to a record.
- *
- * @param value - Candidate value.
- * @returns The record, or `null` for arrays and others.
- */
-function asRecord(value: unknown): Record<string, unknown> | null {
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
-    }
-
-    return value as Record<string, unknown>;
-}
 
 /**
  * Check every field of one record holds usable text.

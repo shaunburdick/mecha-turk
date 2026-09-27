@@ -78,6 +78,7 @@ export function initialRepos(): Repositories {
         triggerMention: false,
         worktreeSelection: 'none',
         selectedBinding: null,
+        removeAccountArmed: false,
         statusRows: [],
     };
 }
@@ -195,6 +196,13 @@ export interface Repositories {
     worktreeSelection: 'none' | 'generated';
     /** The row the operator last clicked, for the enable/disable toggle. */
     selectedBinding: string | null;
+    /**
+     * Whether the Remove-account control is in its confirm step (MVP
+     * fix 2, 2026-09-27): the first click arms, the second click deletes.
+     * No `confirm()` exists inside the service frame, so the button itself
+     * is the confirmation.
+     */
+    removeAccountArmed: boolean;
     /** Last relay status rows rendered per binding. */
     statusRows: readonly BindingStatusRow[];
 }

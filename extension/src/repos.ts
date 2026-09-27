@@ -13,9 +13,10 @@ import { parseRepository, repositoryLabel } from './config.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
+import { removeAccountMirror } from './account-mirror.ts';
+import { BINDINGS_PATH, accountDeletePath, serviceDelete, serviceGet, servicePut } from './service-calls.ts';
 import { countEnabledBindings, parseAccountsBody, parseBindingsBody } from './repos-service.ts';
 import type { BindingStatusRow, PanelAccount, PanelBinding, PanelTriggers } from './repos-service.ts';
-import { BINDINGS_PATH, serviceGet, servicePut } from './service-calls.ts';
 import type { PanelRuntime, Repositories } from './panel-state.ts';
 
 /** One per-binding status row the tab renders (scan state + pending count). */
@@ -346,3 +347,134 @@ export async function toggleBinding(rt: PanelRuntime): Promise<void> {
     refresh(rt);
 }
 
+/**
+ * Resolve the account the Remove-account control targets.
+ *
+ * The panel's connected identity wins (that is whose removal clears the
+ * handoff card); without one, the first usable account the service lists is
+ * the MVP target. `null` means there is nothing to remove yet.
+ *
+ * @param rt - Panel runtime.
+ * @returns The removal target, or `null` when no account is known.
+ */
+function removalTarget(rt: PanelRuntime): RemovalTarget | null {
+    const { connected } = rt.state.handoff;
+    if (connected !== null) {
+        return { numericUserId: connected.numericUserId, login: connected.login };
+    }
+
+    const first = rt.state.repos.accounts.find((candidate) => candidate.usable) ?? null;
+
+    return first === null ? null : { numericUserId: first.numericUserId, login: first.login };
+}
+
+/** One account the Remove-account control can target. */
+export interface RemovalTarget {
+    /** GitHub numeric user id of the account to remove. */
+    readonly numericUserId: string;
+    /** Display login, for the operator-facing note. */
+    readonly login: string;
+}
+
+/**
+ * Remove the selected binding by granting the list without it.
+ *
+ * Removal is a whole-list PUT (the service replaces its stored bindings
+ * wholesale), so the deleted row is simply absent from the granted list and
+ * the service holds one less binding afterwards. Referenced accounts are
+ * untouched: a binding removal deletes nothing but the binding.
+ *
+ * @param rt - Panel runtime.
+ */
+export async function removeBinding(rt: PanelRuntime): Promise<void> {
+    const { repos } = rt.state;
+    const binding = repos.bindings.find((candidate) => candidate.bindingId === repos.selectedBinding) ?? null;
+    if (binding === null) {
+        repos.note = 'Select a binding to remove.';
+        refresh(rt);
+
+        return;
+    }
+
+    const remaining = repos.bindings.filter((candidate) => candidate.bindingId !== binding.bindingId);
+    repos.selectedBinding = null;
+
+    await grantBindings({ rt, bindings: remaining, note: `Removed the binding for ${binding.repository}.` });
+    refresh(rt);
+}
+
+/**
+ * Answer the Remove-account arm click: arm the two-step confirmation.
+ *
+ * There is no `confirm()` inside the service frame, so the button itself
+ * becomes the confirmation: the first click arms, the second click (while
+ * armed) submits the delete.
+ *
+ * @param rt - Panel runtime.
+ */
+export function armAccountRemoval(rt: PanelRuntime): void {
+    if (rt.disposed) {
+        return;
+    }
+
+    rt.state.repos.removeAccountArmed = true;
+    refresh(rt);
+}
+
+/**
+ * Delete the targeted account from the service and clear the panel mirror.
+ *
+ * Two-step confirmed through the armed flag ({@link armAccountRemoval}); this
+ * runs the `DELETE /v1/accounts/:numericUserId`. A 409 invalid-transition
+ * refusal means bindings still reference the account — the service's own
+ * remediation is shown (remove the bindings first), and the delete is not
+ * forced. On success the panel mirror entry is dropped and the connected
+ * identity is cleared when it pointed at the removed account, so the operator
+ * is not left looking at a connected line for an account that no longer
+ * exists.
+ *
+ * @param rt - Panel runtime.
+ */
+export async function removeAccount(rt: PanelRuntime): Promise<void> {
+    const { repos } = rt.state;
+    repos.removeAccountArmed = false;
+    const target = removalTarget(rt);
+    if (target === null) {
+        repos.note = 'No account is connected to remove.';
+        refresh(rt);
+
+        return;
+    }
+
+    const result = await serviceDelete({
+        serviceRequest: rt.host.serviceRequest,
+        path: accountDeletePath(target.numericUserId),
+    });
+    if (rt.disposed) {
+        return;
+    }
+
+    if (!result.ok) {
+        repos.note =
+            result.code === 'invalid-transition'
+                ? 'The service refused: bindings still reference this account — remove them first.'
+                : redact(`The service refused the account removal: ${result.problem}`);
+        refresh(rt);
+
+        return;
+    }
+
+    await removeAccountMirror(rt, target.numericUserId);
+    if (!stillMounted(rt)) {
+        return;
+    }
+
+    if (rt.state.handoff.connected?.numericUserId === target.numericUserId) {
+        rt.state.handoff.connected = null;
+    }
+    repos.note = `Removed the account ${target.login} from the service.`;
+    refresh(rt);
+    // Re-read both sources so the accounts picker loses the removed row and
+    // the note is not clobbered by a stale repaint elsewhere.
+    await loadRepositories(rt);
+}
