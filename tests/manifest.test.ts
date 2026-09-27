@@ -1,14 +1,17 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { hostMeetsOpenChamberEngine } from '@openchamber/sdk';
+import { hostMeetsOpenChamberEngine, requestedGuestCapabilities } from '@openchamber/sdk';
 import { parseManifestJson } from '@openchamber/sdk/schemas';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
 
+/** Repository-relative path of the extension manifest under test. */
+const EXTENSION_MANIFEST_PATH = 'extension/package.json';
+
 /** Manifest of the extension under test. */
-const EXTENSION_MANIFEST = JSON.parse(readFileSync(resolve(ROOT, 'extension/package.json'), 'utf8')) as PackageJson;
+const EXTENSION_MANIFEST = JSON.parse(readFileSync(resolve(ROOT, EXTENSION_MANIFEST_PATH), 'utf8')) as PackageJson;
 
 /** Manifest of the workspace root, which pins the toolchain. */
 const ROOT_MANIFEST = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')) as PackageJson;
@@ -90,7 +93,7 @@ describe('manifest identity', () => {
     });
 
     it('parses with the official SDK manifest parser', () => {
-        const text = readFileSync(resolve(ROOT, 'extension/package.json'), 'utf8');
+        const text = readFileSync(resolve(ROOT, EXTENSION_MANIFEST_PATH), 'utf8');
         const parsed = parseManifestJson(text);
 
         expect(parsed.ok).toBe(true);
@@ -128,9 +131,8 @@ describe('declared capabilities', () => {
         expect(openchamberBlock(EXTENSION_MANIFEST).contributes?.capabilities).toEqual(ALLOWED_CAPABILITIES);
     });
 
-    it('declares no service, filesystem, background, or model surface', () => {
+    it('declares no filesystem, background, or model surface', () => {
         const { contributes } = openchamberBlock(EXTENSION_MANIFEST);
-        expect(contributes?.service).toBeUndefined();
         expect(contributes?.filesystem).toBeUndefined();
         expect(contributes?.background).toBeUndefined();
     });
@@ -141,6 +143,59 @@ describe('declared capabilities', () => {
         for (const capability of capabilities) {
             expect(documented).toContain(capability);
         }
+    });
+});
+
+describe('service contribution', () => {
+    const manifestText = readFileSync(resolve(ROOT, EXTENSION_MANIFEST_PATH), 'utf8');
+
+    it('declares a host runtime entry and no permissions key', () => {
+        const manifest = JSON.parse(manifestText) as PackageJson;
+        const service = manifest.openchamber?.contributes?.service;
+
+        expect(service).toEqual({ entry: 'service/main.js', runtime: 'host' });
+        expect(service).not.toHaveProperty('permissions');
+    });
+
+    it('ships a compiled entry beside its TypeScript source', () => {
+        const parsed = parseManifestJson(manifestText);
+
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) {
+            return;
+        }
+
+        const entry = parsed.manifest.contributes.service?.entry;
+        expect(entry).toBe('service/main.js');
+        expect(existsSync(resolve(ROOT, 'extension', entry ?? ''))).toBe(true);
+        expect(existsSync(resolve(ROOT, 'extension/service/main.ts'))).toBe(true);
+    });
+
+    it('parses with the SDK service rules', () => {
+        const parsed = parseManifestJson(manifestText);
+
+        expect(parsed.ok).toBe(true);
+        if (parsed.ok) {
+            expect(parsed.manifest.contributes.service?.runtime).toBe('host');
+        }
+    });
+
+    it('derives the implied capability set through the SDK', () => {
+        const parsed = parseManifestJson(manifestText);
+
+        expect(parsed.ok).toBe(true);
+        if (parsed.ok) {
+            const requested = requestedGuestCapabilities(parsed.manifest.contributes);
+
+            expect([...requested].sort()).toEqual(['network', 'prompt', 'service', 'sessions']);
+        }
+    });
+
+    it('never lists an implied capability inside capabilities[]', () => {
+        const declared = openchamberBlock(EXTENSION_MANIFEST).contributes?.capabilities ?? [];
+
+        expect(declared).not.toContain('service');
+        expect(declared).not.toContain('network');
     });
 });
 

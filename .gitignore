@@ -6,7 +6,8 @@ node_modules/
 .env.*
 !.env.example
 
-# Test/coverage output. The panel IIFE (extension/panel/main.js) is
+# Test/coverage output. The committed guest bundles (extension/panel/main.js,
+# the panel IIFE, and extension/service/main.js, the service ESM) are
 # intentionally committed: OpenChamber does not build TypeScript on install.
 coverage/
 *.tsbuildinfo

@@ -52,11 +52,17 @@
                         "label": "Poll interval in milliseconds (15000-300000)"
                     }
                 ]
+            },
+            "service": {
+                "entry": "service/main.js",
+                "runtime": "host"
             }
         }
     },
     "scripts": {
-        "build": "bunx openchamber-guest-bundle panel/main.ts panel/main.js"
+        "build": "npm run build:panel && npm run build:service",
+        "build:panel": "bunx openchamber-guest-bundle panel/main.ts panel/main.js",
+        "build:service": "bunx openchamber-guest-bundle --node service/main.ts service/main.js"
     },
     "dependencies": {
         "@openchamber/sdk": "1.24.2"
