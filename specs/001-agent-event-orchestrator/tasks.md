@@ -1,5 +1,7 @@
 # Tasks: Extension-First Agent Event Orchestrator
 
+> **001 close-out (2026-09-27):** spike PASSED (S1–S7). Wave 0 + T009a–T009j are complete and remain checked; Wave 1 (T010–T013) and Wave 2 (T014–T018) are **superseded / moved to `specs/002-agent-event-extension`** and annotated in place — nothing is deleted. No phase 4–5 production work happens in 001.
+
 No task is started in phases 4–5. `[P]` marks safe parallel work. The first implementation gate is the extension spike; daemon work is conditional and must not start early.
 
 ## Wave 0 — extension spike gate
@@ -31,23 +33,29 @@ No task is started in phases 4–5. `[P]` marks safe parallel work. The first im
 
 - [x] Execute `spike-evidence.md` §4.1–§4.5 on a live OpenChamber instance with a real GitHub PAT and report the outcomes — **done on the product owner's instance: folder install (repo root refused with `package.id should be kebab case`, absolute `extension/` path accepted), host-managed PAT attachment, "Poll now" match, both `worktree-option` dispatch paths, idempotency refusal, host-state verification, project picker selection, and lifecycle steps L1–L4. L5 not tested (single server, non-blocking).**
 - [x] Publish the S1–S7 verdict in `spike-evidence.md` §4.6 — **PASS: S1 ✓ S2 ✓ S3 ✓ S4 ✓ (both `none` and `generated`) S5 ✓ S6 ✓ (L2 proves unattended monitoring) S7 not triggered. Overall: PASS — recommends T010.**
-- **Not done here:** the gate decision itself. T010 stays `[ ]` until the product owner approves; the evidence supports it, the approval is theirs to give.
+- **Not done here:** the gate decision itself. T010 stays `[ ]` until the product owner approves; the evidence supports it, the approval is theirs to give. — **Resolved 2026-09-27: the product owner approved Option B (extension + OpenChamber-hosted local service); T010 is superseded and moved to 002.**
 
 ## Wave 1 — decision after spike (choose exactly one path)
 
-- [ ] T010 If S6 demonstrates reliable unattended monitoring, update the approved architecture to extension-first and define production lifecycle, storage, multi-repository limits, and user approval UX before implementation. **Evidence supports this path (`spike-evidence.md` §4.6: S1–S7 PASS, S6 proven by L2, S7 not triggered). NOT TICKED: requires product-owner approval at the gate.**
-- [ ] T011 If S6 fails or is unproven, document the failure and obtain product approval for the next path; do not use a hidden panel worker or undocumented host mechanism. **Depends on T009.**
-- [ ] T012 [P] If a host local service is proposed, research its documented service manifest/lifecycle, explicit permissions, secret provisioning, and service-to-host limitations; produce a separate contract and security gate. **Depends on T011.**
-- [ ] T013 [P] If a standalone daemon is proposed, carry forward the approved GitHub polling/data/policy design and obtain an OpenChamber-owned documented dispatch contract before implementation. **Depends on T011.**
+> **Wave status (2026-09-27): SUPERSEDED — moved to `specs/002-agent-event-extension`.** The gate decision was taken: S1–S7 passed (`spike-evidence.md` §4.6) and the product owner approved **Option B**, the extension + OpenChamber-hosted local service multi-account path. T010–T013 are annotated below and none is deleted; they are no longer executable work in 001. 002 re-scopes this wave against its own spec.
+
+- [ ] T010 If S6 demonstrates reliable unattended monitoring, update the approved architecture to extension-first and define production lifecycle, storage, multi-repository limits, and user approval UX before implementation. **Evidence supports this path (`spike-evidence.md` §4.6: S1–S7 PASS, S6 proven by L2, S7 not triggered). NOT TICKED: requires product-owner approval at the gate.** — **SUPERSEDED / MOVED TO 002** (2026-09-27): approved as Option B; the production architecture definition becomes 002's specification phase.
+- [ ] T011 If S6 fails or is unproven, document the failure and obtain product approval for the next path; do not use a hidden panel worker or undocumented host mechanism. **Depends on T009.** — **SUPERSEDED / MOVED TO 002** (2026-09-27): moot — S6 passed, so this failure branch never fired; retained for the record.
+- [ ] T012 [P] If a host local service is proposed, research its documented service manifest/lifecycle, explicit permissions, secret provisioning, and service-to-host limitations; produce a separate contract and security gate. **Depends on T011.** — **SUPERSEDED / MOVED TO 002** (2026-09-27): a host local service *was* proposed and approved (Option B); the research is done and recorded in `research.md` §b.9 and `feasibility-report.md` Q5 — 002 must still produce the contract and security gate.
+- [ ] T013 [P] If a standalone daemon is proposed, carry forward the approved GitHub polling/data/policy design and obtain an OpenChamber-owned documented dispatch contract before implementation. **Depends on T011.** — **SUPERSEDED / MOVED TO 002** (2026-09-27): not selected; the daemon boundary stays deferred in `contracts/daemon-deferred.md`.
 
 ## Conditional Wave 2 — only after path approval
 
-- [ ] T014 Implement only the approved production path’s configuration and credential lifecycle; preserve dynamic PAT identity, read permissions, autonomous defaults, and secret redaction.
-- [ ] T015 Implement GitHub repository streams, overlap/checkpoints, normalization, deduplication, rate handling, and tests from the approved fallback design if the daemon path is selected.
-- [ ] T016 Implement policy, audit, retries, dead letters, replay, and security tests for the approved runtime.
-- [ ] T017 Implement OpenChamber dispatch/session integration only through the approved documented extension/service/bridge contract; add capability and idempotency tests.
-- [ ] T018 Add end-to-end issue/PR flows, restart/lifecycle tests, retention tests, Docker or extension packaging validation, and AC mapping.
+> **Wave status (2026-09-27): SUPERSEDED — moved to `specs/002-agent-event-extension`.** These were scoped to "the approved production path"; that path is now 002's subject. Annotated, not deleted.
+
+- [ ] T014 Implement only the approved production path’s configuration and credential lifecycle; preserve dynamic PAT identity, read permissions, autonomous defaults, and secret redaction. — **MOVED TO 002.**
+- [ ] T015 Implement GitHub repository streams, overlap/checkpoints, normalization, deduplication, rate handling, and tests from the approved fallback design if the daemon path is selected. — **MOVED TO 002** (daemon branch not selected; the streaming/checkpoint semantics themselves carry over).
+- [ ] T016 Implement policy, audit, retries, dead letters, replay, and security tests for the approved runtime. — **MOVED TO 002.**
+- [ ] T017 Implement OpenChamber dispatch/session integration only through the approved documented extension/service/bridge contract; add capability and idempotency tests. — **MOVED TO 002** (approved contract is extension + local service).
+- [ ] T018 Add end-to-end issue/PR flows, restart/lifecycle tests, retention tests, Docker or extension packaging validation, and AC mapping. — **MOVED TO 002** (packaging wording to be restated against constitution v1.3.0).
 
 ## Dependencies and stop conditions
 
 T001–T009 are the complete first gate and must precede all production implementation. T010 and T011 are mutually exclusive decisions based on the evidence. T012/T013 are research/contract tasks, not permission to implement both paths. T014–T018 cannot start without an approved path and contract. Private UI routes, undocumented external APIs, direct local worktrees, and secret handoff to a service remain prohibited.
+
+> **001 close-out (2026-09-27):** the gate is closed. Wave 0 (T001–T009) and remediation (T009a–T009j) are complete and stay checked; Wave 1 and Wave 2 are superseded and move to `specs/002-agent-event-extension`. The prohibitions in this section remain in force — note that "secret handoff to a service" is now an *approved-but-gated* item: it may proceed only through 002's service security gate, not around it.

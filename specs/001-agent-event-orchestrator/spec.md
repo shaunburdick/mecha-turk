@@ -1,10 +1,22 @@
 # Feature Specification: Agent Event Orchestrator MVP
 
+> ## Supersession notice (2026-09-27)
+>
+> **This specification is superseded by `specs/002-agent-event-extension` — spike validated S1–S7 on 2026-09-27.**
+>
+> 001 ran as a validation spike and passed every acceptance step (S1–S7, `spike-evidence.md` §4.6). The architecture then pivoted from a standalone Docker daemon to an OpenChamber extension plus an OpenChamber-hosted local service, approved by the product owner as the "Option B" multi-account service path. 001 is closed as the **spike record**; 002 carries production.
+>
+> **Carries over unchanged to 002:** the trigger set (mentions, issue assignments, PR review requests/assignments), deduplication and idempotency rules, policy/approval-gate semantics, audit and observability requirements, the normalized event contract (`contracts/events.md`), and all research in `research.md`.
+>
+> **Replaced by 002:** the runtime architecture and anything written for a standalone container — notably FR-035, NFR-005, AC-012, and the deployment-shape assumptions in the Goals section and Assumptions. Constitution Principle V was amended to v1.3.0 for the same reason.
+>
+> **Requirements below are retained as written.** This is a status and pointer change, not a content purge; nothing has been deleted.
+
 **Feature Branch**: `001-agent-event-orchestrator`  
 **Created**: 2026-09-26  
-**Last Updated**: 2026-09-26  
-**Version**: 1.2.0  
-**Status**: Approved v1.2.0; extension-first spike added as the next gated milestone  
+**Last Updated**: 2026-09-27  
+**Version**: 1.2.1  
+**Status**: Superseded by 002-agent-event-extension — spike validated S1-S7 on 2026-09-27  
 **Dependencies**: None (new project)  
 **Input**: Product-owner decisions for a thin GitHub event orchestrator whose OpenChamber-native extension path is validated before any standalone daemon.
 
@@ -250,3 +262,4 @@ Polling checkpoints are `uninitialized`, `active`, `backing_off`, `stale`, `bloc
 - **2026-09-26**: Secrets remain outside committed configuration and are redacted from logs/status; encryption at rest is not an MVP requirement.
 - **2026-09-26**: Autonomous-by-default configurable policy gates, project/workflow references, auditability, and safe failure semantics are preserved.
 - **2026-09-26**: Product owner directed an OpenChamber-native extension spike before committing to a standalone Docker integration boundary; panel lifecycle and unattended monitoring are explicit acceptance gates.
+- **2026-09-27 (v1.2.1, status only)**: Spike validated S1–S7 (`spike-evidence.md` §4.6); the product owner approved the "Option B" extension + OpenChamber-hosted local service path. This spec is superseded by `specs/002-agent-event-extension`. No requirement text was changed or removed — trigger set, idempotency, policy, and audit requirements carry to 002; deployment-shape requirements (FR-035, NFR-005, AC-012) are restated there against constitution v1.3.0.
