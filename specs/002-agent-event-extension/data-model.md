@@ -175,12 +175,18 @@ No session, worktree, or project is ever created, mutated, or deleted outside `h
 | `seq` | number (monotonic) | assigned by the writer |
 | `timestamp` | string | RFC3339 |
 | `correlationId` | string | NFR-007 chain |
-| `eventType` | string enum | `consent`, `account.added/verified/rejected/rotated`, `binding.*`, `poll.checkpoint/observation/duplicate`, `rate.*`, `policy.decision`, `run.created/relayed/dispatched/verified/blocked/retried/dead_lettered`, `service.started/stopped/failed`, `config.changed`, `audit.trimmed` |
+| `eventType` | string enum | `consent`, `account.added/verified/rejected/rotated/error/deleted`, `binding.*`, `poll.checkpoint/observation/duplicate`, `rate.*`, `policy.decision`, `run.created/relayed/dispatched/verified/blocked/retried/dead_lettered`, `service.started/stopped/failed`, `config.changed`, `audit.trimmed` |
 | `actorSource` | string | e.g. `panel`, `service`, `operator` |
-| `entity` | `{ kind: 'account' \| 'binding' \| 'run' \| 'delivery', id: string }` | |
+| `entity` | `{ kind: 'service' \| 'account' \| 'binding' \| 'run' \| 'delivery', id: string }` | `service` for entries that reference no account (consent occurrences, identity-less credential rejections) |
 | `decision`, `reason` | string \| null | |
 | `redaction` | `{ redacted: boolean, fields: string[] }` | which fields were stripped |
 | `details` | JSON (pre-redaction pass) | **no token material, ever** (FR-035) |
+
+> **Amended 2026-09-27 during implementation (T-007–T-009)** to match the
+> G1-amended contracts: `eventType` gained `account.error` (contract F13
+> writes it) and `account.deleted` (FR-035 terminal outcome); `entity.kind`
+> gained `service` for entries that reference no account; storage tier 2
+> gained the `accounts` mirror that token-handoff §3 requires.
 
 Retention (spec Assumption): 180 days **or** 50,000 entries, whichever first; payload excerpts 30 days; minimal references (ids/links/decisions) kept until the account/binding is deleted. Trims write an `audit.trimmed` entry first (the trim itself is auditable).
 
@@ -197,6 +203,7 @@ Retention (spec Assumption): 180 days **or** 50,000 entries, whichever first; pa
 | `ui` | JSON | active tab, filters, last-viewed run, sort; ≤4 KiB |
 | `project` | string | selected project id (spike key retained; precedence rules unchanged, 001 amendment 4) |
 | `consent` | `{ givenAt: string, version: 1 }` | **occurrence only** — no token material; mirrors the service audit `consent` entry (FR-008) |
+| `accounts` | JSON array | bounded account mirror `{ numericUserId, login, state, scopeCheck }` written after a successful handoff — display only, never authoritative, never a credential (token-handoff §3) |
 | `expected-agent` mirror | string | effective value + provenance (integration setting vs default) for display |
 | `runs-mirror` | JSON array | **bounded** display mirror of the latest ≤50 runs `{ runKeyHash, state, sourceUrl, correlationId, updatedAt }` — never authoritative, never an audit home (FR-034) |
 | `health-mirror` | JSON | last rendered `ServiceHealth` snapshot + `fetchedAt`; stale-render guard |
