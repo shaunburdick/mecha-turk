@@ -24,6 +24,8 @@ The OpenChamber-managed GitHub account is a separate documented integration used
 
 These findings make panel-close unattended polling uncertain by design. The SDK documents panel lifecycle and persistent extension storage, but does not promise a panel remains running after it closes. That is the key experimental question.
 
+**Live answer (2026-09-27):** polling *did* continue while the panel was closed — the ledger held `poll` entries timestamped inside the closed window — and it stopped cleanly while the extension was disabled. Recorded in `spike-evidence.md` §4.5 (L2, L3) and §4.6.
+
 ## Local service limitations
 
 The extension docs describe an optional local service for operations a page cannot reach. It requires a declared service and user-approved `service` capability, has `stopped|starting|ready|failed` status, and is called through `host.serviceRequest()`. It runs with full local access and no sandbox, but does not automatically receive host secrets or host API access. Consequently, a service cannot be selected as a silent PAT relay; it would need an explicit secret provisioning design and still requires lifecycle testing. It is a follow-on path only.
@@ -31,3 +33,9 @@ The extension docs describe an optional local service for operations a page cann
 ## Decision and remaining uncertainty
 
 The documented extension path is sufficient to test GitHub authentication, one-repository polling, issue attachment, `startSession`, and host-owned worktrees/sessions without private APIs. It is not yet proven to provide unattended polling after panel close. The exact next architecture is therefore intentionally gated on AC-016/017. An external daemon bridge remains deferred because no official external work-request contract was found.
+
+**Update after the live run (2026-09-27):** the unproven part is now proven —
+the extension polled unattended with the panel closed, so AC-016/017 resolve in
+favour of the extension path. `spike-evidence.md` §4.6 records S1–S7 PASS and
+recommends T010 (extension-first), subject to product-owner approval at the
+gate. The daemon fallback (and its deferred transport) stays unselected.

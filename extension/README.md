@@ -114,5 +114,6 @@ matching rule, redaction, the ledger format and gap analysis, evidence
 normalization, GitHub payload parsing, configuration validation (including
 project-id precedence), the project picker's state and storage handling,
 host verification against a fake host, and the shipped bundle's IIFE/secret
-assertions. Anything that needs a live OpenChamber instance or a real PAT is
-recorded as pending in `specs/001-agent-event-orchestrator/spike-evidence.md`.
+assertions. Anything that needs a live OpenChamber instance or a real PAT was
+executed by the operator on their own instance and is recorded in
+`specs/001-agent-event-orchestrator/spike-evidence.md` §4 (S1–S7 PASS).
