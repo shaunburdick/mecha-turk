@@ -6,7 +6,14 @@
  * lifecycle flags that keep a single poll loop and a single dispatch honest.
  */
 
-import type { BannerTone, ButtonHandle, ListHandle, SelectHandle, TextHandle, BannerHandle } from '@openchamber/sdk/ui';
+import type {
+    BannerHandle,
+    BannerTone,
+    ButtonHandle,
+    ListHandle,
+    SelectHandle,
+    TextHandle,
+} from '@openchamber/sdk/ui';
 import type { GuestProject } from '@openchamber/sdk';
 import type { SpikeConfig } from './config.ts';
 import type { SpikeEvidence } from './evidence.ts';
@@ -17,6 +24,7 @@ import { initialHandoffState } from './handoff.ts';
 import type { LifecyclePhase, SpikeLedger } from './ledger.ts';
 import type { HandoffState } from './handoff.ts';
 import type { HandoffView } from './accounts-ui.ts';
+import type { PanelAccount, PanelBinding, BindingStatusRow } from './repos-service.ts';
 import type { SpikeHost } from './session.ts';
 
 /** Banner content shown at the top of the panel. */
@@ -50,6 +58,45 @@ export interface ProjectPickerState {
     note: string;
 }
 
+/**
+ * Build the empty Repos tab state.
+ *
+ * @returns The state before the first load.
+ */
+export function initialRepos(): Repositories {
+    return {
+        activeTab: 'spike',
+        bindings: [],
+        accounts: [],
+        status: 'idle',
+        note: '',
+        repoInput: '',
+        accountSelection: null,
+        repoProjectSelection: null,
+        triggerAssignment: true,
+        triggerMention: false,
+        worktreeSelection: 'none',
+        selectedBinding: null,
+        statusRows: [],
+    };
+}
+
+/**
+ * Build the empty relay state.
+ *
+ * @returns The state before the loop starts.
+ */
+export function initialRelay(): Relay {
+    return {
+        timer: null,
+        inFlight: false,
+        lastPollAt: null,
+        dispatching: false,
+        handled: [],
+        lastError: null,
+    };
+}
+
 /** Mutable panel state. */
 export interface PanelState {
     /** Ledger being built for this mount. */
@@ -81,6 +128,67 @@ export interface PanelState {
     busy: boolean;
     /** One-shot handoff state: consent, storage pre-flight, and outcome. */
     handoff: HandoffState;
+    /** Repository bindings as the Repos tab reads and edits them (M3). */
+    repos: Repositories;
+    /** Event-relay loop state (M4). */
+    relay: Relay;
+}
+
+/** Lifecycle of the Repos tab's data. */
+export type RepositoriesStatus =
+    /** Nothing fetched yet. */
+    | 'idle'
+    /** A GET /v1/bindings or /v1/accounts is in flight. */
+    | 'loading'
+    /** Both sources answered. */
+    | 'ready'
+    /** The host or service refused. */
+    | 'error';
+
+/** The event-relay loop's runtime state (M4). */
+export interface Relay {
+    /** Timer handle while the loop runs. */
+    timer: ReturnType<typeof setInterval> | null;
+    /** Whether a relay request is in flight. */
+    inFlight: boolean;
+    /** RFC 3339 stamp of the last completed poll. */
+    lastPollAt: string | null;
+    /** Whether a dispatch is being processed right now. */
+    dispatching: boolean;
+    /** Event ids the session already handled (this mount). */
+    handled: readonly string[];
+    /** Last relay error line, else empty. */
+    lastError: string | null;
+}
+
+/** The Repos tab's working state (M3). */
+export interface Repositories {
+    /** Tab visibility; the Repositories pane shows when `repos`. */
+    activeTab: 'spike' | 'repos';
+    /** Bindings as GET /v1/bindings answered. */
+    bindings: readonly PanelBinding[];
+    /** Accounts offered to the binding form. */
+    accounts: readonly PanelAccount[];
+    /** Where the data stands. */
+    status: RepositoriesStatus;
+    /** Operator-facing note; never credential material. */
+    note: string;
+    /** Draft repository input (`owner/name`). */
+    repoInput: string;
+    /** Draft account selection (numeric id). */
+    accountSelection: string | null;
+    /** Draft project selection (id the picker confirmed from the host list). */
+    repoProjectSelection: string | null;
+    /** Draft assignment trigger. */
+    triggerAssignment: boolean;
+    /** Draft mention trigger (stored until the M6 comment scan runs). */
+    triggerMention: boolean;
+    /** Draft worktree option. */
+    worktreeSelection: 'none' | 'generated';
+    /** The row the operator last clicked, for the enable/disable toggle. */
+    selectedBinding: string | null;
+    /** Last relay status rows rendered per binding. */
+    statusRows: readonly BindingStatusRow[];
 }
 
 /** UI handles, assigned once when the panel mounts. */
@@ -139,7 +247,12 @@ export interface PanelRuntime {
     pendingPhase: LifecyclePhase;
     /** Registered unload listener, so teardown can remove exactly what it added. */
     pagehideListener: (() => void) | null;
+    /** Whether the event relay loop is armed on this runtime. */
+    relayArmed: boolean;
 }
+
+/** Per-binding event counts from the last relay poll. */
+export type { BindingStatusRow } from './repos-service.ts';
 
 /**
  * Create the empty picker state shown before the first `listProjects()` call.
@@ -184,6 +297,8 @@ export function createPanelRuntime(
             connected: false,
             busy: false,
             handoff: initialHandoffState(),
+            repos: initialRepos(),
+            relay: initialRelay(),
         },
         unsubscribes: [],
         ui: null,
@@ -194,6 +309,7 @@ export function createPanelRuntime(
         pollInFlight: false,
         pendingPhase: 'paused',
         pagehideListener: null,
+        relayArmed: false,
     };
 }
 

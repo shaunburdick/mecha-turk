@@ -14,9 +14,12 @@ import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { reconcileInterruptedAccounts } from './accounts/reconcile.ts';
 import { createGitHubVerifier } from './github.ts';
+import type { GitHubIssuePoller } from './poll/poller-github.ts';
 import { LOOPBACK_HOST } from './http.ts';
 import { createRequestHandler } from './pipeline.ts';
 import { ROUTES } from './routes/index.ts';
+import { startPollLoop, createDefaultPoller } from './poll/timer.ts';
+import type { PollLoop } from './poll/timer.ts';
 import { openStore, SERVICE_SCHEMA_VERSION, StorageUnavailableError } from './store/index.ts';
 import { createVerifyThrottle } from './throttle.ts';
 import type { ReconcileSummary } from './accounts/reconcile.ts';
@@ -51,6 +54,13 @@ export interface StartServiceOptions {
      * no suite run ever reaches the network.
      */
     readonly github?: GitHubVerifier;
+    /**
+     * GitHub issue poller for the M1 loop (MVP re-cut).
+     *
+     * Defaults to the process `fetch`-backed poller; tests inject a fake so
+     * no suite run ever reaches the network.
+     */
+    readonly poller?: GitHubIssuePoller;
 }
 
 /** Handle to a running service instance. */
@@ -81,6 +91,8 @@ interface HandleParts {
     readonly dataDir: string;
     readonly port: number;
     readonly reconciled: Promise<ReconcileSummary>;
+    /** Poll loop handle, or `null` when there was no store to poll with. */
+    readonly poll?: PollLoop | null;
 }
 
 /**
@@ -185,13 +197,27 @@ async function withTimeout(promise: Promise<void>, timeoutMs: number): Promise<v
     }
 }
 
+/** Parts one shutdown needs; bundled so a drain is one call. */
+interface ShutdownInput {
+    /** Listener to close. */
+    readonly server: Server;
+    /** Pipeline counter the drain waits on. */
+    readonly state: PipelineState;
+    /** Poll loop to stop first, or `null` when none was started. */
+    readonly poll: PollLoop | null;
+}
+
 /**
  * Drain and close a server.
  *
- * @param server - Listener to close.
- * @param state - Pipeline counter the drain waits on.
+ * The poll loop (M1) stops first so a scheduled cycle cannot race one of its
+ * writes against the drain's persistence window.
+ *
+ * @param input - The listener, the drain counter, and the poll loop.
  */
-async function performShutdown(server: Server, state: PipelineState): Promise<void> {
+async function performShutdown(input: ShutdownInput): Promise<void> {
+    const { server, state, poll } = input;
+    poll?.stop();
     const closed = new Promise<void>((resolve) => {
         server.close(() => {
             resolve();
@@ -213,7 +239,7 @@ async function performShutdown(server: Server, state: PipelineState): Promise<vo
 function createHandle(parts: HandleParts): ServiceHandle {
     let closing: Promise<void> | null = null;
     const shutdown = (): Promise<void> => {
-        closing ??= performShutdown(parts.server, parts.state);
+        closing ??= performShutdown({ server: parts.server, state: parts.state, poll: parts.poll ?? null });
 
         return closing;
     };
@@ -230,9 +256,9 @@ function createHandle(parts: HandleParts): ServiceHandle {
 /**
  * Kick off the F13 startup reconciliation pass.
  *
- * It never rejects: a failure to reconcile is logged with an error *kind*
- * (never upstream text) and reported as a zeroed summary, because the panel
- * needs a running service to learn why an account looks the way it does.
+ * It never rejects: a reconciliation failure is logged as an error *kind*
+ * (never upstream text) and reported as a zeroed summary, so the panel can
+ * still learn from the running service.
  *
  * @param store - Open store, or `null` when the directory is unusable.
  * @param github - Verifier used for the re-verification step.
@@ -284,6 +310,14 @@ export async function startService(options: StartServiceOptions): Promise<Servic
     // never hold the host's readiness probe hostage (F16 readiness is about
     // *this* process answering, not about GitHub being reachable).
     const reconciled = startReconciliation({ store, github, log: options.log });
+    // M1 loop (MVP re-cut): the timer starts only when a store exists, so a
+    // degraded start does not poll. The default interval (60 s) is the
+    // contract default; `PUT /v1/config` retunes the next cycle.
+    const poll = store === null ? null : startPollLoop({
+        store,
+        log: options.log,
+        poller: options.poller ?? createDefaultPoller(),
+    });
 
     return createHandle({
         server,
@@ -292,5 +326,6 @@ export async function startService(options: StartServiceOptions): Promise<Servic
         dataDir: options.dataDir,
         port: boundPort(server),
         reconciled,
+        poll,
     });
 }

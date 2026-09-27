@@ -27,7 +27,7 @@ import { nowIso } from '../src/ids.ts';
 import { isRecord, parseJsonText } from './json.ts';
 
 /** Base URL of the GitHub REST API; the only outbound origin the service uses. */
-const API_ORIGIN = 'https://api.github.com';
+export const API_ORIGIN = 'https://api.github.com';
 
 /** Path of the identity endpoint that keys every account. */
 const USER_PATH = '/user';
@@ -178,7 +178,7 @@ export function credentialKindOf(token: string): CredentialKind {
  * @param token - Credential to authenticate with.
  * @returns The documented header set, including the pinned API version.
  */
-function requestHeaders(token: string): Record<string, string> {
+export function requestHeaders(token: string): Record<string, string> {
     // Pairs rather than an object literal: HTTP header names are not
     // camelCase identifiers, and the contract fixes their exact spelling.
     const entries: readonly (readonly [string, string])[] = [
@@ -261,7 +261,7 @@ function buildScopeCheck(header: string | null): ScopeCheck {
  * @param response - Upstream response that refused the call.
  * @returns Seconds to wait before the next attempt.
  */
-function retryAfterOf(response: Response): number {
+export function retryAfterOf(response: Response): number {
     const header = response.headers.get(RETRY_AFTER_HEADER);
     if (header === null || !/^\d+$/.test(header)) {
         return DEFAULT_RETRY_AFTER_SECONDS;
@@ -307,7 +307,7 @@ async function readRateBaseline(response: Response): Promise<RateBaseline | null
  * @returns `true` when GitHub is asking us to slow down rather than rejecting
  *   the credential — a distinction FR-024 requires us to get right.
  */
-function isRateLimited(response: Response): boolean {
+export function isRateLimited(response: Response): boolean {
     return (
         response.status === STATUS_TOO_MANY_REQUESTS ||
         response.headers.get(RATE_REMAINING_HEADER) === '0' ||
@@ -408,7 +408,7 @@ async function readRateBaselineQuietly(fetchImpl: FetchLike, token: string): Pro
  * @param error - The rejection from the aborted or failed `fetch`.
  * @returns `timeout` for the shared abort, `offline` for transport failures.
  */
-function transportDetail(error: unknown): UnavailableDetail {
+export function transportDetail(error: unknown): UnavailableDetail {
     return error instanceof Error && error.name === TIMEOUT_ERROR_NAME ? 'timeout' : 'offline';
 }
 

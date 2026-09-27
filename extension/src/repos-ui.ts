@@ -1,0 +1,497 @@
+/**
+ * The Repositories pane (M3 re-cut): list, add, and enable/disable bindings.
+ *
+ * Every control is a documented SDK primitive repainted from runtime state,
+ * so the pane never diverges from what the runtime knows. The add form
+ * mirrors the spike's picker patterns: an `owner/name` text field, an
+ * account select sourced from `GET /v1/accounts`, a project select sourced
+ * from the host's own `listProjects()` state, then the trigger checkboxes
+ * and the worktree option. All service-supplied strings reach the DOM
+ * through the SDK primitives' `textContent` writes — no HTML sink is
+ * touched (panel-service contract §3 invariant 11).
+ */
+
+import {
+    mountButton,
+    mountCheckbox,
+    mountList,
+    mountSelect,
+    mountText,
+    mountTextField,
+    mountTabs,
+} from '@openchamber/sdk/ui';
+import type {
+    ButtonHandle,
+    CheckboxHandle,
+    ListItem,
+    ListHandle,
+    SelectHandle,
+    TabsHandle,
+    SelectOption,
+    TextHandle,
+    TextFieldHandle,
+} from '@openchamber/sdk/ui';
+import type { PanelRuntime, Repositories } from './panel-state.ts';
+
+/** The pane handle: tab strip, pane element, and every repaint handle. */
+export interface ReposPane {
+    /** Tab strip the two panes share. */
+    readonly tabs: TabsHandle;
+    /** The pane root this view mounted. */
+    readonly pane: HTMLElement;
+    /** Status line at the top. */
+    readonly status: TextHandle;
+    /** Bindings list with per-binding scan lines. */
+    readonly bindingsList: ListHandle;
+    /** Bindings refresh button. */
+    readonly refreshBindings: ButtonHandle;
+    /** Repository owner/name input. */
+    readonly repoField: TextFieldHandle;
+    /** Account select (from `GET /v1/accounts`). */
+    readonly accountSelect: SelectHandle;
+    /** Project select (from the host's project list). */
+    readonly projectSelect: SelectHandle;
+    /** Assignment trigger checkbox. */
+    readonly assignmentCheck: CheckboxHandle;
+    /** Mention trigger checkbox (stored-only until M6). */
+    readonly mentionCheck: CheckboxHandle;
+    /** Worktree option select. */
+    readonly worktreeSelect: SelectHandle;
+    /** Add-binding button. */
+    readonly addBinding: ButtonHandle;
+    /** Enable/disable toggle for the selected row. */
+    readonly toggleSelected: ButtonHandle;
+    /** Note under the form. */
+    readonly note: TextHandle;
+    /** Remove every node this pane mounted. */
+    readonly dispose: () => void;
+}
+
+/** Callbacks the mounted Repositories pane invokes. */
+export interface ReposPaneHandlers {
+    /** Operators toggled the tab strip. */
+    readonly switchTab: (id: 'spike' | 'repos') => void;
+    /** Operators re-read the bindings and accounts. */
+    readonly refresh: () => void;
+    /** Operators submitted the add form. */
+    readonly submit: () => void;
+    /** Operators toggled a binding's enabled state (selected row). */
+    readonly toggle: () => void;
+    /** Operators changed the repository input. */
+    readonly setRepoInput: (value: string) => void;
+    /** Operators picked an account. */
+    readonly selectAccount: (id: string) => void;
+    /** Operators picked a project. */
+    readonly selectProject: (id: string) => void;
+    /** Operators set the assignment trigger checkbox. */
+    readonly setAssignment: (checked: boolean) => void;
+    /** Operators set the mention trigger checkbox. */
+    readonly setMention: (checked: boolean) => void;
+    /** Operators picked a worktree option. */
+    readonly setWorktree: (id: 'none' | 'generated') => void;
+    /** Operators clicked a binding row. */
+    readonly selectBinding: (id: string) => void;
+    /** Operators reloaded the project list behind the picker. */
+    readonly refreshProjects: () => void;
+}
+
+/** Worktree options the add form offers (MVP: `new:` comes later). */
+const WORKTREE_OPTIONS = [
+    { id: 'none', label: 'none — project default directory' },
+    { id: 'generated', label: 'generated — OpenChamber creates a worktree' },
+] as const;
+
+/** Note under the mention checkbox (M6's comment scan ships later). */
+export const COMMENT_SCAN_NOTE = 'Mention detection ships in a later build; the flag is stored now.';
+
+/** The slice of one status row the binding rows read. */
+interface StatusRowView {
+    readonly lastScanAt: string | null;
+    readonly lastError: string | null;
+    readonly pendingCount: number;
+}
+
+/** One binding the rows render. */
+interface BindingView {
+    readonly bindingId: string;
+    readonly repository: string;
+    readonly accountLogin: string;
+    readonly projectId: string;
+    readonly state: 'active' | 'disabled';
+}
+
+/**
+ * Find the status row for one binding.
+ *
+ * @param repos - Repos state.
+ * @param bindingId - Row key.
+ * @returns The row, or `null` before the first poll.
+ */
+function statusRowOf(repos: Repositories, bindingId: string): StatusRowView | null {
+    return repos.statusRows.find((candidate) => candidate.bindingId === bindingId) ?? null;
+}
+
+/**
+ * Read one status row's scan phrase.
+ *
+ * @param row - The status row.
+ * @returns The `last poll <time>` phrase, or the skip reason.
+ */
+function scanPhrase(row: StatusRowView): string {
+    if (row.lastError !== null) {
+        return `last poll skipped (${row.lastError})`;
+    }
+
+    return `last poll ${row.lastScanAt ?? 'never'}`;
+}
+
+/**
+ * Compose one binding row.
+ *
+ * @param repos - Repos state.
+ * @param binding - The binding to render.
+ * @returns The list row.
+ */
+function bindingRow(repos: Repositories, binding: BindingView): ListItem {
+    const row = statusRowOf(repos, binding.bindingId);
+    const scan = row === null ? 'not scanned yet' : scanPhrase(row);
+    const subtitle = `polled as ${binding.accountLogin} · ${binding.projectId} · ${scan}`;
+
+    return {
+        id: binding.bindingId,
+        leading: binding.state === 'active' ? 'on' : 'off',
+        title: `${binding.repository} → ${binding.projectId}`,
+        subtitle,
+        meta: String(row === null ? 0 : row.pendingCount),
+    };
+}
+
+/**
+ * Build the bindings list rows from state.
+ *
+ * @param repos - The Repos tab's state.
+ * @returns The list rows, in stored order.
+ */
+function bindingRows(repos: Repositories): ListItem[] {
+    return repos.bindings.map((binding) => bindingRow(repos, binding));
+}
+
+/**
+ * Compose the pane's one status line.
+ *
+ * @param repos - The Repos tab's state.
+ * @returns The summary text the status line shows.
+ */
+function composeStatus(repos: Repositories): string {
+    const bindings = `${repos.bindings.length} bindings`;
+    const accounts = `${repos.accounts.length} accounts`;
+
+    return `Repositories: ${bindings} · ${accounts}`;
+}
+
+/** What `mountRepositoriesPane` builds; exactly {@link ReposPane} plus tabs. */
+type MountedPane = ReposPane & { readonly pane: HTMLElement };
+
+/** Inputs the add-form mounts share (runtime, pane root, handlers). */
+interface MountInputs {
+    /** Runtime whose state repaints the control. */
+    readonly rt: PanelRuntime;
+    /** The pane root the control mounts into. */
+    readonly pane: HTMLElement;
+    /** Handlers the control invokes. */
+    readonly handlers: ReposPaneHandlers;
+}
+
+/** The bindings list half of the pane. */
+interface Board {
+    /** Status line at the top. */
+    readonly status: TextHandle;
+    /** Bindings list. */
+    readonly bindingsList: ListHandle;
+    /** Refresh button. */
+    readonly refreshBindings: ButtonHandle;
+}
+
+/** The add-form half of the pane. */
+interface Form {
+    /** Repository input. */
+    readonly repoField: TextFieldHandle;
+    /** Account select. */
+    readonly accountSelect: SelectHandle;
+    /** Project select. */
+    readonly projectSelect: SelectHandle;
+    /** Assignment checkbox. */
+    readonly assignment: CheckboxHandle;
+    /** Mention checkbox. */
+    readonly mention: CheckboxHandle;
+    /** Worktree select. */
+    readonly worktree: SelectHandle;
+    /** Bind button. */
+    readonly add: ButtonHandle;
+    /** Toggle button. */
+    readonly toggle: ButtonHandle;
+    /** Note under the form. */
+    readonly note: TextHandle;
+}
+
+/**
+ * Mount the bindings list and its refresh.
+ *
+ * @param input - Runtime, pane root, and handlers.
+ * @returns The board handles.
+ */
+function mountBindingsBoard(input: MountInputs): Board {
+    const status = mountText(input.pane, { text: composeStatus(input.rt.state.repos) });
+    const list = mountList(input.pane, {
+        items: [],
+        ariaLabel: 'Repository bindings',
+        emptyText: 'No repository bound yet — add one below or refresh.',
+        onSelect: (id: string) => input.handlers.selectBinding(id),
+    });
+    const refresh = mountButton(
+        input.pane,
+        { label: 'Refresh bindings', variant: 'secondary', onClick: input.handlers.refresh },
+    );
+    return { status, bindingsList: list, refreshBindings: refresh };
+}
+
+function mountRepoField(input: MountInputs): TextFieldHandle {
+    return mountTextField(input.pane, {
+        label: 'Repository (owner/name)',
+        value: input.rt.state.repos.repoInput,
+        placeholder: 'acme/widget',
+        mono: true,
+        onChange: (value) => input.handlers.setRepoInput(value),
+    });
+}
+function mountAccountSelect(input: MountInputs): SelectHandle {
+    return mountSelect(input.pane, {
+        label: 'Poll as account',
+        value: input.rt.state.repos.accountSelection,
+        options: [],
+        searchable: true,
+        placeholder: 'Select a verified account',
+        disabled: true,
+        onChange: (id) => input.handlers.selectAccount(id),
+    });
+}
+function mountProjectSelect(input: MountInputs): SelectHandle {
+    const options = {
+        label: 'Dispatch project',
+        value: input.rt.state.repos.repoProjectSelection,
+        options: [],
+        searchable: true,
+        searchPlaceholder: 'Search projects by name or id',
+        placeholder: 'Pick a project',
+        disabled: true,
+        onChange: (id: string) => input.handlers.selectProject(id),
+    };
+
+    return mountSelect(input.pane, options);
+}
+function mountTriggerChecks(input: MountInputs): {
+    readonly assignment: CheckboxHandle;
+    readonly mention: CheckboxHandle;
+} {
+    const assignment = mountCheckbox(input.pane, {
+        label: 'Assignment',
+        checked: input.rt.state.repos.triggerAssignment,
+        onChange: (checked) => input.handlers.setAssignment(checked),
+    });
+    const mention = mountCheckbox(input.pane, {
+        label: 'Mention',
+        description: COMMENT_SCAN_NOTE,
+        checked: input.rt.state.repos.triggerMention,
+        onChange: (checked) => input.handlers.setMention(checked),
+    });
+
+    return { assignment, mention };
+}
+function worktreeOptions(repos: Repositories, handlers: ReposPaneHandlers): {
+    readonly label: string;
+    readonly value: 'none' | 'generated';
+    readonly options: { readonly id: string; readonly label: string }[];
+    readonly onChange: (id: string) => void;
+} {
+    return {
+        label: 'Worktree option',
+        value: repos.worktreeSelection,
+        options: WORKTREE_OPTIONS.map((option) => ({ id: option.id, label: option.label })),
+        onChange: (id: string) => handlers.setWorktree(id === 'generated' ? 'generated' : 'none'),
+    };
+}
+/**
+ * Mount the add form's controls.
+ *
+ * @param input - Runtime, pane root, and handlers.
+ * @returns The form handles.
+ */
+function mountAddForm(input: MountInputs): Form {
+    const repoField = mountRepoField(input);
+    const accountSelect = mountAccountSelect(input);
+    const projectSelect = mountProjectSelect(input);
+    const checks = mountTriggerChecks(input);
+    const worktree = mountSelect(
+        input.pane,
+        worktreeOptions(input.rt.state.repos, input.handlers),
+    );
+    const add = mountButton(
+        input.pane,
+        { label: 'Bind repository', disabled: true, onClick: input.handlers.submit },
+    );
+    const toggle = mountButton(
+        input.pane,
+        { label: 'Toggle enabled', variant: 'outline', disabled: true, onClick: input.handlers.toggle },
+    );
+
+    return {
+        repoField,
+        accountSelect,
+        projectSelect,
+        assignment: checks.assignment,
+        mention: checks.mention,
+        worktree,
+        add,
+        toggle,
+        note: mountText(input.pane, { text: input.rt.state.repos.note }),
+    };
+}
+
+/**
+ * The worktree select's documented options.
+ *
+ * @param repos - Repos state.
+ * @returns The mount parameters for the SDK select.
+ */
+
+/**
+ * Mount the repository owner/name input.
+ *
+ * @param input - Runtime, pane root, and handlers.
+ * @returns The text-field handle.
+ */
+
+/**
+ * Mount the account select for the add form.
+ *
+ * @param input - Runtime, the pane root, and the handlers.
+ * @returns The select handle.
+ */
+
+/**
+ * Mount the project select for the add form.
+ *
+ * @param input - Runtime, pane root, and handlers.
+ * @returns The select handle.
+ */
+
+/**
+ * Mount the trigger checkboxes.
+ *
+ * @param input - Runtime, pane root, and handlers.
+ * @returns The two checkbox handles.
+ */
+
+/**
+ * Mount the Repositories pane.
+ *
+ * @param input - Panel root, runtime, and the handlers the controls invoke.
+ * @returns The mounted pane, tab strip, and repaint handles.
+ */
+export function mountRepositoriesPane(input: {
+    /** Panel root element. */
+    readonly root: HTMLElement;
+    /** Runtime whose state the pane repaints from. */
+    readonly rt: PanelRuntime;
+    /** Handlers the controls invoke. */
+    readonly handlers: ReposPaneHandlers;
+}): MountedPane {
+    const { root, rt, handlers } = input;
+    const tabs = mountTabs(root, {
+        items: [
+            { id: 'spike', label: 'Spike' },
+            { id: 'repos', label: 'Repositories' },
+        ],
+        activeId: rt.state.repos.activeTab,
+        trackBackground: true,
+        onChange: (id) => handlers.switchTab(id === 'repos' ? 'repos' : 'spike'),
+    });
+
+    const pane = root.ownerDocument.createElement('div');
+    pane.style.marginTop = '8px';
+    root.append(pane);
+
+    const board = mountBindingsBoard({ rt, pane, handlers });
+    const form = mountAddForm({ rt, pane, handlers });
+
+    return {
+        tabs,
+        pane,
+        status: board.status,
+        bindingsList: board.bindingsList,
+        refreshBindings: board.refreshBindings,
+        repoField: form.repoField,
+        accountSelect: form.accountSelect,
+        projectSelect: form.projectSelect,
+        assignmentCheck: form.assignment,
+        mentionCheck: form.mention,
+        worktreeSelect: form.worktree,
+        addBinding: form.add,
+        toggleSelected: form.toggle,
+        note: form.note,
+        dispose: () => {
+            pane.remove();
+        },
+    };
+}
+
+/**
+ * Narrow the project picker's options for the add form's select.
+ *
+ * @param rt - Panel runtime.
+ * @returns The options, only when a ready list is loaded.
+ */
+function pickerOptionsFor(rt: PanelRuntime): SelectOption[] {
+    const { projects } = rt.state;
+    if (projects.status !== 'ready') {
+        return [];
+    }
+
+    return projects.projects.map((project) => ({
+        id: project.id,
+        label: `${project.name} · ${project.id}`,
+    }));
+}
+
+/**
+ * Repaint the pane from state.
+ *
+ * @param rt - Panel runtime.
+ * @param view - The mounted pane.
+ */
+export function repaintReposPane(rt: PanelRuntime, view: ReposPane): void {
+    const { repos } = rt.state;
+    const accounts = repos.accounts.filter((account) => account.usable);
+
+    view.tabs.update({ activeId: repos.activeTab });
+    view.status.update({ text: composeStatus(repos) });
+    view.bindingsList.update({ items: bindingRows(repos) });
+    view.refreshBindings.update({ disabled: repos.status === 'loading' });
+    view.repoField.update({ value: repos.repoInput });
+    view.accountSelect.update({
+        options: accounts.map((account) => ({ id: account.numericUserId, label: account.login })),
+        value: repos.accountSelection,
+        disabled: repos.status !== 'ready' || accounts.length === 0,
+    });
+    view.projectSelect.update({
+        options: pickerOptionsFor(rt),
+        value: repos.repoProjectSelection,
+        disabled: repos.status !== 'ready',
+    });
+    view.assignmentCheck.update({ checked: repos.triggerAssignment });
+    view.mentionCheck.update({ checked: repos.triggerMention });
+    view.worktreeSelect.update({ value: repos.worktreeSelection });
+    view.addBinding.update({ disabled: repos.status !== 'ready' });
+    view.toggleSelected.update({ disabled: repos.selectedBinding === null });
+    view.note.update({ text: repos.note });
+}
