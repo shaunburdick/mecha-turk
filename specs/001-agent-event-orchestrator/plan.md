@@ -2,6 +2,8 @@
 
 **Status:** Phase 4 revision; the extension spike is the first implementation gate. No application code is included.
 
+> **001 close-out (2026-09-27):** the spike gate passed (S1–S7) and the product owner approved the Option B extension + OpenChamber-hosted local service path. This plan is retained as the record of the gate that was run. Two pointers: the "Constitution alignment" paragraph below was written against Principle V v1.2.0 ("one self-hosted container") — Principle V is now v1.3.0 (extension + host-local service, no mandated packaging), and no principle was weakened by that amendment; the "Deferred architecture" paragraph describes the standalone Docker fallback, which remains unselected and is deferred in `contracts/daemon-deferred.md`. Production planning happens in `specs/002-agent-event-extension`.
+
 ## Decision
 
 Do not commit to a standalone Docker daemon or external OpenChamber bridge before validating the documented OpenChamber extension path. Build the smallest possible panel spike first: one declared GitHub integration, one repository, one matching issue, one `host.startSession()` call, and host-observable project/worktree/session verification. The spike must test panel close, pause/removal, and server-switch behavior. It is a bounded validation, not a hidden production architecture.

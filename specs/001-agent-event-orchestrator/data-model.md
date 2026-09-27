@@ -4,7 +4,7 @@ SQLite timestamps are RFC3339 UTC text and provider IDs are strings. Secrets are
 
 ## Extension spike evidence (host storage, not production state)
 
-Until the lifecycle gate passes, the only planned persistence is a bounded JSON ledger in the extension's `host.storage` namespace. Each `SpikeEvidence` record contains `schema_version`, `correlation_id`, phase (`mounted|closed|paused|removed|server_switched`), repository/issue IDs and URL, discovered login (never token), detection time, panel generation, `startSession` result fields, lifecycle events, and host snapshot references. It contains no Authorization header, PAT, or unrestricted issue body. The ledger is evidence for the gate and is deleted with the extension; it must not be mistaken for durable orchestrator state.
+While the lifecycle gate was pending (it closed 2026-09-27 with S1–S7 PASS), the only planned persistence was a bounded JSON ledger in the extension's `host.storage` namespace. Each `SpikeEvidence` record contains `schema_version`, `correlation_id`, phase (`mounted|closed|paused|removed|server_switched`), repository/issue IDs and URL, discovered login (never token), detection time, panel generation, `startSession` result fields, lifecycle events, and host snapshot references. It contains no Authorization header, PAT, or unrestricted issue body. The ledger is evidence for the gate and is deleted with the extension; it must not be mistaken for durable orchestrator state.
 
 ## In-memory configuration
 

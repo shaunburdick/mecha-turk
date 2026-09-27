@@ -1,5 +1,7 @@
 # Quickstart: OpenChamber Extension Spike
 
+> **Status (2026-09-27): completed.** This gate was executed and passed — S1–S7 all PASS on 2026-09-27 (`spike-evidence.md` §4.6), run against the product owner's OpenChamber instance with a real PAT. The document is retained unchanged as the spike artifact and acceptance checklist; steps below are what was run, not an open to-do. Production work continues in `specs/002-agent-event-extension`.
+
 This is the first implementation gate. Do not build or run a standalone Mecha Turk daemon until the spike is accepted or its failure path is approved.
 
 ## Prerequisites

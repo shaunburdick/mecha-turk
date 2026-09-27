@@ -1,5 +1,7 @@
 # Spike Runbook: Extension-First Gate (T001–T009)
 
+> **Status (2026-09-27): executed and closed.** The operator ran §4.1–§4.5 of `spike-evidence.md` against a live OpenChamber instance; S1–S7 passed and the runbook's stop condition held — no T010+ work started in 001. Retained as the record of the procedure actually followed. Production continuation lives in `specs/002-agent-event-extension`.
+
 Operator instructions for executing the spike end-to-end and gathering the
 evidence that T009 turns into a pass/fail decision. Offline-verifiable steps
 are already covered by the test suite; steps that need a live OpenChamber

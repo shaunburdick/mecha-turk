@@ -1,5 +1,7 @@
 # Configuration Contract v1 (deferred daemon path)
 
+> **Status (2026-09-27): retained evidence, not the production config.** `specs/002-agent-event-extension` owns production configuration (extension integration settings + panel storage + service settings). Structural note only: the `polling.page_size: 100` below assumes a transport that talks to GitHub directly; any leg crossing the guest request cap is limited to `per_page ≤ 30` (`research.md` §a.5). Recorded here so the difference is visible rather than silently reconciled.
+
 This contract is not used by the first extension spike. The spike uses the OpenChamber extension manifest and Settings → Integrations; this YAML applies only if a later phase approves the standalone daemon.
 
 YAML is strict. Secrets use `{env: NAME}` or `{file: /run/secrets/name}` and are never persisted.

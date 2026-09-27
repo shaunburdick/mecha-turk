@@ -1,5 +1,7 @@
 # OpenChamber Integration Contract: Extension-First Gate
 
+> **Status (2026-09-27): spike-gate contract, retained as evidence.** The gate it governs passed S1–S7 on 2026-09-27. This contract is superseded **for production** by `specs/002-agent-event-extension`, which owns the production manifest, multi-account service transport, and any new contracts. Manifest shape, evidence schema, session-verification surface, lifecycle test contract, and the four Wave 0 amendments below remain the accurate record of what the spike ran against — do not treat them as the production contract.
+
 The approved first integration is the documented extension SDK, not an external daemon bridge. A standalone external OpenChamber API/CLI bridge is deferred until the extension lifecycle gate fails and a separate documented contract exists.
 
 ## Manifest requirements
