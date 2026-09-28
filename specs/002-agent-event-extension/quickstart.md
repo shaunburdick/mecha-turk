@@ -75,5 +75,5 @@ The extension never deletes sessions, worktrees, or projects. Route cleanup to O
 | `SERVICE_FAILED` | Service crashed or never became ready within 15 s | Manual retry from Health; check `audit.ndjson` `service.failed` correlation id |
 | Handoff refused | Consent gate or capability gate (F1/F11) | Complete consent / approve capabilities |
 | Run stuck `blocked:project-missing` | Project not registered | Add the project manually, then re-run (binding recovers) |
-| Run stuck `blocked:agent-mismatch` | Pinned agent ≠ `expected-agent` | Set Session Defaults → Default Agent, or correct the `expected-agent` setting |
+| Warning *"dispatched, but the session agent was '\<x\>'"* | Default Agent ≠ `expected-agent` | Set Session Defaults → Default Agent (or correct `expected-agent`); M9 is **warn-only** — the run stays `dispatched` with a warning, nothing is blocked |
 | `storage-unavailable` | Data dir not writable | Fix permissions on `~/.config/openchamber/mecha-turk` (FR-039 blocks degraded starts) |

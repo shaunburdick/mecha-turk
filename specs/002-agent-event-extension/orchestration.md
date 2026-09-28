@@ -4,7 +4,9 @@
 
 ## Current Wave
 
-**SLICE 2 COMPLETE (M6–M9) 2026-09-27** — M6/M7 in `e966894`, M8/M9 panel side in `6af4c00`. The loop now reads end to end: bind → poll → events → relay → dispatch → **runs list with retry** → **agent read-back banner**. tasks.md M1–M9 all checked. Awaiting the operator's live pass on M8/M9 (see Next Action).
+**COMPLETE — pre-PR (2026-09-28)** — MVP M1–M9 all built, all checked in tasks.md, and **live-validated by the operator**: assignment, comment mention, issue-body mention, review request, runs list + retry, and agent verification all fired live (five dispatched events in the operator's store). docs-only closing pass on top of `4221da9`. Next action: PR to main, awaiting human merge.
+
+**SLICE 2 COMPLETE (M6–M9) 2026-09-27** — M6/M7 in `e966894`, M8/M9 panel side in `6af4c00`. The loop now reads end to end: bind → poll → events → relay → dispatch → **runs list with retry** → **agent read-back banner**. tasks.md M1–M9 all checked.
 
 **M5 VALIDATED 2026-09-28** — full loop proven live: bind → poll (first-scan replay) → events → relay → dispatch → TWO PM worktree sessions (issues #1 + #2). tasks.md M5 checked.
 
@@ -14,11 +16,11 @@ Bug family lesson (3x): writer/validator mismatches in store parsers — now cov
 
 ## Branch
 
-`001-agent-event-orchestrator` (tracks `origin/001-agent-event-orchestrator`; `origin/main` is the base). Last code commit `6af4c00` (M8+M9) — this docs commit records it and follows it on the same branch. 551/551 tests green at `6af4c00`.
+`001-agent-event-orchestrator` (tracks `origin/001-agent-event-orchestrator`; `origin/main` is the base). Last code commit `4221da9` (issue-body mentions, v1.1.0) — this docs commit records it and follows it on the same branch. 558/558 tests green at `4221da9`.
 
 ## Tasks
 
-tasks.md re-cut: M1–M4 = Slice 1. **M1–M4 COMPLETE 2026-09-27, commit `ad052da`** (service poll loop, bindings store+routes, events relay+routes, panel Repos tab, panel relay driver + dispatch wiring; verify green 429/429 + lint/tsc clean; both bundles rebuilt). **M6/M7 in `e966894`. M8/M9 panel side in `6af4c00`** (Runs section + retry, `agent-verify.ts` read-back; verify green 551/551 + lint/tsc clean; panel bundle rebuilt). tasks.md carries the per-task evidence; MVP-DEBT entries there record what each slice deliberately did not do.
+tasks.md re-cut: M1–M4 = Slice 1. **M1–M4 COMPLETE 2026-09-27, commit `ad052da`** (service poll loop, bindings store+routes, events relay+routes, panel Repos tab, panel relay driver + dispatch wiring; verify green 429/429 + lint/tsc clean; both bundles rebuilt). **M6/M7 in `e966894`. M8/M9 panel side in `6af4c00`** (Runs section + retry, `agent-verify.ts` read-back; verify green 551/551 + lint/tsc clean; panel bundle rebuilt). **M1–M9 all `[x]` and live-validated 2026-09-28** (issue-body mentions in `4221da9`, v1.1.0). tasks.md carries the per-task evidence; MVP-DEBT entries there record what each slice deliberately did not do.
 
 ## Decisions
 
@@ -32,9 +34,9 @@ None open. T-033/T-034 live-proof scheduling unchanged in spirit — superseded 
 
 ## Verification
 
-- Last verify: 551/551 tests, 38 files, green at HEAD `6af4c00` (2026-09-27): build (both bundles), lint 0 errors/0 warnings, typecheck clean, secret scans green.
+- Last verify: **558/558 tests, 38 files, green at HEAD `4221da9` (2026-09-28)**: build (both bundles), lint 0 errors/0 warnings, typecheck clean, secret scans green. Docs-only closing pass re-verified after the documentation sweep.
+- Operator live validation 2026-09-28: **M1–M9 all fired live** — assignment, comment mention, issue-body mention, review request, runs list + retry, agent verification (five dispatched events in the operator's store).
 - Per-slice: npm run verify green + operator smoke test.
-- M8/M9 evidence still owed from the operator (live pass, see Next Action).
 
 ## Budget
 
@@ -42,7 +44,7 @@ N/A under MVP bar; watch for any single dispatch exceeding ~1 hour. M9's read-ba
 
 ## Next Action
 
-1. **Operator live pass on M8/M9**: trigger a run → the app switches to the new chat once (documented) → green *Session agent verified* banner + `agentVerified: true` ledger entry when the pinned Default Agent is `project-manager`; set Default Agent elsewhere → warning banner naming the observed agent, session untouched. Check the Runs section lists the run newest-first with its dispatch result, and try Retry run on an `in-flight` row (409 copy on a dispatched one).
+1. **PR to main, awaiting human merge.** All M-tasks checked and live-validated; verification green at `4221da9`.
 2. Debt list grows only (tasks.md is the single list — it now carries the pre-M8 candidates and the M8/M9 additions; pick from there, not from this file).
 
 ## Quality Rules (adjusted for MVP bar)

@@ -5,7 +5,7 @@
 **Created**: 2026-09-27
 **Last Updated**: 2026-09-28
 **Version**: 1.1.0
-**Status**: Draft — ready for phase-gate review
+**Status**: Implemented — 2026-09-28
 **Dependencies**: Feature 001 `001-agent-event-orchestrator` — supersedes it for production. The trigger set, deduplication/idempotency rules, policy and approval-gate semantics, audit and observability requirements, and the normalized event contract (`specs/001-agent-event-orchestrator/contracts/events.md`) carry over into this specification.
 **Input**: Product-owner decisions locked 2026-09-27 — "Option B" architecture (OpenChamber extension panel + OpenChamber-hosted local guest service), N-account credential custody, extension read-only to GitHub, Default-Agent pinning with fail-closed verification, bounded autonomy, service-owned durable state. All locked decisions are encoded in the Functional Requirements and listed in `## Clarifications`.
 **Constitution**: `.specify/memory/constitution.md` v1.3.0 — Approved 2026-09-27 by product owner.
@@ -374,3 +374,7 @@ These do not block specification approval; each has a defensible default written
 
 1. **Audit and payload retention defaults** — encoded: audit 180 days / 50,000 entries, payload excerpts 30 days, minimal references until binding deletion. Confirm or adjust at the phase gate (001 flagged retention as a product-owner decision; export/restore stays out of scope either way).
 2. **Single integration card posture** — encoded: declared, optional, non-authoritative (FR-011). Confirm the product owner prefers keeping an optional host-managed card over omitting `contributes.integration` entirely; the alternative is a spec-only change with no architecture impact.
+
+## Final Note (2026-09-28)
+
+M1–M9 built and live-validated by the operator (assignment, comment mention, issue-body mention, review request, runs list + retry, and agent verification all fired live). Deviations recorded: **M9 is warn-only** instead of `blocked:agent-mismatch` per the re-cut; **body mentions added** in v1.1.0 (FR-015, Session 2026-09-28); **durable dedupe** and the **service-side `agentVerified` mirror** deferred to the debt list (`tasks.md`).
