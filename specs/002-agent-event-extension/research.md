@@ -2,7 +2,7 @@
 
 **Feature**: `specs/002-agent-event-extension`
 **Researched**: 2026-09-27
-**Scope**: Everything already settled in `specs/001-agent-event-orchestrator/research.md` (GitHub platform §a, OpenChamber platform §b) is **not** re-researched here — that file remains canonical. This document records only what 002's planning added, with sources and version stamps.
+**Scope**: Everything already settled in `specs/001-agent-event-orchestrator/research.md` (GitHub platform §a, OpenChamber platform §b) is **not** re-researched here — that file was the canonical record. **Historical-path note (2026-09-28, cleanup review):** the whole `specs/001-agent-event-orchestrator/` directory was removed in commit `110c0a2` when `README.md` and `AGENTS.md` shipped, so that citation is **stamped provenance, not a live link** — recover it with `git show 110c0a2^:specs/001-agent-event-orchestrator/research.md`. Where its §a/§b findings bind the production system they are restated as requirements in `spec.md` (FR-004, FR-010, FR-011, FR-029, FR-034, `## Setup Prerequisites`) and in `spec.md`'s `## Research and Platform Decisions` table; **every short-form `001 §…` reference later in this file reads against that same removed file and is covered by this note** — none is a live link. This document records only what 002's planning added, with sources and version stamps.
 
 **Sources used here** (all retrieved 2026-09-27):
 
@@ -68,7 +68,7 @@
 3. `startSession`'s `navigation` defaults to `"preserve"`; `"open"` selects the new chat (`dist/contract.d.ts`, docs). Using `navigation: 'open'` would switch UI *implicitly and earlier*; using `navigation: 'preserve'` + an explicit `openSession` makes the switch a single, deliberate, auditable verification step. **Decision: `preserve` + explicit `openSession`.**
 4. **There is no silent alternative at pin 1.24.2.** No `getSession(sessionId)`, no agent field on any list/lifecycle/result surface, and the service cannot call host APIs at all. The spec's assumption that verification opens the created session is therefore **confirmed against the dist types**, not assumed.
 5. Timeout behavior: if no matching snapshot arrives within 15 s, or `agent` is absent ("when the session has them" — i.e. unreadable), verification fails **closed** → `blocked:agent-mismatch` (FR-029).
-6. **Expected-agent source**: the panel cannot read Settings → Session Defaults (no settings writer, 001 §b.8), so the expected value is the manifest integration setting `expected-agent` (kebab-case per `PANEL_ID`, `GUEST_SETTING_VALUE_MAX` 2000), default `project-manager` when blank, shown in the panel with its provenance and mismatch remediation copy.
+6. **Expected-agent source** *(source superseded 2026-09-28 — retained as the record of what shipped)*: the panel cannot read Settings → Session Defaults (no settings writer, 001 §b.8 — historical citation, see the scope note), so the expected value came from the manifest integration setting `expected-agent` (kebab-case per `PANEL_ID`, `GUEST_SETTING_VALUE_MAX` 2000), default `project-manager` when blank, shown in the panel with its provenance and mismatch remediation copy. **The finding stands; the address changed.** The product owner's *"empty the card entirely"* ruling removed the setting (002 FR-041 re-cut), and the baseline is now the `expectedAgent` member of `config.json`, read by the panel through `GET /v1/config` (002 FR-029 as amended; field: 006 FR-100). The one durable insight — *no settings writer exists at pin 1.24.2, so nothing host-side can supply this value* — is exactly why the value had to move to a surface the panel already reads rather than to Session Defaults.
 
 **Accepted UX cost, documented**: one app chat switch per dispatched run, immediately after creation, while the panel itself stays mounted. This is the "documented UI context switch" the spec already assumed; it is listed in quickstart as expected behavior.
 
@@ -103,7 +103,7 @@ Settled GitHub facts stay in 001 §a.1–§a.6. What planning adds is the **stre
 | `issue_comments` | `GET /repos/{o}/{r}/issues/comments?sort=updated&direction=asc&per_page=30` | `mention` (comments on issues and PRs) |
 | `pulls` | `GET /repos/{o}/{r}/pulls?state=open&sort=updated&direction=asc&per_page=30` | `review_request`, `review_assignment` (`requested_reviewers`), head SHA for drift detection |
 
-Cadence/budget arithmetic and the budget controller that keeps NFR-003 are specified in plan.md; exact query/field details are validated by fixture-driven contract tests against GitHub's documented response shapes (001 §a.1: sort stability, serial requests, no Search API, no Notifications — 001 §a.6).
+Cadence/budget arithmetic and the budget controller that keeps NFR-003 are specified in plan.md; exact query/field details are validated by fixture-driven contract tests against GitHub's documented response shapes (001 §a.1: sort stability, serial requests, no Search API, no Notifications — 001 §a.6; *both section references are to the removed 001 research record — historical, recover per the scope note at the top of this file*).
 
 ---
 
@@ -113,10 +113,10 @@ Cadence/budget arithmetic and the budget controller that keeps NFR-003 are speci
 - `host.storage` caps and uninstall wipe (001 §b.6) — unchanged; re-confirmed in docs `/sdk/host/` ("Storage belongs to this extension on the connected server, survives reloads, and is removed on uninstall").
 - No project creation, no session/worktree deletion APIs (001 §b.4/§b.5) — unchanged; re-confirmed in docs `/extensions/` and `/sdk/host/`.
 - No per-call agent/model/variant (001 §b.2) — unchanged; docs `/sdk/host/`: "The extension never picks them."
-- SDK pin `1.24.2` exact (`spike-evidence.md` §1); `engines.openchamber: ">=1.24.0"`; re-pin to the host release before live execution (NFR-008).
+- SDK pin `1.24.2` exact (`spike-evidence.md` §1 — **historical path**: that file was removed with the 001 directory in commit `110c0a2`; the pin is live in `package.json` and its provenance in `spec.md` NFR-008); `engines.openchamber: ">=1.24.0"`; re-pin to the host release before live execution (NFR-008).
 
 ## Open items this research leaves
 
 1. **Uninstall survival is an expectation, not a proof** (R2) — MUST-verify task T-033; docs claim gated on it.
-2. Live host build version was never recorded by the operator (001 §1) — record it during T-033's live run.
+2. Live host build version was never recorded by the operator (001 §1 — *historical citation: the 001 record that carried it was removed in commit `110c0a2`; recover with `git show 110c0a2^:specs/001-agent-event-orchestrator/spike-evidence.md`*) — record it during T-033's live run.
 3. Whether the panel's `onSession` also fires without `openSession` (e.g. `navigation:'open'`) is *undocumented*; the plan does not depend on it, and tests pin only the documented path (R3).

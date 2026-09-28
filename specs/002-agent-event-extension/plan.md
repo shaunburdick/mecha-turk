@@ -2,7 +2,9 @@
 
 **Branch**: `001-agent-event-orchestrator` | **Date**: 2026-09-27 | **Spec**: [spec.md](./spec.md) (v1.0.0, approved)
 
-**Input**: Feature specification `specs/002-agent-event-extension/spec.md`; constitution `.specify/memory/constitution.md` v1.3.0; carried-forward research `specs/001-agent-event-orchestrator/research.md`.
+**Input**: Feature specification `specs/002-agent-event-extension/spec.md`; constitution `.specify/memory/constitution.md` v1.3.0; carried-forward research `specs/001-agent-event-orchestrator/research.md` (**historical path — removed 2026-09-28** in commit `110c0a2`; recover with `git show 110c0a2^:specs/001-agent-event-orchestrator/research.md`; the findings that bind this plan are restated in `spec.md`'s `## Research and Platform Decisions` table and in `research.md` §R1–§R7 of this feature).
+
+**Historical-path note (2026-09-28, cleanup review)**: every `001 …` citation in this file — `001 research §b.9` (transport), `001 research §b.8` (no settings writer, the reason `expected-agent` is a manifest setting), `001 research Host API`, `001 §b.7` / `§b.6` (panel lifetime, uninstall wipe), `001 §a.5` (page cap), `001 §a.3` / `§a.4` (rate arithmetic), and `spike-evidence.md §4.1` (folder install) — refers to the `specs/001-agent-event-orchestrator/` directory **removed in commit `110c0a2`**. They are kept as stamped provenance; recover any with `git show 110c0a2^:specs/001-agent-event-orchestrator/<file>`. This plan's live successors are `research.md` (§R1–§R7), `spec.md` (FR-002, FR-011, FR-017, FR-029, FR-041), and `contracts/events-carry-forward.md`.
 
 **Note**: No application code is written in phases 4–5. Every decision below is decided and justified — there are no open option pairs.
 
@@ -88,7 +90,7 @@ panel:   POST /v1/runs/:runId/verification { leaseId, observedAgent, expectedAge
 service: observed === expected → dispatched ; else / timeout / agent absent → blocked:agent-mismatch (fail closed)
 ```
 
-- **Expected agent** = manifest integration setting `expected-agent` (kebab-case, `PANEL_ID`-valid), defaulting to `project-manager` when blank. The panel cannot read Session Defaults (001 research §b.8 — no settings writer, `onSettings` pushes only declared integration fields), so the pin is *mirrored as configuration* and enforced post-dispatch per FR-029; a mismatch message tells the operator to align Settings → Session Defaults or the `expected-agent` field.
+- **Expected agent** = manifest integration setting `expected-agent` (kebab-case, `PANEL_ID`-valid), defaulting to `project-manager` when blank. The panel cannot read Session Defaults (001 research §b.8 — no settings writer, `onSettings` pushes only declared integration fields; *historical citation — see the note at the top of this file*), so the pin is *mirrored as configuration* and enforced post-dispatch per FR-029; a mismatch message tells the operator to align Settings → Session Defaults or the `expected-agent` field. *(**Source superseded 2026-09-28** by the owner's "empty the card entirely" ruling: the manifest setting is gone — 002 FR-041 re-cut, card = zero settings — and the baseline is now `expectedAgent` in `config.json`, read through `GET /v1/config`: 002 FR-029 as amended, field at 006 FR-100. The reasoning in this bullet (no settings writer ⇒ the value must be mirrored configuration, enforced post-dispatch) still holds; only the store changed.)*
 - **`navigation: 'preserve'`** keeps the operator's current chat untouched during the (up to 180 s) creation call; the single context switch happens only at verification, which is the documented, spec-accepted switch (spec Assumption "Agent verification mechanics").
 - **Deterministic attach id** `mt-run-<sha256(runKey) hex[0:24]>` (≤128 chars, `AttachIssueRequest.id`) is the crash-recovery key: if the panel dies between `startSession` and posting the result, on remount it reconciles via `listSessions(projectId)` → `items[].id/data` (documented fields, 001 research Host API) and completes the run instead of re-dispatching (FR-030).
 
@@ -160,8 +162,10 @@ specs/002-agent-event-extension/    # this artifact set
 | Untrusted excerpt | 4,000/item, 12,000/dispatch | ±50% tunable (spec Assumption) | shared builder |
 | Audit retention | 180 days / 50,000 entries | configurable; minimal refs until binding deletion | service |
 | Payload excerpts | 30 days | configurable | service |
-| Expected agent | `project-manager` | non-empty | panel setting (`expected-agent`) |
+| Expected agent | `project-manager` | non-empty (≤80 chars, format-checked) | panel setting (`expected-agent`) — **superseded 2026-09-28: service configuration `expectedAgent` (006 FR-100), read via `GET /v1/config`** |
 | Worktree option | `generated` per binding | `none \| generated \| new:<branch>` (`{number}` placeholder) | service binding |
+
+*Cleanup note (2026-09-28): since `spec.md` v1.6.0 (FR-041) the manifest card carried `expected-agent` as its only panel-tier setting — **and, since the owner's card-emptied ruling the same day (002 FR-041 re-cut), the card carries nothing at all**, that row's tier moving to service configuration — the row above is the one setting that had a panel tier, and every other row is service- or binding-tier exclusively; the card's former `repository`, `expected-login`, `project-id`, `worktree-option`, and `poll-interval-ms` fields, and every `MECHA_TURK_*` environment knob, are removed (006 FR-091, FR-092).*
 
 **Rate arithmetic (FR-022 / NFR-003, decided cadence)**: three discovery streams per repository (`issues` — assignments + issue comments anchor; `issue_comments` — mentions; `pulls` — review request/assignment + head SHA), each `per_page ≤ 30`. Default cadence polls every stream every interval: 10 repos × 3 streams × 60 ticks/h = 1,800 requests/h *attempted*; conditional requests return **304 at no primary-limit cost** (001 §a.3/§a.4), and the per-account **budget controller** de-prioritizes the mention stream (every 2nd→3rd tick) whenever projected non-304 usage would exceed 1,500/h (30%) — bringing worst case without 304 support to 10 × (60 + 60 + 20–30) ≈ 1,400–1,500/h. Detection p95 ≤ 2× interval holds under normal conditions (NFR-001); under budget pressure the delayed stream is surfaced in health rather than silently missed (NFR-009). Correctness never depends on 304s (AC-010).
 

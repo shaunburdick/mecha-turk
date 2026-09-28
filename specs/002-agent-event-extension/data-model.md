@@ -2,6 +2,8 @@
 
 **Feature**: `specs/002-agent-event-extension` · **Spec**: v1.0.0 · **Date**: 2026-09-27
 
+> **Historical-path note (2026-09-28, cleanup review).** Short-form `001 …` citations in this file (contract amendment 1 in 001 `contracts/openchamber.md`, 001 `events.md` v1, "001 amendment 4") refer to the `specs/001-agent-event-orchestrator/` directory **removed in commit `110c0a2`**. They are stamped provenance: recover with `git show 110c0a2^:specs/001-agent-event-orchestrator/<file>`; the live event schema is `contracts/events-carry-forward.md`, and the production model is this file.
+
 Conventions:
 
 - **Service tier** = durable store under `$HOME/.config/openchamber/mecha-turk/` (dir `0700`, files `0600`, atomic temp+rename writes, NDJSON append for audit). This tier is authoritative for everything listed as *durable* below and is the audit home (FR-033).
@@ -88,7 +90,7 @@ One per `(accountNumericUserId, repositoryId, stream)` where `stream ∈ issues 
 
 | Field | Type | Constraints |
 | --- | --- | --- |
-| `schemaVersion` | `'1.1'` | v1.1 = 001 `events.md` v1 + `deliveryKey` (see carry-forward contract) |
+| `schemaVersion` | `'1.1'` | v1.1 = 001 `events.md` v1 (historical; see the note at the top of this file) + `deliveryKey` (see carry-forward contract) |
 | `deliveryKey` | string | `sha256(provider ‖ accountNumericUserId ‖ repositoryId ‖ sourceType ‖ sourceId ‖ eventKind)` hex — dedup identity (FR-019) |
 | `provider` | `'github'` | fixed |
 | `accountNumericUserId`, `repository` | string / `{id, owner, name}` | source identity scope |
@@ -203,10 +205,10 @@ Retention (spec Assumption): 180 days **or** 50,000 entries, whichever first; pa
 | Key (namespace `mecha-turk:`) | Type | Contents / limits |
 | --- | --- | --- |
 | `ui` | JSON | active tab, filters, last-viewed run, sort; ≤4 KiB |
-| `project` | string | selected project id (spike key retained; precedence rules unchanged, 001 amendment 4) |
+| `project` | string | selected project id — **picker memory, not configuration**: the spike key is retained (005 FR-025, `AGENTS.md` invariant 4), and since 002 FR-041 (v1.6.0, 2026-09-28) there is no `project-id` card setting beneath it in precedence — the `integration-setting` fallback was retired with the card's settings; the binding's `projectId` is the configuration (FR-013/FR-014). *The "001 amendment 4" precedence rule this row once cited is historical — see the note at the top of this file* |
 | `consent` | `{ givenAt: string, version: 1 }` | **occurrence only** — no token material; mirrors the service audit `consent` entry (FR-008) |
 | `accounts` | JSON array | bounded account mirror `{ numericUserId, login, state, scopeCheck }` written after a successful handoff — display only, never authoritative, never a credential (token-handoff §3) |
-| `expected-agent` mirror | string | effective value + provenance (integration setting vs default) for display |
+| `expected-agent` mirror | string | effective value + provenance for display — **source superseded 2026-09-28**: the manifest setting is gone (002 FR-041 re-cut, card = zero settings) and the provenance is now *service configuration (`expectedAgent` in `config.json`) vs the documented default*; the panel reads it through `GET /v1/config` (002 FR-029 as amended, 006 FR-100). Whether the panel still mirrors it into `host.storage` is Phase 4's call — it is UI state either way (FR-034) |
 | `runs-mirror` | JSON array | **bounded** display mirror of the latest ≤50 runs `{ runKeyHash, state, sourceUrl, correlationId, updatedAt }` — never authoritative, never an audit home (FR-034) |
 | `health-mirror` | JSON | last rendered `ServiceHealth` snapshot + `fetchedAt`; stale-render guard |
 | `handoff-guard` | never present | **assertion-tested key**: writing any key whose serialized value matches token-shaped patterns must fail (NFR-004 scan includes this key set) |

@@ -114,7 +114,7 @@ panel: clear token (finally)  →  render "Connected as <login>"  →  audit (se
 
 ## 6. Custody rules (steady state)
 
-- Exactly **one** copy of a token at rest: `accounts/<numericUserId>.json` (`0600`) in the service store; never duplicated into `host.storage`, backups of panel state, ledgers, or git (`.env.example` stays comment-only; `.gitignore` covers `.env*`).
+- Exactly **one** copy of a token at rest: `accounts/<numericUserId>.json` (`0600`) in the service store; never duplicated into `host.storage`, backups of panel state, ledgers, or git (the `.env.example` this rule once described as comment-only **was removed on 2026-09-28** by 006 FR-091 — it documented superseded card-typing knobs and a commented credential line, and no `.env` file of any kind ships now; `.gitignore` still covers `.env*`, so a stray one never reaches git).
 - **Atomic credential-file specifics (SEC-13)** — every store write, credential files included:
   1. the temporary file is created **inside the target directory** (never in a shared temp dir — a cross-device `rename` is not atomic) with mode **`0600` passed explicitly** (never inherited from the umask);
   2. content is written, then **`fsync`**ed;

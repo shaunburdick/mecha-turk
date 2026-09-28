@@ -2,7 +2,7 @@
 
 **Feature**: `specs/002-agent-event-extension` · **Date**: 2026-09-27 · **Status**: binding for implementation; reviewed by security-auditor as task T-001 and **amended by T-002** (findings SEC-01…SEC-17 resolved — sign-off in [token-handoff.md](./token-handoff.md) §8; **gate G1 CLOSED 2026-09-27**).
 
-**Transport**: `panel --serviceRequest--> host --HTTP 127.0.0.1:<ephemeral port>--> service` (001 research §b.9, GUEST_SERVICES.md). Request/response only; no streaming; no panel→loopback dialing; the panel never receives `OPENCHAMBER_SERVICE_TOKEN`.
+**Transport**: `panel --serviceRequest--> host --HTTP 127.0.0.1:<ephemeral port>--> service` (001 research §b.9, GUEST_SERVICES.md — *the `specs/001-agent-event-orchestrator/` directory was removed 2026-09-28 in commit `110c0a2`; every `001 …` citation in this contract is stamped provenance, recoverable with `git show 110c0a2^:specs/001-agent-event-orchestrator/research.md`, and restated for this feature in `../research.md` §R1–§R7 and `../spec.md` FR-002*). Request/response only; no streaming; no panel→loopback dialing; the panel never receives `OPENCHAMBER_SERVICE_TOKEN`.
 
 ## 1. Transport rules (non-negotiable)
 
@@ -66,7 +66,7 @@ Panel-side mapping of host transport errors: `NO_SERVICE` → "service not appro
 | --- | --- | --- |
 | `GET` | `/v1/dispatches?cursor=<n>&waitMs=<0..10000>` | Long-poll. Returns immediately with dispatchable runs (`state: 'created'`, policy allows), else holds ≤`waitMs` then `{ runs: [], cursor }`. Each run: `{ runKeyHash, runKey, correlationId, bindingId, accountNumericUserId, projectId, source: { type, id, number, title, url, kind }, worktreeOption, attachItemId, context: { excerpt, delimiters }, policyDecision, lease: { leaseId, expiresAt, attempt } }`. Lease issued atomically; lease = single dispatch authorization (plan.md relay protocol). **Concurrency cap: max 4 held long-polls; an excess request answers immediately with `{ runs: [], cursor }` (or `429`) — never queued** (SEC-04). |
 | `POST` | `/v1/runs/:runKeyHash/dispatch-result` | `{ leaseId, result: StartSessionResult-shaped }` → `200 { run }`. Wrong/expired lease → `409 stale-lease` (panel then runs reconciliation, never re-dispatches). Partial failures (`sessionId: null`) recorded and block per FR-030. |
-| `POST` | `/v1/runs/:runKeyHash/verification` | `{ leaseId, observedAgent: string \| null, expectedAgent, ok, note? }` → `200 { run }`. Mismatch/unreadable → run `blocked:agent-mismatch`, audit entry written, **no further automated handling**. |
+| `POST` | `/v1/runs/:runKeyHash/verification` | `{ leaseId, observedAgent: string \| null, expectedAgent, ok, note? }` → `200 { run }`. *(Source of `expectedAgent` since 2026-09-28: the panel reads the baseline from `GET /v1/config` (`expectedAgent`, 006 FR-100) per 002 FR-029 as amended — the integration card carries **zero** settings (002 FR-041 re-cut), and when that read fails the panel posts the documented default `project-manager` with its provenance. The body shape is unchanged.)* Mismatch/unreadable → run `blocked:agent-mismatch`, audit entry written, **no further automated handling**. |
 | `POST` | `/v1/runs/:runKeyHash/approval` | `{ decision: 'approve' \| 'reject', actor: string, reason?: string }` → `200 { run }` — only valid from `waiting_approval`; audited (FR-027). **Operator-confirmed action only**: reachable from an explicit panel confirmation, never automatic (SEC-14) |
 | `POST` | `/v1/runs/:runKeyHash/reconcile` | `{ sessionId }` — attach-id recovery outcome (crash path) → `200 { run }` |
 | `POST` | `/v1/runs/:runKeyHash/retry` | Operator-initiated retry from `blocked:*` → `202` **only if** cause flagged cleared; otherwise `409 { cause }` (FR-030) |
@@ -125,6 +125,6 @@ Panel-side mapping of host transport errors: `NO_SERVICE` → "service not appro
 
 ## 5. Out of scope for this contract
 
-- GitHub endpoint shapes (service-internal adapter; see research §R6 and 001 §a).
+- GitHub endpoint shapes (service-internal adapter; see research §R6 and 001 §a — *historical, per the note at the top of this file*).
 - Panel UI layout (app-level).
-- Host APIs (`startSession`, `openSession`, `listProjects`…) — documented SDK surface, covered by [events-carry-forward.md](./events-carry-forward.md) pointers to 001 `contracts/openchamber.md`.
+- Host APIs (`startSession`, `openSession`, `listProjects`…) — documented SDK surface, covered by [events-carry-forward.md](./events-carry-forward.md) pointers to 001 `contracts/openchamber.md` (*file removed with the 001 directory, 2026-09-28; recover at `110c0a2^`*).
