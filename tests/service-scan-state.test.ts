@@ -112,7 +112,7 @@ function fixtureBinding(): BindingRecord {
         repository: 'acme/widget',
         projectId: 'prj_42',
         worktreeOption: 'none',
-        triggers: { assignment: true, mention: false },
+        triggers: { assignment: true, mention: false, reviewRequest: false },
         state: 'active',
         createdAt: CREATED_AT,
         updatedAt: CREATED_AT,

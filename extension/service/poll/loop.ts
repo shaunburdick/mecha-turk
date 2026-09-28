@@ -1,16 +1,20 @@
 /**
- * The service's minimal poll loop (MVP task M1 — re-cut 2026-09-27).
+ * The service's minimal poll loop (MVP task M1 — re-cut 2026-09-27, grown
+ * for the Slice-2 triggers M6 mention and M7 review request).
  *
  * Once per configured interval (existing `ServiceConfig.intervalMs`, default
- * 60 s) the loop walks every *enabled* binding carrying the assignment
- * trigger. Each scan presents the bound account's credential, lists its
- * repository's open issues newest-updated first (capped per the cut: two
- * pages at ≤ 30 items each), and turns every new assignment into one queued
- * event — one open issue assigned to one bound account can only ever produce
- * one event, because the event id is deterministic.
+ * 60 s) the loop walks every *enabled* binding carrying at least one trigger
+ * this loop implements. Each scan presents the bound account's credential and
+ * lists only the feeds those switches ask for — open issues newest-updated
+ * first for the assignment (and the mention scan's title lookup), issue
+ * comments for M6, open pull requests for M7 — each capped per the cut (two
+ * pages at ≤ 30 items each, inside `poller-github.ts`). Every match becomes
+ * one queued event: one observation (an assignment, a comment, a review
+ * request) can only ever produce one event, because the event id is
+ * deterministic.
  *
  * The first scan of a binding *replays*: with no recorded `lastScanAt` the
- * loop sends no `since` filter, so every open issue matching the trigger is
+ * loop sends no `since` filter, so every open item matching a trigger is
  * enqueued — an operator who binds a repository and immediately wants work
  * on already-assigned issues gets it even when the issue (or the assignment)
  * predates the binding (product decision, 2026-09-28). Every scan after the
@@ -23,7 +27,6 @@
  */
 
 import { repositoryLabel } from '../../src/config.ts';
-import type { RepositoryRef } from '../../src/config.ts';
 import { newCorrelationId } from '../../src/ids.ts';
 import { appendAudit } from '../audit.ts';
 import { DEFAULT_CONFIG, CONFIG_FILE, configFromStore, parseStoredConfig } from '../config.ts';
@@ -34,18 +37,10 @@ import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { createEvent, enqueueEvents, readEvents } from './events.ts';
 import type { QueuedEvent } from './events.ts';
-import type { GitHubIssuePoller, IssueListOutcome, PollIssue } from './poller-github.ts';
+import type { GitHubIssuePoller, PollFailure, PollIssue } from './poller-github.ts';
 import { readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
 import type { ScanState } from './scan.ts';
-
-/** Items requested per page; each page stays well inside the response cap. */
-const PAGE_SIZE = 30;
-
-/** Pages read per binding scan; a full page justifies one more. */
-const MAX_SCAN_PAGES = 2;
-
-/** Longest issue-body excerpt one event carries (bounded untrusted text). */
-const ISSUE_BODY_EXCERPT_MAX_CHARS = 600;
+import { bodyExcerptOf, collectTriggerEvents, repositoryRefOf, updatedInWindow } from './triggers.ts';
 
 /** Short machine reasons a scan was skipped, logged instead of upstream text. */
 export type ScanSkip = 'missing-account' | 'inactive-account' | 'auth-failed' | 'rate-limited' | 'offline' | 'upstream';
@@ -127,18 +122,18 @@ export async function currentIntervalMs(store: ServiceStore | null, log: Service
 }
 
 /**
- * The repository reference behind a binding's validated `owner/name` label.
+ * Decide whether a binding watches anything this loop implements.
  *
- * @param binding - Binding whose repository is scanned.
- * @returns The owner/name reference.
+ * A binding whose switches are all off is walked but never scanned, so the
+ * scan state stays honest (and no rate budget is spent on a silent binding).
+ *
+ * @param binding - Binding the cycle is about to walk.
+ * @returns `true` when at least one trigger is on.
  */
-function repositoryRefOf(binding: BindingRecord): RepositoryRef {
-    const index = binding.repository.indexOf('/');
-    if (index < 0) {
-        return { owner: binding.repository, name: '' };
-    }
+function watchesAnything(binding: BindingRecord): boolean {
+    const { assignment, mention, reviewRequest } = binding.triggers;
 
-    return { owner: binding.repository.slice(0, index), name: binding.repository.slice(index + 1) };
+    return assignment || mention || reviewRequest;
 }
 
 /**
@@ -183,60 +178,12 @@ export function isIssueAssignment(issue: PollIssue, bindingLogin: string): boole
 }
 
 /**
- * Decide whether an issue falls inside the scan window.
- *
- * With no window (`windowStart === null` — the first scan, and any replay
- * after a recovery reset) every listed issue is in-window: the replay's
- * contract is that everything open matching the trigger enqueues, whether or
- * not the issue can report its own freshness (product decision,
- * 2026-09-28). With a window, an issue that cannot report its own freshness
- * is never in-window: a feed entry without a date cannot honestly claim to
- * be new.
- *
- * @param updatedAt - GitHub `updated_at` stamp, or `null`.
- * @param windowStart - Window start stamp, or `null` for a replay scan.
- * @returns `true` when in-window — always, when there is no window.
- */
-export function updatedInWindow(updatedAt: string | null, windowStart: string | null): boolean {
-    if (windowStart === null) {
-        return true;
-    }
-
-    if (updatedAt === null) {
-        return false;
-    }
-
-    const stamp = Date.parse(updatedAt);
-    const start = Date.parse(windowStart);
-
-    return !Number.isNaN(stamp) && !Number.isNaN(start) && stamp >= start;
-}
-
-/**
- * Slice untrusted issue text to the excerpt one event can carry.
- *
- * @param body - Raw issue body, or `null` when GitHub sent none.
- * @returns The excerpt, or `''` when there was no body.
- */
-function bodyExcerptOf(body: string | null): string {
-    if (body === null) {
-        return '';
-    }
-
-    if (body.length <= ISSUE_BODY_EXCERPT_MAX_CHARS) {
-        return body;
-    }
-
-    return `${body.slice(0, ISSUE_BODY_EXCERPT_MAX_CHARS - 1)}…`;
-}
-
-/**
  * Translate one upstream failure into a skip reason.
  *
  * @param outcome - The upstream classification; never `ok`.
  * @returns The short machine reason logged for the binding.
  */
-function skipOf(outcome: Exclude<IssueListOutcome, { readonly kind: 'ok' }>): ScanSkip {
+function skipOf(outcome: PollFailure): ScanSkip {
     if (outcome.kind === 'auth-failed') {
         return 'auth-failed';
     }
@@ -246,64 +193,6 @@ function skipOf(outcome: Exclude<IssueListOutcome, { readonly kind: 'ok' }>): Sc
     }
 
     return outcome.detail === 'timeout' || outcome.detail === 'offline' ? 'offline' : 'upstream';
-}
-
-/**
- * Read every issue page one binding's scan covers.
- *
- * Page 2 is requested only when page 1 filled its cap, so the rate budget
- * never sees a burst. The first failed page stops the paging and reports.
- *
- * @param input - Poller call inputs.
- * @returns The normalized issues, or the page failure's skip reason.
- */
-/** Outcome of listing every page one binding's scan covers. */
-type IssuePageResult =
-    | { readonly ok: true; readonly issues: readonly PollIssue[] }
-    | { readonly ok: false; readonly skipped: ScanSkip };
-
-/**
- * Read every issue page one binding's scan covers.
- *
- * Page 2 is requested only when page 1 filled its cap, so the rate budget
- * never sees a burst. The first failed page stops the paging and reports.
- *
- * @param input - Poller call inputs.
- * @returns The normalized issues, or the page failure's skip reason.
- */
-async function listBindingIssues(input: {
-    /** Poller the pages are requested through. */
-    readonly poller: GitHubIssuePoller;
-    /** Account credential presented to GitHub. */
-    readonly token: string;
-    /** Repository coordinates. */
-    readonly owner: string;
-    readonly name: string;
-    /** Scan window start; `null` opens an unbounded (replay) listing. */
-    readonly since: string | null;
-}): Promise<IssuePageResult> {
-    const pageInputs = {
-        token: input.token,
-        owner: input.owner,
-        name: input.name,
-        since: input.since,
-        perPage: PAGE_SIZE,
-    };
-
-    const issues: PollIssue[] = [];
-    for (let page = 1; page <= MAX_SCAN_PAGES; page += 1) {
-        const outcome = await input.poller.listOpenIssues(pageInputs);
-        if (outcome.kind !== 'ok') {
-            return { ok: false, skipped: skipOf(outcome) };
-        }
-
-        issues.push(...outcome.issues);
-        if (outcome.issues.length < PAGE_SIZE) {
-            break;
-        }
-    }
-
-    return { ok: true, issues };
 }
 
 /**
@@ -390,15 +279,6 @@ function eventsForBinding(input: {
 }
 
 /**
- * Scan one binding: list pages, collect the assignment matches, enqueue.
- *
- * @param deps - Narrowed store/logger/poller for this cycle.
- * @param binding - The binding being scanned.
- * @param scanned - Scan state read at cycle start.
- * @param detectedAt - RFC 3339 stamp pinned at cycle start.
- * @returns The binding's outcome.
- */
-/**
  * The outcome a binding's scan starts from, before anything is observed.
  *
  * @param binding - The binding the blank belongs to.
@@ -414,6 +294,74 @@ function blankScan(binding: BindingRecord): BindingScan {
     };
 }
 
+/** What one binding's listings produced: every event, or the skip reason. */
+type ScanListing =
+    | { readonly ok: true; readonly events: readonly QueuedEvent[] }
+    | { readonly ok: false; readonly skipped: ScanSkip };
+
+/**
+ * List every feed this binding's triggers ask for and collect its events.
+ *
+ * The issue list feeds the assignment trigger and gives the mention scan
+ * issue titles to resolve against; {@link collectTriggerEvents} owns the
+ * comment and pull-request feeds. A binding with neither of those switches
+ * on lists no issues at all, so the rate budget only ever pays for triggers
+ * the operator turned on. The first list failure ends the listing and
+ * reports its class as the loop's skip reason.
+ *
+ * @param input - Poller, credential, binding, window, and the cycle stamp.
+ * @returns Every event this scan matched, or the skip reason.
+ */
+async function collectScanEvents(input: {
+    /** Narrowed store/logger/poller. */
+    readonly deps: ScanContext;
+    /** The binding being scanned. */
+    readonly binding: BindingRecord;
+    /** Window start; `null` opens an unbounded (replay) listing. */
+    readonly windowStart: string | null;
+    /** RFC 3339 stamp pinned at cycle start. */
+    readonly detectedAt: string;
+    /** Account credential presented to GitHub. */
+    readonly token: string;
+    /** The bound account's login, as the account record reports it. */
+    readonly login: string;
+}): Promise<ScanListing> {
+    const { deps, binding, windowStart, detectedAt, token, login } = input;
+    const repository = repositoryRefOf(binding);
+    const issues = binding.triggers.assignment || binding.triggers.mention
+        ? await deps.poller.listOpenIssues({
+            token,
+            owner: repository.owner,
+            name: repository.name,
+            since: windowStart,
+        })
+        : { kind: 'ok' as const, issues: [] as readonly PollIssue[] };
+    if (issues.kind !== 'ok') {
+        return { ok: false, skipped: skipOf(issues) };
+    }
+
+    const collected = await collectTriggerEvents({
+        poller: deps.poller, token, binding, login, windowStart, detectedAt, issues: issues.issues,
+    });
+    if (!collected.ok) {
+        return { ok: false, skipped: skipOf(collected.failure) };
+    }
+
+    const matched = eventsForBinding({ binding, windowStart, issues: issues.issues, detectedAt });
+
+    return { ok: true, events: [...matched, ...collected.events] };
+}
+
+/**
+ * Scan one binding: list the feeds its triggers ask for, collect every
+ * match, enqueue.
+ *
+ * The first list failure ends the scan with that failure's skip reason —
+ * one cycle reports one honest reason per binding.
+ *
+ * @param input - Binding, scan state, and the stamp pinned at cycle start.
+ * @returns The binding's outcome.
+ */
 async function scanBinding(input: {
     /** Narrowed store/logger/poller. */
     readonly deps: ScanContext;
@@ -425,7 +373,6 @@ async function scanBinding(input: {
     readonly detectedAt: string;
 }): Promise<BindingScan> {
     const { deps, scanned, detectedAt, binding } = input;
-    const repository = repositoryRefOf(binding);
     const blank = blankScan(binding);
     const account = await readAccount({ store: deps.store, numericUserId: binding.accountNumericUserId });
     if (account === null || account.credential.token === '') {
@@ -436,27 +383,22 @@ async function scanBinding(input: {
         return { ...blank, skipped: 'inactive-account' };
     }
 
-    const pages = await listBindingIssues({
-        poller: deps.poller,
-        token: account.credential.token,
-        owner: repository.owner,
-        name: repository.name,
-        since: windowFor(binding, scanned),
-    });
-    if (!pages.ok) {
-        return { ...blank, skipped: pages.skipped };
-    }
-
-    const incoming = eventsForBinding({
+    const listed = await collectScanEvents({
+        deps,
         binding,
         windowStart: windowFor(binding, scanned),
-        issues: pages.issues,
         detectedAt,
+        token: account.credential.token,
+        login: account.login === '' ? binding.accountLogin : account.login,
     });
+    if (!listed.ok) {
+        return { ...blank, skipped: listed.skipped };
+    }
+
     const appended = await enqueueEvents({
         store: deps.store,
         log: deps.log,
-        incoming,
+        incoming: listed.events,
     });
     for (const event of appended) {
         await recordDetection({ ...deps }, event);
@@ -522,7 +464,7 @@ export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     const outcomes: BindingScan[] = [];
     let total = 0;
     for (const binding of bindings) {
-        if (binding.state !== 'active' || binding.triggers.assignment !== true) {
+        if (binding.state !== 'active' || !watchesAnything(binding)) {
             continue;
         }
 

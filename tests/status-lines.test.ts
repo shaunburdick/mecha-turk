@@ -46,7 +46,7 @@ function bindingFixture(): PanelBinding {
         repository: 'acme/widget',
         projectId: 'prj_42',
         worktreeOption: 'none',
-        triggers: { assignment: true, mention: false },
+        triggers: { assignment: true, mention: false, reviewRequest: false },
         state: 'active',
         createdAt: STAMP,
         updatedAt: STAMP,

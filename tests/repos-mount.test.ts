@@ -75,6 +75,9 @@ describe('createRepositoriesHandlers (handler table wired to real actions)', () 
         handlers.selectProject('prj_42');
         handlers.setAssignment(false);
         handlers.setMention(true);
+        // A new binding asks for reviews by default; the form can turn that off.
+        expect(rt.state.repos.triggerReviewRequest).toBe(true);
+        handlers.setReviewRequest(false);
         handlers.setWorktree('generated');
         handlers.selectBinding('bnd-1');
 
@@ -84,6 +87,7 @@ describe('createRepositoriesHandlers (handler table wired to real actions)', () 
         expect(repos.repoProjectSelection).toBe('prj_42');
         expect(repos.triggerAssignment).toBe(false);
         expect(repos.triggerMention).toBe(true);
+        expect(repos.triggerReviewRequest).toBe(false);
         expect(repos.worktreeSelection).toBe('generated');
         expect(repos.selectedBinding).toBe('bnd-1');
     });

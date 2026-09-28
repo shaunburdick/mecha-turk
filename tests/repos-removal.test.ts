@@ -48,7 +48,7 @@ function bindingFixture(input: {
         repository: input.repository,
         projectId: 'prj_42',
         worktreeOption: 'none',
-        triggers: { assignment: true, mention: false },
+        triggers: { assignment: true, mention: false, reviewRequest: false },
         state: 'active',
         createdAt: STAMP,
         updatedAt: STAMP,

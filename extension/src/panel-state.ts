@@ -76,6 +76,7 @@ export function initialRepos(): Repositories {
         repoProjectSelection: null,
         triggerAssignment: true,
         triggerMention: false,
+        triggerReviewRequest: true,
         worktreeSelection: 'none',
         selectedBinding: null,
         removeAccountArmed: false,
@@ -190,8 +191,10 @@ export interface Repositories {
     repoProjectSelection: string | null;
     /** Draft assignment trigger. */
     triggerAssignment: boolean;
-    /** Draft mention trigger (stored until the M6 comment scan runs). */
+    /** Draft mention trigger (M6 comment scan). */
     triggerMention: boolean;
+    /** Draft review-request trigger (M7), on by default for a new binding. */
+    triggerReviewRequest: boolean;
     /** Draft worktree option. */
     worktreeSelection: 'none' | 'generated';
     /** The row the operator last clicked, for the enable/disable toggle. */

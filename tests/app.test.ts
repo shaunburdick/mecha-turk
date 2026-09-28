@@ -67,7 +67,7 @@ function activeBinding(): PanelBinding {
         repository: REPOSITORY,
         projectId: PROJECT_ID,
         worktreeOption: 'generated',
-        triggers: { assignment: true, mention: false },
+        triggers: { assignment: true, mention: false, reviewRequest: false },
         state: 'active',
         createdAt: FIXTURE_TIMESTAMP,
         updatedAt: FIXTURE_TIMESTAMP,

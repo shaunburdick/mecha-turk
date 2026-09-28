@@ -212,3 +212,54 @@ describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
         expect(await response.text()).not.toContain(REGISTERED_TOKEN);
     });
 });
+
+describe('PUT /v1/bindings (the M7 reviewRequest trigger)', () => {
+    it('stores a submitted reviewRequest flag and answers it back', async () => {
+        const service = await startWithAccount();
+        const binding = bindingFixture();
+        binding.triggers = { assignment: true, mention: false, reviewRequest: true };
+
+        const answer = await grantBindings(service, [binding]);
+        const stored = answer.bindings as Record<string, unknown>[];
+        expect(stored[0]?.triggers).toEqual({ assignment: true, mention: false, reviewRequest: true });
+
+        // The panel reads its own grant back through the same parser.
+        const response = await service.call(BINDINGS_PATH);
+        const parsed = parseBindingsBody(await response.text());
+        expect(parsed?.bindings[0]?.triggers.reviewRequest).toBe(true);
+    });
+
+    it('reads a binding stored before M7 as `false`, without quarantining the file', async () => {
+        const service = await startWithAccount();
+        // The fixture's triggers are the pre-M7 shape: no `reviewRequest` key.
+        const answer = await grantBindings(service, [bindingFixture()]);
+        const stored = answer.bindings as Record<string, unknown>[];
+        expect(stored[0]?.triggers).toEqual({ assignment: true, mention: false, reviewRequest: false });
+
+        // The stored file parses in place: no quarantine, no lost binding.
+        const entries = await readdir(service.dataDir);
+        expect(entries.filter((entry) => entry.includes('.corrupt-'))).toEqual([]);
+        const reread = await service.call(BINDINGS_PATH);
+        const parsed = parseBindingsBody(await reread.text());
+        expect(parsed?.bindings).toHaveLength(1);
+    });
+
+    it('refuses a reviewRequest that is not a boolean, naming the field', async () => {
+        const service = await startWithAccount();
+        const binding = bindingFixture();
+        binding.triggers = { assignment: true, mention: false, reviewRequest: 'yes' };
+
+        const response = await service.call(BINDINGS_PATH, {
+            method: 'PUT',
+            headers: jsonHeaders(),
+            body: JSON.stringify({ bindings: [binding] }),
+        });
+        expect(response.status).toBe(422);
+
+        const body = (await response.json()) as {
+            readonly error: { readonly code: string; readonly issues?: readonly { readonly field: string }[] };
+        };
+        expect(body.error.code).toBe('validation');
+        expect(body.error.issues?.map((issue) => issue.field)).toContain('triggers');
+    });
+});

@@ -14,7 +14,12 @@
 
 import { deleteAccountRoute, listAccountsRoute, rotateTokenRoute } from './accounts.ts';
 import { getConfigRoute, putConfigRoute } from './config.ts';
-import { dispatchedEventRoute, pendingEventsRoute } from './events.ts';
+import {
+    dispatchedEventRoute,
+    eventHistoryRoute,
+    pendingEventsRoute,
+    retryEventRoute,
+} from './events.ts';
 import { getBindingsRoute, putBindingsRoute } from './bindings.ts';
 import { healthRoute } from './health.ts';
 import { statusRoute } from './status.ts';
@@ -30,9 +35,11 @@ export const ROUTES: readonly Route[] = [
     listAccountsRoute,
     getBindingsRoute,
     putBindingsRoute,
+    eventHistoryRoute,
     pendingEventsRoute,
     verifyRoute,
     rotateTokenRoute,
     deleteAccountRoute,
     dispatchedEventRoute,
+    retryEventRoute,
 ];

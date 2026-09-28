@@ -172,7 +172,7 @@ function fixtureBinding(bindingId: string): BindingRecord {
         repository: 'acme/widget',
         projectId: 'prj_42',
         worktreeOption: 'none',
-        triggers: { assignment: true, mention: false },
+        triggers: { assignment: true, mention: false, reviewRequest: false },
         state: 'active',
         createdAt: CREATED_AT,
         updatedAt: CREATED_AT,
@@ -242,6 +242,10 @@ function recordingPoller(issues: readonly PollIssue[]): RecordedPoller {
 
             return { kind: 'ok', issues };
         },
+        // The M6/M7 feeds stay empty here: this fixture's bindings keep both
+        // switches off, so the cycle never asks for them.
+        listIssueComments: async () => ({ kind: 'ok', comments: [] }),
+        listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
     };
 
     return { poller, seenSince };

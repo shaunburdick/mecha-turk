@@ -20,7 +20,7 @@
 
 import { listAccounts } from '../accounts/store.ts';
 import { readBindings, validateBindings, writeBindings } from '../bindings.ts';
-import { errorResponse, STATUS, storageUnavailableResponse } from '../http.ts';
+import { errorResponse, STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
 import { readStatusRows } from './events.ts';
 import type { Route, RouteContext, RouteRequest } from './types.ts';
@@ -90,10 +90,10 @@ async function handlePutBindings(context: RouteContext, request: RouteRequest): 
         accountExists: (numericUserId) => known.has(numericUserId),
     });
     if (!validation.ok) {
-        return errorResponse(STATUS.validation, {
-            code: 'validation',
-            message: validation.issues.join('; '),
-        });
+        // The contract's `422 validation` body: every `field: remediation`
+        // pair in the message and the structured list alike. An object list
+        // stringified into the message would have read `[object Object]`.
+        return validationResponse(validation.issues);
     }
 
     await writeBindings({ store, bindings: validation.bindings });

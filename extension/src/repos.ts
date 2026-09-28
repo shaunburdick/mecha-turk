@@ -50,6 +50,7 @@ function resetDraft(repos: Repositories): void {
     repos.repoProjectSelection = null;
     repos.triggerAssignment = true;
     repos.triggerMention = false;
+    repos.triggerReviewRequest = true;
     repos.worktreeSelection = 'none';
 }
 function resetCoveredDraft(repos: Repositories, repository: string): void {
@@ -188,6 +189,7 @@ export function readDraft(repos: Repositories): PreparedBinding | null {
         triggers: {
             assignment: repos.triggerAssignment,
             mention: repos.triggerMention,
+            reviewRequest: repos.triggerReviewRequest,
         },
         state: 'active',
         createdAt: stamp,

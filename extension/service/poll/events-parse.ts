@@ -21,8 +21,12 @@
 
 import { isRecord } from '../json.ts';
 
-/** Event kinds the service enqueues; M1 ships assignment only. */
-export type EventKind = 'assignment' | 'mention';
+/**
+ * Event kinds the service enqueues: `assignment` (M1), `mention` (M6), and
+ * `review` (M7). Rows written before a kind existed still parse — the queue
+ * file is append-mostly and never rewritten in bulk on upgrade.
+ */
+export type EventKind = 'assignment' | 'mention' | 'review';
 
 /** Lifecycle of one relay event. */
 export type EventState = 'pending' | 'in-flight' | 'dispatched';
@@ -33,7 +37,7 @@ export interface QueuedEvent {
     readonly id: string;
     /** Binding that produced this event. */
     readonly bindingId: string;
-    /** Trigger kind; only `assignment` is implemented at this cut. */
+    /** Trigger kind: assignment, mention (M6), or review (M7). */
     readonly kind: EventKind;
     /** The repository in `owner/name` form. */
     readonly repository: string;
@@ -53,6 +57,10 @@ export interface QueuedEvent {
     readonly issueUrl: string;
     /** Truncated issue body; untrusted source text, bounded at enqueue. */
     readonly issueBodyExcerpt: string;
+    /** Head commit SHA of a review-request pull request, else `null` (M7). */
+    readonly headSha: string | null;
+    /** Base ref name of that pull request, else `null` (M7). */
+    readonly baseRef: string | null;
     /** Operator-readable trigger phrase the panel shows in the dispatch context. */
     readonly triggerNote: string;
     /** RFC 3339 detection stamp. */
@@ -91,6 +99,16 @@ const REQUIRED_FIELDS = [
 /** Fields a row may carry as a string or a literal `null`. */
 const NULLABLE_FIELDS = ['claimedAt', 'dispatchedAt', 'dispatchResult'] as const;
 
+/**
+ * Fields added in Slice 2 (M7) that a row may also simply omit.
+ *
+ * The queue file outlives the build that wrote it: every `events.json`
+ * written before M7 has no `headSha`/`baseRef` at all, and those rows must
+ * keep parsing — an unreadable file would quarantine a healthy queue and
+ * reset every binding's window for nothing.
+ */
+const ABSENTABLE_FIELDS = ['headSha', 'baseRef'] as const;
+
 /** Queue states the file may carry. */
 const KNOWN_STATES = new Set<string>(['pending', 'in-flight', 'dispatched']);
 
@@ -125,6 +143,22 @@ function isNullableTextFieldSet(record: Record<string, unknown>, fields: readonl
 }
 
 /**
+ * Validate the fields a row may carry as text, as literal `null`, or omit
+ * entirely (the Slice-2 additions to an older queue file).
+ *
+ * @param record - Parsed candidate row.
+ * @param fields - Field names to check.
+ * @returns `true` when every field is absent, `null`, or text.
+ */
+function isAbsentableTextFieldSet(record: Record<string, unknown>, fields: readonly string[]): boolean {
+    return fields.every((field) => {
+        const value = record[field];
+
+        return value === undefined || value === null || typeof value === 'string';
+    });
+}
+
+/**
  * Read one positive integer field.
  *
  * @param value - Candidate value.
@@ -154,7 +188,11 @@ function knownStateOf(value: unknown): string | null {
  * @returns `true` when all fields hold usable values.
  */
 function fieldsHold(record: Record<string, unknown>): boolean {
-    return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isNullableTextFieldSet(record, NULLABLE_FIELDS);
+    return (
+        isUsableTextFieldSet(record, REQUIRED_FIELDS)
+        && isNullableTextFieldSet(record, NULLABLE_FIELDS)
+        && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS)
+    );
 }
 
 /**
@@ -163,8 +201,10 @@ function fieldsHold(record: Record<string, unknown>): boolean {
  * The writer's own output is the shape this must accept: every text field
  * non-empty, `issueNumber` a positive integer, `state` from the queue
  * vocabulary, and an excerpt that may legitimately be `''` (an issue with no
- * body). Anything else — including a row missing `issueNumber` outright —
- * answers `null`, which the store turns into a quarantine.
+ * body). The Slice-2 fields (`headSha`, `baseRef`) may be missing outright —
+ * a row written before M7 still parses, with both read as `null`. Anything
+ * else — including a row missing `issueNumber` outright — answers `null`,
+ * which the store turns into a quarantine.
  *
  * @param raw - One element from the stored array.
  * @returns The event, or `null` when the row cannot be trusted.
@@ -203,6 +243,8 @@ export function parseStoredEvent(raw: unknown): QueuedEvent | null {
         issueTitle: record.issueTitle as string,
         issueUrl: record.issueUrl as string,
         issueBodyExcerpt: record.issueBodyExcerpt,
+        headSha: typeof record.headSha === 'string' ? record.headSha : null,
+        baseRef: typeof record.baseRef === 'string' ? record.baseRef : null,
         triggerNote: record.triggerNote as string,
         detectedAt,
         state: state as EventState,

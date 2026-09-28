@@ -17,9 +17,10 @@
  * so the assignments the lost queue carried are re-detected on the next
  * pass instead of silently dropped.
  *
- * MVP-DEBT: retention beyond the dispatched tail, delivery leases, and the
- * runs table are contract §2.4 machinery deferred to Slice 2; this file is
- * the simple, honest stand-in.
+ * MVP-DEBT: retention beyond the dispatched tail and delivery leases are
+ * contract §2.4 machinery still deferred; the Slice-2 runs history
+ * (`GET /v1/events`) and its retry (`POST /v1/events/:id/retry`) read and
+ * reset this queue in place instead of adding a second store.
  */
 
 import { basename, join } from 'node:path';
@@ -44,103 +45,14 @@ export { parseStoredEvent, parseStoredEvents };
 /** Row types re-exported alongside them for the routes and the scan loop. */
 export type { EventKind, EventState, QueuedEvent };
 
-/** Inputs used to assemble one queued event. */
-export interface EventSnapshot {
-    /** Binding that produced the detection. */
-    readonly bindingId: string;
-    /** Issued repository in `owner/name` form. */
-    readonly repository: string;
-    /** The account's durable key. */
-    readonly accountNumericUserId: string;
-    /** The account's login. */
-    readonly accountLogin: string;
-    /** Project the binding dispatches to. */
-    readonly projectId: string;
-    /** Worktree option copied verbatim from the binding. */
-    readonly worktreeOption: string;
-    /** Trigger that fired; M1 carries `assignment`. */
-    readonly kind: EventKind;
-    /** Issue fields, already normalized. */
-    readonly issue: {
-        /** Issue number. */
-        readonly issueNumber: number;
-        /** Issue title. */
-        readonly issueTitle: string;
-        /** Issue URL. */
-        readonly issueUrl: string;
-        /** The (bounded) issue body excerpt. */
-        readonly issueBodyExcerpt: string;
-    };
-    /** The panel-rendered trigger phrase. */
-    readonly triggerNote: string;
-    /** Detection stamp. */
-    readonly detectedAt: string;
-}
-
-/**
- * Build the deterministic event id for one assignment observation.
- *
- * The id doubles as the dedupe key and the relay path segment, so the join
- * character is `~` — GitHub owners and repositories (pattern
- * `A-Za-z0-9_-`) joined with `~` never collide — and the result stays inside
- * `[A-Za-z0-9._~]`, which is one URL path segment and no route ambiguity.
- *
- * @param input - Repository, issue, and account the id identifies.
- * @returns A `[A-Za-z0-9._~]`-only id of one path segment.
- */
-export function buildEventId(input: {
-    /** Repository the issue belongs to. */
-    readonly repository: { readonly owner: string; readonly name: string };
-    /** Matched issue number. */
-    readonly issueNumber: number;
-    /** The account the issue is assigned to. */
-    readonly accountNumericUserId: string;
-}): string {
-    const { repository } = input;
-
-    return `evt-${repository.owner}~${repository.name}~${input.issueNumber}~${input.accountNumericUserId}`;
-}
-
-/**
- * Assemble one queued event from a fresh detection.
- *
- * @param snapshot - Detection inputs.
- * @returns A fresh event in `pending` state.
- */
-export function createEvent(snapshot: EventSnapshot): QueuedEvent {
-    const separatorIndex = snapshot.repository.indexOf('/');
-    const owner = separatorIndex < 0 ? snapshot.repository : snapshot.repository.slice(0, separatorIndex);
-    const name = separatorIndex < 0 ? '' : snapshot.repository.slice(separatorIndex + 1);
-
-    const base = {
-        bindingId: snapshot.bindingId,
-        kind: snapshot.kind,
-        repository: snapshot.repository,
-        accountNumericUserId: snapshot.accountNumericUserId,
-        accountLogin: snapshot.accountLogin,
-        projectId: snapshot.projectId,
-        worktreeOption: snapshot.worktreeOption,
-        issueNumber: snapshot.issue.issueNumber,
-        issueTitle: snapshot.issue.issueTitle,
-        issueUrl: snapshot.issue.issueUrl,
-        issueBodyExcerpt: snapshot.issue.issueBodyExcerpt,
-        triggerNote: snapshot.triggerNote,
-        detectedAt: snapshot.detectedAt,
-        state: 'pending' as const,
-        claimedAt: null,
-        dispatchedAt: null,
-        dispatchResult: null,
-    };
-
-    return {
-        ...base,
-        id: buildEventId({
-            repository: { owner, name },
-            issueNumber: snapshot.issue.issueNumber,
-            accountNumericUserId: snapshot.accountNumericUserId,
-        }),
-    };
-}
+/** Re-exported: this module stays the one import path for the queue's writer. */
+export { buildEventId, createEvent } from './events-write.ts';
+export type {
+    AssignmentEventSnapshot,
+    EventSnapshot,
+    MentionEventSnapshot,
+    ReviewEventSnapshot,
+} from './events-write.ts';
 
 /**
  * In-flight chain the queue's mutations serialize onto (the `audit.ts`
@@ -512,5 +424,52 @@ export async function markEventDispatched(input: {
         await input.store.writeJson(EVENTS_FILE, serializedQueue(remaining));
 
         return dispatched;
+    });
+}
+
+/** What one retry request found the event in. */
+export type RetryOutcome = 'reset' | 'dispatched' | 'unknown';
+
+/**
+ * Return one event to the pending queue for another dispatch.
+ *
+ * The operator's "dispatch failed → retry" control (M8) posts here. An event
+ * the panel claimed but never answered (`in-flight`) goes back to `pending`
+ * with its claim stamp cleared; an event already waiting (`pending`) is left
+ * exactly as it is — both answer `reset`, so the route answers `200` either
+ * way. A terminal event answers `dispatched` (the route turns that into
+ * `409`), and an id the queue never held answers `unknown` (`404`).
+ *
+ * @param input - Open store, the id, and a logger.
+ * @returns What the id resolves to.
+ */
+export async function retryEvent(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Event id. */
+    readonly eventId: string;
+    /** Logger. */
+    readonly log: ServiceLogger;
+}): Promise<RetryOutcome> {
+    return await inQueueChain(async () => {
+        const events = await readQueue(input);
+        const match = events.find((event) => event.id === input.eventId);
+        if (match === undefined) {
+            return 'unknown';
+        }
+
+        if (match.state === 'pending') {
+            return 'reset';
+        }
+
+        if (match.state === 'dispatched') {
+            return 'dispatched';
+        }
+
+        const reset = (event: QueuedEvent): QueuedEvent =>
+            event.id === input.eventId ? { ...event, state: 'pending' as const, claimedAt: null } : event;
+        await input.store.writeJson(EVENTS_FILE, serializedQueue(events.map(reset)));
+
+        return 'reset';
     });
 }

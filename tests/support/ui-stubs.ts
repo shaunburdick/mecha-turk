@@ -98,6 +98,7 @@ export function stubReposPane(paneBody: HTMLElement): ReposPane {
         projectSelect: stubHandle(),
         assignmentCheck: stubHandle(),
         mentionCheck: stubHandle(),
+        reviewRequestCheck: stubHandle(),
         worktreeSelect: stubHandle(),
         addBinding: stubHandle(),
         toggleSelected: stubHandle(),

@@ -8,6 +8,12 @@
  * same dispatch is idempotent at the route level: the second post finds the
  * event already terminal and answers the same 200 shape.
  *
+ * Slice 2 adds the runs history this MVP cut deferred: `GET /v1/events`
+ * projects every event — pending, in-flight, and dispatched alike — newest
+ * detected first without claiming anything, and `POST /v1/events/:id/retry`
+ * hands one non-dispatched event back to the pending queue (M8's "dispatch
+ * failed → retry").
+ *
  * The same `GET` response carries the per-binding scan status the panel's
  * status line renders, because the panel polls this route on its own clock
  * and the status has no other surface yet (the contract's `/v1/status`
@@ -26,10 +32,11 @@ import {
     claimPendingEvents,
     markEventDispatched,
     readEvents,
+    retryEvent,
 } from '../poll/events.ts';
 import { readScanState } from '../poll/scan.ts';
 import type { BindingRecord } from '../bindings.ts';
-import type { QueuedEvent } from '../poll/events.ts';
+import type { EventKind, EventState, QueuedEvent } from '../poll/events.ts';
 import { errorResponse, STATUS, storageUnavailableResponse } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
 import type { ServiceStore } from '../store/index.ts';
@@ -39,8 +46,17 @@ import type { Route, RouteContext, RouteRequest } from './types.ts';
 /** Path the panel polls for queued events. */
 export const EVENTS_PENDING_PATH = '/v1/events/pending';
 
+/** Path of the runs history: every event, every state, newest detected first. */
+export const EVENTS_PATH = '/v1/events';
+
+/** Path pattern the operator retries one non-dispatched event through. */
+export const EVENT_RETRY_PATH = '/v1/events/:eventId/retry';
+
 /** Path pattern the panel reports one dispatch through. */
 export const EVENT_DISPATCHED_PATH = '/v1/events/:eventId/dispatched';
+
+/** How many events the runs history answers with (newest detected first). */
+export const MAX_LISTED_EVENTS = 100;
 
 /** Longest event id accepted on a dispatch path; ids are built, never parsed. */
 const MAX_EVENT_ID_CHARS = 200;
@@ -81,6 +97,82 @@ function pathEventId(raw: string | undefined): string | null {
     }
 
     return /^[A-Za-z0-9._~-]+$/.test(raw) ? raw : null;
+}
+
+/** One event as the runs history reports it — credential-free by construction. */
+export interface EventRunRow {
+    /** Deterministic event id. */
+    readonly id: string;
+    /** Trigger kind. */
+    readonly kind: EventKind;
+    /** Repository in `owner/name` form. */
+    readonly repository: string;
+    /** Issue (or pull request) number. */
+    readonly issueNumber: number;
+    /** Issue title; untrusted source text. */
+    readonly issueTitle: string;
+    /** Canonical issue URL. */
+    readonly issueUrl: string;
+    /** Queue state. */
+    readonly state: EventState;
+    /** RFC 3339 detection stamp. */
+    readonly detectedAt: string;
+    /** Claim stamp when (or after) it was claimed, else `null`. */
+    readonly claimedAt: string | null;
+    /** Dispatch stamp once the panel answered, else `null`. */
+    readonly dispatchedAt: string | null;
+    /** Session id or the failure text the panel reported, else `null`. */
+    readonly dispatchResult: string | null;
+    /** Binding that produced the event. */
+    readonly bindingId: string;
+    /** Head SHA of a review-event pull request; absent on every other kind. */
+    readonly headSha?: string;
+    /** Base ref of that pull request; absent on every other kind. */
+    readonly baseRef?: string;
+}
+
+/**
+ * Project one queue row for the runs history.
+ *
+ * The projection carries what a runs row reads — identity, state, stamps,
+ * and the PR coordinates M7 captures — and nothing else: no account id, no
+ * login, no project, no worktree option. The queue itself never holds a
+ * credential, so a credential can only appear here by being projected in;
+ * nothing projects one.
+ *
+ * @param event - Stored queue row.
+ * @returns The credential-free row.
+ */
+function runRowOf(event: QueuedEvent): EventRunRow {
+    return {
+        id: event.id,
+        kind: event.kind,
+        repository: event.repository,
+        issueNumber: event.issueNumber,
+        issueTitle: event.issueTitle,
+        issueUrl: event.issueUrl,
+        state: event.state,
+        detectedAt: event.detectedAt,
+        claimedAt: event.claimedAt,
+        dispatchedAt: event.dispatchedAt,
+        dispatchResult: event.dispatchResult,
+        bindingId: event.bindingId,
+        ...(event.headSha === null ? {} : { headSha: event.headSha }),
+        ...(event.baseRef === null ? {} : { baseRef: event.baseRef }),
+    };
+}
+
+/**
+ * Project the runs history: newest detected first, capped.
+ *
+ * @param queue - Every event the queue still holds, any state.
+ * @returns At most {@link MAX_LISTED_EVENTS} rows, freshest detection first.
+ */
+function recentRuns(queue: readonly QueuedEvent[]): EventRunRow[] {
+    return [...queue]
+        .sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt))
+        .slice(0, MAX_LISTED_EVENTS)
+        .map(runRowOf);
 }
 
 /**
@@ -216,6 +308,78 @@ async function handleDispatchedEvent(context: RouteContext, request: RouteReques
     return { status: STATUS.ok, body: { done: true } };
 }
 
+/**
+ * Answer `GET /v1/events` with the runs history: every queued event, in any
+ * state, newest detected first.
+ *
+ * This is the read-only counterpart to the panel's claim route — it never
+ * flips a state, so it can be polled as often as the operator likes without
+ * stealing events from a live relay. The answer is the credential-free
+ * {@link EventRunRow} projection, capped at {@link MAX_LISTED_EVENTS} so one
+ * long queue cannot flood a screen.
+ *
+ * @param context - Route context carrying the open store.
+ * @returns `200 { events }`, or the documented 503.
+ */
+async function handleEventHistory(context: RouteContext): Promise<HttpResponse> {
+    const { store } = context;
+    if (store === null) {
+        return storageUnavailableResponse();
+    }
+
+    const queue = await readEvents({ store, log: context.log });
+
+    return { status: STATUS.ok, body: { events: recentRuns(queue) } };
+}
+
+/**
+ * Answer `POST /v1/events/:eventId/retry` by returning one event to the
+ * pending queue.
+ *
+ * Only a `pending` or `in-flight` event can be retried: the pending one is
+ * already where a retry wants it (the answer stays `200` so a double click
+ * is harmless), and the in-flight one loses its claim stamp and waits for
+ * the next relay read. A dispatched event is terminal — the operator's own
+ * dispatch is the record of what happened — so it answers `409` in the
+ * envelope's `invalid-transition` voice, and an id the queue never held (or
+ * that fell out of the dispatched tail) answers `404`.
+ *
+ * @param context - Route context carrying the open store.
+ * @param request - Routed request; the path captures `:eventId`.
+ * @returns `200 { retried: true }`, or the documented refusal.
+ */
+async function handleRetryEvent(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
+    const { store } = context;
+    if (store === null) {
+        return storageUnavailableResponse();
+    }
+
+    const eventId = pathEventId(request.params.eventId);
+    if (eventId === null) {
+        return errorResponse(STATUS.notFound, {
+            code: 'not-found',
+            message: 'the retry path carries no usable event id',
+        });
+    }
+
+    const outcome = await retryEvent({ store, eventId, log: context.log });
+    if (outcome === 'unknown') {
+        return errorResponse(STATUS.notFound, {
+            code: 'not-found',
+            message: 'no event with this id is in the queue',
+        });
+    }
+
+    if (outcome === 'dispatched') {
+        return errorResponse(STATUS.conflict, {
+            code: 'invalid-transition',
+            message: 'this event was already dispatched — a dispatched event cannot be retried',
+        });
+    }
+
+    return { status: STATUS.ok, body: { retried: true } };
+}
+
 /** Claim and return every pending event. */
 export const pendingEventsRoute: Route = {
     method: 'GET',
@@ -228,6 +392,20 @@ export const dispatchedEventRoute: Route = {
     method: 'POST',
     path: EVENT_DISPATCHED_PATH,
     handler: (context, request) => handleDispatchedEvent(context, request),
+};
+
+/** Read the runs history: every event, credential-free, newest first. */
+export const eventHistoryRoute: Route = {
+    method: 'GET',
+    path: EVENTS_PATH,
+    handler: (context) => handleEventHistory(context),
+};
+
+/** Return one non-dispatched event to the pending queue. */
+export const retryEventRoute: Route = {
+    method: 'POST',
+    path: EVENT_RETRY_PATH,
+    handler: (context, request) => handleRetryEvent(context, request),
 };
 
 /** Type used to note the queue shape the status row counts from. */

@@ -30,8 +30,10 @@ import { asRecord, parseJsonObject } from './json.ts';
 export interface PanelTriggers {
     /** Issue-assignment polling; implemented service-side for M1. */
     readonly assignment: boolean;
-    /** Comment-mention polling; stored until the M6 comment scan. */
+    /** Comment-mention polling; implemented service-side for M6. */
     readonly mention: boolean;
+    /** Review-request polling (open PRs naming the account); M7. */
+    readonly reviewRequest: boolean;
 }
 
 /** One binding as the panel reads, edits, and grants it. */
@@ -95,7 +97,7 @@ export interface RelayEvent {
     /** Binding that produced the event. */
     readonly bindingId: string;
     /** Trigger kind. */
-    readonly kind: 'assignment' | 'mention';
+    readonly kind: 'assignment' | 'mention' | 'review';
     /** Repository in `owner/name` form. */
     readonly repository: string;
     /** The account's GitHub id. */
@@ -217,7 +219,9 @@ function integerOrZero(record: Record<string, unknown>, field: string): number {
 
 /**
  * Read one triggers object leniently; missing flags fall back to the MVP
- * defaults rather than failing the whole binding.
+ * defaults rather than failing the whole binding — a binding stored before
+ * M7 has no `reviewRequest` at all, and it reads as `false` (its operator
+ * never asked for it).
  *
  * @param value - Candidate triggers.
  * @returns The flags, or `null` when the object itself is unusable.
@@ -231,6 +235,7 @@ function readTriggerFlags(value: unknown): PanelTriggers | null {
     return {
         assignment: typeof record.assignment === 'boolean' ? record.assignment : true,
         mention: typeof record.mention === 'boolean' ? record.mention : false,
+        reviewRequest: typeof record.reviewRequest === 'boolean' ? record.reviewRequest : false,
     };
 }
 
@@ -333,6 +338,21 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
 }
 
 /**
+ * Read one event kind, defaulting to the M1 trigger for anything this build
+ * does not know — a stored row from a future build must not break the relay.
+ *
+ * @param value - Candidate kind from a stored row.
+ * @returns A kind this panel can render.
+ */
+function eventKindOf(value: unknown): RelayEvent['kind'] {
+    if (value === 'mention' || value === 'review') {
+        return value;
+    }
+
+    return 'assignment';
+}
+
+/**
  * Parse one queued event.
  *
  * @param value - One element of the `events` array.
@@ -355,7 +375,7 @@ function parseEventEntry(value: unknown): RelayEvent | null {
     return {
         eventId: id as string,
         bindingId: bindingId as string,
-        kind: kind === 'mention' ? 'mention' : 'assignment',
+        kind: eventKindOf(kind),
         repository: repository as string,
         accountNumericUserId: accountNumericUserId as string,
         accountLogin: accountLogin as string,

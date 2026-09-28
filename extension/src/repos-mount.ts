@@ -63,6 +63,7 @@ export function createRepositoriesHandlers(rt: PanelRuntime): ReposPaneHandlers 
         selectProject: (id) => editRepos(rt, { repoProjectSelection: id }),
         setAssignment: (checked) => editRepos(rt, { triggerAssignment: checked }),
         setMention: (checked) => editRepos(rt, { triggerMention: checked }),
+        setReviewRequest: (checked) => editRepos(rt, { triggerReviewRequest: checked }),
         setWorktree: (id) => editRepos(rt, { worktreeSelection: id }),
         selectBinding: (id) => editRepos(rt, { selectedBinding: id }),
         refreshProjects: () => void loadProjects(rt),

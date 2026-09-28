@@ -1998,11 +1998,14 @@ function triggersFieldOf(value) {
     return null;
   }
   const record = value;
-  const { assignment, mention } = record;
+  const { assignment, mention, reviewRequest } = record;
   if (typeof assignment !== "boolean" || typeof mention !== "boolean") {
     return null;
   }
-  return { assignment, mention };
+  if (reviewRequest !== undefined && typeof reviewRequest !== "boolean") {
+    return null;
+  }
+  return { assignment, mention, reviewRequest: reviewRequest === true };
 }
 function stateFieldOf(value) {
   if (value === undefined) {
@@ -2090,7 +2093,7 @@ function bindingModeOf(raw) {
   if (triggers === null) {
     return issue({
       field: "triggers",
-      remediation: "triggers must be an object with assignment and mention boolean flags"
+      remediation: "triggers must be an object with assignment, mention, and reviewRequest boolean flags"
     });
   }
   const state = stateFieldOf(raw.state);
@@ -2230,6 +2233,7 @@ var REQUIRED_FIELDS = [
   "detectedAt"
 ];
 var NULLABLE_FIELDS = ["claimedAt", "dispatchedAt", "dispatchResult"];
+var ABSENTABLE_FIELDS = ["headSha", "baseRef"];
 var KNOWN_STATES = new Set(["pending", "in-flight", "dispatched"]);
 function isUsableTextFieldSet(record, fields) {
   return fields.every((field) => {
@@ -2243,6 +2247,12 @@ function isNullableTextFieldSet(record, fields) {
     return value === null || typeof value === "string";
   });
 }
+function isAbsentableTextFieldSet(record, fields) {
+  return fields.every((field) => {
+    const value = record[field];
+    return value === undefined || value === null || typeof value === "string";
+  });
+}
 function positiveIntOf(value) {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
@@ -2253,7 +2263,7 @@ function knownStateOf(value) {
   return value;
 }
 function fieldsHold(record) {
-  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isNullableTextFieldSet(record, NULLABLE_FIELDS);
+  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isNullableTextFieldSet(record, NULLABLE_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS);
 }
 function parseStoredEvent(raw) {
   const record = isRecord(raw) ? raw : null;
@@ -2285,6 +2295,8 @@ function parseStoredEvent(raw) {
     issueTitle: record.issueTitle,
     issueUrl: record.issueUrl,
     issueBodyExcerpt: record.issueBodyExcerpt,
+    headSha: typeof record.headSha === "string" ? record.headSha : null,
+    baseRef: typeof record.baseRef === "string" ? record.baseRef : null,
     triggerNote: record.triggerNote,
     detectedAt,
     state,
@@ -2373,12 +2385,23 @@ function withBindingScanState(input) {
   return { bindings: { ...input.state.bindings, [input.bindingId]: input.slot } };
 }
 
-// service/poll/events.ts
-var EVENTS_FILE = "events.json";
-var MAX_DISPATCHED_EVENTS = 500;
+// service/poll/events-write.ts
 function buildEventId(input) {
   const { repository } = input;
-  return `evt-${repository.owner}~${repository.name}~${input.issueNumber}~${input.accountNumericUserId}`;
+  const base = `evt-${repository.owner}~${repository.name}~${input.issueNumber}~${input.accountNumericUserId}`;
+  return input.discriminator === undefined ? base : `${base}${input.discriminator}`;
+}
+function discriminatorOf(snapshot) {
+  if (snapshot.kind === "mention") {
+    return `~mention~${snapshot.commentId}`;
+  }
+  return snapshot.kind === "review" ? "~review" : undefined;
+}
+function headShaOf(snapshot) {
+  return snapshot.kind === "review" ? snapshot.headSha : null;
+}
+function baseRefOf(snapshot) {
+  return snapshot.kind === "review" ? snapshot.baseRef : null;
 }
 function createEvent(snapshot) {
   const separatorIndex = snapshot.repository.indexOf("/");
@@ -2396,6 +2419,8 @@ function createEvent(snapshot) {
     issueTitle: snapshot.issue.issueTitle,
     issueUrl: snapshot.issue.issueUrl,
     issueBodyExcerpt: snapshot.issue.issueBodyExcerpt,
+    headSha: headShaOf(snapshot),
+    baseRef: baseRefOf(snapshot),
     triggerNote: snapshot.triggerNote,
     detectedAt: snapshot.detectedAt,
     state: "pending",
@@ -2408,10 +2433,15 @@ function createEvent(snapshot) {
     id: buildEventId({
       repository: { owner, name },
       issueNumber: snapshot.issue.issueNumber,
-      accountNumericUserId: snapshot.accountNumericUserId
+      accountNumericUserId: snapshot.accountNumericUserId,
+      discriminator: discriminatorOf(snapshot)
     })
   };
 }
+
+// service/poll/events.ts
+var EVENTS_FILE = "events.json";
+var MAX_DISPATCHED_EVENTS = 500;
 var queueChain = { write: Promise.resolve() };
 function inQueueChain(task) {
   const run = queueChain.write.then(task, task);
@@ -2554,16 +2584,58 @@ async function markEventDispatched(input) {
     return dispatched;
   });
 }
+async function retryEvent(input) {
+  return await inQueueChain(async () => {
+    const events = await readQueue(input);
+    const match = events.find((event) => event.id === input.eventId);
+    if (match === undefined) {
+      return "unknown";
+    }
+    if (match.state === "pending") {
+      return "reset";
+    }
+    if (match.state === "dispatched") {
+      return "dispatched";
+    }
+    const reset = (event) => event.id === input.eventId ? { ...event, state: "pending", claimedAt: null } : event;
+    await input.store.writeJson(EVENTS_FILE, serializedQueue(events.map(reset)));
+    return "reset";
+  });
+}
 
 // service/routes/events.ts
 var EVENTS_PENDING_PATH = "/v1/events/pending";
+var EVENTS_PATH = "/v1/events";
+var EVENT_RETRY_PATH = "/v1/events/:eventId/retry";
 var EVENT_DISPATCHED_PATH = "/v1/events/:eventId/dispatched";
+var MAX_LISTED_EVENTS = 100;
 var MAX_EVENT_ID_CHARS = 200;
 function pathEventId(raw) {
   if (raw === undefined || raw === "" || raw.length > MAX_EVENT_ID_CHARS) {
     return null;
   }
   return /^[A-Za-z0-9._~-]+$/.test(raw) ? raw : null;
+}
+function runRowOf(event) {
+  return {
+    id: event.id,
+    kind: event.kind,
+    repository: event.repository,
+    issueNumber: event.issueNumber,
+    issueTitle: event.issueTitle,
+    issueUrl: event.issueUrl,
+    state: event.state,
+    detectedAt: event.detectedAt,
+    claimedAt: event.claimedAt,
+    dispatchedAt: event.dispatchedAt,
+    dispatchResult: event.dispatchResult,
+    bindingId: event.bindingId,
+    ...event.headSha === null ? {} : { headSha: event.headSha },
+    ...event.baseRef === null ? {} : { baseRef: event.baseRef }
+  };
+}
+function recentRuns(queue) {
+  return [...queue].sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt)).slice(0, MAX_LISTED_EVENTS).map(runRowOf);
 }
 function readDispatchFields(raw) {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
@@ -2632,6 +2704,41 @@ async function handleDispatchedEvent(context, request) {
   }
   return { status: STATUS.ok, body: { done: true } };
 }
+async function handleEventHistory(context) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const queue = await readEvents({ store, log: context.log });
+  return { status: STATUS.ok, body: { events: recentRuns(queue) } };
+}
+async function handleRetryEvent(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const eventId = pathEventId(request.params.eventId);
+  if (eventId === null) {
+    return errorResponse(STATUS.notFound, {
+      code: "not-found",
+      message: "the retry path carries no usable event id"
+    });
+  }
+  const outcome = await retryEvent({ store, eventId, log: context.log });
+  if (outcome === "unknown") {
+    return errorResponse(STATUS.notFound, {
+      code: "not-found",
+      message: "no event with this id is in the queue"
+    });
+  }
+  if (outcome === "dispatched") {
+    return errorResponse(STATUS.conflict, {
+      code: "invalid-transition",
+      message: "this event was already dispatched — a dispatched event cannot be retried"
+    });
+  }
+  return { status: STATUS.ok, body: { retried: true } };
+}
 var pendingEventsRoute = {
   method: "GET",
   path: EVENTS_PENDING_PATH,
@@ -2641,6 +2748,16 @@ var dispatchedEventRoute = {
   method: "POST",
   path: EVENT_DISPATCHED_PATH,
   handler: (context, request) => handleDispatchedEvent(context, request)
+};
+var eventHistoryRoute = {
+  method: "GET",
+  path: EVENTS_PATH,
+  handler: (context) => handleEventHistory(context)
+};
+var retryEventRoute = {
+  method: "POST",
+  path: EVENT_RETRY_PATH,
+  handler: (context, request) => handleRetryEvent(context, request)
 };
 
 // service/routes/bindings.ts
@@ -2672,10 +2789,7 @@ async function handlePutBindings(context, request) {
     accountExists: (numericUserId) => known.has(numericUserId)
   });
   if (!validation.ok) {
-    return errorResponse(STATUS.validation, {
-      code: "validation",
-      message: validation.issues.join("; ")
-    });
+    return validationResponse(validation.issues);
   }
   await writeBindings({ store, bindings: validation.bindings });
   const status = await readStatusRows({ store, log: context.log, bindings: validation.bindings });
@@ -2940,48 +3054,24 @@ var ROUTES = [
   listAccountsRoute,
   getBindingsRoute,
   putBindingsRoute,
+  eventHistoryRoute,
   pendingEventsRoute,
   verifyRoute,
   rotateTokenRoute,
   deleteAccountRoute,
-  dispatchedEventRoute
+  dispatchedEventRoute,
+  retryEventRoute
 ];
 
-// service/poll/loop.ts
-var PAGE_SIZE = 30;
-var MAX_SCAN_PAGES = 2;
-var ISSUE_BODY_EXCERPT_MAX_CHARS = 600;
-function describeKind(cause) {
-  return cause instanceof Error ? cause.name : typeof cause;
-}
-async function currentIntervalMs(store, log) {
-  if (store === null) {
-    return DEFAULT_CONFIG.intervalMs;
-  }
-  try {
-    const config = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
-    return config.intervalMs;
-  } catch (cause) {
-    log.warn("poll interval read failed", { errorKind: describeKind(cause) });
-    return DEFAULT_CONFIG.intervalMs;
-  }
-}
+// service/poll/triggers.ts
+var BODY_EXCERPT_MAX_CHARS = 600;
+var AUTHOR_LOGIN_MAX_CHARS = 60;
 function repositoryRefOf(binding) {
   const index = binding.repository.indexOf("/");
   if (index < 0) {
     return { owner: binding.repository, name: "" };
   }
   return { owner: binding.repository.slice(0, index), name: binding.repository.slice(index + 1) };
-}
-function windowFor(binding, scanned) {
-  const recorded = scanned.bindings[binding.bindingId];
-  return recorded !== undefined && recorded.lastScanAt !== null ? recorded.lastScanAt : null;
-}
-function isIssueAssignment(issue2, bindingLogin) {
-  if (issue2.state !== "open" || issue2.isPullRequest) {
-    return false;
-  }
-  return issue2.assignees.some((login) => login.toLowerCase() === bindingLogin.toLowerCase());
 }
 function updatedInWindow(updatedAt, windowStart) {
   if (windowStart === null) {
@@ -2998,10 +3088,175 @@ function bodyExcerptOf(body) {
   if (body === null) {
     return "";
   }
-  if (body.length <= ISSUE_BODY_EXCERPT_MAX_CHARS) {
+  if (body.length <= BODY_EXCERPT_MAX_CHARS) {
     return body;
   }
-  return `${body.slice(0, ISSUE_BODY_EXCERPT_MAX_CHARS - 1)}…`;
+  return `${body.slice(0, BODY_EXCERPT_MAX_CHARS - 1)}…`;
+}
+function isLoginCharacter(character) {
+  return /^[A-Za-z0-9_-]$/.test(character);
+}
+function mentionsLogin(body, login) {
+  if (login === "") {
+    return false;
+  }
+  const haystack = body.toLowerCase();
+  const token = `@${login.toLowerCase()}`;
+  let from = haystack.indexOf(token);
+  while (from !== -1) {
+    const before = from === 0 ? "" : haystack.charAt(from - 1);
+    const after = haystack.charAt(from + token.length);
+    if (!isLoginCharacter(before) && !isLoginCharacter(after)) {
+      return true;
+    }
+    from = haystack.indexOf(token, from + 1);
+  }
+  return false;
+}
+function isBotComment(comment) {
+  return comment.authorLogin.toLowerCase().endsWith("[bot]") || comment.authorType.toLowerCase() === "bot";
+}
+function isMentionComment(comment, bindingLogin) {
+  if (isBotComment(comment)) {
+    return false;
+  }
+  return mentionsLogin(comment.body, bindingLogin);
+}
+function isReviewRequestPull(pull, bindingLogin) {
+  if (bindingLogin === "") {
+    return false;
+  }
+  const wanted = bindingLogin.toLowerCase();
+  return pull.requestedReviewers.some((candidate) => candidate.toLowerCase() === wanted);
+}
+function mentionEvent(input) {
+  const { binding, comment, issue: issue2, detectedAt } = input;
+  const repository = repositoryRefOf(binding);
+  const commenter = comment.authorLogin.slice(0, AUTHOR_LOGIN_MAX_CHARS);
+  const fallbackUrl = `https://github.com/${repository.owner}/${repository.name}/issues/${comment.issueNumber}`;
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repository),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "mention",
+    commentId: comment.commentId,
+    issue: {
+      issueNumber: comment.issueNumber,
+      issueTitle: issue2?.title ?? `Issue #${comment.issueNumber}`,
+      issueUrl: issue2?.url ?? fallbackUrl,
+      issueBodyExcerpt: bodyExcerptOf(comment.body)
+    },
+    triggerNote: `Comment by ${commenter} on issue #${comment.issueNumber} mentioned the bound account`,
+    detectedAt
+  });
+}
+function mentionEvents(input) {
+  const { binding, login, comments, issues, windowStart, detectedAt } = input;
+  const known = new Map(issues.map((issue2) => [issue2.issueNumber, issue2]));
+  const events = [];
+  for (const comment of comments) {
+    const eligible = updatedInWindow(comment.updatedAt, windowStart) && isMentionComment(comment, login);
+    if (!eligible) {
+      continue;
+    }
+    const issue2 = known.get(comment.issueNumber) ?? null;
+    events.push(mentionEvent({ binding, comment, issue: issue2, detectedAt }));
+  }
+  return events;
+}
+function reviewEvents(input) {
+  const { binding, login, pulls, windowStart, detectedAt } = input;
+  const label = repositoryLabel(repositoryRefOf(binding));
+  const events = [];
+  for (const pull of pulls) {
+    const eligible = updatedInWindow(pull.updatedAt, windowStart) && isReviewRequestPull(pull, login);
+    if (!eligible) {
+      continue;
+    }
+    events.push(createEvent({
+      bindingId: binding.bindingId,
+      repository: label,
+      accountNumericUserId: binding.accountNumericUserId,
+      accountLogin: binding.accountLogin,
+      projectId: binding.projectId,
+      worktreeOption: binding.worktreeOption,
+      kind: "review",
+      headSha: pull.headSha,
+      baseRef: pull.baseRef,
+      issue: {
+        issueNumber: pull.pullNumber,
+        issueTitle: pull.title,
+        issueUrl: pull.url,
+        issueBodyExcerpt: ""
+      },
+      triggerNote: `Pull request #${pull.pullNumber} requested the bound account's review`,
+      detectedAt
+    }));
+  }
+  return events;
+}
+async function collectTriggerEvents(input) {
+  const { poller, token, binding, login, windowStart, detectedAt, issues } = input;
+  const repository = repositoryRefOf(binding);
+  const events = [];
+  if (binding.triggers.mention === true) {
+    const listed = await poller.listIssueComments({
+      token,
+      owner: repository.owner,
+      name: repository.name,
+      since: windowStart
+    });
+    if (listed.kind !== "ok") {
+      return { ok: false, failure: listed };
+    }
+    events.push(...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt }));
+  }
+  if (binding.triggers.reviewRequest === true) {
+    const listed = await poller.listOpenPulls({
+      token,
+      owner: repository.owner,
+      name: repository.name
+    });
+    if (listed.kind !== "ok") {
+      return { ok: false, failure: listed };
+    }
+    events.push(...reviewEvents({ binding, login, pulls: listed.pulls, windowStart, detectedAt }));
+  }
+  return { ok: true, events };
+}
+
+// service/poll/loop.ts
+function describeKind(cause) {
+  return cause instanceof Error ? cause.name : typeof cause;
+}
+async function currentIntervalMs(store, log) {
+  if (store === null) {
+    return DEFAULT_CONFIG.intervalMs;
+  }
+  try {
+    const config = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
+    return config.intervalMs;
+  } catch (cause) {
+    log.warn("poll interval read failed", { errorKind: describeKind(cause) });
+    return DEFAULT_CONFIG.intervalMs;
+  }
+}
+function watchesAnything(binding) {
+  const { assignment, mention, reviewRequest } = binding.triggers;
+  return assignment || mention || reviewRequest;
+}
+function windowFor(binding, scanned) {
+  const recorded = scanned.bindings[binding.bindingId];
+  return recorded !== undefined && recorded.lastScanAt !== null ? recorded.lastScanAt : null;
+}
+function isIssueAssignment(issue2, bindingLogin) {
+  if (issue2.state !== "open" || issue2.isPullRequest) {
+    return false;
+  }
+  return issue2.assignees.some((login) => login.toLowerCase() === bindingLogin.toLowerCase());
 }
 function skipOf(outcome) {
   if (outcome.kind === "auth-failed") {
@@ -3011,27 +3266,6 @@ function skipOf(outcome) {
     return "rate-limited";
   }
   return outcome.detail === "timeout" || outcome.detail === "offline" ? "offline" : "upstream";
-}
-async function listBindingIssues(input) {
-  const pageInputs = {
-    token: input.token,
-    owner: input.owner,
-    name: input.name,
-    since: input.since,
-    perPage: PAGE_SIZE
-  };
-  const issues = [];
-  for (let page = 1;page <= MAX_SCAN_PAGES; page += 1) {
-    const outcome = await input.poller.listOpenIssues(pageInputs);
-    if (outcome.kind !== "ok") {
-      return { ok: false, skipped: skipOf(outcome) };
-    }
-    issues.push(...outcome.issues);
-    if (outcome.issues.length < PAGE_SIZE) {
-      break;
-    }
-  }
-  return { ok: true, issues };
 }
 async function recordDetection(deps, event) {
   try {
@@ -3094,9 +3328,35 @@ function blankScan(binding) {
     skipped: null
   };
 }
+async function collectScanEvents(input) {
+  const { deps, binding, windowStart, detectedAt, token, login } = input;
+  const repository = repositoryRefOf(binding);
+  const issues = binding.triggers.assignment || binding.triggers.mention ? await deps.poller.listOpenIssues({
+    token,
+    owner: repository.owner,
+    name: repository.name,
+    since: windowStart
+  }) : { kind: "ok", issues: [] };
+  if (issues.kind !== "ok") {
+    return { ok: false, skipped: skipOf(issues) };
+  }
+  const collected = await collectTriggerEvents({
+    poller: deps.poller,
+    token,
+    binding,
+    login,
+    windowStart,
+    detectedAt,
+    issues: issues.issues
+  });
+  if (!collected.ok) {
+    return { ok: false, skipped: skipOf(collected.failure) };
+  }
+  const matched = eventsForBinding({ binding, windowStart, issues: issues.issues, detectedAt });
+  return { ok: true, events: [...matched, ...collected.events] };
+}
 async function scanBinding(input) {
   const { deps, scanned, detectedAt, binding } = input;
-  const repository = repositoryRefOf(binding);
   const blank = blankScan(binding);
   const account = await readAccount({ store: deps.store, numericUserId: binding.accountNumericUserId });
   if (account === null || account.credential.token === "") {
@@ -3105,26 +3365,21 @@ async function scanBinding(input) {
   if (account.state !== "active") {
     return { ...blank, skipped: "inactive-account" };
   }
-  const pages = await listBindingIssues({
-    poller: deps.poller,
-    token: account.credential.token,
-    owner: repository.owner,
-    name: repository.name,
-    since: windowFor(binding, scanned)
-  });
-  if (!pages.ok) {
-    return { ...blank, skipped: pages.skipped };
-  }
-  const incoming = eventsForBinding({
+  const listed = await collectScanEvents({
+    deps,
     binding,
     windowStart: windowFor(binding, scanned),
-    issues: pages.issues,
-    detectedAt
+    detectedAt,
+    token: account.credential.token,
+    login: account.login === "" ? binding.accountLogin : account.login
   });
+  if (!listed.ok) {
+    return { ...blank, skipped: listed.skipped };
+  }
   const appended = await enqueueEvents({
     store: deps.store,
     log: deps.log,
-    incoming
+    incoming: listed.events
   });
   for (const event of appended) {
     await recordDetection({ ...deps }, event);
@@ -3161,7 +3416,7 @@ async function runScanCycle(deps) {
   const outcomes = [];
   let total = 0;
   for (const binding of bindings) {
-    if (binding.state !== "active" || binding.triggers.assignment !== true) {
+    if (binding.state !== "active" || !watchesAnything(binding)) {
       continue;
     }
     const scan = await scanBinding({ deps: context, binding, scanned: scannedState, detectedAt });
@@ -3181,73 +3436,135 @@ async function runScanCycle(deps) {
   return { bindings: outcomes, enqueued: total };
 }
 
-// service/poll/poller-github.ts
-var STATUS_UNAUTHORIZED2 = 401;
-var STATUS_NOT_FOUND2 = 404;
-var STATUS_FORBIDDEN2 = 403;
-var STATUS_TOO_MANY_REQUESTS2 = 429;
+// service/poll/poller-entries.ts
 function asRecord(value) {
   return isRecord(value) ? value : null;
 }
-function readIssueNumber(record) {
-  const value = record.number;
+function positiveIntOf2(value) {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
-function readAssignees(record) {
-  const raw = record.assignees;
-  if (!Array.isArray(raw)) {
+function textOf(record, field) {
+  const value = record[field];
+  return typeof value === "string" ? value : null;
+}
+function readLogins(value) {
+  if (!Array.isArray(value)) {
     return null;
   }
   const logins = [];
-  for (const entry of raw) {
-    const assignee = asRecord(entry);
-    const login = assignee === null ? null : assignee.login;
-    if (typeof login !== "string" || login === "") {
+  for (const entry of value) {
+    const login = asRecord(entry);
+    const candidate = login === null ? null : login.login;
+    if (typeof candidate !== "string" || candidate === "") {
       return null;
     }
-    logins.push(login);
+    logins.push(candidate);
   }
   return logins;
+}
+function issueNumberOf(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return positiveIntOf2(Number(value.slice(value.lastIndexOf("/") + 1)));
 }
 function readIssueEntry(value) {
   const record = asRecord(value);
   if (record === null) {
     return null;
   }
-  const issueNumber = readIssueNumber(record);
-  if (issueNumber === null) {
+  const issueNumber = positiveIntOf2(record.number);
+  const title = textOf(record, "title");
+  const url = textOf(record, "html_url");
+  const state = textOf(record, "state");
+  const assignees = readLogins(record.assignees);
+  if (issueNumber === null || title === null || url === null || state === null || assignees === null) {
     return null;
   }
-  const { title } = record;
-  const url = record.html_url;
-  const { state } = record;
-  if (typeof title !== "string" || typeof url !== "string" || typeof state !== "string") {
-    return null;
-  }
-  const assignees = readAssignees(record);
-  if (assignees === null) {
-    return null;
-  }
-  const updatedAt = record.updated_at;
   return {
     issueNumber,
     title,
     url,
     state,
-    body: typeof record.body === "string" ? record.body : null,
+    body: textOf(record, "body"),
     assignees,
     isPullRequest: "pull_request" in record,
-    updatedAt: typeof updatedAt === "string" ? updatedAt : null
+    updatedAt: textOf(record, "updated_at")
   };
 }
-function parseIssuePage(text) {
-  const parsed = parseJsonText(text);
+function authorLoginOf(user) {
+  return user === null ? "" : textOf(user, "login") ?? "";
+}
+function authorTypeOf(user) {
+  return user === null ? "" : textOf(user, "type") ?? "";
+}
+function readCommentEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const commentId = positiveIntOf2(record.id);
+  const issueNumber = issueNumberOf(record.issue_url);
+  const body = textOf(record, "body");
+  const url = textOf(record, "html_url");
+  const user = asRecord(record.user);
+  const authorLogin = authorLoginOf(user);
+  if (commentId === null || issueNumber === null || body === null || url === null || authorLogin === "") {
+    return null;
+  }
+  return {
+    commentId,
+    issueNumber,
+    body,
+    url,
+    authorLogin,
+    authorType: authorTypeOf(user),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+function readPullEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const pullNumber = positiveIntOf2(record.number);
+  const title = textOf(record, "title");
+  const url = textOf(record, "html_url");
+  const state = textOf(record, "state");
+  const requestedReviewers = readLogins(record.requested_reviewers);
+  if (pullNumber === null || title === null || url === null || state === null || requestedReviewers === null) {
+    return null;
+  }
+  const head = asRecord(record.head);
+  const base = asRecord(record.base);
+  return {
+    pullNumber,
+    title,
+    url,
+    state,
+    requestedReviewers,
+    headSha: head === null ? null : textOf(head, "sha"),
+    baseRef: base === null ? null : textOf(base, "ref"),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+
+// service/poll/poller-github.ts
+var STATUS_UNAUTHORIZED2 = 401;
+var STATUS_NOT_FOUND2 = 404;
+var STATUS_FORBIDDEN2 = 403;
+var STATUS_TOO_MANY_REQUESTS2 = 429;
+var PAGE_SIZE = 30;
+var MAX_LIST_PAGES = 2;
+var NEWEST_UPDATED_FIRST = { sort: "updated", direction: "desc" };
+function parseListPage(input) {
+  const parsed = parseJsonText(input.text);
   if (!parsed.ok || !Array.isArray(parsed.value)) {
-    throw new Error("issue list response was not an array");
+    throw new Error(input.message);
   }
   return parsed.value.flatMap((entry) => {
-    const issue2 = readIssueEntry(entry);
-    return issue2 === null ? [] : [issue2];
+    const item = input.read(entry);
+    return item === null ? [] : [item];
   });
 }
 async function classifyListOutcome(response) {
@@ -3260,36 +3577,99 @@ async function classifyListOutcome(response) {
   }
   return { kind: "unavailable", detail: "upstream" };
 }
+async function listPages(input) {
+  const items = [];
+  for (let page = 1;page <= MAX_LIST_PAGES; page += 1) {
+    input.url.searchParams.set("page", String(page));
+    let response;
+    try {
+      response = await input.fetchImpl(input.url.toString(), {
+        method: "GET",
+        headers: requestHeaders(input.token),
+        signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
+      });
+    } catch (error) {
+      return { kind: "unavailable", detail: transportDetail(error) };
+    }
+    if (!response.ok) {
+      return await classifyListOutcome(response);
+    }
+    let parsed;
+    try {
+      parsed = parseListPage({ text: await response.text(), message: input.message, read: input.read });
+    } catch {
+      return { kind: "unavailable", detail: "upstream" };
+    }
+    items.push(...parsed);
+    if (parsed.length < PAGE_SIZE) {
+      break;
+    }
+  }
+  return { kind: "ok", items };
+}
+function listUrl(input) {
+  const url = new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/${input.path}`);
+  for (const [key, value] of Object.entries(input.query)) {
+    url.searchParams.set(key, value);
+  }
+  if (input.since !== null) {
+    url.searchParams.set("since", input.since);
+  }
+  return url;
+}
+async function issuesList(fetchImpl, query) {
+  const result = await listPages({
+    fetchImpl,
+    token: query.token,
+    url: listUrl({
+      owner: query.owner,
+      name: query.name,
+      path: "issues",
+      query: { state: "open", ...NEWEST_UPDATED_FIRST },
+      since: query.since
+    }),
+    message: "issue list response was not an array",
+    read: readIssueEntry
+  });
+  return result.kind === "ok" ? { kind: "ok", issues: result.items } : result;
+}
+async function commentsList(fetchImpl, query) {
+  const result = await listPages({
+    fetchImpl,
+    token: query.token,
+    url: listUrl({
+      owner: query.owner,
+      name: query.name,
+      path: "issues/comments",
+      query: { ...NEWEST_UPDATED_FIRST },
+      since: query.since
+    }),
+    message: "issue comment list response was not an array",
+    read: readCommentEntry
+  });
+  return result.kind === "ok" ? { kind: "ok", comments: result.items } : result;
+}
+async function pullsList(fetchImpl, query) {
+  const result = await listPages({
+    fetchImpl,
+    token: query.token,
+    url: listUrl({
+      owner: query.owner,
+      name: query.name,
+      path: "pulls",
+      query: { state: "open", ...NEWEST_UPDATED_FIRST },
+      since: null
+    }),
+    message: "pull list response was not an array",
+    read: readPullEntry
+  });
+  return result.kind === "ok" ? { kind: "ok", pulls: result.items } : result;
+}
 function createGitHubIssuePoller(fetchImpl = (url, init) => globalThis.fetch(url, init)) {
   return {
-    listOpenIssues: async (input) => {
-      const target = new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/issues`);
-      target.searchParams.set("state", "open");
-      target.searchParams.set("sort", "updated");
-      target.searchParams.set("direction", "desc");
-      target.searchParams.set("per_page", String(input.perPage));
-      if (input.since !== null) {
-        target.searchParams.set("since", input.since);
-      }
-      let response;
-      try {
-        response = await fetchImpl(target.toString(), {
-          method: "GET",
-          headers: requestHeaders(input.token),
-          signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
-        });
-      } catch (error) {
-        return { kind: "unavailable", detail: transportDetail(error) };
-      }
-      if (!response.ok) {
-        return await classifyListOutcome(response);
-      }
-      try {
-        return { kind: "ok", issues: parseIssuePage(await response.text()) };
-      } catch {
-        return { kind: "unavailable", detail: "upstream" };
-      }
-    }
+    listOpenIssues: (query) => issuesList(fetchImpl, query),
+    listIssueComments: (query) => commentsList(fetchImpl, query),
+    listOpenPulls: (query) => pullsList(fetchImpl, query)
   };
 }
 

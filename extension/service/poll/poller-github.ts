@@ -1,16 +1,28 @@
 /**
- * GitHub issue poller for the service loop (M1 re-cut, the "small poller
- * client" the cut allows on top of the credential verifier).
+ * GitHub poller for the service loop (M1 re-cut, the "small poller client"
+ * the cut allows on top of the credential verifier), extended in Slice 2 for
+ * the M6 mention and M7 review-request triggers.
  *
  * Identical transport rules to the verifier — same API origin, headers, and
- * the shared 15-second abort, imported from `service/github.ts` so the two
- * clients cannot drift — one endpoint more: `/repos/:owner/:name/issues`
- * with `state=open` and `sort=updated`, so a scan window sees the newest
- * activity first. Failures are classified at the boundary and no upstream
- * text ever leaves this module: the loop turns the class into a skip.
+ * the shared 15-second abort, imported from `service/github.ts` so the
+ * clients cannot drift — three endpoints instead of one:
+ *
+ * - `GET /repos/:owner/:name/issues` (`state=open`, `sort=updated`), the M1
+ *   assignment scan;
+ * - `GET /repos/:owner/:name/issues/comments` (`sort=updated`), the M6
+ *   comment scan that looks for `@<login>`;
+ * - `GET /repos/:owner/:name/pulls` (`state=open`, `sort=updated`), the M7
+ *   review-request scan.
+ *
+ * Every list reads at most two pages of thirty items, newest-updated first,
+ * so one binding's scan stays inside its rate budget; the cap lives here so
+ * all three callers inherit it. Failures are classified at the boundary and
+ * no upstream text ever leaves this module: the loop turns the class into a
+ * skip. The entry shapes and their per-row readers sit beside this module in
+ * `poller-entries.ts`.
  */
 
-import { isRecord, parseJsonText } from '../json.ts';
+import { parseJsonText } from '../json.ts';
 import {
     API_ORIGIN,
     GITHUB_TIMEOUT_MS,
@@ -20,6 +32,11 @@ import {
     transportDetail,
 } from '../github.ts';
 import type { FetchLike, UnavailableDetail } from '../github.ts';
+import { readCommentEntry, readIssueEntry, readPullEntry } from './poller-entries.ts';
+import type { PollComment, PollIssue, PollPull } from './poller-entries.ts';
+
+/** Entry shapes re-exported so callers keep one import path for the poller. */
+export type { PollComment, PollIssue, PollPull };
 
 /** Shared status constant (the verifier keeps the catalog in `github.ts`). */
 const STATUS_UNAUTHORIZED = 401;
@@ -30,177 +47,115 @@ const STATUS_FORBIDDEN = 403;
 /** Shared status constant: primary and secondary GitHub rate limits. */
 const STATUS_TOO_MANY_REQUESTS = 429;
 
-/**
- * Minimal GitHub issue shape the poller normalizes.
- *
- * GitHub's own names (`html_url`, `updated_at`) stay inside string
- * arguments, the same rule the panel's issue readers follow; this shape is
- * stated here because the service never imports panel runtime.
- */
-export interface PollIssue {
-    /** Issue number within the repository. */
-    readonly issueNumber: number;
-    /** Issue title; untrusted source text. */
-    readonly title: string;
-    /** Canonical GitHub URL. */
-    readonly url: string;
-    /** Issue state (`open`/`closed`). */
-    readonly state: string;
-    /** Issue body, or `null`; untrusted source text. */
-    readonly body: string | null;
-    /** Logins of the current assignees. */
-    readonly assignees: readonly string[];
-    /** `true` when the entry is a pull request (GitHub lists PRs as issues). */
-    readonly isPullRequest: boolean;
-    /** RFC 3339 `updated_at` stamp, or `null` when GitHub sent none. */
-    readonly updatedAt: string | null;
-}
+/** Items requested per page; each page stays well inside the response cap. */
+const PAGE_SIZE = 30;
 
-/** Outcome of one issues-list call (classified at the boundary, like `verify`). */
-export type IssueListOutcome =
-    | { readonly kind: 'ok'; readonly issues: readonly PollIssue[] }
+/** Pages read per list call; a full first page justifies one more. */
+const MAX_LIST_PAGES = 2;
+
+/** Newest-updated first, so a scan window sees fresh activity first. */
+const NEWEST_UPDATED_FIRST = { sort: 'updated', direction: 'desc' } as const;
+
+/**
+ * Failure classes a list call can answer with.
+ *
+ * Shared by all three list outcomes so the loop's skip mapping reads one
+ * shape: the class escapes, upstream detail never does.
+ */
+export type PollFailure =
     | { readonly kind: 'auth-failed' }
     | { readonly kind: 'rate-limited'; readonly retryAfterSeconds: number }
     | { readonly kind: 'unavailable'; readonly detail: UnavailableDetail };
+
+/**
+ * What a paged read answers with before the public method renames its
+ * payload: the normalized items, or the classified failure.
+ */
+export type PagedList<T> = { readonly kind: 'ok'; readonly items: readonly T[] } | PollFailure;
+
+/** Outcome of one issues-list call (classified at the boundary, like `verify`). */
+export type IssueListOutcome = { readonly kind: 'ok'; readonly issues: readonly PollIssue[] } | PollFailure;
+
+/** Outcome of one issue-comments-list call. */
+export type CommentListOutcome = { readonly kind: 'ok'; readonly comments: readonly PollComment[] } | PollFailure;
+
+/** Outcome of one pulls-list call. */
+export type PullListOutcome = { readonly kind: 'ok'; readonly pulls: readonly PollPull[] } | PollFailure;
+
+/** Credential, repository, and the `since` window a windowed list takes. */
+interface WindowedListQuery {
+    readonly token: string;
+    readonly owner: string;
+    readonly name: string;
+    readonly since: string | null;
+}
+
+/** Credential and repository for a list that has no `since` window (pulls). */
+interface RepoListQuery {
+    readonly token: string;
+    readonly owner: string;
+    readonly name: string;
+}
 
 /** The surface the poll loop drives. */
 export interface GitHubIssuePoller {
     /**
      * List the open issues of one repository, newest-updated first.
      *
-     * @param input - Token, repository, optional `since` filter, page size.
+     * @param query - Token, repository, optional `since` filter.
      * @returns The classified outcome; upstream detail never escapes as text.
      */
-    listOpenIssues(input: {
-        readonly token: string;
-        readonly owner: string;
-        readonly name: string;
-        readonly since: string | null;
-        readonly perPage: number;
-    }): Promise<IssueListOutcome>;
+    listOpenIssues(query: WindowedListQuery): Promise<IssueListOutcome>;
+
+    /**
+     * List the issue comments of one repository, newest-updated first (M6).
+     *
+     * @param query - Token, repository, optional `since` filter.
+     * @returns The classified outcome; upstream detail never escapes as text.
+     */
+    listIssueComments(query: WindowedListQuery): Promise<CommentListOutcome>;
+
+    /**
+     * List the open pull requests of one repository, newest-updated first (M7).
+     *
+     * @param query - Token and repository.
+     * @returns The classified outcome; upstream detail never escapes as text.
+     */
+    listOpenPulls(query: RepoListQuery): Promise<PullListOutcome>;
 }
 
 /**
- * Narrow a value to a record.
+ * Parse one list page body, skipping entries the shape check refuses.
  *
- * @param value - Parsed JSON value.
- * @returns The record, or `null` for anything else.
- */
-function asRecord(value: unknown): Record<string, unknown> | null {
-    return isRecord(value) ? value : null;
-}
-
-/**
- * Read the numeric issue number from one list entry.
- *
- * @param record - Candidate entry.
- * @returns The number, or `null` when the row is unusable.
- */
-function readIssueNumber(record: Record<string, unknown>): number | null {
-    const value = record.number;
-
-    return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
-}
-
-/**
- * Read the assignee logins from one list entry.
- *
- * @param record - Candidate entry.
- * @returns The logins, or `null` when any assignee is malformed.
- */
-function readAssignees(record: Record<string, unknown>): readonly string[] | null {
-    const raw = record.assignees;
-    if (!Array.isArray(raw)) {
-        return null;
-    }
-
-    const logins: string[] = [];
-    for (const entry of raw) {
-        const assignee = asRecord(entry);
-        const login = assignee === null ? null : assignee.login;
-        if (typeof login !== 'string' || login === '') {
-            return null;
-        }
-
-        logins.push(login);
-    }
-
-    return logins;
-}
-
-/**
- * Parse one issues-list entry, failing soft per entry.
- *
- * A malformed entry is `null`, so one bad row cannot stop the rest of the
- * page; the list endpoint is a feed, not a transaction.
- *
- * @param value - One element of the parsed list.
- * @returns The normalized issue, or `null`.``
- */
-function readIssueEntry(value: unknown): PollIssue | null {
-    const record = asRecord(value);
-    if (record === null) {
-        return null;
-    }
-
-    const issueNumber = readIssueNumber(record);
-    if (issueNumber === null) {
-        return null;
-    }
-
-    const { title } = record;
-    const url = record.html_url;
-    const { state } = record;
-    if (typeof title !== 'string' || typeof url !== 'string' || typeof state !== 'string') {
-        return null;
-    }
-
-    const assignees = readAssignees(record);
-    if (assignees === null) {
-        return null;
-    }
-
-    const updatedAt = record.updated_at;
-
-    return {
-        issueNumber,
-        title,
-        url,
-        state,
-        body: typeof record.body === 'string' ? record.body : null,
-        assignees,
-        // GitHub adds a `pull_request` object only to PRs it lists as issues.
-        isPullRequest: 'pull_request' in record,
-        updatedAt: typeof updatedAt === 'string' ? updatedAt : null,
-    };
-}
-
-/**
- * Parse a issues-list page body, skipping entries the shape check refuses.
- *
- * @param text - Response body text.
- * @returns The normalized issues.
+ * @param input - The body text, the error text when it is not an array
+ *   (never upstream text), and the per-entry reader (`null` drops one
+ *   malformed entry).
+ * @returns The normalized entries.
  * @throws {Error} When the body is not a JSON array.
  */
-function parseIssuePage(text: string): PollIssue[] {
-    const parsed = parseJsonText(text);
+function parseListPage<T>(input: {
+    readonly text: string;
+    readonly message: string;
+    readonly read: (value: unknown) => T | null;
+}): T[] {
+    const parsed = parseJsonText(input.text);
     if (!parsed.ok || !Array.isArray(parsed.value)) {
-        throw new Error('issue list response was not an array');
+        throw new Error(input.message);
     }
 
     return parsed.value.flatMap((entry) => {
-        const issue = readIssueEntry(entry);
-        return issue === null ? [] : [issue];
+        const item = input.read(entry);
+        return item === null ? [] : [item];
     });
 }
 
 /**
- * Classify a non-200 issues-list answer.
+ * Classify a non-200 list answer.
  *
  * @param response - Upstream response.
  * @returns The classified failure, or the `ok` outcome for a 200.
  */
-async function classifyListOutcome(response: Response): Promise<IssueListOutcome> {
+async function classifyListOutcome(response: Response): Promise<PollFailure> {
     if (response.status === STATUS_UNAUTHORIZED || response.status === STATUS_NOT_FOUND) {
         return { kind: 'auth-failed' };
     }
@@ -214,6 +169,166 @@ async function classifyListOutcome(response: Response): Promise<IssueListOutcome
 }
 
 /**
+ * Read every page one list call covers.
+ *
+ * Page 2 is requested only when page 1 filled its cap, so the rate budget
+ * never sees a burst; the first failed page stops the paging and reports its
+ * class alone.
+ *
+ * @param input - Transport, the URL to page through, and the page reader.
+ * @returns The normalized items, or the page failure's class.
+ */
+async function listPages<T>(input: {
+    /** Injectable `fetch`. */
+    readonly fetchImpl: FetchLike;
+    /** Account credential presented to GitHub. */
+    readonly token: string;
+    /** Request URL; the `page` parameter is set per iteration. */
+    readonly url: URL;
+    /** Error text when a body is not an array (never upstream text). */
+    readonly message: string;
+    /** Per-entry reader; `null` drops one malformed entry. */
+    readonly read: (value: unknown) => T | null;
+}): Promise<PagedList<T>> {
+    const items: T[] = [];
+    for (let page = 1; page <= MAX_LIST_PAGES; page += 1) {
+        input.url.searchParams.set('page', String(page));
+
+        let response: Response;
+        try {
+            response = await input.fetchImpl(input.url.toString(), {
+                method: 'GET',
+                headers: requestHeaders(input.token),
+                signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
+            });
+        } catch (error) {
+            // Transport failures are classified, never described (SEC-11).
+            return { kind: 'unavailable', detail: transportDetail(error) };
+        }
+
+        if (!response.ok) {
+            return await classifyListOutcome(response);
+        }
+
+        let parsed: T[];
+        try {
+            parsed = parseListPage({ text: await response.text(), message: input.message, read: input.read });
+        } catch {
+            return { kind: 'unavailable', detail: 'upstream' };
+        }
+
+        items.push(...parsed);
+        if (parsed.length < PAGE_SIZE) {
+            break;
+        }
+    }
+
+    return { kind: 'ok', items };
+}
+
+/**
+ * Build the repository URL one list method pages through.
+ *
+ * @param input - Repository coordinates, the path after the repo, the query
+ *   parameters the method always sends, and its optional `since` window.
+ * @returns The request URL with those query parameters set.
+ */
+function listUrl(input: {
+    readonly owner: string;
+    readonly name: string;
+    readonly path: string;
+    readonly query: Readonly<Record<string, string>>;
+    readonly since: string | null;
+}): URL {
+    const url = new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/${input.path}`);
+    for (const [key, value] of Object.entries(input.query)) {
+        url.searchParams.set(key, value);
+    }
+
+    if (input.since !== null) {
+        url.searchParams.set('since', input.since);
+    }
+
+    return url;
+}
+
+/**
+ * Run the M1 issue list and answer it under the field the interface promises.
+ *
+ * @param fetchImpl - Transport this client is bound to.
+ * @param query - Credential, repository, and the `since` window.
+ * @returns The classified outcome; upstream detail never escapes as text.
+ */
+async function issuesList(fetchImpl: FetchLike, query: WindowedListQuery): Promise<IssueListOutcome> {
+    const result = await listPages({
+        fetchImpl,
+        token: query.token,
+        url: listUrl({
+            owner: query.owner,
+            name: query.name,
+            path: 'issues',
+            query: { state: 'open', ...NEWEST_UPDATED_FIRST },
+            since: query.since,
+        }),
+        message: 'issue list response was not an array',
+        read: readIssueEntry,
+    });
+
+    return result.kind === 'ok' ? { kind: 'ok', issues: result.items } : result;
+}
+
+/**
+ * Run the M6 issue-comments list and answer it under its promised field.
+ *
+ * @param fetchImpl - Transport this client is bound to.
+ * @param query - Credential, repository, and the `since` window.
+ * @returns The classified outcome; upstream detail never escapes as text.
+ */
+async function commentsList(fetchImpl: FetchLike, query: WindowedListQuery): Promise<CommentListOutcome> {
+    const result = await listPages({
+        fetchImpl,
+        token: query.token,
+        url: listUrl({
+            owner: query.owner,
+            name: query.name,
+            path: 'issues/comments',
+            query: { ...NEWEST_UPDATED_FIRST },
+            since: query.since,
+        }),
+        message: 'issue comment list response was not an array',
+        read: readCommentEntry,
+    });
+
+    return result.kind === 'ok' ? { kind: 'ok', comments: result.items } : result;
+}
+
+/**
+ * Run the M7 pulls list and answer it under its promised field.
+ *
+ * @param fetchImpl - Transport this client is bound to.
+ * @param query - Credential and repository (no `since` window: the review
+ *   request is matched against the PR's own `updated_at` in the scan).
+ * @returns The classified outcome; upstream detail never escapes as text.
+ */
+async function pullsList(fetchImpl: FetchLike, query: RepoListQuery): Promise<PullListOutcome> {
+    const result = await listPages({
+        fetchImpl,
+        token: query.token,
+        url: listUrl({
+            owner: query.owner,
+            name: query.name,
+            path: 'pulls',
+            query: { state: 'open', ...NEWEST_UPDATED_FIRST },
+            since: null,
+        }),
+        message: 'pull list response was not an array',
+        read: readPullEntry,
+    });
+
+    return result.kind === 'ok' ? { kind: 'ok', pulls: result.items } : result;
+}
+
+/**
  * Create the GitHub client the poll loop uses.
  *
  * @param fetchImpl - Injectable `fetch`; defaults to the process global so
@@ -224,37 +339,9 @@ export function createGitHubIssuePoller(
     fetchImpl: FetchLike = (url, init) => globalThis.fetch(url, init),
 ): GitHubIssuePoller {
     return {
-        listOpenIssues: async (input): Promise<IssueListOutcome> => {
-            const target = new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/issues`);
-            target.searchParams.set('state', 'open');
-            target.searchParams.set('sort', 'updated');
-            target.searchParams.set('direction', 'desc');
-            target.searchParams.set('per_page', String(input.perPage));
-            if (input.since !== null) {
-                target.searchParams.set('since', input.since);
-            }
-
-            let response: Response;
-            try {
-                response = await fetchImpl(target.toString(), {
-                    method: 'GET',
-                    headers: requestHeaders(input.token),
-                    signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
-                });
-            } catch (error) {
-                // Transport failures are classified, never described (SEC-11).
-                return { kind: 'unavailable', detail: transportDetail(error) };
-            }
-
-            if (!response.ok) {
-                return await classifyListOutcome(response);
-            }
-
-            try {
-                return { kind: 'ok', issues: parseIssuePage(await response.text()) };
-            } catch {
-                return { kind: 'unavailable', detail: 'upstream' };
-            }
-        },
+        listOpenIssues: (query) => issuesList(fetchImpl, query),
+        listIssueComments: (query) => commentsList(fetchImpl, query),
+        listOpenPulls: (query) => pullsList(fetchImpl, query),
     };
 }
+

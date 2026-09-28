@@ -55,8 +55,10 @@ export interface ReposPane {
     readonly projectSelect: SelectHandle;
     /** Assignment trigger checkbox. */
     readonly assignmentCheck: CheckboxHandle;
-    /** Mention trigger checkbox (stored-only until M6). */
+    /** Mention trigger checkbox. */
     readonly mentionCheck: CheckboxHandle;
+    /** Review-request trigger checkbox. */
+    readonly reviewRequestCheck: CheckboxHandle;
     /** Worktree option select. */
     readonly worktreeSelect: SelectHandle;
     /** Add-binding button. */
@@ -97,6 +99,8 @@ export interface ReposPaneHandlers {
     readonly setAssignment: (checked: boolean) => void;
     /** Operators set the mention trigger checkbox. */
     readonly setMention: (checked: boolean) => void;
+    /** Operators set the review-request trigger checkbox. */
+    readonly setReviewRequest: (checked: boolean) => void;
     /** Operators picked a worktree option. */
     readonly setWorktree: (id: 'none' | 'generated') => void;
     /** Operators clicked a binding row. */
@@ -111,8 +115,11 @@ const WORKTREE_OPTIONS = [
     { id: 'generated', label: 'generated — OpenChamber creates a worktree' },
 ] as const;
 
-/** Note under the mention checkbox (M6's comment scan ships later). */
-export const COMMENT_SCAN_NOTE = 'Mention detection ships in a later build; the flag is stored now.';
+/** Note under the mention checkbox (M6's comment scan ships in this build). */
+export const COMMENT_SCAN_NOTE = 'Comments that @mention the bound account open a dispatch.';
+
+/** Note under the review-request checkbox (M7). */
+export const REVIEW_SCAN_NOTE = 'Pull requests that ask the account to review open a dispatch.';
 
 /** Idle label of the two-step Remove-account control. */
 export const REMOVE_ACCOUNT_IDLE_LABEL = 'Remove account';
@@ -168,6 +175,8 @@ interface Form {
     readonly assignment: CheckboxHandle;
     /** Mention checkbox. */
     readonly mention: CheckboxHandle;
+    /** Review-request checkbox. */
+    readonly reviewRequest: CheckboxHandle;
     /** Worktree select. */
     readonly worktree: SelectHandle;
     /** Bind button. */
@@ -240,6 +249,7 @@ function mountProjectSelect(input: MountInputs): SelectHandle {
 function mountTriggerChecks(input: MountInputs): {
     readonly assignment: CheckboxHandle;
     readonly mention: CheckboxHandle;
+    readonly reviewRequest: CheckboxHandle;
 } {
     const assignment = mountCheckbox(input.pane, {
         label: 'Assignment',
@@ -252,8 +262,14 @@ function mountTriggerChecks(input: MountInputs): {
         checked: input.rt.state.repos.triggerMention,
         onChange: (checked) => input.handlers.setMention(checked),
     });
+    const reviewRequest = mountCheckbox(input.pane, {
+        label: 'Review request',
+        description: REVIEW_SCAN_NOTE,
+        checked: input.rt.state.repos.triggerReviewRequest,
+        onChange: (checked) => input.handlers.setReviewRequest(checked),
+    });
 
-    return { assignment, mention };
+    return { assignment, mention, reviewRequest };
 }
 function worktreeOptions(repos: Repositories, handlers: ReposPaneHandlers): {
     readonly label: string;
@@ -311,6 +327,7 @@ function mountAddForm(input: MountInputs): Form {
         projectSelect,
         assignment: checks.assignment,
         mention: checks.mention,
+        reviewRequest: checks.reviewRequest,
         worktree,
         add,
         toggle,
@@ -398,6 +415,7 @@ export function mountRepositoriesPane(input: {
         projectSelect: form.projectSelect,
         assignmentCheck: form.assignment,
         mentionCheck: form.mention,
+        reviewRequestCheck: form.reviewRequest,
         worktreeSelect: form.worktree,
         addBinding: form.add,
         toggleSelected: form.toggle,
@@ -455,6 +473,7 @@ export function repaintReposPane(rt: PanelRuntime, view: ReposPane): void {
     });
     view.assignmentCheck.update({ checked: repos.triggerAssignment });
     view.mentionCheck.update({ checked: repos.triggerMention });
+    view.reviewRequestCheck.update({ checked: repos.triggerReviewRequest });
     view.worktreeSelect.update({ value: repos.worktreeSelection });
     view.addBinding.update({ disabled: repos.status !== 'ready' });
     view.toggleSelected.update({ disabled: repos.selectedBinding === null });

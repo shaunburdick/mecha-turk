@@ -25,12 +25,14 @@ import type { ServiceStore } from './store/index.ts';
 /** Store file the bindings live in; shared with the hardened delete guard. */
 export { BINDINGS_FILE } from './accounts/store.ts';
 
-/** Trigger set stored on one binding (comment scanning ships with M6). */
+/** Trigger set stored on one binding (comment and review scanning ship with M6/M7). */
 export interface BindingTriggers {
     /** Issue-assignment polling; implemented for M1. */
     readonly assignment: boolean;
-    /** Comment-mention polling; stored only until M6. */
+    /** Comment-mention polling; implemented for M6. */
     readonly mention: boolean;
+    /** Review-request polling (open PRs naming the account); implemented for M7. */
+    readonly reviewRequest: boolean;
 }
 
 /** One repository binding as the service stores and reports it. */
@@ -128,6 +130,11 @@ function issue(value: BindingIssue): { readonly issue: BindingIssue } {
 /**
  * Validate the `triggers` field shape.
  *
+ * `reviewRequest` is read parse-tolerantly: a binding stored before M7 has
+ * no such field and reads as `false` (its operator never asked for it), and
+ * a field that is present but is not a boolean refuses the record — a
+ * half-read trigger is worse than a missing one.
+ *
  * @param value - Candidate value.
  * @returns The triggers, or `null` when the shape is unusable.
  */
@@ -137,12 +144,16 @@ function triggersFieldOf(value: unknown): BindingTriggers | null {
     }
 
     const record = value as Record<string, unknown>;
-    const { assignment, mention } = record;
+    const { assignment, mention, reviewRequest } = record;
     if (typeof assignment !== 'boolean' || typeof mention !== 'boolean') {
         return null;
     }
 
-    return { assignment, mention };
+    if (reviewRequest !== undefined && typeof reviewRequest !== 'boolean') {
+        return null;
+    }
+
+    return { assignment, mention, reviewRequest: reviewRequest === true };
 }
 
 /**
@@ -300,7 +311,7 @@ function bindingModeOf(raw: Record<string, unknown>): {
     if (triggers === null) {
         return issue({
             field: 'triggers',
-            remediation: 'triggers must be an object with assignment and mention boolean flags',
+            remediation: 'triggers must be an object with assignment, mention, and reviewRequest boolean flags',
         });
     }
 
