@@ -1,7 +1,7 @@
 # Tasks: Repository reorganization — extension at the root
 
 **Feature**: `specs/003-code-reorg` · **Date**: 2026-09-28
-**Branch**: `code-reorg`
+**Branch**: `code-reorg` · **PR**: https://github.com/shaunburdick/mecha-turk/pull/5 (open, awaiting human merge — Waves 1–3 complete)
 
 Convention: `[P]` = parallel-safe with other `[P]` tasks in the same wave.
 Every wave ends with `npm run verify` (build → lint → typecheck → test).
