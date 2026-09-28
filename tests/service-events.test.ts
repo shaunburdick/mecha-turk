@@ -214,6 +214,8 @@ function assignmentIssue(issueNumber: number, updatedAt: string = ASSIGNED_AT): 
         url: `https://github.com/acme/widget/issues/${issueNumber}`,
         state: 'open',
         body: null,
+        authorLogin: 'alice',
+        authorType: 'User',
         assignees: [ACCOUNT_LOGIN],
         isPullRequest: false,
         updatedAt,

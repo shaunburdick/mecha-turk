@@ -3,8 +3,8 @@
 **Feature ID**: `002-agent-event-extension`
 **Feature Branch**: `001-agent-event-orchestrator` (spec-kit keeps the working branch and the feature directory independent; this production spec is written and committed on the branch that carries the 001 → 002 transition)
 **Created**: 2026-09-27
-**Last Updated**: 2026-09-27
-**Version**: 1.0.0
+**Last Updated**: 2026-09-28
+**Version**: 1.1.0
 **Status**: Draft — ready for phase-gate review
 **Dependencies**: Feature 001 `001-agent-event-orchestrator` — supersedes it for production. The trigger set, deduplication/idempotency rules, policy and approval-gate semantics, audit and observability requirements, and the normalized event contract (`specs/001-agent-event-orchestrator/contracts/events.md`) carry over into this specification.
 **Input**: Product-owner decisions locked 2026-09-27 — "Option B" architecture (OpenChamber extension panel + OpenChamber-hosted local guest service), N-account credential custody, extension read-only to GitHub, Default-Agent pinning with fail-closed verification, bounded autonomy, service-owned durable state. All locked decisions are encoded in the Functional Requirements and listed in `## Clarifications`.
@@ -12,7 +12,7 @@
 
 ## Problem Statement
 
-Mecha Turk must turn GitHub activity — issue assignments, pull-request review requests and assignments, and comment mentions — into agent-led work sessions inside the operator's own OpenChamber installation, without inbound firewall exposure, without a hosted control plane, and without Mecha Turk reimplementing the harness.
+Mecha Turk must turn GitHub activity — issue assignments, pull-request review requests and assignments, and mentions in comments and issue bodies — into agent-led work sessions inside the operator's own OpenChamber installation, without inbound firewall exposure, without a hosted control plane, and without Mecha Turk reimplementing the harness.
 
 Feature 001 proved the extension path end-to-end as a spike (S1–S7 all passed, 2026-09-27) but as a single-account, panel-scoped prototype. Production needs are strictly larger: **N GitHub accounts** each with its own credential and rate-limit pool, **multi-repository polling** with durable checkpoints and correct deduplication across restarts and replays, **post-dispatch agent verification** so work is provably handled by the project-manager agent, and a **durable audit trail that survives an extension uninstall** (constitution v1.3.0, Security and Operational Standard 4 — `host.storage` alone is not an audit home). No single platform surface provides all of this: the panel is sandboxed and single-account, and the platform allows exactly one `integration` card per manifest (`001/research.md` §b.3).
 
@@ -51,7 +51,7 @@ As a self-hosting operator, I paste a GitHub personal access token for each GitH
 
 ### User Story 2 — An event arrives and a project-manager session is created (Priority: P1)
 
-As a repository maintainer, I assign an issue to one of my configured account identities (or request a PR review, or mention it in a comment) so that Mecha Turk discovers the event, applies policy, and starts an OpenChamber session attached to the source with the project-manager agent — without an inbound webhook and without me copying context by hand.
+As a repository maintainer, I assign an issue to one of my configured account identities (or request a PR review, or mention it in a comment or an issue body) so that Mecha Turk discovers the event, applies policy, and starts an OpenChamber session attached to the source with the project-manager agent — without an inbound webhook and without me copying context by hand.
 
 **Why this priority**: This is the product's core value: unattended conversion of GitHub activity into bounded agent work.
 
@@ -148,7 +148,7 @@ As an operator, I want failures — a crashed service, a revoked token, a rate l
 
 - **FR-013**: Adding a repository MUST follow the sequence: choose account → choose an existing OpenChamber project from the `listProjects()` picker → enable per-repository triggers. The supported target scale is fewer than 10 repositories per deployment.
 - **FR-014**: Project creation is out of scope (no platform API exists). The picker MUST include a "not listed?" affordance that documents the manual steps (command palette → Add project, sidebar **+**, or folder browser) and MUST leave the binding in a recoverable state until a registered project is selected.
-- **FR-015**: The trigger set MUST include, each independently toggleable per repository: (a) issue assignment to a configured account identity, (b) pull-request review request or review assignment for that identity, and (c) a new issue/PR comment containing a configurable mention token. The mention token defaults to `@<login>` of the bound account, matches case-insensitively, and MAY be overridden per repository (for example a shared bot handle).
+- **FR-015**: The trigger set MUST include, each independently toggleable per repository: (a) issue assignment to a configured account identity, (b) pull-request review request or review assignment for that identity, and (c) a configurable mention token appearing **either in a new issue/PR comment or in an issue body** — a mention in either place triggers (extended from comments only by operator decision, 2026-09-28; see `## Clarifications`). The mention token defaults to `@<login>` of the bound account, matches case-insensitively, and MAY be overridden per repository (for example a shared bot handle). Both placements share the same match, the same bot-authored-source exclusion (FR-016), and the same scan window; one issue body yields at most one mention event per bound account.
 - **FR-016**: All trigger matching MUST be scoped to the identity bound to that repository. Events for other identities, bot-authored duplicates, and non-matching content MUST be ignored or audited as non-actionable, and MUST NOT create work.
 
 #### D. Polling and discovery (service-side)
@@ -251,7 +251,7 @@ Documented and shipped with the feature (FR-038); each prerequisite is also surf
 - [ ] **AC-003**: Three accounts can be added; each returns its own login and numeric id from `/user`; duplicate or invalid tokens are rejected with a clear reason and no token echo.
 - [ ] **AC-004**: Account records key on numeric user id; a login rename updates display only; an expected-login mismatch rejects the account (fail closed).
 - [ ] **AC-005**: The add-repository flow enforces account → existing-project picker → per-repo triggers; a missing project yields `project_missing` with manual guidance; no project-creation call exists anywhere in the codebase.
-- [ ] **AC-006**: Issue assignment, review request, review assignment, and comment mention are each classified correctly against the bound identity; default `@login` and a custom mention token both match case-insensitively; non-matching and other-identity events are ignored/audited as non-actionable.
+- [ ] **AC-006**: Issue assignment, review request, review assignment, and a mention (in a comment or in an issue body) are each classified correctly against the bound identity; default `@login` and a custom mention token both match case-insensitively; non-matching and other-identity events are ignored/audited as non-actionable.
 - [ ] **AC-007**: Every checkpoint persists endpoint/filters, id/timestamp, pagination, validators, poll time, retry state, and account scope; an interrupted page does not advance it; restart resumes within the overlap window and audits re-observed items as duplicates.
 - [ ] **AC-008**: 100× replay of the same window produces 0 additional deliveries-in-run, runs, or sessions (delivery key and run key both exercised, including the assignment+mention collision case).
 - [ ] **AC-009**: Rate accounting is shared per account across its repositories; simulated 403/429 responses trigger backoff honoring `retry-after`, preserve the checkpoint, expose next-poll time, and show budget usage in health.
@@ -363,6 +363,10 @@ All product decisions for this feature were locked by the product owner on 2026-
 | 11 | Autonomy | Autonomous defaults with per-action toggles; fail-closed on missing policy | FR-027 |
 | 12 | Lifecycle and health | OpenChamber-running dependency, `serviceStatus()`, disable stops polling, full health panel | FR-036, FR-038 |
 | 13 | Cleanup | Manual only | FR-040 |
+
+### Session 2026-09-28
+
+- Q: Does the mention trigger fire only on comments? → A: **No** — a mention token in an **issue body** triggers too (operator-driven: `Hey @prompt-it-so, …` posted as issue #4's body was reasonably expected to fire); same bounded case-insensitive match, same bot-author and scan-window rules, one event per issue per account. → FR-015
 
 ## Gate Questions (non-blocking — defaults already encoded)
 

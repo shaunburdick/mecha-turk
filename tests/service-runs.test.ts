@@ -152,7 +152,7 @@ function snapshotOf(input: {
     }
 
     if (input.kind === 'mention') {
-        return { ...base, kind: 'mention', commentId: 4242 };
+        return { ...base, kind: 'mention', origin: 'comment', commentId: 4242 };
     }
 
     return { ...base, kind: 'assignment' };

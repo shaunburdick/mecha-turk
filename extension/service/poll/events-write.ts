@@ -9,8 +9,8 @@
  * createEvent} so callers keep a single import path.
  *
  * The id is the dedupe key, so it must be derivable from the detection
- * alone: the same assignment, the same comment, or the same review request
- * must produce the same bytes on every scan.
+ * alone: the same assignment, the same comment, the same issue-body mention,
+ * or the same review request must produce the same bytes on every scan.
  */
 
 import type { QueuedEvent } from './events-parse.ts';
@@ -52,12 +52,33 @@ export interface AssignmentEventSnapshot extends BaseEventSnapshot {
     readonly kind: 'assignment';
 }
 
-/** A comment that mentioned the bound account (M6). */
-export interface MentionEventSnapshot extends BaseEventSnapshot {
+/** Where a mention token matched: a comment, or the issue body itself. */
+export type MentionOrigin = 'comment' | 'body';
+
+/** A mention the bound account's login appeared in (M6). */
+interface MentionEventSnapshotBase extends BaseEventSnapshot {
     /** The M6 trigger. */
     readonly kind: 'mention';
+    /** Which text carried the mention token; keys the id's last segment. */
+    readonly origin: MentionOrigin;
+}
+
+/** A comment that mentioned the bound account (M6). */
+export interface MentionEventSnapshot extends MentionEventSnapshotBase {
+    /** The comment carried the mention. */
+    readonly origin: 'comment';
     /** The comment's id: two comments on one issue are two events. */
     readonly commentId: number;
+}
+
+/**
+ * An issue body that mentioned the bound account (M6, operator product
+ * decision 2026-09-28: a mention works in the issue body as well as in a
+ * comment).
+ */
+export interface MentionBodyEventSnapshot extends MentionEventSnapshotBase {
+    /** The issue body carried the mention. */
+    readonly origin: 'body';
 }
 
 /** A pull request that asked the bound account to review (M7). */
@@ -71,7 +92,11 @@ export interface ReviewEventSnapshot extends BaseEventSnapshot {
 }
 
 /** Inputs used to assemble one queued event, narrowed by trigger kind. */
-export type EventSnapshot = AssignmentEventSnapshot | MentionEventSnapshot | ReviewEventSnapshot;
+export type EventSnapshot =
+    | AssignmentEventSnapshot
+    | MentionEventSnapshot
+    | MentionBodyEventSnapshot
+    | ReviewEventSnapshot;
 
 /**
  * Build the deterministic event id for one detection.
@@ -84,8 +109,11 @@ export type EventSnapshot = AssignmentEventSnapshot | MentionEventSnapshot | Rev
  * The base (owner, repository, issue number, account) is enough for an
  * assignment and must stay byte-identical to the rows the queue already
  * holds. The optional discriminator extends it for the Slice-2 triggers:
- * `~mention~<commentId>` makes two comments on one issue two events, and
- * `~review` keeps a review request distinct from the same PR's assignment.
+ * `~mention~<commentId>` makes two comments on one issue two events,
+ * `~mention~body` is the fixed suffix of an issue-body mention (fixed, so an
+ * edited body re-detects to the same id and dedupes), and `~review` keeps a
+ * review request distinct from the same PR's assignment. A comment id is
+ * always a number, so `~mention~body` can never collide with one.
  *
  * @param input - Repository, issue, account, and discriminator for the id.
  * @returns A `[A-Za-z0-9._~]`-only id of one path segment.
@@ -114,7 +142,7 @@ export function buildEventId(input: {
  */
 function discriminatorOf(snapshot: EventSnapshot): string | undefined {
     if (snapshot.kind === 'mention') {
-        return `~mention~${snapshot.commentId}`;
+        return snapshot.origin === 'body' ? '~mention~body' : `~mention~${snapshot.commentId}`;
     }
 
     return snapshot.kind === 'review' ? '~review' : undefined;

@@ -145,8 +145,8 @@ const WORKTREE_OPTIONS = [
     { id: 'generated', label: 'generated — OpenChamber creates a worktree' },
 ] as const;
 
-/** Note under the mention checkbox (M6's comment scan ships in this build). */
-export const COMMENT_SCAN_NOTE = 'Comments that @mention the bound account open a dispatch.';
+/** Note under the mention checkbox (M6's comment *and* issue-body scan). */
+export const MENTION_SCAN_NOTE = 'Issue bodies and comments that @mention the bound account open a dispatch.';
 
 /** Note under the review-request checkbox (M7). */
 export const REVIEW_SCAN_NOTE = 'Pull requests that ask the account to review open a dispatch.';
@@ -288,7 +288,7 @@ function mountTriggerChecks(input: MountInputs): {
     });
     const mention = mountCheckbox(input.pane, {
         label: 'Mention',
-        description: COMMENT_SCAN_NOTE,
+        description: MENTION_SCAN_NOTE,
         checked: input.rt.state.repos.triggerMention,
         onChange: (checked) => input.handlers.setMention(checked),
     });

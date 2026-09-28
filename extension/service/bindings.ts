@@ -25,11 +25,11 @@ import type { ServiceStore } from './store/index.ts';
 /** Store file the bindings live in; shared with the hardened delete guard. */
 export { BINDINGS_FILE } from './accounts/store.ts';
 
-/** Trigger set stored on one binding (comment and review scanning ship with M6/M7). */
+/** Trigger set stored on one binding (mention and review scanning ship with M6/M7). */
 export interface BindingTriggers {
     /** Issue-assignment polling; implemented for M1. */
     readonly assignment: boolean;
-    /** Comment-mention polling; implemented for M6. */
+    /** Mention polling (comments and issue bodies); implemented for M6. */
     readonly mention: boolean;
     /** Review-request polling (open PRs naming the account); implemented for M7. */
     readonly reviewRequest: boolean;

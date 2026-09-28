@@ -216,7 +216,7 @@ export interface Repositories {
     repoProjectSelection: string | null;
     /** Draft assignment trigger. */
     triggerAssignment: boolean;
-    /** Draft mention trigger (M6 comment scan). */
+    /** Draft mention trigger (M6 comment and issue-body scan). */
     triggerMention: boolean;
     /** Draft review-request trigger (M7), on by default for a new binding. */
     triggerReviewRequest: boolean;

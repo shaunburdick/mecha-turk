@@ -99,7 +99,7 @@ Settled GitHub facts stay in 001 §a.1–§a.6. What planning adds is the **stre
 
 | Stream | Endpoint (repo-scoped) | Feeds |
 | --- | --- | --- |
-| `issues` | `GET /repos/{o}/{r}/issues?state=open&sort=updated&direction=asc&per_page=30` | `issue_assignment` (assignee on issues **and** PRs), source anchors |
+| `issues` | `GET /repos/{o}/{r}/issues?state=open&sort=updated&direction=asc&per_page=30` | `issue_assignment` (assignee on issues **and** PRs), `mention` from the issue body (FR-015(c), 2026-09-28 — no extra request), source anchors |
 | `issue_comments` | `GET /repos/{o}/{r}/issues/comments?sort=updated&direction=asc&per_page=30` | `mention` (comments on issues and PRs) |
 | `pulls` | `GET /repos/{o}/{r}/pulls?state=open&sort=updated&direction=asc&per_page=30` | `review_request`, `review_assignment` (`requested_reviewers`), head SHA for drift detection |
 

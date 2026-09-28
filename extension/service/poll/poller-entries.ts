@@ -30,6 +30,10 @@ export interface PollIssue {
     readonly state: string;
     /** Issue body, or `null`; untrusted source text. */
     readonly body: string | null;
+    /** Login of the issue's author, or `''` when GitHub sent no `user`. */
+    readonly authorLogin: string;
+    /** Author type (`User`, `Bot`, `Organization`, …); `''` when absent. */
+    readonly authorType: string;
     /** Logins of the current assignees. */
     readonly assignees: readonly string[];
     /** `true` when the entry is a pull request (GitHub lists PRs as issues). */
@@ -145,6 +149,26 @@ function readLogins(value: unknown): readonly string[] | null {
 }
 
 /**
+ * Read one entry author's login, answering `''` when there is none.
+ *
+ * @param user - The entry's `user` object, or `null`.
+ * @returns The login, or `''`.
+ */
+function authorLoginOf(user: Record<string, unknown> | null): string {
+    return user === null ? '' : (textOf(user, 'login') ?? '');
+}
+
+/**
+ * Read one entry author's type, answering `''` when there is none.
+ *
+ * @param user - The entry's `user` object, or `null`.
+ * @returns The type (`User`, `Bot`, …), or `''`.
+ */
+function authorTypeOf(user: Record<string, unknown> | null): string {
+    return user === null ? '' : (textOf(user, 'type') ?? '');
+}
+
+/**
  * Read the issue number out of a comment's `issue_url`.
  *
  * @param value - Candidate URL (`…/repos/:owner/:name/issues/:number`).
@@ -179,37 +203,25 @@ export function readIssueEntry(value: unknown): PollIssue | null {
         return null;
     }
 
+    const user = asRecord(record.user);
+
     return {
         issueNumber,
         title,
         url,
         state,
         body: textOf(record, 'body'),
+        // Authorship feeds the mention trigger's bot filter — the same fields
+        // the comment reader takes. An entry GitHub sent no `user` for keeps
+        // the issue (the assignment trigger never depended on it) and reads as
+        // an unknown author, which the body-mention check refuses.
+        authorLogin: authorLoginOf(user),
+        authorType: authorTypeOf(user),
         assignees,
         // GitHub adds a `pull_request` object only to PRs it lists as issues.
         isPullRequest: 'pull_request' in record,
         updatedAt: textOf(record, 'updated_at'),
     };
-}
-
-/**
- * Read one comment author's login, answering `''` when there is none.
- *
- * @param user - The comment's `user` object, or `null`.
- * @returns The login, or `''`.
- */
-function authorLoginOf(user: Record<string, unknown> | null): string {
-    return user === null ? '' : (textOf(user, 'login') ?? '');
-}
-
-/**
- * Read one comment author's type, answering `''` when there is none.
- *
- * @param user - The comment's `user` object, or `null`.
- * @returns The type (`User`, `Bot`, …), or `''`.
- */
-function authorTypeOf(user: Record<string, unknown> | null): string {
-    return user === null ? '' : (textOf(user, 'type') ?? '');
 }
 
 /**

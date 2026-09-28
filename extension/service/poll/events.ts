@@ -50,7 +50,9 @@ export { buildEventId, createEvent } from './events-write.ts';
 export type {
     AssignmentEventSnapshot,
     EventSnapshot,
+    MentionBodyEventSnapshot,
     MentionEventSnapshot,
+    MentionOrigin,
     ReviewEventSnapshot,
 } from './events-write.ts';
 

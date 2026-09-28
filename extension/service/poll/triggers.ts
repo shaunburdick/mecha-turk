@@ -1,5 +1,6 @@
 /**
- * The Slice-2 trigger detectors: M6's comment mentions and M7's review
+ * The Slice-2 trigger detectors: M6's mentions (in comments and in issue
+ * bodies, the latter a product decision of 2026-09-28) and M7's review
  * requests, plus the two detection helpers the assignment scan shares with
  * them (`updatedInWindow`, `bodyExcerptOf`).
  *
@@ -7,18 +8,21 @@
  * when `triggers.mention` is on, open pull requests when
  * `triggers.reviewRequest` is on — under the same credential, window, and
  * page cap the issue list already uses, then turns each match into the same
- * {@link QueuedEvent} rows the assignment trigger writes. The loop keeps the
- * orchestration (account, window, enqueue, audit); everything specific to
- * *what a comment or a pull request means* lives here, so `loop.ts` stays
- * inside the file-length gate.
+ * {@link QueuedEvent} rows the assignment trigger writes. The issue-body
+ * mention needs no extra feed: it reads the issue list the assignment scan
+ * already fetched. The loop keeps the orchestration (account, window,
+ * enqueue, audit); everything specific to *what a comment, an issue body, or
+ * a pull request means* lives here, so `loop.ts` stays inside the file-length
+ * gate.
  *
  * Detection posture, in one place:
  *
- * - a mention is `@<login>` in the comment body, matched case-insensitively
- *   and bounded on both sides so `@octocat` cannot match inside
- *   `@octocat-mt`;
- * - comments authored by bots are ignored — a bot mentioning the account is
- *   noise, and bots mention each other for a living;
+ * - a mention is `@<login>` in the comment body *or* the issue body, matched
+ *   case-insensitively and bounded on both sides so `@octocat` cannot match
+ *   inside `@octocat-mt`;
+ * - text authored by bots is ignored — a bot mentioning the account is
+ *   noise, and bots mention each other for a living — and an entry with no
+ *   readable author is refused rather than dispatched;
  * - a review request is a pull request whose `requested_reviewers` names
  *   the bound account, case-insensitively;
  * - every match still has to fall inside the scan window, exactly like an
@@ -118,7 +122,7 @@ function isLoginCharacter(character: string): boolean {
 }
 
 /**
- * Decide whether a comment body carries the bound account's mention token.
+ * Decide whether a body of text carries the bound account's mention token.
  *
  * The token is `@<login>`, matched case-insensitively and bounded on both
  * sides by GitHub's username alphabet (`A-Za-z0-9_-`), so `@octocat-mt`
@@ -126,7 +130,7 @@ function isLoginCharacter(character: string): boolean {
  * is written out rather than compiled from the login, so no untrusted string
  * ever reaches a regular-expression engine.
  *
- * @param body - Comment body; untrusted source text.
+ * @param body - Comment or issue body; untrusted source text.
  * @param login - The bound account's login.
  * @returns `true` when the body mentions that account.
  */
@@ -152,16 +156,33 @@ export function mentionsLogin(body: string, login: string): boolean {
 }
 
 /**
- * Decide whether a comment was authored by a bot.
+ * Decide whether an author is a bot.
  *
  * GitHub marks its own accounts with a `[bot]` login suffix and reports
- * `type: 'Bot'` for the rest; either signal is enough to skip the comment.
+ * `type: 'Bot'` for the rest; either signal is enough.
  *
- * @param comment - Normalized comment.
+ * @param authorLogin - Author's login.
+ * @param authorType - Author type (`User`, `Bot`, …), `''` when absent.
  * @returns `true` when the author is a bot.
  */
-export function isBotComment(comment: PollComment): boolean {
-    return comment.authorLogin.toLowerCase().endsWith('[bot]') || comment.authorType.toLowerCase() === 'bot';
+export function isBotAuthor(authorLogin: string, authorType: string): boolean {
+    return authorLogin.toLowerCase().endsWith('[bot]') || authorType.toLowerCase() === 'bot';
+}
+
+/**
+ * Decide whether one author's text may trigger a mention at all.
+ *
+ * Bots are noise (they mention each other for a living), and an author
+ * GitHub would not name (`authorLogin === ''`) is ambiguous — the comment
+ * reader drops such an entry outright — so both fail closed (spec FR-016,
+ * FR-024).
+ *
+ * @param authorLogin - Author's login, `''` when GitHub sent no `user`.
+ * @param authorType - Author type (`User`, `Bot`, …), `''` when absent.
+ * @returns `true` only for a readable, non-bot author.
+ */
+function isMentionableAuthor(authorLogin: string, authorType: string): boolean {
+    return authorLogin !== '' && !isBotAuthor(authorLogin, authorType);
 }
 
 /**
@@ -172,11 +193,31 @@ export function isBotComment(comment: PollComment): boolean {
  * @returns `true` when a human commented `@<login>` on this issue.
  */
 export function isMentionComment(comment: PollComment, bindingLogin: string): boolean {
-    if (isBotComment(comment)) {
+    if (!isMentionableAuthor(comment.authorLogin, comment.authorType)) {
         return false;
     }
 
     return mentionsLogin(comment.body, bindingLogin);
+}
+
+/**
+ * Decide whether one issue body is a mention the binding should react to.
+ *
+ * Same posture as the comment path (product decision, 2026-09-28: an
+ * `@<login>` in an issue body means the same thing as one in a comment):
+ * bot-authored and unreadable-author text never triggers, and the token
+ * match is the same bounded, case-insensitive one.
+ *
+ * @param issue - Normalized issue.
+ * @param bindingLogin - The bound account's login.
+ * @returns `true` when a human opened this issue with `@<login>` in its body.
+ */
+export function isIssueBodyMention(issue: PollIssue, bindingLogin: string): boolean {
+    if (!isMentionableAuthor(issue.authorLogin, issue.authorType)) {
+        return false;
+    }
+
+    return mentionsLogin(issue.body ?? '', bindingLogin);
 }
 
 /**
@@ -231,6 +272,7 @@ function mentionEvent(input: {
         projectId: binding.projectId,
         worktreeOption: binding.worktreeOption,
         kind: 'mention',
+        origin: 'comment',
         commentId: comment.commentId,
         issue: {
             issueNumber: comment.issueNumber,
@@ -276,6 +318,68 @@ function mentionEvents(input: {
 
         const issue = known.get(comment.issueNumber) ?? null;
         events.push(mentionEvent({ binding, comment, issue, detectedAt }));
+    }
+
+    return events;
+}
+
+/**
+ * Build one `mention` event per issue whose *body* mentions the account.
+ *
+ * The body path rides the issue list the assignment scan already fetched, so
+ * it adds no feed and no request to the cycle (product decision,
+ * 2026-09-28): window, authorship, and the bounded token match are the only
+ * gates. The id's fixed `~mention~body` suffix never changes, so an edited
+ * body re-detects to the same row and the queue's id dedupe absorbs it — one
+ * body mention per issue per account, ever — while staying distinct from the
+ * assignment id and from every `~mention~<commentId>` row.
+ *
+ * @param input - Binding, the bound login, the issues, and the stamps.
+ * @returns The mention events, in issue order.
+ */
+function bodyMentionEvents(input: {
+    /** The binding that produced the window. */
+    readonly binding: BindingRecord;
+    /** The bound account's login, as the account record reports it. */
+    readonly login: string;
+    /** Issues the same scan listed. */
+    readonly issues: readonly PollIssue[];
+    /** Window start; `null` on a replay scan. */
+    readonly windowStart: string | null;
+    /** RFC 3339 stamp pinned at cycle start. */
+    readonly detectedAt: string;
+}): QueuedEvent[] {
+    const { binding, login, issues, windowStart, detectedAt } = input;
+    const label = repositoryLabel(repositoryRefOf(binding));
+    const events: QueuedEvent[] = [];
+
+    for (const issue of issues) {
+        const eligible = updatedInWindow(issue.updatedAt, windowStart)
+            && isIssueBodyMention(issue, login);
+        if (!eligible) {
+            continue;
+        }
+
+        events.push(
+            createEvent({
+                bindingId: binding.bindingId,
+                repository: label,
+                accountNumericUserId: binding.accountNumericUserId,
+                accountLogin: binding.accountLogin,
+                projectId: binding.projectId,
+                worktreeOption: binding.worktreeOption,
+                kind: 'mention',
+                origin: 'body',
+                issue: {
+                    issueNumber: issue.issueNumber,
+                    issueTitle: issue.title,
+                    issueUrl: issue.url,
+                    issueBodyExcerpt: bodyExcerptOf(issue.body),
+                },
+                triggerNote: 'mentioned in issue body',
+                detectedAt,
+            }),
+        );
     }
 
     return events;
@@ -342,7 +446,9 @@ function reviewEvents(input: {
  *
  * A binding with neither switch on is a no-op (the loop still walks it so
  * the scan state stays honest), and neither list call is ever made — the
- * rate budget only ever pays for triggers the operator turned on.
+ * rate budget only ever pays for triggers the operator turned on. The
+ * issue-body mention rides the issue list the loop already fetched, so it
+ * adds no request of its own.
  *
  * @param input - Poller, credential, binding, window, and the issue list.
  * @returns The events, or the first list failure's class for the loop's skip.
@@ -360,7 +466,7 @@ export async function collectTriggerEvents(input: {
     readonly windowStart: string | null;
     /** RFC 3339 stamp pinned at cycle start. */
     readonly detectedAt: string;
-    /** Issues the same scan listed, for mention title resolution. */
+    /** Issues the same scan listed: the body-mention scan and title lookup. */
     readonly issues: readonly PollIssue[];
 }): Promise<TriggerEvents> {
     const { poller, token, binding, login, windowStart, detectedAt, issues } = input;
@@ -368,6 +474,10 @@ export async function collectTriggerEvents(input: {
     const events: QueuedEvent[] = [];
 
     if (binding.triggers.mention === true) {
+        // The issue-body path needs no feed of its own: the loop lists issues
+        // whenever the assignment *or* the mention switch is on.
+        events.push(...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }));
+
         const listed = await poller.listIssueComments({
             token,
             owner: repository.owner,

@@ -30,7 +30,7 @@ import { asRecord, fieldsHoldText, integerOrZero, parseJsonObject, textOrEmpty, 
 export interface PanelTriggers {
     /** Issue-assignment polling; implemented service-side for M1. */
     readonly assignment: boolean;
-    /** Comment-mention polling; implemented service-side for M6. */
+    /** Mention polling (comments and issue bodies); service-side for M6. */
     readonly mention: boolean;
     /** Review-request polling (open PRs naming the account); M7. */
     readonly reviewRequest: boolean;

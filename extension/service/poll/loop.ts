@@ -6,10 +6,11 @@
  * 60 s) the loop walks every *enabled* binding carrying at least one trigger
  * this loop implements. Each scan presents the bound account's credential and
  * lists only the feeds those switches ask for — open issues newest-updated
- * first for the assignment (and the mention scan's title lookup), issue
- * comments for M6, open pull requests for M7 — each capped per the cut (two
- * pages at ≤ 30 items each, inside `poller-github.ts`). Every match becomes
- * one queued event: one observation (an assignment, a comment, a review
+ * first for the assignment, for the mention scan's issue-body pass, and for
+ * the titles comment mentions resolve against; issue comments for M6; open
+ * pull requests for M7 — each capped per the cut (two pages at ≤ 30 items
+ * each, inside `poller-github.ts`). Every match becomes one queued event: one
+ * observation (an assignment, a comment or issue-body mention, a review
  * request) can only ever produce one event, because the event id is
  * deterministic.
  *
@@ -302,12 +303,12 @@ type ScanListing =
 /**
  * List every feed this binding's triggers ask for and collect its events.
  *
- * The issue list feeds the assignment trigger and gives the mention scan
- * issue titles to resolve against; {@link collectTriggerEvents} owns the
- * comment and pull-request feeds. A binding with neither of those switches
- * on lists no issues at all, so the rate budget only ever pays for triggers
- * the operator turned on. The first list failure ends the listing and
- * reports its class as the loop's skip reason.
+ * The issue list feeds the assignment trigger, the mention scan's
+ * issue-body pass, and the titles comment mentions resolve against;
+ * {@link collectTriggerEvents} owns the comment and pull-request feeds. A
+ * binding with none of those switches on lists no issues at all, so the rate
+ * budget only ever pays for triggers the operator turned on. The first list
+ * failure ends the listing and reports its class as the loop's skip reason.
  *
  * @param input - Poller, credential, binding, window, and the cycle stamp.
  * @returns Every event this scan matched, or the skip reason.

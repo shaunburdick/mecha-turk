@@ -2393,7 +2393,7 @@ function buildEventId(input) {
 }
 function discriminatorOf(snapshot) {
   if (snapshot.kind === "mention") {
-    return `~mention~${snapshot.commentId}`;
+    return snapshot.origin === "body" ? "~mention~body" : `~mention~${snapshot.commentId}`;
   }
   return snapshot.kind === "review" ? "~review" : undefined;
 }
@@ -3113,14 +3113,23 @@ function mentionsLogin(body, login) {
   }
   return false;
 }
-function isBotComment(comment) {
-  return comment.authorLogin.toLowerCase().endsWith("[bot]") || comment.authorType.toLowerCase() === "bot";
+function isBotAuthor(authorLogin, authorType) {
+  return authorLogin.toLowerCase().endsWith("[bot]") || authorType.toLowerCase() === "bot";
+}
+function isMentionableAuthor(authorLogin, authorType) {
+  return authorLogin !== "" && !isBotAuthor(authorLogin, authorType);
 }
 function isMentionComment(comment, bindingLogin) {
-  if (isBotComment(comment)) {
+  if (!isMentionableAuthor(comment.authorLogin, comment.authorType)) {
     return false;
   }
   return mentionsLogin(comment.body, bindingLogin);
+}
+function isIssueBodyMention(issue2, bindingLogin) {
+  if (!isMentionableAuthor(issue2.authorLogin, issue2.authorType)) {
+    return false;
+  }
+  return mentionsLogin(issue2.body ?? "", bindingLogin);
 }
 function isReviewRequestPull(pull, bindingLogin) {
   if (bindingLogin === "") {
@@ -3142,6 +3151,7 @@ function mentionEvent(input) {
     projectId: binding.projectId,
     worktreeOption: binding.worktreeOption,
     kind: "mention",
+    origin: "comment",
     commentId: comment.commentId,
     issue: {
       issueNumber: comment.issueNumber,
@@ -3164,6 +3174,36 @@ function mentionEvents(input) {
     }
     const issue2 = known.get(comment.issueNumber) ?? null;
     events.push(mentionEvent({ binding, comment, issue: issue2, detectedAt }));
+  }
+  return events;
+}
+function bodyMentionEvents(input) {
+  const { binding, login, issues, windowStart, detectedAt } = input;
+  const label = repositoryLabel(repositoryRefOf(binding));
+  const events = [];
+  for (const issue2 of issues) {
+    const eligible = updatedInWindow(issue2.updatedAt, windowStart) && isIssueBodyMention(issue2, login);
+    if (!eligible) {
+      continue;
+    }
+    events.push(createEvent({
+      bindingId: binding.bindingId,
+      repository: label,
+      accountNumericUserId: binding.accountNumericUserId,
+      accountLogin: binding.accountLogin,
+      projectId: binding.projectId,
+      worktreeOption: binding.worktreeOption,
+      kind: "mention",
+      origin: "body",
+      issue: {
+        issueNumber: issue2.issueNumber,
+        issueTitle: issue2.title,
+        issueUrl: issue2.url,
+        issueBodyExcerpt: bodyExcerptOf(issue2.body)
+      },
+      triggerNote: "mentioned in issue body",
+      detectedAt
+    }));
   }
   return events;
 }
@@ -3203,6 +3243,7 @@ async function collectTriggerEvents(input) {
   const repository = repositoryRefOf(binding);
   const events = [];
   if (binding.triggers.mention === true) {
+    events.push(...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }));
     const listed = await poller.listIssueComments({
       token,
       owner: repository.owner,
@@ -3462,6 +3503,12 @@ function readLogins(value) {
   }
   return logins;
 }
+function authorLoginOf(user) {
+  return user === null ? "" : textOf(user, "login") ?? "";
+}
+function authorTypeOf(user) {
+  return user === null ? "" : textOf(user, "type") ?? "";
+}
 function issueNumberOf(value) {
   if (typeof value !== "string") {
     return null;
@@ -3481,22 +3528,19 @@ function readIssueEntry(value) {
   if (issueNumber === null || title === null || url === null || state === null || assignees === null) {
     return null;
   }
+  const user = asRecord(record.user);
   return {
     issueNumber,
     title,
     url,
     state,
     body: textOf(record, "body"),
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user),
     assignees,
     isPullRequest: "pull_request" in record,
     updatedAt: textOf(record, "updated_at")
   };
-}
-function authorLoginOf(user) {
-  return user === null ? "" : textOf(user, "login") ?? "";
-}
-function authorTypeOf(user) {
-  return user === null ? "" : textOf(user, "type") ?? "";
 }
 function readCommentEntry(value) {
   const record = asRecord(value);
