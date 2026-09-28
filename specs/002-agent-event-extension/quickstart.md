@@ -1,7 +1,7 @@
 # Quickstart: Mecha Turk production extension + local service
 
 **Feature**: `specs/002-agent-event-extension` · **Date**: 2026-09-27
-Dev, build, test, install, and first-run verification for the production package (panel + service). The 001 spike quickstart is historical; these are the current steps.
+Dev, build, test, install, and first-run verification for the production package (panel + service). The repository root is the installable unit (see `specs/003-code-reorg/`).
 
 ## 0. Prerequisites (operator machine)
 
@@ -20,7 +20,7 @@ npm run build        # panel IIFE + service ESM (both committed)
 
 - Panel: `bunx openchamber-guest-bundle panel/main.ts panel/main.js` (classic IIFE).
 - Service: `bunx openchamber-guest-bundle --node service/main.ts service/main.js` (ESM — ship built JS; the host never compiles TS).
-- The manifest ships from `extension/package.json`: `contributes.panel`, `contributes.service` (`runtime: "host"`, **no `permissions` key** — loopback network only), `capabilities: ["sessions", "prompt"]`, and the optional non-authoritative GitHub `integration` card.
+- The manifest ships from the repository root `package.json`: `contributes.panel`, `contributes.service` (`runtime: "host"`, **no `permissions` key** — loopback network only), `capabilities: ["sessions", "prompt"]`, and the optional non-authoritative GitHub `integration` card.
 
 ## 2. Verify (every commit)
 
@@ -32,7 +32,7 @@ Expect: 0 lint errors/warnings (zero suppressions — no `eslint-disable`, no `@
 
 ## 3. Install
 
-1. OpenChamber → **Settings → Extensions** → paste the **absolute path of `extension/`** (the repo root fails with `package.id should be kebab case` — spike-verified).
+1. OpenChamber → **Settings → Extensions** → paste `https://github.com/shaunburdick/mecha-turk` (git-URL install; append `#tag` to pin), or the absolute path of the repository root for a local folder install.
 2. Approval dialog shows `sessions`, `prompt`, `service`, `network`. Read the local-service line (*"a separate program with your full user access"*) and choose **Allow and enable**.
 3. Open the **Mecha Turk** rail panel. First view = the **Spike** tab — the status banner over the project picker and the one-shot token-handoff (consent) group — with the **Repositories** tab beside it (empty "Repository bindings" list, the "Poll as account" picker, an empty **Runs** section). There is no in-panel setup checklist in this MVP — §0 above *is* the checklist, and the one step worth doing before any dispatch is pinning **Settings → Sessions → Session Defaults → Default Agent = `project-manager`** (FR-038): verification reads it back after every dispatch and warns when a session reports another agent.
 
