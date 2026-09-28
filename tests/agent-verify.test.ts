@@ -1,0 +1,420 @@
+/**
+ * Agent-verification tests (M9) — warn, never block.
+ *
+ * The read-back is the product's core PM-leads requirement and the one part
+ * of the loop nobody had exercised live: the panel subscribes to
+ * `onSession`, opens the dispatched session through `openSession`, and
+ * judges the `agent` the snapshot reports against the `expected-agent`
+ * setting. These tests drive that flow through a host double that records
+ * the order of the two calls (the subscription must land first — the host
+ * replays its current snapshot to a late subscriber, so subscribing second
+ * would be a race), then covers the four outcomes: match, mismatch, absent
+ * agent, and timeout, plus the "the session could not be opened at all"
+ * branch. The recorder and the relay wiring are asserted end to end so the
+ * warning a live dispatch shows cannot silently go missing.
+ */
+
+import { describe, expect, it } from 'vitest';
+import type { SessionSnapshot } from '@openchamber/sdk';
+import {
+    AGENT_VERIFY_TIMEOUT_MS,
+    verificationNotice,
+    verifyAgentAfterDispatch,
+    verifySessionAgent,
+} from '../extension/src/agent-verify.ts';
+import { dispatchQueuedEvent } from '../extension/src/relay.ts';
+import type { PanelRuntime } from '../extension/src/panel-state.ts';
+import type { SpikeHost } from '../extension/src/session.ts';
+import type { RelayEvent } from '../extension/src/repos-service.ts';
+import type { RunRow } from '../extension/src/runs-service.ts';
+import {
+    FIXTURE_TIMESTAMP,
+    IDLE_UNSUBSCRIBE,
+    ISSUE_URL,
+    LOGIN,
+    PROJECT_ID,
+    SESSION_CREATED,
+    SESSION_ID,
+    createTestRuntime,
+    fakeHost,
+    tick,
+} from './support/panel.ts';
+
+/** Session id the fixture dispatch created. */
+const SESSION = SESSION_ID;
+
+/** Agent the fixture settings expect (the manifest default). */
+const EXPECTED_AGENT = 'project-manager';
+
+/** Deliberately tiny wait budget so the timeout path stays fast in tests. */
+const TEST_TIMEOUT_MS = 20;
+
+/**
+ * Build a session snapshot for the fixture session.
+ *
+ * @param agent - Agent the snapshot reports; omit to model a session that
+ *   reports none at all (the SDK's "when the session has them" wording).
+ * @returns The snapshot for {@link verifySessionAgent}.
+ */
+function snapshot(agent?: string): SessionSnapshot {
+    return {
+        id: SESSION,
+        title: 'Fix the flaky test',
+        busy: false,
+        ...(agent === undefined ? {} : { agent }),
+    };
+}
+
+/** Host double for the read-back: records call order and replays on demand. */
+interface VerifyHostDouble {
+    /** The host surface the verification under test receives. */
+    readonly host: Pick<SpikeHost, 'onSession' | 'openSession'>;
+    /** Calls observed, in order, as `onSession` / `openSession:<id>`. */
+    readonly calls: readonly string[];
+    /** How often the panel released its subscription. */
+    readonly unsubscribes: () => number;
+}
+
+/**
+ * Build the verification host double.
+ *
+ * @param input - The snapshot to deliver when the surface opens (or nothing)
+ *   and an optional error `openSession` should fail with.
+ * @returns The double.
+ */
+function verifyHost(input: {
+    /** Snapshot delivered when the session opens; `null`/omitted sends none. */
+    readonly onOpen?: SessionSnapshot | null;
+    /** Error `openSession` should reject with. */
+    readonly openError?: Error;
+    /** Model a host whose `openSession` answers only long after the budget. */
+    readonly hangOpen?: boolean;
+} = {}): VerifyHostDouble {
+    const calls: string[] = [];
+    let listener: ((value: SessionSnapshot | null) => void) | null = null;
+
+    return {
+        calls,
+        unsubscribes: () => calls.filter((call) => call === 'unsubscribe').length,
+        host: {
+            onSession: (next) => {
+                calls.push('onSession');
+                listener = next;
+
+                return () => {
+                    calls.push('unsubscribe');
+                };
+            },
+            openSession: async (id) => {
+                calls.push(`openSession:${id}`);
+                if (input.openError !== undefined) {
+                    throw input.openError;
+                }
+
+                if (input.hangOpen === true) {
+                    await new Promise((resolve) => {
+                        setTimeout(resolve, TEST_TIMEOUT_MS * 5);
+                    });
+                }
+
+                if (input.onOpen !== undefined && input.onOpen !== null && listener !== null) {
+                    listener(input.onOpen);
+                }
+            },
+        },
+    };
+}
+
+describe('verifySessionAgent (documented read-back, research §R3)', () => {
+    it('subscribes before it opens the session, then releases the subscription', async () => {
+        const double = verifyHost({ onOpen: snapshot(EXPECTED_AGENT) });
+
+        const result = await verifySessionAgent({
+            host: double.host,
+            sessionId: SESSION,
+            expected: EXPECTED_AGENT,
+        });
+
+        // The subscription must be registered first: `onSession` replays the
+        // host's current snapshot to a late subscriber, so a snapshot that
+        // arrived between the two calls would be missed otherwise. The
+        // trailing `unsubscribe` is the release after the read-back.
+        expect(double.calls).toEqual(['onSession', `openSession:${SESSION}`, 'unsubscribe']);
+        expect(result.status).toBe('match');
+        expect(double.unsubscribes()).toBe(1);
+    });
+
+    it('reports a match when the session agent equals the expected one', async () => {
+        const double = verifyHost({ onOpen: snapshot(EXPECTED_AGENT) });
+
+        const result = await verifySessionAgent({
+            host: double.host,
+            sessionId: SESSION,
+            expected: EXPECTED_AGENT,
+        });
+
+        expect(result).toEqual({ status: 'match', agent: EXPECTED_AGENT, expected: EXPECTED_AGENT });
+    });
+
+    it('reports a mismatch when the session runs another agent', async () => {
+        const double = verifyHost({ onOpen: snapshot('executor') });
+
+        const result = await verifySessionAgent({
+            host: double.host,
+            sessionId: SESSION,
+            expected: EXPECTED_AGENT,
+        });
+
+        expect(result).toEqual({ status: 'mismatch', agent: 'executor', expected: EXPECTED_AGENT });
+        expect(double.unsubscribes()).toBe(1);
+    });
+
+    it('reports a mismatch when the snapshot carries no agent at all', async () => {
+        const double = verifyHost({ onOpen: snapshot() });
+
+        const result = await verifySessionAgent({
+            host: double.host,
+            sessionId: SESSION,
+            expected: EXPECTED_AGENT,
+        });
+
+        expect(result).toEqual({ status: 'mismatch', agent: null, expected: EXPECTED_AGENT });
+    });
+
+    it('ignores snapshots for other sessions and times out on its own budget', async () => {
+        const otherSession: SessionSnapshot = { id: 'ses_other', title: 'elsewhere', busy: false, agent: 'nobody' };
+        const double = verifyHost({ onOpen: otherSession });
+
+        const result = await verifySessionAgent({
+            host: double.host,
+            sessionId: SESSION,
+            expected: EXPECTED_AGENT,
+            timeoutMs: TEST_TIMEOUT_MS,
+        });
+
+        expect(result).toEqual({ status: 'timeout', expected: EXPECTED_AGENT, timeoutMs: TEST_TIMEOUT_MS });
+        expect(double.unsubscribes()).toBe(1);
+    });
+
+    it('reports the session as unavailable when openSession refuses', async () => {
+        const double = verifyHost({ openError: new Error('HOST_REJECTED') });
+
+        const result = await verifySessionAgent({
+            host: double.host,
+            sessionId: SESSION,
+            expected: EXPECTED_AGENT,
+            timeoutMs: TEST_TIMEOUT_MS,
+        });
+
+        expect(result.status).toBe('unavailable');
+        if (result.status === 'unavailable') {
+            expect(result.problem).toContain('HOST_REJECTED');
+            expect(result.expected).toBe(EXPECTED_AGENT);
+        }
+
+        expect(double.unsubscribes()).toBe(1);
+    });
+
+    it('defaults its budget to the documented 15 seconds', () => {
+        expect(AGENT_VERIFY_TIMEOUT_MS).toBe(15_000);
+    });
+
+    it('bounds a host whose openSession never answers with the same budget', async () => {
+        // The read-back shares the relay's dispatch slot: an unanswered
+        // context switch must cost the budget, not the whole loop.
+        const double = verifyHost({ onOpen: snapshot(EXPECTED_AGENT), hangOpen: true });
+
+        const result = await verifySessionAgent({
+            host: double.host,
+            sessionId: SESSION,
+            expected: EXPECTED_AGENT,
+            timeoutMs: TEST_TIMEOUT_MS,
+        });
+
+        expect(result.status).toBe('timeout');
+        expect(double.unsubscribes()).toBe(1);
+    });
+});
+
+describe('verificationNotice (warn-only copy)', () => {
+    it('shows a success banner for a match', () => {
+        const notice = verificationNotice({ status: 'match', agent: EXPECTED_AGENT, expected: EXPECTED_AGENT });
+
+        expect(notice.tone).toBe('success');
+        expect(notice.body).toContain(EXPECTED_AGENT);
+    });
+
+    it('names the observed agent and the expectation in the mismatch warning', () => {
+        const notice = verificationNotice({ status: 'mismatch', agent: 'executor', expected: EXPECTED_AGENT });
+
+        expect(notice.tone).toBe('warning');
+        expect(notice.body).toContain("session agent was 'executor'");
+        expect(notice.body).toContain(`expected '${EXPECTED_AGENT}'`);
+        expect(notice.body).toContain('keeps running');
+    });
+
+    it('phrases the timeout against the real 15-second budget', () => {
+        const notice = verificationNotice({ status: 'timeout', expected: EXPECTED_AGENT, timeoutMs: 15_000 });
+
+        expect(notice.tone).toBe('warning');
+        expect(notice.body).toContain('within 15s');
+    });
+
+    it('redacts a failure problem before it reaches the banner', () => {
+        const notice = verificationNotice({
+            status: 'unavailable',
+            expected: EXPECTED_AGENT,
+            problem: 'HOST_REJECTED ghp_abcdefghijklmnopqrstuvwx',
+        });
+
+        expect(notice.tone).toBe('warning');
+        expect(notice.body).not.toContain('ghp_abcdefghijklmnopqrstuvwx');
+        expect(notice.body).toContain('[redacted:github-token-classic]');
+    });
+});
+
+/** The claimed event the recorder's fixture dispatch produced. */
+const EVENT: RelayEvent = {
+    eventId: 'evt-verify-1',
+    bindingId: 'bnd-verify-1',
+    kind: 'assignment',
+    repository: 'acme/widget',
+    accountNumericUserId: '77331',
+    accountLogin: LOGIN,
+    projectId: PROJECT_ID,
+    worktreeOption: 'generated',
+    issueNumber: 7,
+    issueTitle: 'Fix the flaky test',
+    issueUrl: ISSUE_URL,
+    issueBodyExcerpt: '',
+    triggerNote: 'assigned to mecha-bot',
+    detectedAt: FIXTURE_TIMESTAMP,
+};
+
+/**
+ * Run {@link verifyAgentAfterDispatch} against a host reporting one agent.
+ *
+ * @param agent - Agent the session reports; omit to report none.
+ * @returns The runtime the verification recorded into.
+ */
+async function recordedVerification(agent?: string): Promise<PanelRuntime> {
+    const double = verifyHost({ onOpen: snapshot(agent) });
+    const rt = createTestRuntime(
+        fakeHost({ onSession: double.host.onSession, openSession: double.host.openSession }),
+    );
+
+    await verifyAgentAfterDispatch({ rt, event: EVENT, sessionId: SESSION });
+
+    return rt;
+}
+
+describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
+    it('records agentVerified with the observed agent on a match', async () => {
+        const rt = await recordedVerification(EXPECTED_AGENT);
+        const entry = rt.state.ledger.entries.at(-1);
+
+        expect(entry?.kind).toBe('session');
+        expect(entry?.correlationId).toBe(EVENT.eventId);
+        expect(entry?.detail.agentVerified).toBe(true);
+        expect(entry?.detail.observedAgent).toBe(EXPECTED_AGENT);
+        expect(entry?.detail.verification).toBe('match');
+        expect(rt.state.repos.runs.agentNotice?.tone).toBe('success');
+    });
+
+    it('records a failed verification and warns without blocking on a mismatch', async () => {
+        const rt = await recordedVerification('executor');
+        const entry = rt.state.ledger.entries.at(-1);
+
+        expect(entry?.detail.agentVerified).toBe(false);
+        expect(entry?.detail.observedAgent).toBe('executor');
+        expect(entry?.detail.verification).toBe('mismatch');
+        expect(rt.state.repos.runs.agentNotice?.tone).toBe('warning');
+        expect(rt.state.repos.runs.agentNotice?.body).toContain("session agent was 'executor'");
+        // M9 is warn-only: the copy must say the session keeps running.
+        expect(rt.state.repos.runs.agentNotice?.body).toContain('Warning only');
+    });
+});
+
+/** One runs-history row as the service would project the fixture event. */
+const RUN_ROW: RunRow = {
+    id: EVENT.eventId,
+    kind: 'assignment',
+    repository: EVENT.repository,
+    issueNumber: EVENT.issueNumber,
+    issueTitle: EVENT.issueTitle,
+    issueUrl: EVENT.issueUrl,
+    state: 'dispatched',
+    detectedAt: EVENT.detectedAt,
+    claimedAt: FIXTURE_TIMESTAMP,
+    dispatchedAt: FIXTURE_TIMESTAMP,
+    dispatchResult: SESSION,
+    bindingId: EVENT.bindingId,
+    headSha: null,
+    baseRef: null,
+};
+
+describe('relay dispatch → verification wiring (M9 in the real path)', () => {
+    it('reports the dispatch first, then verifies, then refreshes the runs list', async () => {
+        const calls: string[] = [];
+        const host = fakeHost({
+            startSession: async () => SESSION_CREATED,
+            openSession: async (id) => {
+                calls.push(`openSession:${id}`);
+            },
+            onSession: (listener) => {
+                listener(snapshot('executor'));
+
+                return IDLE_UNSUBSCRIBE;
+            },
+            serviceRequest: async (request) => {
+                calls.push(`${request.method} ${request.path}`);
+                if (request.method === 'GET' && request.path === '/v1/events/pending') {
+                    return { status: 200, body: JSON.stringify({ events: [EVENT], status: [] }) };
+                }
+
+                if (request.path === '/v1/events/evt-verify-1/dispatched') {
+                    return { status: 200, body: '{"done":true}' };
+                }
+
+                if (request.method === 'GET' && request.path === '/v1/events') {
+                    return { status: 200, body: JSON.stringify({ events: [RUN_ROW] }) };
+                }
+
+                return { status: 404, body: '{}' };
+            },
+        });
+        const rt = createTestRuntime(host);
+        rt.state.repos.bindings = [
+            {
+                bindingId: EVENT.bindingId,
+                accountNumericUserId: '77331',
+                accountLogin: LOGIN,
+                repository: EVENT.repository,
+                projectId: PROJECT_ID,
+                worktreeOption: 'generated',
+                triggers: { assignment: true, mention: false, reviewRequest: false },
+                state: 'active',
+                createdAt: FIXTURE_TIMESTAMP,
+                updatedAt: FIXTURE_TIMESTAMP,
+            },
+        ];
+
+        await dispatchQueuedEvent(rt, EVENT);
+        await tick();
+
+        const dispatched = calls.indexOf('POST /v1/events/evt-verify-1/dispatched');
+        const opened = calls.indexOf(`openSession:${SESSION}`);
+        const runsRead = calls.indexOf('GET /v1/events');
+        // The service hears about the dispatch before the UI context switch.
+        expect(dispatched).toBeGreaterThanOrEqual(0);
+        expect(opened).toBeGreaterThan(dispatched);
+        expect(runsRead).toBeGreaterThan(dispatched);
+
+        const entry = rt.state.ledger.entries.at(-1);
+        expect(entry?.detail.agentVerified).toBe(false);
+        expect(entry?.detail.observedAgent).toBe('executor');
+        expect(rt.state.repos.runs.agentNotice?.tone).toBe('warning');
+        expect(rt.state.repos.runs.rows).toHaveLength(1);
+        expect(rt.state.repos.runs.rows[0]?.state).toBe('dispatched');
+    });
+});

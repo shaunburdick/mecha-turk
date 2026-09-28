@@ -16,6 +16,7 @@ import type {
 } from '@openchamber/sdk/ui';
 import type { GuestProject } from '@openchamber/sdk';
 import type { SpikeConfig } from './config.ts';
+import { DEFAULT_EXPECTED_AGENT } from './config.ts';
 import type { SpikeEvidence } from './evidence.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import type { GitHubIssue } from './github.ts';
@@ -26,6 +27,7 @@ import type { HandoffState } from './handoff.ts';
 import type { HandoffView } from './accounts-ui.ts';
 import type { ReposPane } from './repos-ui.ts';
 import type { PanelAccount, PanelBinding, BindingStatusRow } from './repos-service.ts';
+import type { RunRow } from './runs-service.ts';
 import type { SpikeHost } from './session.ts';
 
 /** Banner content shown at the top of the panel. */
@@ -60,6 +62,21 @@ export interface ProjectPickerState {
 }
 
 /**
+ * Build the empty Runs-section state (M8).
+ *
+ * @returns The state before the first read.
+ */
+export function initialRuns(): RunsState {
+    return {
+        rows: [],
+        status: 'idle',
+        note: '',
+        selectedRun: null,
+        agentNotice: null,
+    };
+}
+
+/**
  * Build the empty Repos tab state.
  *
  * @returns The state before the first load.
@@ -81,6 +98,7 @@ export function initialRepos(): Repositories {
         selectedBinding: null,
         removeAccountArmed: false,
         statusRows: [],
+        runs: initialRuns(),
     };
 }
 
@@ -142,6 +160,13 @@ export interface PanelState {
     repos: Repositories;
     /** Event-relay loop state (M4). */
     relay: Relay;
+    /**
+     * Agent the dispatched session should report (M9), resolved from the
+     * `expected-agent` integration setting by `applySettings` — it lives on
+     * the runtime rather than in `SpikeConfig` so bindings-authoritative
+     * mode, which derives its config from a binding, sees the same value.
+     */
+    expectedAgent: string;
 }
 
 /** Lifecycle of the Repos tab's data. */
@@ -208,6 +233,8 @@ export interface Repositories {
     removeAccountArmed: boolean;
     /** Last relay status rows rendered per binding. */
     statusRows: readonly BindingStatusRow[];
+    /** Runs list, selection, and M9 notice (M8/M9). */
+    runs: RunsState;
 }
 
 /**
@@ -289,6 +316,42 @@ export interface PanelRuntime {
 /** Per-binding event counts from the last relay poll. */
 export type { BindingStatusRow } from './repos-service.ts';
 
+/** Lifecycle of the runs list the Runs section renders (M8). */
+export type RunsStatus =
+    /** Nothing fetched yet. */
+    | 'idle'
+    /** A `GET /v1/events` is in flight. */
+    | 'loading'
+    /** The service answered a list the panel could read. */
+    | 'ready'
+    /** The service refused, was unreachable, or answered something unreadable. */
+    | 'error';
+
+/**
+ * The Runs section's state (M8).
+ *
+ * Newest-first rows straight from `GET /v1/events` (capped at the 100 the
+ * endpoint returns — no pagination in this cut), plus the selection the
+ * open/retry buttons act on and the M9 agent-verification notice, which
+ * lives here because the runs area is where the operator looks when a
+ * dispatch's outcome matters.
+ */
+export interface RunsState {
+    /** Rows as the last successful read reported them (newest first). */
+    rows: readonly RunRow[];
+    /** Where the list read stands. */
+    status: RunsStatus;
+    /** Operator-facing note about the list or the last retry; redacted. */
+    note: string;
+    /** The row the operator last clicked, for the open/retry buttons. */
+    selectedRun: string | null;
+    /**
+     * Post-dispatch agent-verification banner (M9), or `null` before the
+     * first verification. Warn-only: it never blocks or kills a session.
+     */
+    agentNotice: PanelStatus | null;
+}
+
 /**
  * Create the empty picker state shown before the first `listProjects()` call.
  *
@@ -335,6 +398,7 @@ export function createPanelRuntime(
             handoff: initialHandoffState(),
             repos: initialRepos(),
             relay: initialRelay(),
+            expectedAgent: DEFAULT_EXPECTED_AGENT,
         },
         unsubscribes: [],
         ui: null,

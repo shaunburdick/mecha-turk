@@ -12,7 +12,7 @@
  * per-binding PATCH and lease machinery roundtrips later.
  */
 
-import { asRecord, parseJsonObject } from './json.ts';
+import { asRecord, fieldsHoldText, integerOrZero, parseJsonObject, textOrEmpty, textOrNull } from './json.ts';
 
 /** Path of the bindings collection. */
 
@@ -168,56 +168,6 @@ const EVENT_STRING_FIELDS = [
 ] as const;
 
 /**
- * Check every field of one record holds usable text.
- *
- * @param record - Candidate record.
- * @param fields - Field names to require.
- * @returns `true` when every field is usable text.
- */
-function fieldsHoldText(record: Record<string, unknown>, fields: readonly string[]): boolean {
-    return fields.every((field) => typeof record[field] === 'string' && record[field] !== '');
-}
-
-/**
- * Read one string field, defaulting to `''`.
- *
- * @param record - Parsed record.
- * @param field - Field name.
- * @returns The field text, or `''` when unusable.
- */
-function textOrEmpty(record: Record<string, unknown>, field: string): string {
-    const value = record[field];
-
-    return typeof value === 'string' ? value : '';
-}
-
-/**
- * Read one stamp-or-null field.
- *
- * @param record - Parsed record.
- * @param field - Field name.
- * @returns The stamp, or `null` when unusable.
- */
-function textOrNull(record: Record<string, unknown>, field: string): string | null {
-    const value = record[field];
-
-    return typeof value === 'string' ? value : null;
-}
-
-/**
- * Read one non-negative integer field.
- *
- * @param record - Parsed record.
- * @param field - Field name.
- * @returns The integer, or `0` when unusable.
- */
-function integerOrZero(record: Record<string, unknown>, field: string): number {
-    const value = record[field];
-
-    return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
-}
-
-/**
  * Read one triggers object leniently; missing flags fall back to the MVP
  * defaults rather than failing the whole binding — a binding stored before
  * M7 has no `reviewRequest` at all, and it reads as `false` (its operator
@@ -242,10 +192,14 @@ function readTriggerFlags(value: unknown): PanelTriggers | null {
 /**
  * Read one positive issue number from a stored event row.
  *
+ * Shared with `runs-service.ts`, which reads the same rows through the runs
+ * projection — one reader, one rule, so the claim parser and the runs parser
+ * can never disagree about what counts as an issue number.
+ *
  * @param record - Parsed row.
  * @returns The number, or `0` when absent (the entry was already refused).
  */
-function issueNumberFrom(record: Record<string, unknown>): number {
+export function issueNumberFrom(record: Record<string, unknown>): number {
     const value = record.issueNumber;
 
     return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 0;
@@ -341,10 +295,13 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
  * Read one event kind, defaulting to the M1 trigger for anything this build
  * does not know — a stored row from a future build must not break the relay.
  *
+ * Shared with `runs-service.ts` for exactly the same reason: the runs list
+ * renders rows the panel's own build may not have enqueued.
+ *
  * @param value - Candidate kind from a stored row.
  * @returns A kind this panel can render.
  */
-function eventKindOf(value: unknown): RelayEvent['kind'] {
+export function eventKindOf(value: unknown): RelayEvent['kind'] {
     if (value === 'mention' || value === 'review') {
         return value;
     }

@@ -1,10 +1,10 @@
 /**
  * Service read/write side the Repos tab and the relay share (re-cut).
  *
- * One small client for the four HTTP calls the panel makes over the
- * documented `host.serviceRequest()` bridge: bindings GET/PUT and event
- * relay GET/POST. Status classification lives here so the tab and the loop
- * draw problems from one vocabulary (never quoting a payload).
+ * One small client for the HTTP calls the panel makes over the documented
+ * `host.serviceRequest()` bridge: bindings GET/PUT, event relay GET/POST,
+ * and the runs history GET/POST. Status classification lives here so the tab
+ * and the loop draw problems from one vocabulary (never quoting a payload).
  *
  * MVP-DEBT: a long-poll cursor and lease headers are contract §2.4
  * machinery this simple client replaces for the MVP cut.
@@ -26,8 +26,14 @@ export const ACCOUNTS_PATH = '/v1/accounts';
 /** Path the panel polls for queued events. */
 export const EVENTS_PENDING_PATH = '/v1/events/pending';
 
+/** Path of the runs history: every event, every state, newest first (M8). */
+export const EVENTS_PATH = '/v1/events';
+
 /** Path pattern for one dispatch-result POST. */
 const DISPATCH_PATH_PATTERN = '/v1/events/:eventId/dispatched';
+
+/** Path pattern for one run retry POST (M8). */
+const RETRY_PATH_PATTERN = '/v1/events/:eventId/retry';
 
 /** Path pattern for one account resource (the delete route). */
 const ACCOUNT_DELETE_PATTERN = '/v1/accounts/:numericUserId';
@@ -201,10 +207,16 @@ export async function servicePut(input: {
 }
 
 /**
- * Run one POST through `host.serviceRequest`.
+ * Run one POST through `host.serviceRequest`, reading the error code.
+ *
+ * The error-aware shape (same as {@link serviceDelete}) costs nothing for
+ * callers that only check `ok`, and it lets the runs list explain a refused
+ * retry from the service's own envelope code — `invalid-transition` means the
+ * run was already dispatched, which is a fact about the run, not about the
+ * panel's connection.
  *
  * @param input - Host surface, path, and body.
- * @returns The wrapper's result.
+ * @returns The wrapper's error-aware result.
  */
 export async function servicePost(input: {
     /** Host surface. */
@@ -213,7 +225,7 @@ export async function servicePost(input: {
     readonly path: string;
     /** Body — sent only when defined. */
     readonly body?: string;
-}): Promise<ServiceResult> {
+}): Promise<ServiceErrorResult> {
     try {
         const answer = await input.serviceRequest({
             method: 'POST',
@@ -221,9 +233,9 @@ export async function servicePost(input: {
             ...(input.body === undefined ? {} : { body: input.body }),
         });
 
-        return resultOf(answer);
+        return resultWithErrorOf(answer);
     } catch (cause) {
-        return { ok: false, problem: describeTransport(cause) };
+        return { ok: false, problem: describeTransport(cause), code: null };
     }
 }
 
@@ -271,4 +283,14 @@ export function accountDeletePath(numericUserId: string): string {
  */
 export function dispatchedPath(eventId: string): string {
     return DISPATCH_PATH_PATTERN.replace(':eventId', eventId);
+}
+
+/**
+ * Build the retry path for one run (M8).
+ *
+ * @param eventId - The event's id.
+ * @returns The path segment to POST to.
+ */
+export function retryPath(eventId: string): string {
+    return RETRY_PATH_PATTERN.replace(':eventId', eventId);
 }

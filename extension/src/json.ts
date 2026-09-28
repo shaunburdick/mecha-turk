@@ -1,10 +1,17 @@
 /**
- * Typed bridge between `JSON.stringify` output and the host's `JsonValue`.
+ * Typed bridge between `JSON.stringify` output and typed record reading.
  *
- * `host.storage.set` accepts only the SDK's `JsonValue`. Rather than casting an
- * `any` through `JSON.parse`, this module parses and then *checks* the shape,
- * so the value handed to the host is proven to be plain JSON before it is
- * written.
+ * Two responsibilities, one shape of input: `host.storage.set` accepts only
+ * the SDK's `JsonValue`, so {@link parseJsonValue} parses and then *checks*
+ * the value before it is written; and once a document *is* parsed, the
+ * record readers below read its fields with one vocabulary — usable text,
+ * a stamp-or-null, a non-negative integer — so every parser in the panel
+ * (bindings, events, runs) fails closed the same way instead of growing its
+ * own subtly different coercions.
+ *
+ * Rather than casting an `any` through `JSON.parse`, this module parses and
+ * then checks, so the value handed to the host is proven to be plain JSON
+ * before it is written.
  */
 
 import type { JsonValue } from '@openchamber/sdk';
@@ -134,4 +141,54 @@ export function asRecord(value: unknown): Record<string, unknown> | null {
     }
 
     return value as Record<string, unknown>;
+}
+
+/**
+ * Check every field of one record holds usable text.
+ *
+ * @param record - Candidate record.
+ * @param fields - Field names to require.
+ * @returns `true` when every field is usable text.
+ */
+export function fieldsHoldText(record: Record<string, unknown>, fields: readonly string[]): boolean {
+    return fields.every((field) => typeof record[field] === 'string' && record[field] !== '');
+}
+
+/**
+ * Read one string field, defaulting to `''`.
+ *
+ * @param record - Parsed record.
+ * @param field - Field name.
+ * @returns The field text, or `''` when unusable.
+ */
+export function textOrEmpty(record: Record<string, unknown>, field: string): string {
+    const value = record[field];
+
+    return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Read one stamp-or-null field.
+ *
+ * @param record - Parsed record.
+ * @param field - Field name.
+ * @returns The stamp, or `null` when unusable.
+ */
+export function textOrNull(record: Record<string, unknown>, field: string): string | null {
+    const value = record[field];
+
+    return typeof value === 'string' ? value : null;
+}
+
+/**
+ * Read one non-negative integer field.
+ *
+ * @param record - Parsed record.
+ * @param field - Field name.
+ * @returns The integer, or `0` when unusable.
+ */
+export function integerOrZero(record: Record<string, unknown>, field: string): number {
+    const value = record[field];
+
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
 }

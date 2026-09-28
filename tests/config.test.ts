@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+    DEFAULT_EXPECTED_AGENT,
     DEFAULT_POLL_INTERVAL_MS,
     MAX_POLL_INTERVAL_MS,
     MIN_POLL_INTERVAL_MS,
     formatWorktreeOption,
+    parseExpectedAgent,
     parseRepository,
     parseSpikeConfig,
     parseWorktreeOption,
@@ -38,6 +40,9 @@ const GENERATED = 'generated';
 
 /** Setting id of the poll interval field declared in the manifest. */
 const INTERVAL_ID = 'poll-interval-ms';
+
+/** Setting id of the expected-agent field declared in the manifest (M9). */
+const AGENT_SETTING_ID = 'expected-agent';
 
 /** A deliberate poll interval inside the supported range. */
 const VALID_INTERVAL_MS = 45000;
@@ -321,5 +326,24 @@ describe('rendering helpers', () => {
 
     it('labels a repository as owner/name', () => {
         expect(repositoryLabel({ owner: OWNER, name: WIDGET })).toBe(REPOSITORY);
+    });
+});
+
+describe('parseExpectedAgent (M9)', () => {
+    it('defaults to project-manager when the setting is unset or blank', () => {
+        expect(parseExpectedAgent({})).toBe(DEFAULT_EXPECTED_AGENT);
+        expect(parseExpectedAgent({ [AGENT_SETTING_ID]: '   ' })).toBe(DEFAULT_EXPECTED_AGENT);
+        expect(DEFAULT_EXPECTED_AGENT).toBe('project-manager');
+    });
+
+    it('uses the operator’s configured agent, trimmed', () => {
+        expect(parseExpectedAgent({ [AGENT_SETTING_ID]: '  planner  ' })).toBe('planner');
+    });
+
+    it('never blocks: an empty value still yields a comparable agent', () => {
+        const result = parseExpectedAgent({ repository: REPOSITORY });
+
+        expect(result).toBe(DEFAULT_EXPECTED_AGENT);
+        expect(result).not.toBe('');
     });
 });

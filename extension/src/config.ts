@@ -68,6 +68,19 @@ export const MIN_POLL_INTERVAL_MS = 15_000;
 /** Upper bound the spike accepts for polling, in milliseconds. */
 export const MAX_POLL_INTERVAL_MS = 300_000;
 
+/**
+ * Agent a dispatched session is expected to run on (M9, research §R3).
+ *
+ * The panel cannot read OpenChamber's Settings → Sessions → Session Defaults
+ * (there is no settings writer at SDK 1.24.2), so the expected agent is the
+ * `expected-agent` integration setting, defaulting to the agent the operator
+ * is told to pin there. The resolved value lives on the panel state
+ * (`PanelState.expectedAgent`) because both configuration modes — legacy
+ * single-repo settings and bindings-authoritative mode — must see the same
+ * answer; `applySettings` writes it before either mode diverges.
+ */
+export const DEFAULT_EXPECTED_AGENT = 'project-manager';
+
 /** Characters GitHub allows in an owner or repository name. */
 const REPOSITORY_PART_PATTERN = /^[A-Za-z0-9_.-]+$/;
 
@@ -170,6 +183,25 @@ export function parseWorktreeOption(value: string): WorktreeSelection | null {
  */
 function readSetting(settings: SpikeSettings, key: string): string {
     return (settings[key] ?? '').trim();
+}
+
+/**
+ * Read the expected session agent for post-dispatch verification (M9).
+ *
+ * Behaves like the other integration settings: the raw value is trimmed, and
+ * an unset (or blank) setting falls back to
+ * {@link DEFAULT_EXPECTED_AGENT} instead of failing — the expected agent is
+ * a *comparison* input for the verification warning, never a gate, so a
+ * missing value must not block configuration the way a missing repository or
+ * project does.
+ *
+ * @param settings - Values delivered through `ctx.settings`.
+ * @returns The agent the dispatched session should report.
+ */
+export function parseExpectedAgent(settings: SpikeSettings): string {
+    const configured = readSetting(settings, 'expected-agent');
+
+    return configured === '' ? DEFAULT_EXPECTED_AGENT : configured;
 }
 
 /**

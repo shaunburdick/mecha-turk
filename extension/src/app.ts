@@ -24,7 +24,7 @@ import {
     refreshHandoff,
     submitHandoffAndRepaint,
 } from './accounts-ui.ts';
-import { parseProjectId, parseSpikeConfig, repositoryLabel } from './config.ts';
+import { parseExpectedAgent, parseProjectId, parseSpikeConfig, repositoryLabel } from './config.ts';
 import { restoreStoredConsent } from './consent.ts';
 import { restoreStoredEvidence } from './evidence.ts';
 import { declineHandoffConsent } from './handoff.ts';
@@ -59,6 +59,7 @@ import {
 import { redact } from './redaction.ts';
 import { mountReposSection } from './repos-mount.ts';
 import { startRelayPolling } from './relay.ts';
+import { loadRuns } from './runs.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
 
@@ -103,6 +104,11 @@ export interface SpikeApp {
  */
 export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string, string>>): void {
     rt.state.settings = settings;
+    // The expected agent (M9) is read before either configuration mode
+    // diverges: bindings-authoritative mode derives `state.config` from a
+    // binding and never re-parses the settings, so this line is the one
+    // place both modes agree on the value the verification compares against.
+    rt.state.expectedAgent = parseExpectedAgent(settings);
     if (rt.state.bindingsActive > 0) {
         applyBindingsMode(rt);
         refresh(rt);
@@ -380,6 +386,10 @@ async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void>
     // Bindings land before the handoff pre-flight so the banner reflects
     // them and the relay is armed for the operator's loop test.
     void loadInitialBindings(rt);
+    // The runs history is read on mount too (M8), beside the bindings it
+    // sits under: one GET /v1/events that fails here lands on the runs
+    // note line instead of an empty area nobody can explain.
+    void loadRuns(rt);
     // The handoff input stays disabled until this pre-flight proves the
     // service storage is writable (F10/SEC-08); a failed pre-flight leaves
     // the reason on screen instead of a usable credential field.

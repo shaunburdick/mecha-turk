@@ -73,6 +73,9 @@ values and their meaning):
 
 - `repository` — `owner/name`
 - `expected-login` — optional validation constraint
+- `expected-agent` — agent a dispatched session should report; defaults to
+  `project-manager` when unset (M9 reads it back after every dispatch and
+  warns — never blocks — when the session reports something else)
 - `project-id` — registered OpenChamber project
 - `worktree-option` — `none`, `generated`, or `new:<branch>`
 - `poll-interval-ms` — clamped to 15000–300000

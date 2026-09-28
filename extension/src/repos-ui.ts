@@ -10,7 +10,8 @@
  * through the SDK primitives' `textContent` writes — no HTML sink is
  * touched (panel-service contract §3 invariant 11). The binding list rows
  * themselves — the scan stamp, skip reason, and pending count the operator
- * reads per row — live in `repos-rows.ts`.
+ * reads per row — live in `repos-rows.ts`, and the runs section's row copy
+ * lives beside it in `runs-rows.ts` (M8).
  */
 
 import {
@@ -23,6 +24,7 @@ import {
     mountTabs,
 } from '@openchamber/sdk/ui';
 import type {
+    BannerHandle,
     ButtonHandle,
     CheckboxHandle,
     ListHandle,
@@ -34,6 +36,8 @@ import type {
 } from '@openchamber/sdk/ui';
 import type { PanelRuntime, Repositories } from './panel-state.ts';
 import { bindingRows } from './repos-rows.ts';
+import { canRetry, runRows, runsStatusText, selectedRun } from './runs-rows.ts';
+import { mountRunsBoard } from './runs-ui.ts';
 
 /** The pane handle: tab strip, pane element, and every repaint handle. */
 export interface ReposPane {
@@ -71,6 +75,24 @@ export interface ReposPane {
     readonly removeAccount: ButtonHandle;
     /** Note under the form. */
     readonly note: TextHandle;
+    /** Heading above the runs section (M8). */
+    readonly runsHeading: TextHandle;
+    /** Runs section status line (idle/loading/ready/error). */
+    readonly runsStatus: TextHandle;
+    /** Runs list: one row per recent event, newest first. */
+    readonly runsList: ListHandle;
+    /** Re-read `GET /v1/events`. */
+    readonly refreshRuns: ButtonHandle;
+    /** Open the selected run's issue. */
+    readonly openRun: ButtonHandle;
+    /** Requeue the selected run through `POST /v1/events/:id/retry`. */
+    readonly retryRun: ButtonHandle;
+    /** Note under the runs list (load failures and retry outcomes). */
+    readonly runsNote: TextHandle;
+    /** Wrapper the agent-verification banner mounts into (hidden without one). */
+    readonly agentNoticeBox: HTMLElement;
+    /** Agent-verification banner (M9); `runs.agentNotice` decides its copy. */
+    readonly agentNotice: BannerHandle;
     /** Remove every node this pane mounted. */
     readonly dispose: () => void;
 }
@@ -107,6 +129,14 @@ export interface ReposPaneHandlers {
     readonly selectBinding: (id: string) => void;
     /** Operators reloaded the project list behind the picker. */
     readonly refreshProjects: () => void;
+    /** Operators asked for a fresh runs history (M8). */
+    readonly refreshRuns: () => void;
+    /** Operators clicked a run row. */
+    readonly selectRun: (id: string) => void;
+    /** Operators asked to open the selected run's issue. */
+    readonly openRun: () => void;
+    /** Operators asked to requeue the selected run. */
+    readonly retryRun: () => void;
 }
 
 /** Worktree options the add form offers (MVP: `new:` comes later). */
@@ -402,6 +432,7 @@ export function mountRepositoriesPane(input: {
     root.append(pane);
 
     const board = mountBindingsBoard({ rt, pane, handlers });
+    const runs = mountRunsBoard({ rt, pane, handlers });
     const form = mountAddForm({ rt, pane, handlers });
 
     return {
@@ -422,6 +453,7 @@ export function mountRepositoriesPane(input: {
         removeSelected: form.removeSelected,
         removeAccount: form.removeAccount,
         note: form.note,
+        ...runs,
         dispose: () => {
             pane.remove();
         },
@@ -483,4 +515,23 @@ export function repaintReposPane(rt: PanelRuntime, view: ReposPane): void {
         disabled: repos.status !== 'ready' && !repos.removeAccountArmed,
     });
     view.note.update({ text: repos.note });
+
+    // Runs section (M8): rows straight from state, and action buttons that
+    // only light up for a selected run the service can actually act on.
+    const { runs } = repos;
+    const selected = selectedRun(runs);
+    view.runsStatus.update({ text: runsStatusText(runs) });
+    view.runsList.update({ items: runRows(runs), selectedId: runs.selectedRun });
+    view.refreshRuns.update({ disabled: runs.status === 'loading' });
+    view.openRun.update({ disabled: selected === null });
+    view.retryRun.update({ disabled: selected === null || !canRetry(selected) });
+    view.runsNote.update({ text: runs.note });
+    view.agentNoticeBox.hidden = runs.agentNotice === null;
+    if (runs.agentNotice !== null) {
+        view.agentNotice.update({
+            tone: runs.agentNotice.tone,
+            title: runs.agentNotice.title,
+            body: runs.agentNotice.body,
+        });
+    }
 }

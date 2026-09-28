@@ -105,6 +105,17 @@ export function stubReposPane(paneBody: HTMLElement): ReposPane {
         removeSelected: stubHandle(),
         removeAccount: stubHandle(),
         note: stubHandle(),
+        runsHeading: stubHandle(),
+        runsStatus: stubHandle(),
+        runsList: stubHandle(),
+        refreshRuns: stubHandle(),
+        openRun: stubHandle(),
+        retryRun: stubHandle(),
+        runsNote: stubHandle(),
+        // A node of its own: the repaint hides the banner through this
+        // wrapper, and reusing the pane body would hide the whole tab.
+        agentNoticeBox: paneBody.ownerDocument.createElement('div'),
+        agentNotice: stubHandle(),
         pane: paneBody,
         dispose: (): void => undefined,
     };

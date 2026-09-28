@@ -13,9 +13,14 @@
  * dispatch. The service detected the assignment seconds ago; the "source
  * changed" guard of the spike flow is re-built in Slice 2 if the loop turns
  * out to need it.
+ *
+ * After a dispatch the relay also (M8) refreshes the runs history the Runs
+ * section renders and (M9) reads back the dispatched session's agent —
+ * warn-only, see `agent-verify.ts`.
  */
 
 import type { GuestProject } from '@openchamber/sdk';
+import { verifyAgentAfterDispatch } from './agent-verify.ts';
 import { parseWorktreeOption, repositoryLabel } from './config.ts';
 import type { RepositoryRef, WorktreeSelection } from './config.ts';
 import { nowIso } from './ids.ts';
@@ -24,6 +29,7 @@ import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import { parsePendingBody } from './repos-service.ts';
 import type { RelayEvent } from './repos-service.ts';
+import { loadRuns } from './runs.ts';
 import { EVENTS_PENDING_PATH, dispatchedPath, serviceGet, servicePost } from './service-calls.ts';
 import {
     buildBoundedContext,
@@ -103,9 +109,18 @@ async function reportDispatch(input: {
         path: dispatchedPath(event.eventId),
         body,
     });
-    if (stillRunning(rt) && !report.ok) {
+    if (!stillRunning(rt)) {
+        return;
+    }
+
+    if (!report.ok) {
         rt.state.repos.note = report.problem;
     }
+
+    // The runs history follows every dispatch report (M8): whatever the
+    // service stored for this event — session id or problem — is what the
+    // operator should see on the row next, without a manual refresh.
+    void loadRuns(rt);
 }
 
 /**
@@ -257,6 +272,13 @@ async function startForEvent(input: StartInputs): Promise<void> {
         ? ({ problem: String(summary.failure ?? NO_SESSION_PROBLEM) } as DispatchOutcome)
         : ({ sessionId: String(summary.sessionId) } as DispatchOutcome);
     await reportDispatch({ rt, event, outcome });
+
+    // M9: the run's record reaches the service first, then the agent that
+    // actually answered is read back. A dispatch that created no session
+    // has nothing to verify, so verification skips gracefully there.
+    if (outcome.sessionId !== undefined && stillRunning(rt)) {
+        await verifyAgentAfterDispatch({ rt, event, sessionId: outcome.sessionId });
+    }
 }
 
 /** One cycle's dispatch attempt bundle, before the resolution. */

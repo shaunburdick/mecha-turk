@@ -40,6 +40,10 @@
                         "label": "Expected GitHub login (validation only, optional)"
                     },
                     {
+                        "id": "expected-agent",
+                        "label": "Expected session agent (default: project-manager)"
+                    },
+                    {
                         "id": "project-id",
                         "label": "OpenChamber project ID"
                     },

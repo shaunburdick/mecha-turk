@@ -31,6 +31,7 @@ import {
 } from './repos.ts';
 import { mountRepositoriesPane } from './repos-ui.ts';
 import type { ReposPaneHandlers } from './repos-ui.ts';
+import { loadRuns, openRun, retryRun, selectRun } from './runs.ts';
 
 /**
  * Map the Repositories pane's callbacks onto the existing actions.
@@ -67,6 +68,10 @@ export function createRepositoriesHandlers(rt: PanelRuntime): ReposPaneHandlers 
         setWorktree: (id) => editRepos(rt, { worktreeSelection: id }),
         selectBinding: (id) => editRepos(rt, { selectedBinding: id }),
         refreshProjects: () => void loadProjects(rt),
+        refreshRuns: () => void loadRuns(rt),
+        selectRun: (id) => selectRun(rt, id),
+        openRun: () => void openRun(rt),
+        retryRun: () => void retryRun(rt),
     };
 }
 
