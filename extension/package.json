@@ -2,7 +2,7 @@
     "name": "mecha-turk-spike",
     "version": "1.0.0",
     "private": true,
-    "description": "OpenChamber extension spike: one GitHub repository issue poll, one matching rule, one host.startSession() dispatch.",
+    "description": "Mecha Turk: GitHub → OpenChamber agent dispatch. A local service polls bound repositories for assignment, mention, and review-request triggers; the panel relays each queued event into a host.startSession() session.",
     "openchamber": {
         "apiVersion": 1,
         "engines": {
@@ -11,7 +11,7 @@
         "contributes": {
             "panel": {
                 "id": "mecha-turk-spike",
-                "name": "Mecha Turk Spike",
+                "name": "Mecha Turk",
                 "icon": "github",
                 "entry": "panel/index.html"
             },
@@ -21,7 +21,7 @@
             ],
             "integration": {
                 "name": "GitHub (token)",
-                "description": "Read one repository issue list for the spike. The token stays with OpenChamber and never reaches the panel.",
+                "description": "Optional, non-authoritative GitHub token card (FR-011): shows a connected-login badge and backs one read-only identity diagnostic. Never used for polling, discovery, or dispatch — service accounts are the credential path. The token stays with OpenChamber and never reaches the panel.",
                 "token": {
                     "apiOrigin": "https://api.github.com",
                     "account": {

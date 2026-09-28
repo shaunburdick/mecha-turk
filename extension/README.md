@@ -1,12 +1,20 @@
-# Mecha Turk extension spike
+# Mecha Turk extension
 
-The smallest possible OpenChamber extension that can prove (or disprove) the
-extension-first architecture: one declared GitHub integration, one repository
-poll, one matching rule, one `host.startSession()` call, and a redacted ledger
-in `host.storage`.
+The shipped Mecha Turk MVP for OpenChamber: one panel plus one
+OpenChamber-hosted local service. The service polls the repositories bound to
+a service account for the configured triggers (assignment, review request,
+mention), queues every finding as a durable event, and the panel relays each
+queued event into one documented `host.startSession()` call — with a redacted
+ledger in `host.storage` and a runs history under the Repositories tab.
 
-It is a validation harness, not a production orchestrator. Nothing here creates
-a worktree, writes to disk through the host, or runs without the panel.
+Honest boundary: polling runs service-side and continues while the panel is
+closed; dispatch runs panel-side, because the frame is the only thing that can
+call `host.startSession()`. The extension never creates a project, and every
+worktree and session comes from OpenChamber's own harness through the
+documented host surface — nothing here writes to disk, and the only GitHub
+traffic is the service's outbound polling (plus the panel's legacy single-repo
+spike poll, which rides the optional integration card). Unattended operation
+therefore means "while OpenChamber and this extension's service are running".
 
 ## Layout
 
@@ -17,15 +25,22 @@ extension/
 │   ├── index.html      # The page OpenChamber shows on the rail
 │   ├── main.ts         # Entry point (connectHost + createSpikeApp)
 │   └── main.js         # Bundled classic IIFE — committed, this is what ships
+├── service/
+│   ├── main.ts         # Service entry (bundled to service/main.js, ESM)
+│   ├── server.ts       # Loopback HTTP server + route table
+│   ├── accounts/       # Durable accounts: model, store, startup reconcile
+│   ├── poll/           # Poll loop: scans, triggers, durable event queue
+│   ├── routes/         # /v1 routes: status, health, bindings, accounts, events
+│   └── store/          # 0700/0600 files, JSON/NDJSON, audit.ndjson
 └── src/                # Panel logic, one responsibility per module
 ```
 
-Module map:
+Module map (panel):
 
 | Module | Responsibility |
 | --- | --- |
 | `config.ts` | Parse and validate the operator settings (fail closed) |
-| `github.ts` | GitHub REST access through `host.request()` only |
+| `github.ts` | GitHub REST access through `host.request()` only (legacy spike poll) |
 | `matching.ts` | The single configured-match rule |
 | `evidence.ts` | Normalized, redacted evidence record (contract) |
 | `ledger.ts` | Redacted `host.storage` ledger, phases, gap analysis |
@@ -41,35 +56,78 @@ Module map:
 | `app.ts` | Wiring: mount, subscribe, teardown |
 | `redaction.ts` | Secret-shape detection and assertions |
 | `json.ts` | Typed bridge from `JSON.stringify` to the host's `JsonValue` |
+| `service-calls.ts` | Shared `host.serviceRequest()` GET/PUT/POST/DELETE wrappers |
+| `bindings-mode.ts` | Bindings-authoritative mode: the first enabled binding is the dispatch context |
+| `repos.ts` | Repos tab actions: read/grant bindings, bind/toggle/remove, account removal — arms the relay whenever a list with an enabled binding lands |
+| `repos-service.ts` | Fail-closed parsers for the bindings, accounts, pending, and runs DTOs |
+| `repos-mount.ts` / `repos-ui.ts` / `repos-rows.ts` | Repositories tab mount, bindings list + add form, row copy |
+| `relay.ts` | The event relay: claim → dispatch → report, one handoff per event id per mount |
+| `runs.ts` / `runs-service.ts` / `runs-rows.ts` | Runs history read, manual retry, row copy |
+| `agent-verify.ts` | Post-dispatch `openSession()` read-back of the session agent (warn-only) |
+| `handoff.ts` / `accounts-ui.ts` / `account-mirror.ts` / `account-adoption.ts` | FR-007/FR-008 one-shot token handoff, consent gate, credential-free account mirror |
+| `consent.ts` / `storage-write.ts` / `ledger-repair.ts` | Consent mirror, guarded storage writes, ledger repair |
+
+Module map (service):
+
+| Module | Responsibility |
+| --- | --- |
+| `server.ts` / `http.ts` | Loopback HTTP server, routing, documented body/size caps |
+| `auth.ts` / `consent.ts` | Extension grant and consent gates on every call |
+| `accounts/` | Durable account model, credential files, startup reconciliation |
+| `bindings.ts` | Whole-file bindings store (validated, capped) |
+| `poll/loop.ts` / `poll/timer.ts` | Per-binding scan loop on its interval (never overlaps) |
+| `poll/triggers.ts` / `poll/poller-github.ts` | Assignment, mention, and review-request detection over the rate budget |
+| `poll/events.ts` / `poll/events-write.ts` / `poll/events-parse.ts` | Durable queue: deterministic event ids, claim, terminal dispatch, 500-row dispatched tail |
+| `routes/` | `/v1/status`, `/v1/health`, `/v1/bindings`, `/v1/accounts`, `/v1/events*`, credential verify |
+| `audit.ts` / `log.ts` | `audit.ndjson` rows (`consent`, `account.*`, `binding.disabled`, `delivery.*`) and structured, secret-free logs |
+| `store/` | 0700/0600 store, JSON/NDJSON IO, quarantine-and-repair reads |
+| `config.ts` / `env.ts` / `throttle.ts` | Operator-tunable polling/retry/retention, env, rate budgets |
 
 ## Build
 
 ```sh
 npm install          # workspace install (root + extension)
-npm run build        # bunx openchamber-guest-bundle panel/main.ts panel/main.js
+npm run build        # bunx openchamber-guest-bundle — panel IIFE + service ESM
 npm run verify       # build + lint + typecheck + tests
 ```
 
 OpenChamber never compiles TypeScript and never installs dependencies, so
-`panel/main.js` is built here and committed. Rebuild after every source change,
-then reload the extension in OpenChamber.
+`panel/main.js` and `service/main.js` are built here and committed. Rebuild
+after every source change, then reload the extension in OpenChamber.
 
 ## Install
 
 1. Run OpenChamber on web or desktop (VS Code and mobile do not load extensions).
 2. Settings → Extensions → Add.
 3. Paste the absolute path of this `extension/` folder.
-4. Approve the capabilities the dialog lists: `sessions`, `prompt`, `network`
-   (network comes from the declared integration).
+4. Approve the capabilities the dialog lists: `sessions`, `prompt`, `service`,
+   `network` (`service` comes from `contributes.service`; `network` comes
+   from the declared integration). The description there is the manifest's —
+   read it before allowing.
 5. Click the rail icon to open the panel.
 
 A folder install runs from this folder directly, so edit, rebuild, reload.
 
 ## Configure
 
-Settings → Integrations → GitHub (token): paste the PAT. Then fill the
-extension's settings fields (see the repository root `.env.example` for the
-values and their meaning):
+**Primary credential path — service accounts.** Register each GitHub account
+once through the panel's one-shot token handoff (FR-007/FR-008 — the consent
+step comes first, the token exists only in transit), then on the
+**Repositories** tab add a repository: pick the account under **Poll as
+account**, pick an existing project from the picker, choose the triggers, and
+save. That binding is what the service polls under; accounts and bindings live
+in the service's store, not in the panel.
+
+**Optional integration card (FR-011).** Settings → Integrations → GitHub
+(token) is *optional and non-authoritative*: it shows a connected-login
+identity badge and backs the legacy single-repo spike poll's identity read. It
+is never used for polling, discovery, or dispatch, and the product is fully
+functional with it unconnected.
+
+**Settings fields.** These configure the legacy single-repo spike path — the
+one exception is `expected-agent`, which the relay's post-dispatch
+verification also reads (see the repository root `.env.example` for the values
+and their meaning):
 
 - `repository` — `owner/name`
 - `expected-login` — optional validation constraint
@@ -112,11 +170,12 @@ already works, and never disturbs polling, dispatch, or the ledger.
 npm test
 ```
 
-Offline coverage: manifest validation against the official SDK parser, the
-matching rule, redaction, the ledger format and gap analysis, evidence
-normalization, GitHub payload parsing, configuration validation (including
-project-id precedence), the project picker's state and storage handling,
-host verification against a fake host, and the shipped bundle's IIFE/secret
-assertions. Anything that needs a live OpenChamber instance or a real PAT was
-executed by the operator on their own instance and is recorded in
-`specs/001-agent-event-orchestrator/spike-evidence.md` §4 (S1–S7 PASS).
+Offline coverage: manifest validation against the official SDK parser; the
+panel's configuration, matching, redaction, ledger, evidence, project-picker,
+handoff, bindings/relay-arming, and runs logic against a fake host; the
+service's routes, store, audit trail, account lifecycle, scan triggers, and
+event dedupe; and the shipped bundles' IIFE/secret assertions. Anything that
+needs a live OpenChamber instance or a real PAT was executed by the operator
+on their own instance and is recorded in
+`specs/001-agent-event-orchestrator/spike-evidence.md` §4 (S1–S7 PASS) plus
+the live loop validation in `specs/002-agent-event-extension/tasks.md` (M5).

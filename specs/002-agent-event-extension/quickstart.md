@@ -34,7 +34,7 @@ Expect: 0 lint errors/warnings (zero suppressions — no `eslint-disable`, no `@
 
 1. OpenChamber → **Settings → Extensions** → paste the **absolute path of `extension/`** (the repo root fails with `package.id should be kebab case` — spike-verified).
 2. Approval dialog shows `sessions`, `prompt`, `service`, `network`. Read the local-service line (*"a separate program with your full user access"*) and choose **Allow and enable**.
-3. Open the **Mecha Turk** rail panel. First view = setup-prerequisites checklist (empty state, not an error).
+3. Open the **Mecha Turk** rail panel. First view = the **Spike** tab — the status banner over the project picker and the one-shot token-handoff (consent) group — with the **Repositories** tab beside it (empty "Repository bindings" list, the "Poll as account" picker, an empty **Runs** section). There is no in-panel setup checklist in this MVP — §0 above *is* the checklist, and the one step worth doing before any dispatch is pinning **Settings → Sessions → Session Defaults → Default Agent = `project-manager`** (FR-038): verification reads it back after every dispatch and warns when a session reports another agent.
 
 ## 4. First run (happy path, ~5 minutes)
 
@@ -52,9 +52,9 @@ Expect: 0 lint errors/warnings (zero suppressions — no `eslint-disable`, no `@
 | V2 | Disable the extension | Polling stops; `serviceStatus()` path shows stopped/disabled honestly |
 | V3 | Kill the service process | `SERVICE_FAILED`, durable state intact, **manual** retry only (no auto-loop) |
 | V4 | Revoke a PAT on GitHub | That account's streams block with the capability named; other accounts unaffected; no token echoed |
-| V5 | Re-dispatch protection | An already-dispatched run never creates a second session (run key + lease + attach-id reconciliation) |
+| V5 | Re-dispatch protection | An already-dispatched event never creates a second session: **deterministic event ids** dedupe the queue (one assignment on one issue can only produce one event), the dispatch marks the row terminal `dispatched` (retained as one of the 500 dispatched rows kept for history), the panel handles each event id once per mount, and **Retry run** answers a `dispatched` row with `409 invalid-transition` |
 | V6 | Set Default Agent to something else | Next run → Runs area warning *"dispatched, but the session agent was '\<x\>' (expected project-manager)"* + a `session` ledger entry with `agentVerified: false` + a green banner when it *does* match. **Warn-only by M9's re-cut: the session keeps running, nothing is blocked** (the spec's `blocked:agent-mismatch` is deferred with the service-side mirror) |
-| V7 | Uninstall the extension | Panel storage wiped (checklist shown); **service store under `~/.config/openchamber/mecha-turk/` still present** — path printed in health before uninstall (live proof = task T-033) |
+| V7 | Uninstall the extension | Panel storage wiped (the panel is back at the §3 first view, no checklist); **service store under `~/.config/openchamber/mecha-turk/` still present** — path printed in health before uninstall (live proof = task T-033) |
 | V8 | Unsupported surface (VS Code/mobile if available) | Explicit unsupported/disabled state; nothing claims to be polling |
 
 ## 6. Service store & backup
@@ -72,8 +72,8 @@ The extension never deletes sessions, worktrees, or projects. Route cleanup to O
 | Symptom | Meaning | Action |
 | --- | --- | --- |
 | `NO_SERVICE` on first use | `service` capability not approved | Settings → Extensions → review permissions |
-| `SERVICE_FAILED` | Service crashed or never became ready within 15 s | Manual retry from Health; check `audit.ndjson` `service.failed` correlation id |
+| `SERVICE_FAILED` | Service crashed or never became ready within 15 s | Manual retry from Health; there is no `service.failed` audit row — `audit.ndjson` speaks `consent`, `account.*`, `binding.disabled`, `delivery.detected`, `delivery.recovered`, and a binding row's `lastError` carries why its last scan skipped |
 | Handoff refused | Consent gate or capability gate (F1/F11) | Complete consent / approve capabilities |
-| Run stuck `blocked:project-missing` | Project not registered | Add the project manually, then re-run (binding recovers) |
+| Run row's dispatch result reads `project "<id>" is not registered in OpenChamber` | A binding must name an existing project (the add form only offers registered ones) and this one was unregistered afterwards | Register the project in OpenChamber — the extension never creates one — then trigger the work again for a fresh event. That row is terminal: dispatch problems are recorded on it and never requeued by the MVP (`blocked:*` / `project_missing` run states are not shipped; see the debt list) |
 | Warning *"dispatched, but the session agent was '\<x\>'"* | Default Agent ≠ `expected-agent` | Set Session Defaults → Default Agent (or correct `expected-agent`); M9 is **warn-only** — the run stays `dispatched` with a warning, nothing is blocked |
 | `storage-unavailable` | Data dir not writable | Fix permissions on `~/.config/openchamber/mecha-turk` (FR-039 blocks degraded starts) |
