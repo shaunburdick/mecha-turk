@@ -10,67 +10,38 @@
  * lease relay (§2.4) — the MVP cut trades leases and run keys for a queue one
  * panel reads through two routes.
  *
+ * The row schema and its validator live beside this module in
+ * `events-parse.ts` (the read side of the same contract). A queue file that
+ * fails that validator is quarantined *and* repaired here: every binding's
+ * scan window is cleared and one `delivery.recovered` audit row is written,
+ * so the assignments the lost queue carried are re-detected on the next
+ * pass instead of silently dropped.
+ *
  * MVP-DEBT: retention beyond the dispatched tail, delivery leases, and the
  * runs table are contract §2.4 machinery deferred to Slice 2; this file is
  * the simple, honest stand-in.
  */
 
-import { nowIso } from '../../src/ids.ts';
-import { isRecord } from '../json.ts';
+import { newCorrelationId, nowIso } from '../../src/ids.ts';
+import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
+import { parseStoredEvent, parseStoredEvents } from './events-parse.ts';
+import { readScanState, serializeScan, writeScanState } from './scan.ts';
+import type { EventKind, EventState, QueuedEvent } from './events-parse.ts';
+import type { BindingScanState } from './scan.ts';
 
 /** Store file holding the event queue. */
 export const EVENTS_FILE = 'events.json';
 
-/** Event kinds the service enqueues; M1 ships assignment only. */
-export type EventKind = 'assignment' | 'mention';
-
-/** Lifecycle of one relay event. */
-export type EventState = 'pending' | 'in-flight' | 'dispatched';
-
 /** How many dispatched events stay in the file for dedupe and history. */
 export const MAX_DISPATCHED_EVENTS = 500;
 
-/** One relay event, exactly as stored and shipped. */
-export interface QueuedEvent {
-    /** Deterministic `[A-Za-z0-9._~|-]`-shaped id, usable as one path segment. */
-    readonly id: string;
-    /** Binding that produced this event. */
-    readonly bindingId: string;
-    /** Trigger kind; only `assignment` is implemented at this cut. */
-    readonly kind: EventKind;
-    /** The repository in `owner/name` form. */
-    readonly repository: string;
-    /** GitHub numeric user id of the account that owns the assignment. */
-    readonly accountNumericUserId: string;
-    /** Display login of that account (not a credential). */
-    readonly accountLogin: string;
-    /** Project id the dispatch targets, snapshotted at enqueue. */
-    readonly projectId: string;
-    /** Worktree option snapshotted at enqueue (`none`/`generated`/`new:<name>`). */
-    readonly worktreeOption: string;
-    /** Issue number. */
-    readonly issueNumber: number;
-    /** Issue title; untrusted source text. */
-    readonly issueTitle: string;
-    /** Canonical GitHub issue URL. */
-    readonly issueUrl: string;
-    /** Truncated issue body; untrusted source text, bounded at enqueue. */
-    readonly issueBodyExcerpt: string;
-    /** Operator-readable trigger phrase the panel shows in the dispatch context. */
-    readonly triggerNote: string;
-    /** RFC 3339 detection stamp. */
-    readonly detectedAt: string;
-    /** Queue state, flipped in place by a claim and a dispatch. */
-    readonly state: EventState;
-    /** Claim stamp when in-flight, else `null`. */
-    readonly claimedAt: string | null;
-    /** Dispatch stamp once the panel answered, else `null`. */
-    readonly dispatchedAt: string | null;
-    /** Session id or the failure text the panel reported, else `null`. */
-    readonly dispatchResult: string | null;
-}
+/** Re-exported: this module stays the one import path for the queue's readers. */
+export { parseStoredEvent, parseStoredEvents };
+
+/** Row types re-exported alongside them for the routes and the scan loop. */
+export type { EventKind, EventState, QueuedEvent };
 
 /** Inputs used to assemble one queued event. */
 export interface EventSnapshot {
@@ -170,165 +141,6 @@ export function createEvent(snapshot: EventSnapshot): QueuedEvent {
     };
 }
 
-/** Every field a stored event must carry, read with their expected shapes. */
-const REQUIRED_FIELDS = [
-    'id',
-    'bindingId',
-    'kind',
-    'repository',
-    'accountNumericUserId',
-    'accountLogin',
-    'projectId',
-    'worktreeOption',
-    'issueNumber',
-    'issueTitle',
-    'issueUrl',
-    'triggerNote',
-    'detectedAt',
-] as const;
-
-/** Fields a row may carry as a string or a literal `null`. */
-const NULLABLE_FIELDS = ['claimedAt', 'dispatchedAt', 'dispatchResult'] as const;
-
-/** Queue states the file may carry. */
-const KNOWN_STATES = new Set<string>(['pending', 'in-flight', 'dispatched']);
-
-/**
- * Validate the event fields that must carry usable text.
- *
- * @param record - Parsed candidate row.
- * @param fields - Field names to check.
- * @returns `true` when every field is usable text.
- */
-function isUsableTextFieldSet(record: Record<string, unknown>, fields: readonly string[]): boolean {
-    return fields.every((field) => {
-        const value = record[field];
-
-        return field in record && typeof value === 'string' && value !== '';
-    });
-}
-
-/**
- * Validate the event fields that carry a stamp-or-null.
- *
- * @param record - Parsed candidate row.
- * @param fields - Field names to check.
- * @returns `true` when every field is a string or literal `null`.
- */
-function isNullableTextFieldSet(record: Record<string, unknown>, fields: readonly string[]): boolean {
-    return fields.every((field) => {
-        const value = record[field];
-
-        return value === null || typeof value === 'string';
-    });
-}
-
-/**
- * Read one positive integer field.
- *
- * @param value - Candidate value.
- * @returns The integer, or `null` when the value is not one.
- */
-function positiveIntOf(value: unknown): number | null {
-    return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
-}
-/**
- * Validate the stored `state` field.
- *
- * @param value - Candidate value.
- * @returns The state name, or `null` when it is from another vocabulary.
- */
-function knownStateOf(value: unknown): string | null {
-    if (typeof value !== 'string' || !KNOWN_STATES.has(value)) {
-        return null;
-    }
-
-    return value;
-}
-
-/**
- * Validate every required and nullable field of one stored row.
- *
- * @param record - Parsed candidate row.
- * @returns `true` when all fields hold usable values.
- */
-function fieldsHold(record: Record<string, unknown>): boolean {
-    return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isNullableTextFieldSet(record, NULLABLE_FIELDS);
-}
-
-/**
- * Parse one stored event row.
- *
- * @param raw - One element from the stored array.
- * @returns The event, or `null` when the row cannot be trusted.
- */
-export function parseStoredEvent(raw: unknown): QueuedEvent | null {
-    const record = isRecord(raw) ? raw : null;
-    if (record === null) {
-        return null;
-    }
-
-    if (!fieldsHold(record)) {
-        return null;
-    }
-
-    const state = knownStateOf(record.state);
-    const issueNumber = positiveIntOf(record.issueNumber);
-    if (state === null || issueNumber === null || typeof record.issueBodyExcerpt !== 'string') {
-        return null;
-    }
-
-    const detectedAt = record.detectedAt as string;
-    if (Number.isNaN(Date.parse(detectedAt))) {
-        return null;
-    }
-
-    return {
-        id: record.id as string,
-        bindingId: record.bindingId as string,
-        kind: record.kind as EventKind,
-        repository: record.repository as string,
-        accountNumericUserId: record.accountNumericUserId as string,
-        accountLogin: record.accountLogin as string,
-        projectId: record.projectId as string,
-        worktreeOption: record.worktreeOption as string,
-        issueNumber,
-        issueTitle: record.issueTitle as string,
-        issueUrl: record.issueUrl as string,
-        issueBodyExcerpt: record.issueBodyExcerpt,
-        triggerNote: record.triggerNote as string,
-        detectedAt,
-        state: state as EventState,
-        claimedAt: record.claimedAt as string | null,
-        dispatchedAt: record.dispatchedAt as string | null,
-        dispatchResult: record.dispatchResult as string | null,
-    };
-}
-
-/**
- * Parse the whole stored queue.
- *
- * @param raw - Parsed `events.json` document.
- * @returns The queue, or `null` when the document is unusable (quarantined).
- */
-export function parseStoredEvents(raw: unknown): QueuedEvent[] | null {
-    if (!Array.isArray(raw)) {
-        return null;
-    }
-
-    const events: QueuedEvent[] = [];
-    for (const entry of raw) {
-        const event = parseStoredEvent(entry);
-        if (event === null) {
-            return null;
-        }
-
-        events.push(event);
-    }
-
-    return events;
-}
-
 /**
  * In-flight chain the queue's mutations serialize onto (the `audit.ts`
  * write-chain pattern), so a scan tick and the relay routes never interleave
@@ -366,20 +178,170 @@ function serializedQueue(events: readonly QueuedEvent[]): QueuedEvent[] {
 }
 
 /**
- * Read the queue.
+ * Quarantine passes this process has already recovered, keyed per store handle.
  *
- * @param store - Open store.
+ * A corrupt `events.json` renames to exactly one quarantine path, so the set
+ * ties the recovery to the observation itself: the scan's health pass, the
+ * panel's claim, and any relay read can all spot the same quarantine without
+ * resetting the windows (or writing the audit row) more than once.
+ */
+const recoveredQuarantines = new WeakMap<ServiceStore, Set<string>>();
+
+/**
+ * Claim one quarantine observation for recovery.
+ *
+ * @param store - Store handle that observed the quarantine.
+ * @param quarantinePath - Unique path the unusable file was set aside to.
+ * @returns `true` when this caller owns the recovery.
+ */
+function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boolean {
+    const handled = recoveredQuarantines.get(store) ?? new Set<string>();
+    recoveredQuarantines.set(store, handled);
+    if (handled.has(quarantinePath)) {
+        return false;
+    }
+
+    handled.add(quarantinePath);
+
+    return true;
+}
+
+/**
+ * Clear every binding's `lastScanAt` so the next scan re-baselines.
+ *
+ * The quarantined queue's rows are gone with the file, so the only way to
+ * recover what they carried is to re-detect it — and a binding whose window
+ * already advanced past those assignments will never match them again.
+ * Clearing every slot moves each binding back to "never scanned", which makes
+ * `windowFor` open at the binding's own `createdAt`: the same baseline a
+ * fresh binding gets. The write runs on the scan-state chain, so it cannot
+ * interleave with the loop's own read-modify-write of that file.
+ *
+ * @param input - Open store and logger the scan-state read takes.
+ * @returns How many bindings had a window to clear.
+ */
+async function resetScanWindows(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Logger. */
+    readonly log: ServiceLogger;
+}): Promise<number> {
+    return await serializeScan(async () => {
+        const state = await readScanState(input);
+        const bindings: Record<string, BindingScanState> = {};
+        let cleared = 0;
+        for (const [bindingId, slot] of Object.entries(state.bindings)) {
+            const next: BindingScanState = slot.lastScanAt === null ? slot : { ...slot, lastScanAt: null };
+            cleared += next === slot ? 0 : 1;
+            bindings[bindingId] = next;
+        }
+
+        if (cleared > 0) {
+            await writeScanState({ store: input.store, state: { bindings } });
+        }
+
+        return cleared;
+    });
+}
+
+/**
+ * Record one queue-quarantine recovery in the audit trail.
+ *
+ * @param input - Open store, logger, the quarantine path, and the reset count.
+ */
+async function recordQueueRecovery(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Logger. */
+    readonly log: ServiceLogger;
+    /** Where the unusable queue was set aside. */
+    readonly quarantinePath: string;
+    /** Bindings whose scan window was cleared. */
+    readonly bindingsReset: number;
+}): Promise<void> {
+    try {
+        await appendAudit(input.store, {
+            eventType: 'delivery.recovered',
+            actorSource: 'service',
+            entity: { kind: 'delivery', id: EVENTS_FILE },
+            decision: null,
+            reason: 'events queue quarantined — scan windows reset',
+            correlationId: newCorrelationId(),
+            details: { quarantinePath: input.quarantinePath, bindingsReset: input.bindingsReset },
+        });
+    } catch (cause) {
+        // Same posture as a detection row: the window reset is already
+        // durable, so a failed audit append is logged rather than thrown
+        // back into the read that observed the quarantine.
+        input.log.warn('queue recovery audit row could not be appended', {
+            errorKind: cause instanceof Error ? cause.name : typeof cause,
+        });
+    }
+}
+
+/**
+ * Recover from a queue file that had to be quarantined.
+ *
+ * The quarantine consumed the evidence file, so this is the only moment the
+ * repair can run: clear every binding's scan window — the lost assignments
+ * are re-detected on the next pass, and the deterministic event ids keep that
+ * replay duplicate-free — then leave one audit row saying so.
+ *
+ * @param input - Open store, logger, and the quarantine path.
+ */
+async function recoverQuarantinedQueue(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Logger. */
+    readonly log: ServiceLogger;
+    /** Where the unusable queue was set aside. */
+    readonly quarantinePath: string;
+}): Promise<void> {
+    if (!claimQuarantinePass(input.store, input.quarantinePath)) {
+        return;
+    }
+
+    const bindingsReset = await resetScanWindows(input);
+    input.log.info('scan windows reset after the event queue was quarantined', { bindingsReset });
+    await recordQueueRecovery({ ...input, bindingsReset });
+}
+
+/**
+ * Read the queue through the quarantine funnel.
+ *
+ * Every queue reader — the relay routes, the panel's claim, and the scan's
+ * own enqueue — passes this one function, so a file that has to be
+ * quarantined always triggers the scan-window recovery, whichever reader
+ * reaches it first.
+ *
+ * @param input - Open store and logger.
  * @returns Any stored events, `[]` when absent or quarantined.
  */
-async function readQueue(store: ServiceStore): Promise<QueuedEvent[]> {
-    const result = await store.readJson(EVENTS_FILE, parseStoredEvents);
+async function readQueue(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Logger. */
+    readonly log: ServiceLogger;
+}): Promise<QueuedEvent[]> {
+    const result = await input.store.readJson(EVENTS_FILE, parseStoredEvents);
+    if (result.status === 'ok') {
+        return result.value;
+    }
 
-    return result.status === 'ok' ? result.value : [];
+    if (result.status === 'quarantined') {
+        input.log.warn('stored event queue was unusable and has been set aside', {
+            quarantinePath: result.quarantinePath,
+        });
+        await recoverQuarantinedQueue({ ...input, quarantinePath: result.quarantinePath });
+    }
+
+    return [];
 }
 
 /**
  * Read the queue, best-effort: a quarantined or failed read is answered as
- * an empty list with a log line (never fail-stuck).
+ * an empty list with a log line (never fail-stuck), and a quarantined read
+ * has already run the scan-window recovery before it answers.
  *
  * @param input - Open store and logger.
  * @returns The queue, or `[]`.
@@ -390,22 +352,10 @@ export async function readEvents(input: {
     /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<QueuedEvent[]> {
-    const { store, log } = input;
     try {
-        const result = await store.readJson(EVENTS_FILE, parseStoredEvents);
-        if (result.status === 'ok') {
-            return result.value;
-        }
-
-        if (result.status === 'quarantined') {
-            log.warn('stored event queue was unusable and has been set aside', {
-                quarantinePath: result.quarantinePath,
-            });
-        }
-
-        return [];
+        return await readQueue(input);
     } catch (cause) {
-        log.warn('event queue read failed', { errorKind: cause instanceof Error ? cause.name : typeof cause });
+        input.log.warn('event queue read failed', { errorKind: cause instanceof Error ? cause.name : typeof cause });
 
         return [];
     }
@@ -428,7 +378,7 @@ export async function enqueueEvents(input: {
     readonly incoming: readonly QueuedEvent[];
 }): Promise<readonly QueuedEvent[]> {
     return await inQueueChain(async () => {
-        const existing = await readQueue(input.store);
+        const existing = await readQueue(input);
         const known = new Set(existing.map((event) => event.id));
         const appended = input.incoming.filter((event) => !known.has(event.id));
         if (appended.length === 0) {
@@ -456,7 +406,7 @@ export async function claimPendingEvents(input: {
     readonly log: ServiceLogger;
 }): Promise<QueuedEvent[]> {
     return await inQueueChain(async () => {
-        const events = await readQueue(input.store);
+        const events = await readQueue(input);
         const pending = events.filter((event) => event.state === 'pending');
         const claim = (event: QueuedEvent): QueuedEvent => ({
             ...event,
@@ -493,7 +443,7 @@ export async function markEventDispatched(input: {
     readonly log: ServiceLogger;
 }): Promise<QueuedEvent | null> {
     return await inQueueChain(async () => {
-        const events = await readQueue(input.store);
+        const events = await readQueue(input);
         const match = events.find((event) => event.id === input.eventId);
         if (match === undefined || match.state === 'dispatched') {
             return null;

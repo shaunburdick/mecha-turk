@@ -28,7 +28,7 @@ import { readBindings } from '../bindings.ts';
 import type { BindingRecord } from '../bindings.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
-import { createEvent, enqueueEvents } from './events.ts';
+import { createEvent, enqueueEvents, readEvents } from './events.ts';
 import type { QueuedEvent } from './events.ts';
 import type { GitHubIssuePoller, IssueListOutcome, PollIssue } from './poller-github.ts';
 import { readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
@@ -498,6 +498,13 @@ export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     }
 
     const context: ScanContext = { store: deps.store, log: deps.log, poller: deps.poller };
+    // Health pass before this cycle reads its windows: a queue file that has
+    // to be quarantined clears every binding's `lastScanAt` inside that read,
+    // so the scan-state read below must see the cleared slots rather than
+    // the stamps a pre-recovery read would have cached. The cycle then opens
+    // each window at the binding's own `createdAt` and re-detects whatever
+    // the lost queue carried (deterministic ids keep that replay duplicate-free).
+    await readEvents({ store: context.store, log: context.log });
     const [bindings, scannedState] = await Promise.all([
         readBindings({ store: context.store, log: context.log }),
         readScanState({ store: context.store, log: context.log }),

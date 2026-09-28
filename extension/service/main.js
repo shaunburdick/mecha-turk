@@ -2211,45 +2211,7 @@ async function writeBindings(input) {
   await input.store.writeJson(BINDINGS_FILE, input.bindings);
 }
 
-// service/poll/events.ts
-var EVENTS_FILE = "events.json";
-var MAX_DISPATCHED_EVENTS = 500;
-function buildEventId(input) {
-  const { repository } = input;
-  return `evt-${repository.owner}~${repository.name}~${input.issueNumber}~${input.accountNumericUserId}`;
-}
-function createEvent(snapshot) {
-  const separatorIndex = snapshot.repository.indexOf("/");
-  const owner = separatorIndex < 0 ? snapshot.repository : snapshot.repository.slice(0, separatorIndex);
-  const name = separatorIndex < 0 ? "" : snapshot.repository.slice(separatorIndex + 1);
-  const base = {
-    bindingId: snapshot.bindingId,
-    kind: snapshot.kind,
-    repository: snapshot.repository,
-    accountNumericUserId: snapshot.accountNumericUserId,
-    accountLogin: snapshot.accountLogin,
-    projectId: snapshot.projectId,
-    worktreeOption: snapshot.worktreeOption,
-    issueNumber: snapshot.issue.issueNumber,
-    issueTitle: snapshot.issue.issueTitle,
-    issueUrl: snapshot.issue.issueUrl,
-    issueBodyExcerpt: snapshot.issue.issueBodyExcerpt,
-    triggerNote: snapshot.triggerNote,
-    detectedAt: snapshot.detectedAt,
-    state: "pending",
-    claimedAt: null,
-    dispatchedAt: null,
-    dispatchResult: null
-  };
-  return {
-    ...base,
-    id: buildEventId({
-      repository: { owner, name },
-      issueNumber: snapshot.issue.issueNumber,
-      accountNumericUserId: snapshot.accountNumericUserId
-    })
-  };
-}
+// service/poll/events-parse.ts
 var REQUIRED_FIELDS = [
   "id",
   "bindingId",
@@ -2259,7 +2221,6 @@ var REQUIRED_FIELDS = [
   "accountLogin",
   "projectId",
   "worktreeOption",
-  "issueNumber",
   "issueTitle",
   "issueUrl",
   "triggerNote",
@@ -2343,87 +2304,6 @@ function parseStoredEvents(raw) {
   }
   return events;
 }
-var queueChain = { write: Promise.resolve() };
-function inQueueChain(task) {
-  const run = queueChain.write.then(task, task);
-  queueChain.write = run;
-  return run;
-}
-function serializedQueue(events) {
-  const live = events.filter((event) => event.state !== "dispatched");
-  const dispatched = events.filter((event) => event.state === "dispatched").slice(-MAX_DISPATCHED_EVENTS);
-  return [...live, ...dispatched];
-}
-async function readQueue(store) {
-  const result = await store.readJson(EVENTS_FILE, parseStoredEvents);
-  return result.status === "ok" ? result.value : [];
-}
-async function readEvents(input) {
-  const { store, log } = input;
-  try {
-    const result = await store.readJson(EVENTS_FILE, parseStoredEvents);
-    if (result.status === "ok") {
-      return result.value;
-    }
-    if (result.status === "quarantined") {
-      log.warn("stored event queue was unusable and has been set aside", {
-        quarantinePath: result.quarantinePath
-      });
-    }
-    return [];
-  } catch (cause) {
-    log.warn("event queue read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
-    return [];
-  }
-}
-async function enqueueEvents(input) {
-  return await inQueueChain(async () => {
-    const existing = await readQueue(input.store);
-    const known = new Set(existing.map((event) => event.id));
-    const appended = input.incoming.filter((event) => !known.has(event.id));
-    if (appended.length === 0) {
-      return [];
-    }
-    await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended]));
-    return appended;
-  });
-}
-async function claimPendingEvents(input) {
-  return await inQueueChain(async () => {
-    const events = await readQueue(input.store);
-    const pending = events.filter((event) => event.state === "pending");
-    const claim = (event) => ({
-      ...event,
-      state: "in-flight",
-      claimedAt: input.claimedAt
-    });
-    if (pending.length === 0) {
-      return [];
-    }
-    const claimedIds = new Set(pending.map((event) => event.id));
-    const claimed = events.map((event) => claimedIds.has(event.id) ? claim(event) : event);
-    await input.store.writeJson(EVENTS_FILE, serializedQueue(claimed));
-    return pending.map(claim);
-  });
-}
-async function markEventDispatched(input) {
-  return await inQueueChain(async () => {
-    const events = await readQueue(input.store);
-    const match = events.find((event) => event.id === input.eventId);
-    if (match === undefined || match.state === "dispatched") {
-      return null;
-    }
-    const dispatched = {
-      ...match,
-      state: "dispatched",
-      dispatchedAt: nowIso(),
-      dispatchResult: input.result
-    };
-    const remaining = events.map((event) => event.id === input.eventId ? dispatched : event);
-    await input.store.writeJson(EVENTS_FILE, serializedQueue(remaining));
-    return dispatched;
-  });
-}
 
 // service/poll/scan.ts
 var SCAN_STATE_FILE = "scan-state.json";
@@ -2488,6 +2368,177 @@ async function writeScanState(input) {
 }
 function withBindingScanState(input) {
   return { bindings: { ...input.state.bindings, [input.bindingId]: input.slot } };
+}
+
+// service/poll/events.ts
+var EVENTS_FILE = "events.json";
+var MAX_DISPATCHED_EVENTS = 500;
+function buildEventId(input) {
+  const { repository } = input;
+  return `evt-${repository.owner}~${repository.name}~${input.issueNumber}~${input.accountNumericUserId}`;
+}
+function createEvent(snapshot) {
+  const separatorIndex = snapshot.repository.indexOf("/");
+  const owner = separatorIndex < 0 ? snapshot.repository : snapshot.repository.slice(0, separatorIndex);
+  const name = separatorIndex < 0 ? "" : snapshot.repository.slice(separatorIndex + 1);
+  const base = {
+    bindingId: snapshot.bindingId,
+    kind: snapshot.kind,
+    repository: snapshot.repository,
+    accountNumericUserId: snapshot.accountNumericUserId,
+    accountLogin: snapshot.accountLogin,
+    projectId: snapshot.projectId,
+    worktreeOption: snapshot.worktreeOption,
+    issueNumber: snapshot.issue.issueNumber,
+    issueTitle: snapshot.issue.issueTitle,
+    issueUrl: snapshot.issue.issueUrl,
+    issueBodyExcerpt: snapshot.issue.issueBodyExcerpt,
+    triggerNote: snapshot.triggerNote,
+    detectedAt: snapshot.detectedAt,
+    state: "pending",
+    claimedAt: null,
+    dispatchedAt: null,
+    dispatchResult: null
+  };
+  return {
+    ...base,
+    id: buildEventId({
+      repository: { owner, name },
+      issueNumber: snapshot.issue.issueNumber,
+      accountNumericUserId: snapshot.accountNumericUserId
+    })
+  };
+}
+var queueChain = { write: Promise.resolve() };
+function inQueueChain(task) {
+  const run = queueChain.write.then(task, task);
+  queueChain.write = run;
+  return run;
+}
+function serializedQueue(events) {
+  const live = events.filter((event) => event.state !== "dispatched");
+  const dispatched = events.filter((event) => event.state === "dispatched").slice(-MAX_DISPATCHED_EVENTS);
+  return [...live, ...dispatched];
+}
+var recoveredQuarantines = new WeakMap;
+function claimQuarantinePass(store, quarantinePath) {
+  const handled = recoveredQuarantines.get(store) ?? new Set;
+  recoveredQuarantines.set(store, handled);
+  if (handled.has(quarantinePath)) {
+    return false;
+  }
+  handled.add(quarantinePath);
+  return true;
+}
+async function resetScanWindows(input) {
+  return await serializeScan(async () => {
+    const state = await readScanState(input);
+    const bindings = {};
+    let cleared = 0;
+    for (const [bindingId, slot] of Object.entries(state.bindings)) {
+      const next = slot.lastScanAt === null ? slot : { ...slot, lastScanAt: null };
+      cleared += next === slot ? 0 : 1;
+      bindings[bindingId] = next;
+    }
+    if (cleared > 0) {
+      await writeScanState({ store: input.store, state: { bindings } });
+    }
+    return cleared;
+  });
+}
+async function recordQueueRecovery(input) {
+  try {
+    await appendAudit(input.store, {
+      eventType: "delivery.recovered",
+      actorSource: "service",
+      entity: { kind: "delivery", id: EVENTS_FILE },
+      decision: null,
+      reason: "events queue quarantined — scan windows reset",
+      correlationId: newCorrelationId(),
+      details: { quarantinePath: input.quarantinePath, bindingsReset: input.bindingsReset }
+    });
+  } catch (cause) {
+    input.log.warn("queue recovery audit row could not be appended", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+  }
+}
+async function recoverQuarantinedQueue(input) {
+  if (!claimQuarantinePass(input.store, input.quarantinePath)) {
+    return;
+  }
+  const bindingsReset = await resetScanWindows(input);
+  input.log.info("scan windows reset after the event queue was quarantined", { bindingsReset });
+  await recordQueueRecovery({ ...input, bindingsReset });
+}
+async function readQueue(input) {
+  const result = await input.store.readJson(EVENTS_FILE, parseStoredEvents);
+  if (result.status === "ok") {
+    return result.value;
+  }
+  if (result.status === "quarantined") {
+    input.log.warn("stored event queue was unusable and has been set aside", {
+      quarantinePath: result.quarantinePath
+    });
+    await recoverQuarantinedQueue({ ...input, quarantinePath: result.quarantinePath });
+  }
+  return [];
+}
+async function readEvents(input) {
+  try {
+    return await readQueue(input);
+  } catch (cause) {
+    input.log.warn("event queue read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
+    return [];
+  }
+}
+async function enqueueEvents(input) {
+  return await inQueueChain(async () => {
+    const existing = await readQueue(input);
+    const known = new Set(existing.map((event) => event.id));
+    const appended = input.incoming.filter((event) => !known.has(event.id));
+    if (appended.length === 0) {
+      return [];
+    }
+    await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended]));
+    return appended;
+  });
+}
+async function claimPendingEvents(input) {
+  return await inQueueChain(async () => {
+    const events = await readQueue(input);
+    const pending = events.filter((event) => event.state === "pending");
+    const claim = (event) => ({
+      ...event,
+      state: "in-flight",
+      claimedAt: input.claimedAt
+    });
+    if (pending.length === 0) {
+      return [];
+    }
+    const claimedIds = new Set(pending.map((event) => event.id));
+    const claimed = events.map((event) => claimedIds.has(event.id) ? claim(event) : event);
+    await input.store.writeJson(EVENTS_FILE, serializedQueue(claimed));
+    return pending.map(claim);
+  });
+}
+async function markEventDispatched(input) {
+  return await inQueueChain(async () => {
+    const events = await readQueue(input);
+    const match = events.find((event) => event.id === input.eventId);
+    if (match === undefined || match.state === "dispatched") {
+      return null;
+    }
+    const dispatched = {
+      ...match,
+      state: "dispatched",
+      dispatchedAt: nowIso(),
+      dispatchResult: input.result
+    };
+    const remaining = events.map((event) => event.id === input.eventId ? dispatched : event);
+    await input.store.writeJson(EVENTS_FILE, serializedQueue(remaining));
+    return dispatched;
+  });
 }
 
 // service/routes/events.ts
@@ -3090,6 +3141,7 @@ async function runScanCycle(deps) {
     return { bindings: [], enqueued: 0 };
   }
   const context = { store: deps.store, log: deps.log, poller: deps.poller };
+  await readEvents({ store: context.store, log: context.log });
   const [bindings, scannedState] = await Promise.all([
     readBindings({ store: context.store, log: context.log }),
     readScanState({ store: context.store, log: context.log })
