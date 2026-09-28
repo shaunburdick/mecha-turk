@@ -7,6 +7,10 @@
  * granted through the same `PUT /v1/bindings` whole-file call. Actions never
  * throw: every failure lands on the tab's note line, so one refused PUT
  * cannot take the panel down.
+ *
+ * Every bindings list the service confirms (a read or a grant) with an
+ * enabled row also arms the event relay — see {@link armRelayForBindings} —
+ * so the loop does not depend on what happened to be in state at mount.
  */
 
 import { parseRepository, repositoryLabel } from './config.ts';
@@ -22,6 +26,7 @@ import {
     serviceGet,
     servicePut,
 } from './service-calls.ts';
+import { startRelayPolling } from './relay.ts';
 import { countEnabledBindings, parseAccountsBody, parseBindingsBody } from './repos-service.ts';
 import type { BindingStatusRow, BindingsSnapshot, PanelAccount, PanelBinding, PanelTriggers } from './repos-service.ts';
 import type { PanelRuntime, Repositories } from './panel-state.ts';
@@ -198,9 +203,40 @@ export function readDraft(repos: Repositories): PreparedBinding | null {
 }
 
 /**
+ * Arm the event relay from one bindings list the service just confirmed.
+ *
+ * Arming used to happen in exactly two places — a *successful* mount-time
+ * read with a binding in it (`bindings-mode.loadInitialBindings`) and an
+ * integration-card connection while bindings were already active
+ * (`app.handleConnection`). Both are mount-time signals, so a panel whose
+ * first binding landed in-session, or whose mount-time `GET /v1/bindings`
+ * answered 503 (the service's spawn race on a first run), never armed:
+ * every later event sat `pending` until a remount. Any read or grant that
+ * lands here is proof the service is up and the binding exists, so it arms
+ * too. `startRelayPolling` is a no-op once `rt.relayArmed` is set, which
+ * makes the extra calls idempotent — and it kicks one immediate tick, so the
+ * operator does not wait out `RELAY_POLL_INTERVAL_MS` after binding.
+ *
+ * An empty list must not arm: a relay draining against no binding would
+ * mark queued events `binding-missing` before the binding they belong to
+ * ever lands.
+ *
+ * @param rt - Panel runtime.
+ * @param bindings - The bindings list the service just confirmed as stored.
+ */
+function armRelayForBindings(rt: PanelRuntime, bindings: readonly PanelBinding[]): void {
+    if (countEnabledBindings(bindings) > 0) {
+        startRelayPolling(rt);
+    }
+}
+
+/**
  * Replace the stored bindings with one PUT; never throws.
  *
  * On a refused body the panel keeps its local draft and the note explains.
+ * A granted list with an enabled row also arms the relay (see
+ * {@link armRelayForBindings}), so the first binding created in-session
+ * dispatches without waiting for a remount.
  *
  * @param input - Runtime, the replacement list, and the success note.
  */
@@ -241,6 +277,7 @@ async function grantBindings(input: {
     rt.state.repos.bindings = parsed.bindings;
     rt.state.repos.statusRows = parsed.status;
     rt.state.bindingsActive = countEnabledBindings(parsed.bindings);
+    armRelayForBindings(rt, parsed.bindings);
     rt.state.repos.note = note;
     refresh(rt);
 }
@@ -248,6 +285,11 @@ async function grantBindings(input: {
 /**
  * Load the bindings, their scan status, and the registered accounts the
  * Repos tab renders.
+ *
+ * The success path arms the relay when the read landed at least one enabled
+ * binding: this is the read the manual **Refresh** runs, and the one that
+ * answers after a mount-time 503, so it is where a panel that started empty
+ * (or against a service that was still spawning) finally joins the loop.
  *
  * @param rt - Panel runtime.
  */
@@ -268,6 +310,7 @@ export async function loadRepositories(rt: PanelRuntime): Promise<void> {
             rt.state.repos.bindings = snapshot.bindings;
             rt.state.repos.statusRows = snapshot.status;
             rt.state.bindingsActive = countEnabledBindings(snapshot.bindings);
+            armRelayForBindings(rt, snapshot.bindings);
         }
 
         // Assign only a read that produced a list: a failed read must not

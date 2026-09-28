@@ -13,6 +13,7 @@
 import type { GuestRequest, GuestRequestResult, JsonValue } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
 import { removeAccount, removeBinding } from '../extension/src/repos.ts';
+import { stopRelayPolling } from '../extension/src/relay.ts';
 import { BINDINGS_PATH, accountDeletePath } from '../extension/src/service-calls.ts';
 import { ACCOUNTS_STORAGE_KEY } from '../extension/src/account-mirror.ts';
 import { createRepositoriesHandlers } from '../extension/src/repos-mount.ts';
@@ -109,9 +110,16 @@ describe('removeBinding (per-binding purge control)', () => {
         rt.state.repos.selectedBinding = 'bnd-gone';
 
         await removeBinding(rt);
+        // The granted list still holds an enabled binding, so the relay arms
+        // and claims immediately (pre-PR arming fix) — stop that loop before
+        // counting the legs this test owns.
+        stopRelayPolling(rt);
 
         // The PUT carried the filtered list: one row, not the selected one.
-        expect(requests).toHaveLength(1);
+        expect(requests.map((request) => `${request.method} ${request.path}`)).toEqual([
+            'PUT /v1/bindings',
+            'GET /v1/events/pending',
+        ]);
         const put = requests[0];
         expect(put?.method).toBe('PUT');
         expect(put?.path).toBe(BINDINGS_PATH);
@@ -184,11 +192,15 @@ describe('removeAccount (two-step delete affordance)', () => {
         await tick();
 
         // The delete leads; the panel reloads both lists afterwards so the
-        // pickers lose the removed row.
+        // pickers lose the removed row. The reload lands an enabled binding,
+        // which arms the relay's immediate claim (pre-PR arming fix) — stop
+        // that loop so its interval cannot outlive the test.
+        stopRelayPolling(rt);
         expect(requests.map((request) => `${request.method} ${request.path}`)).toEqual([
             `DELETE /v1/accounts/${ACCOUNT_ID}`,
             'GET /v1/bindings',
             'GET /v1/accounts',
+            'GET /v1/events/pending',
         ]);
         // The connected identity pointed at the removed account.
         expect(rt.state.handoff.connected).toBeNull();
@@ -200,6 +212,9 @@ describe('removeAccount (two-step delete affordance)', () => {
         const { rt } = await removalRuntime(storage);
 
         await removeAccount(rt);
+        // The post-delete reload lands an enabled binding and arms the relay;
+        // stop it so the interval cannot outlive this test.
+        stopRelayPolling(rt);
 
         const mirrored = storage.values.get(ACCOUNTS_STORAGE_KEY);
         expect(mirrored).toEqual([]);

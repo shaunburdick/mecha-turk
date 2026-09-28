@@ -108,7 +108,11 @@ export function applyBindingsMode(rt: PanelRuntime): void {
  * the bindings are in state, and arms the event relay — but only when
  * bindings actually landed, because a relay dispatching against an empty
  * binding table would drain queued events as `binding-missing` before it
- * ever saw the binding they belong to.
+ * ever saw the binding they belong to. This mount-time arm is deliberately
+ * duplicated: `repos.loadRepositories` arms on every later read or grant
+ * that lands an enabled binding, which covers the mount-time 503 and the
+ * first binding added in-session (both arm idempotently through
+ * `startRelayPolling`).
  *
  * @param rt - Panel runtime.
  */
