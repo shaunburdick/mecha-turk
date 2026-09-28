@@ -42,7 +42,7 @@ Expect: 0 lint errors/warnings (zero suppressions — no `eslint-disable`, no `@
 2. **Add account**: paste PAT → `Connected as <login>` with numeric id. The token exists only in transit; panel state, storage, logs, and audit contain no token bytes (asserted by the secret-scan suite).
 3. **Add repository**: choose the account → choose an existing project from the picker → enable triggers (assignment / review request / mention; mention defaults to `@<login>`, case-insensitive). If the project isn't registered: `project_missing` + manual "Add project" guidance — no project is created by the extension.
 4. **Watch health**: `serviceStatus()`, per-repo last poll + checkpoint age, per-account rate usage, agent-pin status (`expected-agent` = `project-manager`).
-5. **Trigger work**: assign an issue to the account identity (or request a review / mention). Within ≤2×60 s the run appears, `host.startSession()` fires, and — **expected behavior** — the app switches to the new chat once so the panel can read `onSession().agent` (the only documented mechanism, research R3). Run becomes `dispatched` with a session link.
+5. **Trigger work**: assign an issue to the account identity (or request a review / mention). Within ≤2×60 s the run appears, `host.startSession()` fires, and — **expected behavior** — the app switches to the new chat once so the panel can read `onSession().agent` (the only documented mechanism, research R3). Run becomes `dispatched` with a session link, and the Repos pane's **Runs** section lists it (newest first) with its dispatch result; a non-dispatched run there has a **Retry run** button that requeues it.
 
 ## 5. Manual verification checklist (post-install)
 
@@ -53,7 +53,7 @@ Expect: 0 lint errors/warnings (zero suppressions — no `eslint-disable`, no `@
 | V3 | Kill the service process | `SERVICE_FAILED`, durable state intact, **manual** retry only (no auto-loop) |
 | V4 | Revoke a PAT on GitHub | That account's streams block with the capability named; other accounts unaffected; no token echoed |
 | V5 | Re-dispatch protection | An already-dispatched run never creates a second session (run key + lease + attach-id reconciliation) |
-| V6 | Set Default Agent to something else | Next run → `blocked:agent-mismatch` + audit entry + panel warning; remediation copy names both fixes |
+| V6 | Set Default Agent to something else | Next run → Runs area warning *"dispatched, but the session agent was '\<x\>' (expected project-manager)"* + a `session` ledger entry with `agentVerified: false` + a green banner when it *does* match. **Warn-only by M9's re-cut: the session keeps running, nothing is blocked** (the spec's `blocked:agent-mismatch` is deferred with the service-side mirror) |
 | V7 | Uninstall the extension | Panel storage wiped (checklist shown); **service store under `~/.config/openchamber/mecha-turk/` still present** — path printed in health before uninstall (live proof = task T-033) |
 | V8 | Unsupported surface (VS Code/mobile if available) | Explicit unsupported/disabled state; nothing claims to be polling |
 
