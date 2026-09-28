@@ -8,16 +8,23 @@
 - **Branch**: `full-project-plan` (non-protected; spec artifacts land here during phases 1–3. Each spec gets its own branch when implementation starts.)
 
 ## Current State
-- **Phase**: Phase 1 complete for **003, 004, 005** (all spec v1.0.0 APPROVED at the gate). **Remaining Phase 1 work: 006 (Settings — full config CRUD).** Session closed at this boundary per PM context discipline; 006 starts fresh from this handoff.
+- **Phase**: Phase 1 COMPLETE for all four features (003, 004, 005, 006 — all Approved). **Remaining this session: the cycle's second commit (006 + amendments).** Next session: Phases 4–5 per feature (plan + tasks → `modern-architect-engineer`), then Phase 6.
 - **Completed**:
   - 002 landed and live-validated (M5: two issues → two worktree sessions); feature roadmap agreed with product owner
   - **003 spec v1.0.0 APPROVED 2026-09-28** — 53 FR / 12 NFR / 11 SC / 29 AC, 5 user stories (P1×3, P2×2), 23 edge cases, 20 clarification rows + 3 gate confirmations. Cleared for `/speckit.plan`.
   - **004 spec v1.0.0 APPROVED 2026-09-28** — 55 FR / 10 NFR / 10 SC / 16 AC, 5 user stories, 23 edge cases, 21 clarification rows + 3 gate confirmations. Cleared for `/speckit.plan`.
   - **005 spec v1.0.0 APPROVED 2026-09-28** — 85 FR / 12 NFR / 12 SC / 40 AC, 8 user stories (P1×4), 25 edge cases, 28 clarification rows + 4 gate confirmations. Cleared for `/speckit.plan`.
-  - **Amendment chain**: 002 v1.1.0 → v1.4.0 (003 conformance, 004 extension, 005 extension; body verbatim, banners + history); 003 v1.0.0 → v1.2.0; 004 v1.0.0 → v1.1.0; 005 stays v1.0.0 (its own `### v1.0.0` Amendment History heading was corrected at session close — a stale `v1.1.0` carry-over).
-- **In Progress**: none (session closed at boundary)
+  - **006 spec APPROVED 2026-09-28 at v1.1.0 (bumped at the gate)** — 75 FR in nine reserved blocks, 12 NFR, 17 SC, 50 AC, 6 user stories (32 scenarios), 27 edge cases, 18 clarification rows, 4 resolved gate answers. The gate **overturned** the encoded default: the nine inert fields are now **wired into real consumers** (~3× scope; see 006 outcome below). Cleared for `/speckit.plan`.
+  - **Amendment chain (final)**: 002 → **v1.5.0** (003 conformance, 004 extension, 005 placement, 006 extension+reaffirmation; body verbatim; 002's v1.5.0 entry edited in place when 006's gate widened scope — no second bump, since no requirement text/vocabulary/behaviour changed in 002 itself); 003 → **v1.3.0** (004, 005, 006 record amendments); 004 → **v1.1.0**; 005 → **v1.1.0** (006 supersedes 005 FR-070 and FR-073).
+- **In Progress**: none — final commit pending
 - **Blocked**: none
-- **Uncommitted**: all spec work is uncommitted on `full-project-plan` (`M specs/002…/spec.md`, `?? specs/003…`, `?? specs/004…`, `?? specs/005…`). Nothing pushed — the repo has no remote.
+- **Commits**: `e1037fa` — `docs: approve feature specs 003-005; amend 002 to v1.4.0` (8 files, +2210/-3, verify green 563 tests). **Pending: 006 + the three predecessor amendments** (`M 002`, `M 003/spec`, `M 005`, `M 003/pm-handoff`, `?? specs/006-settings-crud/`). Nothing is ever pushed (AGENTS.md).
+
+## Git context for committing (learned this session — a resuming session needs this)
+- Worktree caveat: `.git` is a file, so hooks live in the **main gitdir** — `git rev-parse --git-path hooks` resolves to `/home/agents/github/shaunburdick/mecha-turk/.git/hooks` (the `prepare-commit-msg` attribution hook is installed there). The `check-hook.sh` script's literal `.git/hooks` path is unreliable in this worktree.
+- Identity: repo is on the `agent` identity (`Prompt it so <agents@burdick.dev>`, gh `prompt-it-so`) — the operator's deliberate agent identity; do not switch to `personal` (that's `shaunburdick`).
+- Attribution claim: `AI_AGENT=opencode OPENCODE_AGENT="project-manager" OPENCODE_MODEL="opencode/big-pickle" git commit ...` → trailer `Generated-By: project-manager (model: opencode/big-pickle)`.
+- Remote exists (`git@github.com:shaunburdick/mecha-turk.git`) but AGENTS.md forbids push — never push, never create a PR without explicit user approval.
 
 ## 005 outcome (decisions for context when 006 is specced)
 
@@ -106,12 +113,24 @@ Source: `specs/002-agent-event-extension/tasks.md` debt list and its final pre-P
 - Policy profiles, retention/export-restore, dedupe-index eviction → backlog
 - Any GitHub write (FR-031 stands; the extension and service stay read-only to GitHub)
 
+## 006 outcome (gate: 2026-09-28)
+
+**The finding that sized it**: only `intervalMs` had a runtime consumer; the other nine fields were stored with **no reader anywhere** (`logLevel` not even restart-applied — `main.ts:115` hardcoded `'info'`; lowering `auditRetentionDays` deleted nothing; `audit.ndjson` grew unbounded).
+
+**Gate answers (4):**
+1. **Inert fields → OVERTURNED: "also wire all fields (~3× size)"** — the owner rejected editable-but-inert. 006 now specifies every consumer: audit trim pass writing `audit.trimmed` with a protected run-chain set (opener + outcome rows survive, so correlation chains still answer *what it was* / *what happened*); excerpt trim over `events.json` (terminal rows only, `limitReached: 'excerpt-days'`); HTTP-poll backoff (`min(cap, base×2^(n−2)) × jitter[0.5,1.0]`, `retry-after` wins even over cap, exhaustion **retains** `lastScanAt` instead of today's clear-to-replay) with an explicit clause that this is **not** 003's requeue/attempt semantics (panel copy may say *requests / attempts / poll backoff*, never *requeue / run attempts / retry budget*); `overlapMs` consumed by `windowFor` (**closes 002 FR-019's conformance gap**); `perPage` replacing hardcoded `PAGE_SIZE` (002 FR-020 ceiling ≤30 kept). Classes now: 9 × `next-cycle`, 1 × `immediate` (logLevel), **0 × `stored-not-applied`**. Destructive confirmation truthfully states what is deleted, when, what survives.
+2. **`PUT /v1/config` last-writer-wins** — confirmed as encoded (matches `PUT /v1/bindings`).
+3. **`logLevel` `immediate`** — confirmed as encoded (service change required; `restart` would have lied about the shipped build).
+4. **`requeueBudget` deferred** — confirmed as encoded. No 11th field; `## Deferred` + 003 v1.3.0 stand.
+
+**Double-write incident (process lesson)**: after the background 006 dispatch appeared stalled (16 ms created→updated, no outcome), the PM re-dispatched foreground — both then ran and raced on the same files. On-disk is the foreground version, verified internally consistent; the divergent draft's `requeueBudget` idea surfaced as gate answer 4. **Rule: no background-mode subagent dispatches in this environment — foreground only.**
+
 ## Next Steps
 1. **006 (Settings — full config CRUD)** — Phase 1 spec, then its gate. Known scope: panel edit UI over the existing `GET`/`PUT /v1/config` (10 validated fields, additive 422 refusal, `config.json` in the service store); live-apply semantics are the open design question (recommendation to carry: `logLevel` live, `intervalMs`/`overlapMs`/`perPage` next-scheduled-poll, retention fields destructive-knob-confirmed); the Settings tab shell from 005 FR-xxx is the render target. The product-owner's decision at intake was **full CRUD over all service settings**, which is why 006 is bigger than read-mostly.
 2. **Phases 4–5 per feature** (plan + tasks via `modern-architect-engineer`), one dispatch per spec in order 003 → 004 → 005 → 006. Numbers are convention-protected: 003 (FR blocks of ten, AC-101+), 004 (FR blocks, NFR/SC/AC-120+), 005 (FR blocks, AC-1xx). Verify no renumbering.
 3. **Phase 6** per spec, routed by size (005 is Large → orchestration; 003/004/006 Medium → architect or orchestration by judgment call). `npm run verify` at every wave boundary.
 4. **Known cosmetics to fold in**: the `Rule:` framing-line fix; `#n title` copy; the 002 debt list items that 003/005 did not absorb (policy profiles, retention/export-restore, dedupe-index eviction, service-side `agentVerified` mirror, runs-list interval cadence → now "dispatches-list cadence").
-5. All spec work remains **uncommitted on `full-project-plan`** — commit at an agreed checkpoint (conventional commits + AI attribution via `git-agent-commit`; the repo has no remote, nothing is ever pushed).
+5. 003/004/005 Phase-1 work is **committed** as `e1037fa`. After 006's gate, verify green and commit 006 (conventional commit + AI attribution; never push).
 
 ## Next-session resume instructions (PM)
 Start: read THIS file. State: three of four feature specs approved; 006 is the remaining Phase 1 task. Diagnostics: `specs/003-dispatch-integrity/pm-handoff.md`, `specs/004-starting-prompt/spec.md`, `specs/005-panel-ia/spec.md` are the authoritative current surfaces. Dispatch `spec-driven-planner` for 006 exactly as this session did for 003–005 (no slash-command invocation; read `.opencode/commands/*.md` + `.specify/templates/spec-template.md`; stay on `full-project-plan`, no branch, no git).
