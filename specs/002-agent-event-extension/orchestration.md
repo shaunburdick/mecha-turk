@@ -4,7 +4,7 @@
 
 ## Current Wave
 
-**COMPLETE — pre-PR (2026-09-28)** — MVP M1–M9 all built, all checked in tasks.md, and **live-validated by the operator**: assignment, comment mention, issue-body mention, review request, runs list + retry, and agent verification all fired live (five dispatched events in the operator's store). docs-only closing pass on top of `4221da9`. Next action: PR to main, awaiting human merge.
+**COMPLETE — PR OPEN: https://github.com/shaunburdick/mecha-turk/pull/4 (2026-09-28), awaiting human merge.** MVP M1–M9 all built, all checked in tasks.md, and **live-validated by the operator**: assignment, comment mention, issue-body mention, review request, runs list + retry, and agent verification all fired live (five dispatched events in the operator's store). Final pre-PR review found 1 merge blocker (relay not arming on first-bind/service-race — fixed `60fa2cc`, probe-verified) + doc honesty fixes (`87f251d`); debt list expanded with all remaining findings. 563/563 green at `87f251d`.
 
 **SLICE 2 COMPLETE (M6–M9) 2026-09-27** — M6/M7 in `e966894`, M8/M9 panel side in `6af4c00`. The loop now reads end to end: bind → poll → events → relay → dispatch → **runs list with retry** → **agent read-back banner**. tasks.md M1–M9 all checked.
 
@@ -16,7 +16,7 @@ Bug family lesson (3x): writer/validator mismatches in store parsers — now cov
 
 ## Branch
 
-`001-agent-event-orchestrator` (tracks `origin/001-agent-event-orchestrator`; `origin/main` is the base). Last code commit `4221da9` (issue-body mentions, v1.1.0) — this docs commit records it and follows it on the same branch. 558/558 tests green at `4221da9`.
+`001-agent-event-orchestrator` (tracks `origin/001-agent-event-orchestrator`; `origin/main` is the base). HEAD `87f251d`, in sync with origin, 52 commits past `origin/main`. 563/563 tests green. **PR #4 open against main.**
 
 ## Tasks
 
@@ -43,6 +43,9 @@ None open. T-033/T-034 live-proof scheduling unchanged in spirit — superseded 
 N/A under MVP bar; watch for any single dispatch exceeding ~1 hour. M9's read-back shares the dispatch slot with a hard 15 s bound — one extra context switch per dispatch, accepted for the MVP.
 
 ## Next Action
+
+1. Human reviews/merges PR #4 (merging is always a human decision).
+2. Post-merge: operator enables branch protection on main if desired; debt-list items picked up in a future slice when they bite.
 
 1. **PR to main, awaiting human merge.** All M-tasks checked and live-validated; verification green at `4221da9`.
 2. Debt list grows only (tasks.md is the single list — it now carries the pre-M8 candidates and the M8/M9 additions; pick from there, not from this file).
