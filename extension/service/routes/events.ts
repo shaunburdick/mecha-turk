@@ -268,10 +268,10 @@ async function handlePendingEvents(context: RouteContext): Promise<HttpResponse>
  *
  * The panel's summary (the created session id, or a problem the panel reported)
  * is stored so the operator can trace a dispatch failure without a separate
- * runs list. An unknown id still answers `200` when the id has already been
- * marked — the review contract wanted idempotency — but an id that is not in
- * the queue at all is `404 unknown-event`, which is the honest answer for a
- * stale path the panel re-posted later than the queue kept it.
+ * runs list. A re-post for an id that is already marked answers `404
+ * not-found` — `markEventDispatched` waits for a dispatch result only once —
+ * as does an id the queue never held, the honest answer for a stale path the
+ * panel re-posted later than the queue kept it.
  *
  * @param context - Route context carrying the open store.
  * @param request - Routed request; the path captures `:eventId`.
