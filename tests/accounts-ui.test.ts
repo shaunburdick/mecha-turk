@@ -9,27 +9,27 @@
  * by a static scan — it must write through `textContent`/`setAttribute` only
  * and must pin `type="password"` with `autocomplete="new-password"` — and
  * (review F-E) that sink scan now covers **every** module under
- * `extension/src`, not just the adapter.
+ * `src`, not just the adapter.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { adoptServiceAccounts } from '../extension/src/account-adoption.ts';
+import { adoptServiceAccounts } from '../src/account-adoption.ts';
 import {
     acceptConsentAndRepaint,
     handoffInputEnabled,
     refreshHandoff,
     renderHandoff,
-} from '../extension/src/accounts-ui.ts';
+} from '../src/accounts-ui.ts';
 import {
     CONSENT_COPY_V1,
     CONSENT_STORAGE_KEY,
     CONSENT_VERSION,
     restoreStoredConsent,
-} from '../extension/src/consent.ts';
-import { ACCOUNTS_STORAGE_KEY } from '../extension/src/account-mirror.ts';
-import { STORAGE_REFUSAL } from '../extension/src/handoff-copy.ts';
+} from '../src/consent.ts';
+import { ACCOUNTS_STORAGE_KEY } from '../src/account-mirror.ts';
+import { STORAGE_REFUSAL } from '../src/handoff-copy.ts';
 import {
     CONNECTED_ID,
     CONNECTED_LOGIN,
@@ -44,10 +44,10 @@ import {
 import { createStorageDouble, createTestRuntime, fakeHost } from './support/panel.ts';
 
 /** Filesystem path of the DOM adapter, for the static rendering scan. */
-const DOM_SOURCE_PATH = resolve(import.meta.dirname, '../extension/src/accounts-ui.ts');
+const DOM_SOURCE_PATH = resolve(import.meta.dirname, '../src/accounts-ui.ts');
 
 /** Directory holding every panel module the widened scan reads (F-E). */
-const SRC_DIR = resolve(import.meta.dirname, '../extension/src');
+const SRC_DIR = resolve(import.meta.dirname, '../src');
 
 /** Usage patterns of the HTML sinks contract §4 rule 5 forbids. */
 const HTML_SINKS: readonly RegExp[] = [
@@ -120,7 +120,7 @@ describe('rendering (contract §1.1, §4 rule 5, SEC-17)', () => {
         expect(source).not.toMatch(/\.outerHTML\b/);
     });
 
-    it('keeps every module of extension/src on text-only sinks (F-E)', () => {
+    it('keeps every module of src on text-only sinks (F-E)', () => {
         const modules = readdirSync(SRC_DIR, { recursive: true })
             .map((entry) => String(entry))
             .filter((entry) => entry.endsWith('.ts'));

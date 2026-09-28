@@ -12,10 +12,10 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect } from 'vitest';
-import { CONSENT_VERSION } from '../../extension/src/consent.ts';
-import { ACCOUNTS_DIR } from '../../extension/service/accounts/store.ts';
-import { VERIFY_PATH } from '../../extension/service/routes/verify.ts';
-import type { ScopeCapability, ScopeResult, VerifyOutcome } from '../../extension/service/github.ts';
+import { CONSENT_VERSION } from '../../src/consent.ts';
+import { ACCOUNTS_DIR } from '../../service/accounts/store.ts';
+import { VERIFY_PATH } from '../../service/routes/verify.ts';
+import type { ScopeCapability, ScopeResult, VerifyOutcome } from '../../service/github.ts';
 import { fakeGitHub, userBody } from './github.ts';
 import { startTestService } from './service.ts';
 import type { EndpointResponse, FakeGitHub, GitHubScript } from './github.ts';

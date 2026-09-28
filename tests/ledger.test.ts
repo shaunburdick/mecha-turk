@@ -13,9 +13,9 @@ import {
     MAX_DETAIL_CHARS,
     MAX_LEDGER_ENTRIES,
     LEDGER_SCHEMA_VERSION,
-} from '../extension/src/ledger.ts';
-import type { LifecyclePhase, SpikeLedger } from '../extension/src/ledger.ts';
-import { RedactionError } from '../extension/src/redaction.ts';
+} from '../src/ledger.ts';
+import type { LifecyclePhase, SpikeLedger } from '../src/ledger.ts';
+import { RedactionError } from '../src/redaction.ts';
 
 /** Start timestamp for every timeline in these tests. */
 const T0 = '2026-09-26T12:00:00.000Z';

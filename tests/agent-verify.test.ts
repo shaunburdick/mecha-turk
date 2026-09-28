@@ -21,12 +21,12 @@ import {
     verificationNotice,
     verifyAgentAfterDispatch,
     verifySessionAgent,
-} from '../extension/src/agent-verify.ts';
-import { dispatchQueuedEvent } from '../extension/src/relay.ts';
-import type { PanelRuntime } from '../extension/src/panel-state.ts';
-import type { SpikeHost } from '../extension/src/session.ts';
-import type { RelayEvent } from '../extension/src/repos-service.ts';
-import type { RunRow } from '../extension/src/runs-service.ts';
+} from '../src/agent-verify.ts';
+import { dispatchQueuedEvent } from '../src/relay.ts';
+import type { PanelRuntime } from '../src/panel-state.ts';
+import type { SpikeHost } from '../src/session.ts';
+import type { RelayEvent } from '../src/repos-service.ts';
+import type { RunRow } from '../src/runs-service.ts';
 import {
     FIXTURE_TIMESTAMP,
     IDLE_UNSUBSCRIBE,

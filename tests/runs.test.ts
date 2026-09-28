@@ -13,8 +13,8 @@
 
 import { describe, expect, it } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
-import { createRepositoriesHandlers } from '../extension/src/repos-mount.ts';
-import { initialRuns } from '../extension/src/panel-state.ts';
+import { createRepositoriesHandlers } from '../src/repos-mount.ts';
+import { initialRuns } from '../src/panel-state.ts';
 import {
     RUNS_EMPTY_STATUS,
     RUNS_EMPTY_TEXT,
@@ -22,12 +22,12 @@ import {
     runRows,
     runsStatusText,
     selectedRun,
-} from '../extension/src/runs-rows.ts';
-import { loadRuns, openRun, retryRun, selectRun } from '../extension/src/runs.ts';
-import { parseRunsBody } from '../extension/src/runs-service.ts';
-import { EVENTS_PATH, retryPath } from '../extension/src/service-calls.ts';
-import type { PanelRuntime, RunsState } from '../extension/src/panel-state.ts';
-import type { RunRow } from '../extension/src/runs-service.ts';
+} from '../src/runs-rows.ts';
+import { loadRuns, openRun, retryRun, selectRun } from '../src/runs.ts';
+import { parseRunsBody } from '../src/runs-service.ts';
+import { EVENTS_PATH, retryPath } from '../src/service-calls.ts';
+import type { PanelRuntime, RunsState } from '../src/panel-state.ts';
+import type { RunRow } from '../src/runs-service.ts';
 import {
     DEFAULT_BODY,
     DEFAULT_STATUS,

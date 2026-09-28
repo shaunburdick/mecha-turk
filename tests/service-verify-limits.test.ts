@@ -8,10 +8,10 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../extension/src/consent.ts';
-import { ACCOUNT_PATH, ACCOUNT_TOKEN_PATH } from '../extension/service/routes/accounts.ts';
-import { VERIFY_MAX_ATTEMPTS } from '../extension/service/throttle.ts';
-import type { VerifyOutcome } from '../extension/service/github.ts';
+import { CONSENT_VERSION } from '../src/consent.ts';
+import { ACCOUNT_PATH, ACCOUNT_TOKEN_PATH } from '../service/routes/accounts.ts';
+import { VERIFY_MAX_ATTEMPTS } from '../service/throttle.ts';
+import type { VerifyOutcome } from '../service/github.ts';
 import { startTestService } from './support/service.ts';
 import { scriptedVerifier } from './support/github.ts';
 import type { TestService } from './support/service.ts';

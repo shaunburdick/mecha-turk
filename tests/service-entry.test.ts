@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 const ROOT = resolvePath(import.meta.dirname, '..');
 
 /** Committed bundle the host spawns with the app runtime. */
-const ENTRY = resolvePath(ROOT, 'extension/service/main.js');
+const ENTRY = resolvePath(ROOT, 'service/main.js');
 
 /** Loopback address the service must bind. */
 const HOST = '127.0.0.1';

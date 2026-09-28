@@ -7,9 +7,9 @@ import {
     readEvidence,
     EvidenceError,
     EVIDENCE_SCHEMA_VERSION,
-} from '../extension/src/evidence.ts';
-import type { EvidenceInput } from '../extension/src/evidence.ts';
-import { parseJsonValue } from '../extension/src/json.ts';
+} from '../src/evidence.ts';
+import type { EvidenceInput } from '../src/evidence.ts';
+import { parseJsonValue } from '../src/json.ts';
 
 /** Issue number used across the evidence tests. */
 const ISSUE_NO = 12;

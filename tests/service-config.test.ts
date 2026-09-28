@@ -13,10 +13,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_CONFIG, validateConfig } from '../extension/service/config.ts';
-import { SERVICE_SCHEMA_VERSION } from '../extension/service/store/index.ts';
-import type { ServiceConfig } from '../extension/service/config.ts';
-import type { ServiceStatusBody } from '../extension/service/routes/status.ts';
+import { DEFAULT_CONFIG, validateConfig } from '../service/config.ts';
+import { SERVICE_SCHEMA_VERSION } from '../service/store/index.ts';
+import type { ServiceConfig } from '../service/config.ts';
+import type { ServiceStatusBody } from '../service/routes/status.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 

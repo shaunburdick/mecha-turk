@@ -8,8 +8,8 @@ export default [
     // linted in full.
     {
         ignores: [
-            'extension/panel/main.js',
-            'extension/service/main.js',
+            'panel/main.js',
+            'service/main.js',
             'node_modules/**',
             'coverage/**',
         ],

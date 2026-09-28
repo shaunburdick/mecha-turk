@@ -11,8 +11,8 @@
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../extension/src/consent.ts';
-import { ACCOUNTS_DIR } from '../extension/service/accounts/store.ts';
+import { CONSENT_VERSION } from '../src/consent.ts';
+import { ACCOUNTS_DIR } from '../service/accounts/store.ts';
 import {
     ACCOUNT_ID,
     ACCOUNT_LOGIN,

@@ -11,11 +11,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { repaintReposSection } from '../extension/src/panel-ui.ts';
-import type { PanelRuntime, ReposSection } from '../extension/src/panel-state.ts';
-import type { ReposPane } from '../extension/src/repos-ui.ts';
-import { createRepositoriesHandlers } from '../extension/src/repos-mount.ts';
-import { BINDINGS_PATH } from '../extension/src/service-calls.ts';
+import { repaintReposSection } from '../src/panel-ui.ts';
+import type { PanelRuntime, ReposSection } from '../src/panel-state.ts';
+import type { ReposPane } from '../src/repos-ui.ts';
+import { createRepositoriesHandlers } from '../src/repos-mount.ts';
+import { BINDINGS_PATH } from '../src/service-calls.ts';
 import {
     createTestRuntime,
     DEFAULT_BODY,

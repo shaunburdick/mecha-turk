@@ -36,27 +36,27 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { writeAccount } from '../extension/service/accounts/store.ts';
-import { readAuditEntries } from '../extension/service/audit.ts';
-import { writeBindings } from '../extension/service/bindings.ts';
-import { createLogger } from '../extension/service/log.ts';
+import { writeAccount } from '../service/accounts/store.ts';
+import { readAuditEntries } from '../service/audit.ts';
+import { writeBindings } from '../service/bindings.ts';
+import { createLogger } from '../service/log.ts';
 import {
     EVENTS_FILE,
     createEvent,
     enqueueEvents,
     parseStoredEvent,
     readEvents,
-} from '../extension/service/poll/events.ts';
-import { runScanCycle, windowFor } from '../extension/service/poll/loop.ts';
-import { SCAN_STATE_FILE, readScanState } from '../extension/service/poll/scan.ts';
-import { openStore } from '../extension/service/store/index.ts';
-import type { Account } from '../extension/service/accounts/model.ts';
-import type { AuditEntry } from '../extension/service/audit.ts';
-import type { BindingRecord } from '../extension/service/bindings.ts';
-import type { EventSnapshot, QueuedEvent } from '../extension/service/poll/events.ts';
-import type { ServiceLogger } from '../extension/service/log.ts';
-import type { GitHubIssuePoller, PollIssue } from '../extension/service/poll/poller-github.ts';
-import type { ServiceStore } from '../extension/service/store/index.ts';
+} from '../service/poll/events.ts';
+import { runScanCycle, windowFor } from '../service/poll/loop.ts';
+import { SCAN_STATE_FILE, readScanState } from '../service/poll/scan.ts';
+import { openStore } from '../service/store/index.ts';
+import type { Account } from '../service/accounts/model.ts';
+import type { AuditEntry } from '../service/audit.ts';
+import type { BindingRecord } from '../service/bindings.ts';
+import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
+import type { ServiceLogger } from '../service/log.ts';
+import type { GitHubIssuePoller, PollIssue } from '../service/poll/poller-github.ts';
+import type { ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/verify.ts';
 
 /** First fixture binding. */

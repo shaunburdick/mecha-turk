@@ -5,7 +5,7 @@ import {
     redact,
     stripCredentialKeys,
     RedactionError,
-} from '../extension/src/redaction.ts';
+} from '../src/redaction.ts';
 
 /** Length a token body needs before the patterns treat it as real material. */
 const TOKEN_BODY = 40;

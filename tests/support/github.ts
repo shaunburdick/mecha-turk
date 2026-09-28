@@ -14,8 +14,8 @@
  * socket, so an accidental call fails the test instead of the network.
  */
 
-import { createGitHubVerifier } from '../../extension/service/github.ts';
-import type { FetchLike, GitHubVerifier, VerifyOutcome } from '../../extension/service/github.ts';
+import { createGitHubVerifier } from '../../service/github.ts';
+import type { FetchLike, GitHubVerifier, VerifyOutcome } from '../../service/github.ts';
 
 /** One scripted answer for one GitHub endpoint. */
 export interface EndpointResponse {

@@ -13,13 +13,13 @@
 import { HostRequestError } from '@openchamber/sdk';
 import type { HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
-import { handoffInputEnabled, submitHandoffAndRepaint } from '../extension/src/accounts-ui.ts';
-import { CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../extension/src/consent.ts';
-import { VERIFY_PATH, acceptHandoffConsent } from '../extension/src/handoff.ts';
-import { ACCOUNTS_STORAGE_KEY } from '../extension/src/account-mirror.ts';
-import { STATUS_PATH, preflightHandoff } from '../extension/src/handoff-status.ts';
-import { CONSENT_REFUSAL, STORAGE_REFUSAL } from '../extension/src/handoff-copy.ts';
-import { ACCOUNTS_PATH, BINDINGS_PATH } from '../extension/src/service-calls.ts';
+import { handoffInputEnabled, submitHandoffAndRepaint } from '../src/accounts-ui.ts';
+import { CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../src/consent.ts';
+import { VERIFY_PATH, acceptHandoffConsent } from '../src/handoff.ts';
+import { ACCOUNTS_STORAGE_KEY } from '../src/account-mirror.ts';
+import { STATUS_PATH, preflightHandoff } from '../src/handoff-status.ts';
+import { CONSENT_REFUSAL, STORAGE_REFUSAL } from '../src/handoff-copy.ts';
+import { ACCOUNTS_PATH, BINDINGS_PATH } from '../src/service-calls.ts';
 import { tick } from './support/panel.ts';
 import {
     CONNECTED_ID,

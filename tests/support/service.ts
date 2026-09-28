@@ -14,11 +14,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readServiceEnv } from '../../extension/service/env.ts';
-import { createLogger } from '../../extension/service/log.ts';
-import { startService } from '../../extension/service/server.ts';
-import type { GitHubVerifier } from '../../extension/service/github.ts';
-import type { ServiceHandle } from '../../extension/service/server.ts';
+import { readServiceEnv } from '../../service/env.ts';
+import { createLogger } from '../../service/log.ts';
+import { startService } from '../../service/server.ts';
+import type { GitHubVerifier } from '../../service/github.ts';
+import type { ServiceHandle } from '../../service/server.ts';
 import { offlineVerifier } from './github.ts';
 
 /** Port value the harness hands the service so the OS picks one. */

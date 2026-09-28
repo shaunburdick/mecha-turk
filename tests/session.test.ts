@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { GuestProjectsSnapshot, GuestWorktreesSnapshot, StartSessionResult } from '@openchamber/sdk';
-import type { GitHubIssue } from '../extension/src/github.ts';
-import { summarizeHostVerification, verifyHostState } from '../extension/src/host-verify.ts';
-import { appendEntry, createLedger } from '../extension/src/ledger.ts';
-import type { SpikeLedger } from '../extension/src/ledger.ts';
+import type { GitHubIssue } from '../src/github.ts';
+import { summarizeHostVerification, verifyHostState } from '../src/host-verify.ts';
+import { appendEntry, createLedger } from '../src/ledger.ts';
+import type { SpikeLedger } from '../src/ledger.ts';
 import {
     CONTEXT_MAX_CHARS,
     buildBoundedContext,
@@ -11,8 +11,8 @@ import {
     findDispatchForIssue,
     resolveProject,
     summarizeStartSessionResult,
-} from '../extension/src/session.ts';
-import type { SpikeHost } from '../extension/src/session.ts';
+} from '../src/session.ts';
+import type { SpikeHost } from '../src/session.ts';
 import {
     IDLE_UNSUBSCRIBE,
     ISSUE_URL,
