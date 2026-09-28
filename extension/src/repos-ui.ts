@@ -8,7 +8,9 @@
  * from the host's own `listProjects()` state, then the trigger checkboxes
  * and the worktree option. All service-supplied strings reach the DOM
  * through the SDK primitives' `textContent` writes — no HTML sink is
- * touched (panel-service contract §3 invariant 11).
+ * touched (panel-service contract §3 invariant 11). The binding list rows
+ * themselves — the scan stamp, skip reason, and pending count the operator
+ * reads per row — live in `repos-rows.ts`.
  */
 
 import {
@@ -23,7 +25,6 @@ import {
 import type {
     ButtonHandle,
     CheckboxHandle,
-    ListItem,
     ListHandle,
     SelectHandle,
     TabsHandle,
@@ -32,6 +33,7 @@ import type {
     TextFieldHandle,
 } from '@openchamber/sdk/ui';
 import type { PanelRuntime, Repositories } from './panel-state.ts';
+import { bindingRows } from './repos-rows.ts';
 
 /** The pane handle: tab strip, pane element, and every repaint handle. */
 export interface ReposPane {
@@ -117,78 +119,6 @@ export const REMOVE_ACCOUNT_IDLE_LABEL = 'Remove account';
 
 /** Confirm-step label after the first click (no `confirm()` in the frame). */
 export const REMOVE_ACCOUNT_CONFIRM_LABEL = 'Confirm remove';
-
-/** The slice of one status row the binding rows read. */
-interface StatusRowView {
-    readonly lastScanAt: string | null;
-    readonly lastError: string | null;
-    readonly pendingCount: number;
-}
-
-/** One binding the rows render. */
-interface BindingView {
-    readonly bindingId: string;
-    readonly repository: string;
-    readonly accountLogin: string;
-    readonly projectId: string;
-    readonly state: 'active' | 'disabled';
-}
-
-/**
- * Find the status row for one binding.
- *
- * @param repos - Repos state.
- * @param bindingId - Row key.
- * @returns The row, or `null` before the first poll.
- */
-function statusRowOf(repos: Repositories, bindingId: string): StatusRowView | null {
-    return repos.statusRows.find((candidate) => candidate.bindingId === bindingId) ?? null;
-}
-
-/**
- * Read one status row's scan phrase.
- *
- * @param row - The status row.
- * @returns The `last poll <time>` phrase, or the skip reason.
- */
-function scanPhrase(row: StatusRowView): string {
-    if (row.lastError !== null) {
-        return `last poll skipped (${row.lastError})`;
-    }
-
-    return `last poll ${row.lastScanAt ?? 'never'}`;
-}
-
-/**
- * Compose one binding row.
- *
- * @param repos - Repos state.
- * @param binding - The binding to render.
- * @returns The list row.
- */
-function bindingRow(repos: Repositories, binding: BindingView): ListItem {
-    const row = statusRowOf(repos, binding.bindingId);
-    const scan = row === null ? 'not scanned yet' : scanPhrase(row);
-    const subtitle = `polled as ${binding.accountLogin} · ${binding.projectId} · ${scan}`;
-
-    return {
-        id: binding.bindingId,
-        leading: binding.state === 'active' ? 'on' : 'off',
-        title: `${binding.repository} → ${binding.projectId}`,
-        subtitle,
-        meta: String(row === null ? 0 : row.pendingCount),
-    };
-}
-
-/**
- * Build the bindings list rows from state.
- *
- * @param repos - The Repos tab's state.
- * @returns The list rows, in stored order.
- */
-function bindingRows(repos: Repositories): ListItem[] {
-    return repos.bindings.map((binding) => bindingRow(repos, binding));
-}
 
 /**
  * Compose the pane's one status line.

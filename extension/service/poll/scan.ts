@@ -24,7 +24,10 @@ export interface BindingScanState {
 
 /** Shape of the whole scan-state file. */
 export interface ScanState {
-    /** One slot per binding; a binding never scanned is absent. */
+    /**
+     * One slot per binding; a slot whose `lastScanAt` is `null` records a
+     * binding that has never completed a scan (its `lastError` says why).
+     */
     readonly bindings: Readonly<Record<string, BindingScanState>>;
 }
 
@@ -40,6 +43,12 @@ export function emptyScanState(): ScanState {
 /**
  * Validate a stored per-binding slot.
  *
+ * `lastScanAt` is `string | null` exactly as {@link BindingScanState} writes
+ * it: the scan loop records `null` for a binding that has never completed a
+ * successful scan (a skip records the reason with no stamp), so requiring a
+ * string here would refuse every file the loop itself just wrote and set the
+ * whole document aside on each cycle.
+ *
  * @param value - Candidate slot.
  * @returns The slot, or `null` when the shape is unusable.
  */
@@ -49,11 +58,16 @@ function parseBindingSlot(value: unknown): BindingScanState | null {
     }
 
     const { lastScanAt, lastError } = value;
-    if (typeof lastScanAt !== 'string' || (lastError !== null && typeof lastError !== 'string')) {
+    const stampHolds = lastScanAt === null || typeof lastScanAt === 'string';
+    const reasonHolds = lastError === null || typeof lastError === 'string';
+    if (!stampHolds || !reasonHolds) {
         return null;
     }
 
-    return { lastScanAt, lastError: typeof lastError === 'string' ? lastError : null };
+    return {
+        lastScanAt: typeof lastScanAt === 'string' ? lastScanAt : null,
+        lastError: typeof lastError === 'string' ? lastError : null,
+    };
 }
 
 /**

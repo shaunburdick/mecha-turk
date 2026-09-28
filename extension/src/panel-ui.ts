@@ -234,19 +234,45 @@ export function mountPanelUi(rt: PanelRuntime, input: { root: HTMLElement; handl
 }
 
 /**
+ * Build the identity segment of the one-line context summary.
+ *
+ * Bindings mode polls under the service-side account bound to the
+ * repository, so the legacy `state.login` — the host integration token — is
+ * not the identity any scan runs as, and reporting it as "not authenticated"
+ * while bindings poll is simply false. The line therefore names the connected
+ * service login (`identity: <login> (service)`), falling back to the plain
+ * `identity: service account` while nothing is connected yet. With no active
+ * bindings the legacy single-repo wording is kept unchanged.
+ *
+ * @param state - Panel state.
+ * @returns The `identity: …` segment of the summary.
+ */
+function identityLine(state: PanelState): string {
+    if (state.bindingsActive > 0) {
+        const { connected } = state.handoff;
+
+        return connected === null ? 'identity: service account' : `identity: ${connected.login} (service)`;
+    }
+
+    return state.login === null ? 'identity: not authenticated' : `identity: ${state.login}`;
+}
+
+/**
  * Build the one-line context summary.
+ *
+ * Exported so the truthfulness of each segment (identity in bindings mode
+ * above all) can be asserted without a live DOM.
  *
  * @param state - Panel state.
  * @returns Plain text describing configuration, identity, and match state.
  */
-function summarizeState(state: PanelState): string {
+export function summarizeState(state: PanelState): string {
     const configured = state.config === null ? null : repositoryLabel(state.config.repository);
     const repository = configured === null ? 'repository: not configured' : `repository: ${configured}`;
-    const identity = state.login === null ? 'identity: not authenticated' : `identity: ${state.login}`;
     const match = state.match === null ? 'match: none' : `match: issue #${state.match.issueNumber}`;
     const storage = `ledger: generation ${state.ledger.panelGeneration}, ${state.ledger.entries.length} entries`;
 
-    return [repository, identity, match, storage].join(' · ');
+    return [repository, identityLine(state), match, storage].join(' · ');
 }
 
 /**
@@ -343,6 +369,10 @@ export function refresh(rt: PanelRuntime): void {
         ui.banner.update({ tone: state.status.tone, title: state.status.title, body: state.status.body });
         ui.summary.update({ text: summarizeState(state) });
         ui.list.update({ items: buildListItems(state) });
+        // Bindings mode leaves this legacy control alone deliberately: the
+        // "Bindings active" banner already says the service owns polling, so
+        // the button keeps driving only the legacy single-repo loop it always
+        // did (MVP fix 4 chose the smaller change over a disabled note).
         ui.poll.update({ disabled: !state.connected || state.config === null || rt.pollInFlight });
         ui.dispatch.update({ disabled: state.evidence === null || state.busy, loading: state.busy });
         ui.verify.update({ disabled: state.config === null || state.busy });

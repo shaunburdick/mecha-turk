@@ -142,13 +142,19 @@ function repositoryRefOf(binding: BindingRecord): RepositoryRef {
  * has one, else the binding's creation stamp — the first scan is a baseline,
  * not a backlog replay.
  *
+ * A recorded slot of `lastScanAt: null` means "no scan ever completed" (the
+ * loop writes that for a binding whose scans were skipped, e.g. on an
+ * unusable credential), so it falls through to the creation stamp exactly
+ * like an absent slot: the binding still gets a baseline instead of an
+ * unbounded window over the repository's whole open-issue history.
+ *
  * @param binding - Binding being scanned.
  * @param scanned - Scan state read at cycle start.
  * @returns The window start, or `null` when neither source yields a stamp.
  */
-function windowFor(binding: BindingRecord, scanned: ScanState): string | null {
+export function windowFor(binding: BindingRecord, scanned: ScanState): string | null {
     const recorded = scanned.bindings[binding.bindingId];
-    if (recorded?.lastScanAt !== undefined) {
+    if (recorded !== undefined && recorded.lastScanAt !== null) {
         return recorded.lastScanAt;
     }
 

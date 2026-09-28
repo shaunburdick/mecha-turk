@@ -2,11 +2,16 @@
  * Binding management routes (MVP task M3 — re-cut 2026-09-27).
  *
  * The panel keeps the bindings list and grants it whole: `GET /v1/bindings`
- * returns the stored list (credential-free by construction — bindings carry
- * account identities, never tokens), `PUT /v1/bindings` replaces it after
- * field validation and an account-existence check. The account-delete guard
- * in `accounts/store.ts` reads the same file, so a binding disabled there
- * stays disabled here.
+ * returns the stored list plus the per-binding scan status (credential-free
+ * by construction — bindings carry account identities, never tokens, and the
+ * status rows carry scan stamps, skip reasons, and pending counts),
+ * `PUT /v1/bindings` replaces it after field validation and an
+ * account-existence check. The account-delete guard in `accounts/store.ts`
+ * reads the same file, so a binding disabled there stays disabled here.
+ *
+ * The status rows are the same shape the relay's pending answer carries, so
+ * one panel parser reads both (the field set is the contract's status row,
+ * unchanged).
  *
  * MVP-DEBT: the contract's per-binding `PATCH /v1/bindings/:bindingId` state
  * machine is not implemented — this whole-file grant is the simplest honest
@@ -17,20 +22,24 @@ import { listAccounts } from '../accounts/store.ts';
 import { readBindings, validateBindings, writeBindings } from '../bindings.ts';
 import { errorResponse, STATUS, storageUnavailableResponse } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
+import { readStatusRows } from './events.ts';
 import type { Route, RouteContext, RouteRequest } from './types.ts';
 
 /** Path of the bindings collection. */
 export const BINDINGS_PATH = '/v1/bindings';
 
 /**
- * Answer `GET /v1/bindings` with the stored bindings, credential-free.
+ * Answer `GET /v1/bindings` with the stored bindings and their scan status.
  *
  * A missing file is the fresh-install state and answers an empty list; a
  * file the parser could not fully read is skipped by the store's own
- * quarantine report in the log, so the panel always gets a usable list.
+ * quarantine report in the log, so the panel always gets a usable list. The
+ * status rows are what makes the service-side failures (an unusable
+ * credential, a scan that never ran) visible on the binding rows instead of
+ * only in the service log.
  *
  * @param context - Route context carrying the open store.
- * @returns `200 { bindings }`, or the documented 503.
+ * @returns `200 { bindings, status }`, or the documented 503.
  */
 async function handleGetBindings(context: RouteContext): Promise<HttpResponse> {
     const { store } = context;
@@ -39,8 +48,9 @@ async function handleGetBindings(context: RouteContext): Promise<HttpResponse> {
     }
 
     const bindings = await readBindings({ store, log: context.log });
+    const status = await readStatusRows({ store, log: context.log, bindings });
 
-    return { status: STATUS.ok, body: { bindings } };
+    return { status: STATUS.ok, body: { bindings, status } };
 }
 
 /**
@@ -55,7 +65,7 @@ async function handleGetBindings(context: RouteContext): Promise<HttpResponse> {
  *
  * @param context - Route context carrying the open store.
  * @param request - The routed request carrying the full replacement body.
- * @returns `200 { bindings }` after the write, or the field-level 422.
+ * @returns `200 { bindings, status }` after the write, or the field-level 422.
  */
 async function handlePutBindings(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;
@@ -87,8 +97,12 @@ async function handlePutBindings(context: RouteContext, request: RouteRequest): 
     }
 
     await writeBindings({ store, bindings: validation.bindings });
+    // The answer carries status rows too: the panel repaints its binding rows
+    // from whatever a grant answered, and a bare list would blank the scan
+    // lines the operator was just reading.
+    const status = await readStatusRows({ store, log: context.log, bindings: validation.bindings });
 
-    return { status: STATUS.ok, body: { bindings: validation.bindings } };
+    return { status: STATUS.ok, body: { bindings: validation.bindings, status } };
 }
 
 /** Read the stored bindings, credential-free. */

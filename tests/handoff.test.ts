@@ -19,6 +19,8 @@ import { VERIFY_PATH, acceptHandoffConsent } from '../extension/src/handoff.ts';
 import { ACCOUNTS_STORAGE_KEY } from '../extension/src/account-mirror.ts';
 import { STATUS_PATH, preflightHandoff } from '../extension/src/handoff-status.ts';
 import { CONSENT_REFUSAL, STORAGE_REFUSAL } from '../extension/src/handoff-copy.ts';
+import { ACCOUNTS_PATH, BINDINGS_PATH } from '../extension/src/service-calls.ts';
+import { tick } from './support/panel.ts';
 import {
     CONNECTED_ID,
     CONNECTED_LOGIN,
@@ -73,7 +75,15 @@ describe('consent gate (AC-002, contract §1)', () => {
 
         await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
 
-        expect(host.requests.map((request) => request.path)).toEqual([STATUS_PATH, VERIFY_PATH]);
+        // After the verify, the success re-reads the Repos tab's two lists so
+        // the accounts dropdown offers the account the service just registered
+        // (MVP fix 3) — no credential rides on those reads.
+        expect(host.requests.map((request) => request.path)).toEqual([
+            STATUS_PATH,
+            VERIFY_PATH,
+            BINDINGS_PATH,
+            ACCOUNTS_PATH,
+        ]);
         const posted = host.requests[1];
         const body = JSON.parse(posted?.body ?? '{}') as Record<string, unknown>;
         expect(body.consentVersion).toBe(CONSENT_VERSION);
@@ -108,6 +118,56 @@ describe('successful handoff (contract §2 steps ⑧⑨)', () => {
 
         expect(handoffInputEnabled(host.rt.state.handoff)).toBe(true);
         expect(host.record.consentShown).toBe(false);
+    });
+});
+
+describe('post-connect Repos reload (MVP fix 3, accounts dropdown)', () => {
+    /** Bindings answer for the reload read: a fresh install has none. */
+    const EMPTY_BINDINGS = JSON.stringify({ bindings: [], status: [] });
+
+    /** The accounts answer the reload read: the account the service holds. */
+    const RELOAD_ACCOUNTS = JSON.stringify({
+        accounts: [{ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, state: 'active' }],
+    });
+
+    /** Neutral unrouted answer for paths this script does not model. */
+    const UNROUTED = JSON.stringify({ error: { code: 'not-found', message: 'unrouted' } });
+
+    it('re-reads bindings and accounts after a successful handoff', async () => {
+        const host = await scriptedRuntime((request) => {
+            if (request.path === STATUS_PATH) {
+                return { status: 200, body: STATUS_BODY };
+            }
+            if (request.path === VERIFY_PATH) {
+                return { status: 201, body: VERIFY_BODY };
+            }
+            if (request.path === BINDINGS_PATH) {
+                return { status: 200, body: EMPTY_BINDINGS };
+            }
+            if (request.path === ACCOUNTS_PATH) {
+                return { status: 200, body: RELOAD_ACCOUNTS };
+            }
+
+            return { status: 404, body: UNROUTED };
+        });
+
+        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await tick();
+
+        // The connected line the handoff renders is untouched by the reload,
+        // and the Repos tab now holds the account the service just registered.
+        expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
+        expect(host.rt.state.repos.status).toBe('ready');
+        expect(host.rt.state.repos.accounts).toEqual([
+            { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, usable: true },
+        ]);
+        expect(host.requests.map((request) => request.path)).toEqual([
+            STATUS_PATH,
+            VERIFY_PATH,
+            BINDINGS_PATH,
+            ACCOUNTS_PATH,
+        ]);
+        expectNoCredential(host);
     });
 });
 
@@ -287,6 +347,36 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
         expect(host.rt.state.handoff.connected).toBeNull();
         expect(host.record.note).toContain('already registered');
         expect(host.record.pasteVisible).toBe(true);
+        expectNoCredential(host);
+    });
+
+    it('re-reads the Repos tab lists so the dropdown offers the adopted account', async () => {
+        const host = await scriptedRuntime((request) => {
+            if (request.path === STATUS_PATH) {
+                return { status: 200, body: STATUS_BODY };
+            }
+            if (request.path === VERIFY_PATH) {
+                return { status: 409, body: DUPLICATE_BODY };
+            }
+            if (request.path === '/v1/accounts') {
+                return { status: 200, body: ACCOUNTS_BODY };
+            }
+            if (request.path === BINDINGS_PATH) {
+                return { status: 200, body: JSON.stringify({ bindings: [], status: [] }) };
+            }
+
+            return { status: 404, body: JSON.stringify({ error: { code: 'not-found', message: 'unrouted' } }) };
+        });
+
+        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await tick();
+
+        // The adoption connects the account AND the tab re-reads it, so the
+        // operator's dropdown shows it without a manual Refresh.
+        expect(host.rt.state.handoff.connected).toEqual({ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN });
+        expect(host.rt.state.repos.accounts).toEqual([
+            { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, usable: true },
+        ]);
         expectNoCredential(host);
     });
 });

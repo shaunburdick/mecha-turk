@@ -20,6 +20,9 @@ export type ServiceRequester = Pick<SpikeHost, 'serviceRequest'>['serviceRequest
 /** Path of the bindings collection. */
 export const BINDINGS_PATH = '/v1/bindings';
 
+/** Path of the credential-free account collection (service contract §2.2). */
+export const ACCOUNTS_PATH = '/v1/accounts';
+
 /** Path the panel polls for queued events. */
 export const EVENTS_PENDING_PATH = '/v1/events/pending';
 

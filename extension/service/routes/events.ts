@@ -110,20 +110,24 @@ function readDispatchFields(raw: unknown): readonly [string | null, string | nul
 /**
  * Read the per-binding status rows.
  *
- * @param input - Store and logger.
+ * One row per stored binding, built from the scan state and the queue, so
+ * every route that reports status (the relay's pending answer and the
+ * bindings collection) answers the panel's parser with the same shape. The
+ * caller passes the bindings it already read, so one collection read never
+ * happens twice inside a single request.
+ *
+ * @param input - Store, logger, and the bindings every row is keyed by.
  * @returns One row per binding, with scan state and pending count.
  */
-async function readStatusRows(input: {
+export async function readStatusRows(input: {
     /** Open store. */
     readonly store: ServiceStore;
     /** Structured logger. */
     readonly log: ServiceLogger;
+    /** Stored bindings, as the route itself read them. */
+    readonly bindings: readonly BindingRecord[];
 }): Promise<BindingStatusRow[]> {
-    const [bindings, scannedState, queue] = await Promise.all([
-        readBindings(input),
-        readScanState(input),
-        readEvents(input),
-    ]);
+    const [scannedState, queue] = await Promise.all([readScanState(input), readEvents(input)]);
 
     const counts = new Map<string, number>();
     for (const event of queue) {
@@ -132,7 +136,7 @@ async function readStatusRows(input: {
         }
     }
 
-    return bindings.map((binding) => {
+    return input.bindings.map((binding) => {
         const scan = scannedState.bindings[binding.bindingId];
 
         return {
@@ -161,7 +165,8 @@ async function handlePendingEvents(context: RouteContext): Promise<HttpResponse>
     }
 
     const claimed = await claimPendingEvents({ store, log: context.log, claimedAt: nowIso() });
-    const rows = await readStatusRows({ store, log: context.log });
+    const bindings = await readBindings({ store, log: context.log });
+    const rows = await readStatusRows({ store, log: context.log, bindings });
 
     return { status: STATUS.ok, body: { events: claimed, status: rows } };
 }

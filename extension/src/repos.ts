@@ -14,9 +14,16 @@ import { newCorrelationId, nowIso } from './ids.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import { removeAccountMirror } from './account-mirror.ts';
-import { BINDINGS_PATH, accountDeletePath, serviceDelete, serviceGet, servicePut } from './service-calls.ts';
+import {
+    ACCOUNTS_PATH,
+    BINDINGS_PATH,
+    accountDeletePath,
+    serviceDelete,
+    serviceGet,
+    servicePut,
+} from './service-calls.ts';
 import { countEnabledBindings, parseAccountsBody, parseBindingsBody } from './repos-service.ts';
-import type { BindingStatusRow, PanelAccount, PanelBinding, PanelTriggers } from './repos-service.ts';
+import type { BindingStatusRow, BindingsSnapshot, PanelAccount, PanelBinding, PanelTriggers } from './repos-service.ts';
 import type { PanelRuntime, Repositories } from './panel-state.ts';
 
 /** One per-binding status row the tab renders (scan state + pending count). */
@@ -73,12 +80,12 @@ function stillMounted(rt: PanelRuntime): boolean {
 }
 
 /**
- * Fetch the stored bindings from the service.
+ * Fetch the stored bindings and their scan status from the service.
  *
  * @param rt - Panel runtime.
- * @returns The bindings, or `null` when the service refused or was unreachable.
+ * @returns Both lists, or `null` when the service refused or was unreachable.
  */
-async function fetchBindings(rt: PanelRuntime): Promise<readonly PanelBinding[] | null> {
+async function fetchBindings(rt: PanelRuntime): Promise<BindingsSnapshot | null> {
     if (rt.disposed) {
         return null;
     }
@@ -97,7 +104,7 @@ async function fetchBindings(rt: PanelRuntime): Promise<readonly PanelBinding[] 
 
     clearDraftIfCovered(rt.state.repos, parsed.bindings);
 
-    return parsed.bindings;
+    return parsed;
 }
 
 /**
@@ -111,36 +118,13 @@ async function fetchAccounts(rt: PanelRuntime): Promise<readonly PanelAccount[] 
         return null;
     }
 
-    const result = await serviceGet({ serviceRequest: rt.host.serviceRequest, path: '/v1/accounts' });
+    const result = await serviceGet({ serviceRequest: rt.host.serviceRequest, path: ACCOUNTS_PATH });
     if (!result.ok) {
         return null;
     }
 
     return parseAccountsBody(result.body);
 }
-
-/**
- * Clear the draft when the fresh bindings now cover it.
- *
- * A draft whose repository is already bound shrinks to nothing, so the add
- * form cannot offer a second binding for the same repository.
- *
- * @param repos - Panel state.
- * @param bindings - The bindings the service now holds.
- */
-
-/**
- * Empty the add-form draft.
- *
- * @param repos - Panel state.
- */
-
-/**
- * Clear the draft once its repository appears in the granted list.
- *
- * @param repos - Panel state.
- * @param repository - The freshly bound repository label.
- */
 
 /** One candidate binding built from the draft, before the grant. */
 export interface PreparedBinding {
@@ -260,7 +244,8 @@ async function grantBindings(input: {
 }
 
 /**
- * Load the bindings and the registered accounts the Repos tab renders.
+ * Load the bindings, their scan status, and the registered accounts the
+ * Repos tab renders.
  *
  * @param rt - Panel runtime.
  */
@@ -272,14 +257,15 @@ export async function loadRepositories(rt: PanelRuntime): Promise<void> {
     rt.state.repos.status = 'loading';
     refresh(rt);
 
-    const [bindings, accounts] = await Promise.all([
+    const [snapshot, accounts] = await Promise.all([
         fetchBindings(rt),
         fetchAccounts(rt),
     ]);
     if (stillMounted(rt)) {
-        if (bindings !== null) {
-            rt.state.repos.bindings = bindings;
-            rt.state.bindingsActive = countEnabledBindings(bindings);
+        if (snapshot !== null) {
+            rt.state.repos.bindings = snapshot.bindings;
+            rt.state.repos.statusRows = snapshot.status;
+            rt.state.bindingsActive = countEnabledBindings(snapshot.bindings);
         }
 
         // Assign only a read that produced a list: a failed read must not
@@ -288,13 +274,33 @@ export async function loadRepositories(rt: PanelRuntime): Promise<void> {
             rt.state.repos.accounts = accounts;
         }
 
-        rt.state.repos.status = bindings !== null && accounts !== null ? 'ready' : 'error';
-        if (bindings === null || accounts === null) {
+        rt.state.repos.status = snapshot !== null && accounts !== null ? 'ready' : 'error';
+        if (snapshot === null || accounts === null) {
             rt.state.repos.note = 'One of the reads failed — refresh to retry.';
         }
     }
 
     refresh(rt);
+}
+
+/**
+ * Re-read the bindings and accounts after an account connected or adopted.
+ *
+ * Fire-and-forget on purpose: the connected line and the account mirror are
+ * already written by the time this runs, and the operator's next look is the
+ * accounts dropdown — which must list the new account without a manual
+ * Refresh. The read is dropped when the mount is gone, and a refused read
+ * lands on the tab's own note line rather than anywhere the handoff copy is
+ * rendered.
+ *
+ * @param rt - Panel runtime.
+ */
+export function reloadReposAfterConnect(rt: PanelRuntime): void {
+    if (!stillMounted(rt)) {
+        return;
+    }
+
+    void loadRepositories(rt);
 }
 
 /**

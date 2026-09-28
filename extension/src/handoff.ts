@@ -39,6 +39,7 @@ import {
 } from './handoff-copy.ts';
 import { hostErrorCode, preflightHandoff, rereadStatusAfterTimeout } from './handoff-status.ts';
 import { parseJsonObject } from './json.ts';
+import { reloadReposAfterConnect } from './repos.ts';
 import { writeStorage } from './storage-write.ts';
 import type { ConsentMirror } from './consent.ts';
 import type { PanelRuntime } from './panel-state.ts';
@@ -206,6 +207,10 @@ function serviceFailureCopy(result: GuestRequestResult): string {
 /**
  * Handle a `201` verification: render the identity and mirror the account.
  *
+ * A success also triggers the Repos tab's own re-read (see
+ * {@link reloadReposAfterConnect}), so the accounts dropdown lists the
+ * account the service just registered without a manual Refresh.
+ *
  * @param rt - Panel runtime.
  * @param result - The service's success response.
  * @returns `true` when the body carried a usable identity.
@@ -230,6 +235,9 @@ async function completeHandoff(rt: PanelRuntime, result: GuestRequestResult): Pr
     rt.state.handoff.connected = { numericUserId, login };
     rt.state.handoff.note = connectedLine(login);
     await writeAccountMirror(rt, identity);
+    // The service now holds the account, so the Repos tab's accounts dropdown
+    // must list it: re-read both lists behind the handoff (fire-and-forget).
+    reloadReposAfterConnect(rt);
 
     return true;
 }

@@ -31,10 +31,8 @@ import { readScopeMirror, readStoredAccounts, writeAccountMirror } from './accou
 import { SERVICE_COPY, UNKNOWN_FAILURE, duplicateAdoptedLine } from './handoff-copy.ts';
 import { asRecord, parseJsonObject } from './json.ts';
 import type { PanelRuntime } from './panel-state.ts';
-import { serviceGet } from './service-calls.ts';
-
-/** Path of the credential-free account collection (service contract §2.2). */
-const ACCOUNTS_PATH = '/v1/accounts';
+import { reloadReposAfterConnect } from './repos.ts';
+import { ACCOUNTS_PATH, serviceGet } from './service-calls.ts';
 
 /** Service error code that says the pasted token belongs to a held account. */
 const DUPLICATE_CODE = 'duplicate-account';
@@ -246,6 +244,9 @@ export async function adoptOnDuplicate(rt: PanelRuntime): Promise<AdoptedIdentit
     }
 
     rt.state.handoff.note = duplicateAdoptedLine(adopted.login);
+    // The adoption connected an account the panel mirror had lost, so the
+    // Repos tab's accounts dropdown re-reads before the operator looks at it.
+    reloadReposAfterConnect(rt);
 
     return adopted;
 }

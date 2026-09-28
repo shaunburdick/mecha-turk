@@ -2435,10 +2435,15 @@ function parseBindingSlot(value) {
     return null;
   }
   const { lastScanAt, lastError } = value;
-  if (typeof lastScanAt !== "string" || lastError !== null && typeof lastError !== "string") {
+  const stampHolds = lastScanAt === null || typeof lastScanAt === "string";
+  const reasonHolds = lastError === null || typeof lastError === "string";
+  if (!stampHolds || !reasonHolds) {
     return null;
   }
-  return { lastScanAt, lastError: typeof lastError === "string" ? lastError : null };
+  return {
+    lastScanAt: typeof lastScanAt === "string" ? lastScanAt : null,
+    lastError: typeof lastError === "string" ? lastError : null
+  };
 }
 function parseStoredScanState(raw) {
   if (!isRecord(raw) || !isRecord(raw.bindings)) {
@@ -2505,18 +2510,14 @@ function readDispatchFields(raw) {
   return [sessionId, problem];
 }
 async function readStatusRows(input) {
-  const [bindings, scannedState, queue] = await Promise.all([
-    readBindings(input),
-    readScanState(input),
-    readEvents(input)
-  ]);
+  const [scannedState, queue] = await Promise.all([readScanState(input), readEvents(input)]);
   const counts = new Map;
   for (const event of queue) {
     if (event.state === "pending" || event.state === "in-flight") {
       counts.set(event.bindingId, (counts.get(event.bindingId) ?? 0) + 1);
     }
   }
-  return bindings.map((binding) => {
+  return input.bindings.map((binding) => {
     const scan = scannedState.bindings[binding.bindingId];
     return {
       bindingId: binding.bindingId,
@@ -2536,7 +2537,8 @@ async function handlePendingEvents(context) {
     return storageUnavailableResponse();
   }
   const claimed = await claimPendingEvents({ store, log: context.log, claimedAt: nowIso() });
-  const rows = await readStatusRows({ store, log: context.log });
+  const bindings = await readBindings({ store, log: context.log });
+  const rows = await readStatusRows({ store, log: context.log, bindings });
   return { status: STATUS.ok, body: { events: claimed, status: rows } };
 }
 async function handleDispatchedEvent(context, request) {
@@ -2584,7 +2586,8 @@ async function handleGetBindings(context) {
     return storageUnavailableResponse();
   }
   const bindings = await readBindings({ store, log: context.log });
-  return { status: STATUS.ok, body: { bindings } };
+  const status = await readStatusRows({ store, log: context.log, bindings });
+  return { status: STATUS.ok, body: { bindings, status } };
 }
 async function handlePutBindings(context, request) {
   const { store } = context;
@@ -2610,7 +2613,8 @@ async function handlePutBindings(context, request) {
     });
   }
   await writeBindings({ store, bindings: validation.bindings });
-  return { status: STATUS.ok, body: { bindings: validation.bindings } };
+  const status = await readStatusRows({ store, log: context.log, bindings: validation.bindings });
+  return { status: STATUS.ok, body: { bindings: validation.bindings, status } };
 }
 var getBindingsRoute = {
   method: "GET",
@@ -2906,7 +2910,7 @@ function repositoryRefOf(binding) {
 }
 function windowFor(binding, scanned) {
   const recorded = scanned.bindings[binding.bindingId];
-  if (recorded?.lastScanAt !== undefined) {
+  if (recorded !== undefined && recorded.lastScanAt !== null) {
     return recorded.lastScanAt;
   }
   return Number.isNaN(Date.parse(binding.createdAt)) ? null : binding.createdAt;
