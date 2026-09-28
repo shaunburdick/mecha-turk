@@ -4,7 +4,11 @@
 
 ## Current Wave
 
-MODE CHANGE 2026-09-27 (product owner): MVP bar = "works reliably for me, self-hosted". Over-building/over-testing explicitly rejected. tasks.md RE-CUT to Slice 1 (M1–M5, live loop today) / Slice 2 (M6–M9) / Debt list. Wave 2 remediation stopped mid-flight; partial commits landed and are green.
+**M5 VALIDATED 2026-09-28** — full loop proven live: bind → poll (first-scan replay) → events → relay → dispatch → TWO PM worktree sessions (issues #1 + #2). tasks.md M5 checked. Slice 2 (M6–M9) awaits product-owner go-ahead.
+
+Session fixes that got M5 there (all on branch): `ad052da` M1–M4 build · `7ef0ba1` banner+adoption · `6dd17e3` repos pane mount+consent · `ea89d39` accounts assign · `0f101ad` adopt-on-duplicate+purge · `607380d` scan status+refresh+identity · `7a814c4`/`203d49e` events parser+recovery · `0cbfc8a` first-scan replay (product decision 2026-09-28). Test count: 229 → 489 green.
+
+Bug family lesson (3x): writer/validator mismatches in store parsers — now covered by writer→reader round-trip test class (scan-state + events).
 
 ## Branch
 
@@ -34,9 +38,8 @@ N/A under MVP bar; watch for any single dispatch exceeding ~1 hour.
 
 ## Next Action
 
-1. **M5: operator live test on their OpenChamber** — restart/reinstall extension from `extension/`, verify account connect, add a repo binding (repo → account → project → assignment ✓), open panel, assign an issue in the test repo, observe event → dispatch → worktree session.
-2. On pass: Slice 2 (M6–M9). On failure: fix forward, no ceremony.
-3. Debt list grows only.
+1. **Slice 2 (M6–M9)** on product-owner go: M6 mention trigger (comment scan for `@login`, bot-author ignored) · M7 review-request trigger · M8 runs list UI + retry · M9 agent verification (openSession read-back, warn if not project-manager).
+2. Debt list grows only — add: durable dedupe index (eviction boundary >500 dispatched), shared/redaction move (T-036), legacy/mvp dispatch unification, stale binding-row status on manual refresh, second-account "add account" affordance.
 
 ## Quality Rules (adjusted for MVP bar)
 
