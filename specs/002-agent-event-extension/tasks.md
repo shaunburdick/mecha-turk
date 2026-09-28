@@ -15,9 +15,9 @@ Rules for this cut: build the missing product loop; tests only where they keep u
 - [x] **M5** Live validation on operator's OpenChamber: create account, bind 1 repo w/ project, assign an issue, see PM session start in a worktree. Record what breaks. *(VALIDATED 2026-09-28: two issues → two worktree sessions; full loop live. Fixes during M5: repos pane mount, accounts assign, adopt-on-duplicate, scan status surface, events parser round-trip, first-scan replay (product decision).)*
 
 ## Slice 2 — Complete MVP (after slice 1 proves)
-- [ ] **M6** Mentions trigger (comment scan for `@<login>`, bot-author ignored)
-- [ ] **M7** Review-request trigger (PRs requested as reviewer for the account)
-- [ ] **M8** Runs list UI (recent events, state, link to session) + manual "dispatch failed → retry"
+- [x] **M6** Mentions trigger (comment scan for `@<login>`, bot-author ignored) *(commit e966894)*
+- [x] **M7** Review-request trigger (PRs requested as reviewer for the account) *(commit e966894)*
+- [ ] **M8** Runs list UI (recent events, state, link to session) + manual "dispatch failed → retry" *(service side ready in e966894: `GET /v1/events` — all states, newest-detected-first, cap 100, credential-free — and `POST /v1/events/:id/retry`; UI still owed)*
 - [ ] **M9** Agent verification after dispatch (openSession read-back → warn if not project-manager) — keep simple, no blocked-state machinery
 
 ## Debt list (post-MVP hardening — do NOT do now)
