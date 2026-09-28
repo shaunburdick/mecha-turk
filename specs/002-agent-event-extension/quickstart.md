@@ -1,7 +1,7 @@
 # Quickstart: Mecha Turk production extension + local service
 
 **Feature**: `specs/002-agent-event-extension` · **Date**: 2026-09-27
-Dev, build, test, install, and first-run verification for the production package (panel + service). The repository root is the installable unit (see `specs/003-code-reorg/`).
+Dev, build, test, install, and first-run verification for the production package (panel + service). The repository root is the installable unit.
 
 ## 0. Prerequisites (operator machine)
 

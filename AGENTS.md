@@ -23,15 +23,15 @@ and review must state alignment with it.
 ├── src/                  # panel logic, one responsibility per module
 ├── tests/                # vitest suites + support/ fakes (fake host, DOM helpers)
 ├── specs/002-agent-event-extension/      # production spec (the product's source of truth)
-├── specs/003-code-reorg/                 # repo-reorganization plan/tasks
 ├── README.md             # user-facing (install, configure, operate)
 ├── .specify/             # constitution + spec-kit scripts/templates
 └── .opencode/commands/   # speckit slash commands
 ```
 
 `specs/` documents are dated records of the phase that produced them —
-path/identity details in older plan/data-model files may predate the 003
-reorg (extension at the repo root, identity `mecha-turk`). The maintained
+path/identity details in older plan/data-model files may predate the
+2026-09 repository reorganization (extension moved to the repo root,
+identity `mecha-turk`). The maintained
 walkthrough is `specs/002-agent-event-extension/quickstart.md`.
 
 ## Commands
