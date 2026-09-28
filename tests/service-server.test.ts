@@ -14,11 +14,11 @@ import { connect } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { resolve as resolvePath } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { readServiceEnv, ServiceEnvError } from '../extension/service/env.ts';
-import { REQUEST_BODY_MAX_CHARS } from '../extension/service/http.ts';
-import { createLogger } from '../extension/service/log.ts';
-import { SERVICE_VERSION } from '../extension/service/routes/health.ts';
-import { SERVICE_SCHEMA_VERSION } from '../extension/service/store/index.ts';
+import { readServiceEnv, ServiceEnvError } from '../service/env.ts';
+import { REQUEST_BODY_MAX_CHARS } from '../service/http.ts';
+import { createLogger } from '../service/log.ts';
+import { SERVICE_VERSION } from '../service/routes/health.ts';
+import { SERVICE_SCHEMA_VERSION } from '../service/store/index.ts';
 import { rawExchange, startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 
@@ -62,7 +62,7 @@ const WRONG_TOKEN = 'wrong-wrong-wrong-wrong';
 const TOKEN_SHAPED_VALUE = 'ghp_abcdefghijklmnop123456';
 
 /** Ready-probe body asserted against the extension package's own version. */
-const PACKAGE_PATH = resolvePath(ROOT, 'extension/package.json');
+const PACKAGE_PATH = resolvePath(ROOT, 'package.json');
 
 /** Poll interval for helpers that wait on asynchronous effects. */
 const POLL_MS = 10;

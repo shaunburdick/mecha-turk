@@ -11,8 +11,8 @@ import {
     parseWorktreeOption,
     repositoryLabel,
     resolveProjectId,
-} from '../extension/src/config.ts';
-import type { SpikeSettings } from '../extension/src/config.ts';
+} from '../src/config.ts';
+import type { SpikeSettings } from '../src/config.ts';
 
 /** Login the settings fixture expects from the token. */
 const LOGIN = 'mecha-bot';

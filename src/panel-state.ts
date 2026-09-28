@@ -392,7 +392,7 @@ export function createPanelRuntime(
             login: null,
             match: null,
             evidence: null,
-            status: { tone: 'info', title: 'Mecha Turk Spike', body: 'Waiting for the host.' },
+            status: { tone: 'info', title: 'Mecha Turk', body: 'Waiting for the host.' },
             connected: false,
             busy: false,
             handoff: initialHandoffState(),

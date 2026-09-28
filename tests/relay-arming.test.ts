@@ -16,12 +16,12 @@
 
 import { describe, expect, it } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
-import { loadInitialBindings } from '../extension/src/bindings-mode.ts';
-import { bindRepository, loadRepositories } from '../extension/src/repos.ts';
-import { stopRelayPolling } from '../extension/src/relay.ts';
-import { ACCOUNTS_PATH, BINDINGS_PATH, EVENTS_PENDING_PATH } from '../extension/src/service-calls.ts';
-import type { PanelBinding } from '../extension/src/repos-service.ts';
-import type { PanelRuntime } from '../extension/src/panel-state.ts';
+import { loadInitialBindings } from '../src/bindings-mode.ts';
+import { bindRepository, loadRepositories } from '../src/repos.ts';
+import { stopRelayPolling } from '../src/relay.ts';
+import { ACCOUNTS_PATH, BINDINGS_PATH, EVENTS_PENDING_PATH } from '../src/service-calls.ts';
+import type { PanelBinding } from '../src/repos-service.ts';
+import type { PanelRuntime } from '../src/panel-state.ts';
 import {
     DEFAULT_STATUS,
     FIXTURE_TIMESTAMP,

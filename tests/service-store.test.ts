@@ -12,16 +12,16 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'n
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { isRecord } from '../extension/service/json.ts';
-import { DATA_DIR_MODE, DATA_FILE_MODE } from '../extension/service/store/dir.ts';
-import { isTempDebris, readJsonFile, writeJsonAtomic, writeSyncedTempFile } from '../extension/service/store/json.ts';
-import { appendJsonLine, readJsonLines } from '../extension/service/store/ndjson.ts';
+import { isRecord } from '../service/json.ts';
+import { DATA_DIR_MODE, DATA_FILE_MODE } from '../service/store/dir.ts';
+import { isTempDebris, readJsonFile, writeJsonAtomic, writeSyncedTempFile } from '../service/store/json.ts';
+import { appendJsonLine, readJsonLines } from '../service/store/ndjson.ts';
 import {
     openStore,
     resolveDataDir,
     SERVICE_SCHEMA_VERSION,
     StorageUnavailableError,
-} from '../extension/service/store/index.ts';
+} from '../service/store/index.ts';
 
 /** Filesystem mask covering the low nine mode bits (`rwx` for owner/group/other). */
 const PERMISSION_BASE = 0o1000;

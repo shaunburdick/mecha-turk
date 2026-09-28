@@ -24,7 +24,7 @@ import {
     CONSENT_VERSION,
     consentCurrent,
     readConsentMirror,
-} from '../extension/src/consent.ts';
+} from '../src/consent.ts';
 
 /** Contract file holding the canonical consent block. */
 const CONTRACT_PATH = resolve(import.meta.dirname, '../specs/002-agent-event-extension/contracts/token-handoff.md');

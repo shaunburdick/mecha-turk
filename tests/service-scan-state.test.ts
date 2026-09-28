@@ -20,14 +20,14 @@ import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createLogger } from '../extension/service/log.ts';
-import { windowFor } from '../extension/service/poll/loop.ts';
-import { SCAN_STATE_FILE, parseStoredScanState, readScanState } from '../extension/service/poll/scan.ts';
-import { openStore } from '../extension/service/store/index.ts';
-import type { BindingRecord } from '../extension/service/bindings.ts';
-import type { ServiceLogger } from '../extension/service/log.ts';
-import type { ScanState } from '../extension/service/poll/scan.ts';
-import type { ServiceStore } from '../extension/service/store/index.ts';
+import { createLogger } from '../service/log.ts';
+import { windowFor } from '../service/poll/loop.ts';
+import { SCAN_STATE_FILE, parseStoredScanState, readScanState } from '../service/poll/scan.ts';
+import { openStore } from '../service/store/index.ts';
+import type { BindingRecord } from '../service/bindings.ts';
+import type { ServiceLogger } from '../service/log.ts';
+import type { ScanState } from '../service/poll/scan.ts';
+import type { ServiceStore } from '../service/store/index.ts';
 
 /** Binding id used by every fixture slot. */
 const BINDING_ID = 'bnd-quarantine';

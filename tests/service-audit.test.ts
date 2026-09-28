@@ -14,13 +14,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../extension/src/consent.ts';
-import { appendAudit, readAuditEntries } from '../extension/service/audit.ts';
-import { recordConsentOccurrence } from '../extension/service/consent.ts';
-import { openStore } from '../extension/service/store/index.ts';
-import type { AuditInput } from '../extension/service/audit.ts';
-import type { NdjsonReadResult } from '../extension/service/store/ndjson.ts';
-import type { ServiceStore } from '../extension/service/store/index.ts';
+import { CONSENT_VERSION } from '../src/consent.ts';
+import { appendAudit, readAuditEntries } from '../service/audit.ts';
+import { recordConsentOccurrence } from '../service/consent.ts';
+import { openStore } from '../service/store/index.ts';
+import type { AuditInput } from '../service/audit.ts';
+import type { NdjsonReadResult } from '../service/store/ndjson.ts';
+import type { ServiceStore } from '../service/store/index.ts';
 
 /** Store file the audit trail lives in. */
 const AUDIT_FILE = 'audit.ndjson';

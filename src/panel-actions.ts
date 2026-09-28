@@ -278,7 +278,7 @@ async function applySweep(rt: PanelRuntime, input: SweepInput): Promise<void> {
     setStatus(rt, {
         tone: 'warning',
         title: 'Ambiguous match',
-        body: `${sweep.matches.length} issues matched; the spike dispatches only on exactly one.`,
+        body: `${sweep.matches.length} issues matched; Mecha Turk dispatches only on exactly one.`,
     });
 }
 

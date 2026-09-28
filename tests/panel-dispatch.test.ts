@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { StartSessionRequest, StartSessionResult } from '@openchamber/sdk';
-import { LEDGER_STORAGE_KEY } from '../extension/src/ledger.ts';
-import { startDispatch } from '../extension/src/panel-dispatch.ts';
-import type { PanelRuntime } from '../extension/src/panel-state.ts';
-import { findDispatchForIssue } from '../extension/src/session.ts';
+import { LEDGER_STORAGE_KEY } from '../src/ledger.ts';
+import { startDispatch } from '../src/panel-dispatch.ts';
+import type { PanelRuntime } from '../src/panel-state.ts';
+import { findDispatchForIssue } from '../src/session.ts';
 import {
     ISSUE_DETAIL_PATH,
     LOGIN,

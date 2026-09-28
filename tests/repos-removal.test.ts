@@ -12,12 +12,12 @@
 
 import type { GuestRequest, GuestRequestResult, JsonValue } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
-import { removeAccount, removeBinding } from '../extension/src/repos.ts';
-import { stopRelayPolling } from '../extension/src/relay.ts';
-import { BINDINGS_PATH, accountDeletePath } from '../extension/src/service-calls.ts';
-import { ACCOUNTS_STORAGE_KEY } from '../extension/src/account-mirror.ts';
-import { createRepositoriesHandlers } from '../extension/src/repos-mount.ts';
-import type { PanelBinding } from '../extension/src/repos-service.ts';
+import { removeAccount, removeBinding } from '../src/repos.ts';
+import { stopRelayPolling } from '../src/relay.ts';
+import { BINDINGS_PATH, accountDeletePath } from '../src/service-calls.ts';
+import { ACCOUNTS_STORAGE_KEY } from '../src/account-mirror.ts';
+import { createRepositoriesHandlers } from '../src/repos-mount.ts';
+import type { PanelBinding } from '../src/repos-service.ts';
 import { createStorageDouble, createTestRuntime, fakeHost, tick } from './support/panel.ts';
 import type { StorageDouble } from './support/panel.ts';
 

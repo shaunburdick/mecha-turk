@@ -15,11 +15,11 @@
 
 import type { GuestRequest, GuestRequestResult, HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
-import { mountHandoffDom, refreshHandoff, submitHandoffAndRepaint } from '../extension/src/accounts-ui.ts';
-import { CONSENT_STORAGE_KEY } from '../extension/src/consent.ts';
-import { currentHandoffToken } from '../extension/src/handoff.ts';
-import type { HandoffHandlers } from '../extension/src/accounts-ui.ts';
-import type { PanelRuntime } from '../extension/src/panel-state.ts';
+import { mountHandoffDom, refreshHandoff, submitHandoffAndRepaint } from '../src/accounts-ui.ts';
+import { CONSENT_STORAGE_KEY } from '../src/consent.ts';
+import { currentHandoffToken } from '../src/handoff.ts';
+import type { HandoffHandlers } from '../src/accounts-ui.ts';
+import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 import {

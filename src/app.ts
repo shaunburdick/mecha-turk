@@ -500,7 +500,7 @@ export function createSpikeApp(options: SpikeAppOptions): SpikeApp {
 
     const steps = LIFECYCLE_EXPERIMENT_PLAN.length;
     const body = `Lifecycle experiment plan loaded: ${steps} steps.`;
-    setStatus(rt, { tone: 'info', title: 'Mecha Turk Spike', body });
+    setStatus(rt, { tone: 'info', title: 'Mecha Turk', body });
     refresh(rt);
 
     return { dispose: () => teardown(rt) };

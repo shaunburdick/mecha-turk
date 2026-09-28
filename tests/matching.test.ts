@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { GitHubIssue } from '../extension/src/github.ts';
-import { checkMachineIdentity, evaluateIssue, sweepIssues } from '../extension/src/matching.ts';
+import type { GitHubIssue } from '../src/github.ts';
+import { checkMachineIdentity, evaluateIssue, sweepIssues } from '../src/matching.ts';
 
 /** Login used as the authenticated machine account across these tests. */
 const MACHINE = 'mecha-bot';

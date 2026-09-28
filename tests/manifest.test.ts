@@ -7,14 +7,11 @@ import { parseManifestJson } from '@openchamber/sdk/schemas';
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
 
-/** Repository-relative path of the extension manifest under test. */
-const EXTENSION_MANIFEST_PATH = 'extension/package.json';
+/** Repository-relative path of the merged manifest (npm package + OpenChamber extension). */
+const EXTENSION_MANIFEST_PATH = 'package.json';
 
-/** Manifest of the extension under test. */
+/** The single repository manifest: npm toolchain pin and OpenChamber manifest in one document. */
 const EXTENSION_MANIFEST = JSON.parse(readFileSync(resolve(ROOT, EXTENSION_MANIFEST_PATH), 'utf8')) as PackageJson;
-
-/** Manifest of the workspace root, which pins the toolchain. */
-const ROOT_MANIFEST = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')) as PackageJson;
 
 /** Shape of the fields these tests read from a package.json document. */
 interface PackageJson {
@@ -114,10 +111,10 @@ describe('SDK pinning', () => {
         expect(pin).not.toMatch(/^[~^]/);
     });
 
-    it('pins the same SDK version in the workspace root', () => {
-        const extensionPin = EXTENSION_MANIFEST.dependencies?.[SDK_PACKAGE];
-        const rootPin = ROOT_MANIFEST.devDependencies?.[SDK_PACKAGE];
-        expect(rootPin).toBe(extensionPin);
+    it('pins the SDK in dependencies only, never duplicated in devDependencies', () => {
+        const pin = EXTENSION_MANIFEST.dependencies?.[SDK_PACKAGE];
+        expect(pin).toBeDefined();
+        expect(EXTENSION_MANIFEST.devDependencies?.[SDK_PACKAGE]).toBeUndefined();
     });
 
     it('never pins a preview release', () => {
@@ -167,8 +164,8 @@ describe('service contribution', () => {
 
         const entry = parsed.manifest.contributes.service?.entry;
         expect(entry).toBe('service/main.js');
-        expect(existsSync(resolve(ROOT, 'extension', entry ?? ''))).toBe(true);
-        expect(existsSync(resolve(ROOT, 'extension/service/main.ts'))).toBe(true);
+        expect(existsSync(resolve(ROOT, entry ?? ''))).toBe(true);
+        expect(existsSync(resolve(ROOT, 'service/main.ts'))).toBe(true);
     });
 
     it('parses with the SDK service rules', () => {
@@ -220,13 +217,13 @@ describe('panel entry', () => {
     it('points at a shipped HTML file', () => {
         const entry = openchamberBlock(EXTENSION_MANIFEST).contributes?.panel?.entry;
         expect(entry).toBe('panel/index.html');
-        expect(existsSync(resolve(ROOT, 'extension', entry ?? ''))).toBe(true);
+        expect(existsSync(resolve(ROOT, entry ?? ''))).toBe(true);
     });
 
     it('matches the providerId the dispatch code sends', () => {
         const panelId = openchamberBlock(EXTENSION_MANIFEST).contributes?.panel?.id;
-        const sessionSource = readFileSync(resolve(ROOT, 'extension/src/session.ts'), 'utf8');
-        expect(panelId).toBe('mecha-turk-spike');
-        expect(sessionSource).toContain("providerId: 'mecha-turk-spike'");
+        const sessionSource = readFileSync(resolve(ROOT, 'src/session.ts'), 'utf8');
+        expect(panelId).toBe('mecha-turk');
+        expect(sessionSource).toContain("providerId: 'mecha-turk'");
     });
 });

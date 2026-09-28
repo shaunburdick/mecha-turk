@@ -12,12 +12,12 @@
 import type { GuestRequest, GuestRequestResult, HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
 import { HostRequestError } from '@openchamber/sdk';
 import { expect } from 'vitest';
-import { CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../../extension/src/consent.ts';
-import { currentHandoffToken } from '../../extension/src/handoff.ts';
-import { STATUS_PATH } from '../../extension/src/handoff-status.ts';
-import type { HandoffState } from '../../extension/src/handoff.ts';
-import type { HandoffView } from '../../extension/src/accounts-ui.ts';
-import type { PanelRuntime } from '../../extension/src/panel-state.ts';
+import { CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../../src/consent.ts';
+import { currentHandoffToken } from '../../src/handoff.ts';
+import { STATUS_PATH } from '../../src/handoff-status.ts';
+import type { HandoffState } from '../../src/handoff.ts';
+import type { HandoffView } from '../../src/accounts-ui.ts';
+import type { PanelRuntime } from '../../src/panel-state.ts';
 import { createStorageDouble, createTestRuntime, fakeHost, tick } from './panel.ts';
 import type { StorageDouble } from './panel.ts';
 

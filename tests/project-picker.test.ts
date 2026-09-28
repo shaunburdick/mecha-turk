@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GuestProjectsSnapshot } from '@openchamber/sdk';
-import { createPanelRuntime } from '../extension/src/panel-state.ts';
-import type { ProjectPickerState } from '../extension/src/panel-state.ts';
+import { createPanelRuntime } from '../src/panel-state.ts';
+import type { ProjectPickerState } from '../src/panel-state.ts';
 import {
     applyProjectSnapshot,
     describeProjectSelection,
@@ -11,7 +11,7 @@ import {
     pickerPlaceholder,
     projectOption,
     selectedProjectId,
-} from '../extension/src/project-picker.ts';
+} from '../src/project-picker.ts';
 import {
     PROJECT_STORAGE_KEY,
     copyProjectId,
@@ -20,7 +20,7 @@ import {
     rejectProjectSelection,
     restoreProjectSelection,
     storeProjectSelection,
-} from '../extension/src/project-actions.ts';
+} from '../src/project-actions.ts';
 import {
     PROJECTS,
     PROJECT_ID,

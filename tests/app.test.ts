@@ -7,15 +7,15 @@ import {
     loadLedger,
     selectProject,
     teardown,
-} from '../extension/src/app.ts';
-import { EVIDENCE_STORAGE_KEY, serializeEvidence } from '../extension/src/evidence.ts';
-import { parseJsonValue } from '../extension/src/json.ts';
-import { LEDGER_STORAGE_KEY, readLedger } from '../extension/src/ledger.ts';
-import { startPolling, stopPolling } from '../extension/src/panel-actions.ts';
-import { createPanelRuntime } from '../extension/src/panel-state.ts';
-import type { PanelRuntime } from '../extension/src/panel-state.ts';
-import { PROJECT_STORAGE_KEY } from '../extension/src/project-actions.ts';
-import type { PanelBinding } from '../extension/src/repos-service.ts';
+} from '../src/app.ts';
+import { EVIDENCE_STORAGE_KEY, serializeEvidence } from '../src/evidence.ts';
+import { parseJsonValue } from '../src/json.ts';
+import { LEDGER_STORAGE_KEY, readLedger } from '../src/ledger.ts';
+import { startPolling, stopPolling } from '../src/panel-actions.ts';
+import { createPanelRuntime } from '../src/panel-state.ts';
+import type { PanelRuntime } from '../src/panel-state.ts';
+import { PROJECT_STORAGE_KEY } from '../src/project-actions.ts';
+import type { PanelBinding } from '../src/repos-service.ts';
 import {
     FIXTURE_TIMESTAMP,
     INTERVAL_MS,

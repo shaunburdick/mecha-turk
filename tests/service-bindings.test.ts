@@ -17,11 +17,11 @@
 import { readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../extension/src/consent.ts';
-import { parseBindingsBody } from '../extension/src/repos-service.ts';
-import { SCAN_STATE_FILE } from '../extension/service/poll/scan.ts';
-import { VERIFY_PATH } from '../extension/service/routes/verify.ts';
-import { BINDINGS_PATH } from '../extension/service/routes/bindings.ts';
+import { CONSENT_VERSION } from '../src/consent.ts';
+import { parseBindingsBody } from '../src/repos-service.ts';
+import { SCAN_STATE_FILE } from '../service/poll/scan.ts';
+import { VERIFY_PATH } from '../service/routes/verify.ts';
+import { BINDINGS_PATH } from '../service/routes/bindings.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';

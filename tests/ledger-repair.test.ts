@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { GUEST_STORAGE_VALUE_BYTES } from '@openchamber/sdk';
-import { utf8ByteLength } from '../extension/src/json.ts';
-import { fitLedgerToByteBudget, LEDGER_BYTE_BUDGET, repairLedger } from '../extension/src/ledger-repair.ts';
-import { appendEntry, createLedger, MAX_LEDGER_ENTRIES, serializeLedger } from '../extension/src/ledger.ts';
-import type { SpikeLedger } from '../extension/src/ledger.ts';
-import { RedactionError } from '../extension/src/redaction.ts';
+import { utf8ByteLength } from '../src/json.ts';
+import { fitLedgerToByteBudget, LEDGER_BYTE_BUDGET, repairLedger } from '../src/ledger-repair.ts';
+import { appendEntry, createLedger, MAX_LEDGER_ENTRIES, serializeLedger } from '../src/ledger.ts';
+import type { SpikeLedger } from '../src/ledger.ts';
+import { RedactionError } from '../src/redaction.ts';
 
 /** Correlation identifier used by the fixture ledger. */
 const CORRELATION = '2f6a4f0e-1e4c-4a6f-8a3a-0b1c2d3e4f50';

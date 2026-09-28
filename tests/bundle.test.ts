@@ -8,16 +8,16 @@ import { describe, expect, it } from 'vitest';
 const ROOT = resolve(import.meta.dirname, '..');
 
 /** Bundled panel entry produced by `npm run build`. */
-const BUNDLE = resolve(ROOT, 'extension/panel/main.js');
+const BUNDLE = resolve(ROOT, 'panel/main.js');
 
 /** Repository-relative path of the committed service bundle. */
-const SERVICE_BUNDLE_PATH = 'extension/service/main.js';
+const SERVICE_BUNDLE_PATH = 'service/main.js';
 
-/** Bundled service entry produced by `npm run build --workspace extension`. */
+/** Bundled service entry produced by `npm run build`. */
 const SERVICE_BUNDLE = resolve(ROOT, SERVICE_BUNDLE_PATH);
 
 /** Panel HTML that loads the bundle. */
-const PANEL_HTML = resolve(ROOT, 'extension/panel/index.html');
+const PANEL_HTML = resolve(ROOT, 'panel/index.html');
 
 /** Encoding used when reading the shipped artifacts. */
 const UTF8 = 'utf8';

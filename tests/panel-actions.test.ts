@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { EVIDENCE_STORAGE_KEY, EvidenceError } from '../extension/src/evidence.ts';
-import { appendEntry, LEDGER_STORAGE_KEY, readLedger } from '../extension/src/ledger.ts';
+import { EVIDENCE_STORAGE_KEY, EvidenceError } from '../src/evidence.ts';
+import { appendEntry, LEDGER_STORAGE_KEY, readLedger } from '../src/ledger.ts';
 import {
     ensureIdentity,
     persistLedger,
@@ -9,8 +9,8 @@ import {
     runPoll,
     startPolling,
     stopPolling,
-} from '../extension/src/panel-actions.ts';
-import { RedactionError } from '../extension/src/redaction.ts';
+} from '../src/panel-actions.ts';
+import { RedactionError } from '../src/redaction.ts';
 import {
     FIXTURE_TIMESTAMP,
     ISSUE_LIST_PATH,

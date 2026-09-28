@@ -19,11 +19,11 @@ import type {
     JsonValue,
     StartSessionResult,
 } from '@openchamber/sdk';
-import type { SpikeConfig } from '../../extension/src/config.ts';
-import type { SpikeEvidence } from '../../extension/src/evidence.ts';
-import { createPanelRuntime } from '../../extension/src/panel-state.ts';
-import type { PanelRuntime } from '../../extension/src/panel-state.ts';
-import type { SpikeHost } from '../../extension/src/session.ts';
+import type { SpikeConfig } from '../../src/config.ts';
+import type { SpikeEvidence } from '../../src/evidence.ts';
+import { createPanelRuntime } from '../../src/panel-state.ts';
+import type { PanelRuntime } from '../../src/panel-state.ts';
+import type { SpikeHost } from '../../src/session.ts';
 
 /** Project id every panel test dispatches against. */
 export const PROJECT_ID = 'prj_42';
@@ -151,7 +151,7 @@ const OPEN_STATE = 'open';
  * the normaliser, not the panel. It is written as a JSON document rather than
  * an object literal because the provider's own field names (`number`,
  * `html_url`) are not this codebase's naming conventions — the same reason
- * `extension/src/github.ts` reads them through string keys.
+ * `src/github.ts` reads them through string keys.
  *
  * @param input - Issue number, assignees, and repository state.
  * @returns The response body for a `host.request` double.

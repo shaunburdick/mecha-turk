@@ -170,7 +170,7 @@ export function buildBoundedContext(input: {
 }): string {
     const maxChars = input.maxChars ?? CONTEXT_MAX_CHARS;
     const frame = [
-        'Mecha Turk spike dispatch (extension spike, not a production orchestrator).',
+        'Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).',
         `Correlation: ${input.correlationId}`,
         `Repository: ${input.repository}`,
         `Issue #${input.issue.issueNumber}: ${input.issue.title}`,
@@ -228,7 +228,7 @@ export function buildStartSessionRequest(input: {
     const worktree = worktreeValue(input.config.worktree);
 
     return {
-        providerId: 'mecha-turk-spike',
+        providerId: 'mecha-turk',
         id: `issue-${input.issue.issueNumber}`,
         title: input.issue.title.slice(0, GUEST_ATTACH_TITLE_MAX),
         url: input.issue.url.slice(0, GUEST_ATTACH_URL_MAX),

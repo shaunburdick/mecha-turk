@@ -18,11 +18,11 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../extension/src/consent.ts';
-import { EVENTS_FILE, createEvent } from '../extension/service/poll/events.ts';
-import { EVENTS_PATH, EVENTS_PENDING_PATH, EVENT_RETRY_PATH } from '../extension/service/routes/events.ts';
-import { VERIFY_PATH } from '../extension/service/routes/verify.ts';
-import type { EventSnapshot, QueuedEvent } from '../extension/service/poll/events.ts';
+import { CONSENT_VERSION } from '../src/consent.ts';
+import { EVENTS_FILE, createEvent } from '../service/poll/events.ts';
+import { EVENTS_PATH, EVENTS_PENDING_PATH, EVENT_RETRY_PATH } from '../service/routes/events.ts';
+import { VERIFY_PATH } from '../service/routes/verify.ts';
+import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';

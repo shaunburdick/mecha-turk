@@ -9,8 +9,8 @@ import {
     parseIssueList,
     userRequest,
     GitHubApiError,
-} from '../extension/src/github.ts';
-import type { RequestingHost } from '../extension/src/github.ts';
+} from '../src/github.ts';
+import type { RequestingHost } from '../src/github.ts';
 
 /** Repository used by the request builders and the fixtures. */
 const REPO = { owner: 'acme', name: 'widget' };

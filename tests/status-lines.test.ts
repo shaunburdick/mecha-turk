@@ -11,9 +11,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { summarizeState } from '../extension/src/panel-ui.ts';
-import { bindingRows } from '../extension/src/repos-rows.ts';
-import type { PanelBinding, BindingStatusRow } from '../extension/src/repos-service.ts';
+import { summarizeState } from '../src/panel-ui.ts';
+import { bindingRows } from '../src/repos-rows.ts';
+import type { PanelBinding, BindingStatusRow } from '../src/repos-service.ts';
 import { LOGIN, createTestRuntime, fakeHost } from './support/panel.ts';
 
 /** Fixture account the binding polls under. */

@@ -1,6 +1,7 @@
 /**
- * The normalized issue evidence record for the spike (contract:
- * `specs/001-agent-event-orchestrator/contracts/openchamber.md`).
+ * The normalized issue evidence record for the extension (contract:
+ * schema `extension-spike-1` — see the invariant on wire contracts in
+ * AGENTS.md; the record shape is asserted by `tests/evidence.test.ts`).
  *
  * The record is the only provider-derived fact the panel persists for a
  * match: it carries identity, source link, timing, and correlation — never the
@@ -19,7 +20,7 @@ import { describeError } from './session.ts';
 export const EVIDENCE_SCHEMA_VERSION = 'extension-spike-1';
 
 /** Storage key for the most recent evidence record. */
-export const EVIDENCE_STORAGE_KEY = 'mecha-turk-spike:evidence';
+export const EVIDENCE_STORAGE_KEY = 'mecha-turk:evidence';
 
 /** How the spike selects issues; the only trigger this contract defines. */
 const TRIGGER = 'configured-match';

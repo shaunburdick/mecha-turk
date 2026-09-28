@@ -9,8 +9,8 @@
  */
 
 import type { Handle } from '@openchamber/sdk/ui';
-import type { PanelUi } from '../../extension/src/panel-state.ts';
-import type { ReposPane } from '../../extension/src/repos-ui.ts';
+import type { PanelUi } from '../../src/panel-state.ts';
+import type { ReposPane } from '../../src/repos-ui.ts';
 
 /**
  * Read the recorded paint count of a stubbed handle.
