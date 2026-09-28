@@ -32,7 +32,7 @@ import type { SpikeHost } from './session.ts';
  * Namespaced like the ledger and evidence keys; the value is a plain project
  * id, which is operator-visible configuration rather than a secret.
  */
-export const PROJECT_STORAGE_KEY = 'mecha-turk-spike:project';
+export const PROJECT_STORAGE_KEY = 'mecha-turk:project';
 
 /** Outcome of reading the stored project selection. */
 export type StoredSelectionRead =

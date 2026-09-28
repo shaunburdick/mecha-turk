@@ -19,7 +19,7 @@ import { describeError } from './session.ts';
 export const EVIDENCE_SCHEMA_VERSION = 'extension-spike-1';
 
 /** Storage key for the most recent evidence record. */
-export const EVIDENCE_STORAGE_KEY = 'mecha-turk-spike:evidence';
+export const EVIDENCE_STORAGE_KEY = 'mecha-turk:evidence';
 
 /** How the spike selects issues; the only trigger this contract defines. */
 const TRIGGER = 'configured-match';

@@ -223,7 +223,7 @@ describe('panel entry', () => {
     it('matches the providerId the dispatch code sends', () => {
         const panelId = openchamberBlock(EXTENSION_MANIFEST).contributes?.panel?.id;
         const sessionSource = readFileSync(resolve(ROOT, 'src/session.ts'), 'utf8');
-        expect(panelId).toBe('mecha-turk-spike');
-        expect(sessionSource).toContain("providerId: 'mecha-turk-spike'");
+        expect(panelId).toBe('mecha-turk');
+        expect(sessionSource).toContain("providerId: 'mecha-turk'");
     });
 });

@@ -23,7 +23,7 @@ import { assertRedacted, redact, stripCredentialKeys } from './redaction.ts';
 export const LEDGER_SCHEMA_VERSION = 'spike-ledger-1';
 
 /** Storage key for the ledger. Uses the extension's namespace. */
-export const LEDGER_STORAGE_KEY = 'mecha-turk-spike:ledger';
+export const LEDGER_STORAGE_KEY = 'mecha-turk:ledger';
 
 /** Maximum number of entries kept; the oldest are dropped first. */
 export const MAX_LEDGER_ENTRIES = 100;

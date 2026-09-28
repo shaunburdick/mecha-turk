@@ -197,7 +197,7 @@ function mountProjectPicker(input: {
  */
 export function mountPanelUi(rt: PanelRuntime, input: { root: HTMLElement; handlers: PanelHandlers }): PanelUi {
     const { root, handlers } = input;
-    const banner = mountBanner(root, { tone: 'info', title: 'Mecha Turk Spike', body: 'Waiting for the host.' });
+    const banner = mountBanner(root, { tone: 'info', title: 'Mecha Turk', body: 'Waiting for the host.' });
     const summary = mountText(root, { text: 'Starting…' });
     const picker = mountProjectPicker({ rt, root, handlers });
     const controls = createControlsRow(root);

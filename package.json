@@ -15,7 +15,7 @@
         },
         "contributes": {
             "panel": {
-                "id": "mecha-turk-spike",
+                "id": "mecha-turk",
                 "name": "Mecha Turk",
                 "icon": "github",
                 "entry": "panel/index.html"
