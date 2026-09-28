@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { GuestProjectsSnapshot, JsonValue } from '@openchamber/sdk';
-import { applySettings, handlePagehide, loadLedger, selectProject, teardown } from '../extension/src/app.ts';
+import {
+    applySettings,
+    handleConnection,
+    handlePagehide,
+    loadLedger,
+    selectProject,
+    teardown,
+} from '../extension/src/app.ts';
 import { EVIDENCE_STORAGE_KEY, serializeEvidence } from '../extension/src/evidence.ts';
 import { parseJsonValue } from '../extension/src/json.ts';
 import { LEDGER_STORAGE_KEY, readLedger } from '../extension/src/ledger.ts';
@@ -208,6 +215,25 @@ describe('applySettings', () => {
         expect(runtime.state.config?.repository).toEqual({ owner: 'acme', name: 'widget' });
         expect(runtime.state.config?.projectId).toBe(PROJECT_ID);
         expect(runtime.state.config?.worktree).toEqual({ kind: 'generated' });
+    });
+});
+
+describe('handleConnection (FR-011 optional integration card)', () => {
+    it('steers the unconnected banner to the service-account flow, not the integration card', () => {
+        const runtime = createTestRuntime(fakeHost());
+
+        handleConnection(runtime, false);
+
+        // The card is optional and non-authoritative: the banner still stops
+        // the legacy single-repo loop, but it points at the account flow the
+        // product actually polls under.
+        expect(runtime.state.connected).toBe(false);
+        expect(runtime.pollTimer).toBeNull();
+        expect(runtime.state.status.tone).toBe('warning');
+        expect(runtime.state.status.title).toBe('No account connected');
+        expect(runtime.state.status.body).toContain('Repositories → Poll as account');
+        expect(runtime.state.status.body).toContain('optional GitHub (token) integration card');
+        expect(runtime.state.status.body).not.toContain('Settings → Integrations');
     });
 });
 

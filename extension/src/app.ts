@@ -196,15 +196,30 @@ export async function selectProject(rt: PanelRuntime, id: string): Promise<void>
 /**
  * React to integration connection changes.
  *
+ * The declared GitHub (token) integration card is optional and
+ * non-authoritative (FR-011): the panel is fully functional with it
+ * unconnected, because polling and dispatch run on the *service* accounts
+ * under Repositories → Poll as account. The unconnected banner therefore
+ * points at that account flow instead of steering the operator to a
+ * credential surface the product does not need — and it mentions the card
+ * only where the card is genuinely load-bearing: the legacy single-repo
+ * spike path, whose identity check is the one read that still rides
+ * `host.request()`'s integration credential.
+ *
+ * Exported so the orchestration tests can assert the banner copy without a
+ * live host subscription.
+ *
  * @param rt - Panel runtime.
  * @param connected - Whether the host reports a connected token.
  */
-function handleConnection(rt: PanelRuntime, connected: boolean): void {
+export function handleConnection(rt: PanelRuntime, connected: boolean): void {
     rt.state.connected = connected;
     if (!connected) {
         stopPolling(rt);
-        const body = 'Connect a GitHub token at Settings → Integrations → GitHub (token).';
-        setStatus(rt, { tone: 'warning', title: 'Not connected', body });
+        const body =
+            'Add one under Repositories → Poll as account — service accounts drive polling and dispatch. ' +
+            'The optional GitHub (token) integration card is only needed for the legacy single-repo identity check.';
+        setStatus(rt, { tone: 'warning', title: 'No account connected', body });
         refresh(rt);
         return;
     }
