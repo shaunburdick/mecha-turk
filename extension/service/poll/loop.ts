@@ -9,13 +9,17 @@
  * event — one open issue assigned to one bound account can only ever produce
  * one event, because the event id is deterministic.
  *
- * The scan window opens where the binding was created: an operator who binds
- * a repository does not get a backlog avalanche of issues that were assigned
- * before the binding existed — the first scan is a baseline, not a replay.
- * Queued events reach the panel through the relay (M2); the panel dispatches
- * (M4). MVP-DEBT: the production plan's checkpoint machinery (overlap
- * windows, run keys, lease renewal) is deliberately not here — this is the
- * simple stand-in the MVP cut asked for.
+ * The first scan of a binding *replays*: with no recorded `lastScanAt` the
+ * loop sends no `since` filter, so every open issue matching the trigger is
+ * enqueued — an operator who binds a repository and immediately wants work
+ * on already-assigned issues gets it even when the issue (or the assignment)
+ * predates the binding (product decision, 2026-09-28). Every scan after the
+ * first is incremental from the recorded `lastScanAt`, and dedupe by the
+ * deterministic event id keeps the replay idempotent. Queued events reach
+ * the panel through the relay (M2); the panel dispatches (M4). MVP-DEBT:
+ * the production plan's checkpoint machinery (overlap windows, run keys,
+ * lease renewal) is deliberately not here — this is the simple stand-in the
+ * MVP cut asked for.
  */
 
 import { repositoryLabel } from '../../src/config.ts';
@@ -138,27 +142,25 @@ function repositoryRefOf(binding: BindingRecord): RepositoryRef {
 }
 
 /**
- * The window the next scan opens from: the binding's recorded stamp when it
- * has one, else the binding's creation stamp — the first scan is a baseline,
- * not a backlog replay.
+ * The window the next scan opens from: the last completed scan's stamp when
+ * there is one, else `null` — no `since` filter at all, a full replay.
  *
- * A recorded slot of `lastScanAt: null` means "no scan ever completed" (the
- * loop writes that for a binding whose scans were skipped, e.g. on an
- * unusable credential), so it falls through to the creation stamp exactly
- * like an absent slot: the binding still gets a baseline instead of an
- * unbounded window over the repository's whole open-issue history.
+ * A binding that has never completed a scan (`lastScanAt: null` in its slot,
+ * or no slot at all) replays every open issue on its next scan instead of
+ * opening a baseline at `createdAt`: pre-binding assignments must work
+ * (product decision, 2026-09-28), so an issue assigned before the binding
+ * existed is still detected. A recovery reset writes the same `null`, so the
+ * reset replays too — the same contract, and deterministic event ids keep
+ * both replays duplicate-free.
  *
  * @param binding - Binding being scanned.
  * @param scanned - Scan state read at cycle start.
- * @returns The window start, or `null` when neither source yields a stamp.
+ * @returns The recorded stamp, or `null` for an unbounded (replay) window.
  */
 export function windowFor(binding: BindingRecord, scanned: ScanState): string | null {
     const recorded = scanned.bindings[binding.bindingId];
-    if (recorded !== undefined && recorded.lastScanAt !== null) {
-        return recorded.lastScanAt;
-    }
 
-    return Number.isNaN(Date.parse(binding.createdAt)) ? null : binding.createdAt;
+    return recorded !== undefined && recorded.lastScanAt !== null ? recorded.lastScanAt : null;
 }
 
 /**
@@ -181,18 +183,23 @@ export function isIssueAssignment(issue: PollIssue, bindingLogin: string): boole
 }
 
 /**
- * Decide whether an issue's update stamp is inside the scan window.
+ * Decide whether an issue falls inside the scan window.
  *
- * An issue that cannot report its own freshness is never in-window: a feed
- * entry without a date cannot honestly claim to be new.
+ * With no window (`windowStart === null` — the first scan, and any replay
+ * after a recovery reset) every listed issue is in-window: the replay's
+ * contract is that everything open matching the trigger enqueues, whether or
+ * not the issue can report its own freshness (product decision,
+ * 2026-09-28). With a window, an issue that cannot report its own freshness
+ * is never in-window: a feed entry without a date cannot honestly claim to
+ * be new.
  *
  * @param updatedAt - GitHub `updated_at` stamp, or `null`.
- * @param windowStart - Window start stamp, or `null` before the first pass.
- * @returns `true` when the stamp is present and at-or-after the window start.
+ * @param windowStart - Window start stamp, or `null` for a replay scan.
+ * @returns `true` when in-window — always, when there is no window.
  */
 export function updatedInWindow(updatedAt: string | null, windowStart: string | null): boolean {
     if (windowStart === null) {
-        return updatedAt !== null;
+        return true;
     }
 
     if (updatedAt === null) {
@@ -272,7 +279,7 @@ async function listBindingIssues(input: {
     /** Repository coordinates. */
     readonly owner: string;
     readonly name: string;
-    /** Scan window start, or `null` before the first pass. */
+    /** Scan window start; `null` opens an unbounded (replay) listing. */
     readonly since: string | null;
 }): Promise<IssuePageResult> {
     const pageInputs = {
@@ -339,7 +346,7 @@ async function recordDetection(deps: ScanContext, event: QueuedEvent): Promise<v
 function eventsForBinding(input: {
     /** The binding that produced the window. */
     readonly binding: BindingRecord;
-    /** The window start the scan used. */
+    /** The window start the scan used; `null` on a replay scan. */
     readonly windowStart: string | null;
     /** The issues the pages yielded. */
     readonly issues: readonly PollIssue[];
@@ -502,8 +509,9 @@ export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     // to be quarantined clears every binding's `lastScanAt` inside that read,
     // so the scan-state read below must see the cleared slots rather than
     // the stamps a pre-recovery read would have cached. The cycle then opens
-    // each window at the binding's own `createdAt` and re-detects whatever
-    // the lost queue carried (deterministic ids keep that replay duplicate-free).
+    // each window with no `since` filter at all — a full replay that
+    // re-detects whatever the lost queue carried (deterministic ids keep
+    // that replay duplicate-free).
     await readEvents({ store: context.store, log: context.log });
     const [bindings, scannedState] = await Promise.all([
         readBindings({ store: context.store, log: context.log }),

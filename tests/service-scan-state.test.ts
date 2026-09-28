@@ -10,9 +10,10 @@
  *
  * These tests pin both halves of the fix: the never-scanned slot round-trips
  * through the real store without quarantining, a genuinely malformed slot is
- * still quarantined (never half-read), and the next scan window opens at the
- * binding's creation stamp when no scan ever completed — the baseline, not a
- * replay of the repository's whole open-issue history.
+ * still quarantined (never half-read), and a binding with no completed scan
+ * opens its next window with no `since` filter at all — a full replay of the
+ * open-issue list, including issues last updated before the binding existed
+ * (product decision, 2026-09-28: the first scan is a replay, not a baseline).
  */
 
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
@@ -31,7 +32,7 @@ import type { ServiceStore } from '../extension/service/store/index.ts';
 /** Binding id used by every fixture slot. */
 const BINDING_ID = 'bnd-quarantine';
 
-/** Creation stamp of the fixture binding; the baseline window opens here. */
+/** Creation stamp of the fixture binding (no longer a window source — kept for a complete record). */
 const CREATED_AT = '2026-09-27T00:00:00.000Z';
 
 /** Stamp of a completed scan, for the "has scanned" contrast case. */
@@ -185,13 +186,14 @@ describe('readScanState (real store, no more per-minute quarantine files)', () =
     });
 });
 
-describe('windowFor (the window a never-scanned binding opens from)', () => {
-    it('opens at the binding creation stamp when no scan ever completed', () => {
-        // Without this, the first successful scan after a fixed credential
-        // would walk the repository's whole open-issue history.
+describe('windowFor (never-scanned opens a replay, scanned opens incremental)', () => {
+    it('opens with no window when no scan ever completed — a full replay', () => {
+        // Product decision 2026-09-28: pre-binding assignments must work, so
+        // the first scan lists every open issue instead of a createdAt
+        // baseline that would reject an issue assigned before the binding.
         const scanned = stateWith({ lastScanAt: null, lastError: SKIP_REASON });
 
-        expect(windowFor(fixtureBinding(), scanned)).toBe(CREATED_AT);
+        expect(windowFor(fixtureBinding(), scanned)).toBeNull();
     });
 
     it('opens at the recorded stamp once a scan has completed', () => {
@@ -200,7 +202,7 @@ describe('windowFor (the window a never-scanned binding opens from)', () => {
         expect(windowFor(fixtureBinding(), scanned)).toBe(SCANNED_AT);
     });
 
-    it('opens at the creation stamp for a binding the state file never mentions', () => {
-        expect(windowFor(fixtureBinding(), stateWith(null))).toBe(CREATED_AT);
+    it('opens with no window for a binding the state file never mentions', () => {
+        expect(windowFor(fixtureBinding(), stateWith(null))).toBeNull();
     });
 });

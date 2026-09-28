@@ -2975,10 +2975,7 @@ function repositoryRefOf(binding) {
 }
 function windowFor(binding, scanned) {
   const recorded = scanned.bindings[binding.bindingId];
-  if (recorded !== undefined && recorded.lastScanAt !== null) {
-    return recorded.lastScanAt;
-  }
-  return Number.isNaN(Date.parse(binding.createdAt)) ? null : binding.createdAt;
+  return recorded !== undefined && recorded.lastScanAt !== null ? recorded.lastScanAt : null;
 }
 function isIssueAssignment(issue2, bindingLogin) {
   if (issue2.state !== "open" || issue2.isPullRequest) {
@@ -2988,7 +2985,7 @@ function isIssueAssignment(issue2, bindingLogin) {
 }
 function updatedInWindow(updatedAt, windowStart) {
   if (windowStart === null) {
-    return updatedAt !== null;
+    return true;
   }
   if (updatedAt === null) {
     return false;

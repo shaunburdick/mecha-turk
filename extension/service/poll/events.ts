@@ -210,14 +210,17 @@ function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boole
 }
 
 /**
- * Clear every binding's `lastScanAt` so the next scan re-baselines.
+ * Clear every binding's `lastScanAt` so the next scan replays every open
+ * issue.
  *
  * The quarantined queue's rows are gone with the file, so the only way to
  * recover what they carried is to re-detect it — and a binding whose window
  * already advanced past those assignments will never match them again.
  * Clearing every slot moves each binding back to "never scanned", which makes
- * `windowFor` open at the binding's own `createdAt`: the same baseline a
- * fresh binding gets. The write runs on the scan-state chain, so it cannot
+ * `windowFor` return no window at all: the next cycle replays every open
+ * issue — the same contract a fresh binding gets (product decision,
+ * 2026-09-28) — and the deterministic event ids keep that replay
+ * duplicate-free. The write runs on the scan-state chain, so it cannot
  * interleave with the loop's own read-modify-write of that file.
  *
  * @param input - Open store and logger the scan-state read takes.
@@ -404,7 +407,17 @@ export async function readEvents(input: {
 /**
  * Append events to the queue, skipping every id already recorded in any
  * state — the deterministic event id is the dedupe key, so this one check is
- * the whole of deduplication.
+ * the whole of deduplication. The check reads *every* row still in the file,
+ * pending, in-flight, and dispatched alike, so a replay (a first scan, or a
+ * recovery reset that cleared `lastScanAt`) re-enqueues nothing the queue can
+ * still see.
+ *
+ * MVP-DEBT: `serializedQueue` retains only the newest `MAX_DISPATCHED_EVENTS`
+ * (500) dispatched rows, so an issue dispatched longer ago than that has been
+ * evicted from the file — a later replay can enqueue it once more. That
+ * eviction is the only gap in this dedupe (acceptable for the MVP bar: a
+ * queue loss discards the whole file anyway); a durable dedupe index belongs
+ * with the contract §2.4 retention machinery on the Slice 2 debt list.
  *
  * @param input - Open store and freshly detected events.
  * @returns The events that were actually appended.

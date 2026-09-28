@@ -16,14 +16,20 @@
  * 3. recovery — a planted quarantined queue clears every binding's
  *    `lastScanAt` (through the serialized scan-state write), leaves exactly
  *    one `delivery.recovered` audit row, accepts the next enqueue, and a full
- *    `runScanCycle` re-baselines at the bindings' `createdAt` and re-detects
- *    the assignments the lost queue carried (the stamps sit *between* the
- *    creation stamp and the stale window, so the reset is what finds them);
+ *    `runScanCycle` then opens every window with no `since` filter and
+ *    re-detects the assignments the lost queue carried — including issues
+ *    last updated *before* the binding existed (product decision,
+ *    2026-09-28: the first scan is a replay, and a recovery reset rides the
+ *    same path);
  * 4. the restart state — the quarantine *renames* the file, so a service that
  *    restarts after the loss finds `events.json` absent and the evidence
  *    file beside it; that evidence stands in for the observation, while a
  *    plain empty queue must never reset anything (the operator's real data
- *    directory is in exactly this state).
+ *    directory is in exactly this state);
+ * 5. first-scan replay — a binding the loop has never scanned lists every
+ *    open issue (no `since` filter), the recorded stamp arms the incremental
+ *    window from the second cycle on, and a replay never duplicates rows the
+ *    queue still holds, pending or dispatched.
  */
 
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -65,7 +71,7 @@ const ACCOUNT_ID = '77331';
 /** Login the fixture issues are assigned to. */
 const ACCOUNT_LOGIN = 'octocat-mt';
 
-/** Binding creation stamp; the re-baselined window opens here. */
+/** Binding creation stamp; no longer a window source (kept for a complete record). */
 const CREATED_AT = '2026-09-27T00:00:00.000Z';
 
 /** Stale window stamp — advanced past the assignments, as the operator's was. */
@@ -77,7 +83,7 @@ const DETECTED_AT = '2026-09-27T00:41:00.000Z';
 /** When the fixture issues were updated: after creation, before the stale window. */
 const ASSIGNED_AT = '2026-09-27T00:35:00.000Z';
 
-/** A stamp before the binding existed: the baseline must not replay it. */
+/** A stamp before the binding existed — the first scan must replay it (product decision, 2026-09-28). */
 const PRE_BINDING_AT = '2026-09-26T23:50:00.000Z';
 
 /** The loop's skip reason for a credential the custody cannot use. */
@@ -375,9 +381,9 @@ describe('quarantined queue recovery', () => {
         expect(state.bindings[BINDING_A]).toEqual({ lastScanAt: null, lastError: null });
         expect(state.bindings[BINDING_B]).toEqual({ lastScanAt: null, lastError: SKIP_REASON });
 
-        // The next window opens at the binding's creation stamp — the
-        // baseline, not the stale stamp that skipped the lost assignments.
-        expect(windowFor(fixtureBinding(BINDING_A), state)).toBe(CREATED_AT);
+        // The next window opens with no `since` filter at all — the reset
+        // replays every open issue, not the stale stamp that skipped them.
+        expect(windowFor(fixtureBinding(BINDING_A), state)).toBeNull();
 
         const recovered = await auditRowsOf(RECOVERED_EVENT);
         expect(recovered).toHaveLength(1);
@@ -397,7 +403,7 @@ describe('quarantined queue recovery', () => {
         expect(await readEvents({ store, log })).toEqual([fresh]);
     });
 
-    it('re-baselines the next cycle so the lost assignments are re-detected', async () => {
+    it('replays the next cycle so the lost assignments are re-detected', async () => {
         await writeBindings({ store, bindings: [fixtureBinding(BINDING_A), fixtureBinding(BINDING_B)] });
         await writeAccount(store, fixtureAccount());
         await plantScanState({
@@ -412,9 +418,9 @@ describe('quarantined queue recovery', () => {
 
         const cycle = await runScanCycle({ store, log, poller });
 
-        // Both windows opened at the bindings' creation stamp: only the reset
-        // makes ASSIGNED_AT (after creation, before the stale stamp) in-window.
-        expect(seenSince).toEqual([CREATED_AT, CREATED_AT]);
+        // Both windows opened with no `since` filter — only the reset puts
+        // them there, so every open issue (ASSIGNED_AT or older) is in-window.
+        expect(seenSince).toEqual([null, null]);
         expect(cycle.enqueued).toBe(2);
         const queued = await readEvents({ store, log });
         expect(queued.map((event) => [event.issueNumber, event.state])).toEqual([
@@ -445,7 +451,7 @@ describe('quarantined queue recovery', () => {
         const state = await readScanState({ store, log });
         expect(state.bindings[BINDING_A]).toEqual({ lastScanAt: null, lastError: null });
         expect(state.bindings[BINDING_B]).toEqual({ lastScanAt: null, lastError: SKIP_REASON });
-        expect(windowFor(fixtureBinding(BINDING_A), state)).toBe(CREATED_AT);
+        expect(windowFor(fixtureBinding(BINDING_A), state)).toBeNull();
         expect(await auditRowsOf(RECOVERED_EVENT)).toHaveLength(1);
 
         // One loss, one recovery: a second read in this process stays quiet.
@@ -470,7 +476,7 @@ describe('quarantined queue recovery', () => {
         expect(await auditRowsOf(RECOVERED_EVENT)).toHaveLength(0);
     });
 
-    it('re-detects the lost assignment from evidence alone, baseline intact', async () => {
+    it('replays every open assignment from evidence alone, pre-binding issue included', async () => {
         await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
         await writeAccount(store, fixtureAccount());
         await plantScanState({
@@ -478,8 +484,8 @@ describe('quarantined queue recovery', () => {
         });
         await plantEvidence();
         const { log } = capturingLogger();
-        // Issue 1 was assigned before the binding existed (the baseline does
-        // not replay it); issue 2 was assigned after it — the lost queue's row.
+        // Issue 1 was assigned before the binding existed — the replay must
+        // find it (product decision, 2026-09-28); issue 2 is the lost queue's row.
         const { poller, seenSince } = recordingPoller([
             assignmentIssue(1, PRE_BINDING_AT),
             assignmentIssue(2, ASSIGNED_AT),
@@ -487,10 +493,97 @@ describe('quarantined queue recovery', () => {
 
         const cycle = await runScanCycle({ store, log, poller });
 
-        expect(seenSince).toEqual([CREATED_AT]);
+        expect(seenSince).toEqual([null]);
+        expect(cycle.enqueued).toBe(2);
+        const queued = await readEvents({ store, log });
+        expect(queued.map((event) => [event.issueNumber, event.state])).toEqual([
+            [1, 'pending'],
+            [2, 'pending'],
+        ]);
+        expect(await auditRowsOf(RECOVERED_EVENT)).toHaveLength(1);
+    });
+});
+
+describe('first-scan replay (product decision, 2026-09-28)', () => {
+    it('enqueues issues assigned before the binding existed on the very first cycle', async () => {
+        await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
+        await writeAccount(store, fixtureAccount());
+        // No scan-state file at all: a binding the loop has never scanned.
+        const { log } = capturingLogger();
+        const { poller, seenSince } = recordingPoller([
+            assignmentIssue(1, PRE_BINDING_AT),
+            assignmentIssue(2, ASSIGNED_AT),
+        ]);
+
+        const cycle = await runScanCycle({ store, log, poller });
+
+        expect(seenSince).toEqual([null]); // no `since` param: a full replay
+        expect(cycle.enqueued).toBe(2);
+        const queued = await readEvents({ store, log });
+        expect(queued.map((event) => [event.issueNumber, event.state])).toEqual([
+            [1, 'pending'],
+            [2, 'pending'],
+        ]);
+
+        // The completed scan arms the incremental window for the next cycle.
+        const after = await readScanState({ store, log });
+        expect(after.bindings[BINDING_A]?.lastScanAt).not.toBeNull();
+    });
+
+    it('skips an untouched issue once the incremental window is armed', async () => {
+        await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
+        await writeAccount(store, fixtureAccount());
+        const { log } = capturingLogger();
+
+        const first = recordingPoller([assignmentIssue(1, PRE_BINDING_AT)]);
+        const firstCycle = await runScanCycle({ store, log, poller: first.poller });
+        expect(firstCycle.enqueued).toBe(1);
+
+        // Second cycle: the same untouched issue plus one the queue has never
+        // seen — both last updated before the recorded stamp, so the window
+        // (not merely dedupe) is what keeps issue 9 out.
+        const second = recordingPoller([assignmentIssue(1, PRE_BINDING_AT), assignmentIssue(9, PRE_BINDING_AT)]);
+        const cycle = await runScanCycle({ store, log, poller: second.poller });
+
+        expect(second.seenSince[0]).not.toBeNull();
+        expect(cycle.enqueued).toBe(0);
+        const queued = await readEvents({ store, log });
+        expect(queued.map((event) => event.issueNumber)).toEqual([1]);
+    });
+
+    it('never duplicates rows the queue still holds after a recovery reset', async () => {
+        // The state a recovery reset leaves behind: every window cleared
+        // (`lastScanAt: null`) while the queue — restored, or rebuilt by an
+        // earlier replay — still carries rows. Dedupe by deterministic id is
+        // the only guard, for pending AND dispatched rows alike.
+        await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
+        await writeAccount(store, fixtureAccount());
+        await plantScanState({ bindings: { [BINDING_A]: { lastScanAt: null, lastError: null } } });
+        const pending = createEvent(fixtureSnapshot(2, ''));
+        const dispatched: QueuedEvent = {
+            ...createEvent(fixtureSnapshot(3, '')),
+            state: 'dispatched',
+            dispatchedAt: DETECTED_AT,
+            dispatchResult: 'ses_fixture',
+        };
+        await plantQueue([pending, dispatched]);
+        const { log } = capturingLogger();
+        const { poller, seenSince } = recordingPoller([
+            assignmentIssue(1, PRE_BINDING_AT), // never queued → the replay finds it
+            assignmentIssue(2, PRE_BINDING_AT), // pending row → deduped
+            assignmentIssue(3, PRE_BINDING_AT), // dispatched row → deduped
+        ]);
+
+        const cycle = await runScanCycle({ store, log, poller });
+
+        expect(seenSince).toEqual([null]);
         expect(cycle.enqueued).toBe(1);
         const queued = await readEvents({ store, log });
-        expect(queued.map((event) => [event.issueNumber, event.state])).toEqual([[2, 'pending']]);
-        expect(await auditRowsOf(RECOVERED_EVENT)).toHaveLength(1);
+        expect(queued.map((event) => [event.issueNumber, event.state])).toEqual([
+            [2, 'pending'],
+            [1, 'pending'],
+            [3, 'dispatched'],
+        ]);
+        expect(new Set(queued.map((event) => event.id)).size).toBe(3);
     });
 });

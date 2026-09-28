@@ -2,9 +2,12 @@
  * Per-binding scan state for the poll loop (MVP re-cut).
  *
  * `scan-state.json` records, per binding id, when the loop last completed a
- * scan and what (if anything) stopped it. A fresh binding scans from its own
- * `createdAt`, so a newly bound repository does not replay a backlog; this
- * file is the simple stand-in for checkpoint architecture (debt list).
+ * scan and what (if anything) stopped it. A binding with no completed scan
+ * (`lastScanAt: null`, or no slot at all) replays every open issue on its
+ * next scan — pre-binding assignments included (product decision,
+ * 2026-09-28) — and a recorded stamp arms the incremental window from then
+ * on; this file is the simple stand-in for checkpoint architecture (debt
+ * list).
  */
 
 import { isRecord } from '../json.ts';
