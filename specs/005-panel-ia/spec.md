@@ -1,0 +1,634 @@
+# Feature Specification: Panel IA — Six Tabs
+
+**Feature ID**: `005-panel-ia`
+
+**Feature Branch**: `full-project-plan` (the planning branch for the post-MVP cycle; the spec directory and the git branch are independent. Implementation moves to its own `005-panel-ia` branch per `AGENTS.md` git conventions.)
+
+**Created**: 2026-09-28
+
+**Last Updated**: 2026-09-28
+
+**Version**: 1.0.0
+
+**Status**: Approved (v1.0.0) — 2026-09-28. Specification content approved by the product owner on 2026-09-28; the four questions in `## Resolved Gate Questions` are confirmed against the defaults already encoded in `## Clarifications` rows 21–24, with the confirmations recorded at rows 25–28. Approval changed no requirement text, so the version stayed 1.0.0. The normative body below is unchanged from the version submitted at the gate. Cleared for `/speckit.plan` (Phase 4).
+
+**Dependencies**: Feature 002 `002-agent-event-extension` (v1.3.0 → **amended to v1.4.0 by this specification**), feature 003 `003-dispatch-integrity` (v1.1.0 → **amended to v1.2.0 by this specification**), and feature 004 `004-starting-prompt` (v1.0.0 → **amended to v1.1.0 by this specification**). Credential custody, the binding model, the trigger set, the dispatch mechanism (`host.startSession()`), the single-use dispatch token and impossibility requirement, the dispatch state model and its audit vocabulary, the correlation model, the per-binding starting prompt and its fingerprint, and the read-only-to-GitHub posture all carry forward **unchanged**. This specification **extends** all three and **supersedes** exactly one row of 003's `## Wire Surface Delta` (the `Status` operation). It is a **prerequisite of 006** (settings CRUD), whose editable surface 005 deliberately leaves read-only.
+
+**Input**: Product-owner brief (2026-09-28) — "adopt the product owner's words: **Dispatches** and **Bindings** replace Runs and Repositories across copy, service route names, tests, and spec language", recorded as decision 3 in `specs/003-dispatch-integrity/pm-handoff.md`, together with the roadmap's characterisation of 005 as "the headline UX work; consumes 003's honest retry + 004's prompt field". Scope source: `specs/003-dispatch-integrity/pm-handoff.md` §Feature Roadmap, §Product-owner decisions, §003 explicitly out of scope.
+
+**Constitution**: `.specify/memory/constitution.md` v1.3.0 — Approved 2026-09-27 by product owner. Governing principles for this feature: **IV (human-visible auditability)** and **VI (specification and verification before implementation)**, with **II (safe autonomy by default)** supplying the fail-closed posture, **VII (thin orchestration boundary)** the constraint that the shell adds no host capability, and **I (no secret in any store, log, or rendered surface)** the reason the Accounts and Dispatches tabs render credential-free by construction.
+
+## Problem Statement
+
+The panel works and says so. Two issues became two worktree sessions; the loop from account to binding to dispatch to session to run list closed end to end on 2026-09-28. What it does not do is **tell the truth about itself**, and what it does with that truth is **spread across a spike's worth of surfaces that no longer describe the product**.
+
+Three concrete failures, all visible to the operator in the first ten seconds:
+
+1. **The status the panel shows is partly fiction.** `service/routes/status.ts` reports `paused: true`, `nextPollAt: null`, and `pausedReason: 'config-incomplete'` as **literals**, plus `repositories: []` and `agentPin.lastVerification: null` as fixed empties. The poll loop it describes is real, running, and re-reading its interval from configuration every cycle; a status document that says it is paused with no next poll and no bound repositories is a document contradicting the machine beneath it. 003 recorded this as out of scope and named it 005's work. An operator reading the panel right now cannot learn that polling is healthy — only that it is not.
+
+2. **The navigation matches a prototype, not a product.** `src/panel-state.ts` carries `Repositories.activeTab: 'spike' | 'repos'`, and `src/panel-ui.ts`'s `repaintReposSection` implements the switch by writing `hidden` onto two containers. The "Spike" tab is the lifecycle experiment: an *Observed phase* select, a *Record phase* button, and the spike ledger list. The "Repositories" tab is the real product: bindings, accounts, the add form, and the runs list. Both are reachable, neither is the right shape, and the ledger and the dispatch history — two completely unrelated concerns — sit one tab apart with no shared header telling the operator what either one is.
+
+3. **The dispatch list cannot answer the question the operator opens it to ask.** `src/runs-rows.ts`'s `canRetry` is `row.state !== 'dispatched'` — offered on `pending`, where a retry is meaningless because the run is already waiting. `GET /v1/events` caps at `MAX_LISTED_EVENTS = 100` with no cursor, no limit, and no filter, so the 101st dispatch is unreachable and nothing narrows the list. And 003's state model — `claimed`, `starting`, `unconfirmed`, `blocked:*`, `dead-lettered` — has no operator-readable label anywhere, because the list it would render in does not exist.
+
+Underneath all three sits a fourth: **the product says "Runs" and "Repositories"; its owner has said "Dispatches" and "Bindings."** Every surface an operator reads should use the words the person who owns the product chose, and the rename was agreed on 2026-09-28 and deferred to this specification.
+
+This specification replaces the spike-era surface with **six tabs — Status, Dispatches, Bindings, Accounts, Settings, About** — and makes each one an honest answer to one question. It **retires** the spike surface rather than hiding it, because a tab that only exists to be toggled off is a second way to reach the same capability and will drift from the first. It fixes the status projection. It pages and filters the dispatch list. It renders 003's states and 003's retry semantics, and 004's prompt field exactly once. It records, requirement by requirement, what it takes from its three predecessors and what it deliberately leaves alone.
+
+## Governing Principles and Relationship to Features 002, 003, and 004
+
+### How the amendment is sequenced
+
+005 is a **consumer**, not a corrector. Unlike 003 — which superseded 002 because the shipped build contradicted 002's own text — nothing here finds the product violating a requirement it already states. What 005 does is take nine requirements its predecessors **deferred to it by name**, satisfy them, and give them a home:
+
+| Deferred by | Requirement | Deferred because |
+| --- | --- | --- |
+| 003 §Out of Scope | status projection honesty (`paused` / `nextPollAt` / `repositories` / `agentPin`) | "belongs to 005's Status tab" |
+| 003 §Out of Scope | runs-list cadence and the per-row retry affordance | "005 makes them discoverable and pleasant" |
+| 003 §Out of Scope | the information-architecture rename | "lands in 005" |
+| 003 FR-033 | the dead-letter operator affordance | "the per-row affordance landing in 005" |
+| 003 FR-070 | "not listed?" project-picker guidance | placement belongs to the tab that holds the picker |
+| 003 FR-071 – FR-073 | the first-run prerequisites section and its honest states | placement belongs to a tab; the behaviour is 003's |
+| 003 FR-074 | every run state readable in the restructured surface | "the restructuring … lands in 005" |
+| 003 FR-075 | the Dispatches/Bindings rename | "lands in 005" |
+| 004 §Clarifications | the `Rule:` line reading as an assignment on a mention/review dispatch | "The copy fix belongs to 005 or later" |
+
+So all three predecessors are **extended**, and the one **supersession** is 003's `## Wire Surface Delta` row for `Status`, which 003 marked "Unchanged" and 005 changes. Both directions use the same established shape: a version bump, a banner under the header, and a `## Amendment History` section naming the requirement, the effect, and the authoritative text. **No predecessor's requirement text is edited.**
+
+If the four documents are ever read as disagreeing about what the panel looks like, what it calls things, or what the status document reports, **this document prevails for the panel surface, the operator-facing vocabulary, and the status projection.** Their `## Amendment History` sections are the index that proves it.
+
+### Invariants this feature must not weaken
+
+- **Read-only to GitHub stands (002 FR-031, 003 FR-002).** A tab is a place to look and to configure; nothing in it writes to GitHub. The natural-looking temptation — "resolve this from the Dispatches tab by acknowledging on GitHub" — is forbidden, exactly as it was in 003.
+- **The impossibility requirement stands (003 FR-028).** 005 **retires the spike-era manual "Start session" control**. It started a session for the *current match* without a run, a lease, or a token, which 003 FR-035 forbids outright ("a panel MUST NOT infer dispatch eligibility from its own local state"). Its removal is therefore a conformance consequence of 003, not a taste decision (FR-018, FR-044).
+- **Secret containment stands (002 FR-007, 003 NFR-106, 004 NFR-121).** The Accounts tab renders a credential-free DTO. A new operator string — the account display name (FR-066) — is validated and credential-shape-refused like every other operator string, and the secret-scan suites gain cases rather than exemptions.
+- **`host.storage` namespaces stand (`AGENTS.md` invariant 4).** No key is renamed. `mecha-turk:project`, `mecha-turk:evidence`, and `mecha-turk:ledger` keep their names; the panel id stays `mecha-turk`; renaming either is a user-visible storage-namespace reset and is treated as a breaking change (FR-025).
+- **The extension-spike-1 wire contract stands (`AGENTS.md` invariant 10).** The evidence schema version and the NDJSON event contract are compatibility surfaces. 005 changes how they are *read*, never their shape or version.
+- **Committed bundles ship (`AGENTS.md` invariant 1).** Any change under `src/`, `panel/*.ts`, or `service/*.ts` ends with `npm run build` and the rebuilt bundles committed in the same commit (FR-087).
+- **Capabilities stay `sessions` and `prompt` (`AGENTS.md` invariant 3).** `contributes.service` gains no `permissions` key (FR-079).
+
+## Architecture Impact
+
+005 changes **where the panel puts things**, not what the service is. Two modules change shape, and both for the same reason — a hardcoded value that a running process contradicts:
+
+| Module | Today | After 005 |
+| --- | --- | --- |
+| `service/routes/status.ts` | `polling: { intervalMs, nextPollAt: null, paused: true, pausedReason: 'config-incomplete' }`; `repositories: []`; `agentPin.lastVerification: null` | `polling` computed from the live timer; `repositories` one row per stored binding with its scan state; `agentPin.lastVerification` widened to the most recent verification the service holds, or an explicit *not available* marker |
+| `service/routes/events.ts` | `MAX_LISTED_EVENTS = 100`, newest-first, no query parameters | cursor pagination and server-side filtering over the same newest-first order; `recentRuns()` becomes the unpaged primitive the paged read builds on |
+| `service/routes/health.ts` | `SERVICE_VERSION = '0.0.1'`, pinned to `package.json` by test | **unchanged** — it becomes the About tab's single version source (FR-074) |
+| `src/panel-ui.ts` | `repaintReposSection()` flips `section.spike.hidden` / `section.repos.pane.hidden` | both write paths deleted; one `activeTab` on the runtime drives one tab strip |
+| `src/panel-state.ts` | `Repositories { activeTab, bindings, accounts, …, runs }` | `activeTab` lifted to the runtime as the shell's single navigation state; `repos` renamed `bindings`; the spike lifecycle fields (`pendingPhase`) leave the state |
+| `src/repos*.ts`, `src/runs*.ts` | module names | `src/bindings*.ts`, `src/dispatches*.ts` (FR-024) |
+| `src/runs-rows.ts` | `canRetry = row.state !== 'dispatched'` | replaced by a state→affordance table covering 003's model (FR-044) |
+
+No new store, no new file, no new host call, no new manifest capability.
+
+## User Scenarios & Testing *(mandatory)*
+
+### User Story 1 — Know, in one glance, whether the machine is working (Priority: P1)
+
+The panel opens on **Status**. It says the service is healthy, how long it has been up, where its data lives, that storage is writable, that three accounts are connected and one is rate-limited, that four bindings are scanning and one is not scanning because its credential is unusable, that the poll interval is 60 seconds and the next poll is in 41, and that the Default Agent pin is **not checkable by the panel** until a dispatch has been verified. Nothing on it is a placeholder.
+
+**Why this priority**: it is the first thing the operator sees and the first thing they check when something is wrong. Today it reports a state the running process contradicts, which is worse than reporting nothing: it teaches the operator to distrust the panel.
+
+**Independent Test**: mount the panel against a fake host and a temp-dir store with one healthy account, one rate-limited account, one binding scanning and one skipped; assert the Status tab renders each of those from the status document and that no literal `paused: true` / `nextPollAt: null` reaches the response when the poll loop is running.
+
+**Acceptance Scenarios**:
+
+1. **Given** a running service with three accounts and four active bindings, **When** the operator opens the panel, **Then** the Status tab shows service health, uptime, data directory, storage writability, one row per account with its connection state, one row per binding with its last scan and pending count, the effective interval with a real next-poll stamp, and the agent pin as *not checkable*.
+2. **Given** the poll loop is running, **When** the status document is read, **Then** `paused` is `false`, `nextPollAt` is a future RFC 3339 stamp, and `pausedReason` is empty — none of the three is a literal.
+3. **Given** an account whose credential GitHub rejected, **When** the operator reads Status, **Then** the account row shows `auth-failed` with the exact cause, and every binding bound to that account shows the consequence on its own row.
+4. **Given** `service.storage.writable === false`, **When** the operator reads Status, **Then** a blocking notice explains that handoff cannot proceed, and the Accounts tab's token input stays disabled with the reason visible.
+5. **Given** the Default Agent pin has never been verified, **When** the operator reads the prerequisites list, **Then** it reads *not checkable by the panel* and says the first dispatch is what checks it — never "ok".
+
+---
+
+### User Story 2 — Work out what happened to a dispatch, and do something about it (Priority: P1)
+
+The operator opens **Dispatches** and sees a paged, newest-first list. Each row names the repository, the subject, the trigger, the state in words with a reason underneath, the attempt, the target project and worktree, and the session if one exists. A run that failed says *Retry*; a run blocked on a missing project says *Retry* once the project is selected and is otherwise disabled with the cause; a run that is unconfirmed says **Resolve** and offers the two explicit answers with the project, worktree, and attachment id to check; a run that is dead-lettered offers *Return to waiting* and says the attempt count resets. The list pages past 100 rows and filters to one binding or one state.
+
+**Why this priority**: 003 made the states correct and the transitions reachable; nothing an operator looks at is discoverable without this tab. A retry that appears on a run already waiting teaches the operator that the panel does not know its own queue.
+
+**Independent Test**: render the tab against run-history fixtures covering every state in 003's `## Dispatch State Model`; assert each renders a label plus a reason, that Retry appears on exactly `failed` and cleared `blocked:*`, that `unconfirmed` shows Resolve and not Retry, and that a 100-row fixture pages.
+
+**Acceptance Scenarios**:
+
+1. **Given** a run in `failed` with reason "the dispatch created no session", **When** the operator selects it, **Then** *Retry* is offered, and activating it returns the run to waiting under the same run key with the attempt incremented and an audit row written.
+2. **Given** a run in `pending`, **When** the operator looks at it, **Then** *Retry* is **absent**, not disabled, and the reason reads *already waiting for a panel*.
+3. **Given** a run in `unconfirmed`, **When** the operator looks at it, **Then** *Retry* is absent and **Resolve** is offered; choosing *this dispatch created no session* is the only path that re-dispatches, and the panel names the project, worktree option, and attachment id to check first.
+4. **Given** a run in `blocked:project-missing` whose project is still unregistered, **When** the operator looks at it, **Then** *Retry* is disabled and the reason line names the unresolved project, and no requeue budget is consumed.
+5. **Given** a run in `dead-lettered`, **When** the operator activates *Return to waiting*, **Then** the panel states that the attempt count resets before it happens, and the run returns to waiting with the attempt at 1.
+6. **Given** more than one page of dispatches, **When** the operator opens the tab, **Then** the page shows which range it is showing, offers Next and Previous, and preserves the operator's position across a refresh.
+7. **Given** a filter that yields nothing, **When** the operator reads it, **Then** it says the filter matched nothing, not that there are no dispatches.
+8. **Given** a run with three source references, **When** the operator opens the row, **Then** every reference is listed with its kind, origin, link, and detection time, and the one that arrived after the dispatch was authorized is marked as not necessarily seen by the agent.
+
+---
+
+### User Story 3 — Bind a repository and see exactly what it will do (Priority: P1)
+
+The operator opens **Bindings**, adds `owner/name`, picks an account from the Accounts tab's list, picks a target project from the host's own list — or finds the project they want is not listed and reads the three manual ways to register it without leaving the panel — enables the triggers they want, chooses a worktree option, and writes the starting prompt that every dispatch for this repository will read first. That prompt appears **once**, in the binding's editor, and nowhere else in the panel. The row shows when this binding last scanned, what it is waiting on, and whether it is enabled.
+
+**Why this priority**: this is the operator's primary configuration act and the reason the product exists. 004 landed the field specifically so this tab would render it; getting it wrong here — twice, or on the summary line — undoes that.
+
+**Independent Test**: drive the tab against the fake host and a temp-dir store; assert a full create/enable/disable/edit cycle round-trips through `GET`/`PUT /v1/bindings`, that exactly one element in the rendered tab carries the prompt, and that a credential-shaped prompt is refused with its remediation.
+
+**Acceptance Scenarios**:
+
+1. **Given** a fresh store, **When** the operator creates a binding with a repository, account, project, triggers, and worktree option, **Then** it appears in the list with a last-scan line reading *not scanned yet* and a pending count of zero.
+2. **Given** a project the operator wants that `host.listProjects()` does not return, **When** the operator activates *not listed?*, **Then** the panel states command palette → Add project, sidebar **+**, and folder browser, and the binding stays in its recoverable state until a registered project is selected.
+3. **Given** a binding with a starting prompt of 340 characters, **When** the operator opens its editor, **Then** exactly one field carries the prompt; the row summary shows its presence and length and never its text or its fingerprint.
+4. **Given** a prompt containing a credential-shaped string, **When** the operator saves, **Then** the service refuses it with a field-level remediation and the previously stored prompt stays in force.
+5. **Given** a binding whose account was removed, **When** the operator reads the list, **Then** the row renders disabled with the reason *account removed*, not as an inert row.
+6. **Given** an invalid submission, **When** the operator saves, **Then** every other binding is byte-identical afterwards and the refusal names the field and the remediation without echoing what was submitted.
+
+---
+
+### User Story 4 — Know which accounts can poll, and fix the ones that cannot (Priority: P1)
+
+The operator opens **Accounts**. Each account shows a display name, the GitHub login, the numeric id, its lifecycle state, its connection state, when it was last verified, and the four-capability scope matrix with each capability reading ok, missing, or unknown. One account is `auth-failed`; the operator rotates its token and the checkpoints, deliveries, dispatches, and audit history for that account are all still there. The operator adds a second account through the same consent-and-handoff flow they used the first time — consent already given is not asked again. Removing an account is two clicks, and the first click says that two bindings will be disabled.
+
+**Why this priority**: an account that cannot poll is the most common way this product stops working, and today the panel's only account surface is the spike's handoff group. Custody must move to a real tab without moving a single credential.
+
+**Independent Test**: render against account DTO fixtures covering all six lifecycle states and all four connection states; assert the DTO carries no credential member, that rotation retains history, and that the delete confirmation names the cascade.
+
+**Acceptance Scenarios**:
+
+1. **Given** an account in `auth-failed`, **When** the operator reads the row, **Then** it shows the exact cause and names *rotate the token* as the remediation, and every binding bound to it shows that it cannot poll.
+2. **Given** an account in `pending_handoff`, **When** the operator reads the row, **Then** it is distinguishable from `error` with reason `interrupted-handoff` and both offer the same remediation: complete or replace the handoff.
+3. **Given** an operator who already gave consent, **When** they add a second account, **Then** they are not asked for consent again.
+4. **Given** two bindings bound to one account, **When** the operator clicks *Remove account* once, **Then** the button arms and states that two bindings will be disabled; only a second click deletes, and the bindings remain in the list, disabled with that reason.
+5. **Given** an account with an operator display name, **When** the GitHub login is renamed upstream, **Then** the login updates and the display name is untouched.
+6. **Given** any account DTO, **When** the panel renders it, **Then** no credential member exists on the object, and the secret-scan suites pass unchanged.
+
+---
+
+### User Story 5 — Get to any of the six things in one click (Priority: P2)
+
+The panel has one horizontal tab strip and six tabs: **Status, Dispatches, Bindings, Accounts, Settings, About**. Each answers exactly one question, each says when it was last read, and none of them is reachable two ways. The spike-era "Spike" tab and its observed-phase recorder and ledger list are gone from the tab strip, not tucked behind it.
+
+**Why this priority**: the rename is the owner's decision and the shape is the headline UX work, but neither blocks the truthfulness work above. An operator can use the product with the old strip; an operator cannot trust it with the old status.
+
+**Independent Test**: mount the panel and assert exactly six tabs are present with the specified labels, that the strip is keyboard-operable with each body labelled by its tab, that activating a tab mounts its body once, and that no code path sets `hidden` on a spike-era container.
+
+**Acceptance Scenarios**:
+
+1. **Given** a fresh mount, **When** the operator looks at the strip, **Then** exactly six tabs read Status, Dispatches, Bindings, Accounts, Settings, About, and Status is active.
+2. **Given** the operator has switched to Bindings and closed the panel, **When** they reopen it, **Then** it opens on Status.
+3. **Given** the operator activates Settings, **When** the service is unreachable, **Then** Settings still renders its static content and says that the service configuration could not be read.
+4. **Given** any tab, **When** the operator navigates with the keyboard alone, **Then** they can reach and activate every tab and every primary action, with visible focus and no trap.
+5. **Given** a mount, **When** the panel is torn down, **Then** every handle all six tabs mounted is disposed, no DOM node is orphaned, no timer survives, and no host subscription remains.
+
+---
+
+### User Story 6 — Check the version, the backup location, and the configuration without hunting (Priority: P2)
+
+The operator opens **About** and reads `0.0.1` — the same number `package.json` carries, because there is one source. Below it: where the service data directory is, that it is the thing to back up, that Mecha Turk creates sessions and worktrees and never removes them, and what the product calls things. The operator opens **Settings** and reads all ten service settings with their effective value, unit, and bounds, and is told plainly that this release shows them and does not change them.
+
+**Why this priority**: version drift and "where is my data" are the two questions that turn a self-hosted tool into an untrustworthy one, and both are one tab away from being answered correctly. It is P2 because neither affects dispatch correctness.
+
+**Independent Test**: render both tabs with a fake host and a fixture config; assert the About version equals `SERVICE_VERSION`, that the panel carries no version literal of its own, that with the service unreachable it reads *unknown (service unreachable)*, and that Settings renders ten read-only rows with no input controls.
+
+**Acceptance Scenarios**:
+
+1. **Given** `package.json` at `0.0.1`, **When** the operator reads About, **Then** it shows `0.0.1` and the test that pins `SERVICE_VERSION` to `package.json` still passes.
+2. **Given** the service is unreachable, **When** the operator reads About, **Then** the version reads *unknown (service unreachable)* and names the service as the source; it does not show a number.
+3. **Given** the operator opens Settings, **When** they look for a control to change a value, **Then** there is none, and the tab states that editing arrives with feature 006.
+4. **Given** the configured `intervalMs` is 60,000, **When** the operator reads Settings, **Then** the row shows 60,000 milliseconds, its bounds 15,000–300,000, and whether a change takes effect immediately or needs a restart — stated honestly per field.
+5. **Given** the operator reads About, **When** they follow the cleanup note, **Then** it names OpenChamber's own session and worktree surfaces, because the extension has no deletion API.
+
+---
+
+### User Story 7 — Get unstuck without reading a file (Priority: P2)
+
+The operator has never set this up. Status lists every prerequisite with its own state and its own remediation: the Default Agent pin, OpenChamber running, desktop-or-web, the required GitHub scopes, a registered project per binding, service capability approval. The ones the panel cannot check say so. The ones it can check and that are unmet also appear as a notice at the top of the panel, not buried in a section.
+
+**Why this priority**: this is 003's FR-071–FR-073, deferred here only for placement. Without a place to put it, an unmet prerequisite is a support conversation.
+
+**Independent Test**: render Status with fixtures for met, unmet, and not-checkable prerequisites; assert each renders its own line and that an unmet checkable one also raises a visible notice.
+
+**Acceptance Scenarios**:
+
+1. **Given** no project is registered in OpenChamber, **When** the operator reads Status, **Then** the prerequisites list names it as unmet with the three manual ways to register one, and a notice appears at the top of the panel.
+2. **Given** every prerequisite is met and checkable, **When** the operator reads Status, **Then** nothing nags.
+3. **Given** the Default Agent pin, **When** the operator reads the prerequisites list before any dispatch, **Then** it reads *not checkable by the panel* and names the first dispatch as what checks it.
+
+---
+
+### User Story 8 — Nothing that worked yesterday is worse today (Priority: P3)
+
+Every existing capability still works after the shell lands: the one-shot token handoff and its consent gate, the bindings-authoritative mode, the relay loop that claims and dispatches, the agent read-back warning, the ledger the panel keeps, and the manifest the host parses. Nothing is lost to the reorganization, and nothing is lost to a refactor that quietly changed behaviour.
+
+**Why this priority**: it is not a user journey so much as the thing that makes the other seven safe to ship, which is why it is last and not omitted. Every one of the seven above is a statement about behaviour that must be preserved.
+
+**Independent Test**: the full offline suite — manifest validation against the official SDK parser, panel logic against the fake host, service routes against temp dirs, bundle shape and secret assertions — plus a scan proving no capability was removed.
+
+**Acceptance Scenarios**:
+
+1. **Given** the full suite, **When** it runs offline, **Then** every test passes with no live host, no real token, and no network.
+2. **Given** the rebuilt bundles, **When** the bundle tests run, **Then** `panel/main.js` is an IIFE and `service/main.js` is an ESM module, neither contains secret material, and both are committed in the same commit as their sources.
+3. **Given** a tab switch during an in-flight dispatch, **When** the operator switches from Dispatches to Bindings and back, **Then** exactly one relay loop is running and no session is created or claimed twice.
+
+### Edge Cases
+
+- **The status read fails entirely.** The Status tab must say the service did not answer, name it as the source of what is unknown, and keep its static content. It must not show zeros, empty lists, or a reassuring summary built from a failed read.
+- **The service is `degraded` because the store is unavailable.** `storage.writable` is `false`, `schemaVersion` is `null`, and no account or binding list can be read. Status says exactly that and does not render an empty account list as if the operator had none.
+- **`nextPollAt` is in the past.** The timer has not fired yet — a long scan, a suspended machine, a throttled tab. The panel shows the stamp as overdue rather than silently substituting the configured interval, and a stall longer than the interval is visible rather than inferred.
+- **Polling is paused for a reason outside the closed vocabulary.** The panel renders the machine-readable reason verbatim rather than mapping an unknown code to a friendly guess.
+- **A binding is disabled and its account is active.** Both lines must be correct and distinguishable; "disabled" alone is not an explanation.
+- **Two bindings on the same repository under different accounts.** The row keys on the binding, and both may appear; nothing merges them.
+- **The operator removes an account that is bound to nothing.** The cascade line says zero bindings will be disabled, and the two-step still applies because removal is irreversible.
+- **The operator removes the last account.** Every binding becomes unable to poll, Status reports `no-active-bindings` as the paused reason, and the prerequisites list names the missing account.
+- **A binding is saved while a dispatch for it is in flight.** The dispatch's snapshot — project, worktree option, starting prompt — is unaffected (004 FR-015), and the Dispatches row must not visibly change as a result of the edit.
+- **A starting prompt is cleared.** Only an explicit empty value, an explicit `null`, or an empty-after-trim clears it; omitting the field preserves it (004's confirmed omission-preserves rule). The panel's save MUST therefore send the field explicitly whenever the operator cleared it, and MUST NOT send it as absent by accident.
+- **The credential-shape refusal fires on the display name.** It must name the field, not the value, and the previously stored display name must stay in force.
+- **A run's state is a value this panel version does not know.** It renders *unknown state* with the raw value shown, never a blank row and never a guess. Forward compatibility beats a tidy label on a state that arrived from a newer service.
+- **A stored row predates 003's migration table.** It projects through the non-destructive mapping into 003's vocabulary and the panel renders the projected state; the panel never renders the raw `pending | in-flight | dispatched` token.
+- **The dispatch list is empty because the filter excluded everything.** The empty state names the filter and offers to clear it.
+- **The service cannot supply an honest total.** The panel shows the range it has and says the total is unavailable, rather than showing the page size as if it were the total.
+- **A page boundary is crossed by new dispatches arriving.** Pagination is over a snapshot the service labels; a row that moved is not silently dropped, and a refresh returns the operator to the page they were on rather than resetting to the first.
+- **The operator activates Retry twice quickly.** One action runs; the second is refused by the existing busy gate; the row is not optimistically flipped before the service answers.
+- **The retry is refused by the service.** The refusal renders with its distinct reason and the row stays exactly as the last read reported it.
+- **The correlation id cannot be copied.** The copy affordance is unavailable and says why, rather than copying nothing.
+- **The audit read returns rows whose entity the panel does not recognise.** Rows render as read-only text, never dropped and never reinterpreted.
+- **Settings renders with a config the panel cannot fully parse.** Every field that did parse renders; every field that did not renders as *unreadable* with the remediation, and the panel does not fall back to showing a default as though it were configured.
+- **About renders before the first status read.** It shows the static identity content immediately and the service-derived fields as *not yet read*, never as empty strings that read like a blank version.
+- **The operator is on a narrow frame.** No primary action requires horizontal scrolling; tab labels truncate rather than wrap into a second row that changes the strip's height.
+- **The panel is torn down mid-dispatch.** Disposal is idempotent, the relay loop's in-flight request is abandoned rather than retried by a second loop, and no handle is disposed twice.
+- **`host.storage` was wiped.** Selection state is absent, the panel falls back to its documented default, and nothing durable is reported as missing because of it — durable state lives in the service store (002 FR-034).
+
+## Requirements *(mandatory)*
+
+### Functional Requirements
+
+> **Numbering convention.** Requirements are numbered in reserved blocks of ten, one block per topic group: A `FR-001`–`FR-005`, B `FR-010`–`FR-019`, C `FR-020`–`FR-029`, D `FR-030`–`FR-039`, E `FR-040`–`FR-049`, F `FR-050`–`FR-059`, G `FR-060`–`FR-069`, H `FR-070`–`FR-079`, I `FR-080`–`FR-089`. Numbers not listed above are **unallocated**, not missing: they are held in reserve so a clarification or a review finding can be added to its own group without renumbering. Downstream artifacts (plan, tasks, traceability) MUST reference requirements by these numbers and MUST NOT renumber them.
+
+#### A. Authority, scope, and invariants
+
+- **FR-001**: This specification is the **authoritative** text for the panel's information architecture, the operator-facing vocabulary, the composition and ownership of the six tabs, and the status projection. `specs/002-agent-event-extension/spec.md` v1.4.0, `specs/003-dispatch-integrity/spec.md` v1.2.0, and `specs/004-starting-prompt/spec.md` v1.1.0 record the delta requirement by requirement. This specification **supersedes** exactly one row of 003's `## Wire Surface Delta` — the `Status` operation — and extends everything else it touches. Every other requirement of 002, 003, and 004 stands unchanged and is **referenced, not restated**.
+- **FR-002**: The extension and the service MUST remain **read-only with respect to GitHub** (002 FR-031, 003 FR-002). No requirement in this specification may be satisfied by a GitHub write. A tab MUST NOT offer an acknowledgement, comment, label, review, or any other GitHub state change as a way to resolve, deduplicate, or reconcile a dispatch.
+- **FR-003**: The system MUST fail closed in the panel the way it fails closed in the service (002 FR-024, 003 FR-003, constitution II). Every unmet prerequisite, every unresolved project, every unusable credential, and every unreachable service MUST be a **visible state with a named cause and a remediation**. The panel MUST NOT render a missing value as a healthy default, and MUST NOT render an unknown value as a reassuring one.
+- **FR-004**: This specification MUST NOT introduce a host capability, API, permission, or private interface (003 NFR-110, `AGENTS.md` invariant 3). `capabilities[]` remains exactly `sessions` and `prompt`; `contributes.service` gains no `permissions` key; the manifest id remains `mecha-turk`; the SDK pin and engine floor are unchanged.
+- **FR-005**: The upgrade MUST NOT quarantine, discard, or reset any binding, account, checkpoint, delivery, run, audit row, or `host.storage` entry, and MUST NOT change the meaning of any stored value. A value written by an earlier version MUST continue to read as what it was. This includes the `pending | in-flight | dispatched` queue vocabulary, which continues to project through 003's non-destructive migration table rather than being rewritten in place.
+
+#### B. The six-tab shell
+
+- **FR-010**: The panel MUST present exactly six top-level tabs, in this order: **Status, Dispatches, Bindings, Accounts, Settings, About**. Each answers exactly one operator question and MUST NOT present a second tab that answers the same question.
+- **FR-011**: The shell MUST be built on the host SDK's tab primitive, so that selection semantics, keyboard behaviour, and accessible association come from the SDK rather than from hand-written visibility toggling. The current mechanism — `repositories.activeTab: 'spike' | 'repos'` driving `section.spike.hidden` and `section.repos.pane.hidden` in `repaintReposSection` — MUST be **deleted**, not extended. After this feature there MUST be no code path that hides a spike-era container to switch surfaces, and the spike-era surface MUST NOT exist as a tab, a pane, or a fallback (FR-011 is what "retire, not hide" means: a hidden second path to a capability is a second thing that can drift).
+- **FR-012**: Exactly one tab body MUST be active at a time. Activation state is a single field on the panel runtime; there MUST NOT be a second, independently-derived notion of "what is showing."
+- **FR-013**: A tab body MUST be mounted on its **first activation** and MUST remain mounted thereafter. It MUST NOT be mounted before its first activation: the host clears subscriptions on unmount, pause, remove, and server switch, so mounting all six on panel open would open six independent read paths and make every one of them something to tear down correctly. Every mounted body MUST be disposed on teardown (FR-017).
+- **FR-014**: Activation MUST be idempotent. Activating the already-active tab MUST be a no-op that performs no service read; refreshing a tab is an explicit action the operator takes, not a side effect of looking at it. A tab MUST show when it was last read, so an explicit refresh is visible as one.
+- **FR-015**: The panel MUST open on **Status** and MUST NOT restore the previously active tab across mounts. The reason is specific: the operator opens this panel because something happened, and a panel that reopens on Bindings hides the answer to the question that made them open it. `host.storage` already hosts `last-viewed` UI state (002 FR-034) and this requirement simply declines to use it for the active tab; no key is added and none is removed.
+- **FR-016**: The tab strip MUST be operable by keyboard alone with visible focus. Each tab MUST expose an accessible name equal to its visible label, the active tab MUST be programmatically marked as selected, and each tab body MUST be programmatically associated with its tab so that a screen reader announces "Dispatches, tab, 2 of 6" and the body's context together.
+- **FR-017**: Teardown MUST dispose every handle mounted by all six tabs, remove every node they created, clear every timer they started, and release every host subscription they registered — idempotently, and in an order that does not depend on which tab was active. A torn-down panel MUST leave no orphan node in `#root`, no surviving interval, and no retained runtime reference.
+- **FR-018**: **Exactly one relay loop exists, and tab switching does not change whether it runs.** The claim → dispatch → report loop MUST be owned by exactly one owner — the Dispatches tab, or the panel root on its behalf, stated explicitly in the plan — and MUST NOT be created, destroyed, or duplicated by a tab switch. Switching away from Dispatches while a dispatch is in flight MUST NOT abandon, duplicate, or re-claim that dispatch. This is the single highest-risk regression in a shell that mounts and unmounts the surface owning the loop.
+- **FR-019**: Every tab MUST display its own read state — loading, loaded with a stamp, or failed with the cause and a retry affordance — and MUST NOT render an empty result as though it were a successful empty result. A failed read MUST retain the last successfully read content visibly marked as stale, or state plainly that there is none.
+
+#### C. Vocabulary
+
+- **FR-020**: Operator-facing copy MUST use **Dispatches** for the unit of work and **Bindings** for the watched-repository configuration, everywhere a human reads it: tab labels, headings, button labels, empty states, notes, banners, error messages, accessible names, `README.md`, and this specification's own user-facing language. "Run" and "Repositories" MUST NOT appear in any string a human reads. The reserved column of `## Vocabulary Mapping` is normative for this rule.
+- **FR-021**: `## Vocabulary Mapping` is the normative table for this feature. Every identifier a person or a test can see is listed there with its layer and its disposition. A term not in the table is a term this specification did not decide, and Phase 4 MUST NOT invent one.
+- **FR-022**: **The internal domain terms `run`, `run key`, `run ordinal`, and `attempt` are retained.** 002 FR-030's deterministic run key, 003 FR-010's run-key tuple and ordinal, 003 FR-020's dispatch-attempt identity and token derivation, 004 FR-038's correlation derivation, and the `run.` audit entity are all defined over "run" and are **unchanged**. A user-facing string MAY call the row a *dispatch*; the identifiers, the wire fields 003 introduced, and the audit vocabulary are not copy.
+- **FR-023**: **Wire route paths are not renamed by this feature.** `/v1/events`, `/v1/events/pending`, `/v1/events/:id/retry`, and `/v1/events/:id/dispatched` keep their paths, as does the `repositories` member of `GET /v1/status`. 003's `## Wire Surface Delta` and 002's `contracts/` name these paths, both documents were amended on 2026-09-28, and a third identifier churn inside one week is net-negative for exactly the correlation work 003 exists to make legible. The product owner's decision to rename "service route names" is therefore honoured for the routes that are **already correctly named** (`/v1/bindings`) and **deferred** for the ones that are not, recorded in `## Out of Scope` and raised as Gate Question 1.
+- **FR-024**: **Module and state identifiers under `src/` and `service/` ARE renamed**, because they are internal and carry no wire, storage, or compatibility cost: `src/runs*.ts` → `src/dispatches*.ts`, `src/repos*.ts` → `src/bindings*.ts`, `PanelState.repos` → `PanelState.bindings`, `ReposSection` → `BindingsSection`, `Repositories.activeTab` → removed (replaced by FR-012's single activation field). Leaving `runs` and `repos` in the source while the panel says *Dispatches* and *Bindings* is precisely how the next feature picks up the wrong word.
+- **FR-025**: **No `host.storage` key is renamed.** `mecha-turk:project`, `mecha-turk:evidence`, and `mecha-turk:ledger` keep their names, and the panel id stays `mecha-turk` (`AGENTS.md` invariant 4). Renaming either is a user-visible storage-namespace reset and is a breaking change, not part of this feature. 005 adds no new storage key either: the active tab is not persisted (FR-015) and nothing else needs to survive unmount.
+- **FR-026**: **`/v1/bindings` and `BindingRecord` are already correctly named and are unchanged.** No field of `BindingRecord` is renamed. The one remaining wrong name on the wire is `GET /v1/status`'s `repositories` array, which keeps its field name under the same wire-stability rule as FR-023 and is rendered by the panel under the heading **Bindings**. The mismatch is documented in `## Vocabulary Mapping` rather than papered over.
+- **FR-027**: The audit vocabulary is **unchanged**. This feature adds no event type, removes none, and renames none. A row's entity remains `run`; the fourteen dispatch-lifecycle rows and `binding.prompt-updated` (004) keep their names and their required details.
+- **FR-028**: Test names, file names, and test descriptions MUST use the new vocabulary where the subject is user-facing — a test of the Dispatches tab is not a test of `runs-ui.ts`'s label — and MUST NOT be renamed where the subject is the wire or the domain model. The mapping table's layer column is the test for which is which.
+- **FR-029**: The mapping table MUST be reproduced in `README.md` and, in short form, in the About tab (FR-075), so that an operator who reads `run` in an audit row or a log can find the surface that produced it without inferring a translation.
+
+#### D. Status tab and the honest status projection
+
+- **FR-030**: The Status tab MUST render, from `GET /v1/status` and the host's `serviceStatus()`, every element 002 FR-036 requires health to display: service health and uptime, the data directory, the store schema version, storage writability, per-account identity and connection state, **per-binding last successful scan and pending count**, per-account rate usage against budget, the agent-pin verification status, and the polling cadence. 002 FR-036 is the authority for *what*; this requirement is the authority for *where it renders*.
+- **FR-031**: **The polling block MUST stop being literal.** `paused`, `nextPollAt`, and `pausedReason` MUST be computed from the live poll scheduler (`service/poll/timer.ts`, `service/poll/loop.ts`), not hardcoded. `paused` MUST be `true` only when polling is genuinely not running. `nextPollAt` MUST be the scheduled stamp while polling runs and `null` while it does not. `pausedReason` MUST be empty while polling runs and MUST otherwise name the cause from a **closed vocabulary**: `config-incomplete` (no account, no active binding, or an invalid configuration), `no-active-bindings`, `store-unavailable`, `stopping`. A reason outside that vocabulary MUST be passed through verbatim rather than mapped to a guess (FR-003). The specific defect being corrected is the current `PAUSED_REASON = 'config-incomplete'` literal paired with `paused: true` and `nextPollAt: null` regardless of a loop that is running.
+- **FR-032**: **`repositories` MUST stop being `[]`.** The array MUST carry one row per stored binding, projected from the same scan state `readStatusRows` already builds for the bindings surface (last scan stamp, last error or skip reason, pending count, active flag), so the Status tab and the Bindings tab cannot disagree about a binding. The member name stays `repositories` (FR-026). A binding row that could not be read MUST appear with an unreadable marker rather than be omitted, because an omitted binding reads as a deleted one.
+- **FR-033**: **`agentPin.lastVerification` MUST stop being typed `null`.** It MUST carry the most recent verification outcome the service holds — matched, mismatched, or unreadable — with its stamp, and `null` only when no dispatch has been verified. Where the service holds no mirror of the verification outcome — which 003 records as backlog, not as a defect — the value MUST be reported as **explicitly not available**, naming that the outcome lives on the dispatch row and in the audit trail, and MUST NOT be rendered as a reassuring null. 002 FR-029's requirement that a mismatch surface as a warning is satisfied on the dispatch row (FR-047); Status points at it rather than inventing it.
+- **FR-034**: Rate fields MUST render their honest pre-poll baseline when unmeasured — `remaining`, `limit`, and `resetAt` as **not measured yet**, `usedLastHour` as a real count — and MUST NOT render an unmeasured budget as `0`, as `unlimited`, or as a full bar. A panel that says "0 of 0 requests used" has invented a measurement (002 FR-036 requires usage against budget to be displayed; it does not license displaying a fabricated one).
+- **FR-035**: `service.storage.writable === false` MUST render as a first-class **blocking notice** naming the consequence — the token handoff pre-flight fails, so an account cannot be added — rather than as a small grey line. The Accounts tab's token input remains disabled, and the reason is visible from Status without the operator having to go looking for it (SEC-08 / F10).
+- **FR-036**: The **unsupported surface** state (002 FR-003) MUST appear on the Status tab as a top-level notice, and while it shows, every other tab MUST suppress any claim that polling, custody, or relay is operating. A panel on VS Code or mobile must not display a green service health while saying nothing can run.
+- **FR-037**: The **setup-prerequisites section** (003 FR-071–FR-073, 002 FR-038) is rendered **on the Status tab**, with every prerequisite carrying its own state and its own remediation line. The Default Agent pin MUST read *not checkable by the panel* until a dispatch has been verified, and MUST name the first dispatch as what checks it (003 FR-072). An unmet prerequisite the panel **can** determine MUST additionally raise a visible notice outside the section (003 FR-073); a met-and-checkable one MUST NOT nag. **Placement decision: Status, not About.** About is static identity — a version, a data directory, a vocabulary list. Prerequisites are live state that changes when the operator connects an account or registers a project, and a checklist that is stale by construction teaches the operator to ignore it.
+- **FR-038**: The **"not listed?" project-picker guidance** (003 FR-070, 002 FR-014) is rendered **inside the project picker in the Bindings tab**, because that is where the operator is when they discover the gap. Status links to it when a binding is in the recoverable *project not registered* state (002 FR-004), so the overview can point at the fix without duplicating it. The binding MUST stay recoverable, the extension MUST still never create a project, and the guidance MUST be reachable without leaving the panel.
+- **FR-039**: The Status tab MUST NOT duplicate configuration and the Settings tab MUST NOT duplicate state. Where they overlap — the poll interval — Status states the **effective** value the scheduler is running with and Settings states the **configured** value; when they differ, both MUST show and name the difference. Neither tab may present a value the other owns.
+
+#### E. Dispatches tab
+
+- **FR-040**: The Dispatches tab is the **sole** dispatch list. It replaces the current runs list; the two MUST NOT coexist, and no other tab may render a dispatch summary that would need to be kept in step with it.
+- **FR-041**: Every state in 003's `## Dispatch State Model` — `pending`, `claimed`, `starting`, `dispatched`, `failed`, `unconfirmed`, every `blocked:*`, and `dead-lettered` — MUST render with an **operator-readable label and a reason line**, including the states that mean an operator must decide (003 FR-074, fulfilled by this requirement). A stored row in the retired `pending | in-flight | dispatched` vocabulary MUST project through 003's non-destructive migration table, and the panel MUST render the projected state, never the raw stored token. A state the panel does not recognise MUST render as *unknown state* with the raw value visible and no affordances offered (FR-003), never as a blank row and never as a guess.
+- **FR-042**: The list MUST be **paginated over a stable cursor** in the existing newest-detected-first order. Default page size 25, operator-selectable 10, 25, 50, and 100. The tab MUST show which range is showing, MUST offer previous and next, MUST preserve the operator's position across a refresh, and MUST NOT silently drop rows past a cap. Today's `MAX_LISTED_EVENTS = 100` with no way to see past it is the defect: the 101st dispatch is unreachable. Where the service can honestly supply a total, the tab MUST show it; where it cannot, the tab MUST say the total is unavailable rather than presenting the page size as one.
+- **FR-043**: Filtering MUST be applied **server-side**, by binding and by state, so that a filter and a page compose without the panel holding the whole history. A filter that yields nothing MUST say the filter matched nothing and offer to clear it, rather than reporting that there are no dispatches. The active filters MUST be visible on the tab at all times.
+- **FR-044**: **The retry affordance is per row and state-accurate.** *Retry* MUST be offered only from `failed` and from a `blocked:*` state whose cause has cleared. It MUST be **absent** — not disabled behind a tooltip — from `pending` (already waiting), from `dispatched`, and from `unconfirmed`, each carrying its own distinct reason inline. For `unconfirmed` the affordance is **Resolve**, not *Retry*, and it opens 003 FR-027's two explicit resolutions with the project, worktree option, and attachment identifier to check. The specific defect being corrected is `canRetry = row.state !== 'dispatched'` in `src/runs-rows.ts`, which offers a retry on a run that is already waiting and on a run that must never be retried automatically. This is 003 FR-041 and FR-042 made visible; it MUST NOT re-implement them.
+- **FR-045**: A **dead-lettered** row MUST render a distinct *Return to waiting* affordance that performs 003 FR-033's operator action — return to waiting with the attempt count reset — states the reset before it happens, and uses the existing select-then-act confirmation idiom (003 FR-033 named this placement for 005; this requirement is that placement).
+- **FR-046**: A retry the **service refuses** MUST render the refusal's own distinct reason (already waiting / already dispatched / unconfirmed / guard refused), MUST NOT consume the requeue budget, and MUST NOT optimistically change the row. The panel renders the service's verdict; it does not predict it.
+- **FR-047**: The post-dispatch **agent verification** outcome MUST render on the row as a **warning**, never as a blocker, naming the observed agent and whether it matched (003 FR-043, 002 FR-029 as amended). It MUST NOT block the row, hide it, or receive any automated handling.
+- **FR-048**: A run with more than one source reference MUST render 003 FR-015's affordance exactly: a primary label drawn from the earliest reference, an explicit control naming how many further reasons fired, and a reveal listing every reference with its kind, origin, canonical link, and detection time. Any reference that arrived after the dispatch authorization MUST be visibly marked as not necessarily seen by the agent. A run with exactly one reference MUST NOT show the affordance.
+- **FR-049**: The tab MUST own exactly one list read and exactly one action dispatch path. Concurrent actions on one row MUST be prevented by the existing single `busy` gate; a failed action MUST leave the row exactly as the last read reported it until the next read; and the correlation identifier MUST be copyable from the row with an explicit reason when copying is unavailable (003 FR-053, FR-054).
+
+#### F. Bindings tab
+
+- **FR-050**: The tab MUST provide full create, read, update, and disable over bindings through the **existing whole-file grant** `GET /v1/bindings` and `PUT /v1/bindings`, which validates every field, checks account existence, and caps the list at 100. This feature MUST NOT introduce the per-binding `PATCH /v1/bindings/:bindingId` endpoint that 002 records as deliberate MVP debt; a whole-file validated replacement is the simplest honest surface for one operator and one panel, and 005 does not reopen that decision.
+- **FR-051**: **The per-binding starting prompt MUST be rendered exactly once in the entire panel** — one field, in the binding's editor, labelled as the starting prompt for dispatches from this repository (004 FR-010). It MUST NOT also appear on the row summary, on Status, on a dispatch row, in a Diagnostics view, or in a second editor. Its value MUST come from the binding's stored prompt and never from an audit fingerprint; the row MAY show presence and length, and MUST NOT show the fingerprint or the text (004 FR-052, 004 FR-050). Two renderings of one operator instruction is how two versions of it start to disagree.
+- **FR-052**: A prompt the service refuses — oversized, or carrying a credential-shaped string (004 FR-024) — MUST be rendered as a field-level refusal with its remediation, MUST leave the previously stored prompt in force, and MUST NOT be reported to the operator as saved. The panel MUST NOT pre-emptively accept input the service will refuse, and MUST NOT pre-emptively reject input the service would accept.
+- **FR-053**: The binding editor MUST present: repository (`owner/name`), the bound account, the target project via the picker, the three triggers independently toggleable, the mention-token override, the worktree option, the binding's state, its created and updated stamps, and its per-binding scan line. Every field MUST be validated by the service, which remains the single authority on what is acceptable (002 FR-024).
+- **FR-054**: Enable and disable MUST go through the whole-file write and MUST be visible immediately afterwards, read from the service's own answer rather than from an optimistic local change. A binding disabled **because its account was removed** MUST render as disabled **with that reason**, not as an inert row (FR-065).
+- **FR-055**: The account-delete cascade MUST be visible **before** it happens. The confirm step MUST state how many bindings will be disabled, and the delete MUST NOT be reachable in one action. The existing two-step arm-confirm idiom (`removeAccountArmed`) is preserved and extended with the count; it is not replaced.
+- **FR-056**: A binding whose project is not registered MUST be in a **first-class recoverable state** — not an error, not an empty select — and MUST offer the 003 FR-070 guidance from the picker itself (FR-038). The extension MUST still never create a project (002 FR-004).
+- **FR-057**: The mention-token override MUST be rendered per binding, MUST default to `@<login>` of the bound account, and MUST be visibly marked as an override when it differs from that default (002 FR-015). An operator who has never seen the field must be able to tell that a binding matches on something other than its own login.
+- **FR-058**: The add form and the row list MUST be **one surface**. A rejected submission MUST leave every other binding byte-identical, because the whole-file write is all-or-nothing after validation, and the panel MUST say so rather than appearing to have partially saved.
+- **FR-059**: The tab owns configuration of **what to watch and nothing else**. It MUST NOT render service tuning — interval, retry, retention, log level, all of which belong to Settings — and MUST NOT render accounts beyond the selection needed to bind. Every account it shows is shown because a binding refers to it.
+
+#### G. Accounts tab
+
+- **FR-060**: The tab MUST provide full create, read, rotate, and remove over accounts: add through the existing one-shot consent → storage pre-flight → token → handoff flow; list from the credential-free DTO; rotate via the existing token-replacement operation (002 FR-012); remove via the existing hardened delete path with its cascade.
+- **FR-061**: The handoff flow MUST be **relocated, not redesigned**. It is the same consent gate, the same pre-flight, the same two-step refusal that leaves the previous token in force, mounted in the Accounts tab's add path. Consent already given MUST NOT be re-requested by navigating (002 FR-008), and the consent text MUST NOT be reworded.
+- **FR-062**: Each account row MUST render: display name (FR-066), GitHub login, numeric user id, lifecycle state (`pending_handoff`, `verifying`, `active`, `rejected`, `revoked`, `error`), connection state (`connected`, `auth-failed`, `rate-limited`, `offline`), last verified stamp, the scope-check matrix with each capability reading ok, missing, or unknown (002 FR-010 including its single-verdict note), the error reason when the state is `error`, and the number of bindings the account backs.
+- **FR-063**: `rejected`, `revoked`, and `error` accounts MUST render as **first-class states with their reason and their remediation**. An account that cannot poll MUST be visibly unable to poll, and every binding bound to it MUST show that consequence on its own row, because a binding whose account is dead is the thing the operator will actually be looking at when they wonder why nothing is arriving.
+- **FR-064**: Token rotation MUST retain every checkpoint, delivery, dispatch, and audit record for that account (002 FR-012), and the rotation confirmation MUST say so. It is the operator's first question about rotation and the answer is never the one they fear.
+- **FR-065**: Account removal MUST be two-step, MUST state the cascade, and MUST leave the removed account's bindings **disabled with a reason** — never deleted — matching what the hardened guard in `service/accounts/store.ts` actually writes (`state: 'disabled'`). The panel renders what the guard did; it does not describe a different outcome.
+- **FR-066**: **Display-name override.** Each account carries an operator-set `displayName` — free text, bounded, validated like every other operator string, and refused on a credential shape (002 FR-007, 004 FR-024's rule generalised) — which defaults to `null` and renders as the GitHub `login` when unset. It is **display only**: it never participates in identity (002 FR-009 keys identity on the numeric user id), never in a durable key, never in the binding's account reference, and never in the agent pin. A GitHub login rename updates `login` only and MUST NOT clobber `displayName`. The credential-free account DTO gains exactly this one member.
+- **FR-067**: The accounts list MUST be credential-free **by construction**, not by discipline: the DTO type MUST be incapable of carrying a credential, the panel MUST receive and render no such member, and the secret-scan suites MUST gain a case covering the new tab rather than being granted an exemption from it.
+- **FR-068**: An account in `pending_handoff` MUST be distinguishable from one in `error` with reason `interrupted-handoff`, and both MUST offer the same remediation — complete or replace the handoff. Neither may sit in the list silently, because both are states where an operator believes they have connected something and have not.
+- **FR-069**: The tab MUST NOT expose scope editing, token inspection, or any read-back of a stored token. The token is write-only and one-shot: it is pasted, handed off, verified, and never displayed again (002 FR-007).
+
+#### H. Settings tab (read-only) and About tab
+
+- **FR-070**: **The Settings tab is read-only in this feature.** It MUST render the validated service configuration from `GET /v1/config` and MUST NOT offer any write path. Editing, saving, live-apply, and destructive-knob confirmation are **feature 006's**, explicitly (product-owner decision 2, 2026-09-28). 005 MUST NOT add a disabled-looking control that implies editability, and MUST NOT add a partial write path for one field.
+- **FR-071**: The tab MUST render all ten validated configuration fields with their effective value, unit, and documented bounds, and a one-line statement of what changing each would do: `intervalMs` (15,000–300,000 ms), `overlapMs` (60,000–7,200,000 ms), `perPage` (1–30 items), `retryMaxAttempts` (1–10), `retryBaseMs` (1,000–60,000 ms), `retryMaxMs` (5,000–300,000 ms), `auditRetentionDays` (7–3,650), `auditMaxEntries` (1,000–1,000,000), `excerptRetentionDays` (1–365), and `logLevel` (documented enum). Each bound is the service's own, not a re-typed copy that can drift from it.
+- **FR-072**: Every Settings row MUST state **where the value takes effect and whether a restart is required**, honestly. The poll interval is re-read from configuration on every cycle and takes effect without a restart; audit trimming and retention do not take effect at all without the write path that 006 adds. A row that cannot be changed yet MUST say so in its own words rather than implying immediacy. This is the same fail-closed duty as FR-003, applied to a surface the next feature will fill.
+- **FR-073**: The tab MUST state that it is read-only in this release and that editing arrives with feature 006. It MUST NOT name a version number for that release, because no such version exists yet and naming one would be a promise this specification cannot keep.
+- **FR-074**: **The About tab's version has exactly one source.** It MUST be read from `GET /v1/health`, which serves `SERVICE_VERSION` from `service/routes/health.ts`; `SERVICE_VERSION` MUST continue to mirror `package.json` (`AGENTS.md` invariant 5, pinned by `tests/service-server.test.ts`). The panel MUST NOT carry its own version literal, MUST NOT read the manifest, MUST NOT infer the version from a bundle hash, and MUST NOT synthesize a value when the service is unreachable — it MUST read **unknown (service unreachable)** and name the service as the source. Two version strings in one product is the defect; one string, unreachable, is honest.
+- **FR-075**: The About tab MUST render: product name; panel id `mecha-turk`; the single version (FR-074); the data directory and the statement that it is the thing to back up; the vocabulary mapping list in short form (FR-029); the manual-cleanup posture and the OpenChamber surfaces that perform it (002 FR-040); the pre-1.0.0 release posture and that a version bump is a product-owner decision (`AGENTS.md` invariant 2); and a **read-only Diagnostics** section holding the spike-era ledger, the evidence schema version, and the observed-phase record, pending Gate Question 2.
+- **FR-076**: The About tab MUST NOT expose credential material, the token input, any account identifier, or any filesystem path beyond the service data directory the status projection already publishes. Diagnostics shows what the panel recorded; it is not a file browser.
+- **FR-077**: The About tab MUST state the manual-cleanup posture plainly: Mecha Turk creates sessions and worktrees and never removes them, because the platform exposes no deletion API to extensions (002 FR-040), and it MUST name OpenChamber's own surfaces where the operator does it.
+- **FR-078**: Settings and About MUST render **without the service**. With the service unreachable, each MUST keep its static identity content, name what could not be read and from where it comes, and offer a retry — rather than rendering an empty configuration or an empty version as though they were values.
+- **FR-079**: The extension identity MUST be unchanged: the manifest id, the display name, `capabilities[]`, and `contributes.service` all stay as they are (FR-004). 005 adds no capability, no permission, no host API requirement, and no undocumented interface.
+
+#### I. Rendering, accessibility, and lifecycle
+
+- **FR-080**: Every service-supplied and source-supplied string MUST render through the SDK's non-HTML path (`textContent` and the SDK UI primitives). No `innerHTML`, no markup interpolation, no attribute assembled from source text. This is 003 NFR-109 extended: the six tabs add cases to it, never exceptions to it, and the operator-authored strings they introduce — issue titles, repository names, the display name, the starting prompt — are the most operator-controlled text this product renders.
+- **FR-081**: Every interactive control MUST have an accessible name, and every row-level action MUST name its row in that name (*Retry dispatch for #412 in owner/name*). A list of identically-labelled buttons is a list an operator cannot act on with a screen reader.
+- **FR-082**: Every tab body MUST be programmatically associated with its tab, the strip MUST be operable by keyboard with visible focus and no trap, tab bodies MUST be reachable in DOM order after the strip, and the panel MUST remain usable at the narrowest width the host allows — no primary action may require horizontal scrolling, and tab labels MUST truncate rather than wrap and change the strip's height.
+- **FR-083**: State MUST be carried by more than colour. Every banner, state label, refusal, and verification outcome MUST carry text, so a failure can never be mistaken for a success at a glance — 003 FR-040's requirement, applied to every surface this feature adds.
+- **FR-084**: Every irreversible or state-changing action MUST state what will happen before it happens: remove account, remove binding, retry, resolve an unconfirmed dispatch, return a dead-lettered dispatch to waiting, and in 006 any configuration write. Each MUST use the existing two-step arm-confirm idiom; `confirm()` does not exist inside the service frame and MUST NOT be reintroduced through another route.
+- **FR-085**: Every refusal the panel renders MUST name the exact cause and the remediation, MUST NOT echo the value the operator submitted, and MUST NOT log through a redaction refusal — a refusal blocks the write rather than being logged past (002 FR-007, 003 FR-061).
+- **FR-086**: **No test may require a live OpenChamber instance, a real personal access token, or network access.** The six tabs are tested against the fake host, temp-directory stores, and DTO fixtures; the manifest stays validated against the official SDK parser; the bundles keep their shape and secret assertions; the existing secret-scan suites are extended with the new surfaces, never weakened.
+- **FR-087**: Any change under `src/`, `panel/*.ts`, or `service/*.ts` MUST end with `npm run build` and the rebuilt bundles committed in the same commit (`AGENTS.md` invariant 1). `panel/main.js` remains an IIFE, `service/main.js` remains an ESM module, `SERVICE_VERSION` stays pinned to `package.json` by test, and the project stays **pre-1.0.0** — a jump to `1.0.0` is a product-owner decision, never incidental to a UI change (invariant 2).
+- **FR-088**: Zero suppressions and zero `any` (`AGENTS.md` invariant 7). The six tabs MUST reuse the existing runtime, the existing dispatch path, and the existing validators rather than introducing a second of each — a second dispatch path is a second chance to violate 003 FR-035.
+- **FR-089**: The panel MUST NOT create, delete, or mutate projects, worktrees, sessions, or agents (002 FR-004, FR-028, 003 NFR-110). Every surface that appears to offer such an action MUST instead offer the guidance to perform it in OpenChamber's own surfaces.
+
+### Key Entities
+
+- **Tab**: one of the six named top-level surfaces. Attributes: id, label, accessible name, whether its body is mounted, when it was last read, its read state. Exactly one is active at a time; each is reachable by keyboard; none is reachable a second way.
+- **Status projection**: the operator's answer to *is it working*. Carries service health and uptime, the data directory, schema version, storage writability, per-account identity, connection state and rate budget, per-binding last scan and pending count, the polling cadence with its next-poll stamp and honest paused reason, and the agent pin's verification status. **The one entity 005 materially changes**: three of its members are hardcoded literals today.
+- **Dispatch row**: one unit of work as the operator reads it — subject, repository, trigger, state with its reason, attempt, target project, worktree option, session reference, verification outcome, source references, correlation identifier. Internally a **run** (FR-022); the two terms are related by the mapping table and are not interchangeable in identifiers.
+- **Affordance**: a state-dependent action available on a dispatch row — *Retry*, *Resolve*, *Return to waiting*, *Open source* — derived from the state by a single table. Absence is meaningful and carries its reason.
+- **Binding**: a repository watched under an account, routed to a project, with a trigger set, a worktree option, and a starting prompt. Already correctly named; unchanged in shape; rendered with its scan state.
+- **Account**: a durable GitHub identity under service custody. Carries lifecycle state, connection state, scope check, verification stamp, and an optional display name. **Credential-free by construction**; the credential exists only in the account file at rest.
+- **Prerequisite**: a setup condition the operator must satisfy, each with its own state — met, not met, or **not checkable by the panel** — and its own remediation.
+- **Diagnostic**: a read-only record the panel kept about its own operation — a ledger entry, the evidence schema version, an observed phase. Shown, never editable (FR-075); **confirmed 2026-09-28** as surviving in About, with only the live *Record phase* writer dropped (FR-011, `## Resolved Gate Questions` entry 2).
+
+### Wire Surface Delta
+
+Phase 4 finalizes exact field names, status codes, and error codes. The **semantics below are fixed by this specification**.
+
+| Operation | Current surface | Change |
+| --- | --- | --- |
+| Status | `GET /v1/status` — `polling: { intervalMs, nextPollAt: null, paused: true, pausedReason: 'config-incomplete' }`; `repositories: []`; `agentPin.lastVerification: null`, all hardcoded | The three polling members become computed from the live scheduler, with a closed paused-reason vocabulary (FR-031). `repositories` carries one row per stored binding with its scan state (FR-032). `agentPin.lastVerification` widens to the most recent verification outcome, or an explicit *not available* marker when the service holds no mirror (FR-033). **This row supersedes 003's `## Wire Surface Delta` entry for `Status`, which 003 marked "Unchanged".** |
+| Dispatch list | `GET /v1/events` — newest-first, capped at `MAX_LISTED_EVENTS = 100`, no query parameters. **The path itself is not renamed** (FR-023, confirmed by the product owner 2026-09-28 at `## Resolved Gate Questions` entry 1); the panel maps *Dispatches* onto the retained path internally | Cursor pagination (default 25, selectable 10/25/50/100) and server-side filters by binding and state, over the same newest-first order — both confirmed by the product owner 2026-09-28 (`## Resolved Gate Questions` entry 3). `recentRuns()` remains the unpaged primitive. The 100-row cap becomes the maximum page size, not the end of the reachable history (FR-042, FR-043). |
+| Claim / result / abandon / retry / resolve | as specified by 003's `## Wire Surface Delta` | **Unchanged by 005.** The paths and semantics stay exactly as 003 wrote them; 005 renders them (FR-044, FR-045). |
+| Bindings | `GET` / `PUT /v1/bindings` — whole-file grant, validated, capped at 100 | **Unchanged.** 005 adds no per-binding endpoint (FR-050). |
+| Accounts | `GET /v1/accounts`, `POST …/token`, `DELETE …/:numericUserId` | **Unchanged**, except that the credential-free account DTO gains exactly one optional member, `displayName` (FR-066) — confirmed by the product owner 2026-09-28 (Gate Question 4, `## Resolved Gate Questions` entry 4). |
+| Config | `GET` / `PUT /v1/config` — ten validated fields | **Unchanged.** 005 renders `GET` only and MUST NOT call `PUT` (FR-070); the write path is 006's. |
+| Health / About | `GET /v1/health` — `SERVICE_VERSION`, pinned to `package.json` by test | **Unchanged.** It becomes the About tab's single version source (FR-074). No `/v1/about` or `/v1/version` route is added. |
+| Audit read | as specified by 003 | **Unchanged.** 005 surfaces the correlation identifier on the row (FR-049). |
+
+No contract under `specs/002-agent-event-extension/contracts/` is superseded. The status document and the dispatch-list read change shape, and Phase 4's contract work records both.
+
+## Vocabulary Mapping
+
+**Normative** (FR-021). "Layer" is what the term is: **L1 user-facing** (a human reads it), **L2 internal source** (identifiers under `src/` and `service/`), **L3 wire** (a route path or JSON member), **L4 domain/audit** (an identifier inside the run model or an audit row).
+
+| Today | 005 name | Layer | Disposition | Notes |
+| --- | --- | --- | --- | --- |
+| Runs (panel section) | **Dispatches** | L1 | **Renamed** | One tab, one list (FR-040) |
+| Repositories (panel tab) | **Bindings** | L1 | **Renamed** | One tab (FR-010) |
+| "Run" on screen | **Dispatch** | L1 | **Renamed** | FR-020; the row is a dispatch, the domain object is a run |
+| `src/runs*.ts` | `src/dispatches*.ts` | L2 | **Renamed** | FR-024 |
+| `src/repos*.ts` | `src/bindings*.ts` | L2 | **Renamed** | FR-024 |
+| `PanelState.repos` | `PanelState.bindings` | L2 | **Renamed** | FR-024 |
+| `ReposSection` | `BindingsSection` | L2 | **Renamed** | FR-024 |
+| `Repositories.activeTab` | *(deleted)* | L2 | **Removed** | Replaced by the shell's single activation field (FR-012) |
+| `RepositoriesStatus` | `BindingsStatus` | L2 | **Renamed** | FR-024 |
+| "Spike" tab | *(deleted)* | L1, L2 | **Retired** | FR-011; not hidden, not reachable |
+| `pendingPhase` (observed phase) | *Diagnostics* record | L2 | **Renamed and moved** | Read-only in About, **confirmed 2026-09-28**; only the live *Record phase* writer is dropped (FR-011, FR-075, `## Resolved Gate Questions` entry 2) |
+| `run` (entity, key, ordinal) | `run` | L4 | **Retained** | 002 FR-030, 003 FR-010/FR-020, 004 FR-038 (FR-022) |
+| `attempt` | `attempt` | L4 | **Retained** | 003 FR-020, FR-041 |
+| `run.` audit prefix | `run.` | L4 | **Retained** | 003 `## Audit Vocabulary` (FR-027) |
+| `binding.` audit prefix | `binding.` | L4 | **Retained** | 004 `binding.prompt-updated` (FR-027) |
+| `GET /v1/events` | `GET /v1/events` | L3 | **Retained** | 003's `## Wire Surface Delta`; the rename to `/v1/dispatches*` is **deferred and confirmed deferred by the product owner on 2026-09-28** — the panel maps *Dispatches* onto the retained path internally (FR-023, `## Resolved Gate Questions` entry 1) |
+| `POST /v1/events/:id/retry` | *retained* | L3 | **Retained** | FR-023 |
+| `POST /v1/events/:id/dispatched` | *retained* | L3 | **Retained** | FR-023 |
+| `GET /v1/events/pending` | *retained* | L3 | **Retained** | FR-023 |
+| `repositories` (status member) | `repositories` | L3 | **Retained** | Field name kept, rendered as **Bindings** (FR-026, FR-032) |
+| `GET` / `PUT /v1/bindings` | *retained* | L3 | **Retained** | Already correctly named (FR-026) |
+| `BindingRecord` and all its fields | *retained* | L3, L4 | **Retained** | FR-026 |
+| `agentPin.lastVerification` | `agentPin.lastVerification` | L3 | **Widened**, name kept | FR-033 |
+| `/v1/accounts`, `/v1/config`, `/v1/health`, `/v1/status` | *retained* | L3 | **Retained** | FR-030, FR-070, FR-074 |
+| `AccountDto` | `AccountDto` + `displayName` | L3, L4 | **Extended** | One member added, **confirmed 2026-09-28** (FR-066, `## Resolved Gate Questions` entry 4) |
+| `mecha-turk:project` / `:evidence` / `:ledger` | *retained* | L2, L4 | **Retained** | `AGENTS.md` invariant 4 (FR-025) |
+| panel id `mecha-turk` | *retained* | L3 | **Retained** | FR-079 |
+| `extension-spike-1` evidence schema | *retained* | L4 | **Retained** | `AGENTS.md` invariant 10 |
+
+## Non-Functional Requirements
+
+- **NFR-101 Rendering safety.** Every string this feature adds to the panel renders through the existing non-HTML path (FR-080, 003 NFR-109). Verified by a rendering test per tab and by the existing bundle assertions. The new operator-authored surfaces — issue titles, repository names, account display names, starting prompts — are covered explicitly.
+- **NFR-102 Secret containment.** Zero credential occurrences in any panel state, any `host.storage` value, any rendered surface, any audit row, any DTO, or either committed bundle (002 FR-007, 003 NFR-106, 004 NFR-121). Extended with: the display name is refused on a credential shape (FR-066), and the secret-scan suites gain cases for the Accounts tab rather than exemptions.
+- **NFR-103 Durability and preservation.** The upgrade loses nothing (FR-005): no binding, account, checkpoint, delivery, run, or audit row is quarantined, reset, or rewritten, and the pre-003 queue vocabulary continues to project through 003's migration table. Verified by a test that writes rows in the retired vocabulary and asserts they render and remain dispatchable after the upgrade.
+- **NFR-104 Idempotency of read.** Opening a tab, switching away and back, or switching back to the active tab MUST NOT mutate any state and MUST NOT re-read unless the operator asks (FR-014). A panel that dispatches because it was looked at is a panel that cannot be looked at.
+- **NFR-105 Offline determinism.** Everything this feature adds is testable with no live host, no real token, and no network (FR-086). The status projection is testable against a temp-directory store with a driven clock; pagination is testable against fixture pages; the vocabulary is testable by asserting no user-facing string contains a retired term.
+- **NFR-106 Compatibility.** Unchanged SDK pin, unchanged engine floor (`>=1.24.0`), no new host capability, API, or permission, no undocumented or private interface (003 NFR-110, FR-004, FR-079).
+- **NFR-107 Accessibility.** The six tabs and every control in them are operable by keyboard alone, expose accessible names, associate each body with its tab, convey state as text as well as colour, and remain usable at the narrowest supported frame width (FR-016, FR-081, FR-082, FR-083).
+- **NFR-108 Teardown completeness.** After teardown there is no orphan node, no surviving timer, no retained runtime, and no remaining host subscription, verified by a test that counts nodes and disposers before and after (FR-017, FR-018).
+- **NFR-109 Code quality.** Zero suppressions, zero `any`, one dispatch path, one runtime, one set of validators (FR-088, `AGENTS.md` invariant 7).
+- **NFR-110 Release discipline.** Both bundles rebuilt and committed with their sources; `SERVICE_VERSION` pinned to `package.json` by test; the version remains pre-1.0.0 and is not bumped incidentally (FR-087, `AGENTS.md` invariants 1, 2, 5).
+- **NFR-111 Observability.** A failed read on any tab is visible with its cause and a retry affordance, and stale content is marked stale rather than silently retained (FR-019). A panel that cannot answer must say that it cannot answer.
+- **NFR-112 Honest defaults.** No rendered value in any of the six tabs is a plausible-looking stand-in for an unmeasured one: unmeasured is unmeasured, unknown is unknown, not checkable is not checkable, and not available is not available (FR-003, FR-033, FR-034, FR-072). This is the single NFR against which the feature should be reviewed.
+
+## Success Criteria
+
+### Measurable Outcomes
+
+- **SC-101**: `GET /v1/status` returns a `polling` block in which `paused`, `nextPollAt`, and `pausedReason` are computed values — zero hardcoded literals remain in the status projection, asserted by a test that reads a running store and a stopped one and gets different answers.
+- **SC-102**: The status projection contains **zero** fixed empties: `repositories` has one row per stored binding and `agentPin.lastVerification` is either a real outcome or an explicit *not available*, asserted for a store with zero bindings, one binding, and five bindings.
+- **SC-103**: The panel presents exactly six tabs with the specified labels and no seventh, and **no code path sets `hidden` on a spike-era container** — asserted by a suite-level grep assertion in the same test run that asserts the tab count.
+- **SC-104**: Every state in 003's `## Dispatch State Model` renders with a label and a reason; *Retry* is offered on exactly `failed` and cleared `blocked:*`, is absent on `pending`, `dispatched`, and `unconfirmed`, and is replaced by *Resolve* on `unconfirmed`; dead-lettered offers *Return to waiting*. Asserted per state from one table, so a state added to 003 fails this test until it is given a label and an affordance.
+- **SC-105**: The starting prompt is rendered **exactly once** in the entire panel — asserted by a test that counts rendered elements carrying prompt text across all six tabs, which would fail at 0 and at 2 alike.
+- **SC-106**: A list of 250 fixture dispatches pages through all of them, with no row unreachable and none dropped at a page boundary.
+- **SC-107**: No operator-facing string in the panel, its accessible names, or `README.md` contains the word "Run" as a noun for a work unit or "Repositories" as a noun for bindings — asserted by scanning rendered output and the README.
+- **SC-108**: A fresh mount, a tab switch during an in-flight dispatch, and a teardown leave exactly one relay loop, zero orphan DOM nodes, and zero surviving timers.
+- **SC-109**: The About tab's version equals `package.json`'s `version`, and the panel source contains exactly one occurrence of a version literal — in `service/routes/health.ts`.
+- **SC-110**: The full suite runs offline with no live host, no real token, and no network, and `npm run verify` (build → lint → typecheck → test) is green before every commit.
+- **SC-111**: An operator reaches any of the six surfaces in one click from panel open, and reaches each capability through exactly one tab — asserted by the tab-count test and by the absence of the spike-era path.
+- **SC-112**: Every value rendered as *unknown*, *not measured yet*, *not checkable*, *not available*, or *unreadable* is rendered that way in the product's own copy and is distinguishable from a real zero at a glance.
+
+## Acceptance Criteria
+
+- **AC-101**: Given a running service with two accounts and three bindings, when the panel opens, then exactly six tabs are present and Status is active.
+- **AC-102**: Given a running poll loop, when `GET /v1/status` is read, then `paused` is `false`, `nextPollAt` is a future stamp, and `pausedReason` is empty.
+- **AC-103**: Given a stopped poll loop with no active binding, when `GET /v1/status` is read, then `paused` is `true`, `nextPollAt` is `null`, and `pausedReason` is `no-active-bindings`.
+- **AC-104**: Given a store with three bindings, when `GET /v1/status` is read, then `repositories` has three rows, each with a last-scan stamp, a last-error-or-null, and a pending count.
+- **AC-105**: Given a binding whose scan row cannot be read, when Status renders, then the row appears marked unreadable rather than omitted.
+- **AC-106**: Given no dispatch has been verified, when Status renders the agent pin, then it reads *not checkable by the panel* or *not available*, never "ok".
+- **AC-107**: Given an account with no rate measurement, when Status renders it, then the budget reads *not measured yet* rather than `0 of 0`.
+- **AC-108**: Given `storage.writable` is `false`, when Status renders, then a blocking notice appears naming the handoff consequence and the Accounts tab's token input stays disabled.
+- **AC-109**: Given an unsupported host surface, when the panel renders, then a top-level notice appears and no tab claims polling, custody, or relay is operating.
+- **AC-110**: Given an unmet checkable prerequisite, when the panel renders, then a notice appears at the top and the prerequisite is also listed with its own remediation line.
+- **AC-111**: Given every prerequisite met and checkable, when the panel renders, then no notice appears.
+- **AC-112**: Given a project the operator wants that the host does not list, when they activate *not listed?* in the Bindings picker, then the three manual registration routes are named and the binding stays recoverable.
+- **AC-113**: Given dispatches in every state of 003's model, when the Dispatches tab renders, then each has a label and a reason and the affordance matches the state table.
+- **AC-114**: Given a run in `pending`, when its row renders, then *Retry* is absent and the reason reads *already waiting for a panel*.
+- **AC-115**: Given a run in `unconfirmed`, when its row renders, then *Retry* is absent, *Resolve* is present, and choosing *this dispatch created no session* names the project, worktree option, and attachment identifier to check.
+- **AC-116**: Given a run in `blocked:project-missing` whose project is still unregistered, when its row renders, then *Retry* is disabled, the reason names the project, and no requeue budget is consumed.
+- **AC-117**: Given a run in `dead-lettered`, when the operator activates *Return to waiting*, then the panel first states that the attempt count resets, and the run returns to waiting with attempt 1.
+- **AC-118**: Given a retry the service refuses, when it renders, then the refusal's distinct reason appears and the row is unchanged.
+- **AC-119**: Given a run with an agent-verification mismatch, when its row renders, then it shows a warning naming the observed agent and whether it matched, and does not block or hide the row.
+- **AC-120**: Given a run with three source references, when the operator opens the row, then all three are listed with kind, origin, link, and detection time, and the post-authorization one is marked.
+- **AC-121**: Given 250 dispatches, when the operator pages through, then every one is reachable and none is dropped at a boundary.
+- **AC-122**: Given a filter matching nothing, when the list renders, then it says the filter matched nothing and offers to clear it.
+- **AC-123**: Given a binding with a starting prompt, when all six tabs render, then exactly one element carries the prompt text, and the row summary shows presence and length only.
+- **AC-124**: Given a credential-shaped prompt, when the operator saves, then the service refuses it with a field-level remediation and the previous prompt remains in force.
+- **AC-125**: Given an invalid binding submission, when it is refused, then every other binding is byte-identical afterwards.
+- **AC-126**: Given two bindings bound to one account, when the operator clicks *Remove account* once, then the button arms and states that two bindings will be disabled, and nothing is deleted.
+- **AC-127**: Given a removed account, when the list renders, then its bindings are present, disabled, and each states the reason.
+- **AC-128**: Given an account with a display name, when the GitHub login is renamed upstream, then the login updates and the display name is unchanged.
+- **AC-129**: Given any account DTO, when it is rendered, then no credential member exists on the object and the secret-scan suites pass without exemption.
+- **AC-130**: Given a credential-shaped display name, when the operator saves, then it is refused by field and remediation and the previous value stays in force.
+- **AC-131**: Given the operator reopens the panel after switching to Bindings, when it mounts, then it opens on Status.
+- **AC-132**: Given the service is unreachable, when Settings and About render, then both keep their static content and name what could not be read.
+- **AC-133**: Given `package.json` at a version, when About renders, then it shows exactly that version and the panel source contains one version literal.
+- **AC-134**: Given the service is unreachable, when About renders, then the version reads *unknown (service unreachable)* and shows no number.
+- **AC-135**: Given the Settings tab, when it renders, then ten rows appear with value, unit, and bounds, and no input control exists on the tab.
+- **AC-136**: Given a tab switch during an in-flight dispatch, when the operator returns to Dispatches, then exactly one relay loop is running and no run is claimed twice.
+- **AC-137**: Given a teardown after visiting every tab, when it completes, then node, timer, and disposer counts all return to their pre-mount values.
+- **AC-138**: Given the full suite, when it runs, then no test requires a live host, a real token, or network.
+- **AC-139**: Given a change under `src/`, `panel/*.ts`, or `service/*.ts`, when it is committed, then the rebuilt bundles are committed in the same commit and `npm run verify` was green.
+- **AC-140**: Given any user-facing string in the panel or `README.md`, when it is scanned, then it contains neither "Run" as a noun for a work unit nor "Repositories" as a noun for bindings.
+
+## Out of Scope
+
+The following are explicitly **not** part of this feature:
+
+- **Renaming wire route paths** — `/v1/events*` → `/v1/dispatches*` and the `repositories` status member → `bindings`. Deferred with the reason in FR-023 and **confirmed deferred by the product owner on 2026-09-28** (Gate Question 1, `## Resolved Gate Questions` entry 1). A settled deferral, not an open item: the retained paths are correct as they stand, and a future rename is a wire-contract change taken up deliberately by whoever makes it.
+- **Settings editing, saving, live-apply, and destructive-knob confirmation** (feature 006). The tab is read-only here (FR-070).
+- **The per-binding `PATCH /v1/bindings/:bindingId` state machine** and its draft/project-missing states, which 002 records as deliberate MVP debt. 005 uses the whole-file grant (FR-050).
+- **Any GitHub write**, in any role, including as a way to resolve or acknowledge a dispatch (002 FR-031, FR-002).
+- **The service-side `agentVerified` mirror** — backlog. Status reports its absence honestly rather than inventing it (FR-033).
+- **Service-side retention, export, and restore** of configuration or audit data — backlog.
+- **Durable deduplication-index eviction** — backlog, named in 003's edge cases.
+- **Policy profiles**, per-action autonomy toggles with real gates, approval workflows, and the `waiting_approval` state. 002 FR-027's gates remain documentation-only.
+- **Promoting agent verification from warn-only to blocking** — 003 records 002's v1.1.0 deviation as standing (FR-047).
+- **Work-completion tracking.** No signal tells the service an agent finished, so a `dispatched` run stays `dispatched` and no tab may imply otherwise.
+- **Automatic cleanup** of sessions, worktrees, or projects — manual only (002 FR-040, FR-077).
+- **Any new host capability, API, or permission** (NFR-106, FR-004).
+- **Multi-instance or cross-machine behaviour**, multi-tenancy, webhook ingress, other providers, Docker packaging, hosted operation.
+- **A mobile or narrow-native panel layout.** The panel remains an extension rail; it must be usable at the narrowest width the host allows, not designed for one.
+- **Phase 4 plan, research, data model, contracts, and task breakdown, and Phase 6 implementation** — those are the architect's phases.
+
+## Assumptions
+
+Each assumption below is a documented default chosen where the requirement text and the predecessors' text were silent. Each is reversible without a redesign, and each is a candidate for the gate.
+
+- **Status is the landing tab** (FR-015). Chosen because the operator's first question is whether the machine is working, and a panel that opens on a configuration surface answers a question nobody asked yet.
+- **The active tab is not persisted.** `host.storage` already hosts last-viewed UI state (002 FR-034); this feature declines to use it for the active tab. Reversible in one line if the owner prefers persistence, and no key is added or removed either way (FR-015, FR-025).
+- **Tab bodies mount lazily on first activation** (FR-013). Chosen because the host clears subscriptions on unmount, pause, remove, and server switch, so eager mounting would open six read paths at panel open.
+- **A failed read keeps the last successful content, visibly marked stale** (FR-019), rather than blanking. Chosen because an operator watching a binding's last scan prefers "this is 40 minutes old" to nothing.
+- **The relay loop is owned by the Dispatches tab.** Recorded as an assumption rather than a requirement's conclusion because ownership is an implementation decision the plan makes; FR-018 fixes the *constraint* (exactly one loop, unaffected by tab switching) and this is the default that satisfies it. Moving ownership to the panel root is equally conforming.
+- **Default page size 25**, selectable 10/25/50/100 (FR-042). Chosen because 25 rows is roughly one screen of the rail and roughly one polling interval of activity.
+- **Filters are by binding and by state**, applied server-side (FR-043). Chosen because a client-side filter over a paged read would filter a page, not a history, and would lie about its own result. **Confirmed by the product owner 2026-09-28** (`## Resolved Gate Questions` entry 3).
+- **Diagnostics survives as a read-only section in About** (FR-075), with only the live *Record phase* writer dropped (FR-011). Chosen as the default because the evidence schema version and the ledger are compatibility surfaces (`AGENTS.md` invariant 10) and removing the only reader of them leaves nothing to notice a version bump. **Confirmed by the product owner 2026-09-28** (`## Resolved Gate Questions` entry 2).
+- **`displayName` is a new durable field on the account** with a `null` default (FR-066). Chosen because today a GitHub login rename overwrites the only label the operator sees, which is a small but real loss of operator intent. **Confirmed by the product owner 2026-09-28** (`## Resolved Gate Questions` entry 4).
+- **Pre-1.0.0 stays.** No tab, rename, or route change in this feature is a reason to bump `version`, and `1.0.0` remains a product-owner decision (`AGENTS.md` invariant 2, FR-087).
+- **The prerequisites surface stays read-only**, reporting state and remediation and never offering to change the host's Default Agent setting, which the extension cannot read or write.
+- **Scale**: fewer than ten bound repositories, a handful of accounts, one local OpenChamber installation, one logical service instance, one operator machine. Concurrency correctness is required across panels, not across service instances.
+- **Provider**: GitHub.com REST API; GitHub Enterprise compatibility is unchanged and still requires later review.
+
+## Clarifications
+
+### Phase 3 record — 2026-09-28
+
+This specification was produced in phases 1–3 with the constitution (v1.3.0), features 002 (v1.1.0/v1.2.0), 003 (v1.0.0), and 004 (v1.0.0), and the product owner's 2026-09-28 brief as the inputs. No clarification marker remains anywhere in this document. Every decision below is encoded in a numbered requirement. Rows 21–24 were added at the phase gate to record the four encoded defaults the gate questions covered. **Rows 25–28 were added after the gate: they record the product owner's confirmation of those four defaults**, which are now in `## Resolved Gate Questions`. A confirmation is not a new decision — each one is already the encoded requirement, and none of the four changed a requirement's text, so the version stayed 1.0.0.
+
+| # | Question | Answer | Encoded in |
+| --- | --- | --- | --- |
+| 1 | Does 005 reopen 003's state model or 004's prompt composition? | **No.** 005 renders both and re-specifies neither. Every semantic — retry validity, unconfirmed resolution, dead-letter return, label-plus-reason rendering, prompt composition and single-render placement — is 003's or 004's by number. | FR-041, FR-044, FR-045, FR-051 |
+| 2 | Is the spike surface hidden or removed? | **Removed.** A second hidden path to a capability is a second thing that drifts. FR-011 forbids the write path, not just the tab. | FR-011 |
+| 3 | Does 005 add a per-binding `PATCH` endpoint? | **No.** The whole-file validated grant stays; 002's MVP-DEBT decision is not reopened. | FR-050 |
+| 4 | Is the Settings tab editable? | **No.** Read-only, ten fields, edit is 006. | FR-070, FR-071, FR-073 |
+| 5 | Where does the status `repositories` member's name go? | The field name stays `repositories`; the panel renders **Bindings**. Wire stability outranks a field rename inside a one-week window of two other documents being amended. | FR-026, FR-032 |
+| 6 | Does 005 rename wire route paths? | **No, by default**, for the reason in FR-023. This was raised as Gate Question 1 rather than settled here, because the owner's decision named route names explicitly; it was **confirmed as encoded on 2026-09-28** (row 25, `## Resolved Gate Questions` entry 1). | FR-023, row 25, `## Resolved Gate Questions` |
+| 7 | Does the panel keep its own version literal for About? | **No.** One source: `GET /v1/health` → `SERVICE_VERSION` → `package.json`. Unreachable means *unknown (service unreachable)*, never a synthesized number. | FR-074 |
+| 8 | Does the six-tab shell drop the manual *Start session* control? | **Yes**, as a conformance consequence of 003 FR-035: it started a session without a run, a lease, or a token. *Poll now* survives as a Status-tab refresh. | FR-018, FR-044 |
+| 9 | Does the active tab persist in `host.storage`? | **No.** Documented technical default; no key added or removed. | FR-015, FR-025 |
+| 10 | Where do 003's prerequisites and picker guidance render? | Prerequisites on **Status** (live state); picker guidance inside the **Bindings** picker, with a link from Status. Placement only — 003 owns the behaviour. | FR-037, FR-038 |
+| 11 | Does 005 promote agent verification to blocking? | **No.** Warn-only on the dispatch row, per 003 FR-043; Status reports the absence of a service mirror honestly rather than inventing one. | FR-033, FR-047 |
+| 12 | Does the Dispatches list render 003's states or the stored ones? | 003's states, via the non-destructive migration table. The raw stored token is never rendered. | FR-041 |
+| 13 | Can a disabled binding be dispatched? | **No.** A disabled binding is not polled and offers no dispatch; a run whose binding was deleted is `blocked` naming that cause and is retryable if the binding returns (003 FR-042). | FR-054 |
+| 14 | Does the shell change whether unattended dispatch requires the panel mounted? | **No.** 003's model already requires it: a closed panel burns nothing and no service-side actor dispatches. Status says so rather than implying autonomy. | FR-018 |
+| 15 | What happens to `host.storage` if it is wiped? | Panel selections fall back to documented defaults. Nothing durable is reported missing because of it — durable state lives in the service store (002 FR-034). | FR-025 |
+| 16 | Is the version bumped for this feature? | **No.** The project stays pre-1.0.0; a bump is a product-owner call per release, never incidental to a UI change. | FR-087 |
+| 17 | Does 005 add a `host.storage` key? | **No.** No key is added and none is renamed; the rename in `AGENTS.md` invariant 4's list is about names, not about the number of keys, and this feature needs none. | FR-025 |
+| 18 | Are the ledger and observed phase discarded? | No. A read-only Diagnostics section in About (FR-075); the live *Record phase* writer goes with the retired spike tab (FR-011). Raised as Gate Question 2 and **confirmed as encoded on 2026-09-28** (row 26, `## Resolved Gate Questions` entry 2). | FR-011, FR-075, row 26, `## Resolved Gate Questions` |
+| 19 | Does the project picker's *not listed?* guidance count as creating a project? | **No.** It names OpenChamber's manual routes and changes nothing (002 FR-004, 003 FR-070). | FR-038, FR-089 |
+| 20 | Does 005 change what a dispatch is made of? | **No.** Message composition is 004's; the run key, coalescing, bounds, and delimiters are 002's and 003's. 005 renders. | FR-022 |
+| 21 | Default page size and filter scope (Gate Question 3). | 25 default, 10/25/50/100 selectable; server-side filters by binding and state. | FR-042, FR-043 |
+| 22 | Default fate of spike diagnostics (Gate Question 2). | Read-only Diagnostics section in About. | FR-075 |
+| 23 | Default for account display name (Gate Question 4). | New `displayName`, `null`-defaulted, display-only, one added DTO member. | FR-066 |
+| 24 | Default for wire route renaming (Gate Question 1). | Not in 005; documented and deferred. | FR-023 |
+| 25 | Product-owner confirmation of the wire-route deferral (Gate Question 1) | **Confirmed 2026-09-28** as encoded: `/v1/events*` keeps its paths and the `repositories` member keeps its field name, the panel maps *Dispatches* onto the existing routes internally, and `## Vocabulary Mapping` records the deferral so it stays legible. Rejected alternative, as stated by the product owner: **rename now with a versioned contract bump**. **A decision, not a backlog item** — nothing in this specification waits on a later rename. No requirement text changed — FR-023 and FR-026 already state the retention. | FR-023, FR-026, `## Out of Scope`, `## Vocabulary Mapping`, `## Resolved Gate Questions` |
+| 26 | Product-owner confirmation of the spike-era diagnostics (Gate Question 2) | **Confirmed 2026-09-28** as encoded: the ledger, the evidence schema version, and the observed-phase record survive as a read-only Diagnostics section in About, and **only the live *Record phase* writer is dropped**, because it is the one element of the retired spike surface that writes. Rejected alternative, as stated by the product owner: **dropping diagnostics entirely**, which is cleaner and leaves nothing that would notice an `extension-spike-1` evidence-schema version change. No requirement text changed — FR-075 already mandates the read-only section, FR-076 already denies it file-browser scope, and FR-011 already retires the writer with the spike tab. | FR-011, FR-051, FR-075, FR-076, `### Key Entities`, `## Assumptions`, `## Resolved Gate Questions` |
+| 27 | Product-owner confirmation of Dispatches filtering (Gate Question 3) | **Confirmed 2026-09-28** as encoded: cursor pagination (25 default, 10/25/50/100 selectable) **and** server-side filters by binding and by state, composing so a filter and a page describe the same set. Rejected alternative, as stated by the product owner: **no filters this cycle**, which would ship the paged list and leave *what happened on this repository* and *what is stuck* unanswerable. The cost recorded at the gate is unchanged and remains Phase 4's to size: more query parameters on one read. No requirement text changed — FR-042 and FR-043 already state both. | FR-042, FR-043, SC-106, AC-121, AC-122, `## Assumptions`, `## Resolved Gate Questions` |
+| 28 | Product-owner confirmation of the account display name (Gate Question 4) | **Confirmed 2026-09-28** as encoded: a durable `displayName` typed string-or-null and defaulting to `null`, display-only, never part of identity (002 FR-009), and the single member added to the credential-free DTO. Rejected alternative, as stated by the product owner: **GitHub login as the only label**, which is entirely conforming and would leave a login rename overwriting the only label the operator sees. No requirement text changed — FR-066 already states the field, its default, and its display-only scope. | FR-062, FR-066, FR-067, NFR-102, AC-128, AC-129, AC-130, `## Wire Surface Delta`, `## Resolved Gate Questions` |
+
+## Resolved Gate Questions (all four confirmed by the product owner — 2026-09-28)
+
+These four questions were raised at the phase gate as the places where this specification encoded a defensible default rather than escalating. The product owner reviewed all four on **2026-09-28 and confirmed every default as encoded**. **No requirement text changed as a result** — each confirmed answer is already the requirement (see `## Clarifications` rows 21–24, which record the defaults, and rows 25–28, which record the confirmations). Each entry below states the confirmed answer first, then the question **verbatim as it was posed at the gate**, then the alternative that was considered and rejected, so a later reader can see what was weighed and why it was set aside.
+
+**One note on the requirement text, stated rather than papered over.** FR-023 and FR-075 name "Gate Question 1" and "Gate Question 2" in their own wording, and those references are **retained verbatim**: the approval confirms the answers those requirements already state and changes neither one's text, so the references now point at this section as their record. FR-075's "pending Gate Question 2" is a submission-time annotation, not a requirement to wait — the read-only Diagnostics section it mandates is confirmed at entry 2 below.
+
+1. **Confirmed: the wire route paths are not renamed in 005.** `/v1/events`, `/v1/events/pending`, `/v1/events/:id/retry`, and `/v1/events/:id/dispatched` keep their paths, and the `repositories` member of `GET /v1/status` keeps its field name. The panel maps *Dispatches* onto `/v1/events` internally, and the deferral is recorded in `## Vocabulary Mapping` and `## Out of Scope` so it is legible rather than accidental.
+   - **Question as posed at the gate, verbatim**:
+     > **Should the wire route paths be renamed in 005, or stay deferred?** The owner's 2026-09-28 decision named "service route names" alongside copy and tests. My encoded default is **deferred**: `/v1/events*` keeps its paths, because 003's `## Wire Surface Delta` and 002's `contracts/` both name them and were amended on 2026-09-28, and a third identifier churn inside one week is net-negative for the correlation work 003 exists to make legible. **Recommendation: defer**, with the vocabulary mapping table documenting `Dispatches ↔ /v1/events` so the deferral is legible rather than accidental. Overriding this is cheap in principle and expensive in practice: `/v1/bindings` is already correct, so a partial rename is worse than none.
+   - **Confirmed 2026-09-28** as encoded, following the recommendation the entry itself made. **Rejected alternative**, as stated by the product owner: *renaming now, with a versioned contract bump*. The reasoning recorded at the gate still holds and is not re-litigated here — 003's `## Wire Surface Delta` and 002's `contracts/` both name these paths and were amended the same day, `/v1/bindings` is already correctly named, and a partial rename is worse than none. **This is a decision, not a backlog item**: the retained paths are correct as they stand, nothing in this specification waits on a later rename, and no requirement here depends on one. A future rename is a wire-contract change for whoever makes it, taken up under `AGENTS.md` invariant 10's rule that compatibility surfaces change deliberately and with a version.
+   - **Encoded in**: FR-023, FR-026, `## Vocabulary Mapping`, `## Out of Scope`, `## Clarifications` rows 6, 24, 25.
+
+2. **Confirmed: the spike-era diagnostics survive as a read-only Diagnostics section in About.** The ledger, the evidence schema version, and the observed-phase record are all kept and all read-only. **Only the live *Record phase* writer is dropped** — it is the one element of the spike surface that writes, and FR-011's retirement of the spike tab takes it with the tab. No diagnostic is editable and none is deleted.
+   - **Question as posed at the gate, verbatim**:
+     > **What happens to the spike-era diagnostics — the ledger list, the evidence schema version, and the observed-phase recorder — when the spike tab is retired?** My encoded default is a **read-only Diagnostics section in About**: the evidence schema version and the ledger are compatibility surfaces (`AGENTS.md` invariant 10), so removing their only reader leaves nothing to notice a version change. **Recommendation: keep it, read-only**, and drop only the *Record phase* control, which writes. The alternative — removing all three — is cleaner and loses the one surface that makes the extension-spike-1 contract visible.
+   - **Confirmed 2026-09-28** as encoded. **Rejected alternative** — already recorded in the entry as posed: *removing all three*, which is cleaner and loses the one surface that makes the `extension-spike-1` contract visible, leaving nothing that would notice an evidence-schema version change. **The confirmation separates the two halves the recommendation already separated**: the ledger, the evidence schema version, and the observed-phase **record** are kept and read; the *Record phase* **writer** is not, because the surface that offered it is retired by FR-011. The section is read-only by FR-075, is not a file browser (FR-076), and carries no prompt text or fingerprint, so it cannot become a second rendering of the starting prompt (FR-051).
+   - **Encoded in**: FR-011, FR-051, FR-075, FR-076, `### Key Entities` (*Diagnostic*), `## Vocabulary Mapping`, `## Assumptions`, `## Clarifications` rows 18, 22, 26.
+
+3. **Confirmed: the Dispatches list filters server-side, by binding and by state, alongside cursor pagination.** Default page size 25 with 10/25/50/100 selectable; the filter and the page compose, so both describe the same set.
+   - **Question as posed at the gate, verbatim**:
+     > **Should the Dispatches list filter, and by what, alongside pagination?** My encoded default is **cursor pagination (25 default) plus server-side filters by binding and by state**. **Recommendation: yes**, because the operator's real question is almost always "what happened on *this* repository" or "what is stuck", and a paged list without filters answers neither. The cost is more query parameters on one read, which Phase 4 sizes.
+   - **Confirmed 2026-09-28** as encoded, following the recommendation the entry itself made. **Rejected alternative**, as stated by the product owner: *no filters this cycle*, which would ship the paged list and leave the operator's two commonest questions — *what happened on this repository* and *what is stuck* — unanswerable. **The cost recorded at the gate is unchanged and remains Phase 4's to size**: more query parameters on one read.
+   - **Encoded in**: FR-042, FR-043, SC-106, AC-121, AC-122, `### Edge Cases`, `## Assumptions`, `## Clarifications` rows 21, 27.
+
+4. **Confirmed: the account display name is a durable `displayName: string | null`.** It defaults to `null`, renders as the GitHub `login` when unset, is display-only, never participates in identity, and is the single member the credential-free account DTO gains.
+   - **Question as posed at the gate, verbatim**:
+     > **Does the account display name become a new durable field?** My encoded default is **yes** — `displayName: string | null`, display-only, never part of identity (002 FR-009), one added member on the credential-free DTO. **Recommendation: yes**, because today a GitHub login rename silently overwrites the only label the operator sees. **The counter-argument, stated plainly**: it is one cosmetic field, one DTO member, one validator, and one migration, in exchange for not losing operator intent — and if you would rather 005 carry no new field at all, the alternative is to drop it and let `login` be the display, which is entirely conforming.
+   - **Confirmed 2026-09-28** as encoded, following the recommendation the entry itself made. **Rejected alternative** — already recorded in the entry as posed: *dropping the field and letting the GitHub login be the only label*, which is entirely conforming and would leave a login rename overwriting the only label the operator sees. **The counter-argument stands and is retained**: the feature carries one cosmetic field, one DTO member, one validator, and one migration, in exchange for not losing operator intent.
+   - **Encoded in**: FR-062, FR-066, FR-067, NFR-102, AC-128, AC-129, AC-130, `## Wire Surface Delta`, `## Vocabulary Mapping`, `## Assumptions`, `## Clarifications` rows 23, 28.
+
+---
+
+## Amendment History
+
+Amendments follow the same procedure and shape as the project's constitution (`.specify/memory/constitution.md` §Governance) and as 002's and 003's own `## Amendment History`: a version bump, a stated rationale, a requirement-by-requirement record, a migration-impact statement, and an approval status. Requirement text in a predecessor is **never rewritten**.
+
+### v1.0.0 — 2026-09-28 (extension amendment; feature 005 adds the panel information architecture)
+
+- **Rationale**: 005 is the surface the previous three specifications were written to enable. 003 built honest retry and a state model and said the restructuring "lands in 005"; 004 added a field and said the Bindings tab renders it "exactly once"; 002's health requirement (FR-036) has had a status document to render into since before either existed, and it is being rendered into a projection with four hardcoded members. Leaving 005 out of the documents that own those facts would make four specs describe four different panels.
+- **Sequencing decision**: 005 **extends** all three predecessors and **supersedes** exactly one row — 003's `## Wire Surface Delta` entry for `Status`, which 003 marked "Unchanged" and 005 changes. 005 is also **unimplemented**, so this is a **record amendment**, exactly as 003's v1.1.0 was for 004: there is no deployed state to invalidate and no gap to defer, only a design that is free to be made around the delta while it is still free.
+- **Principles reviewed, unchanged in substance**: Principle I (no secret in any store, log, or rendered surface) is served by the Accounts tab's credential-free DTO and the refusal of credential-shaped display names. Principle II (safe autonomy by default) is served by rendering every unknown as unknown rather than as a plausible default — the same fail-closed duty the service already meets, applied to the panel. Principle IV (human-visible auditability) is the principle the Dispatches tab exists to serve: every state readable, every reason visible, every correlation id copyable. Principle VII (thin orchestration boundary) is satisfied rather than strained — a shell adds no host capability, and the removal of the manual *Start session* control makes the boundary stricter than before. No principle is weakened.
+- **Requirements explicitly unchanged**: everything in this predecessor that 005 does not name below, including 002's credential custody, trigger set, scope matrix, agent pin, bounds and delimiters, manual cleanup, and read-only-to-GitHub posture; 003's run key, coalescing, lease, dispatch token, impossibility requirement, state model, correlation model, dead-letter budget, resolution semantics, and audit vocabulary; 004's message composition, prompt bounds, credential-shape refusal, fingerprint, and snapshot rule. In particular **003 FR-028 and 003 FR-035 are strengthened**, not relaxed: 005 retires the manual dispatch control that violated them.
+- **Migration impact**: none, and this is the cheapest amendment 005 could make. Nothing is implemented; no store, file, or wire payload exists to convert. Where a surface changes, a stored value continues to read as what it was (FR-005) and a pre-003 queue row continues to project through 003's migration table (FR-041).
+- **Approval status**: **approved 2026-09-28** by the product owner. The four questions raised at the phase gate were confirmed against the defaults this specification had already encoded in `## Clarifications` rows 21–24; the confirmations are recorded at rows 25–28 and in `## Resolved Gate Questions`, each with the rejected alternative. **Approval changed no requirement text**, so the version stays 1.0.0 and the normative body is byte-identical to the version submitted at the gate. This is the version Phase 4 plans.
+
+**Version**: 1.0.0 | **Approved at**: 1.0.0 | **Last Amended**: 2026-09-28

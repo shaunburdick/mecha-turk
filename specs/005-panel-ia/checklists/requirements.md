@@ -1,0 +1,45 @@
+# Specification Quality Checklist: Panel IA — Six Tabs
+
+**Purpose**: Validate specification completeness and quality before proceeding to planning
+**Created**: 2026-09-28
+**Feature**: [spec.md](../spec.md)
+
+## Content Quality
+
+- [x] No implementation details (languages, frameworks, APIs)
+- [x] Focused on user value and business needs
+- [x] Written for non-technical stakeholders
+- [x] All mandatory sections completed
+
+## Requirement Completeness
+
+- [x] No unresolved clarification markers remain
+- [x] Requirements are testable and unambiguous
+- [x] Success criteria are measurable
+- [x] Success criteria are technology-agnostic (no implementation details)
+- [x] All acceptance scenarios are defined
+- [x] Edge cases are identified
+- [x] Scope is clearly bounded
+- [x] Dependencies and assumptions identified
+
+## Feature Readiness
+
+- [x] All functional requirements have clear acceptance criteria
+- [x] User scenarios cover primary flows
+- [x] Feature meets measurable outcomes defined in Success Criteria
+- [ ] No implementation details leak into specification
+
+## Notes
+
+- **Content Quality / "No implementation details"**: this feature *is* the panel's information architecture, so the requirements necessarily name the surfaces being restructured — the tab strip and its bodies, the status projection's three polling members, the dispatch-list read, module names under `src/`, and the SDK's tab and non-HTML rendering primitives. Those are the documented contract the requirements constrain, not implementation choices chosen by them. Requirements that are genuinely architecture-neutral (every state readable with a reason; nothing rendered as a plausible stand-in for an unmeasured value; one relay loop regardless of which tab is active) are stated without technology detail. Module renames, the exact tab primitive, and the page/query-parameter shapes are what Phase 4 sizes.
+- **"No implementation details leak"** therefore remains unchecked by design: a standing, reasoned exception for a panel-surface specification, carried over from feature 002's, 003's, and 004's checklists, not an oversight.
+- **All mandatory template sections are present and in order**: `## Problem Statement`, `## User Scenarios & Testing` *(mandatory)* (8 prioritized stories, each with *Why this priority*, *Independent Test*, and numbered Given/When/Then scenarios), `### Edge Cases` (25), `## Requirements` *(mandatory)* → `### Functional Requirements` (FR-001–FR-089 in nine block-reserved topic groups) and `### Key Entities`, `## Success Criteria` → `### Measurable Outcomes` (SC-101–SC-112), `## Assumptions`. Additive sections (`## Governing Principles and Relationship to Features 002, 003, and 004`, `## Architecture Impact`, `## Wire Surface Delta`, `## Vocabulary Mapping`, `## Non-Functional Requirements` (NFR-101–NFR-112), `## Acceptance Criteria` (AC-101–AC-140), `## Out of Scope`, `## Clarifications`, `## Resolved Gate Questions`, `## Amendment History`) extend the template without displacing any mandatory heading.
+- **Requirement numbering is block-reserved, not consecutive** (A `FR-001`–`005`, B `010`–`019`, C `020`–`029`, D `030`–`039`, E `040`–`049`, F `050`–`059`, G `060`–`069`, H `070`–`079`, I `080`–`089`) — 003's convention, adopted so a clarification lands in its own group without renumbering. 85 FRs, 12 NFRs, 12 SCs, 40 ACs, 8 user stories, 25 edge cases, 28 clarification rows, 4 resolved gate entries. The unallocated numbers in each block are declared unallocated in the spec, not missing.
+- **The four Gate Questions are resolved, and nothing is left to interpretation.** The wire-route deferral, the survival of the spike-era diagnostics as a read-only section in About, server-side Dispatches filtering alongside pagination, and the durable `displayName` are each stated as a numbered FR with the rejected alternative recorded, so a reader can disagree with a decision without finding the spec ambiguous about what it currently says. All four were confirmed by the product owner **on 2026-09-28 against the defaults this specification had already encoded**; recorded in `## Resolved Gate Questions` and in `## Clarifications` rows 25–28. **No requirement text changed on approval**, so the FR/NFR/SC/AC numbering and text are byte-identical to the version submitted at the gate; the spec status is now `Approved (v1.0.0)` and the version is unchanged at 1.0.0.
+- **The one decision that defers work rather than doing it** is recorded in full at FR-023 and `## Out of Scope` and was **confirmed deferred by the product owner on 2026-09-28**: `/v1/events*` and the `repositories` status member keep their names. That is a **settled deferral, not an open item** — the retained paths are correct as they stand, no requirement in this specification waits on a later rename, and `## Vocabulary Mapping` records `Dispatches ↔ /v1/events` so the mapping is legible rather than accidental. The rejected alternative (rename now with a versioned contract bump) is recorded so the deferral can be revisited on evidence rather than re-derived.
+- **Every gate reference left in the body is resolved or explicitly scoped.** `## Wire Surface Delta`, `## Vocabulary Mapping`, `### Key Entities`, `## Out of Scope`, and `## Assumptions` were swept so no entry reads as pending. The two references that remain are inside requirement text — FR-023's "raised as Gate Question 1" and FR-075's "pending Gate Question 2" — and are **retained verbatim**, because approval changed no requirement text; `## Resolved Gate Questions` states in as many words that those references now point at it and that FR-075's "pending" is a submission-time annotation, not a requirement to wait.
+- **The one design decision with a real cost** is recorded in full at FR-066 and was **confirmed by the product owner on 2026-09-28**: the account gains a durable `displayName`. The cost is retained and stays visible: one cosmetic field, one DTO member, one validator, and one migration, in exchange for not losing operator intent when GitHub renames the login upstream. The rejected alternative — GitHub login as the only label, which is entirely conforming — is recorded so the confirmation can be revisited on evidence.
+- **Cross-document consistency verified 2026-09-28**: zero `[NEEDS CLARIFICATION]` markers; zero `TODO`/`TBD`/`FIXME`; every referenced `FR-`/`NFR-`/`SC-`/`AC-` identifier resolves to a definition in this spec or to a requirement of 002, 003, or 004, with no dangling number; all cross-document references are explicitly prefixed `002 `, `003 `, or `004 `, so 005's own `FR-001`–`FR-089` series (which numerically overlaps all three predecessors) cannot be misread; code fences balanced.
+- **The 002/003/004 amendment sections are untouched by this approval.** 005 is a **record amendment** to all three predecessors and remains unimplemented, so approval moved none of their requirement text and required no re-approval of their v1.0.0 content. The one supersession — 003's `## Wire Surface Delta` row for `Status` — and the nine requirements 003 deferred by name are recorded in all four documents, pointing the same direction. Note that 003's and 004's own `## Amendment History` entries describe 005's gate questions as open; those entries are their records of the state at the time they were written and are left verbatim, exactly as 005's predecessors' bodies are.
+- **Nothing was left for Phase 4 that belongs in a requirement.** Phase 4 owns: the exact query-parameter and cursor field names on the dispatch-list read, the status document's field-level shapes, the DTO member's precise type and bounds, the tab primitive's exact construction, and the error codes. It does not own: whether a state is readable, whether a retry is valid, whether a filter is server-side, whether a diagnostic is editable, whether a display name is durable, or whether the wire paths are renamed.
+- **Not written, by instruction and correctly so**: `plan.md`, `research.md`, `data-model.md`, `tasks.md`. The feature introduces no new external technology — every platform constraint it encodes is already settled with stamped sources in 002's research record — and the plan, data model, contracts, and task breakdown are Phase 4 and Phase 5 deliverables.
