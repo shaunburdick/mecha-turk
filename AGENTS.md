@@ -54,6 +54,9 @@ npm run format    # eslint --fix
 2. **One document, two roles.** `package.json` is the npm package *and* the
    installable manifest. `version` gates git-URL update notifications:
    bump + rebuild + push to release. Do not reintroduce npm `workspaces`.
+   **Release policy: stay pre-1.0.0 until the public 1.0.0 release** —
+   current version `0.0.1`, increment per release; jumping to `1.0.0` is a
+   product-owner call, never incidental.
 3. **Capabilities: `sessions` and `prompt` only.** `service` and `network`
    are implied by `contributes.service` and the integration card — listing
    them in `capabilities[]` fails install with `invalid-capabilities`.

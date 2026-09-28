@@ -21,7 +21,7 @@ Alongside the move: drop dead spike-era material, publish a user-focused
 | D1 | Move `extension/{panel,service,src,README.md}` to the repository root; merge `extension/package.json` into the root `package.json`; drop npm workspaces | The repo root is the install unit for git-URL installs (OpenChamber docs: manifest at repo root, committed `panel/main.js` + `service/main.js`, no npm install at install time) |
 | D2 | **Full identity rename** `mecha-turk-spike` → `mecha-turk`: package name, `contributes.panel.id`, `providerId`, and the `host.storage` key prefixes (`:project`, `:evidence`, `:ledger`) | Public package should carry the product name; product owner accepted that storage namespaces reset for existing installs |
 | D3 | Remove `specs/001-agent-event-orchestrator` (superseded spike); keep `specs/002-agent-event-extension` (its contract fixture is read by `tests/consent.test.ts`) plus `.specify/` and `.opencode/` workflow tooling | Product owner chose "drop spike-era specs, keep workflow" |
-| D4 | Keep `version: 1.0.0` in the merged manifest | `service/routes/health.ts` `SERVICE_VERSION` and `tests/service-server.test.ts` pin it; git-URL updates key off this field |
+| D4 | `version: 0.0.1` in the merged manifest; **stays pre-1.0.0 until the public 1.0.0 release**, incremented per release (product-owner revision, 2026-09-28 — originally 1.0.0) | `service/routes/health.ts` `SERVICE_VERSION` and `tests/service-server.test.ts` pin it; git-URL updates key off this field |
 | D5 | SDK stays pinned exactly (`1.24.2`) in `dependencies` only — no duplicate `devDependencies` pin | Single manifest ends the root-vs-workspace dual-pin test; tests resolve the SDK through `dependencies` |
 
 ## Target layout
