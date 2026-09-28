@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Local secrets and environment files — credentials never enter source control.
+.env
+.env.*
+!.env.example
+
+# Test/coverage output. The committed guest bundles (extension/panel/main.js,
+# the panel IIFE, and extension/service/main.js, the service ESM) are
+# intentionally committed: OpenChamber does not build TypeScript on install.
+coverage/
+*.tsbuildinfo
+
+# Logs and OS noise
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Editor state
+.vscode/
+.idea/
+*.swp
