@@ -22,6 +22,7 @@
  * the simple, honest stand-in.
  */
 
+import { basename, join } from 'node:path';
 import { newCorrelationId, nowIso } from '../../src/ids.ts';
 import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
@@ -178,30 +179,32 @@ function serializedQueue(events: readonly QueuedEvent[]): QueuedEvent[] {
 }
 
 /**
- * Quarantine passes this process has already recovered, keyed per store handle.
+ * Quarantine passes this process has already recovered, keyed per store
+ * handle by the quarantined file's *name*.
  *
- * A corrupt `events.json` renames to exactly one quarantine path, so the set
- * ties the recovery to the observation itself: the scan's health pass, the
- * panel's claim, and any relay read can all spot the same quarantine without
- * resetting the windows (or writing the audit row) more than once.
+ * A corrupt `events.json` renames to exactly one file name, so keying on the
+ * name ties the recovery to the loss rather than to the reader that noticed:
+ * the live quarantine, the evidence scan, the panel's claim, and any relay
+ * read can all spot the same loss without resetting the windows (or writing
+ * the audit row) more than once in one process.
  */
 const recoveredQuarantines = new WeakMap<ServiceStore, Set<string>>();
 
 /**
  * Claim one quarantine observation for recovery.
  *
- * @param store - Store handle that observed the quarantine.
- * @param quarantinePath - Unique path the unusable file was set aside to.
+ * @param store - Store handle that observed the loss.
+ * @param quarantinePath - Path (or store-relative name) of the quarantined file.
  * @returns `true` when this caller owns the recovery.
  */
 function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boolean {
     const handled = recoveredQuarantines.get(store) ?? new Set<string>();
     recoveredQuarantines.set(store, handled);
-    if (handled.has(quarantinePath)) {
+    if (handled.has(basename(quarantinePath))) {
         return false;
     }
 
-    handled.add(quarantinePath);
+    handled.add(basename(quarantinePath));
 
     return true;
 }
@@ -306,13 +309,46 @@ async function recoverQuarantinedQueue(input: {
     await recordQueueRecovery({ ...input, bindingsReset });
 }
 
+/** Store file name prefix every quarantined copy of the queue keeps. */
+const QUARANTINE_EVIDENCE_PREFIX = `${EVENTS_FILE}.corrupt-`;
+
+/**
+ * Recover a queue loss this process never saw happen.
+ *
+ * The quarantine *renames* the file, so a service that restarts after the
+ * loss finds `events.json` simply absent: no read reports `quarantined`
+ * again, the reset would never run, and the windows would keep pointing past
+ * the assignments the lost queue carried. The evidence file is still in the
+ * store directory, so any `events.json.corrupt-*` entry stands in for the
+ * observation — the first absent read recovers from it, and the per-store
+ * claim set holds that to one reset and one audit row per loss per process.
+ * The reset is idempotent, and deterministic event ids keep the re-detection
+ * duplicate-free even when a later process repeats it.
+ *
+ * @param input - Open store and logger.
+ */
+async function recoverFromEvidence(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Logger. */
+    readonly log: ServiceLogger;
+}): Promise<void> {
+    const entries = await input.store.listDir('.');
+    for (const entry of entries) {
+        if (entry.startsWith(QUARANTINE_EVIDENCE_PREFIX)) {
+            await recoverQuarantinedQueue({ ...input, quarantinePath: join(input.store.dataDir, entry) });
+        }
+    }
+}
+
 /**
  * Read the queue through the quarantine funnel.
  *
  * Every queue reader — the relay routes, the panel's claim, and the scan's
- * own enqueue — passes this one function, so a file that has to be
- * quarantined always triggers the scan-window recovery, whichever reader
- * reaches it first.
+ * own enqueue — passes this one function, so a lost queue always triggers the
+ * scan-window recovery, whichever reader gets there first: a file that has to
+ * be quarantined right now, or the evidence an earlier process left behind
+ * when the file is already gone.
  *
  * @param input - Open store and logger.
  * @returns Any stored events, `[]` when absent or quarantined.
@@ -333,6 +369,10 @@ async function readQueue(input: {
             quarantinePath: result.quarantinePath,
         });
         await recoverQuarantinedQueue({ ...input, quarantinePath: result.quarantinePath });
+    } else {
+        // `absent` is the only other outcome: an earlier process renamed the
+        // file away, and its evidence stands in for the observation.
+        await recoverFromEvidence(input);
     }
 
     return [];

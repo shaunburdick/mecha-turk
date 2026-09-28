@@ -18,7 +18,12 @@
  *    one `delivery.recovered` audit row, accepts the next enqueue, and a full
  *    `runScanCycle` re-baselines at the bindings' `createdAt` and re-detects
  *    the assignments the lost queue carried (the stamps sit *between* the
- *    creation stamp and the stale window, so the reset is what finds them).
+ *    creation stamp and the stale window, so the reset is what finds them);
+ * 4. the restart state — the quarantine *renames* the file, so a service that
+ *    restarts after the loss finds `events.json` absent and the evidence
+ *    file beside it; that evidence stands in for the observation, while a
+ *    plain empty queue must never reset anything (the operator's real data
+ *    directory is in exactly this state).
  */
 
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -72,8 +77,17 @@ const DETECTED_AT = '2026-09-27T00:41:00.000Z';
 /** When the fixture issues were updated: after creation, before the stale window. */
 const ASSIGNED_AT = '2026-09-27T00:35:00.000Z';
 
+/** A stamp before the binding existed: the baseline must not replay it. */
+const PRE_BINDING_AT = '2026-09-26T23:50:00.000Z';
+
+/** The loop's skip reason for a credential the custody cannot use. */
+const SKIP_REASON = 'auth-failed';
+
 /** Recovery event name, reused across the assertions (sonarjs: one literal). */
 const RECOVERED_EVENT = 'delivery.recovered';
+
+/** Planted evidence file name — a quarantine the store renamed away. */
+const EVIDENCE_FILE = `${EVENTS_FILE}.corrupt-1790556047808-fixture`;
 
 /** Temporary root created per test. */
 let tempRoot = '';
@@ -184,9 +198,10 @@ function fixtureAccount(): Account {
  * Build one open issue assigned to the fixture account.
  *
  * @param issueNumber - Issue number to report.
+ * @param updatedAt - `updated_at` stamp the window is matched against.
  * @returns The normalized issue the poller would return.
  */
-function assignmentIssue(issueNumber: number): PollIssue {
+function assignmentIssue(issueNumber: number, updatedAt: string = ASSIGNED_AT): PollIssue {
     return {
         issueNumber,
         title: `Ticket #${issueNumber}`,
@@ -195,7 +210,7 @@ function assignmentIssue(issueNumber: number): PollIssue {
         body: null,
         assignees: [ACCOUNT_LOGIN],
         isPullRequest: false,
-        updatedAt: ASSIGNED_AT,
+        updatedAt,
     };
 }
 
@@ -279,6 +294,16 @@ function unusableRow(): unknown {
     return { ...createEvent(fixtureSnapshot(2, 'the row the writer never writes')), issueNumber: '2' };
 }
 
+/**
+ * Plant quarantine evidence with no `events.json` beside it.
+ *
+ * This is what a restart after a loss finds: the quarantine renamed the file
+ * away, so no read can ever report `quarantined` again.
+ */
+async function plantEvidence(): Promise<void> {
+    await writeFile(join(dataDir, EVIDENCE_FILE), JSON.stringify([unusableRow()]), 'utf8');
+}
+
 describe('event queue round-trip (writer → reader)', () => {
     it('round-trips writer output with issueNumber stored as a number', async () => {
         const { log } = capturingLogger();
@@ -335,7 +360,7 @@ describe('quarantined queue recovery', () => {
         await plantScanState({
             bindings: {
                 [BINDING_A]: { lastScanAt: SCANNED_AT, lastError: null },
-                [BINDING_B]: { lastScanAt: SCANNED_AT, lastError: 'auth-failed' },
+                [BINDING_B]: { lastScanAt: SCANNED_AT, lastError: SKIP_REASON },
             },
         });
         await plantQueue([unusableRow()]);
@@ -348,7 +373,7 @@ describe('quarantined queue recovery', () => {
         // recorded skip reason survives, only the window moves.
         const state = await readScanState({ store, log });
         expect(state.bindings[BINDING_A]).toEqual({ lastScanAt: null, lastError: null });
-        expect(state.bindings[BINDING_B]).toEqual({ lastScanAt: null, lastError: 'auth-failed' });
+        expect(state.bindings[BINDING_B]).toEqual({ lastScanAt: null, lastError: SKIP_REASON });
 
         // The next window opens at the binding's creation stamp — the
         // baseline, not the stale stamp that skipped the lost assignments.
@@ -402,5 +427,70 @@ describe('quarantined queue recovery', () => {
         const after = await readScanState({ store, log });
         expect(after.bindings[BINDING_A]?.lastScanAt).not.toBeNull();
         expect(after.bindings[BINDING_B]?.lastScanAt).not.toBeNull();
+    });
+
+    it('recovers from quarantine evidence when the queue file is already gone', async () => {
+        await plantScanState({
+            bindings: {
+                [BINDING_A]: { lastScanAt: SCANNED_AT, lastError: null },
+                [BINDING_B]: { lastScanAt: SCANNED_AT, lastError: SKIP_REASON },
+            },
+        });
+        await plantEvidence();
+        const { log } = capturingLogger();
+
+        expect(await readEvents({ store, log })).toEqual([]);
+        expect(await quarantined()).toEqual([EVIDENCE_FILE]);
+
+        const state = await readScanState({ store, log });
+        expect(state.bindings[BINDING_A]).toEqual({ lastScanAt: null, lastError: null });
+        expect(state.bindings[BINDING_B]).toEqual({ lastScanAt: null, lastError: SKIP_REASON });
+        expect(windowFor(fixtureBinding(BINDING_A), state)).toBe(CREATED_AT);
+        expect(await auditRowsOf(RECOVERED_EVENT)).toHaveLength(1);
+
+        // One loss, one recovery: a second read in this process stays quiet.
+        expect(await readEvents({ store, log })).toEqual([]);
+        expect(await auditRowsOf(RECOVERED_EVENT)).toHaveLength(1);
+
+        const fresh = createEvent(fixtureSnapshot(2, ''));
+        expect(await enqueueEvents({ store, log, incoming: [fresh] })).toEqual([fresh]);
+        expect(await readEvents({ store, log })).toEqual([fresh]);
+    });
+
+    it('leaves the windows alone when the queue file is simply absent', async () => {
+        await plantScanState({
+            bindings: { [BINDING_A]: { lastScanAt: SCANNED_AT, lastError: null } },
+        });
+        const { log } = capturingLogger();
+
+        expect(await readEvents({ store, log })).toEqual([]);
+
+        const state = await readScanState({ store, log });
+        expect(state.bindings[BINDING_A]).toEqual({ lastScanAt: SCANNED_AT, lastError: null });
+        expect(await auditRowsOf(RECOVERED_EVENT)).toHaveLength(0);
+    });
+
+    it('re-detects the lost assignment from evidence alone, baseline intact', async () => {
+        await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
+        await writeAccount(store, fixtureAccount());
+        await plantScanState({
+            bindings: { [BINDING_A]: { lastScanAt: SCANNED_AT, lastError: null } },
+        });
+        await plantEvidence();
+        const { log } = capturingLogger();
+        // Issue 1 was assigned before the binding existed (the baseline does
+        // not replay it); issue 2 was assigned after it — the lost queue's row.
+        const { poller, seenSince } = recordingPoller([
+            assignmentIssue(1, PRE_BINDING_AT),
+            assignmentIssue(2, ASSIGNED_AT),
+        ]);
+
+        const cycle = await runScanCycle({ store, log, poller });
+
+        expect(seenSince).toEqual([CREATED_AT]);
+        expect(cycle.enqueued).toBe(1);
+        const queued = await readEvents({ store, log });
+        expect(queued.map((event) => [event.issueNumber, event.state])).toEqual([[2, 'pending']]);
+        expect(await auditRowsOf(RECOVERED_EVENT)).toHaveLength(1);
     });
 });

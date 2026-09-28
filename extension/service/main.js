@@ -2211,6 +2211,9 @@ async function writeBindings(input) {
   await input.store.writeJson(BINDINGS_FILE, input.bindings);
 }
 
+// service/poll/events.ts
+import { basename, join as join2 } from "node:path";
+
 // service/poll/events-parse.ts
 var REQUIRED_FIELDS = [
   "id",
@@ -2424,10 +2427,10 @@ var recoveredQuarantines = new WeakMap;
 function claimQuarantinePass(store, quarantinePath) {
   const handled = recoveredQuarantines.get(store) ?? new Set;
   recoveredQuarantines.set(store, handled);
-  if (handled.has(quarantinePath)) {
+  if (handled.has(basename(quarantinePath))) {
     return false;
   }
-  handled.add(quarantinePath);
+  handled.add(basename(quarantinePath));
   return true;
 }
 async function resetScanWindows(input) {
@@ -2471,6 +2474,15 @@ async function recoverQuarantinedQueue(input) {
   input.log.info("scan windows reset after the event queue was quarantined", { bindingsReset });
   await recordQueueRecovery({ ...input, bindingsReset });
 }
+var QUARANTINE_EVIDENCE_PREFIX = `${EVENTS_FILE}.corrupt-`;
+async function recoverFromEvidence(input) {
+  const entries = await input.store.listDir(".");
+  for (const entry of entries) {
+    if (entry.startsWith(QUARANTINE_EVIDENCE_PREFIX)) {
+      await recoverQuarantinedQueue({ ...input, quarantinePath: join2(input.store.dataDir, entry) });
+    }
+  }
+}
 async function readQueue(input) {
   const result = await input.store.readJson(EVENTS_FILE, parseStoredEvents);
   if (result.status === "ok") {
@@ -2481,6 +2493,8 @@ async function readQueue(input) {
       quarantinePath: result.quarantinePath
     });
     await recoverQuarantinedQueue({ ...input, quarantinePath: result.quarantinePath });
+  } else {
+    await recoverFromEvidence(input);
   }
   return [];
 }
