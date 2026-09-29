@@ -127,3 +127,19 @@ describe('stripCredentialKeys', () => {
         expect(stripCredentialKeys({ tokenCount: 2 })).toEqual({ tokenCount: 2 });
     });
 });
+
+describe('a dispatch token is an authorization artifact, not a credential (AC-120)', () => {
+    it('survives redaction byte-identically while a credential beside it is still refused', () => {
+        const token = `dtk-${'c'.repeat(32)}`;
+
+        // FR-024 requires the panel to persist the token it was authorized with,
+        // so `assertRedacted` must accept it on its own (research §R3)…
+        expect(redact(`lease ${token} end`)).toBe(`lease ${token} end`);
+        expect(findSecretLeak(`lease ${token} end`)).toBeNull();
+
+        // …while a real credential next to that same token is still refused,
+        // and the refusal never echoes the credential.
+        expect(() => assertRedacted('dispatch record', `${CLASSIC_TOKEN} ${token}`)).toThrow(RedactionError);
+        expect(redact(`${CLASSIC_TOKEN} ${token}`)).toContain(token);
+    });
+});
