@@ -33,10 +33,18 @@ import { drainVerifications } from '../src/agent-verify.ts';
 import { dispatchClaimedRun, handledKey, pollRelay } from '../src/relay.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
-import { DISPATCH_STORAGE_KEY } from '../src/dispatch-record.ts';
+import { CONTEXT_MAX_CHARS, SOURCE_EXCERPT_MAX_CHARS, buildBoundedContext } from '../src/session.ts';
+import type { ContextSource, SpikeHost } from '../src/session.ts';
+import { DISPATCH_STORAGE_KEY, MAX_RECORDED_ATTEMPTS } from '../src/dispatch-record.ts';
+import { MAX_ATTEMPT_RECORDS, MAX_SOURCE_REFERENCES, applyEnqueue } from '../service/poll/runs.ts';
+import { attemptHistory, emptyRunsDocument } from '../service/poll/runs-document.ts';
+import { projectRunHistory } from '../service/poll/run-history-project.ts';
+import { createEvent } from '../service/poll/events.ts';
+import { MAX_LISTED_EVENTS } from '../service/routes/events.ts';
+import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
+import type { DispatchAttempt, Run } from '../service/poll/runs-types.ts';
 import type { PanelBinding } from '../src/repos-service.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
-import type { SpikeHost } from '../src/session.ts';
 import {
     DEFAULT_STATUS,
     FIXTURE_TIMESTAMP,
@@ -44,12 +52,14 @@ import {
     LOGIN,
     PROJECT_ID,
     PROJECTS,
+    REPOSITORY,
     SESSION_CREATED,
     SESSION_ID,
     createStorageDouble,
     createTestRuntime,
     fakeHost,
 } from './support/panel.ts';
+import type { StorageDouble } from './support/panel.ts';
 
 /** Correlation id every fixture run shares. */
 const CORRELATION = 'mt-run-0123456789abcdef01234567';
@@ -71,6 +81,9 @@ const HISTORY_GET = 'GET /v1/events';
 
 /** Agent the fixture read-back reports; matches the panel's default expectation. */
 const EXPECTED_AGENT = 'project-manager';
+
+/** Title every fixture issue and session carries. */
+const ISSUE_TITLE = 'Fix the flaky test';
 
 /** One answer in the service-double route table. */
 interface RouteAnswer {
@@ -111,7 +124,7 @@ function claimedRun(overrides: Partial<ClaimedRun> = {}): ClaimedRun {
         worktreeOption: 'generated',
         subjectType: 'issue',
         issueNumber: 7,
-        issueTitle: 'Fix the flaky test',
+        issueTitle: ISSUE_TITLE,
         issueUrl: 'https://github.com/acme/widget/issues/7',
         headSha: null,
         baseRef: null,
@@ -208,7 +221,7 @@ function writesAcknowledgement(value: JsonValue): boolean {
 
 /** The session snapshot the read-back receives for the fixture session. */
 function sessionSnapshot(): SessionSnapshot {
-    return { id: SESSION_ID, title: 'Fix the flaky test', busy: false, agent: EXPECTED_AGENT };
+    return { id: SESSION_ID, title: ISSUE_TITLE, busy: false, agent: EXPECTED_AGENT };
 }
 
 /** What one mounted relay double recorded. */
@@ -219,6 +232,8 @@ interface Harness {
     readonly timeline: readonly string[];
     /** Body the panel sent for each `METHOD path` it called. */
     readonly sent: Readonly<Record<string, string>>;
+    /** The shared `host.storage` the mount read and wrote (T-034's bounds). */
+    readonly storage: StorageDouble;
     /** Replace the route table, modelling the service's answer changing. */
     setRoutes: (table: RouteTable) => void;
 }
@@ -290,6 +305,7 @@ function harness(
         rt,
         timeline,
         sent,
+        storage,
         setRoutes: (next) => {
             table = next;
         },
@@ -539,5 +555,200 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
         expect(parsed?.runs).toHaveLength(1);
         expect(parsed?.runs[0]?.lease.leaseId).toBe(LEASE_ID);
         expect(parsed?.auditWritten).toBe(true);
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * T-034 — detection-to-session latency and bounded growth
+ * (NFR-101, NFR-107, AC-127, AC-129)
+ * ------------------------------------------------------------------------- */
+
+/** Round trips 002's relay spent between detection and the host call. */
+const SHIPPED_ROUND_TRIPS = 1;
+
+/** Runs the run-history cap fixture opens beyond the cap itself. */
+const RUN_HISTORY_OVERFLOW = 50;
+
+/** Dispatch attempts the panel records beyond its own cap. */
+const RECORDED_ATTEMPT_OVERFLOW = 5;
+
+/** Trigger kind the bounds fixtures and their first reference carry. */
+const ASSIGNMENT_KIND = 'assignment' as const;
+
+/** Trigger kind every later fixture reference carries. */
+const MENTION_KIND = 'mention' as const;
+
+/** Assignment detection the bounds fixtures enqueue. */
+function boundsDetection(issueNumber: number): EventSnapshot {
+    return {
+        bindingId: 'bnd-bounds',
+        repository: REPOSITORY,
+        accountNumericUserId: '77331',
+        accountLogin: LOGIN,
+        projectId: PROJECT_ID,
+        worktreeOption: 'none',
+        kind: ASSIGNMENT_KIND,
+        issue: {
+            issueNumber,
+            issueTitle: `Issue ${issueNumber}`,
+            issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
+            issueBodyExcerpt: '',
+        },
+        triggerNote: 'bounds fixture',
+        detectedAt: FIXTURE_TIMESTAMP,
+    };
+}
+
+/**
+ * Seed runs through the real join pass, so the caps are exercised on rows the
+ * product itself produced rather than on hand-written literals.
+ *
+ * @param count - How many distinct subjects to open.
+ * @returns The runs and the delivery rows they link to.
+ */
+function seededRuns(count: number): {
+    readonly runs: readonly Run[];
+    readonly deliveries: ReadonlyMap<string, QueuedEvent>;
+} {
+    const deliveries = Array.from({ length: count }, (_unused, index) => createEvent(boundsDetection(index + 1)));
+    const planned = applyEnqueue({ document: emptyRunsDocument(), deliveries, now: FIXTURE_TIMESTAMP });
+
+    return {
+        runs: planned.document.runs,
+        deliveries: new Map(deliveries.map((delivery) => [delivery.id, delivery])),
+    };
+}
+
+/** The stored dispatch record, read without trusting its shape. */
+function storedAttempts(storage: StorageDouble): readonly Record<string, unknown>[] {
+    const raw = storage.values.get(DISPATCH_STORAGE_KEY);
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+        throw new Error('the panel stored no dispatch record');
+    }
+
+    const { attempts } = raw as { attempts?: unknown };
+    if (!Array.isArray(attempts)) {
+        throw new Error('the dispatch record carries no attempts');
+    }
+
+    return attempts.map((entry) => {
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            throw new Error('the dispatch record held a non-record attempt');
+        }
+
+        return entry as Record<string, unknown>;
+    });
+}
+
+describe('detection-to-session round trips (NFR-101, AC-127, SC-110)', () => {
+    it('spends the shipped round trip plus exactly one more: the reserve', async () => {
+        const relay = harness();
+        await pollRelay(relay.rt);
+
+        // SC-110 counts round trips rather than wall-clock: 002's relay claimed
+        // and then called the host with nothing in between, so the shipped
+        // detection-to-session figure is the claim alone (1). The only call 003
+        // inserts before `host.startSession()` is the reservation (NFR-101's
+        // "at most one additional round trip"), and it is named here rather than
+        // counted blind.
+        const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
+        expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
+        expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+    });
+});
+
+describe('bounded growth is asserted, not assumed (AC-129, NFR-107)', () => {
+    it('holds 200 references inside the dispatch excerpt, with a visible cut', () => {
+        const excerpt = 'r'.repeat(SOURCE_EXCERPT_MAX_CHARS);
+        const sources: readonly ContextSource[] = Array.from({ length: MAX_SOURCE_REFERENCES }, (_unused, index) => ({
+            origin: index === 0 ? ASSIGNMENT_KIND : `comment:${index}`,
+            kind: index === 0 ? ASSIGNMENT_KIND : MENTION_KIND,
+            detectedAt: FIXTURE_TIMESTAMP,
+            url: `https://github.com/${REPOSITORY}/issues/7#issuecomment-${index}`,
+            excerpt,
+        }));
+        expect(sources).toHaveLength(MAX_SOURCE_REFERENCES);
+
+        const context = buildBoundedContext({
+            repository: REPOSITORY,
+            issue: {
+                issueNumber: 7,
+                title: ISSUE_TITLE,
+                url: `https://github.com/${REPOSITORY}/issues/7`,
+                state: 'open',
+                body: null,
+                assignees: [LOGIN],
+                isPullRequest: false,
+            },
+            authenticatedLogin: LOGIN,
+            correlationId: CORRELATION,
+            sources,
+        });
+
+        // The budget is FR-014's own per-dispatch figure, and the cut is
+        // marked rather than silent: a 200-reference run can never blow it.
+        expect(context.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
+        expect(context).toContain('… [truncated]');
+    });
+
+    it('keeps the attempt history at its cap however many attempts a run records', () => {
+        const [seed] = seededRuns(1).runs;
+        if (seed === undefined) {
+            throw new Error('the attempt-history fixture opened no run');
+        }
+
+        let run = seed;
+        for (let attempt = 1; attempt <= MAX_ATTEMPT_RECORDS + 12; attempt += 1) {
+            const record: DispatchAttempt = {
+                attempt,
+                dispatchToken: null,
+                reservedAt: null,
+                outcome: null,
+                sessionId: null,
+                reason: null,
+                resultReportedAt: null,
+            };
+            run = { ...run, attempt, attempts: attemptHistory({ ...run, attempt }, record) };
+        }
+
+        expect(run.attempts).toHaveLength(MAX_ATTEMPT_RECORDS);
+        expect(run.attempts.at(-1)?.attempt).toBe(MAX_ATTEMPT_RECORDS + 12);
+        expect(run.attempts[0]?.attempt).toBe(13);
+    });
+
+    it('evicts the oldest acknowledged record once the panel holds its cap', async () => {
+        const relay = harness();
+        const total = MAX_RECORDED_ATTEMPTS + RECORDED_ATTEMPT_OVERFLOW;
+
+        for (let attempt = 1; attempt <= total; attempt += 1) {
+            await dispatchClaimedRun(relay.rt, claimedRun({
+                attempt,
+                lease: { ...claimedRun().lease, attempt, leaseId: `lse-${attempt.toString(16).padStart(24, '0')}` },
+            }));
+        }
+        await drainVerifications(relay.rt);
+
+        const attempts = storedAttempts(relay.storage);
+        expect(attempts).toHaveLength(MAX_RECORDED_ATTEMPTS);
+        // Eviction walks the oldest **acknowledged** entry first (data-model §3),
+        // so the survivors are exactly the newest cap worth — bounded growth,
+        // observed rather than assumed.
+        expect(attempts[0]?.attempt).toBe(RECORDED_ATTEMPT_OVERFLOW + 1);
+        expect(attempts.at(-1)?.attempt).toBe(total);
+        expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(total);
+    });
+
+    it('projects at most the run-history cap however many runs exist', () => {
+        const seeded = seededRuns(MAX_LISTED_EVENTS + RUN_HISTORY_OVERFLOW);
+        expect(seeded.runs.length).toBeGreaterThan(MAX_LISTED_EVENTS);
+
+        const rows = projectRunHistory({
+            runs: seeded.runs,
+            deliveries: seeded.deliveries,
+            cap: MAX_LISTED_EVENTS,
+        });
+
+        expect(rows).toHaveLength(MAX_LISTED_EVENTS);
+        expect(rows.length).toBeLessThan(seeded.runs.length);
     });
 });
