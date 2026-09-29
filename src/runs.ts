@@ -17,7 +17,7 @@
 
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
-import { canRetry, selectedRun } from './runs-rows.ts';
+import { canRetry, runAffordance, selectedRun } from './runs-rows.ts';
 import { EVENTS_PATH, retryPath, serviceGet, servicePost } from './service-calls.ts';
 import { parseRunsBody } from './runs-service.ts';
 import { describeError } from './session.ts';
@@ -182,7 +182,11 @@ export async function retryRun(rt: PanelRuntime): Promise<void> {
     }
 
     if (!canRetry(row)) {
-        runs.note = ALREADY_DISPATCHED_NOTE;
+        // T-024 replaced the boolean with a table: every state that offers no
+        // retry carries its own reason, so a click (or a stale Enter key) on
+        // one lands on the fact instead of on copy written for a different
+        // state.
+        runs.note = redact(row.state === 'dispatched' ? ALREADY_DISPATCHED_NOTE : runAffordance(row).reason);
         refresh(rt);
 
         return;

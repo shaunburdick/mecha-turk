@@ -13,21 +13,24 @@
 
 import { describe, expect, it } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
+import type { Tone } from '@openchamber/sdk/ui';
 import { createRepositoriesHandlers } from '../src/repos-mount.ts';
 import { initialRuns } from '../src/panel-state.ts';
 import {
     RUNS_EMPTY_STATUS,
     RUNS_EMPTY_TEXT,
     canRetry,
+    runAffordance,
     runRows,
     runsStatusText,
     selectedRun,
+    stateLabel,
 } from '../src/runs-rows.ts';
 import { loadRuns, openRun, retryRun, selectRun } from '../src/runs.ts';
 import { parseRunsBody } from '../src/runs-service.ts';
 import { EVENTS_PATH, retryPath } from '../src/service-calls.ts';
 import type { PanelRuntime, RunsState } from '../src/panel-state.ts';
-import type { RunRow } from '../src/runs-service.ts';
+import type { RunReference, RunRow } from '../src/runs-service.ts';
 import {
     DEFAULT_BODY,
     DEFAULT_STATUS,
@@ -49,6 +52,24 @@ const RUN_ID = 'mt-run-aaaabbbbccccddddeeeeffff';
 
 /** Session id the dispatched fixture row reports. */
 const SESSION_RESULT = 'ses_dispatched_1';
+
+/** State words the suites share, so no literal is repeated across them. */
+const FAILED_STATE: RunRow['state'] = 'failed';
+
+/** The fail-closed wedge state, named once for the tables and the tests. */
+const UNCONFIRMED_STATE: RunRow['state'] = 'unconfirmed';
+
+/** The parked terminal state, named once for the tables and the tests. */
+const DEAD_LETTERED_STATE: RunRow['state'] = 'dead-lettered';
+
+/** A guard-refused state naming a project the host does not list. */
+const BLOCKED_PROJECT_STATE: RunRow['state'] = 'blocked:project-missing';
+
+/** A guard-refused state naming a binding that no longer exists. */
+const BLOCKED_BINDING_STATE: RunRow['state'] = 'blocked:binding-missing';
+
+/** Agent every read-back fixture expects (and, when matched, observes). */
+const EXPECTED_AGENT = 'project-manager';
 
 /** The default `GET /v1/events` key the service double answers. */
 const RUNS_GET = `GET ${EVENTS_PATH}`;
@@ -102,6 +123,24 @@ function runFixture(overrides: Partial<RunRow> = {}): RunRow {
         bindingId: 'bnd-1',
         headSha: null,
         baseRef: null,
+        ...overrides,
+    };
+}
+
+/**
+ * Build one source reference the way the service projects it (FR-013).
+ *
+ * @param overrides - Fields the test changes.
+ * @returns A complete, valid reference.
+ */
+function referenceFixture(overrides: Partial<RunReference> = {}): RunReference {
+    return {
+        deliveryId: 'evt-acme~widget~7~77331',
+        kind: 'assignment',
+        origin: 'assignment',
+        sourceUrl: ISSUE_URL,
+        detectedAt: '2026-09-28T09:00:00.000Z',
+        presentAtAuthorization: true,
         ...overrides,
     };
 }
@@ -206,11 +245,11 @@ describe('parseRunsBody (the service projection, round-tripped)', () => {
             'claimed',
             'starting',
             'dispatched',
-            'failed',
-            'unconfirmed',
-            'dead-lettered',
-            'blocked:project-missing',
-            'blocked:binding-missing',
+            FAILED_STATE,
+            UNCONFIRMED_STATE,
+            DEAD_LETTERED_STATE,
+            BLOCKED_PROJECT_STATE,
+            BLOCKED_BINDING_STATE,
             'blocked:credential',
             'blocked:policy',
         ];
@@ -252,7 +291,7 @@ describe('parseRunsBody (the service projection, round-tripped)', () => {
                 },
             ],
             session: { sessionId: SESSION_RESULT, attachmentId: RUN_ID, dispatchedAt: FIXTURE_TIMESTAMP },
-            verification: { observedAgent: 'project-manager', expectedAgent: 'project-manager', ok: true, note: null },
+            verification: { observedAgent: EXPECTED_AGENT, expectedAgent: EXPECTED_AGENT, ok: true, note: null },
             dispatchResult: SESSION_RESULT,
             dispatchedAt: FIXTURE_TIMESTAMP,
         });
@@ -277,7 +316,7 @@ describe('parseRunsBody (the service projection, round-tripped)', () => {
 });
 
 describe('runRows / runsStatusText (the copy the list renders)', () => {
-    it('renders rows with kind, issue, state badge, relative age, and result', () => {
+    it('renders rows with kind, issue, state badge, relative age, reason, and result', () => {
         const rows = runRows(runsState({ rows: [runFixture()], status: 'ready' }));
 
         expect(rows).toHaveLength(1);
@@ -285,9 +324,9 @@ describe('runRows / runsStatusText (the copy the list renders)', () => {
             id: RUN_ID,
             leading: 'assign',
             title: '#7 Fix the flaky test',
-            subtitle: 'acme/widget · not dispatched yet',
+            subtitle: 'acme/widget · waiting for a panel · not dispatched yet',
             meta: '2m ago',
-            badge: { label: 'pending', tone: 'neutral' },
+            badge: { label: 'waiting', tone: 'neutral' },
         });
     });
 
@@ -318,30 +357,41 @@ describe('runRows / runsStatusText (the copy the list renders)', () => {
         expect(rows[0]?.subtitle).toContain('no dispatch result recorded');
     });
 
-    it('offers retry for a waiting or claimed run but not for a dispatched one', () => {
-        expect(canRetry(runFixture({ state: 'pending' }))).toBe(true);
-        expect(canRetry(runFixture({ state: 'claimed' }))).toBe(true);
-        expect(canRetry(runFixture({ state: 'dispatched' }))).toBe(false);
-    });
+    it('offers retry only where the service accepts one (T-024’s affordance table)', () => {
+        expect(canRetry(runFixture({ state: FAILED_STATE }))).toBe(true);
+        expect(canRetry(runFixture({ state: BLOCKED_PROJECT_STATE }))).toBe(true);
+        expect(canRetry(runFixture({ state: BLOCKED_BINDING_STATE }))).toBe(true);
 
-    it('renders every state the eight-state vocabulary can carry without guessing', () => {
-        const nonSuccess: readonly RunRow['state'][] = [
+        const notRetryable: readonly RunRow['state'][] = [
+            'pending',
             'claimed',
             'starting',
-            'failed',
-            'unconfirmed',
-            'dead-lettered',
-            'blocked:project-missing',
+            'dispatched',
+            UNCONFIRMED_STATE,
+            DEAD_LETTERED_STATE,
         ];
-        for (const state of nonSuccess) {
+        for (const state of notRetryable) {
+            expect(canRetry(runFixture({ state })), state).toBe(false);
+        }
+    });
+
+    it('labels every state in operator vocabulary and never success-tones a failure', () => {
+        const expected: readonly (readonly [RunRow['state'], string, Tone])[] = [
+            ['pending', 'waiting', 'neutral'],
+            ['claimed', 'claimed', 'info'],
+            ['starting', 'starting', 'info'],
+            ['dispatched', 'dispatched', 'success'],
+            [FAILED_STATE, 'dispatch failed', 'warning'],
+            [UNCONFIRMED_STATE, 'unconfirmed', 'warning'],
+            [DEAD_LETTERED_STATE, 'dead-lettered', 'error'],
+            [BLOCKED_PROJECT_STATE, 'blocked: project-missing', 'warning'],
+            [BLOCKED_BINDING_STATE, 'blocked: binding-missing', 'warning'],
+        ];
+        for (const [state, label, tone] of expected) {
             const rows = runRows(runsState({ rows: [runFixture({ state })], status: 'ready' }));
 
-            expect(rows[0]?.badge?.label).toBe(state);
-            expect(rows[0]?.badge?.tone).not.toBe('success');
+            expect(rows[0]?.badge, state).toEqual({ label, tone });
         }
-
-        const dispatched = runRows(runsState({ rows: [runFixture({ state: 'dispatched' })], status: 'ready' }));
-        expect(dispatched[0]?.badge?.tone).toBe('success');
     });
 
     it('phrases every list lifecycle state honestly', () => {
@@ -353,6 +403,186 @@ describe('runRows / runsStatusText (the copy the list renders)', () => {
             '1 run · newest first · select a row to open or retry',
         );
         expect(RUNS_EMPTY_TEXT).toBe('No runs yet.');
+    });
+});
+
+describe('T-024 honest rows (reason line, references, verification)', () => {
+    it('carries a reason line for every state the model can reach (FR-074)', () => {
+        const states: readonly RunRow['state'][] = [
+            'pending',
+            'claimed',
+            'starting',
+            'dispatched',
+            FAILED_STATE,
+            UNCONFIRMED_STATE,
+            DEAD_LETTERED_STATE,
+            BLOCKED_PROJECT_STATE,
+        ];
+        for (const state of states) {
+            const rows = runRows(runsState({
+                rows: [runFixture({ state, stateReason: `why the run is ${state}` })],
+                status: 'ready',
+            }));
+
+            expect(rows[0]?.subtitle, state).toContain(`why the run is ${state}`);
+        }
+    });
+
+    it('renders a hostile state reason as inert text (NFR-109)', () => {
+        const hostile = '<img src=x onerror="steal()"> <script>alert(1)</script>';
+        const rows = runRows(runsState({
+            rows: [runFixture({ state: FAILED_STATE, stateReason: hostile })],
+            status: 'ready',
+        }));
+
+        // The list primitive writes the subtitle through `textContent`, so the
+        // text arrives verbatim and inert: no escaping that would hide the
+        // reason from the operator, and no path that could evaluate it.
+        expect(rows[0]?.subtitle).toBe(`acme/widget · ${hostile} · not dispatched yet`);
+    });
+
+    it('shows one reference alone, with no "+N more" affordance (FR-015)', () => {
+        const rows = runRows(runsState({
+            rows: [runFixture({ sourceReferences: [referenceFixture()], referenceCount: 1 })],
+            status: 'ready',
+        }));
+
+        expect(rows[0]?.subtitle).toBe(
+            'acme/widget · assignment 2026-09-28 09:00 · waiting for a panel · not dispatched yet',
+        );
+    });
+
+    it('lists every reference with kind, origin, and detection time, marking late ones (AC-101)', () => {
+        const rows = runRows(runsState({
+            rows: [runFixture({
+                sourceReferences: [
+                    referenceFixture(),
+                    referenceFixture({
+                        deliveryId: 'evt-acme~widget~7~comment',
+                        kind: 'mention',
+                        origin: 'comment:4242',
+                        detectedAt: '2026-09-28T09:05:00.000Z',
+                        presentAtAuthorization: false,
+                    }),
+                ],
+                referenceCount: 2,
+            })],
+            status: 'ready',
+        }));
+        const subtitle = rows[0]?.subtitle ?? '';
+
+        expect(subtitle).toContain('2 reasons · assignment 2026-09-28 09:00');
+        expect(subtitle).toContain('mention 2026-09-28 09:05 via comment:4242'
+            + ' (after authorization, may not have been seen)');
+    });
+
+    it('states the reasons the reference cap kept off the list (T-038)', () => {
+        const rows = runRows(runsState({
+            rows: [runFixture({
+                sourceReferences: [referenceFixture()],
+                referenceCount: 3,
+                referencesNotRetained: 2,
+                referencesTruncated: true,
+            })],
+            status: 'ready',
+        }));
+
+        expect(rows[0]?.subtitle).toContain(
+            '3 reasons · assignment 2026-09-28 09:00 +2 more reasons not listed',
+        );
+    });
+
+    it('shows the read-back verdict and never success-tones a mismatch (FR-043, AC-125)', () => {
+        const matched = runRows(runsState({
+            rows: [runFixture({
+                state: 'dispatched',
+                dispatchResult: SESSION_RESULT,
+                verification: {
+                    observedAgent: EXPECTED_AGENT,
+                    expectedAgent: EXPECTED_AGENT,
+                    ok: true,
+                    note: null,
+                },
+            })],
+            status: 'ready',
+        }))[0];
+        expect(matched?.badge).toEqual({ label: 'dispatched', tone: 'success' });
+        expect(matched?.subtitle).toContain('agent verified: project-manager (expected project-manager)');
+
+        const mismatched = runRows(runsState({
+            rows: [runFixture({
+                state: 'dispatched',
+                dispatchResult: SESSION_RESULT,
+                verification: {
+                    observedAgent: 'researcher',
+                    expectedAgent: EXPECTED_AGENT,
+                    ok: false,
+                    note: 'agent pin drifted',
+                },
+            })],
+            status: 'ready',
+        }))[0];
+        expect(mismatched?.badge?.tone).toBe('warning');
+        expect(mismatched?.subtitle).toContain('agent mismatch: observed researcher, expected project-manager');
+        expect(mismatched?.subtitle).toContain('agent pin drifted');
+
+        const unreadable = runRows(runsState({
+            rows: [runFixture({
+                state: 'dispatched',
+                verification: { observedAgent: null, expectedAgent: EXPECTED_AGENT, ok: false, note: 'unreadable' },
+            })],
+            status: 'ready',
+        }))[0];
+        expect(unreadable?.badge?.tone).toBe('warning');
+        expect(unreadable?.subtitle).toContain('agent mismatch: observed unreadable, expected project-manager');
+    });
+});
+
+describe('runAffordance (003’s state→affordance table, FR-041/FR-033/FR-027)', () => {
+    it('names the control and its reason for the three actionable states', () => {
+        const failed = runAffordance(runFixture({ state: FAILED_STATE }));
+        expect(failed.action).toBe('retry');
+        expect(failed.label).toBe('Retry run');
+        expect(failed.reason).toContain('retry returns it to waiting');
+
+        const blocked = runAffordance(runFixture({ state: BLOCKED_PROJECT_STATE }));
+        expect(blocked.action).toBe('retry');
+        expect(blocked.label).toBe('Retry run');
+        expect(blocked.reason).toContain('project-missing');
+        expect(blocked.reason).toContain('once the cause clears');
+
+        expect(runAffordance(runFixture({ state: UNCONFIRMED_STATE }))).toMatchObject({
+            action: 'resolve',
+            label: 'Resolve run',
+        });
+        expect(runAffordance(runFixture({ state: DEAD_LETTERED_STATE }))).toMatchObject({
+            action: 'requeue',
+            label: 'Return to waiting',
+        });
+    });
+
+    it('offers nothing — with the state’s own reason — where the service would refuse', () => {
+        const refused: readonly RunRow['state'][] = ['pending', 'claimed', 'starting', 'dispatched'];
+        for (const state of refused) {
+            const affordance = runAffordance(runFixture({ state }));
+
+            expect(affordance.action, state).toBe('none');
+            expect(affordance.label, state).toBeNull();
+            expect(affordance.reason, state).not.toBe('');
+        }
+
+        expect(runAffordance(runFixture({ state: 'dispatched' })).reason).toContain('session exists');
+        expect(runAffordance(runFixture({ state: 'pending' })).reason).toContain('waiting for a panel');
+    });
+
+    it('renders an unrecognised state raw and offers nothing', () => {
+        expect(stateLabel('archived')).toBe('archived');
+        expect(stateLabel('blocked:archived')).toBe('blocked: archived');
+        expect(runAffordance({ state: 'archived' })).toEqual({
+            action: 'none',
+            label: null,
+            reason: 'this run reports a state the panel does not recognise — no action is offered',
+        });
     });
 });
 
@@ -420,8 +650,10 @@ describe('loadRuns (read the history without lying about failures)', () => {
 
 describe('retryRun (POST, refresh, honest copy)', () => {
     it('requeues the selected run, then re-reads the list', async () => {
-        const claimed = runFixture({ state: 'claimed', claimedAt: '2026-09-27T10:00:00.000Z' });
-        const { rt, service } = retryRuntime(claimed, {
+        // A failed run is where the service accepts a retry (T-024's table);
+        // the list re-read answers with the run back in waiting.
+        const failed = runFixture({ state: FAILED_STATE, dispatchResult: 'session-create-failed' });
+        const { rt, service } = retryRuntime(failed, {
             [`POST ${retryPath(RUN_ID)}`]: { status: 200, body: '{"retried":true}' },
             [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) },
         });
@@ -437,7 +669,7 @@ describe('retryRun (POST, refresh, honest copy)', () => {
     it('explains a 409 invalid-transition from the service envelope', async () => {
         // The panel's row is stale (it still looks retryable, so the POST is
         // genuinely sent); the service knows better and answers 409.
-        const stale = runFixture({ state: 'pending' });
+        const stale = runFixture({ state: FAILED_STATE });
         const actual = runFixture({ state: 'dispatched', dispatchResult: SESSION_RESULT });
         const { rt, service } = retryRuntime(stale, {
             [`POST ${retryPath(RUN_ID)}`]: {
