@@ -1781,7 +1781,9 @@ var NUMERIC_BOUNDS = {
   retryMaxMs: { min: 5000, max: 300000, unit: "milliseconds" },
   auditRetentionDays: { min: 7, max: 3650, unit: "days" },
   auditMaxEntries: { min: 1000, max: 1e6, unit: "entries" },
-  excerptRetentionDays: { min: 1, max: 365, unit: "days" }
+  excerptRetentionDays: { min: 1, max: 365, unit: "days" },
+  leaseMs: { min: 30000, max: 600000, unit: "milliseconds" },
+  resultDeadlineMs: { min: 30000, max: 600000, unit: "milliseconds" }
 };
 var NUMERIC_FIELDS = Object.keys(NUMERIC_BOUNDS);
 var DEFAULT_CONFIG = {
@@ -1794,7 +1796,13 @@ var DEFAULT_CONFIG = {
   auditRetentionDays: 180,
   auditMaxEntries: 50000,
   excerptRetentionDays: 30,
+  leaseMs: 120000,
+  resultDeadlineMs: 120000,
   logLevel: "info"
+};
+var ADDED_AFTER_FIRST_RELEASE = {
+  leaseMs: DEFAULT_CONFIG.leaseMs,
+  resultDeadlineMs: DEFAULT_CONFIG.resultDeadlineMs
 };
 function isLogLevel(value) {
   return typeof value === "string" && LOG_LEVELS.has(value);
@@ -1885,6 +1893,8 @@ function buildConfig(raw) {
     auditRetentionDays: readNumber(raw, "auditRetentionDays"),
     auditMaxEntries: readNumber(raw, "auditMaxEntries"),
     excerptRetentionDays: readNumber(raw, "excerptRetentionDays"),
+    leaseMs: readNumber(raw, "leaseMs"),
+    resultDeadlineMs: readNumber(raw, "resultDeadlineMs"),
     logLevel: readLogLevel(raw)
   };
 }
@@ -1902,7 +1912,16 @@ function validateConfig(raw) {
   return { ok: true, config: buildConfig(raw) };
 }
 function parseStoredConfig(raw) {
-  const validation = validateConfig(raw);
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const filled = { ...raw };
+  for (const [field, fallback] of Object.entries(ADDED_AFTER_FIRST_RELEASE)) {
+    if (!(field in filled)) {
+      filled[field] = fallback;
+    }
+  }
+  const validation = validateConfig(filled);
   return validation.ok ? validation.config : null;
 }
 function configFromStore(result, log) {
@@ -2233,6 +2252,9 @@ async function writeBindings(input) {
   await input.store.writeJson(BINDINGS_FILE, input.bindings);
 }
 
+// service/poll/claim.ts
+import { createHash as createHash3 } from "node:crypto";
+
 // service/poll/events.ts
 import { basename, join as join2 } from "node:path";
 
@@ -2402,12 +2424,14 @@ async function recordJoinedDeliveries(input) {
       entity: { kind: "run", id: joined.run.correlationId },
       correlationId: joined.run.correlationId,
       decision: "coalesced",
-      reason: "delivery joined an open run",
+      reason: joined.retained ? "delivery joined an open run" : "delivery joined an open run whose reference list was full; counted, not retained",
       details: {
         deliveryId: joined.reference.deliveryId,
         kind: joined.reference.kind,
         origin: joined.reference.origin,
-        presentAtAuthorization: joined.reference.presentAtAuthorization
+        presentAtAuthorization: joined.reference.presentAtAuthorization,
+        retained: joined.retained,
+        referencesNotRetained: joined.run.referencesNotRetained
       }
     });
   }
@@ -2718,10 +2742,7 @@ function parseVerification(raw) {
   return { observedAgent, expectedAgent: agent, ok: matched, note, at: stamped };
 }
 
-// service/poll/runs-parse.ts
-var RUNS_SCHEMA_VERSION = 1;
-var MAX_SOURCE_REFERENCES = 20;
-var MAX_ATTEMPT_RECORDS = 50;
+// service/poll/runs-scalars-parse.ts
 var SIMPLE_STATES = new Set([
   "pending",
   "claimed",
@@ -2781,11 +2802,12 @@ function parseRunScalars(raw) {
   const subjectNumber = readPositiveInt(raw.subjectNumber);
   const attempt = readPositiveInt(raw.attempt);
   const requeuesUsed = readCount(raw.requeuesUsed);
-  const referenceCount = readPositiveInt(raw.referenceCount);
+  const referenceCount = readCount(raw.referenceCount);
+  const notRetained = readCount(raw.referencesNotRetained);
   const truncated = readFlag(raw.referencesTruncated);
   const createdAt = readStamp(raw.createdAt);
   const updatedAt = readStamp(raw.updatedAt);
-  const values = [ordinal, subjectNumber, attempt, requeuesUsed, referenceCount, createdAt, updatedAt];
+  const values = [ordinal, subjectNumber, attempt, requeuesUsed, referenceCount, notRetained, createdAt, updatedAt];
   if (values.includes(null) || truncated === null) {
     return null;
   }
@@ -2798,11 +2820,20 @@ function parseRunScalars(raw) {
     attempt,
     requeuesUsed,
     referenceCount,
+    referencesNotRetained: notRetained,
     referencesTruncated: truncated,
     createdAt,
     updatedAt
   };
 }
+function runTextFieldsHold(raw) {
+  return RUN_TEXT_FIELDS.every((field) => readText(raw[field]) !== null);
+}
+
+// service/poll/runs-parse.ts
+var RUNS_SCHEMA_VERSION = 1;
+var MAX_SOURCE_REFERENCES = 200;
+var MAX_ATTEMPT_RECORDS = 50;
 function runIdentityMatches(raw, scalars) {
   try {
     const runKey = buildRunKey({
@@ -2867,7 +2898,8 @@ function sessionHistoryHolds(input) {
 function runRelationsHold(input) {
   const { scalars, objects, references, attempts, attachmentId } = input;
   const referenceIds = new Set(references.map((reference) => reference.deliveryId));
-  const basicRelationsHold = references.length <= scalars.referenceCount && (objects.session === null || objects.session.attachmentId === attachmentId) && (objects.lease === null || objects.lease.attempt === scalars.attempt) && (objects.reservation === null || objects.reservation.attempt === scalars.attempt) && referenceIds.size === references.length;
+  const referencesAccounted = scalars.referenceCount === references.length + scalars.referencesNotRetained && scalars.referencesTruncated === scalars.referencesNotRetained > 0;
+  const basicRelationsHold = referencesAccounted && (objects.session === null || objects.session.attachmentId === attachmentId) && (objects.lease === null || objects.lease.attempt === scalars.attempt) && (objects.reservation === null || objects.reservation.attempt === scalars.attempt) && referenceIds.size === references.length;
   return basicRelationsHold && sessionHistoryHolds({
     state: scalars.state,
     session: objects.session,
@@ -2907,6 +2939,7 @@ function runFromParts(raw, parts) {
     requeuesUsed: scalars.requeuesUsed,
     sourceReferences: references,
     referenceCount: scalars.referenceCount,
+    referencesNotRetained: scalars.referencesNotRetained,
     referencesTruncated: scalars.referencesTruncated,
     lease: objects.lease,
     reservation: objects.reservation,
@@ -2918,7 +2951,7 @@ function runFromParts(raw, parts) {
   };
 }
 function parseRun(raw) {
-  if (!isRecord(raw) || !RUN_TEXT_FIELDS.every((field) => readText(raw[field]) !== null)) {
+  if (!isRecord(raw) || !runTextFieldsHold(raw)) {
     return null;
   }
   const parts = parseRunParts(raw);
@@ -3085,7 +3118,12 @@ var LEGACY_PROBLEMS = new Set([
   "session-create-failed",
   'projects snapshot reported state "error"'
 ]);
-var RESULT_DEADLINE_MS = 120000;
+var RESULT_DEADLINE_MS = DEFAULT_CONFIG.resultDeadlineMs;
+var MIGRATION_LEASE_PREFIX = "migration-";
+var MIGRATION_HOLDER = "migration";
+function isMigrationLease(leaseId) {
+  return leaseId.startsWith(MIGRATION_LEASE_PREFIX);
+}
 function recordOf(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
 }
@@ -3163,9 +3201,9 @@ function classifyInFlight(input) {
     branch: "in-flight-no-reservation",
     stateReason: "adopted legacy in-flight delivery; synthetic lease is expired",
     lease: {
-      leaseId: `migration-${correlationId}`,
+      leaseId: `${MIGRATION_LEASE_PREFIX}${correlationId}`,
       attempt: 1,
-      holder: "migration",
+      holder: MIGRATION_HOLDER,
       issuedAt,
       expiresAt: new Date(Date.parse(now) - 1).toISOString()
     },
@@ -3208,6 +3246,14 @@ function sessionReference(input) {
     worktree: null
   };
 }
+function retainedReferences(reference) {
+  return {
+    sourceReferences: reference === null ? [] : [reference],
+    referenceCount: reference === null ? 0 : 1,
+    referencesNotRetained: 0,
+    referencesTruncated: false
+  };
+}
 function migratedRun(input) {
   const { event, ordinal, now, reserved } = input;
   const subjectType = subjectTypeOf(event);
@@ -3240,9 +3286,7 @@ function migratedRun(input) {
       stateReason: classification.stateReason,
       attempt: 1,
       requeuesUsed: 0,
-      sourceReferences: reference === null ? [] : [reference],
-      referenceCount: reference === null ? 0 : 1,
-      referencesTruncated: false,
+      ...retainedReferences(reference),
       lease: classification.lease,
       reservation: classification.reservation,
       attempts: classification.attempts,
@@ -3317,14 +3361,14 @@ function mergeLegacyRow(input) {
     return;
   }
   const reference = referenceOf(input.record.event, run.reservation === null);
-  const joined = reference === null ? run : joinReference({ run, reference, now: input.now });
+  const folded = reference === null ? run : joinReference({ run, reference, now: input.now }).run;
   const migrated = migratedRun({
     event: input.record.event,
     ordinal: run.ordinal,
     now: input.now,
     reserved: input.record.reserved
   });
-  const promoted = promoteLifecycle(joined, migrated.run);
+  const promoted = promoteLifecycle(folded, migrated.run);
   input.runs[input.openIndex] = promoted;
   const recorded = input.branches.get(run.correlationId) ?? [];
   recorded.push(migrated.branch);
@@ -3377,6 +3421,9 @@ function inQueueChain(task) {
 var adoptionPasses = new WeakMap;
 function isTerminalRun(run) {
   return run.state === "dispatched" || run.state === "dead-lettered";
+}
+function runHistoryIndicatesSession(run) {
+  return run.session !== null || run.attempts.some((attempt) => attempt.outcome === "dispatched" || attempt.sessionId !== null);
 }
 async function runAdoption(input) {
   const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);
@@ -3458,6 +3505,34 @@ async function writeRunsDocument(input) {
   }
   return persisted;
 }
+function openAttempt(attempt) {
+  return {
+    attempt,
+    dispatchToken: null,
+    reservedAt: null,
+    outcome: null,
+    sessionId: null,
+    reason: null,
+    resultReportedAt: null
+  };
+}
+function currentAttempt(run) {
+  let found = openAttempt(run.attempt);
+  for (const entry of run.attempts) {
+    if (entry.attempt === run.attempt) {
+      found = entry;
+    }
+  }
+  return found;
+}
+function attemptHistory(run, record) {
+  const index = run.attempts.map((entry) => entry.attempt).lastIndexOf(record.attempt);
+  const updated = index < 0 ? [...run.attempts, record] : run.attempts.map((entry, position) => position === index ? record : entry);
+  return updated.slice(-MAX_ATTEMPT_RECORDS);
+}
+function openedHistory(run) {
+  return [...run.attempts, openAttempt(run.attempt)].slice(-MAX_ATTEMPT_RECORDS);
+}
 
 // service/poll/runs-join.ts
 function subjectShapeOf(delivery) {
@@ -3510,15 +3585,30 @@ function referenceOf(delivery, presentAtAuthorization) {
 }
 function joinReference(input) {
   const { run, reference, now } = input;
-  const already = run.sourceReferences.some((entry) => entry.deliveryId === reference.deliveryId);
-  const joined = already ? run.sourceReferences : [...run.sourceReferences, reference];
-  const overCap = joined.length > MAX_SOURCE_REFERENCES;
+  if (run.sourceReferences.some((entry) => entry.deliveryId === reference.deliveryId)) {
+    return { run: { ...run, updatedAt: now }, retained: true };
+  }
+  const counted = run.referenceCount + 1;
+  if (run.sourceReferences.length >= MAX_SOURCE_REFERENCES) {
+    return {
+      run: {
+        ...run,
+        referenceCount: counted,
+        referencesNotRetained: run.referencesNotRetained + 1,
+        referencesTruncated: true,
+        updatedAt: now
+      },
+      retained: false
+    };
+  }
   return {
-    ...run,
-    sourceReferences: overCap ? joined.slice(0, MAX_SOURCE_REFERENCES) : joined,
-    referenceCount: already ? run.referenceCount : run.referenceCount + 1,
-    referencesTruncated: run.referencesTruncated || overCap,
-    updatedAt: now
+    run: {
+      ...run,
+      sourceReferences: [...run.sourceReferences, reference],
+      referenceCount: counted,
+      updatedAt: now
+    },
+    retained: true
   };
 }
 function runForDelivery(input) {
@@ -3549,6 +3639,7 @@ function runForDelivery(input) {
     requeuesUsed: 0,
     sourceReferences: [reference],
     referenceCount: 1,
+    referencesNotRetained: 0,
     referencesTruncated: false,
     lease: null,
     reservation: null,
@@ -3584,10 +3675,10 @@ function applyEnqueue(input) {
     const open = index < 0 ? undefined : runs[index];
     if (open !== undefined) {
       const authorizedReference = { ...reference, presentAtAuthorization: open.reservation === null };
-      const joined = joinReference({ run: open, reference: authorizedReference, now: input.now });
-      runs[index] = joined;
-      joins.push({ run: joined, reference: authorizedReference });
-      links.set(delivery.id, joined.correlationId);
+      const folded = joinReference({ run: open, reference: authorizedReference, now: input.now });
+      runs[index] = folded.run;
+      joins.push({ run: folded.run, reference: authorizedReference, retained: folded.retained });
+      links.set(delivery.id, folded.run.correlationId);
       continue;
     }
     const ordinal = subjects[shape.subjectKey] ?? 0;
@@ -3848,24 +3939,6 @@ async function enqueueWithinChain(input) {
 async function enqueueEvents(input) {
   return await inQueueChain(async () => await enqueueWithinChain(input));
 }
-async function claimPendingEvents(input) {
-  return await inQueueChain(async () => {
-    const events = await readQueue(input);
-    const pending = events.filter((event) => event.state === "pending");
-    const claim = (event) => ({
-      ...event,
-      state: "in-flight",
-      claimedAt: input.claimedAt
-    });
-    if (pending.length === 0) {
-      return [];
-    }
-    const claimedIds = new Set(pending.map((event) => event.id));
-    const claimed = events.map((event) => claimedIds.has(event.id) ? claim(event) : event);
-    await input.store.writeJson(EVENTS_FILE, serializedQueue(claimed));
-    return pending.map(claim);
-  });
-}
 async function markEventDispatched(input) {
   return await inQueueChain(async () => {
     const events = await readQueue(input);
@@ -3904,6 +3977,233 @@ async function retryEvent(input) {
     await input.store.writeJson(EVENTS_FILE, serializedQueue(events.map(reset)));
     return "reset";
   });
+}
+
+// service/poll/runs-transitions.ts
+var MAX_AUTO_REQUEUES = 3;
+function leaseRun(input) {
+  const { run, lease, now } = input;
+  if (run.state !== "pending" || runHistoryIndicatesSession(run)) {
+    return null;
+  }
+  return {
+    ...run,
+    state: "claimed",
+    stateReason: `lease held by ${lease.holder} until ${lease.expiresAt}`,
+    lease: { attempt: run.attempt, ...lease },
+    attempts: openedHistory(run),
+    updatedAt: now
+  };
+}
+function expireLease(input) {
+  const { run, now, chargeBudget } = input;
+  if (run.state !== "claimed" || run.lease === null || run.reservation !== null) {
+    return null;
+  }
+  if (runHistoryIndicatesSession(run) || Date.parse(run.lease.expiresAt) > Date.parse(now)) {
+    return null;
+  }
+  return {
+    ...run,
+    state: "pending",
+    stateReason: null,
+    attempt: run.attempt + 1,
+    requeuesUsed: run.requeuesUsed + (chargeBudget ? 1 : 0),
+    lease: null,
+    attempts: attemptHistory(run, {
+      ...currentAttempt(run),
+      outcome: "expired",
+      reason: "lease expired without a reservation",
+      resultReportedAt: now
+    }),
+    updatedAt: now
+  };
+}
+function parkRun(input) {
+  const { run, now, reason } = input;
+  if (isTerminalRun(run) || run.session !== null) {
+    return null;
+  }
+  const open = currentAttempt(run);
+  const attempts = open.outcome === null ? attemptHistory(run, { ...open, outcome: "expired", reason, resultReportedAt: now }) : run.attempts;
+  return {
+    ...run,
+    state: "dead-lettered",
+    stateReason: reason,
+    lease: null,
+    attempts,
+    updatedAt: now
+  };
+}
+function wedgeUnconfirmed(input) {
+  const { run, now } = input;
+  if (run.state !== "starting" || run.reservation === null || run.session !== null) {
+    return null;
+  }
+  return {
+    ...run,
+    state: "unconfirmed",
+    stateReason: `no result by ${run.reservation.resultDeadlineAt}`,
+    attempts: attemptHistory(run, {
+      ...currentAttempt(run),
+      outcome: "unconfirmed",
+      reason: "result deadline passed",
+      resultReportedAt: now
+    }),
+    updatedAt: now
+  };
+}
+
+// service/poll/claim.ts
+var UNKNOWN_HOLDER = "unknown";
+var MAX_HOLDER_CHARS = 64;
+var LEASE_ID_HEX_CHARS = 24;
+function holderOf(raw) {
+  if (raw === null || raw.length === 0 || raw.length > MAX_HOLDER_CHARS || !/^[A-Za-z0-9._~-]+$/.test(raw)) {
+    return UNKNOWN_HOLDER;
+  }
+  return raw;
+}
+function buildLeaseId(input) {
+  const digest = createHash3("sha256").update(`${input.correlationId}|${input.attempt}|${input.issuedAt}`, "utf8").digest("hex").slice(0, LEASE_ID_HEX_CHARS);
+  return `lse-${digest}`;
+}
+function claimedReference(input) {
+  const { reference, deliveries } = input;
+  return {
+    deliveryId: reference.deliveryId,
+    kind: reference.kind,
+    origin: reference.origin,
+    sourceUrl: reference.sourceUrl,
+    detectedAt: reference.detectedAt,
+    excerpt: deliveries.get(reference.deliveryId)?.issueBodyExcerpt ?? "",
+    presentAtAuthorization: reference.presentAtAuthorization
+  };
+}
+function deliveriesById(queue) {
+  return new Map(queue.map((event) => [event.id, event]));
+}
+function reviewCoordinates(delivery) {
+  const head = delivery?.headSha ?? null;
+  const base = delivery?.baseRef ?? null;
+  return { ...head === null ? {} : { headSha: head }, ...base === null ? {} : { baseRef: base } };
+}
+function deliveryView(input) {
+  const { delivery, primary } = input;
+  return {
+    accountLogin: delivery?.accountLogin ?? "",
+    issueTitle: delivery?.issueTitle ?? "",
+    issueUrl: primary?.sourceUrl ?? "",
+    issueBodyExcerpt: delivery?.issueBodyExcerpt ?? "",
+    ...reviewCoordinates(delivery)
+  };
+}
+function claimedRunOf(input) {
+  const { run, lease, deliveries } = input;
+  const primary = run.sourceReferences[0];
+  const delivery = primary === undefined ? undefined : deliveries.get(primary.deliveryId);
+  return {
+    correlationId: run.correlationId,
+    runKey: run.runKey,
+    ordinal: run.ordinal,
+    attempt: run.attempt,
+    lease,
+    state: "pending",
+    stateReason: `waiting for a panel; leased until ${lease.expiresAt}`,
+    bindingId: run.bindingId,
+    repository: run.repository,
+    projectId: run.projectId,
+    worktreeOption: run.worktreeOption,
+    subjectType: run.subjectType,
+    issueNumber: run.subjectNumber,
+    attachmentId: run.attachmentId,
+    sourceReferences: run.sourceReferences.map((reference) => claimedReference({ reference, deliveries })),
+    referenceCount: run.referenceCount,
+    referencesNotRetained: run.referencesNotRetained,
+    referencesTruncated: run.referencesTruncated,
+    detectedAt: primary?.detectedAt ?? run.createdAt,
+    ...deliveryView({ delivery, primary })
+  };
+}
+function planClaim(input) {
+  const claims = [];
+  const runs = [...input.document.runs];
+  for (const [index, run] of runs.entries()) {
+    if (run.state !== "pending" || runHistoryIndicatesSession(run)) {
+      continue;
+    }
+    const expiresAt = new Date(Date.parse(input.now) + input.leaseMs).toISOString();
+    const leaseId = buildLeaseId({ correlationId: run.correlationId, attempt: run.attempt, issuedAt: input.now });
+    const claimed = leaseRun({
+      run,
+      lease: { leaseId, holder: input.holder, issuedAt: input.now, expiresAt },
+      now: input.now
+    });
+    if (claimed === null) {
+      continue;
+    }
+    runs[index] = claimed;
+    claims.push({
+      run: claimed,
+      lease: {
+        leaseId,
+        attempt: claimed.attempt,
+        holder: input.holder,
+        issuedAt: input.now,
+        expiresAt
+      }
+    });
+  }
+  return { claims, document: { ...input.document, runs } };
+}
+async function readLeaseMs(store, log) {
+  try {
+    const stored = await store.readJson(CONFIG_FILE, parseStoredConfig);
+    return configFromStore(stored, log).leaseMs;
+  } catch (cause) {
+    log.warn("lease duration read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
+    return DEFAULT_CONFIG.leaseMs;
+  }
+}
+async function appendClaimAudit(input) {
+  try {
+    await appendAudit(input.store, {
+      eventType: "dispatch.claimed",
+      actorSource: "panel",
+      entity: { kind: "run", id: input.claim.run.correlationId },
+      correlationId: input.claim.run.correlationId,
+      details: {
+        leaseId: input.claim.lease.leaseId,
+        attempt: input.claim.lease.attempt,
+        leaseExpiry: input.claim.lease.expiresAt,
+        sourceReferenceCount: input.claim.run.sourceReferences.length,
+        holder: input.claim.lease.holder
+      }
+    });
+  } catch (cause) {
+    input.log.warn("dispatch claim audit row could not be appended", {
+      correlationId: input.claim.run.correlationId,
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+  }
+}
+async function claimPendingRuns(input) {
+  const now = input.now ?? nowIso();
+  const leaseMs = await readLeaseMs(input.store, input.log);
+  const outcome = await inQueueChain(async () => {
+    const document = await readRunsDocument(input);
+    const planned = planClaim({ document, holder: input.holder, leaseMs, now });
+    if (planned.claims.length === 0) {
+      return { ...planned, deliveries: new Map };
+    }
+    const persisted = await writeRunsDocument({ ...input, document: planned.document });
+    const queue = await readEvents(input);
+    return { ...planned, document: persisted, deliveries: deliveriesById(queue) };
+  });
+  for (const claim of outcome.claims) {
+    await appendClaimAudit({ store: input.store, log: input.log, claim });
+  }
+  return outcome.claims.map((claim) => claimedRunOf({ ...claim, deliveries: outcome.deliveries }));
 }
 
 // service/routes/events.ts
@@ -3971,12 +4271,16 @@ async function readStatusRows(input) {
     };
   });
 }
-async function handlePendingEvents(context) {
+async function handlePendingEvents(context, request) {
   const { store } = context;
   if (store === null) {
     return storageUnavailableResponse();
   }
-  const claimed = await claimPendingEvents({ store, log: context.log, claimedAt: nowIso() });
+  const claimed = await claimPendingRuns({
+    store,
+    log: context.log,
+    holder: holderOf(request.url.searchParams.get("holder"))
+  });
   const bindings = await readBindings({ store, log: context.log });
   const rows = await readStatusRows({ store, log: context.log, bindings });
   return { status: STATUS.ok, body: { events: claimed, status: rows } };
@@ -4045,7 +4349,7 @@ async function handleRetryEvent(context, request) {
 var pendingEventsRoute = {
   method: "GET",
   path: EVENTS_PENDING_PATH,
-  handler: (context) => handlePendingEvents(context)
+  handler: (context, request) => handlePendingEvents(context, request)
 };
 var dispatchedEventRoute = {
   method: "POST",
@@ -4365,6 +4669,219 @@ var ROUTES = [
   dispatchedEventRoute,
   retryEventRoute
 ];
+
+// service/poll/sweep.ts
+function budgetReason(requeuesUsed) {
+  return `automatic requeue budget exhausted after ${requeuesUsed} requeues`;
+}
+var LEASE_EXPIRED_REASON = "lease expired without a reservation";
+var MIGRATION_RECOVERY_REASON = "lease expired on migration recovery after upgrade";
+function parkExhaustedRun(input) {
+  const { run, lease, now } = input;
+  if (run.requeuesUsed < MAX_AUTO_REQUEUES) {
+    return null;
+  }
+  const parked = parkRun({ run, now, reason: budgetReason(run.requeuesUsed) });
+  if (parked === null) {
+    return null;
+  }
+  return {
+    run: parked,
+    recovery: {
+      run: parked,
+      eventType: "run.dead_lettered",
+      priorState: run.state,
+      reason: budgetReason(run.requeuesUsed),
+      details: {
+        priorState: run.state,
+        leaseId: lease.leaseId,
+        leaseExpiry: lease.expiresAt,
+        attemptBefore: run.attempt,
+        attemptAfter: parked.attempt,
+        requeuesUsed: run.requeuesUsed,
+        budget: MAX_AUTO_REQUEUES
+      }
+    }
+  };
+}
+function recoverExpiredLease(input) {
+  const { run, now } = input;
+  const { lease } = run;
+  if (lease === null) {
+    return null;
+  }
+  const migration = isMigrationLease(lease.leaseId);
+  const requeued = expireLease({ run, now, chargeBudget: !migration });
+  if (requeued === null) {
+    return null;
+  }
+  if (!migration) {
+    const parked = parkExhaustedRun({ run, lease, now });
+    if (parked !== null) {
+      return parked;
+    }
+  }
+  return {
+    run: requeued,
+    recovery: {
+      run: requeued,
+      eventType: "dispatch.lease-expired",
+      priorState: run.state,
+      reason: migration ? MIGRATION_RECOVERY_REASON : LEASE_EXPIRED_REASON,
+      details: {
+        priorState: run.state,
+        leaseId: lease.leaseId,
+        leaseExpiry: lease.expiresAt,
+        attemptBefore: run.attempt,
+        attemptAfter: requeued.attempt,
+        requeuesBefore: run.requeuesUsed,
+        requeuesAfter: requeued.requeuesUsed,
+        budget: MAX_AUTO_REQUEUES,
+        migrationRecovery: migration
+      }
+    }
+  };
+}
+function recoverLateResult(input) {
+  const { run, now } = input;
+  const { reservation } = run;
+  if (reservation === null || Date.parse(reservation.resultDeadlineAt) > Date.parse(now)) {
+    return null;
+  }
+  const wedged = wedgeUnconfirmed({ run, now });
+  if (wedged === null) {
+    return null;
+  }
+  return {
+    run: wedged,
+    recovery: {
+      run: wedged,
+      eventType: "dispatch.unconfirmed",
+      priorState: run.state,
+      reason: `no dispatch result by ${reservation.resultDeadlineAt}`,
+      details: {
+        priorState: run.state,
+        attempt: run.attempt,
+        dispatchToken: reservation.dispatchToken,
+        deadline: reservation.resultDeadlineAt
+      }
+    }
+  };
+}
+function planSweep(input) {
+  const runs = [...input.document.runs];
+  const recoveries = [];
+  for (const [index, run] of runs.entries()) {
+    const planned = run.state === "claimed" ? recoverExpiredLease({ run, now: input.now }) : recoverLateResult({ run, now: input.now });
+    if (planned === null) {
+      continue;
+    }
+    runs[index] = planned.run;
+    recoveries.push(planned.recovery);
+  }
+  return { document: { ...input.document, runs }, recoveries };
+}
+function decisionFor(recovery) {
+  if (recovery.eventType === "run.dead_lettered") {
+    return "dead-lettered";
+  }
+  return recovery.eventType === "dispatch.unconfirmed" ? "unconfirmed" : "requeued";
+}
+async function appendSweepAudit(input) {
+  const { recovery } = input;
+  try {
+    await appendAudit(input.store, {
+      eventType: recovery.eventType,
+      actorSource: "service",
+      entity: { kind: "run", id: recovery.run.correlationId },
+      correlationId: recovery.run.correlationId,
+      decision: decisionFor(recovery),
+      reason: recovery.reason,
+      details: recovery.details
+    });
+  } catch (cause) {
+    input.log.warn("dispatch sweep audit row could not be appended", {
+      correlationId: recovery.run.correlationId,
+      eventType: recovery.eventType,
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+  }
+}
+async function sweepOnce(input) {
+  const now = input.now ?? nowIso();
+  const planned = await inQueueChain(async () => {
+    const document = await readRunsDocument(input);
+    const outcome = planSweep({ document, now });
+    if (outcome.recoveries.length === 0) {
+      return outcome;
+    }
+    return { ...outcome, document: await writeRunsDocument({ ...input, document: outcome.document }) };
+  });
+  for (const recovery of planned.recoveries) {
+    input.log.info("dispatch sweep recovered a run", {
+      correlationId: recovery.run.correlationId,
+      eventType: recovery.eventType,
+      priorState: recovery.priorState,
+      newState: recovery.run.state
+    });
+    await appendSweepAudit({ ...input, recovery });
+  }
+  return { recoveries: planned.recoveries };
+}
+async function readDurations(input) {
+  try {
+    const stored = await input.store.readJson(CONFIG_FILE, parseStoredConfig);
+    const config = configFromStore(stored, input.log);
+    return { leaseMs: config.leaseMs, resultDeadlineMs: config.resultDeadlineMs };
+  } catch (cause) {
+    input.log.warn("sweep cadence read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
+    return { leaseMs: DEFAULT_CONFIG.leaseMs, resultDeadlineMs: DEFAULT_CONFIG.resultDeadlineMs };
+  }
+}
+function sweepIntervalMs(durations) {
+  return Math.floor(Math.min(durations.leaseMs, durations.resultDeadlineMs) / 2);
+}
+function startSweep(input) {
+  const state = { timer: null, stopped: false, inFlight: false };
+  const halted = () => state.stopped;
+  const cycle = async () => {
+    if (halted() || state.inFlight) {
+      return;
+    }
+    state.inFlight = true;
+    const durations = await readDurations(input);
+    try {
+      await sweepOnce(input);
+    } catch (cause) {
+      input.log.warn("dispatch sweep pass failed", {
+        errorKind: cause instanceof Error ? cause.name : typeof cause
+      });
+    } finally {
+      state.inFlight = false;
+    }
+    if (!halted()) {
+      state.timer = setTimeout(() => {
+        state.timer = null;
+        cycle();
+      }, sweepIntervalMs(durations));
+      state.timer.unref();
+    }
+  };
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    cycle();
+  }, sweepIntervalMs(DEFAULT_CONFIG));
+  state.timer.unref();
+  return {
+    stop: () => {
+      state.stopped = true;
+      if (state.timer !== null) {
+        clearTimeout(state.timer);
+        state.timer = null;
+      }
+    }
+  };
+}
 
 // service/poll/triggers.ts
 var BODY_EXCERPT_MAX_CHARS = 600;
@@ -5152,8 +5669,9 @@ async function withTimeout(promise, timeoutMs) {
   }
 }
 async function performShutdown(input) {
-  const { server, state, poll } = input;
+  const { server, state, poll, sweep } = input;
   poll?.stop();
+  sweep?.stop();
   const closed = new Promise((resolve3) => {
     server.close(() => {
       resolve3();
@@ -5168,7 +5686,12 @@ async function performShutdown(input) {
 function createHandle(parts) {
   let closing = null;
   const shutdown = () => {
-    closing ??= performShutdown({ server: parts.server, state: parts.state, poll: parts.poll ?? null });
+    closing ??= performShutdown({
+      server: parts.server,
+      state: parts.state,
+      poll: parts.poll ?? null,
+      sweep: parts.sweep ?? null
+    });
     return closing;
   };
   return {
@@ -5176,6 +5699,7 @@ function createHandle(parts) {
     dataDir: parts.dataDir,
     store: parts.store,
     reconciled: parts.reconciled,
+    swept: parts.swept,
     shutdown
   };
 }
@@ -5185,6 +5709,15 @@ function startReconciliation(input) {
       errorKind: error instanceof Error ? error.name : typeof error
     });
     return { examined: 0, marked: 0, restored: 0 };
+  });
+}
+function startBootSweep(input) {
+  if (input.store === null) {
+    return Promise.resolve({ recoveries: [] });
+  }
+  return sweepOnce({ store: input.store, log: input.log }).catch((error) => {
+    input.log.warn("boot sweep failed", { errorKind: error instanceof Error ? error.name : typeof error });
+    return { recoveries: [] };
   });
 }
 async function startService(options) {
@@ -5202,6 +5735,7 @@ async function startService(options) {
   };
   const deps = { env: options.env, context, routes: ROUTES, log: options.log, state };
   const server = createServer(createRequestHandler(deps));
+  const swept = await startBootSweep({ store, log: options.log });
   await listen(server, options.env.port);
   const reconciled = startReconciliation({ store, github, log: options.log });
   const poll = store === null ? null : startPollLoop({
@@ -5209,6 +5743,7 @@ async function startService(options) {
     log: options.log,
     poller: options.poller ?? createDefaultPoller()
   });
+  const sweep = store === null ? null : startSweep({ store, log: options.log });
   return createHandle({
     server,
     state,
@@ -5216,7 +5751,9 @@ async function startService(options) {
     dataDir: options.dataDir,
     port: boundPort(server),
     reconciled,
-    poll
+    swept: Promise.resolve(swept),
+    poll,
+    sweep
   });
 }
 

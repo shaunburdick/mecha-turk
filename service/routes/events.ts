@@ -26,10 +26,9 @@
  * amend in Slice 2 only if the loop survives.
  */
 
-import { nowIso } from '../../src/ids.ts';
 import { readBindings } from '../bindings.ts';
+import { claimPendingRuns, holderOf } from '../poll/claim.ts';
 import {
-    claimPendingEvents,
     markEventDispatched,
     readEvents,
     retryEvent,
@@ -254,18 +253,29 @@ export async function readStatusRows(input: {
 }
 
 /**
- * Answer `GET /v1/events/pending` with claimed queue events and status.
+ * Answer `GET /v1/events/pending` with claimed runs and status.
+ *
+ * The claim is a lease, not a bare state flip (FR-030): every waiting run moves
+ * to `claimed` under a fresh lease whose expiry comes from the service's own
+ * clock, and the sweep recovers it if this panel never answers. Eligibility is
+ * the service's alone (FR-037), so a run that is not waiting — or that already
+ * produced a session — is simply absent from the answer.
  *
  * @param context - Route context carrying the open store.
+ * @param request - Routed request; the query may carry `holder`.
  * @returns `200 { events, status }`, or the documented 503.
  */
-async function handlePendingEvents(context: RouteContext): Promise<HttpResponse> {
+async function handlePendingEvents(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;
     if (store === null) {
         return storageUnavailableResponse();
     }
 
-    const claimed = await claimPendingEvents({ store, log: context.log, claimedAt: nowIso() });
+    const claimed = await claimPendingRuns({
+        store,
+        log: context.log,
+        holder: holderOf(request.url.searchParams.get('holder')),
+    });
     const bindings = await readBindings({ store, log: context.log });
     const rows = await readStatusRows({ store, log: context.log, bindings });
 
@@ -389,11 +399,11 @@ async function handleRetryEvent(context: RouteContext, request: RouteRequest): P
     return { status: STATUS.ok, body: { retried: true } };
 }
 
-/** Claim and return every pending event. */
+/** Claim and return every waiting run, each under a fresh lease. */
 export const pendingEventsRoute: Route = {
     method: 'GET',
     path: EVENTS_PENDING_PATH,
-    handler: (context) => handlePendingEvents(context),
+    handler: (context, request) => handlePendingEvents(context, request),
 };
 
 /** Mark one claimed event dispatched on the panel's word. */

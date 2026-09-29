@@ -12,6 +12,8 @@
  *   the atomic write with its terminal-run eviction, and the one-shot
  *   adoption pass (FR-005);
  * - [`runs-join.ts`](./runs-join.ts) — folding deliveries into runs (FR-011);
+ * - [`runs-transitions.ts`](./runs-transitions.ts) — the pure state
+ *   transitions themselves, shared with the batch claim and the sweep;
  * - [`runs-parse.ts`](./runs-parse.ts) / [`runs-types.ts`](./runs-types.ts) /
  *   [`runs-parts-parse.ts`](./runs-parts-parse.ts) / [`run-key.ts`](./run-key.ts)
  *   — schema, validation, and identity derivation.
@@ -29,19 +31,15 @@ import {
     attemptHistory,
     currentAttempt,
     inQueueChain,
-    isTerminalRun,
-    openedHistory,
     readRunsDocument,
-    runHistoryIndicatesSession,
     writeRunsDocument,
 } from './runs-document.ts';
 import { buildDispatchToken } from './run-key.ts';
 import { isRunState } from './runs-parse.ts';
+import { expireLease, leaseRun, parkRun, wedgeUnconfirmed } from './runs-transitions.ts';
 import type { RunChange, RunTransitionInput } from './runs-document.ts';
+import type { LeaseCoordinates } from './runs-transitions.ts';
 import type { Run, SessionRef } from './runs-types.ts';
-
-/** Automatic requeues one run consumes before it is dead-lettered (FR-033). */
-export const MAX_AUTO_REQUEUES = 3;
 
 /** Re-exported: the run store stays the one import path for run plumbing. */
 export {
@@ -59,6 +57,8 @@ export {
     writeRunsDocument,
 } from './runs-document.ts';
 export { applyEnqueue } from './runs-join.ts';
+export { MAX_AUTO_REQUEUES, expireLease, leaseRun, parkRun, wedgeUnconfirmed } from './runs-transitions.ts';
+export type { LeaseCoordinates } from './runs-transitions.ts';
 export type { EnqueueJoin, EnqueueOutcome } from './runs-join.ts';
 export { MAX_ATTEMPT_RECORDS, MAX_SOURCE_REFERENCES } from './runs-parse.ts';
 export type { AdoptionOutcome, RunChange, RunTransitionInput, RunsStoreInput } from './runs-document.ts';
@@ -73,6 +73,16 @@ interface ClaimInput extends RunTransitionInput {
     readonly issuedAt: string;
     /** Lease expiry the sweep compares to the service clock. */
     readonly expiresAt: string;
+}
+
+/** Project one claim input's lease fields onto the shared lease shape. */
+function leaseCoordinatesOf(input: ClaimInput): LeaseCoordinates {
+    return {
+        holder: input.holder,
+        leaseId: input.leaseId,
+        issuedAt: input.issuedAt,
+        expiresAt: input.expiresAt,
+    };
 }
 
 /** Extra input one transition needs beyond {@link RunTransitionInput}. */
@@ -127,32 +137,17 @@ async function changeRun(
 }
 
 /**
- * Claim a waiting run for one panel: lease issued, attempt opened (FR-030).
+ * Claim one waiting run for one panel: lease issued, attempt opened (FR-030).
  *
  * @param input - Lease coordinates plus the run being claimed.
  * @returns The claimed run, or why it was not claimable.
  */
 export async function claimRun(input: ClaimInput): Promise<RunChange> {
-    return await changeRun(input, (run, now) => {
-        if (run.state !== 'pending' || runHistoryIndicatesSession(run)) {
-            return null;
-        }
-
-        return {
-            ...run,
-            state: 'claimed',
-            stateReason: `lease held by ${input.holder} until ${input.expiresAt}`,
-            lease: {
-                leaseId: input.leaseId,
-                attempt: run.attempt,
-                holder: input.holder,
-                issuedAt: input.issuedAt,
-                expiresAt: input.expiresAt,
-            },
-            attempts: openedHistory(run),
-            updatedAt: now,
-        };
-    });
+    return await changeRun(input, (run, now) => leaseRun({
+        run,
+        lease: leaseCoordinatesOf(input),
+        now,
+    }));
 }
 
 /**
@@ -443,31 +438,7 @@ export async function resolveRun(
  * @returns The waiting run, or why nothing was requeued.
  */
 export async function requeueExpiredRun(input: RunTransitionInput): Promise<RunChange> {
-    return await changeRun(input, (run, now) => {
-        if (run.state !== 'claimed' || run.lease === null || run.reservation !== null) {
-            return null;
-        }
-
-        if (Date.parse(run.lease.expiresAt) > Date.parse(now)) {
-            return null;
-        }
-
-        return {
-            ...run,
-            state: 'pending',
-            stateReason: null,
-            attempt: run.attempt + 1,
-            requeuesUsed: run.requeuesUsed + 1,
-            lease: null,
-            attempts: attemptHistory(run, {
-                ...currentAttempt(run),
-                outcome: 'expired',
-                reason: 'lease expired without a reservation',
-                resultReportedAt: now,
-            }),
-            updatedAt: now,
-        };
-    });
+    return await changeRun(input, (run, now) => expireLease({ run, now, chargeBudget: true }));
 }
 
 /**
@@ -479,28 +450,7 @@ export async function requeueExpiredRun(input: RunTransitionInput): Promise<RunC
  * @returns The parked run, or why the park was refused.
  */
 export async function deadLetterRun(input: RunTransitionInput & { readonly reason: string }): Promise<RunChange> {
-    return await changeRun(input, (run, now) => {
-        if (isTerminalRun(run) || run.session !== null) {
-            return null;
-        }
-
-        // A parked run's in-flight attempt ends without a session; a record an
-        // earlier transition already closed keeps its own outcome (plan D6:
-        // history rows are never rewritten).
-        const open = currentAttempt(run);
-        const attempts = open.outcome === null
-            ? attemptHistory(run, { ...open, outcome: 'expired', reason: input.reason, resultReportedAt: now })
-            : run.attempts;
-
-        return {
-            ...run,
-            state: 'dead-lettered',
-            stateReason: input.reason,
-            lease: null,
-            attempts,
-            updatedAt: now,
-        };
-    });
+    return await changeRun(input, (run, now) => parkRun({ run, now, reason: input.reason }));
 }
 
 /**
@@ -512,22 +462,5 @@ export async function deadLetterRun(input: RunTransitionInput & { readonly reaso
  * @returns The wedged run, or why nothing moved.
  */
 export async function markUnconfirmed(input: RunTransitionInput): Promise<RunChange> {
-    return await changeRun(input, (run, now) => {
-        if (run.state !== 'starting' || run.reservation === null || run.session !== null) {
-            return null;
-        }
-
-        return {
-            ...run,
-            state: 'unconfirmed',
-            stateReason: `no result by ${run.reservation.resultDeadlineAt}`,
-            attempts: attemptHistory(run, {
-                ...currentAttempt(run),
-                outcome: 'unconfirmed',
-                reason: 'result deadline passed',
-                resultReportedAt: now,
-            }),
-            updatedAt: now,
-        };
-    });
+    return await changeRun(input, (run, now) => wedgeUnconfirmed({ run, now }));
 }

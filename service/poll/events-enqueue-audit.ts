@@ -33,7 +33,14 @@ async function appendEnqueueAudit(
     }
 }
 
-/** Record one coalescence for each additional source delivery. */
+/**
+ * Record one coalescence for each additional source delivery.
+ *
+ * The row carries whether the reference was retained and how many triggers the
+ * cap has kept off the run's list (T-038): a delivery that joined a full run is
+ * still fully accounted for here, so the audit trail never shows a trigger that
+ * vanished without explanation.
+ */
 async function recordJoinedDeliveries(input: EnqueueAuditInput): Promise<void> {
     for (const joined of input.outcome.joins) {
         await appendEnqueueAudit(input, {
@@ -42,12 +49,16 @@ async function recordJoinedDeliveries(input: EnqueueAuditInput): Promise<void> {
             entity: { kind: 'run', id: joined.run.correlationId },
             correlationId: joined.run.correlationId,
             decision: 'coalesced',
-            reason: 'delivery joined an open run',
+            reason: joined.retained
+                ? 'delivery joined an open run'
+                : 'delivery joined an open run whose reference list was full; counted, not retained',
             details: {
                 deliveryId: joined.reference.deliveryId,
                 kind: joined.reference.kind,
                 origin: joined.reference.origin,
                 presentAtAuthorization: joined.reference.presentAtAuthorization,
+                retained: joined.retained,
+                referencesNotRetained: joined.run.referencesNotRetained,
             },
         });
     }

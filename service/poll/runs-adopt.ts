@@ -9,6 +9,7 @@
  */
 
 import { nowIso } from '../../src/ids.ts';
+import { DEFAULT_CONFIG } from '../config.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { EVENTS_FILE, parseStoredEvent, subjectTypeOf } from './events-parse.ts';
 import type { QueuedEvent } from './events-parse.ts';
@@ -23,6 +24,7 @@ import type {
     RunReservation,
     RunState,
     RunsDocument,
+    SourceReference,
 } from './runs-types.ts';
 
 /** Legacy problem strings emitted by the shipped panel's closed vocabulary. */
@@ -34,8 +36,29 @@ const LEGACY_PROBLEMS = new Set([
     'projects snapshot reported state "error"',
 ]);
 
-/** T-008 adds the persisted config; the migration uses its specified default. */
-const RESULT_DEADLINE_MS = 120_000;
+/** The result deadline an adopted reservation is armed with (T-008's default). */
+const RESULT_DEADLINE_MS = DEFAULT_CONFIG.resultDeadlineMs;
+
+/** Prefix every synthetic adoption lease carries (data-model §1). */
+export const MIGRATION_LEASE_PREFIX = 'migration-';
+
+/** Holder recorded on a synthetic adoption lease. */
+const MIGRATION_HOLDER = 'migration';
+
+/**
+ * Recognise the synthetic lease adoption mints for a legacy `in-flight` row.
+ *
+ * The sweep needs to tell an adopted claim from a real one: an adopted claim is
+ * recovered **once** as migration recovery and is not charged to the automatic
+ * requeue budget, because that budget bounds a crashed-panel loop and a
+ * one-shot adoption cannot loop (plan migration table).
+ *
+ * @param leaseId - The lease identifier as stored.
+ * @returns `true` for a lease this build's adoption minted.
+ */
+export function isMigrationLease(leaseId: string): boolean {
+    return leaseId.startsWith(MIGRATION_LEASE_PREFIX);
+}
 
 /** Input needed to build a migration plan without mutating legacy rows. */
 export interface AdoptionPlanInput {
@@ -180,9 +203,9 @@ function classifyInFlight(input: {
         branch: 'in-flight-no-reservation',
         stateReason: 'adopted legacy in-flight delivery; synthetic lease is expired',
         lease: {
-            leaseId: `migration-${correlationId}`,
+            leaseId: `${MIGRATION_LEASE_PREFIX}${correlationId}`,
             attempt: 1,
-            holder: 'migration',
+            holder: MIGRATION_HOLDER,
             issuedAt,
             expiresAt: new Date(Date.parse(now) - 1).toISOString(),
         },
@@ -244,6 +267,30 @@ function sessionReference(input: {
     };
 }
 
+/**
+ * The three reference members every migrated run starts with.
+ *
+ * A legacy delivery whose origin cannot be derived contributes a run with no
+ * reference rather than none at all — the row the operator sees is the
+ * evidence, and an empty list is honest where a guessed origin is not.
+ *
+ * @param reference - The delivery's own reference, when it has one.
+ * @returns The list, the joined count, and the two overflow markers.
+ */
+function retainedReferences(reference: SourceReference | null): {
+    readonly sourceReferences: readonly SourceReference[];
+    readonly referenceCount: number;
+    readonly referencesNotRetained: number;
+    readonly referencesTruncated: boolean;
+} {
+    return {
+        sourceReferences: reference === null ? [] : [reference],
+        referenceCount: reference === null ? 0 : 1,
+        referencesNotRetained: 0,
+        referencesTruncated: false,
+    };
+}
+
 /** Construct one migrated run from its first legacy delivery. */
 function migratedRun(input: {
     readonly event: QueuedEvent;
@@ -283,9 +330,7 @@ function migratedRun(input: {
             stateReason: classification.stateReason,
             attempt: 1,
             requeuesUsed: 0,
-            sourceReferences: reference === null ? [] : [reference],
-            referenceCount: reference === null ? 0 : 1,
-            referencesTruncated: false,
+            ...retainedReferences(reference),
             lease: classification.lease,
             reservation: classification.reservation,
             attempts: classification.attempts,
@@ -394,14 +439,14 @@ function mergeLegacyRow(input: {
     }
 
     const reference = referenceOf(input.record.event, run.reservation === null);
-    const joined = reference === null ? run : joinReference({ run, reference, now: input.now });
+    const folded = reference === null ? run : joinReference({ run, reference, now: input.now }).run;
     const migrated = migratedRun({
         event: input.record.event,
         ordinal: run.ordinal,
         now: input.now,
         reserved: input.record.reserved,
     });
-    const promoted = promoteLifecycle(joined, migrated.run);
+    const promoted = promoteLifecycle(folded, migrated.run);
     input.runs[input.openIndex] = promoted;
     const recorded = input.branches.get(run.correlationId) ?? [];
     recorded.push(migrated.branch);

@@ -133,6 +133,7 @@ function fixtureRun(overrides: Partial<Run> = {}): Run {
         requeuesUsed: 0,
         sourceReferences: [fixtureReference()],
         referenceCount: 1,
+        referencesNotRetained: 0,
         referencesTruncated: false,
         lease: null,
         reservation: null,
@@ -212,19 +213,30 @@ function without(...fields: readonly string[]): Record<string, unknown> {
 /**
  * Build a fixture row claiming a reference list of one size.
  *
- * @param count - How many references the row claims to hold.
+ * A count above the cap models what the writer persists: the first
+ * {@link MAX_SOURCE_REFERENCES} references retained, the remainder counted in
+ * `referencesNotRetained`, and the truncation flag set (T-038). The
+ * `overshoot` argument plants a list one entry longer than the cap, which the
+ * writer can never produce.
+ *
+ * @param count - How many references the row claims to have joined.
+ * @param overshoot - Extra entries to force onto the stored list itself.
  * @returns The row.
  */
-function withReferences(count: number): Record<string, unknown> {
+function withReferences(count: number, overshoot = 0): Record<string, unknown> {
     const kept = Array.from({ length: Math.min(count, MAX_SOURCE_REFERENCES) }, (_unused, index) => ({
         ...fixtureReference(),
         deliveryId: `evt-acme~widget~${index}~77331`,
     }));
-    const overflow = count > MAX_SOURCE_REFERENCES
-        ? [{ ...fixtureReference(), deliveryId: `evt-acme~widget~${MAX_SOURCE_REFERENCES}~77331` }]
-        : [];
+    const overflow = Array.from({ length: overshoot }, (_unused, index) => ({
+        ...fixtureReference(),
+        deliveryId: `evt-acme~widget~extra~${index}~77331`,
+    }));
     const row = poisoned('sourceReferences', [...kept, ...overflow]);
+    const notRetained = Math.max(count - kept.length, 0);
     row.referenceCount = count;
+    row.referencesNotRetained = notRetained;
+    row.referencesTruncated = notRetained > 0;
 
     return row;
 }
@@ -365,7 +377,36 @@ describe('fail-closed document and row validation', () => {
         { name: 'subject number below one', document: fixtureDocument([fixtureRun({ subjectNumber: 0 })]) },
         { name: 'unknown subject type', document: fixtureDocument([poisoned('subjectType', 'pull')]) },
         { name: 'truncated flag missing', document: fixtureDocument([without('referencesTruncated')]) },
-        { name: 'references above the cap', document: fixtureDocument([withReferences(MAX_SOURCE_REFERENCES + 1)]) },
+        { name: 'not-retained count missing', document: fixtureDocument([without('referencesNotRetained')]) },
+        { name: 'not-retained count negative', document: fixtureDocument([fixtureRun({ referencesNotRetained: -1 })]) },
+        {
+            name: 'not-retained count fractional',
+            document: fixtureDocument([fixtureRun({ referencesNotRetained: 1.5 })]),
+        },
+        {
+            name: 'references above the cap',
+            document: fixtureDocument([withReferences(MAX_SOURCE_REFERENCES, 1)]),
+        },
+        {
+            name: 'stored count above the cap without a not-retained marker',
+            document: fixtureDocument([poisoned('referenceCount', MAX_SOURCE_REFERENCES + 1)]),
+        },
+        {
+            name: 'not-retained count that cannot be reconciled with the list',
+            document: fixtureDocument([fixtureRun({
+                referenceCount: 9,
+                referencesNotRetained: 3,
+                referencesTruncated: true,
+            })]),
+        },
+        {
+            name: 'not-retained count claiming loss the flag denies',
+            document: fixtureDocument([fixtureRun({
+                referenceCount: 2,
+                referencesNotRetained: 1,
+                referencesTruncated: false,
+            })]),
+        },
         { name: 'reference count below the list', document: fixtureDocument([fixtureRun({ referenceCount: 0 })]) },
         { name: 'attempt records above the cap', document: fixtureDocument([withAttempts(MAX_ATTEMPT_RECORDS + 1)]) },
         {
@@ -466,5 +507,15 @@ describe('fail-closed document and row validation', () => {
         const run = parseRun(fixtureRun({ sourceReferences: [reference] }));
 
         expect(run?.sourceReferences).toEqual([reference]);
+    });
+
+    it('reads a capped run whose overflow is counted rather than hidden (T-038)', () => {
+        const capped = withReferences(MAX_SOURCE_REFERENCES + 7);
+        const run = parseRun(capped);
+
+        expect(run?.sourceReferences).toHaveLength(MAX_SOURCE_REFERENCES);
+        expect(run?.referenceCount).toBe(MAX_SOURCE_REFERENCES + 7);
+        expect(run?.referencesNotRetained).toBe(7);
+        expect(run?.referencesTruncated).toBe(true);
     });
 });

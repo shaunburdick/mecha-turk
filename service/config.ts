@@ -4,7 +4,8 @@
  *
  * The bounds come from the spec and plan (FR-017 interval 15,000–300,000 ms
  * default 60,000; overlap 1–120 min default 10 min; FR-020 `per_page ≤ 30`;
- * retention defaults from the spec's Configuration Model). Validation is
+ * retention defaults from the spec's Configuration Model; FR-031's lease and
+ * result deadline 30,000–600,000 ms, default 120,000 — T-008). Validation is
  * deliberately *additive-reporting*: every bad field is collected in one pass
  * so `PUT /v1/config` can answer 422 with a complete list instead of failing
  * one field at a time, and remediation names the field and its accepted
@@ -13,7 +14,14 @@
  *
  * `PUT` is a full replacement: the body must be a complete `ServiceConfig`
  * with no unknown keys, so a typo'd or hand-invented field is refused rather
- * than silently ignored.
+ * than silently ignored. The *read* is deliberately more forgiving in exactly
+ * one direction — a document written before a field existed takes that
+ * field's default instead of being quarantined (T-008) — because a strict read
+ * would set aside every configuration an operator already had.
+ *
+ * The automatic requeue budget is deliberately **not** a field here: 003
+ * v1.3.0 and 006's `## Deferred` record that decision, and the bound lives in
+ * the run store as a module constant.
  */
 
 import { findSecretLeak } from '../src/redaction.ts';
@@ -50,6 +58,21 @@ export interface ServiceConfig {
     readonly auditMaxEntries: number;
     /** How long payload excerpts are kept, in days. */
     readonly excerptRetentionDays: number;
+    /**
+     * How long a claim's lease is valid (FR-031, plan D9).
+     *
+     * The claim stamps `expiresAt = now + leaseMs` on the service clock, and
+     * the sweep requeues a run whose lease expired with no reservation. Also
+     * halves into the sweep cadence.
+     */
+    readonly leaseMs: number;
+    /**
+     * How long an authorized attempt has to report its result (FR-023, plan D9).
+     *
+     * `starting` runs past this deadline become `unconfirmed`; the value is
+     * armed onto the run at reservation time, not read at the deadline.
+     */
+    readonly resultDeadlineMs: number;
     /** Structured-log verbosity. */
     readonly logLevel: LogLevel;
 }
@@ -85,6 +108,8 @@ const NUMERIC_BOUNDS = {
     auditRetentionDays: { min: 7, max: 3_650, unit: 'days' },
     auditMaxEntries: { min: 1_000, max: 1_000_000, unit: 'entries' },
     excerptRetentionDays: { min: 1, max: 365, unit: 'days' },
+    leaseMs: { min: 30_000, max: 600_000, unit: 'milliseconds' },
+    resultDeadlineMs: { min: 30_000, max: 600_000, unit: 'milliseconds' },
 } as const satisfies Record<string, NumericBounds>;
 
 /** One of the numeric fields above. */
@@ -104,8 +129,25 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     auditRetentionDays: 180,
     auditMaxEntries: 50_000,
     excerptRetentionDays: 30,
+    leaseMs: 120_000,
+    resultDeadlineMs: 120_000,
     logLevel: 'info',
 };
+
+/**
+ * Fields this feature added to a configuration a build without them wrote.
+ *
+ * The read path fills these in rather than demanding them, because the
+ * alternative is worse than useless: a strict read would quarantine every
+ * `config.json` an operator already has the moment this build starts, and the
+ * store answers a quarantined file with the defaults anyway (T-008). The
+ * write path stays strict — `PUT` is a full replacement, so a body missing a
+ * field is a refusal with a remediation, not a silent default.
+ */
+const ADDED_AFTER_FIRST_RELEASE = {
+    leaseMs: DEFAULT_CONFIG.leaseMs,
+    resultDeadlineMs: DEFAULT_CONFIG.resultDeadlineMs,
+} as const satisfies Partial<ServiceConfig>;
 
 /**
  * Narrow a value to a supported log level.
@@ -278,6 +320,8 @@ function buildConfig(raw: Record<string, unknown>): ServiceConfig {
         auditRetentionDays: readNumber(raw, 'auditRetentionDays'),
         auditMaxEntries: readNumber(raw, 'auditMaxEntries'),
         excerptRetentionDays: readNumber(raw, 'excerptRetentionDays'),
+        leaseMs: readNumber(raw, 'leaseMs'),
+        resultDeadlineMs: readNumber(raw, 'resultDeadlineMs'),
         logLevel: readLogLevel(raw),
     };
 }
@@ -305,17 +349,32 @@ export function validateConfig(raw: unknown): ConfigValidation {
 }
 
 /**
- * Store-side validator: accept only a fully valid document.
+ * Store-side validator: accept a valid document, filling fields this build
+ * added after the file was written.
  *
  * A hand-edited `config.json` that fails validation is quarantined by the
  * store (never fail-stuck) and the service answers with defaults until the
- * operator PUTs a valid document.
+ * operator PUTs a valid document. A document that is merely *older* than this
+ * build must not be treated that way: only a field that is present and
+ * unusable refuses, so an unknown key, a bad value, or a non-object still
+ * quarantines exactly as before (T-008).
  *
  * @param raw - Parsed stored document.
  * @returns The typed config, or `null` to trigger quarantine.
  */
 export function parseStoredConfig(raw: unknown): ServiceConfig | null {
-    const validation = validateConfig(raw);
+    if (!isRecord(raw)) {
+        return null;
+    }
+
+    const filled: Record<string, unknown> = { ...raw };
+    for (const [field, fallback] of Object.entries(ADDED_AFTER_FIRST_RELEASE)) {
+        if (!(field in filled)) {
+            filled[field] = fallback;
+        }
+    }
+
+    const validation = validateConfig(filled);
 
     return validation.ok ? validation.config : null;
 }

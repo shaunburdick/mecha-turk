@@ -154,11 +154,25 @@ export interface Run {
     readonly attempt: number;
     /** Automatic requeues consumed so far (`0…MAX_AUTO_REQUEUES`). */
     readonly requeuesUsed: number;
-    /** One entry per joining delivery, capped at the reference cap. */
+    /**
+     * One entry per joining delivery, capped at {@link MAX_SOURCE_REFERENCES}.
+     *
+     * Every retained entry carries FR-013's full detail; the cap is the only
+     * thing that ever removes one, and what it removed is counted rather than
+     * hidden (T-038).
+     */
     readonly sourceReferences: readonly SourceReference[];
-    /** How many deliveries have joined, even past the reference cap. */
+    /** How many deliveries have joined, retained or not. */
     readonly referenceCount: number;
-    /** Whether the reference list was cut at the cap (NFR-107). */
+    /**
+     * How many joining triggers were **not** retained (T-038).
+     *
+     * The marker is additive: it never stands in for a reference, and every
+     * delivery it counts still earns its own `run.coalesced` audit row (FR-016),
+     * so the operator can see that a row is lossy instead of inferring it.
+     */
+    readonly referencesNotRetained: number;
+    /** Whether the reference list was cut at the cap (NFR-107, T-038). */
     readonly referencesTruncated: boolean;
     /** The live lease, or `null` when no panel holds the run. */
     readonly lease: RunLease | null;

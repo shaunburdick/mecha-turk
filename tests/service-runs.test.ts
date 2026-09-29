@@ -16,7 +16,8 @@
  * reads exactly what an upgraded store already holds.
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CONSENT_VERSION } from '../src/consent.ts';
@@ -289,19 +290,30 @@ describe('GET /v1/events (runs history)', () => {
     });
 
     it('keeps the claim route reachable beside the new literal route', async () => {
-        const service = await startEmpty();
-        await plantQueue(service, [
-            fixtureEvent({ issueNumber: 8, detectedAt: STAMP, kind: 'assignment' }),
-        ]);
+        // A legacy row has to be in the store *before* the service adopts it,
+        // because adoption is one-shot per store handle by design (FR-005), so
+        // the fixture seeds a data directory and starts the service on it.
+        const dataDir = join(await mkdtemp(join(tmpdir(), 'mecha-turk-claim-route-')), 'store');
+        await mkdir(dataDir, { recursive: true });
+        await writeFile(
+            join(dataDir, EVENTS_FILE),
+            JSON.stringify([fixtureEvent({ issueNumber: 8, detectedAt: STAMP, kind: 'assignment' })]),
+            'utf8',
+        );
+        const service = await startTestService({ dataDir });
+        running.push(service);
 
         // `/v1/events` and `/v1/events/pending` are both literal routes; the
-        // runs history must not have shadowed the relay's claim.
+        // runs history must not have shadowed the relay's claim. The answer is
+        // the adopted run, offered under a lease (T-007).
         const response = await service.call(EVENTS_PENDING_PATH);
 
         expect(response.status).toBe(200);
         const body = (await response.json()) as { events: Record<string, unknown>[] };
         expect(body.events).toHaveLength(1);
-        expect(body.events[0]?.state).toBe('in-flight');
+        expect(body.events[0]?.state).toBe('pending');
+        expect(body.events[0]?.issueNumber).toBe(8);
+        expect(body.events[0]?.lease).toMatchObject({ holder: 'unknown' });
     });
 
     it('keeps the registered credential and the account login out of the answer', async () => {

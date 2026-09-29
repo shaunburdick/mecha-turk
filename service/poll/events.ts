@@ -364,40 +364,6 @@ export async function enqueueEvents(input: {
 }
 
 /**
- * Claim every pending event for the panel.
- *
- * @param input - Open store, the claim stamp, and a logger.
- * @returns The events the panel now owns.
- */
-export async function claimPendingEvents(input: {
-    /** Open store. */
-    readonly store: ServiceStore;
-    /** Claim stamp. */
-    readonly claimedAt: string;
-    /** Logger. */
-    readonly log: ServiceLogger;
-}): Promise<QueuedEvent[]> {
-    return await inQueueChain(async () => {
-        const events = await readQueue(input);
-        const pending = events.filter((event) => event.state === 'pending');
-        const claim = (event: QueuedEvent): QueuedEvent => ({
-            ...event,
-            state: 'in-flight' as const,
-            claimedAt: input.claimedAt,
-        });
-        if (pending.length === 0) {
-            return [];
-        }
-
-        const claimedIds = new Set(pending.map((event) => event.id));
-        const claimed = events.map((event) => (claimedIds.has(event.id) ? claim(event) : event));
-        await input.store.writeJson(EVENTS_FILE, serializedQueue(claimed));
-
-        return pending.map(claim);
-    });
-}
-
-/**
  * Mark one event dispatched (terminal) by its id.
  *
  * @param input - Open store, the id, the result summary, and a logger.

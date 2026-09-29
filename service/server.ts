@@ -18,7 +18,9 @@ import type { GitHubIssuePoller } from './poll/poller-github.ts';
 import { LOOPBACK_HOST } from './http.ts';
 import { createRequestHandler } from './pipeline.ts';
 import { ROUTES } from './routes/index.ts';
+import { startSweep, sweepOnce } from './poll/sweep.ts';
 import { startPollLoop, createDefaultPoller } from './poll/timer.ts';
+import type { SweepLoop, SweepOutcome } from './poll/sweep.ts';
 import type { PollLoop } from './poll/timer.ts';
 import { openStore, SERVICE_SCHEMA_VERSION, StorageUnavailableError } from './store/index.ts';
 import { createVerifyThrottle } from './throttle.ts';
@@ -79,6 +81,15 @@ export interface ServiceHandle {
      * before asserting on post-crash account states.
      */
     readonly reconciled: Promise<ReconcileSummary>;
+    /**
+     * Settles with the boot sweep's outcome.
+     *
+     * The sweep is awaited *before* the listener binds (FR-032), so by the time
+     * a port is reachable a stranded claim has already been recovered; this
+     * promise is the observable form of that ordering, and answers an empty
+     * summary when the store was unusable.
+     */
+    readonly swept: Promise<SweepOutcome>;
     /** Drain in-flight requests and close the listener; safe to call twice. */
     shutdown(): Promise<void>;
 }
@@ -91,8 +102,11 @@ interface HandleParts {
     readonly dataDir: string;
     readonly port: number;
     readonly reconciled: Promise<ReconcileSummary>;
+    readonly swept: Promise<SweepOutcome>;
     /** Poll loop handle, or `null` when there was no store to poll with. */
     readonly poll?: PollLoop | null;
+    /** Lease/deadline sweep handle, or `null` when there was no store. */
+    readonly sweep?: SweepLoop | null;
 }
 
 /**
@@ -205,19 +219,22 @@ interface ShutdownInput {
     readonly state: PipelineState;
     /** Poll loop to stop first, or `null` when none was started. */
     readonly poll: PollLoop | null;
+    /** Sweep timer to stop with the poll loop, or `null` when none started. */
+    readonly sweep: SweepLoop | null;
 }
 
 /**
  * Drain and close a server.
  *
- * The poll loop (M1) stops first so a scheduled cycle cannot race one of its
- * writes against the drain's persistence window.
+ * The poll loop (M1) and the dispatch sweep stop first, so a scheduled cycle
+ * cannot race one of its writes against the drain's persistence window.
  *
- * @param input - The listener, the drain counter, and the poll loop.
+ * @param input - The listener, the drain counter, the poll loop, and the sweep.
  */
 async function performShutdown(input: ShutdownInput): Promise<void> {
-    const { server, state, poll } = input;
+    const { server, state, poll, sweep } = input;
     poll?.stop();
+    sweep?.stop();
     const closed = new Promise<void>((resolve) => {
         server.close(() => {
             resolve();
@@ -239,7 +256,12 @@ async function performShutdown(input: ShutdownInput): Promise<void> {
 function createHandle(parts: HandleParts): ServiceHandle {
     let closing: Promise<void> | null = null;
     const shutdown = (): Promise<void> => {
-        closing ??= performShutdown({ server: parts.server, state: parts.state, poll: parts.poll ?? null });
+        closing ??= performShutdown({
+            server: parts.server,
+            state: parts.state,
+            poll: parts.poll ?? null,
+            sweep: parts.sweep ?? null,
+        });
 
         return closing;
     };
@@ -249,6 +271,7 @@ function createHandle(parts: HandleParts): ServiceHandle {
         dataDir: parts.dataDir,
         store: parts.store,
         reconciled: parts.reconciled,
+        swept: parts.swept,
         shutdown,
     };
 }
@@ -283,6 +306,38 @@ function startReconciliation(input: {
 }
 
 /**
+ * Recover stranded claims before the first claim can be served (FR-032).
+ *
+ * The pass is **awaited** here, between opening the store and binding the
+ * listener: a panel that closed mid-dispatch must find its work already
+ * waiting again when it reconnects, and a run whose lease expired while the
+ * service was down must never be offered under a lease that is already stale.
+ * A failure is logged and answered with an empty summary rather than thrown —
+ * an unreadable store is a degraded start (the routes answer `503`), not a
+ * process that refuses to boot.
+ *
+ * @param input - Open store, or `null` when the directory is unusable.
+ * @param log - Structured logger.
+ * @returns The pass's completion promise.
+ */
+function startBootSweep(input: {
+    /** Open store, or `null` when the directory is unusable. */
+    readonly store: ServiceStore | null;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+}): Promise<SweepOutcome> {
+    if (input.store === null) {
+        return Promise.resolve({ recoveries: [] });
+    }
+
+    return sweepOnce({ store: input.store, log: input.log }).catch((error: unknown) => {
+        input.log.warn('boot sweep failed', { errorKind: error instanceof Error ? error.name : typeof error });
+
+        return { recoveries: [] };
+    });
+}
+
+/**
  * Start the loopback service.
  *
  * @param options - Environment, data directory, and logger.
@@ -305,6 +360,9 @@ export async function startService(options: StartServiceOptions): Promise<Servic
     };
     const deps: PipelineDeps = { env: options.env, context, routes: ROUTES, log: options.log, state };
     const server = createServer(createRequestHandler(deps));
+    // FR-032: the sweep runs at service start, before the server accepts a
+    // claim, so a restart recovers stranded claims with no operator action.
+    const swept = await startBootSweep({ store, log: options.log });
     await listen(server, options.env.port);
     // Reconciliation runs after the listener is up: an upstream call must
     // never hold the host's readiness probe hostage (F16 readiness is about
@@ -318,6 +376,9 @@ export async function startService(options: StartServiceOptions): Promise<Servic
         log: options.log,
         poller: options.poller ?? createDefaultPoller(),
     });
+    // The lease/deadline sweep keeps running on its own unref'd timer, at
+    // half the shorter of the two configured durations.
+    const sweep = store === null ? null : startSweep({ store, log: options.log });
 
     return createHandle({
         server,
@@ -326,6 +387,8 @@ export async function startService(options: StartServiceOptions): Promise<Servic
         dataDir: options.dataDir,
         port: boundPort(server),
         reconciled,
+        swept: Promise.resolve(swept),
         poll,
+        sweep,
     });
 }

@@ -115,20 +115,38 @@ export function referenceOf(delivery: QueuedEvent, presentAtAuthorization: boole
 }
 
 /**
- * Fold one reference into a run: append it, or recognise it as already folded.
+ * One reference's fold into a run, with the retention verdict (T-038).
+ */
+export interface JoinResult {
+    /** The run with its reference list and counters updated. */
+    readonly run: Run;
+    /**
+     * Whether the reference is on the run's list.
+     *
+     * `false` only when the cap was already full — the delivery still joined
+     * (FR-011) and still earns its audit row (FR-016); it is the list entry
+     * that the cap refused, and `run.referencesNotRetained` counts it.
+     */
+    readonly retained: boolean;
+}
+
+/**
+ * Fold one reference into a run: append it, recognise it as already folded, or
+ * count it as not retained when the cap is full.
  *
  * Re-folding a delivery the run already references is the self-heal research
  * §R4 depends on: a crash between the run write and the queue write leaves a
  * run referencing a delivery that was never stored, and the re-detect must
  * link it without adding a second reference (FR-013: one per delivery). The
- * list is capped at {@link MAX_SOURCE_REFERENCES} deliveries; past the cap the
- * run keeps counting (`referenceCount`) and says so (`referencesTruncated`),
- * while every overflow delivery still earns its own audit row (NFR-107).
+ * list is capped at {@link MAX_SOURCE_REFERENCES} retained references; past
+ * the cap the run keeps counting (`referenceCount`), counts what it could not
+ * keep (`referencesNotRetained`), and says so (`referencesTruncated`), while
+ * every overflow delivery still earns its own audit row (NFR-107, T-038).
  *
  * @param run - The run being joined.
  * @param reference - The joining delivery's reference.
  * @param now - Mutation stamp.
- * @returns The run with its references and counters updated.
+ * @returns The run plus whether this reference is on its list.
  */
 export function joinReference(input: {
     /** The run being joined. */
@@ -137,18 +155,34 @@ export function joinReference(input: {
     readonly reference: SourceReference;
     /** Mutation stamp. */
     readonly now: string;
-}): Run {
+}): JoinResult {
     const { run, reference, now } = input;
-    const already = run.sourceReferences.some((entry) => entry.deliveryId === reference.deliveryId);
-    const joined = already ? run.sourceReferences : [...run.sourceReferences, reference];
-    const overCap = joined.length > MAX_SOURCE_REFERENCES;
+    if (run.sourceReferences.some((entry) => entry.deliveryId === reference.deliveryId)) {
+        return { run: { ...run, updatedAt: now }, retained: true };
+    }
+
+    const counted = run.referenceCount + 1;
+    if (run.sourceReferences.length >= MAX_SOURCE_REFERENCES) {
+        return {
+            run: {
+                ...run,
+                referenceCount: counted,
+                referencesNotRetained: run.referencesNotRetained + 1,
+                referencesTruncated: true,
+                updatedAt: now,
+            },
+            retained: false,
+        };
+    }
 
     return {
-        ...run,
-        sourceReferences: overCap ? joined.slice(0, MAX_SOURCE_REFERENCES) : joined,
-        referenceCount: already ? run.referenceCount : run.referenceCount + 1,
-        referencesTruncated: run.referencesTruncated || overCap,
-        updatedAt: now,
+        run: {
+            ...run,
+            sourceReferences: [...run.sourceReferences, reference],
+            referenceCount: counted,
+            updatedAt: now,
+        },
+        retained: true,
     };
 }
 
@@ -202,6 +236,7 @@ function runForDelivery(input: {
         requeuesUsed: 0,
         sourceReferences: [reference],
         referenceCount: 1,
+        referencesNotRetained: 0,
         referencesTruncated: false,
         lease: null,
         reservation: null,
@@ -235,6 +270,15 @@ export interface EnqueueJoin {
     readonly run: Run;
     /** The reference recorded for it. */
     readonly reference: SourceReference;
+    /**
+     * Whether the reference is on the run's list (T-038).
+     *
+     * `false` means the cap was full: the delivery joined the run and still
+     * earns this row, but its detail is counted in `referencesNotRetained`
+     * rather than stored — the operator reads the marker instead of a
+     * silently missing reference.
+     */
+    readonly retained: boolean;
 }
 
 /** What one enqueue pass changed, in the order the caller must persist it. */
@@ -282,10 +326,10 @@ export function applyEnqueue(input: {
         const open = index < 0 ? undefined : runs[index];
         if (open !== undefined) {
             const authorizedReference = { ...reference, presentAtAuthorization: open.reservation === null };
-            const joined = joinReference({ run: open, reference: authorizedReference, now: input.now });
-            runs[index] = joined;
-            joins.push({ run: joined, reference: authorizedReference });
-            links.set(delivery.id, joined.correlationId);
+            const folded = joinReference({ run: open, reference: authorizedReference, now: input.now });
+            runs[index] = folded.run;
+            joins.push({ run: folded.run, reference: authorizedReference, retained: folded.retained });
+            links.set(delivery.id, folded.run.correlationId);
             continue;
         }
 

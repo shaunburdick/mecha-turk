@@ -9,11 +9,11 @@
  * against the contract's fixed shape, including its truthful wave-1 contents.
  */
 
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_CONFIG, validateConfig } from '../service/config.ts';
+import { DEFAULT_CONFIG, parseStoredConfig, validateConfig } from '../service/config.ts';
 import { SERVICE_SCHEMA_VERSION } from '../service/store/index.ts';
 import type { ServiceConfig } from '../service/config.ts';
 import type { ServiceStatusBody } from '../service/routes/status.ts';
@@ -25,6 +25,10 @@ const CONFIG_PATH = '/v1/config';
 
 /** Field name referenced by several validation cases; one literal, one home. */
 const INTERVAL_FIELD = 'intervalMs';
+
+/** Name prefix a quarantined configuration file is renamed to. */
+const CONFIG_FILE = 'config.json';
+const CONFIG_QUARANTINE_PREFIX = `${CONFIG_FILE}.corrupt-`;
 
 /** Path of the status resource. */
 const STATUS_PATH = '/v1/status';
@@ -63,8 +67,26 @@ const OUT_OF_BOUNDS: readonly { readonly field: string; readonly value: number |
     { field: 'auditRetentionDays', value: 6 },
     { field: 'auditMaxEntries', value: 999 },
     { field: 'excerptRetentionDays', value: 366 },
+    { field: 'leaseMs', value: 29_999 },
+    { field: 'leaseMs', value: 600_001 },
+    { field: 'resultDeadlineMs', value: 29_999 },
+    { field: 'resultDeadlineMs', value: 600_001 },
     { field: 'logLevel', value: 'verbose' },
 ];
+
+/** A configuration document written before the dispatch-run feature existed. */
+const PRE_RUN_LAYER_CONFIG = {
+    intervalMs: 30_000,
+    overlapMs: 900_000,
+    perPage: 25,
+    retryMaxAttempts: 4,
+    retryBaseMs: 4_000,
+    retryMaxMs: 45_000,
+    auditRetentionDays: 90,
+    auditMaxEntries: 20_000,
+    excerptRetentionDays: 14,
+    logLevel: 'debug',
+} as const;
 
 /** Service registered for cleanup after the current test. */
 let running: TestService | null = null;
@@ -190,6 +212,33 @@ describe('ServiceConfig validation', () => {
             }
         }
     });
+
+    it('defaults the lease and result-deadline knobs to the documented bounds (T-008)', () => {
+        expect(DEFAULT_CONFIG.leaseMs).toBe(120_000);
+        expect(DEFAULT_CONFIG.resultDeadlineMs).toBe(120_000);
+        expect(validateConfig(DEFAULT_CONFIG)).toEqual({ ok: true, config: DEFAULT_CONFIG });
+    });
+
+    it('never offers a requeue-budget field (003 v1.3.0 / 006 Deferred)', () => {
+        const result = validateConfig({ ...DEFAULT_CONFIG, requeueBudget: 3 });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.issues.map((issue) => issue.field)).toContain('requeueBudget');
+        }
+    });
+
+    it('reads a configuration document written before the lease fields existed (T-008)', () => {
+        const result = parseStoredConfig(PRE_RUN_LAYER_CONFIG);
+
+        expect(result).toEqual({ ...PRE_RUN_LAYER_CONFIG, leaseMs: 120_000, resultDeadlineMs: 120_000 });
+    });
+
+    it('still quarantines a stored document whose own values are unusable (T-008)', () => {
+        expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, leaseMs: 1 })).toBeNull();
+        expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, requeueBudget: 3 })).toBeNull();
+        expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, logLevel: 'verbose' })).toBeNull();
+    });
 });
 
 describe('GET and PUT /v1/config', () => {
@@ -208,7 +257,7 @@ describe('GET and PUT /v1/config', () => {
         const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000, logLevel: 'debug' as const };
 
         const put = await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(replacement) });
-        const stored = JSON.parse(await readFile(join(service.dataDir, 'config.json'), 'utf8')) as ServiceConfig;
+        const stored = JSON.parse(await readFile(join(service.dataDir, CONFIG_FILE), 'utf8')) as ServiceConfig;
         const get = await service.call(CONFIG_PATH);
         const body: { config: ServiceConfig } = await get.json();
 
@@ -231,7 +280,7 @@ describe('GET and PUT /v1/config', () => {
         const missing = Object.keys(DEFAULT_CONFIG).filter((field) => field !== INTERVAL_FIELD);
         expect(failure.error.issues.map((issue) => issue.field)).toEqual(expect.arrayContaining(missing));
         expect(failure.error.message).toContain('retryBaseMs');
-        const stored = await readFile(join(service.dataDir, 'config.json'), 'utf8').catch(() => null);
+        const stored = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8').catch(() => null);
         expect(stored).toBeNull();
     });
 
@@ -254,6 +303,31 @@ describe('GET and PUT /v1/config', () => {
         const response = await service.call(CONFIG_PATH, { method: 'PUT', body: '{"intervalMs":' });
 
         expect(response.status).toBe(400);
+    });
+
+    it('reads a pre-existing configuration document without quarantining it (T-008)', async () => {
+        const service = await startServiceForTest();
+        await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_RUN_LAYER_CONFIG), 'utf8');
+
+        const response = await service.call(CONFIG_PATH);
+        const body: { config: ServiceConfig } = await response.json();
+        const entries = await readdir(service.dataDir);
+
+        expect(response.status).toBe(200);
+        expect(body.config).toEqual({ ...PRE_RUN_LAYER_CONFIG, leaseMs: 120_000, resultDeadlineMs: 120_000 });
+        expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toEqual([]);
+    });
+
+    it('round-trips a retuned lease and result deadline (T-008)', async () => {
+        const service = await startServiceForTest();
+        const replacement = { ...DEFAULT_CONFIG, leaseMs: 45_000, resultDeadlineMs: 300_000 };
+
+        const put = await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(replacement) });
+        const get = await service.call(CONFIG_PATH);
+        const body: { config: ServiceConfig } = await get.json();
+
+        expect(put.status).toBe(200);
+        expect(body.config).toEqual(replacement);
     });
 
     it('answers 503 for both routes when the data directory is unusable', async () => {

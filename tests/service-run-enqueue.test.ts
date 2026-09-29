@@ -6,9 +6,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
 import { createLogger } from '../service/log.ts';
+import { claimPendingRuns } from '../service/poll/claim.ts';
 import {
     EVENTS_FILE,
-    claimPendingEvents,
     createEvent,
     enqueueEvents,
     readEvents,
@@ -35,8 +35,11 @@ const HOLDER = 'panel-mount-1';
 const LEASE_ID = 'lease-test-1';
 const SESSION_ID = 'ses_once';
 const RUN_SUBJECT_KEY = 'github|77331|acme/widget|issue|900';
+const ISSUE_URL_PREFIX = 'https://github.com/acme/widget/issues/';
+const SUBJECT_ISSUE = 22;
 const DELIVERY_DETECTED = 'delivery.detected';
 const RUN_CREATED_EVENT = 'run.created';
+const RUN_COALESCED_EVENT = 'run.coalesced';
 const CLAIM_EXPIRY = '2026-09-28T12:05:00.000Z';
 const LOG_LINES: string[] = [];
 const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
@@ -68,7 +71,7 @@ function assignment(issueNumber: number): EventSnapshot {
         issue: {
             issueNumber,
             issueTitle: `Issue ${issueNumber}`,
-            issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
+            issueUrl: `${ISSUE_URL_PREFIX}${issueNumber}`,
             issueBodyExcerpt: 'body excerpt',
         },
         triggerNote: 'assigned',
@@ -133,7 +136,7 @@ describe('T-006 run-aware enqueue', () => {
         expect(added.every((event) => event.runCorrelationId === document.runs[0]?.correlationId)).toBe(true);
         expect(audits.map((entry) => entry.eventType)).toEqual([
             RUN_CREATED_EVENT,
-            'run.coalesced',
+            RUN_COALESCED_EVENT,
             DELIVERY_DETECTED,
             DELIVERY_DETECTED,
         ]);
@@ -228,36 +231,92 @@ describe('T-006 run-aware enqueue', () => {
         expect(document.runs[0]?.sourceReferences).toHaveLength(1);
         expect(audits.map((entry) => entry.eventType)).toEqual([
             RUN_CREATED_EVENT,
-            'run.coalesced',
+            RUN_COALESCED_EVENT,
             DELIVERY_DETECTED,
         ]);
     });
 
     it('serializes concurrent trigger deliveries on the shared queue/run chain', async () => {
         const scans = Array.from({ length: 10 }, (_unused, index) => enqueue([commentMention(20, index + 1)]));
-        const concurrentClaim = claimPendingEvents({ store, log: LOGGER, claimedAt: STAMP });
+        const concurrentClaim = claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
         const [results, claimed] = await Promise.all([Promise.all(scans), concurrentClaim]);
         const document = await readRunsDocument({ store, log: LOGGER });
 
-        expect(claimed).toEqual([]);
-        expect(results.reduce((total, rows) => total + rows.length, 0)).toBe(10);
+        expect(claimed).toHaveLength(1);
+        expect(claimed[0]?.correlationId).toBe(document.runs[0]?.correlationId);
+        expect(claimed[0]?.sourceReferences).toHaveLength(10);
+        expect(results.reduce((total: number, rows: readonly unknown[]) => total + rows.length, 0)).toBe(10);
         expect(document.runs).toHaveLength(1);
         expect(document.runs[0]?.referenceCount).toBe(10);
         expect(document.runs[0]?.sourceReferences).toHaveLength(10);
+        // The claim leases the run it was offered, so it is no longer claimable.
+        const again = await claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
+        expect(again).toEqual([]);
     });
 
-    it('caps references while retaining total count and truncation state', async () => {
-        const manyComments = Array.from(
-            { length: MAX_SOURCE_REFERENCES + 5 },
-            (_unused, index) => commentMention(22, index + 1),
-        );
-        await enqueue(manyComments);
+    it('retains every reference up to the cap, then counts the overflow visibly (T-038)', async () => {
+        // One assignment opens the run; 199 comment mentions fill it exactly.
+        await enqueue([assignment(SUBJECT_ISSUE), ...Array.from(
+            { length: MAX_SOURCE_REFERENCES - 1 },
+            (_unused, index) => commentMention(SUBJECT_ISSUE, index + 1),
+        )]);
+        const filled = await readRunsDocument({ store, log: LOGGER });
+        const full = filled.runs[0];
+        const lastRetained = full?.sourceReferences.at(-1);
+
+        expect(full?.sourceReferences).toHaveLength(MAX_SOURCE_REFERENCES);
+        expect(full?.referenceCount).toBe(MAX_SOURCE_REFERENCES);
+        expect(full?.referencesNotRetained).toBe(0);
+        expect(full?.referencesTruncated).toBe(false);
+        // FR-013 detail is complete on the reference the cap last accepted.
+        expect(lastRetained).toEqual({
+            deliveryId: `evt-acme~widget~22~77331~mention~${MAX_SOURCE_REFERENCES - 1}`,
+            kind: 'mention',
+            origin: `comment:${MAX_SOURCE_REFERENCES - 1}`,
+            sourceUrl: `${ISSUE_URL_PREFIX}${SUBJECT_ISSUE}`,
+            detectedAt: STAMP,
+            presentAtAuthorization: true,
+        });
+
+        // The 201st joining trigger still joins, and says it was not retained.
+        const overflow = await enqueue([commentMention(22, MAX_SOURCE_REFERENCES + 1)]);
+        const document = await readRunsDocument({ store, log: LOGGER });
+        const capped = document.runs[0];
+        const audits = await readAuditEntries(store);
+        const coalesced = audits.filter((entry) => entry.eventType === 'run.coalesced').at(-1);
+
+        expect(overflow).toHaveLength(1);
+        expect(overflow[0]?.runCorrelationId).toBe(capped?.correlationId);
+        expect(capped?.sourceReferences).toHaveLength(MAX_SOURCE_REFERENCES);
+        expect(capped?.referenceCount).toBe(MAX_SOURCE_REFERENCES + 1);
+        expect(capped?.referencesNotRetained).toBe(1);
+        expect(capped?.referencesTruncated).toBe(true);
+        expect(capped?.sourceReferences.map((reference) => reference.deliveryId))
+            .not.toContain(`evt-acme~widget~22~77331~mention~${MAX_SOURCE_REFERENCES + 1}`);
+        // FR-016: the overflow delivery is still audited, naming the marker.
+        expect(coalesced?.details).toMatchObject({
+            deliveryId: `evt-acme~widget~22~77331~mention~${MAX_SOURCE_REFERENCES + 1}`,
+            retained: false,
+            referencesNotRetained: 1,
+        });
+        expect(audits.filter((entry) => entry.eventType === DELIVERY_DETECTED)).toHaveLength(MAX_SOURCE_REFERENCES + 1);
+    });
+
+    it('refuses to read a run whose stored count cannot be reconciled (T-038)', async () => {
+        await enqueue([assignment(23), commentMention(23, 9)]);
         const document = await readRunsDocument({ store, log: LOGGER });
         const run = document.runs[0];
+        if (run === undefined) {
+            throw new Error('run fixture missing');
+        }
 
-        expect(run?.sourceReferences).toHaveLength(MAX_SOURCE_REFERENCES);
-        expect(run?.referenceCount).toBe(MAX_SOURCE_REFERENCES + 5);
-        expect(run?.referencesTruncated).toBe(true);
+        // A hand-edited or truncated file claiming more loss than the retained
+        // list can account for is quarantined rather than read (constitution II);
+        // the refusal is seen by the next process to open the store.
+        await store.writeJson(RUNS_FILE, { ...document, runs: [{ ...run, referencesNotRetained: 5 }] });
+        const restarted = await openStore({ dataDir });
+
+        await expect(readRunsDocument({ store: restarted, log: LOGGER })).rejects.toThrow('run document is unreadable');
     });
 });
 
