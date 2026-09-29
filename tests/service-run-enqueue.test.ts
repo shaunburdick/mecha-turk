@@ -4,9 +4,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readAuditEntries } from '../service/audit.ts';
+import { AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
 import { createLogger } from '../service/log.ts';
 import {
+    EVENTS_FILE,
     claimPendingEvents,
     createEvent,
     enqueueEvents,
@@ -14,7 +15,9 @@ import {
 } from '../service/poll/events.ts';
 import { applyEnqueue } from '../service/poll/runs-join.ts';
 import {
+    MAX_TERMINAL_RUNS,
     MAX_SOURCE_REFERENCES,
+    RUNS_FILE,
     claimRun,
     emptyRunsDocument,
     readRunsDocument,
@@ -23,9 +26,9 @@ import {
     writeRunsDocument,
 } from '../service/poll/runs.ts';
 import { openStore } from '../service/store/index.ts';
-import type { ServiceStore } from '../service/store/index.ts';
+import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
-import type { Run } from '../service/poll/runs-types.ts';
+import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
 
 const STAMP = '2026-09-28T12:00:00.000Z';
 const HOLDER = 'panel-mount-1';
@@ -33,6 +36,8 @@ const LEASE_ID = 'lease-test-1';
 const SESSION_ID = 'ses_once';
 const RUN_SUBJECT_KEY = 'github|77331|acme/widget|issue|900';
 const DELIVERY_DETECTED = 'delivery.detected';
+const RUN_CREATED_EVENT = 'run.created';
+const CLAIM_EXPIRY = '2026-09-28T12:05:00.000Z';
 const LOG_LINES: string[] = [];
 const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
 
@@ -127,7 +132,7 @@ describe('T-006 run-aware enqueue', () => {
         expect(added).toHaveLength(2);
         expect(added.every((event) => event.runCorrelationId === document.runs[0]?.correlationId)).toBe(true);
         expect(audits.map((entry) => entry.eventType)).toEqual([
-            'run.created',
+            RUN_CREATED_EVENT,
             'run.coalesced',
             DELIVERY_DETECTED,
             DELIVERY_DETECTED,
@@ -165,7 +170,7 @@ describe('T-006 run-aware enqueue', () => {
             holder: HOLDER,
             leaseId: LEASE_ID,
             issuedAt: STAMP,
-            expiresAt: '2026-09-28T12:05:00.000Z',
+            expiresAt: CLAIM_EXPIRY,
             now: STAMP,
         });
         expect(claim.status).toBe('applied');
@@ -221,7 +226,11 @@ describe('T-006 run-aware enqueue', () => {
         expect(recovered).toHaveLength(1);
         expect(document.runs).toHaveLength(1);
         expect(document.runs[0]?.sourceReferences).toHaveLength(1);
-        expect(audits.map((entry) => entry.eventType)).toEqual(['run.coalesced', DELIVERY_DETECTED]);
+        expect(audits.map((entry) => entry.eventType)).toEqual([
+            RUN_CREATED_EVENT,
+            'run.coalesced',
+            DELIVERY_DETECTED,
+        ]);
     });
 
     it('serializes concurrent trigger deliveries on the shared queue/run chain', async () => {
@@ -271,7 +280,7 @@ describe('T-003 run transition invariants', () => {
             holder: HOLDER,
             leaseId: LEASE_ID,
             issuedAt: STAMP,
-            expiresAt: '2026-09-28T12:05:00.000Z',
+            expiresAt: CLAIM_EXPIRY,
             now: STAMP,
         };
 
@@ -340,5 +349,178 @@ describe('T-003 run transition invariants', () => {
         expect(retained.runs).toHaveLength(500);
         expect(retained.subjects['github|77331|acme/widget|issue|24']).toBe(501);
         expect(next.created[0]?.ordinal).toBe(501);
+    });
+});
+
+describe('T-037 durable run creation audit intent', () => {
+    it('recovers a creation audit missed after the run and delivery writes', async () => {
+        let failAuditAppend = true;
+        const interruptedStore: ServiceStore = {
+            ...store,
+            appendLine: async (path, value) => {
+                if (path === AUDIT_FILE && failAuditAppend) {
+                    failAuditAppend = false;
+                    throw new Error('simulated process interruption before audit append');
+                }
+
+                await store.appendLine(path, value);
+            },
+        };
+
+        await enqueueEvents({
+            store: interruptedStore,
+            log: LOGGER,
+            incoming: [createEvent(assignment(44))],
+        });
+        const auditBeforeRestart = await readAuditEntries(store);
+        expect(auditBeforeRestart.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(0);
+
+        const restartedStore = await openStore({ dataDir });
+        const recovered = await readRunsDocument({ store: restartedStore, log: LOGGER });
+        const audits = await readAuditEntries(restartedStore);
+
+        expect(recovered.auditIntents).toEqual([]);
+        expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
+        expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)[0]?.correlationId)
+            .toBe(recovered.runs[0]?.correlationId);
+    });
+
+    it('does not duplicate a creation audit when interrupted before retiring its intent', async () => {
+        let runWrites = 0;
+        const interruptedStore: ServiceStore = {
+            ...store,
+            writeJson: async (path, value) => {
+                if (path === RUNS_FILE) {
+                    runWrites += 1;
+                    if (runWrites === 3) {
+                        throw new Error('simulated interruption after audit append');
+                    }
+                }
+
+                await store.writeJson(path, value);
+            },
+        };
+
+        await enqueueEvents({
+            store: interruptedStore,
+            log: LOGGER,
+            incoming: [createEvent(assignment(45))],
+        });
+        const auditAfterEnqueue = await readAuditEntries(store);
+        expect(auditAfterEnqueue.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
+
+        const restartedStore = await openStore({ dataDir });
+        const recovered = await readRunsDocument({ store: restartedStore, log: LOGGER });
+        const audits = await readAuditEntries(restartedStore);
+
+        expect(recovered.auditIntents).toEqual([]);
+        expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
+    });
+
+    it('refuses a pending run if attempt history already records a session', async () => {
+        const run = runFixture();
+        const dispatchedRun: Run = {
+            ...run,
+            attempts: [{
+                attempt: 1,
+                dispatchToken: 'dtk-0123456789abcdef0123456789abcdef',
+                reservedAt: STAMP,
+                outcome: 'dispatched',
+                sessionId: 'ses_already_created',
+                reason: null,
+                resultReportedAt: STAMP,
+            }],
+        };
+        const forgedDocument: RunsDocument = {
+            ...emptyRunsDocument(),
+            subjects: { [RUN_SUBJECT_KEY]: 1 },
+            runs: [dispatchedRun],
+        };
+        let writes = 0;
+        const corruptReadStore: ServiceStore = {
+            ...store,
+            readJson: async <T>(
+                path: string,
+                validate: (raw: unknown) => T | null,
+            ): Promise<JsonReadResult<T>> => path === RUNS_FILE
+                ? { status: 'ok', value: forgedDocument as T }
+                : await store.readJson(path, validate),
+            writeJson: async (path, value) => {
+                writes += 1;
+                await store.writeJson(path, value);
+            },
+        };
+
+        const result = await claimRun({
+            store: corruptReadStore,
+            log: LOGGER,
+            correlationId: run.correlationId,
+            holder: HOLDER,
+            leaseId: LEASE_ID,
+            issuedAt: STAMP,
+            expiresAt: CLAIM_EXPIRY,
+            now: STAMP,
+        });
+
+        expect(result).toEqual({ status: 'refused', state: 'pending' });
+        expect(writes).toBe(0);
+    });
+});
+
+describe('T-037 bounded run-linked delivery retention', () => {
+    it('evicts linked state-free rows with old terminal runs and keeps legacy rows/dedupe', async () => {
+        const incoming = Array.from({ length: MAX_TERMINAL_RUNS + 1 }, (_unused, index) =>
+            createEvent(assignment(20_000 + index)));
+        const planned = applyEnqueue({ document: emptyRunsDocument(), deliveries: incoming, now: STAMP });
+        const document: RunsDocument = { ...planned.document, auditIntents: [] };
+        const linked = incoming.map((event) => {
+            const runCorrelationId = planned.links.get(event.id);
+            if (runCorrelationId === undefined) {
+                throw new Error('delivery was not linked to a run');
+            }
+
+            return { ...event, runCorrelationId };
+        });
+        const legacy = {
+            ...createEvent(assignment(19_999)),
+            state: 'dispatched' as const,
+            claimedAt: STAMP,
+            dispatchedAt: STAMP,
+            dispatchResult: 'ses_legacy',
+        };
+
+        await writeRunsDocument({ store, log: LOGGER, document });
+        await store.writeJson(EVENTS_FILE, [legacy, ...linked]);
+        await writeRunsDocument({
+            store,
+            log: LOGGER,
+            document: {
+                ...document,
+                runs: document.runs.map((run) => ({
+                    ...run,
+                    state: 'dispatched',
+                    stateReason: 'session created',
+                })),
+            },
+        });
+
+        const retainedRuns = await readRunsDocument({ store, log: LOGGER });
+        const retainedEvents = await readEvents({ store, log: LOGGER });
+        const retainedIds = new Set(retainedEvents.map((event) => event.id));
+        const newest = incoming.at(-1);
+        if (newest === undefined) {
+            throw new Error('bounded-retention fixture has no newest delivery');
+        }
+
+        expect(retainedRuns.runs).toHaveLength(MAX_TERMINAL_RUNS);
+        expect(retainedEvents).toHaveLength(MAX_TERMINAL_RUNS + 1);
+        expect(retainedIds.has(legacy.id)).toBe(true);
+        expect(retainedIds.has(incoming[0]?.id ?? '')).toBe(false);
+        expect(retainedIds.has(newest.id)).toBe(true);
+        expect(retainedEvents.find((event) => event.id === legacy.id)?.dispatchResult).toBe('ses_legacy');
+
+        const duplicate = await enqueueEvents({ store, log: LOGGER, incoming: [newest] });
+        expect(duplicate).toEqual([]);
+        expect(await readEvents({ store, log: LOGGER })).toHaveLength(MAX_TERMINAL_RUNS + 1);
     });
 });

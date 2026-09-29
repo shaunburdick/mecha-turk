@@ -32,6 +32,7 @@ import {
     isTerminalRun,
     openedHistory,
     readRunsDocument,
+    runHistoryIndicatesSession,
     writeRunsDocument,
 } from './runs-document.ts';
 import { buildDispatchToken } from './run-key.ts';
@@ -54,6 +55,7 @@ export {
     isTerminalRun,
     openedHistory,
     readRunsDocument,
+    runHistoryIndicatesSession,
     writeRunsDocument,
 } from './runs-document.ts';
 export { applyEnqueue } from './runs-join.ts';
@@ -132,7 +134,7 @@ async function changeRun(
  */
 export async function claimRun(input: ClaimInput): Promise<RunChange> {
     return await changeRun(input, (run, now) => {
-        if (run.state !== 'pending' || run.session !== null) {
+        if (run.state !== 'pending' || runHistoryIndicatesSession(run)) {
             return null;
         }
 

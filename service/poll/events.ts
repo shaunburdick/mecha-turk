@@ -68,9 +68,14 @@ export type {
  * @param events - The queue to store.
  * @returns The array to write.
  */
-function serializedQueue(events: readonly QueuedEvent[]): QueuedEvent[] {
-    const live = events.filter((event) => event.state !== 'dispatched');
-    const dispatched = events.filter((event) => event.state === 'dispatched').slice(-MAX_DISPATCHED_EVENTS);
+function serializedQueue(events: readonly QueuedEvent[], retainedRunIds?: ReadonlySet<string>): QueuedEvent[] {
+    const retained = retainedRunIds === undefined
+        ? events
+        : events.filter((event) => event.state !== undefined
+            || event.runCorrelationId === undefined
+            || retainedRunIds.has(event.runCorrelationId));
+    const live = retained.filter((event) => event.state !== 'dispatched');
+    const dispatched = retained.filter((event) => event.state === 'dispatched').slice(-MAX_DISPATCHED_EVENTS);
 
     return [...live, ...dispatched];
 }
@@ -327,8 +332,15 @@ async function enqueueWithinChain(input: {
         const runCorrelationId = outcome.links.get(event.id);
         return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
     });
-    await writeRunsDocument({ ...input, document: outcome.document });
-    await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended]));
+    const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
+    await input.store.writeJson(
+        EVENTS_FILE,
+        serializedQueue([...existing, ...appended], new Set(persistedRuns.runs.map((run) => run.correlationId))),
+    );
+    // Creation audits are backed by intents in runs.json; draining after both
+    // durable state writes closes the crash window without changing audit row
+    // vocabulary or rolling back either state file.
+    await readRunsDocument(input);
     await recordEnqueueAudits({ ...input, outcome, appended });
 
     return appended;

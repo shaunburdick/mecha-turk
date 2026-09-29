@@ -19,7 +19,7 @@ import { isTerminalRun } from './runs-document.ts';
 import { buildAttachmentId, buildCorrelationId, buildRunKey, buildSubjectKey } from './run-key.ts';
 import { MAX_SOURCE_REFERENCES, RUNS_SCHEMA_VERSION } from './runs-parse.ts';
 import type { QueuedEvent, SubjectType } from './events-parse.ts';
-import type { ReferenceOrigin, Run, RunsDocument, SourceReference } from './runs-types.ts';
+import type { ReferenceOrigin, Run, RunAuditIntent, RunsDocument, SourceReference } from './runs-types.ts';
 
 /** The subject coordinates one delivery resolves to, when it resolves at all. */
 interface SubjectShape {
@@ -297,5 +297,14 @@ export function applyEnqueue(input: {
         links.set(delivery.id, run.correlationId);
     }
 
-    return { document: { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs }, links, created, joins };
+    const auditIntents: RunAuditIntent[] = [
+        ...(input.document.auditIntents ?? []),
+        ...created.map((run): RunAuditIntent => ({
+            eventType: 'run.created',
+            correlationId: run.correlationId,
+            deliveryIds: run.sourceReferences.map((reference) => reference.deliveryId),
+        })),
+    ];
+
+    return { document: { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs, auditIntents }, links, created, joins };
 }

@@ -30,7 +30,8 @@ import {
 import { buildCorrelationId, buildRunKey } from '../service/poll/run-key.ts';
 import { openStore } from '../service/store/index.ts';
 import type { JsonReadResult } from '../service/store/index.ts';
-import type { Run, RunsDocument, SourceReference } from '../service/poll/runs-types.ts';
+import type { DispatchAttempt, Run, RunsDocument, SourceReference } from '../service/poll/runs-types.ts';
+import { runHistoryIndicatesSession } from '../service/poll/runs-document.ts';
 
 /** Store file this suite round-trips through, named as the run store names it. */
 const RUNS_FILE = 'runs.json';
@@ -80,7 +81,7 @@ function fixtureReference(): SourceReference {
  *
  * @returns A record the writer could have appended.
  */
-function attemptRecord(): Record<string, unknown> {
+function attemptRecord(): DispatchAttempt {
     return {
         attempt: 1,
         dispatchToken: null,
@@ -157,6 +158,7 @@ function fixtureDocument(runs: readonly unknown[]): RunsDocument {
         schemaVersion: RUNS_SCHEMA_VERSION,
         subjects: SUBJECT_COUNTER,
         runs: runs as readonly Run[],
+        auditIntents: [],
     };
 }
 
@@ -412,6 +414,45 @@ describe('fail-closed document and row validation', () => {
     it('accepts every nullable sub-object written as null, and as absent', () => {
         expect(parseRun(fixtureRun())).not.toBeNull();
         expect(parseRun(without('lease', 'reservation', 'session', 'verification'))).not.toBeNull();
+    });
+
+    it('refuses contradictory attempt history that records a session on a non-dispatched run', () => {
+        const createdSessionAttempt = {
+            ...attemptRecord(),
+            dispatchToken: 'dtk-0123456789abcdef0123456789abcdef',
+            reservedAt: STAMP,
+            outcome: 'dispatched' as const,
+            sessionId: 'ses_created',
+            resultReportedAt: STAMP,
+        };
+        const pending = fixtureRun({ attempts: [createdSessionAttempt] });
+
+        expect(parseRun(pending)).toBeNull();
+        expect(runHistoryIndicatesSession(pending)).toBe(true);
+    });
+
+    it('refuses an attempt session id that conflicts with the run session pointer', () => {
+        const session = {
+            sessionId: 'ses_pointer',
+            attachmentId: fixtureRun().correlationId,
+            dispatchedAt: STAMP,
+            title: 'Issue session',
+            sourceUrl: 'https://github.com/acme/widget/issues/12',
+            worktree: null,
+        };
+        const run = fixtureRun({
+            state: 'dispatched',
+            stateReason: 'session created',
+            session,
+            attempts: [{
+                ...attemptRecord(),
+                outcome: 'dispatched',
+                sessionId: 'ses_other',
+                resultReportedAt: STAMP,
+            }],
+        });
+
+        expect(parseRun(run)).toBeNull();
     });
 
     it('accepts a blocked state whose reason the panel has never produced', () => {

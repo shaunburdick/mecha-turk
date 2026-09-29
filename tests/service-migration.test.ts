@@ -4,10 +4,17 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readAuditEntries } from '../service/audit.ts';
+import { AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
 import { createLogger } from '../service/log.ts';
-import { createEvent, EVENTS_FILE } from '../service/poll/events.ts';
-import { RUNS_FILE, ensureRunsAdopted, readRunsDocument } from '../service/poll/runs.ts';
+import { createEvent, enqueueEvents, EVENTS_FILE } from '../service/poll/events.ts';
+import {
+    RUNS_FILE,
+    applyResult,
+    claimRun,
+    ensureRunsAdopted,
+    readRunsDocument,
+    reserveRun,
+} from '../service/poll/runs.ts';
 import { openStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { ServiceStore } from '../service/store/index.ts';
@@ -16,6 +23,7 @@ const STAMP = '2026-09-28T12:00:00.000Z';
 const NOW = '2026-09-28T12:30:00.000Z';
 const BINDING_ID = 'bnd-migrate';
 const SCAN_STATE_FILE = 'scan-state.json';
+const MIGRATED_EVENT = 'run.migrated';
 const LOG_LINES: string[] = [];
 const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
 
@@ -115,8 +123,8 @@ describe('runs.json first-read adoption', () => {
         expect(document.runs.map((run) => run.sourceReferences[0]?.deliveryId)).toEqual(
             rows.map((row) => row.id),
         );
-        expect(audit.filter((entry) => entry.eventType === 'run.migrated')).toHaveLength(6);
-        expect(audit.filter((entry) => entry.eventType === 'run.migrated').map((entry) => entry.correlationId))
+        expect(audit.filter((entry) => entry.eventType === MIGRATED_EVENT)).toHaveLength(6);
+        expect(audit.filter((entry) => entry.eventType === MIGRATED_EVENT).map((entry) => entry.correlationId))
             .toEqual(document.runs.map((run) => run.correlationId));
         expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(legacyBytes);
         expect(await readFile(join(dataDir, SCAN_STATE_FILE), 'utf8')).toBe(beforeWindow);
@@ -135,5 +143,90 @@ describe('runs.json first-read adoption', () => {
         expect(auditAfter).toEqual(auditBefore);
         const document = await secondStore.readJson(RUNS_FILE, (value) => value);
         expect(document.status).toBe('ok');
+    });
+
+    it('recovers a migration audit missed after the adopted run document was written', async () => {
+        await seedLegacyQueue();
+        const interruptedStore: ServiceStore = {
+            ...store,
+            appendLine: async (path, value) => {
+                if (path === AUDIT_FILE) {
+                    throw new Error('simulated interruption before migration audit append');
+                }
+
+                await store.appendLine(path, value);
+            },
+        };
+
+        expect(await ensureRunsAdopted({ store: interruptedStore, log: LOGGER, now: NOW })).toBe('adopted');
+        const firstRead = await readRunsDocument({ store: interruptedStore, log: LOGGER });
+        expect(firstRead.auditIntents).toHaveLength(6);
+        const auditBeforeRestart = await readAuditEntries(store);
+        expect(auditBeforeRestart.filter((entry) => entry.eventType === MIGRATED_EVENT)).toHaveLength(0);
+
+        const restartedStore = await openStore({ dataDir });
+        const recovered = await readRunsDocument({ store: restartedStore, log: LOGGER });
+        const auditAfterRestart = await readAuditEntries(restartedStore);
+        const migrations = auditAfterRestart.filter((entry) => entry.eventType === MIGRATED_EVENT);
+
+        expect(recovered.auditIntents).toEqual([]);
+        expect(migrations).toHaveLength(6);
+        expect(migrations.map((entry) => entry.correlationId)).toEqual(
+            recovered.runs.map((run) => run.correlationId),
+        );
+    });
+
+    it('refuses to re-adopt state-free run-linked rows when runs.json was lost', async () => {
+        const event = createEvent(snapshot(77));
+        const [linked] = await enqueueEvents({ store, log: LOGGER, incoming: [event] });
+        const before = await readRunsDocument({ store, log: LOGGER });
+        const run = before.runs[0];
+        if (linked === undefined || run === undefined) {
+            throw new Error('run fixture was not enqueued');
+        }
+
+        const claimInput = {
+            store,
+            log: LOGGER,
+            correlationId: run.correlationId,
+            holder: 'panel-migration-test',
+            leaseId: 'lease-migration-test',
+            issuedAt: NOW,
+            expiresAt: '2026-09-28T12:35:00.000Z',
+            now: NOW,
+        };
+        const claim = await claimRun(claimInput);
+        expect(claim.status).toBe('applied');
+        const reservation = await reserveRun({
+            store,
+            log: LOGGER,
+            correlationId: run.correlationId,
+            leaseId: 'lease-migration-test',
+            resultDeadlineAt: '2026-09-28T12:35:00.000Z',
+            now: NOW,
+        });
+        expect(reservation.status).toBe('applied');
+        const result = await applyResult({
+            store,
+            log: LOGGER,
+            correlationId: run.correlationId,
+            sessionId: 'ses_durable_before_loss',
+            problem: null,
+            now: NOW,
+        });
+        expect(result.status).toBe('applied');
+
+        await store.removeFile(RUNS_FILE);
+        const restartedStore = await openStore({ dataDir });
+
+        const adoption = await ensureRunsAdopted({ store: restartedStore, log: LOGGER });
+        expect(adoption).toBe('unreadable');
+        await expect(readRunsDocument({ store: restartedStore, log: LOGGER }))
+            .rejects.toThrow('refusing to serve run state');
+        await expect(claimRun({ ...claimInput, store: restartedStore })).rejects.toThrow('refusing to serve run state');
+        expect(await restartedStore.readJson(RUNS_FILE, (value) => value)).toEqual({ status: 'absent' });
+        const finalAudits = await readAuditEntries(restartedStore);
+        expect(finalAudits.filter((entry) => entry.eventType === MIGRATED_EVENT)).toHaveLength(0);
+        expect(await restartedStore.readJson(EVENTS_FILE, (value) => value)).toMatchObject({ status: 'ok' });
     });
 });

@@ -29,6 +29,10 @@ No GitHub write of any kind (FR-002, AC-128). No `service/routes/status.ts` proj
 
 **Wave 1 boundary**: `npm run build && npm run lint && npm run typecheck && npm run test` (i.e. `npm run verify`) green; rebuilt `service/main.js` committed with the wave.
 
+### Review remediation before Wave 2
+
+- [x] **T-037** Resolve Wave 1 review blockers before dispatch claims are added: reject contradictory run state/session/attempt histories; fail closed if `runs.json` is absent after post-003 data exists (without breaking first-time legacy adoption); make run creation/migration audit intent recoverable after an interrupted write; and evict terminal run-linked delivery rows with the bounded run tail. Add focused regression tests, rebuild committed bundles, and run `npm run verify`. Do not change the source-reference overflow policy in T-037; that remains a product decision pending.
+
 ---
 
 ## Wave 2 — Claim, lease, sweep (User Story 2, P1) — closing the panel never strands work

@@ -176,6 +176,29 @@ export interface Run {
     readonly updatedAt: string;
 }
 
+/** Durable intent for the two audit rows whose creation can span a crash. */
+export type RunAuditIntent =
+    | {
+        /** A newly created run needs its creation row. */
+        readonly eventType: 'run.created';
+        /** The service-minted run identity. */
+        readonly correlationId: string;
+        /** Deliveries folded into the initial run. */
+        readonly deliveryIds: readonly string[];
+    }
+    | {
+        /** A legacy run needs its one migration row. */
+        readonly eventType: 'run.migrated';
+        /** The service-minted run identity. */
+        readonly correlationId: string;
+        /** Legacy deliveries represented by the adopted run. */
+        readonly deliveryIds: readonly string[];
+        /** Classification branches used during adoption. */
+        readonly stateBranches: readonly string[];
+        /** Adopted state at the moment of migration. */
+        readonly state: RunState;
+    };
+
 /** The `runs.json` document: schema marker, ordinal counters, and runs. */
 export interface RunsDocument {
     /** Document schema version this build understands. */
@@ -184,4 +207,6 @@ export interface RunsDocument {
     readonly subjects: Readonly<Record<string, number>>;
     /** Every retained run, in creation order. */
     readonly runs: readonly Run[];
+    /** Audits committed to storage but not yet durably appended, if any. */
+    readonly auditIntents?: readonly RunAuditIntent[];
 }

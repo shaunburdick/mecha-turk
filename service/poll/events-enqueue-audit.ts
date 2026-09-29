@@ -33,30 +33,6 @@ async function appendEnqueueAudit(
     }
 }
 
-/** Record one run creation for every newly opened subject. */
-async function recordCreatedRuns(input: EnqueueAuditInput): Promise<void> {
-    for (const run of input.outcome.created) {
-        await appendEnqueueAudit(input, {
-            eventType: 'run.created',
-            actorSource: 'service',
-            entity: { kind: 'run', id: run.correlationId },
-            correlationId: run.correlationId,
-            reason: 'run created from a detected delivery',
-            details: {
-                subject: {
-                    provider: 'github',
-                    accountNumericUserId: run.accountNumericUserId,
-                    repository: run.repository,
-                    subjectType: run.subjectType,
-                    subjectNumber: run.subjectNumber,
-                },
-                ordinal: run.ordinal,
-                deliveryIds: run.sourceReferences.map((reference) => reference.deliveryId),
-            },
-        });
-    }
-}
-
 /** Record one coalescence for each additional source delivery. */
 async function recordJoinedDeliveries(input: EnqueueAuditInput): Promise<void> {
     for (const joined of input.outcome.joins) {
@@ -96,9 +72,8 @@ async function recordDetectedDeliveries(input: EnqueueAuditInput): Promise<void>
     }
 }
 
-/** Append creation, coalescing, then detection audit records. */
+/** Append coalescing and detection audit records after durable enqueue writes. */
 export async function recordEnqueueAudits(input: EnqueueAuditInput): Promise<void> {
-    await recordCreatedRuns(input);
     await recordJoinedDeliveries(input);
     await recordDetectedDeliveries(input);
 }

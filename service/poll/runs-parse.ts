@@ -25,6 +25,7 @@
 
 import { isRecord, readCount, readFlag, readPositiveInt, readStamp, readText } from '../json.ts';
 import { buildCorrelationId, buildRunKey, buildSubjectKey } from './run-key.ts';
+import { parseRunAuditIntents } from './runs-audit-parse.ts';
 import {
     parseAttempt,
     parseLease,
@@ -363,21 +364,52 @@ interface ParsedRunParts {
     readonly attempts: readonly DispatchAttempt[];
 }
 
+/** Require attempt and session pointers to tell one consistent story. */
+function sessionHistoryHolds(input: {
+    readonly state: RunState;
+    readonly session: SessionRef | null;
+    readonly attempts: readonly DispatchAttempt[];
+}): boolean {
+    const { state, session, attempts } = input;
+    const sessionAttempts = attempts.filter(
+        (attempt) => attempt.outcome === 'dispatched' || attempt.sessionId !== null,
+    );
+    const knownSessionIds = new Set(sessionAttempts.flatMap((attempt) =>
+        attempt.sessionId === null ? [] : [attempt.sessionId]));
+    const invalidAttemptSession = attempts.some(
+        (attempt) => attempt.sessionId !== null && attempt.outcome !== 'dispatched',
+    );
+    const contradictorySessionHistory = sessionAttempts.length > 0 && state !== 'dispatched';
+    const mismatchedSession = session !== null
+        && (state !== 'dispatched' || !knownSessionIds.has(session.sessionId));
+
+    return !invalidAttemptSession
+        && !contradictorySessionHistory
+        && !mismatchedSession
+        && knownSessionIds.size <= 1;
+}
+
 /** Check the cross-field invariants whose combination must remain coherent. */
 function runRelationsHold(input: {
     readonly scalars: RunScalars;
     readonly objects: RunObjects;
     readonly references: readonly SourceReference[];
+    readonly attempts: readonly DispatchAttempt[];
     readonly attachmentId: unknown;
 }): boolean {
-    const { scalars, objects, references, attachmentId } = input;
+    const { scalars, objects, references, attempts, attachmentId } = input;
     const referenceIds = new Set(references.map((reference) => reference.deliveryId));
-
-    return references.length <= scalars.referenceCount
+    const basicRelationsHold = references.length <= scalars.referenceCount
         && (objects.session === null || objects.session.attachmentId === attachmentId)
         && (objects.lease === null || objects.lease.attempt === scalars.attempt)
         && (objects.reservation === null || objects.reservation.attempt === scalars.attempt)
         && referenceIds.size === references.length;
+
+    return basicRelationsHold && sessionHistoryHolds({
+        state: scalars.state,
+        session: objects.session,
+        attempts,
+    });
 }
 
 /** Parse and cross-check the typed fields of one stored run row. */
@@ -396,7 +428,7 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
         return null;
     }
 
-    if (!runRelationsHold({ scalars, objects, references, attachmentId: raw.attachmentId })) {
+    if (!runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
         return null;
     }
 
@@ -477,6 +509,7 @@ function parseSubjects(raw: unknown): Record<string, number> | null {
     return Object.fromEntries(entries);
 }
 
+/** Parse the durable audit-intent outbox while retaining its narrow vocabulary. */
 /** Parse rows while enforcing unique ids and a single open run per subject. */
 function parseRunRows(raw: readonly unknown[]): readonly Run[] | null {
     const runs: Run[] = [];
@@ -526,9 +559,10 @@ export function parseRunsDocument(raw: unknown): RunsDocument | null {
 
     const subjects = parseSubjects(raw.subjects);
     const runs = parseRunRows(raw.runs);
-    if (subjects === null || runs === null) {
+    const auditIntents = parseRunAuditIntents(raw.auditIntents);
+    if (subjects === null || runs === null || auditIntents === null) {
         return null;
     }
 
-    return { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs };
+    return { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs, auditIntents };
 }

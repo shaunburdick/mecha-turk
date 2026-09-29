@@ -653,7 +653,15 @@ describe('first-scan replay (product decision, 2026-09-28)', () => {
         await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
         await writeAccount(store, fixtureAccount());
         await plantScanState({ bindings: { [BINDING_A]: { lastScanAt: null, lastError: null } } });
-        const pending = createEvent(fixtureSnapshot(2, ''));
+        const { log } = capturingLogger();
+        const [pending] = await enqueueEvents({
+            store,
+            log,
+            incoming: [createEvent(fixtureSnapshot(2, ''))],
+        });
+        if (pending === undefined) {
+            throw new Error('pending fixture was not enqueued');
+        }
         const dispatched: QueuedEvent = {
             ...createEvent(fixtureSnapshot(3, '')),
             state: 'dispatched',
@@ -661,7 +669,6 @@ describe('first-scan replay (product decision, 2026-09-28)', () => {
             dispatchResult: 'ses_fixture',
         };
         await plantQueue([pending, dispatched]);
-        const { log } = capturingLogger();
         const { poller, seenSince } = recordingPoller([
             assignmentIssue(1, PRE_BINDING_AT), // never queued → the replay finds it
             assignmentIssue(2, PRE_BINDING_AT), // pending row → deduped

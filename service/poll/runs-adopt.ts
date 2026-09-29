@@ -9,14 +9,21 @@
  */
 
 import { nowIso } from '../../src/ids.ts';
-import type { AuditInput } from '../audit.ts';
 import type { ServiceStore } from '../store/index.ts';
-import { parseStoredEvent, subjectTypeOf } from './events-parse.ts';
+import { EVENTS_FILE, parseStoredEvent, subjectTypeOf } from './events-parse.ts';
 import type { QueuedEvent } from './events-parse.ts';
 import { buildAttachmentId, buildCorrelationId, buildDispatchToken, buildRunKey, buildSubjectKey } from './run-key.ts';
 import { referenceOf, joinReference } from './runs-join.ts';
 import { RUNS_SCHEMA_VERSION } from './runs-parse.ts';
-import type { DispatchAttempt, Run, RunLease, RunReservation, RunState, RunsDocument } from './runs-types.ts';
+import type {
+    DispatchAttempt,
+    Run,
+    RunAuditIntent,
+    RunLease,
+    RunReservation,
+    RunState,
+    RunsDocument,
+} from './runs-types.ts';
 
 /** Legacy problem strings emitted by the shipped panel's closed vocabulary. */
 const LEGACY_PROBLEMS = new Set([
@@ -38,12 +45,10 @@ export interface AdoptionPlanInput {
     readonly now?: string;
 }
 
-/** One new document plus the audit rows describing its adopted runs. */
+/** One new document containing durable audit intents for its adopted runs. */
 export interface AdoptionPlan {
     /** Complete run document to persist atomically. */
     readonly document: RunsDocument;
-    /** Exactly one migration row per run in the plan. */
-    readonly migrated: readonly AuditInput[];
 }
 
 /** Classification of one pre-run queue row. */
@@ -311,23 +316,6 @@ async function readLegacyRows(store: ServiceStore): Promise<readonly { event: Qu
     });
 }
 
-/** Build one migration audit row from a migrated run and its source branches. */
-function migrationAudit(run: Run, branches: readonly string[]): AuditInput {
-    return {
-        eventType: 'run.migrated',
-        actorSource: 'service',
-        entity: { kind: 'run', id: run.correlationId },
-        correlationId: run.correlationId,
-        decision: 'adopted',
-        reason: `legacy deliveries adopted: ${branches.join(', ')}`,
-        details: {
-            deliveryIds: run.sourceReferences.map((reference) => reference.deliveryId),
-            stateBranches: branches,
-            state: run.state,
-        },
-    };
-}
-
 /** Derive the stable subject counter key for one event. */
 function subjectKeyOf(event: QueuedEvent): string {
     return buildSubjectKey({
@@ -439,8 +427,26 @@ export async function planAdoption(input: AdoptionPlanInput): Promise<AdoptionPl
         }
     }
 
-    return {
-        document: { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs },
-        migrated: runs.map((run) => migrationAudit(run, branches.get(run.correlationId) ?? [])),
-    };
+    const auditIntents: RunAuditIntent[] = runs.map((run) => ({
+        eventType: 'run.migrated',
+        correlationId: run.correlationId,
+        deliveryIds: run.sourceReferences.map((reference) => reference.deliveryId),
+        stateBranches: branches.get(run.correlationId) ?? [],
+        state: run.state,
+    }));
+
+    return { document: { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs, auditIntents } };
+}
+
+/** Detect post-run-layer delivery rows before considering a legacy adoption. */
+export async function hasPostRunDeliveries(store: ServiceStore): Promise<boolean> {
+    const stored = await store.readJson(EVENTS_FILE, (raw) => raw);
+    if (stored.status !== 'ok' || !Array.isArray(stored.value)) {
+        return false;
+    }
+
+    return stored.value.some((raw) => {
+        const row = recordOf(raw);
+        return row !== null && (row.state === undefined || row.runCorrelationId !== undefined);
+    });
 }

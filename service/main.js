@@ -2394,28 +2394,6 @@ async function appendEnqueueAudit(input, row) {
     });
   }
 }
-async function recordCreatedRuns(input) {
-  for (const run of input.outcome.created) {
-    await appendEnqueueAudit(input, {
-      eventType: "run.created",
-      actorSource: "service",
-      entity: { kind: "run", id: run.correlationId },
-      correlationId: run.correlationId,
-      reason: "run created from a detected delivery",
-      details: {
-        subject: {
-          provider: "github",
-          accountNumericUserId: run.accountNumericUserId,
-          repository: run.repository,
-          subjectType: run.subjectType,
-          subjectNumber: run.subjectNumber
-        },
-        ordinal: run.ordinal,
-        deliveryIds: run.sourceReferences.map((reference) => reference.deliveryId)
-      }
-    });
-  }
-}
 async function recordJoinedDeliveries(input) {
   for (const joined of input.outcome.joins) {
     await appendEnqueueAudit(input, {
@@ -2452,7 +2430,6 @@ async function recordDetectedDeliveries(input) {
   }
 }
 async function recordEnqueueAudits(input) {
-  await recordCreatedRuns(input);
   await recordJoinedDeliveries(input);
   await recordDetectedDeliveries(input);
 }
@@ -2507,6 +2484,93 @@ function buildDispatchToken(runKey, attempt) {
     throw new Error("refusing to mint a dispatch token for an attempt that is not a positive integer");
   }
   return `dtk-${digestHex(`${runKey}${KEY_SEPARATOR}${attempt}`, TOKEN_HEX_CHARS)}`;
+}
+
+// service/poll/runs-audit-parse.ts
+var STATES = new Set([
+  "pending",
+  "claimed",
+  "starting",
+  "dispatched",
+  "failed",
+  "unconfirmed",
+  "dead-lettered"
+]);
+function parseTextList(raw) {
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+  const values = [];
+  for (const value of raw) {
+    const text = readText(value);
+    if (text === null) {
+      return null;
+    }
+    values.push(text);
+  }
+  return values;
+}
+function isRunState(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  if (STATES.has(value)) {
+    return true;
+  }
+  const blockedReason = value.startsWith("blocked:") ? value.slice("blocked:".length) : "";
+  return blockedReason !== "" && blockedReason.split("-").every((part) => /^[a-z0-9]+$/.test(part));
+}
+function parseIntentBase(value) {
+  const correlationId = readText(value.correlationId);
+  const deliveryIds = parseTextList(value.deliveryIds);
+  if (correlationId === null || !/^mt-run-[0-9a-f]{24}$/.test(correlationId) || deliveryIds === null || deliveryIds.length === 0) {
+    return null;
+  }
+  return { correlationId, deliveryIds };
+}
+function parseMigrationDetails(value) {
+  const stateBranches = parseTextList(value.stateBranches);
+  if (stateBranches === null || stateBranches.length === 0 || !isRunState(value.state)) {
+    return null;
+  }
+  return { stateBranches, state: value.state };
+}
+function parseIntent(value) {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const base = parseIntentBase(value);
+  if (base === null) {
+    return null;
+  }
+  if (value.eventType === "run.created") {
+    return { eventType: "run.created", ...base };
+  }
+  if (value.eventType !== "run.migrated") {
+    return null;
+  }
+  const migration = parseMigrationDetails(value);
+  if (migration === null) {
+    return null;
+  }
+  return { eventType: "run.migrated", ...base, ...migration };
+}
+function parseRunAuditIntents(raw) {
+  if (raw === undefined) {
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+  const intents = [];
+  for (const value of raw) {
+    const intent = parseIntent(value);
+    if (intent === null) {
+      return null;
+    }
+    intents.push(intent);
+  }
+  return intents;
 }
 
 // service/poll/runs-parts-parse.ts
@@ -2791,10 +2855,24 @@ function parseList(raw, shape) {
   }
   return rows;
 }
+function sessionHistoryHolds(input) {
+  const { state, session, attempts } = input;
+  const sessionAttempts = attempts.filter((attempt) => attempt.outcome === "dispatched" || attempt.sessionId !== null);
+  const knownSessionIds = new Set(sessionAttempts.flatMap((attempt) => attempt.sessionId === null ? [] : [attempt.sessionId]));
+  const invalidAttemptSession = attempts.some((attempt) => attempt.sessionId !== null && attempt.outcome !== "dispatched");
+  const contradictorySessionHistory = sessionAttempts.length > 0 && state !== "dispatched";
+  const mismatchedSession = session !== null && (state !== "dispatched" || !knownSessionIds.has(session.sessionId));
+  return !invalidAttemptSession && !contradictorySessionHistory && !mismatchedSession && knownSessionIds.size <= 1;
+}
 function runRelationsHold(input) {
-  const { scalars, objects, references, attachmentId } = input;
+  const { scalars, objects, references, attempts, attachmentId } = input;
   const referenceIds = new Set(references.map((reference) => reference.deliveryId));
-  return references.length <= scalars.referenceCount && (objects.session === null || objects.session.attachmentId === attachmentId) && (objects.lease === null || objects.lease.attempt === scalars.attempt) && (objects.reservation === null || objects.reservation.attempt === scalars.attempt) && referenceIds.size === references.length;
+  const basicRelationsHold = references.length <= scalars.referenceCount && (objects.session === null || objects.session.attachmentId === attachmentId) && (objects.lease === null || objects.lease.attempt === scalars.attempt) && (objects.reservation === null || objects.reservation.attempt === scalars.attempt) && referenceIds.size === references.length;
+  return basicRelationsHold && sessionHistoryHolds({
+    state: scalars.state,
+    session: objects.session,
+    attempts
+  });
 }
 function parseRunParts(raw) {
   const scalars = parseRunScalars(raw);
@@ -2804,7 +2882,7 @@ function parseRunParts(raw) {
   if (scalars === null || !runIdentityMatches(raw, scalars) || objects === null || references === null || attempts === null) {
     return null;
   }
-  if (!runRelationsHold({ scalars, objects, references, attachmentId: raw.attachmentId })) {
+  if (!runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
     return null;
   }
   return { scalars, objects, references, attempts };
@@ -2893,10 +2971,110 @@ function parseRunsDocument(raw) {
   }
   const subjects = parseSubjects(raw.subjects);
   const runs = parseRunRows(raw.runs);
-  if (subjects === null || runs === null) {
+  const auditIntents = parseRunAuditIntents(raw.auditIntents);
+  if (subjects === null || runs === null || auditIntents === null) {
     return null;
   }
-  return { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs };
+  return { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs, auditIntents };
+}
+
+// service/poll/runs-audit.ts
+function auditRowForIntent(input) {
+  const { intent, run } = input;
+  if (intent.eventType === "run.created") {
+    return {
+      eventType: intent.eventType,
+      actorSource: "service",
+      entity: { kind: "run", id: intent.correlationId },
+      correlationId: intent.correlationId,
+      reason: "run created from a detected delivery",
+      details: {
+        subject: {
+          provider: "github",
+          accountNumericUserId: run.accountNumericUserId,
+          repository: run.repository,
+          subjectType: run.subjectType,
+          subjectNumber: run.subjectNumber
+        },
+        ordinal: run.ordinal,
+        deliveryIds: intent.deliveryIds
+      }
+    };
+  }
+  return {
+    eventType: intent.eventType,
+    actorSource: "service",
+    entity: { kind: "run", id: intent.correlationId },
+    correlationId: intent.correlationId,
+    decision: "adopted",
+    reason: `legacy deliveries adopted: ${intent.stateBranches.join(", ")}`,
+    details: {
+      deliveryIds: intent.deliveryIds,
+      stateBranches: intent.stateBranches,
+      state: intent.state
+    }
+  };
+}
+function intentIsWritten(intent, entries) {
+  return entries.some((entry) => entry.eventType === intent.eventType && entry.correlationId === intent.correlationId && entry.entity.kind === "run" && entry.entity.id === intent.correlationId);
+}
+async function persistIntent(input) {
+  const { intent, document, entries, store, log } = input;
+  if (intentIsWritten(intent, entries)) {
+    return true;
+  }
+  const run = document.runs.find((candidate) => candidate.correlationId === intent.correlationId);
+  if (run === undefined) {
+    log.warn("run audit intent has no retained run; keeping intent for recovery", {
+      eventType: intent.eventType
+    });
+    return false;
+  }
+  try {
+    entries.push(await appendAudit(store, auditRowForIntent({ intent, run })));
+    return true;
+  } catch (cause) {
+    log.warn("run lifecycle audit row could not be appended", {
+      eventType: intent.eventType,
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return false;
+  }
+}
+async function flushRunAuditIntents(input) {
+  const intents = input.document.auditIntents ?? [];
+  if (intents.length === 0) {
+    return input.document;
+  }
+  let entries;
+  try {
+    entries = [...await readAuditEntries(input.store)];
+  } catch (cause) {
+    input.log.warn("run lifecycle audit trail could not be read for recovery", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return input.document;
+  }
+  const remaining = [];
+  for (const intent of intents) {
+    const persisted = await persistIntent({ ...input, intent, entries });
+    if (!persisted) {
+      remaining.push(intent);
+    }
+  }
+  if (remaining.length === intents.length) {
+    return input.document;
+  }
+  const recovered = { ...input.document, auditIntents: remaining };
+  try {
+    await input.store.writeJson(input.runsFile, recovered);
+    return recovered;
+  } catch (cause) {
+    input.log.warn("completed run lifecycle audit intents could not be retired", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return input.document;
+  }
 }
 
 // service/poll/runs-adopt.ts
@@ -3090,21 +3268,6 @@ async function readLegacyRows(store) {
     return event === null ? [] : [{ event, reserved: hasReservation(raw) }];
   });
 }
-function migrationAudit(run, branches) {
-  return {
-    eventType: "run.migrated",
-    actorSource: "service",
-    entity: { kind: "run", id: run.correlationId },
-    correlationId: run.correlationId,
-    decision: "adopted",
-    reason: `legacy deliveries adopted: ${branches.join(", ")}`,
-    details: {
-      deliveryIds: run.sourceReferences.map((reference) => reference.deliveryId),
-      stateBranches: branches,
-      state: run.state
-    }
-  };
-}
 function subjectKeyOf(event) {
   return buildSubjectKey({
     accountNumericUserId: event.accountNumericUserId,
@@ -3182,10 +3345,24 @@ async function planAdoption(input) {
       addMigratedRun({ runs, record, now, subjects, branches, key });
     }
   }
-  return {
-    document: { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs },
-    migrated: runs.map((run) => migrationAudit(run, branches.get(run.correlationId) ?? []))
-  };
+  const auditIntents = runs.map((run) => ({
+    eventType: "run.migrated",
+    correlationId: run.correlationId,
+    deliveryIds: run.sourceReferences.map((reference) => reference.deliveryId),
+    stateBranches: branches.get(run.correlationId) ?? [],
+    state: run.state
+  }));
+  return { document: { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs, auditIntents } };
+}
+async function hasPostRunDeliveries(store) {
+  const stored = await store.readJson(EVENTS_FILE, (raw) => raw);
+  if (stored.status !== "ok" || !Array.isArray(stored.value)) {
+    return false;
+  }
+  return stored.value.some((raw) => {
+    const row = recordOf(raw);
+    return row !== null && (row.state === undefined || row.runCorrelationId !== undefined);
+  });
 }
 
 // service/poll/runs-document.ts
@@ -3198,9 +3375,6 @@ function inQueueChain(task) {
   return run;
 }
 var adoptionPasses = new WeakMap;
-function emptyRunsDocument() {
-  return { schemaVersion: RUNS_SCHEMA_VERSION, subjects: {}, runs: [] };
-}
 function isTerminalRun(run) {
   return run.state === "dispatched" || run.state === "dead-lettered";
 }
@@ -3215,20 +3389,15 @@ async function runAdoption(input) {
     });
     return "unreadable";
   }
+  if (await hasPostRunDeliveries(input.store)) {
+    input.log.warn("runs.json is absent while post-run-layer deliveries exist; refusing legacy adoption");
+    return "unreadable";
+  }
   const plan = await planAdoption({
     store: input.store,
     ...input.now === undefined ? {} : { now: input.now }
   });
   await input.store.writeJson(RUNS_FILE, plan.document);
-  for (const row of plan.migrated) {
-    try {
-      await appendAudit(input.store, row);
-    } catch (cause) {
-      input.log.warn("run migration audit row could not be appended", {
-        errorKind: cause instanceof Error ? cause.name : typeof cause
-      });
-    }
-  }
   return "adopted";
 }
 function startAdoption(input) {
@@ -3248,14 +3417,46 @@ async function readRunsDocument(input) {
     throw new Error("run document is unreadable; refusing to serve run state from a quarantined runs.json");
   }
   const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);
-  return stored.status === "ok" ? stored.value : emptyRunsDocument();
+  if (stored.status !== "ok") {
+    throw new Error("run document disappeared after adoption; refusing to serve an empty run history");
+  }
+  return await flushRunAuditIntents({ ...input, document: stored.value, runsFile: RUNS_FILE });
+}
+async function pruneEvictedRunDeliveries(input) {
+  try {
+    const stored = await input.store.readJson(EVENTS_FILE, (raw) => raw);
+    if (stored.status !== "ok" || !Array.isArray(stored.value)) {
+      return;
+    }
+    const retained = stored.value.filter((row) => {
+      if (!isRecord(row) || row.state !== undefined || typeof row.runCorrelationId !== "string") {
+        return true;
+      }
+      return input.retainedRunIds.has(row.runCorrelationId);
+    });
+    if (retained.length !== stored.value.length) {
+      await input.store.writeJson(EVENTS_FILE, retained);
+    }
+  } catch (cause) {
+    input.log.warn("run-linked delivery retention could not be synchronized", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+  }
 }
 async function writeRunsDocument(input) {
   const terminal = input.document.runs.filter((run) => isTerminalRun(run));
   const evictCount = Math.max(terminal.length - MAX_TERMINAL_RUNS, 0);
   const dropped = new Set(terminal.slice(0, evictCount).map((run) => run.correlationId));
   const runs = input.document.runs.filter((run) => !dropped.has(run.correlationId));
-  await input.store.writeJson(RUNS_FILE, { ...input.document, runs });
+  const persisted = { ...input.document, runs };
+  await input.store.writeJson(RUNS_FILE, persisted);
+  if (dropped.size > 0) {
+    await pruneEvictedRunDeliveries({
+      ...input,
+      retainedRunIds: new Set(runs.map((run) => run.correlationId))
+    });
+  }
+  return persisted;
 }
 
 // service/poll/runs-join.ts
@@ -3396,7 +3597,15 @@ function applyEnqueue(input) {
     created.push(run);
     links.set(delivery.id, run.correlationId);
   }
-  return { document: { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs }, links, created, joins };
+  const auditIntents = [
+    ...input.document.auditIntents ?? [],
+    ...created.map((run) => ({
+      eventType: "run.created",
+      correlationId: run.correlationId,
+      deliveryIds: run.sourceReferences.map((reference) => reference.deliveryId)
+    }))
+  ];
+  return { document: { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs, auditIntents }, links, created, joins };
 }
 
 // service/poll/scan.ts
@@ -3522,9 +3731,10 @@ function createEvent(snapshot) {
 
 // service/poll/events.ts
 var MAX_DISPATCHED_EVENTS = 500;
-function serializedQueue(events) {
-  const live = events.filter((event) => event.state !== "dispatched");
-  const dispatched = events.filter((event) => event.state === "dispatched").slice(-MAX_DISPATCHED_EVENTS);
+function serializedQueue(events, retainedRunIds) {
+  const retained = retainedRunIds === undefined ? events : events.filter((event) => event.state !== undefined || event.runCorrelationId === undefined || retainedRunIds.has(event.runCorrelationId));
+  const live = retained.filter((event) => event.state !== "dispatched");
+  const dispatched = retained.filter((event) => event.state === "dispatched").slice(-MAX_DISPATCHED_EVENTS);
   return [...live, ...dispatched];
 }
 var recoveredQuarantines = new WeakMap;
@@ -3629,8 +3839,9 @@ async function enqueueWithinChain(input) {
     const runCorrelationId = outcome.links.get(event.id);
     return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
   });
-  await writeRunsDocument({ ...input, document: outcome.document });
-  await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended]));
+  const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
+  await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended], new Set(persistedRuns.runs.map((run) => run.correlationId))));
+  await readRunsDocument(input);
   await recordEnqueueAudits({ ...input, outcome, appended });
   return appended;
 }

@@ -23,11 +23,13 @@
  * (constitution II: ambiguity is a stop condition).
  */
 
-import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
+import { isRecord } from '../json.ts';
 import type { ServiceStore } from '../store/index.ts';
+import { EVENTS_FILE } from './events-parse.ts';
 import { MAX_ATTEMPT_RECORDS, RUNS_SCHEMA_VERSION, parseRunsDocument } from './runs-parse.ts';
-import { planAdoption } from './runs-adopt.ts';
+import { flushRunAuditIntents } from './runs-audit.ts';
+import { hasPostRunDeliveries, planAdoption } from './runs-adopt.ts';
 import type { DispatchAttempt, Run, RunState, RunsDocument } from './runs-types.ts';
 
 /** Store file holding the run document. */
@@ -86,7 +88,7 @@ const adoptionPasses = new WeakMap<ServiceStore, Promise<AdoptionOutcome>>();
  * @returns A document with the current schema marker and no runs.
  */
 export function emptyRunsDocument(): RunsDocument {
-    return { schemaVersion: RUNS_SCHEMA_VERSION, subjects: {}, runs: [] };
+    return { schemaVersion: RUNS_SCHEMA_VERSION, subjects: {}, runs: [], auditIntents: [] };
 }
 
 /**
@@ -98,6 +100,12 @@ export function emptyRunsDocument(): RunsDocument {
  */
 export function isTerminalRun(run: Run): boolean {
     return run.state === 'dispatched' || run.state === 'dead-lettered';
+}
+
+/** Detect any durable evidence that this run already produced a session. */
+export function runHistoryIndicatesSession(run: Run): boolean {
+    return run.session !== null || run.attempts.some((attempt) =>
+        attempt.outcome === 'dispatched' || attempt.sessionId !== null);
 }
 
 /**
@@ -123,20 +131,17 @@ async function runAdoption(input: RunsStoreInput & { readonly now?: string }): P
         return 'unreadable';
     }
 
+    if (await hasPostRunDeliveries(input.store)) {
+        input.log.warn('runs.json is absent while post-run-layer deliveries exist; refusing legacy adoption');
+
+        return 'unreadable';
+    }
+
     const plan = await planAdoption({
         store: input.store,
         ...(input.now === undefined ? {} : { now: input.now }),
     });
     await input.store.writeJson(RUNS_FILE, plan.document);
-    for (const row of plan.migrated) {
-        try {
-            await appendAudit(input.store, row);
-        } catch (cause) {
-            input.log.warn('run migration audit row could not be appended', {
-                errorKind: cause instanceof Error ? cause.name : typeof cause,
-            });
-        }
-    }
 
     return 'adopted';
 }
@@ -190,8 +195,40 @@ export async function readRunsDocument(input: RunsStoreInput): Promise<RunsDocum
     }
 
     const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);
+    if (stored.status !== 'ok') {
+        throw new Error('run document disappeared after adoption; refusing to serve an empty run history');
+    }
 
-    return stored.status === 'ok' ? stored.value : emptyRunsDocument();
+    return await flushRunAuditIntents({ ...input, document: stored.value, runsFile: RUNS_FILE });
+}
+
+/** Remove linked state-free deliveries only when their bounded terminal run is evicted. */
+async function pruneEvictedRunDeliveries(input: {
+    readonly store: ServiceStore;
+    readonly log: ServiceLogger;
+    readonly retainedRunIds: ReadonlySet<string>;
+}): Promise<void> {
+    try {
+        const stored = await input.store.readJson(EVENTS_FILE, (raw) => raw);
+        if (stored.status !== 'ok' || !Array.isArray(stored.value)) {
+            return;
+        }
+
+        const retained = stored.value.filter((row) => {
+            if (!isRecord(row) || row.state !== undefined || typeof row.runCorrelationId !== 'string') {
+                return true;
+            }
+
+            return input.retainedRunIds.has(row.runCorrelationId);
+        });
+        if (retained.length !== stored.value.length) {
+            await input.store.writeJson(EVENTS_FILE, retained);
+        }
+    } catch (cause) {
+        input.log.warn('run-linked delivery retention could not be synchronized', {
+            errorKind: cause instanceof Error ? cause.name : typeof cause,
+        });
+    }
 }
 
 /**
@@ -205,13 +242,22 @@ export async function readRunsDocument(input: RunsStoreInput): Promise<RunsDocum
  */
 export async function writeRunsDocument(
     input: RunsStoreInput & { readonly document: RunsDocument },
-): Promise<void> {
+): Promise<RunsDocument> {
     const terminal = input.document.runs.filter((run) => isTerminalRun(run));
     const evictCount = Math.max(terminal.length - MAX_TERMINAL_RUNS, 0);
     const dropped = new Set(terminal.slice(0, evictCount).map((run) => run.correlationId));
     const runs = input.document.runs.filter((run) => !dropped.has(run.correlationId));
 
-    await input.store.writeJson(RUNS_FILE, { ...input.document, runs });
+    const persisted = { ...input.document, runs };
+    await input.store.writeJson(RUNS_FILE, persisted);
+    if (dropped.size > 0) {
+        await pruneEvictedRunDeliveries({
+            ...input,
+            retainedRunIds: new Set(runs.map((run) => run.correlationId)),
+        });
+    }
+
+    return persisted;
 }
 /**
  * Open an in-flight attempt record (data-model §2.4).
