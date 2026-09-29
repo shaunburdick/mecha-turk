@@ -17,7 +17,7 @@
  * the handlers are a table, not a layer.
  */
 
-import { loadProjects } from './project-actions.ts';
+import { loadProjects, selectBindingProject } from './project-actions.ts';
 import { repaintReposSection } from './panel-ui.ts';
 import type { PanelRuntime, ReposSection } from './panel-state.ts';
 import {
@@ -71,7 +71,7 @@ export function createRepositoriesHandlers(rt: PanelRuntime): ReposPaneHandlers 
         },
         setRepoInput: (value) => editRepos(rt, { repoInput: value }),
         selectAccount: (id) => editRepos(rt, { accountSelection: id }),
-        selectProject: (id) => editRepos(rt, { repoProjectSelection: id }),
+        selectProject: (id) => selectBindingProject(rt, id),
         setAssignment: (checked) => editRepos(rt, { triggerAssignment: checked }),
         setMention: (checked) => editRepos(rt, { triggerMention: checked }),
         setReviewRequest: (checked) => editRepos(rt, { triggerReviewRequest: checked }),

@@ -1,11 +1,16 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { GuestProjectsSnapshot } from '@openchamber/sdk';
 import { createPanelRuntime } from '../src/panel-state.ts';
-import type { ProjectPickerState } from '../src/panel-state.ts';
+import type { PanelRuntime, ProjectPickerState } from '../src/panel-state.ts';
 import {
+    NOT_LISTED_LABEL,
+    PROJECT_REGISTRATION_ROUTES,
     applyProjectSnapshot,
     describeProjectSelection,
     isSelectableProject,
+    notListedGuidance,
     pickerNote,
     pickerOptions,
     pickerPlaceholder,
@@ -19,8 +24,10 @@ import {
     readStoredSelection,
     rejectProjectSelection,
     restoreProjectSelection,
+    selectBindingProject,
     storeProjectSelection,
 } from '../src/project-actions.ts';
+import { readDraft } from '../src/repos.ts';
 import {
     PROJECTS,
     PROJECT_ID,
@@ -46,6 +53,12 @@ const TWO_PROJECTS: GuestProjectsSnapshot = {
         { id: OTHER_ID, name: 'gadget', directory: '/home/agent/acme/gadget' },
     ],
 };
+
+/** Repository root, derived from this file's location. */
+const ROOT = resolve(import.meta.dirname, '..');
+
+/** Source and bundle directories the project-creation scan reads (AC-121). */
+const SCANNED_DIRS: readonly string[] = ['src', 'panel', 'service'];
 
 /** Storage double whose reads always fail. */
 function failingStorage(): Parameters<typeof readStoredSelection>[0]['storage'] {
@@ -429,5 +442,176 @@ describe('rejectProjectSelection', () => {
         rejectProjectSelection(runtime, PROJECT_ID);
 
         expect(runtime.state.projects.note).toMatch(/No project list is loaded/);
+    });
+});
+
+describe('"Not listed?" guidance (FR-070, AC-121)', () => {
+    it('names all three manual routes for registering a project', () => {
+        const guidance = notListedGuidance();
+
+        expect(guidance.startsWith(NOT_LISTED_LABEL)).toBe(true);
+        expect(PROJECT_REGISTRATION_ROUTES).toHaveLength(3);
+        expect(guidance).toContain('command palette');
+        expect(guidance).toContain('Add project');
+        expect(guidance).toContain('sidebar +');
+        expect(guidance).toContain('folder browser');
+    });
+
+    it('states the never-creates rule and what stays recoverable meanwhile', () => {
+        const guidance = notListedGuidance();
+
+        expect(guidance).toMatch(/never creates/);
+        expect(guidance).toContain('project_missing');
+    });
+
+    it('is painted by both pickers, so the routes need no navigation away', () => {
+        const bindingPicker = readFileSync(resolve(ROOT, 'src/repos-ui.ts'), 'utf8');
+        const spikePicker = readFileSync(resolve(ROOT, 'src/panel-ui.ts'), 'utf8');
+
+        expect(bindingPicker).toContain('notListedGuidance()');
+        expect(spikePicker).toContain('notListedGuidance()');
+    });
+});
+
+/**
+ * Build a runtime whose project list is loaded and whose add form is
+ * otherwise complete, so only the project step can decide the outcome.
+ *
+ * @returns A runtime ready for one project selection.
+ */
+function loadedBindingDraft(): PanelRuntime {
+    const rt = createTestRuntime(fakeHost());
+    rt.state.projects.status = 'ready';
+    rt.state.projects.projects = PROJECTS.projects;
+    rt.state.repos.repoInput = 'acme/widget';
+    rt.state.repos.accounts = [{ numericUserId: '77331', login: 'acme-bot', usable: true }];
+    rt.state.repos.accountSelection = '77331';
+
+    return rt;
+}
+
+describe('binding picker selection guard (FR-070)', () => {
+    it('refuses a selection the loaded list does not contain, keeping the draft recoverable', () => {
+        const rt = loadedBindingDraft();
+
+        selectBindingProject(rt, 'prj_not_registered');
+
+        expect(rt.state.repos.repoProjectSelection).toBeNull();
+        expect(rt.state.repos.note).toMatch(/not in the loaded list/);
+        // No draft becomes a binding, so the service's own `project_missing`
+        // path is untouched until a registered project is chosen.
+        expect(readDraft(rt.state.repos)).toBeNull();
+        expect(rt.state.repos.note).toMatch(/Pick the OpenChamber project/);
+    });
+
+    it('refuses before the list is loaded instead of trusting the value', () => {
+        const rt = createTestRuntime(fakeHost());
+
+        selectBindingProject(rt, PROJECT_ID);
+
+        expect(rt.state.repos.repoProjectSelection).toBeNull();
+        expect(rt.state.repos.note).toMatch(/No project list is loaded/);
+        expect(readDraft(rt.state.repos)).toBeNull();
+    });
+
+    it('adopts an id the loaded list contains, and only one it contains', () => {
+        const rt = loadedBindingDraft();
+
+        selectBindingProject(rt, PROJECT_ID);
+
+        expect(rt.state.repos.repoProjectSelection).toBe(PROJECT_ID);
+        expect(rt.state.repos.note).toBe('');
+        expect(readDraft(rt.state.repos)?.projectId).toBe(PROJECT_ID);
+    });
+
+    it('keeps the registered selection a later refusal did not replace', () => {
+        const rt = loadedBindingDraft();
+        selectBindingProject(rt, PROJECT_ID);
+
+        selectBindingProject(rt, 'prj_not_registered');
+
+        expect(rt.state.repos.repoProjectSelection).toBe(PROJECT_ID);
+    });
+});
+
+/**
+ * A *call* that would create a project, in whichever spelling it uses.
+ *
+ * The trailing `(` is what keeps `createProjectGroup` — a DOM helper in
+ * `panel-ui.ts` that builds a `<div>` for the picker — out of the scan:
+ * `Project` there is followed by `Group`, so the boundary before the call
+ * parenthesis never holds. Prose is out of reach too, because the pattern
+ * admits no space between the verb and the noun ("Add project", the route
+ * the guidance names, is a different string entirely).
+ */
+const PROJECT_CREATE_CALL = /\b(?:create|add|register|insert|spawn)[-_]?[Pp]roject\s*\(/;
+
+/** A REST path addressing projects — the only way to create one over HTTP. */
+const PROJECT_ENDPOINT = /\/projects?(?:\/|['"]|$)/;
+
+/** One file the project-creation scan read. */
+interface ScannedFile {
+    /** Repository-relative path, for the failure message. */
+    readonly path: string;
+    /** File text, scanned as written (bundles included). */
+    readonly text: string;
+}
+
+/**
+ * Read every scanned source and bundle once.
+ *
+ * @returns The path and text of each `.ts`/`.js` file under {@link SCANNED_DIRS}.
+ */
+function scanProjectCreationSurface(): readonly ScannedFile[] {
+    const files: ScannedFile[] = [];
+    for (const dir of SCANNED_DIRS) {
+        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map((entry) => String(entry));
+        for (const entry of entries) {
+            if (!entry.endsWith('.ts') && !entry.endsWith('.js')) {
+                continue;
+            }
+
+            files.push({ path: `${dir}/${entry}`, text: readFileSync(resolve(ROOT, dir, entry), 'utf8') });
+        }
+    }
+
+    return files;
+}
+
+describe('no project-creation call exists anywhere (AC-121)', () => {
+    it('reads the real sources and built bundles rather than an empty directory', () => {
+        const files = scanProjectCreationSurface();
+
+        expect(files.length).toBeGreaterThan(50);
+        expect(files.some((file) => file.path === 'panel/main.js')).toBe(true);
+        expect(files.some((file) => file.path === 'service/main.js')).toBe(true);
+    });
+
+    it('finds no call and no endpoint that creates a project', () => {
+        // The scan has to bite: a pattern that matches nothing would read as
+        // green while proving nothing about the code above it.
+        expect(PROJECT_CREATE_CALL.test('host.createProject()')).toBe(true);
+        expect(PROJECT_ENDPOINT.test("path: '/repos/acme/widget/projects'")).toBe(true);
+
+        for (const file of scanProjectCreationSurface()) {
+            expect(file.text, `${file.path} must not call a project-creation method`).not.toMatch(
+                PROJECT_CREATE_CALL,
+            );
+            expect(file.text, `${file.path} must not address a projects endpoint`).not.toMatch(PROJECT_ENDPOINT);
+        }
+    });
+
+    it('exposes no project-writing member on the documented host surface', () => {
+        const session = readFileSync(resolve(ROOT, 'src/session.ts'), 'utf8');
+        // The Pick list itself, not every quoted word in the file's docs:
+        // this is the surface a future module has to widen to reach a host
+        // project-creation call, so it is the list that has to stay read-only.
+        const pick = session.match(/export type SpikeHost = Pick<\s*HostClient,\s*([\s\S]*?)\s*>/);
+        expect(pick).not.toBeNull();
+
+        const members = [...(pick?.[1] ?? '').matchAll(/'([^']+)'/g)].map((match) => match[1] ?? '');
+        const projectMembers = members.filter((member) => member.includes('Project')).sort();
+
+        expect(projectMembers).toEqual(['listProjects', 'onProjects']);
     });
 });

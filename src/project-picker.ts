@@ -35,6 +35,23 @@ const UNAVAILABLE_PLACEHOLDER = 'Projects unavailable';
 /** Trigger text shown before any project list has been requested. */
 const SELECT_PLACEHOLDER = 'Select a project';
 
+/** Label of the picker's "not listed" affordance (002 FR-014, 003 FR-070). */
+export const NOT_LISTED_LABEL = 'Not listed?';
+
+/**
+ * The manual ways OpenChamber registers a project, in the order the operator
+ * meets them.
+ *
+ * The extension has no project-creation call anywhere (FR-070, AC-121), so
+ * these three routes are the *only* way a project comes to exist — naming
+ * them is the whole affordance.
+ */
+export const PROJECT_REGISTRATION_ROUTES: readonly string[] = [
+    'command palette → Add project',
+    'the sidebar + button',
+    'the folder browser',
+];
+
 /**
  * Describe one host project as a picker option.
  *
@@ -120,6 +137,48 @@ export function pickerPlaceholder(picker: ProjectPickerState): string {
     }
 
     return SELECT_PLACEHOLDER;
+}
+
+/**
+ * Explain why a selection outside the loaded list was refused.
+ *
+ * One wording for both pickers (the spike's dispatch target and the binding
+ * form's dispatch project), so an operator who sees the line once recognises
+ * it the second time. Nothing changes when a selection is refused: without a
+ * confirmed id the dispatch — and the binding draft — stay exactly as they
+ * were, which is what keeps a binding in its recoverable `project_missing`
+ * state until a registered project is chosen (FR-070).
+ *
+ * @param picker - Project picker state.
+ * @param id - Project id the caller asked to select.
+ * @returns The operator-facing refusal line.
+ */
+export function projectRefusalReason(picker: ProjectPickerState, id: string): string {
+    return picker.status === 'ready' && picker.projects.length > 0
+        ? `Project "${id}" is not in the loaded list; reload the projects and pick again.`
+        : 'No project list is loaded; reload the projects and pick one.';
+}
+
+/**
+ * The "Not listed?" guidance the pickers show (FR-070, AC-121).
+ *
+ * Rendered as ordinary text inside the panel, so the routes are reachable
+ * without leaving the panel — the operator reads them at the moment they
+ * discover the gap instead of being sent to a document. The copy states the
+ * three registration routes, that the extension never creates a project, and
+ * what stays recoverable in the meantime.
+ *
+ * @returns The guidance line, ending with the never-creates rule.
+ */
+export function notListedGuidance(): string {
+    const routes = PROJECT_REGISTRATION_ROUTES.join(', ');
+
+    return (
+        `${NOT_LISTED_LABEL} OpenChamber registers projects, not this extension: ` +
+        `${routes} — then reload the projects and pick it here. ` +
+        'Until a registered project is chosen the binding stays in its recoverable ' +
+        '`project_missing` state; the extension never creates one.'
+    );
 }
 
 /**

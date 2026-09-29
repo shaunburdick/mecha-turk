@@ -34,6 +34,7 @@ import type {
     TextFieldHandle,
 } from '@openchamber/sdk/ui';
 import type { PanelRuntime, Repositories } from './panel-state.ts';
+import { notListedGuidance } from './project-picker.ts';
 import { bindingRows } from './repos-rows.ts';
 import { mountRunsBoard, repaintRunsBoard } from './runs-ui.ts';
 import type { RunsBoard } from './runs-ui.ts';
@@ -317,6 +318,9 @@ function mountAddForm(input: MountInputs): Form {
     const repoField = mountRepoField(input);
     const accountSelect = mountAccountSelect(input);
     const projectSelect = mountProjectSelect(input);
+    // FR-070's "Not listed?" affordance: constant copy, painted once, and
+    // removed with the pane element `dispose` takes away — no handle to keep.
+    mountText(input.pane, { text: notListedGuidance() });
     const checks = mountTriggerChecks(input);
     const worktree = mountSelect(
         input.pane,

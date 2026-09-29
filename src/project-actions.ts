@@ -19,7 +19,12 @@
 
 import type { JsonValue } from '@openchamber/sdk';
 import { parseProjectId } from './config.ts';
-import { applyProjectSnapshot, selectedProjectId } from './project-picker.ts';
+import {
+    applyProjectSnapshot,
+    isSelectableProject,
+    projectRefusalReason,
+    selectedProjectId,
+} from './project-picker.ts';
 import { refresh } from './panel-ui.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import { redact } from './redaction.ts';
@@ -193,12 +198,34 @@ export async function copyProjectId(rt: PanelRuntime): Promise<void> {
  * @param id - Project id the caller asked to select.
  */
 export function rejectProjectSelection(rt: PanelRuntime, id: string): void {
-    const { projects } = rt.state;
-    const reason =
-        projects.status === 'ready' && projects.projects.length > 0
-            ? `Project "${id}" is not in the loaded list; reload the projects and pick again.`
-            : 'No project list is loaded; reload the projects and pick one.';
+    rt.state.projects.note = redact(projectRefusalReason(rt.state.projects, id));
+    refresh(rt);
+}
 
-    rt.state.projects.note = redact(reason);
+/**
+ * Adopt the project the operator picked for a binding's draft, or refuse it.
+ *
+ * The binding form is where FR-070's recoverable state lives: the draft only
+ * ever holds an id the *currently loaded* list contains, so a stale option, a
+ * scripted click, or a list that has not arrived yet can never become a
+ * binding's dispatch target. A refusal changes nothing — the draft keeps
+ * whatever registered project it already held (usually none), `readDraft`
+ * therefore keeps refusing to submit, and the binding never leaves the
+ * recoverable `project_missing` path for a project the host did not confirm.
+ *
+ * @param rt - Panel runtime.
+ * @param id - Project id the select reported.
+ */
+export function selectBindingProject(rt: PanelRuntime, id: string): void {
+    const { repos, projects } = rt.state;
+    const candidate = parseProjectId(id);
+    if (candidate === null || !isSelectableProject(projects, candidate)) {
+        repos.note = redact(projectRefusalReason(projects, id));
+        refresh(rt);
+        return;
+    }
+
+    repos.repoProjectSelection = candidate;
+    repos.note = '';
     refresh(rt);
 }

@@ -22,6 +22,7 @@ import {
     DEFAULT_STATUS,
     fakeHost,
     LOGIN,
+    PROJECTS,
     tick,
 } from './support/panel.ts';
 import { fakeDom } from './support/dom.ts';
@@ -68,6 +69,10 @@ function attachStubSection(rt: PanelRuntime): {
 describe('createRepositoriesHandlers (handler table wired to real actions)', () => {
     it('patches every draft field through editRepos', () => {
         const rt = createTestRuntime(fakeHost());
+        // The project step is guarded (FR-070): only an id the loaded list
+        // contains may reach the draft, so the list has to be loaded first.
+        rt.state.projects.status = 'ready';
+        rt.state.projects.projects = PROJECTS.projects;
         const handlers = createRepositoriesHandlers(rt);
 
         handlers.setRepoInput('acme/widget');

@@ -17,6 +17,7 @@ import { isLifecyclePhase, ledgerTail } from './ledger.ts';
 import type { LifecyclePhase } from './ledger.ts';
 import {
     describeProjectSelection,
+    notListedGuidance,
     pickerNote,
     pickerOptions,
     pickerPlaceholder,
@@ -184,6 +185,10 @@ function mountProjectPicker(input: {
     });
     const projectStatus = mountText(group, { text: pickerNote(rt.state.projects) });
     const projectDetail = mountText(group, { text: describeProjectSelection(rt.state) });
+    // FR-070: the same "Not listed?" line the binding picker shows, so the
+    // routes to register a project are readable from either picker without
+    // leaving the panel. Constant copy, so it is painted once, not repainted.
+    mountText(group, { text: notListedGuidance() });
 
     return { projectSelect, projectStatus, projectDetail, projectRefresh, projectCopy };
 }
