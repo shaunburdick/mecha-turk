@@ -340,6 +340,14 @@ export interface PanelRuntime {
     reconcileSettled: boolean;
     /** Relay arming requested while reconciliation was still running. */
     relayArmPending: boolean;
+    /**
+     * Verification read-backs this mount started and has not seen settle.
+     *
+     * The relay starts them detached so a slow read-back can never hold the
+     * claim slot (AC-125); nothing on a dispatch path awaits them, and a test
+     * drains the list to observe what a verification wrote without racing it.
+     */
+    readonly pendingVerifications: Promise<void>[];
 }
 
 /** Per-binding event counts from the last relay poll. */
@@ -462,6 +470,7 @@ export function createPanelRuntime(
         relayArmed: false,
         reconcileSettled: true,
         relayArmPending: false,
+        pendingVerifications: [],
     };
 }
 

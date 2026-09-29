@@ -19,9 +19,13 @@
  *
  * Outcomes are recorded, not enforced: a match lands as evidence, anything
  * else lands as a warning banner in the runs area plus a ledger entry.
- * Nothing here stops the session, blocks the event, or touches the service
- * (MVP-DEBT: the service learns nothing about verification in this slice —
- * mirroring `agentVerified` service-side is next slice's work).
+ * Nothing here stops the session or blocks the event. Since 003 (T-027) the
+ * read-back is also **posted to the service** — `POST …/verification`, contract
+ * §5 — which writes `agent.verified` / `agent.mismatch` on the run and stores
+ * `run.verification` for the run-history projection, **changing no state**:
+ * the panel-side record and the service-side trail say the same thing, and a
+ * report the service refuses surfaces as a visible warning rather than as a
+ * silent gap (FR-043, FR-063).
  */
 
 import type { SessionSnapshot } from '@openchamber/sdk';
@@ -29,6 +33,7 @@ import { nowIso } from './ids.ts';
 import { appendEntryAndPersist } from './panel-actions.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
+import { servicePost, verificationPath } from './service-calls.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
 import type { PanelRuntime, PanelStatus } from './panel-state.ts';
@@ -217,33 +222,47 @@ export function verificationNotice(result: AgentVerification): PanelStatus {
 }
 
 /**
- * Verify the agent of one dispatched session and record what was seen (M9).
+ * Phrase the read-back for the service's `note` member (contract §5).
  *
- * Runs after the dispatch result has reached the service, so a slow or
- * failing verification can never delay (or lose) the run's own record. The
- * outcome lands twice: as a `session` ledger entry correlated to the event
- * (`agentVerified`, the observed agent, and the machine status), and as the
- * runs-area banner. Waits up to {@link AGENT_VERIFY_TIMEOUT_MS} while the
- * relay holds its dispatch slot — MVP-DEBT: verification shares that slot
- * today; running it alongside the next event is post-MVP work.
- *
- * @param inputs - Runtime, the claimed event, and the created session id.
+ * @param result - Outcome the verification reached.
+ * @returns The note, or `null` when there is nothing to add to the evidence.
  */
-export async function verifyAgentAfterDispatch(inputs: {
+function readBackNote(result: AgentVerification): string | null {
+    switch (result.status) {
+        case 'match':
+            return null;
+        case 'mismatch':
+            return result.agent === null
+                ? 'the session reported no agent'
+                : `observed ${result.agent} differs from the baseline`;
+        case 'timeout': {
+            const seconds = Math.floor(result.timeoutMs / MS_PER_SECOND);
+
+            return `the agent was not readable within ${seconds}s`;
+        }
+        case 'unavailable':
+            return `the session could not be opened: ${redact(result.problem)}`;
+    }
+}
+
+/**
+ * Record the read-back where the operator looks: ledger entry and banner.
+ *
+ * @param input - Runtime, the run, the session, the outcome, and its baseline.
+ */
+function recordReadBack(input: {
     /** Panel runtime. */
     readonly rt: PanelRuntime;
-    /** The run whose dispatch produced the session (003: the correlation id). */
+    /** The run the read-back belongs to. */
     readonly correlationId: string;
-    /** Session id the host created. */
+    /** Session the read-back observed. */
     readonly sessionId: string;
-}): Promise<void> {
-    const { rt, correlationId, sessionId } = inputs;
-    const expected = rt.state.expectedAgent;
-    const result = await verifySessionAgent({ host: rt.host, sessionId, expected });
-    if (rt.disposed) {
-        return;
-    }
-
+    /** Outcome the verification reached. */
+    readonly result: AgentVerification;
+    /** Baseline the judgment used (FR-029's comparison agent). */
+    readonly expected: string;
+}): void {
+    const { rt, correlationId, sessionId, result, expected } = input;
     const observedAgent = result.status === 'match' || result.status === 'mismatch' ? result.agent : null;
     appendEntryAndPersist(rt, {
         at: nowIso(),
@@ -260,4 +279,123 @@ export async function verifyAgentAfterDispatch(inputs: {
     });
     rt.state.repos.runs.agentNotice = verificationNotice(result);
     refresh(rt);
+}
+
+/**
+ * Post the read-back to the service's trail, and say so when it refuses.
+ *
+ * The report is warn-only on both sides: the route changes no run state, and
+ * a refusal here lands as the section's note rather than as a silent gap —
+ * FR-063's rule for a lifecycle row that did not reach the trail (FR-043,
+ * contract §5).
+ *
+ * @param input - Runtime, the run, the attempt, the session, and its outcome.
+ */
+async function postReadBack(input: {
+    /** Panel runtime. */
+    readonly rt: PanelRuntime;
+    /** The run the read-back belongs to. */
+    readonly correlationId: string;
+    /** Attempt the dispatch belongs to; the report echoes it. */
+    readonly attempt: number;
+    /** Session the read-back observed. */
+    readonly sessionId: string;
+    /** Outcome the verification reached. */
+    readonly result: AgentVerification;
+    /** Baseline the judgment used. */
+    readonly expected: string;
+}): Promise<void> {
+    const { rt, correlationId, attempt, sessionId, result, expected } = input;
+    const observedAgent = result.status === 'match' || result.status === 'mismatch' ? result.agent : null;
+    const posted = await servicePost({
+        serviceRequest: rt.host.serviceRequest,
+        path: verificationPath(correlationId),
+        body: JSON.stringify({
+            correlationId,
+            attempt,
+            sessionId,
+            observedAgent,
+            expectedAgent: expected,
+            ok: result.status === 'match',
+            note: readBackNote(result),
+        }),
+    });
+    if (posted.ok || rt.disposed) {
+        return;
+    }
+
+    rt.state.repos.runs.note = redact(
+        `The service could not record the agent read-back for ${correlationId}: `
+        + `${posted.message ?? posted.problem}.`,
+    );
+    refresh(rt);
+}
+
+/**
+ * Verify the agent of one dispatched session and record what was seen (M9).
+ *
+ * Runs after the dispatch result has reached the service, so a slow or
+ * failing verification can never delay (or lose) the run's own record. The
+ * outcome lands three places: as a `session` ledger entry correlated to the
+ * run, as the runs-area banner, and — since 003 T-027 — as the service's own
+ * `agent.verified` / `agent.mismatch` row behind `POST …/verification`, which
+ * is warn-only by construction (the route never changes run state).
+ *
+ * The relay starts this **detached from its tick** and tracks it on
+ * {@link PanelRuntime.pendingVerifications}: the read-back keeps its own
+ * {@link AGENT_VERIFY_TIMEOUT_MS} budget, and a host that answers slowly must
+ * never hold the claim slot while it waits (AC-125). This function therefore
+ * never rejects — a failure lands as the visible warning, never as an
+ * unhandled rejection the relay would never see.
+ *
+ * @param inputs - Runtime, the run's correlation id, its attempt, and the
+ *   created session id.
+ */
+export async function verifyAgentAfterDispatch(inputs: {
+    /** Panel runtime. */
+    readonly rt: PanelRuntime;
+    /** The run whose dispatch produced the session (003: the correlation id). */
+    readonly correlationId: string;
+    /** Attempt the dispatch belongs to; the report echoes it (contract §5). */
+    readonly attempt: number;
+    /** Session id the host created. */
+    readonly sessionId: string;
+}): Promise<void> {
+    const { rt, correlationId, attempt, sessionId } = inputs;
+    try {
+        const expected = rt.state.expectedAgent;
+        const result = await verifySessionAgent({ host: rt.host, sessionId, expected });
+        if (rt.disposed) {
+            return;
+        }
+
+        recordReadBack({ rt, correlationId, sessionId, result, expected });
+        await postReadBack({ rt, correlationId, attempt, sessionId, result, expected });
+    } catch (cause) {
+        if (rt.disposed) {
+            return;
+        }
+
+        rt.state.repos.runs.agentNotice = {
+            tone: 'warning',
+            title: 'Session agent not verified',
+            body: `The read-back could not be recorded: ${redact(describeError(cause))}. `
+                + 'Warning only — the session keeps running, nothing was blocked.',
+        };
+        refresh(rt);
+    }
+}
+
+/**
+ * Wait for every read-back this mount started but has not seen settle.
+ *
+ * The relay never awaits these (AC-125), so a test that asserts what a
+ * verification wrote drains them instead of racing the host.
+ *
+ * @param rt - Panel runtime.
+ */
+export async function drainVerifications(rt: PanelRuntime): Promise<void> {
+    while (rt.pendingVerifications.length > 0) {
+        await Promise.all(rt.pendingVerifications.splice(0));
+    }
 }

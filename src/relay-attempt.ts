@@ -305,12 +305,16 @@ export async function closeAttempt(input: {
 
     // M9: the run's record reaches the service first, then the agent that
     // actually answered is read back. A dispatch that created no session has
-    // nothing to verify, so verification skips gracefully there.
+    // nothing to verify, so verification skips gracefully there — and a
+    // dispatch that did create one starts the read-back **detached** (AC-125):
+    // its own 15 s budget must never hold the claim slot, because the next
+    // tick's claim is what keeps unattended work moving (FR-043 warn-only).
     if (started.outcome.kind === 'dispatched' && stillRunning(rt)) {
-        await verifyAgentAfterDispatch({
+        rt.pendingVerifications.push(verifyAgentAfterDispatch({
             rt,
             correlationId: run.correlationId,
+            attempt: run.attempt,
             sessionId: started.outcome.sessionId,
-        });
+        }));
     }
 }

@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import type { SessionSnapshot } from '@openchamber/sdk';
 import {
     AGENT_VERIFY_TIMEOUT_MS,
+    drainVerifications,
     verificationNotice,
     verifyAgentAfterDispatch,
     verifySessionAgent,
@@ -37,7 +38,6 @@ import {
     SESSION_ID,
     createTestRuntime,
     fakeHost,
-    tick,
 } from './support/panel.ts';
 
 /** Session id the fixture dispatch created. */
@@ -329,7 +329,7 @@ async function recordedVerification(agent?: string): Promise<PanelRuntime> {
         fakeHost({ onSession: double.host.onSession, openSession: double.host.openSession }),
     );
 
-    await verifyAgentAfterDispatch({ rt, correlationId: CORRELATION, sessionId: SESSION });
+    await verifyAgentAfterDispatch({ rt, correlationId: CORRELATION, attempt: 1, sessionId: SESSION });
 
     return rt;
 }
@@ -460,7 +460,9 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
         ];
 
         await dispatchClaimedRun(rt, CLAIM);
-        await tick();
+        // The read-back is detached from the tick (AC-125), so the assertions
+        // below drain it instead of racing the host.
+        await drainVerifications(rt);
 
         const dispatched = calls.indexOf(`POST /v1/events/${CORRELATION}/dispatched`);
         const opened = calls.indexOf(`openSession:${SESSION}`);
@@ -476,5 +478,178 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
         expect(rt.state.repos.runs.agentNotice?.tone).toBe('warning');
         expect(rt.state.repos.runs.rows).toHaveLength(1);
         expect(rt.state.repos.runs.rows[0]?.state).toBe('dispatched');
+    });
+});
+
+describe('T-027 the read-back reaches the service (contract §5)', () => {
+    /** The verification report one read-back sent, with where it went. */
+    interface ReadBackReport {
+        /** Runtime the verification recorded into. */
+        readonly rt: PanelRuntime;
+        /** `METHOD path` calls the service saw, in order. */
+        readonly paths: string[];
+        /** Bodies those calls carried, in the same order. */
+        readonly bodies: (string | undefined)[];
+    }
+
+    /**
+     * Run one read-back against a host whose service records the report.
+     *
+     * @param agent - Agent the session reports; omit to report none.
+     * @returns The runtime plus the report the service received.
+     */
+    async function reported(agent?: string): Promise<ReadBackReport> {
+        const paths: string[] = [];
+        const bodies: (string | undefined)[] = [];
+        const double = verifyHost({ onOpen: snapshot(agent) });
+        const rt = createTestRuntime(fakeHost({
+            onSession: double.host.onSession,
+            openSession: double.host.openSession,
+            serviceRequest: async (request) => {
+                paths.push(`${request.method} ${request.path}`);
+                bodies.push(request.body);
+
+                return { status: 200, body: '{"verification":{"ok":true}}' };
+            },
+        }));
+
+        await verifyAgentAfterDispatch({ rt, correlationId: CORRELATION, attempt: 1, sessionId: SESSION });
+
+        return { rt, paths, bodies };
+    }
+
+    /** Parse the report's first body, failing loudly when none arrived. */
+    function reportBody(report: ReadBackReport): Record<string, unknown> {
+        const body = report.bodies[0];
+        if (body === undefined) {
+            throw new Error('the verification never reported to the service');
+        }
+
+        return JSON.parse(body) as Record<string, unknown>;
+    }
+
+    it('posts a match as evidence with its attempt and the baseline it used', async () => {
+        const report = await reported(EXPECTED_AGENT);
+
+        expect(report.paths).toEqual([`POST /v1/events/${CORRELATION}/verification`]);
+        expect(reportBody(report)).toEqual({
+            correlationId: CORRELATION,
+            attempt: 1,
+            sessionId: SESSION,
+            observedAgent: EXPECTED_AGENT,
+            expectedAgent: EXPECTED_AGENT,
+            ok: true,
+            note: null,
+        });
+        expect(report.rt.state.repos.runs.agentNotice?.tone).toBe('success');
+    });
+
+    it('posts a mismatch as warn-only evidence and changes no run state', async () => {
+        const report = await reported('executor');
+        const body = reportBody(report);
+
+        expect(body.ok).toBe(false);
+        expect(body.observedAgent).toBe('executor');
+        expect(String(body.note)).toContain('differs from the baseline');
+        expect(report.rt.state.repos.runs.agentNotice?.tone).toBe('warning');
+        expect(report.rt.state.repos.runs.agentNotice?.body).toContain('Warning only');
+        // Warn-only (FR-043): the verification moved no run and armed nothing.
+        expect(report.rt.state.repos.runs.rows).toEqual([]);
+        expect(report.rt.state.repos.runs.pendingAction).toBeNull();
+        expect(report.rt.state.repos.runs.busy).toBe(false);
+    });
+
+    it('posts an unreadable agent as no observation, with the note that says so', async () => {
+        const body = reportBody(await reported());
+
+        expect(body.ok).toBe(false);
+        expect(body.observedAgent).toBeNull();
+        expect(body.note).toBe('the session reported no agent');
+    });
+
+    it('never holds the relay tick while the read-back waits (AC-125)', async () => {
+        // The host answers every service call but never delivers a session
+        // snapshot: an awaited read-back would sit on its 15 s budget here.
+        const held: { deliver: (agent: string) => void } = {
+            deliver: () => {
+                throw new Error('the read-back never subscribed');
+            },
+        };
+        const calls: string[] = [];
+        const host = fakeHost({
+            startSession: async () => SESSION_CREATED,
+            openSession: async (id) => {
+                calls.push(`openSession:${id}`);
+            },
+            onSession: (listener) => {
+                held.deliver = (agent) => listener(snapshot(agent));
+
+                return IDLE_UNSUBSCRIBE;
+            },
+            serviceRequest: async (request) => {
+                calls.push(`${request.method} ${request.path}`);
+                if (request.method === 'GET' && request.path === '/v1/events/pending') {
+                    return {
+                        status: 200,
+                        body: JSON.stringify({ events: [CLAIM], status: [], auditWritten: true }),
+                    };
+                }
+
+                if (request.path.endsWith('/reserve')) {
+                    return {
+                        status: 200,
+                        body: JSON.stringify({
+                            correlationId: CORRELATION,
+                            attempt: 1,
+                            dispatchToken: TOKEN,
+                            tokenExpiresAt: FIXTURE_TIMESTAMP,
+                            resultDeadlineAt: FIXTURE_TIMESTAMP,
+                            state: 'starting',
+                            auditWritten: true,
+                        }),
+                    };
+                }
+
+                if (request.path.endsWith('/dispatched')) {
+                    return { status: 200, body: '{"done":true}' };
+                }
+
+                if (request.method === 'GET' && request.path === '/v1/events') {
+                    return { status: 200, body: '{"events":[]}' };
+                }
+
+                return { status: 200, body: '{"ok":true}' };
+            },
+        });
+        const rt = createTestRuntime(host);
+        rt.state.repos.bindings = [
+            {
+                bindingId: CLAIM.bindingId,
+                accountNumericUserId: '77331',
+                accountLogin: LOGIN,
+                repository: CLAIM.repository,
+                projectId: PROJECT_ID,
+                worktreeOption: 'generated',
+                triggers: { assignment: true, mention: false, reviewRequest: false },
+                state: 'active',
+                createdAt: FIXTURE_TIMESTAMP,
+                updatedAt: FIXTURE_TIMESTAMP,
+            },
+        ];
+
+        await dispatchClaimedRun(rt, CLAIM);
+
+        // The tick returned with the read-back still in flight: the claim slot
+        // is free while the host has not answered (AC-125, FR-043).
+        expect(rt.pendingVerifications).toHaveLength(1);
+        expect(calls).toContain(`openSession:${SESSION}`);
+        expect(rt.state.repos.runs.rows).toHaveLength(0);
+
+        held.deliver('executor');
+        await drainVerifications(rt);
+
+        expect(rt.pendingVerifications).toHaveLength(0);
+        expect(rt.state.ledger.entries.at(-1)?.detail.agentVerified).toBe(false);
+        expect(rt.state.repos.runs.agentNotice?.tone).toBe('warning');
     });
 });

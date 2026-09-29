@@ -29,6 +29,7 @@ import type {
     SessionSnapshot,
     StartSessionResult,
 } from '@openchamber/sdk';
+import { drainVerifications } from '../src/agent-verify.ts';
 import { dispatchClaimedRun, handledKey, pollRelay } from '../src/relay.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
@@ -330,6 +331,9 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
         const relay = harness();
 
         await dispatchClaimedRun(relay.rt, claimedRun());
+        // The read-back is detached from the tick (AC-125): drain it so the
+        // contract order below is asserted rather than raced.
+        await drainVerifications(relay.rt);
 
         expect(dispatchTimeline(relay.timeline)).toEqual([
             `POST ${RUN_PATH}/reserve`,
@@ -338,6 +342,7 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
             `POST ${RUN_PATH}/dispatched`,
             'ack',
             `openSession:${SESSION_ID}`,
+            `POST ${RUN_PATH}/verification`,
         ]);
     });
 
