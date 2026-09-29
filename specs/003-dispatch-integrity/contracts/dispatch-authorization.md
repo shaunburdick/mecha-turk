@@ -4,7 +4,7 @@
 
 Every operation below is **run-scoped**: the path segment is the run's **correlation id** (`mt-run-…`), not a delivery id (wire delta: "Addressed by the run, not the delivery"). Paths keep their existing suffixes where they exist (`/dispatched`, `/retry`); new operations take verb suffixes under the same `/v1/events/:correlationId/` prefix. Co-ship assumption: [README](./README.md).
 
-**Common body fields**: `correlationId` (echo of the path id — FR-051), `attempt` (number the caller believes is current), and where stated `leaseId` / `dispatchToken`. The service validates **all** of them; a mismatch of any is a refusal, never a partial apply.
+**Common body fields**: `correlationId` (echo of the path id — FR-051) on every operation, and `attempt` **where the section's body carries it (§1–§6)**, plus `leaseId` / `dispatchToken` where a section states them. §7 and §8 declare neither an attempt nor a lease: their request shapes below are the whole of what they require, and requiring a member they do not carry would be a wire change this contract does not ask for. The service validates **all** of what a section names; a mismatch of any is a refusal, never a partial apply.
 
 ---
 
@@ -18,11 +18,36 @@ Every operation below is **run-scoped**: the path segment is the run's **correla
 // 200 response
 { "correlationId": "mt-run-…", "attempt": 1,
   "dispatchToken": "dtk-<sha256(runKey|attempt) hex[0:32]>",
-  "tokenExpiresAt": "<RFC3339 — the lease expiry the token rides on>",
+  "tokenExpiresAt": "<RFC3339 — the lease the reservation was made under>",
+  "resultDeadlineAt": "<RFC3339 — now + resultDeadlineMs, the moment the sweep wedges the run>",
   "state": "starting" }
 ```
 
-**Service actions, in order, inside the queue chain**: validate lease (exists, matches, unexpired, holder irrelevant) → validate run state `claimed` → validate no live reservation → validate no recorded session → mint token deterministically (data-model §2.2) → persist `reservation { dispatchToken, attempt, reservedAt, now+resultDeadlineMs, consumed:false }`, state `starting` → write `dispatch.reserved` (details: lease id, attempt, token, attachment id) → answer.
+`tokenExpiresAt` and `resultDeadlineAt` answer different questions and both are
+returned so neither can be mistaken for the other: the **lease** says when the
+*claim* dies, the **deadline** says when the *authorization* is reported or
+wedged. The authorization outlives the lease — a report is judged against the
+reservation, not the claim (§2) — so a panel reading only `tokenExpiresAt` would
+conclude its token dies at that instant, skip the report, and strand the run in
+`unconfirmed`.
+
+**Service actions, in order, inside the queue chain**: validate **no recorded
+session** → validate lease (exists, matches, unexpired, holder irrelevant) →
+validate no live reservation → validate run state `claimed` → mint token
+deterministically (data-model §2.2) → persist
+`reservation { dispatchToken, attempt, reservedAt, now+resultDeadlineMs,
+consumed:false }`, state `starting` → write `dispatch.reserved` (details: lease
+id, attempt, token, attachment id) → answer.
+
+The order is the verdicts' precedence, and each move exists because the obvious
+order made a documented refusal unreachable: the **session** check runs first
+because an applied result clears the lease, so a real `dispatched` run holds no
+lease — read the lease first and FR-022's "the refusal MUST name the existing
+session" (AC-112) could never fire. The **reservation** check runs ahead of the
+state check for the same reason: a `starting` run is not `claimed`, so reading
+the state first would answer `invalid-transition` where the table promises
+`already-reserved`. `invalid-transition` remains the answer for every other
+live-lease state.
 
 | Refusal | Status | `code` | Distinct reason (FR-022) |
 | --- | --- | --- | --- |
@@ -58,6 +83,7 @@ A refused reserve never writes `dispatch.reserved` (no reservation exists); it w
 | Condition | Answer | Audit |
 | --- | --- | --- |
 | token not recorded on this run | 409 `stale-lease` | refusal row |
+| token carried by the **live** reservation, but an **earlier** attempt record already closed it — a dead-letter return (§7) re-mints byte-identical bytes, so a report from the spent chain and this one's own report are indistinguishable on the wire | 409 `stale-lease` | refusal row (the attempt history, not the reservation, tells the chains apart; AC-110) |
 | token already consumed, **identical** outcome | **200**, state unchanged | `dispatch.duplicate-report` (`no-change`, attempt, token, the state it repeated) — exactly one row per repeat (FR-025 idempotency, edge case "report arriving twice") |
 | token already consumed, **different** outcome | 409 `invalid-transition` | refusal row (a session id can never be overwritten by a problem, nor swapped) |
 | token recorded, unconsumed, run in `starting` (lease may have expired — the reservation, not the lease, authorizes a *report*) | **200**, applied | `dispatch.result` |
@@ -147,7 +173,9 @@ A refused retry consumes nothing and writes one refusal row (AC-113; 005 will re
 // 200 → { "state": "pending", "attempt": 1, "requeuesUsed": 0, … }
 ```
 
-Valid only from `dead-lettered` (else 409 `invalid-transition`). **Resets `attempt` to 1 and `requeuesUsed` to 0** (FR-033: "with the attempt count reset"), clears lease/reservation, keeps source references and attempt history, writes `dispatch.retry` with `priorState: "dead-lettered"` and details naming the reset. Token-consumption scoping across the reset: [research](../research.md) §R3 / plan D6 — consumption is per attempt-chain, the reset starts a new chain, and the reset itself is the audit row that makes the boundary legible.
+Valid only from `dead-lettered` (else 409 `invalid-transition`). **Resets `attempt` to 1 and `requeuesUsed` to 0** (FR-033: "with the attempt count reset"), clears lease/reservation, keeps source references and attempt history, writes `dispatch.retry` with `priorState: "dead-lettered"` and details naming the reset.
+
+Token-consumption scoping across the reset: [research](../research.md) §R3 / plan D6 — consumption is recorded on the attempt history, and **the history survives the reset**. Because FR-020 pins the token to `sha256(runKey|attempt)`, the reset's attempt 1 re-mints chain 1's byte-identical bytes, so a token whose record already closed can never authorize a report again — not even inside the new chain (§2's second row). Reserve still works: it consults no history, which is what keeps this control from dead-ending a run. The reset itself is the audit row that makes the boundary legible; what makes it *safe* is that the boundary does not un-spend anything.
 
 ---
 
@@ -179,7 +207,16 @@ Only from `unconfirmed` (else 409 `invalid-transition`). The panel must present 
 
 | `eventType` | Actor | Written when | `decision` | required `details` |
 | --- | --- | --- | --- | --- |
-| `dispatch.refused` | `service` | any run-scoped operation in this directory answers 4xx | `refused` | attempted operation, refusal `code`, prior state, attempt (and lease/token reference when the refusal was a staleness verdict) |
+| `dispatch.refused` | `service` | a **state verdict** (`409`) on a run that exists, or a **`422`** whose path names a run that exists | `refused` | attempted operation, refusal `code`, prior state, attempt (and lease/token reference when the refusal was a staleness verdict) |
+
+The row set is deliberately narrower than "any `4xx`". A state verdict is
+refused inside its operation module, which reads the run and owes the row; a
+`422` is refused in the route layer before any operation runs, so the route
+reads the run for `priorState` and `attempt` inside the chain and then writes the
+same row — that is the whole of what "a `422` on an existing run" adds. Two `4xx`
+answers write nothing, both because **there is no run to name**: `404
+unknown-run` (no entity, no prior state, no attempt), and a `422` whose path id
+is not a run this service holds. Neither invents an entity to attach a row to.
 
 Rules: entity = the run, correlation = the run's id, reason = the same secret-free cause the response carries (never the token, never a received value beyond the identifiers), exactly one row per refusal. **Scope reading**: a refusal *by the panel* that never reached the service (FR-035's "do not dispatch what was not offered") changes no run and is recorded in the panel's ledger for that mount — the service cannot audit a request it never received, and inventing a report call for a no-op would add a wire operation the spec does not ask for. Panel refusals that *do* change a run already have their own vocabulary row (`run.blocked`), and operator-facing refusals the service answers (`retry`, `resolve`, `requeue`, `reserve`, `result`) all land here.
 
@@ -193,18 +230,55 @@ Rows that must identify the authorization record it as a **fingerprint** instead
 | --- | --- |
 | `dispatchTokenFingerprint` | `tokfp-<16 hex>` — `sha256(dispatchToken)` truncated to 16 hex characters, derived by the service and reproducible by it |
 
-The fingerprint is derived from the **token value**, not from the run key, so it identifies *that* authorization: two attempts of one run mint two different tokens and therefore produce two different fingerprints, which is exactly what makes the row answer "which token was outstanding".
+The fingerprint is derived from the **token value**, not from the run key, so it identifies *that* authorization: **within one attempt chain** two attempts mint two different tokens and therefore produce two different fingerprints, which is exactly what makes the row answer "which token was outstanding". **Across a dead-letter return (§7) that uniqueness does not hold**: the reset returns the run to attempt 1 and FR-020 pins the derivation to `(runKey, attempt)`, so chain 1's attempt 1 and chain 2's attempt 1 mint byte-identical bytes and therefore the *same* fingerprint. The row stays honest — it still names the authorization whose bytes were outstanding, and the `dispatch.retry` reset row beside it says where one chain ended — but the fingerprint does not distinguish the chains and must never be read as if it did. What distinguishes them is the attempt history itself, and what prevents a spent token from being reused is §7's spend check, not this identifier.
 
 **The prefix is deliberately not `dtk-`.** A fingerprint that shared the token's prefix would be indistinguishable from a leaked token to the standing scan below and to an operator grepping the trail.
 
 `SECRET_PATTERNS` is **not** extended to cover `dtk-`: 003 T-019 legitimately stores dispatch tokens in panel storage (`mecha-turk:dispatches`, data-model §3), so a redaction guard that refused them would break the feature it is meant to protect. The defence is the **scan**, not redaction — a test drives every audit-writing path this build has and asserts that **no** row written anywhere matches `/dtk-[0-9a-f]{8,}/`. `dispatch.unconfirmed` is the one row of the three Wave 2 ships that names a token; when Wave 3's rows are built, they name it the same way, and the same scan enforces it.
+
+## What a dispatch token is: a non-secret sequencing value
+
+A dispatch token is **derived from answer-visible inputs** — the run key and the
+attempt number, both of which the claim answer already carries — and it guards
+nothing **by secrecy**. Anyone who can read the claim answer holds the bytes, and
+that is deliberate: FR-020 requires a deterministic derivation from exactly that
+pair, so the token is reproducible by the service that minted it and by nobody
+else who cannot see the answer.
+
+**The service's bearer token is the only authentication gate.** This extends the
+lease-id ruling already recorded in [`claim-lease.md`](./claim-lease.md): both ids
+are coordination values, not capabilities, and the same reading applies to the
+dispatch token's *protection* while not erasing what it *is*. It remains a live,
+single-use authorization to report a result while its reservation is
+unconsumed — §2's matrix is what spends it — and it is the panel's proof that the
+service authorized this particular attempt.
+
+**What actually prevents a second session is the state machine plus the
+attempt-history spend check:**
+
+1. §1's verdict order — session, lease, reservation, state — refuses an
+   authorization a run could not already hold (FR-022, AC-112).
+2. §2's staleness matrix refuses every report that is not the live reservation's
+   own unconsumed token on the run's current attempt (FR-025, AC-109).
+3. §7's spend check refuses any token the attempt history has already closed —
+   which is what makes the byte-identical re-mint across a dead-letter reset
+   harmless, and what an otherwise-correct reservation check cannot see (FR-020,
+   FR-028, AC-110).
+
+Secrecy is not on that list, so nothing treats the token as a secret:
+`SECRET_PATTERNS` deliberately does not cover `dtk-` (003 T-019 stores tokens in
+panel storage by design, and a redaction guard that refused them would break the
+feature it protects), and the guarantee that no audit row carries one is the
+**scan** described above rather than a redaction refusal. The two statements are
+compatible by construction: the token is a live capability *and* a value whose
+safety never depended on being unknown.
 
 ## Error-code additions to 002 contract §4
 
 | HTTP | `code` | Meaning | Panel copy family |
 | --- | --- | --- | --- |
 | 404 | `unknown-run` | no run with this correlation id (new; `not-found` keeps its transport meaning) | "this run no longer exists — refresh" |
-| 409 | `stale-lease` | expired / superseded / unknown lease-or-token on a *reserve*; unknown / superseded token on a *result* | "another attempt owns this run — nothing was started" (never retry automatically) |
+| 409 | `stale-lease` | expired / superseded / unknown lease-or-token on a *reserve*; unknown / superseded / **already spent by the attempt history** token on a *result*; and an **attempt-number mismatch** on any operation that validates the member — reserve, block report, retry, verification — where the run stands on a different attempt than the request names | "another attempt owns this run — nothing was started" (never retry automatically); the attempt-number mismatch carries the service's own message instead, and 005 renders both verbatim |
 | 409 | `already-reserved` | reserve on a run holding a live reservation | "this run is already authorized to start" |
 | 409 | `already-dispatched` | reserve on a run with a recorded session — **message names the session** | "a session already exists: `<id>`" |
 | 409 | `invalid-transition` | existing code, widened: retry/resolve/requeue/result refusals, each with a **distinct message naming the source state** | quote the service's message verbatim (005 renders it) |
