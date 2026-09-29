@@ -58,7 +58,8 @@ import {
 } from './project-actions.ts';
 import { redact } from './redaction.ts';
 import { mountReposSection } from './repos-mount.ts';
-import { startRelayPolling } from './relay.ts';
+import { reconcileDispatchAttempts } from './reconcile.ts';
+import { settleReconciliation, startRelayPolling } from './relay.ts';
 import { loadRuns } from './runs.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
@@ -375,12 +376,27 @@ export function handlePagehide(rt: PanelRuntime): void {
 }
 
 /**
- * First-time start, driven by `onReady`.
+ * Whether the frame was torn down while the last await was in flight.
+ *
+ * A function call rather than a bare `rt.disposed` read: the analyzer narrows
+ * that property across an `await` and calls a second direct check unreachable,
+ * while the frame really can go away between two awaits — and carrying on would
+ * reconcile, claim, and dispatch from a disposed panel.
+ *
+ * @param rt - Panel runtime.
+ * @returns `true` once the mount has been torn down.
+ */
+function tornDown(rt: PanelRuntime): boolean {
+    return rt.disposed;
+}
+
+/**
+ * Mount the panel: restore, configure, read, reconcile, repaint.
  *
  * @param rt - Panel runtime.
  * @param context - Ready snapshot from the host.
  */
-async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
+async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
     await loadLedger(rt, nowIso());
     // The stored selection must land before the first `applySettings`: it is
     // the input config resolution uses for this mount. The restore self-guards
@@ -399,8 +415,16 @@ async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void>
     handleConnection(rt, context.connection.connected);
     void loadProjects(rt);
     // Bindings land before the handoff pre-flight so the banner reflects
-    // them and the relay is armed for the operator's loop test.
-    void loadInitialBindings(rt);
+    // them and the relay is armed for the operator's loop test. Awaited
+    // rather than fired: it is the one mount-time read that writes a banner
+    // of its own, and reconciliation's warning has to be the last one this
+    // mount writes (a warning that later reads as "Configuration loaded"
+    // would be a silent skip in a prettier font).
+    await loadInitialBindings(rt);
+    if (tornDown(rt)) {
+        return;
+    }
+
     // The runs history is read on mount too (M8), beside the bindings it
     // sits under: one GET /v1/events that fails here lands on the runs
     // note line instead of an empty area nobody can explain.
@@ -409,7 +433,33 @@ async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void>
     // service storage is writable (F10/SEC-08); a failed pre-flight leaves
     // the reason on screen instead of a usable credential field.
     void preflightAndRepaint(rt);
+
+    // FR-025: every attempt this panel recorded and has not seen acknowledged
+    // is re-reported here — bounded, idempotent, and never silently skipped.
+    // The relay cannot claim before this returns, because the gate is still
+    // closed and every arming site defers to it.
+    await reconcileDispatchAttempts(rt);
     refresh(rt);
+}
+
+/**
+ * First-time start, driven by `onReady`.
+ *
+ * The reconcile gate closes before anything that could arm the relay and opens
+ * only after every outstanding attempt has been re-reported (FR-025), in a
+ * `finally` so no mount path can leave the relay unarmed — or armed ahead of
+ * its own reconciliation.
+ *
+ * @param rt - Panel runtime.
+ * @param context - Ready snapshot from the host.
+ */
+async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
+    rt.reconcileSettled = false;
+    try {
+        await mountPanel(rt, context);
+    } finally {
+        settleReconciliation(rt);
+    }
 }
 
 /**

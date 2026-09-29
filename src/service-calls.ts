@@ -65,7 +65,13 @@ export type ServiceResult =
 /** Result of one call where the service's error code matters to the caller. */
 export type ServiceErrorResult =
     | { readonly ok: true; readonly body: string }
-    | { readonly ok: false; readonly problem: string; readonly code: string | null };
+    | {
+        readonly ok: false;
+        readonly problem: string;
+        readonly code: string | null;
+        /** The envelope's own refusal copy, verbatim; `null` when it sent none. */
+        readonly message: string | null;
+    };
 
 /**
  * Decide whether one HTTP status lands in the 2xx band.
@@ -105,21 +111,27 @@ function httpProblem(status: number): string {
 }
 
 /**
- * Read the error code out of one error envelope, without trusting it.
+ * Read one string member out of an error envelope, without trusting it.
+ *
+ * The envelope is never quoted back into a request — it is read so a refusal
+ * can *name its cause*: `code` is what the panel branches on, `message` is the
+ * service's own copy, which the contract says 005 (and this panel's notes)
+ * render verbatim.
  *
  * @param body - Response body text (unchecked).
- * @returns The envelope's code, or `null` when absent.
+ * @param field - Envelope member to read.
+ * @returns The member, or `null` when absent or not a string.
  */
-function envelopeCodeOf(body: string): string | null {
+function envelopeFieldOf(body: string, field: string): string | null {
     const root = parseJsonObject(body);
     const error = root?.error;
     if (error === null || typeof error !== 'object' || Array.isArray(error)) {
         return null;
     }
 
-    const { code } = error as { readonly code?: unknown };
+    const value = (error as Record<string, unknown>)[field];
 
-    return typeof code === 'string' ? code : null;
+    return typeof value === 'string' ? value : null;
 }
 
 /**
@@ -140,21 +152,27 @@ function resultOf(answer: GuestRequestResult): ServiceResult {
  * Turn one service answer into the error-aware wrapper's result.
  *
  * Same as {@link resultOf}, except a refusal in the error bands also carries
- * the envelope's machine code — extracted from the body, never quoted — so a
- * caller can distinguish a documented refusal from anything else without
- * parsing the body twice.
+ * the envelope's machine code **and its own message** — both extracted from
+ * the body, never quoted into anything but a note — so a caller can
+ * distinguish a documented refusal from anything else without parsing the body
+ * twice, and can still tell the operator what the service said.
  *
  * @param answer - The result the host bridged back.
- * @returns The body, or a problem plus the error code when one was sent.
+ * @returns The body, or a problem plus the error code and copy when one was sent.
  */
 function resultWithErrorOf(answer: GuestRequestResult): ServiceErrorResult {
     if (isOkStatus(answer.status)) {
         return { ok: true, body: answer.body };
     }
 
-    const code = isErrorStatus(answer.status) ? envelopeCodeOf(answer.body) : null;
+    const inEnvelope = isErrorStatus(answer.status);
 
-    return { ok: false, problem: httpProblem(answer.status), code };
+    return {
+        ok: false,
+        problem: httpProblem(answer.status),
+        code: inEnvelope ? envelopeFieldOf(answer.body, 'code') : null,
+        message: inEnvelope ? envelopeFieldOf(answer.body, 'message') : null,
+    };
 }
 
 /**
@@ -242,7 +260,7 @@ export async function servicePost(input: {
 
         return resultWithErrorOf(answer);
     } catch (cause) {
-        return { ok: false, problem: describeTransport(cause), code: null };
+        return { ok: false, problem: describeTransport(cause), code: null, message: null };
     }
 }
 
@@ -268,7 +286,7 @@ export async function serviceDelete(input: {
 
         return resultWithErrorOf(answer);
     } catch (cause) {
-        return { ok: false, problem: describeTransport(cause), code: null };
+        return { ok: false, problem: describeTransport(cause), code: null, message: null };
     }
 }
 

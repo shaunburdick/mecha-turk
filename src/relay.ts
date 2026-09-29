@@ -235,6 +235,26 @@ export function startRelayPolling(rt: PanelRuntime): void {
 }
 
 /**
+ * Open the reconcile gate and release whatever arming it deferred (FR-025).
+ *
+ * The gate is what makes "no claim before reconciliation" a property of the
+ * arm rather than of the call site that happens to reach it first: any of the
+ * three arming sites may ask while `app.ts` is still re-reporting outstanding
+ * attempts, and each one only records its intent until this runs.
+ *
+ * @param rt - Panel runtime.
+ */
+export function settleReconciliation(rt: PanelRuntime): void {
+    rt.reconcileSettled = true;
+    if (!rt.relayArmPending || rt.disposed) {
+        return;
+    }
+
+    rt.relayArmPending = false;
+    startRelayPolling(rt);
+}
+
+/**
  * Stop the relay loop.
  *
  * @param rt - Panel runtime.
