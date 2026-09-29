@@ -22,11 +22,12 @@ GitHub (read-only) ──poll──> local service ──durable event queue─�
 - **The service polls** your bound repositories on an interval (default 60 s,
   clamped 15–300 s) for the triggers you enable. Polling is service-side, so
   it continues while the panel is closed.
-- **The panel dispatches.** Each queued event becomes exactly one
-  `host.startSession()` call — OpenChamber's own harness creates the session,
-  the worktree, and the chat. Deterministic event ids guarantee one session
-  per event, and the Runs list shows every result with a manual **Retry**
-  where a retry is allowed.
+- **The panel dispatches.** Triggers that hit the same issue coalesce into one
+  **run**, and a run produces at most one `host.startSession()` call —
+  OpenChamber's own harness creates the session, the worktree, and the chat.
+  A single-use dispatch token makes a second session for one run impossible
+  rather than merely unlikely, and the Runs list shows every result with a
+  manual **Retry run** where a retry is allowed.
 - **Everything is recorded.** Discoveries, dispatches, refusals, and account
   changes land in a durable audit trail and a redacted ledger, so you can
   always explain why an event was accepted, ignored, or retried.
@@ -106,6 +107,15 @@ settings carry over, and you re-approve only if the new version asks for more.
    is a *non-authoritative* convenience: it shows a connected-login badge and
    backs one read-only identity diagnostic. It is never used for polling,
    discovery, or dispatch, and Mecha Turk works fully without it.
+5. **Read the panel's setup prerequisites** — the panel shows a **Setup
+   prerequisites** section covering the six things a first dispatch needs:
+   the Default Agent pin, OpenChamber running, the desktop-or-web surface,
+   the GitHub token scopes, a registered project per binding, and
+   service-capability approval with the in-panel consent step. Each line has
+   its own state — *met*, *not met*, or **not checkable by the panel** — and
+   its own remediation. The Default Agent pin is reported as not checkable
+   because the panel genuinely cannot read that setting, and any checkable
+   prerequisite that is unmet also raises a notice above the tabs.
 
 ## First dispatch
 
@@ -117,12 +127,32 @@ settings carry over, and you re-approve only if the new version asks for more.
 3. The run is marked **dispatched** with a link to the session. A run that
    did not dispatch keeps a **Retry run** button (an already-dispatched run
    never re-dispatches).
+4. Select the run row and press **Audit history** to read that run's whole
+   trail — creation, claim, authorization, result, verification — under its
+   correlation identifier, in order, from the panel alone.
+
+## When a dispatch doesn't go through
+
+Every run carries a state and a reason line, and each non-terminal state has
+a control that moves it:
+
+| State | What it means | What you do |
+| --- | --- | --- |
+| `dispatch failed` | The dispatch ran and made no session; the cause is recorded | **Retry run** — same run, attempt counted up |
+| `blocked: <reason>` | A fail-closed guard refused before any session was started (unregistered project, missing or disabled binding) | Fix the cause, then **Retry run** |
+| `unconfirmed` | A session may exist: intent was reported and no result arrived before the deadline | The panel reconciles this on its next mount; otherwise **Resolve run**, only after checking OpenChamber's own session list |
+| `dead-lettered` | The automatic requeue budget is spent | **Return to waiting** (resets the attempt count) |
+
+Closing the panel never strands work: a claim whose lease expires returns to
+waiting on its own with the attempt counted up and the reason audited, while a
+run whose result never arrived is held `unconfirmed` and is **never**
+re-dispatched automatically — only an explicit operator decision can do that.
 
 ## Where your data lives
 
 | Location | Contents | Survives uninstall? |
 | --- | --- | --- |
-| `~/.config/openchamber/mecha-turk/` | Accounts (**plaintext PATs**), repository bindings, event queue, scans, `audit.ndjson`, runs | ✅ yes |
+| `~/.config/openchamber/mecha-turk/` | Accounts (**plaintext PATs**), repository bindings, event queue, runs (`events.json`, `runs.json`), scans, `audit.ndjson` | ✅ yes |
 | OpenChamber extension storage | Panel UI state + redacted dispatch ledger | ❌ wiped on uninstall |
 
 Treat the service folder like `~/.ssh`: include it in backups deliberately,

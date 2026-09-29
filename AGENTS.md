@@ -106,18 +106,25 @@ network — those checks are operator-gated and recorded in the spec (see
 | `matching.ts` | The single configured-match rule |
 | `evidence.ts` | Normalized, redacted evidence record |
 | `ledger.ts` / `ledger-repair.ts` | Redacted `host.storage` ledger, phases, gap analysis, bounded-write repair |
-| `session.ts` / `host-verify.ts` | `startSession()` framing + host-owned project/worktree/session read-back |
+| `session.ts` / `host-verify.ts` | `startSession()` framing (attachment id = the run's correlation id, multi-reference bounded excerpt) + host-owned project/worktree/session read-back |
 | `lifecycle.ts` | Lifecycle experiment plan and mount bookkeeping |
 | `panel-state.ts` / `panel-ui.ts` | Shared runtime state; rendering with `@openchamber/sdk/ui` |
-| `panel-actions.ts` / `panel-dispatch.ts` | Poll/identity/verify actions; the single dispatch path |
+| `panel-actions.ts` / `panel-dispatch.ts` | Poll/identity/verify actions; the spike dispatch path |
 | `project-picker.ts` / `project-actions.ts` | Pure picker state; `listProjects()` + stored selection |
 | `app.ts` | Wiring: mount, subscribe, teardown |
 | `redaction.ts` / `json.ts` | Secret-shape detection; typed bridge to the host's `JsonValue` |
-| `service-calls.ts` | Shared `host.serviceRequest()` GET/PUT/POST/DELETE wrappers |
+| `service-calls.ts` | Shared `host.serviceRequest()` GET/PUT/POST/DELETE wrappers + the run-scoped paths (reserve, result, abandon, blocked, retry, requeue, resolve, verification, audit read) |
 | `bindings-mode.ts` | Bindings-authoritative mode: first enabled binding is dispatch context |
 | `repos*.ts` / `runs*.ts` | Repositories tab (bindings, accounts, add form) + Runs history/retry |
-| `relay.ts` | Event relay: claim → dispatch → report; one handoff per event id per mount |
-| `agent-verify.ts` | Post-dispatch `openSession()` agent read-back (warn-only) |
+| `runs-service.ts` / `runs-rows.ts` | Run DTO parsed fail-closed across the eight dispatch states; each state's label, tone, and retry validity |
+| `relay.ts` | Relay tick: claim → handled key → guards → attempt; one handoff per `correlationId#attempt` per mount |
+| `relay-gates.ts` / `relay-attempt.ts` | Binding/project guards, the `blocked` report, and the reserve step; then host call → record → report → acknowledge → read-back |
+| `dispatch-record.ts` | `mecha-turk:dispatches`: the durable attempt record, written between the host call and its report and acknowledged on its own 2xx |
+| `claim-service.ts` | Claim and run-history body parsers (strict: an unknown state refuses the body) |
+| `reconcile.ts` | Mount-time re-report of every unacknowledged attempt, before the first claim (bounded, warns visibly) |
+| `prerequisites.ts` | The six first-run prerequisites, each `met` / `not-met` / `not-checkable`, with its remediation line |
+| `audit-view.ts` | One run's audit history under its correlation id, rendered as text (never markup) |
+| `agent-verify.ts` | Post-dispatch `openSession()` agent read-back, reported to the service (warn-only) |
 | `handoff*.ts` / `accounts*.ts` / `consent*.ts` | One-shot token handoff, consent gate, credential-free account mirror |
 | `storage-write.ts` | Guarded storage writes |
 
@@ -130,7 +137,17 @@ network — those checks are operator-gated and recorded in the spec (see
 | `accounts/` | Durable account model, credential files, startup reconcile |
 | `bindings.ts` | Whole-file bindings store (validated, capped) |
 | `poll/` | Per-binding scan loop, trigger detection over the rate budget, durable event queue (deterministic ids, claim, terminal dispatch) |
+| `poll/run-key.ts` | Run key, correlation id, dispatch token, and token-fingerprint derivation |
+| `poll/runs*.ts` | `runs.json` document: fail-closed parser, join/create, one-shot adoption of pre-003 rows, lifecycle audit rows and the durable audit outbox |
+| `poll/claim*.ts` | Lease-issuing claim: eligibility, projection, and the answer's run/byte bounds |
+| `poll/sweep.ts` / `poll/sweep-loop.ts` | Lease-expiry and result-deadline sweep: boot pass before the listener binds, unref'd timer, requeue budget |
+| `poll/dispatch*.ts` | Reserve / result / abandon / block family: single-use tokens, the staleness matrix, refusal rows |
+| `poll/run-chain.ts` / `poll/run-operate.ts` / `poll/run-verify.ts` / `poll/run-refusal.ts` | The shared run write chain, retry/requeue/resolve, the verification report, the refusal vocabulary |
+| `poll/run-history-project.ts` | The capped, credential-free run-history projection |
 | `routes/` | `/v1/status`, `/v1/health`, `/v1/bindings`, `/v1/accounts`, `/v1/events*`, credential verify |
+| `routes/dispatch.ts` / `routes/run-ops.ts` | Reserve, result, abandon, blocked; retry, requeue, resolve, verification |
+| `routes/audit.ts` | `GET /v1/audit`, filtered by correlation identifier |
+| `routes/run-scope.ts` / `routes/run-fields.ts` / `routes/run-answer.ts` | Shared run-scoped path/body readers and the `200` / refusal envelopes |
 | `audit.ts` / `log.ts` | `audit.ndjson` rows + structured, secret-free logs |
 | `store/` | 0700/0600 store, JSON/NDJSON IO, quarantine-and-repair reads |
 | `config.ts` / `env.ts` / `throttle.ts` | Operator-tunable polling/retry/retention, env, rate budgets |
