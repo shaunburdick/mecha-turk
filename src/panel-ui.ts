@@ -24,6 +24,7 @@ import {
     selectedProjectId,
 } from './project-picker.ts';
 import { redact } from './redaction.ts';
+import { mountPrerequisitesSection, repaintPrerequisites } from './prerequisites.ts';
 import { repaintReposPane } from './repos-ui.ts';
 import type { PanelRuntime, PanelState, PanelUi } from './panel-state.ts';
 
@@ -204,6 +205,11 @@ export function mountPanelUi(rt: PanelRuntime, input: { root: HTMLElement; handl
     const { root, handlers } = input;
     const banner = mountBanner(root, { tone: 'info', title: 'Mecha Turk', body: 'Waiting for the host.' });
     const summary = mountText(root, { text: 'Starting…' });
+    // FR-071's section sits directly under the summary: a first-run operator
+    // meets the checklist before the controls it unlocks, and the notice
+    // above the tab strip (mounted by the app) is what carries it when the
+    // Repositories tab is the one on screen.
+    mountPrerequisitesSection({ rt, parent: root });
     const picker = mountProjectPicker({ rt, root, handlers });
     const controls = createControlsRow(root);
 
@@ -386,4 +392,5 @@ export function refresh(rt: PanelRuntime): void {
 
     repaintReposSection(rt);
     refreshHandoff(rt);
+    repaintPrerequisites(rt);
 }

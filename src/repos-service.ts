@@ -17,6 +17,7 @@
  */
 
 import { asRecord, fieldsHoldText, integerOrZero, parseJsonObject, textOrEmpty, textOrNull } from './json.ts';
+import { readScopeMirror } from './account-mirror.ts';
 
 /** Path of the bindings collection. */
 
@@ -64,6 +65,9 @@ export interface PanelBinding {
     readonly updatedAt: string;
 }
 
+/** Verdict one account's recorded scope matrix gives its token (FR-010). */
+export type AccountScopeVerdict = 'ok' | 'missing' | 'unknown';
+
 /** One registered account the panel can bind (credential never present). */
 export interface PanelAccount {
     /** GitHub numeric user id. */
@@ -72,6 +76,14 @@ export interface PanelAccount {
     readonly login: string;
     /** `true` only for accounts whose latest verification succeeded. */
     readonly usable: boolean;
+    /**
+     * What this account's recorded FR-010 scope matrix says about its token
+     * (003 T-029), absent when the DTO carried no matrix this build reads.
+     *
+     * Absent means *no evidence*, never *no problem*: the prerequisites
+     * section renders it as not checkable, never as satisfied (FR-072).
+     */
+    readonly scope?: AccountScopeVerdict;
 }
 
 /** One per-binding poll-status row from the service. */
@@ -299,6 +311,33 @@ export function parseBindingsBody(text: string): BindingsSnapshot | null {
 }
 
 /**
+ * Narrow one account's `scopeCheck` DTO field to a verdict (003 T-029).
+ *
+ * The narrowing itself is account-mirror's {@link readScopeMirror} — the same
+ * four-capability matrix the handoff records into storage — so the mirror and
+ * the wire DTO can never drift into two different meanings of "readable". A
+ * body without a usable matrix answers `null`, which is *no evidence* rather
+ * than *no problem*: the prerequisites section renders that as not checkable
+ * and never as satisfied (FR-072).
+ *
+ * @param raw - `scopeCheck` from the accounts DTO, or anything else.
+ * @returns The verdict, or `null` when the DTO carries no readable matrix.
+ */
+function accountScope(raw: unknown): AccountScopeVerdict | null {
+    const mirror = readScopeMirror(raw);
+    if (mirror === null) {
+        return null;
+    }
+
+    const results = Object.values(mirror.results);
+    if (results.includes('missing')) {
+        return 'missing';
+    }
+
+    return results.includes('unknown') ? 'unknown' : 'ok';
+}
+
+/**
  * Parse the accounts response body into the records the picker offers.
  *
  * @param text - Response body text.
@@ -322,7 +361,16 @@ export function parseAccountsBody(text: string): PanelAccount[] | null {
             return null;
         }
 
-        accounts.push({ numericUserId, login, usable: state === 'active' });
+        // The key stays *absent* when there is no readable matrix, so a
+        // record that never carried one and a matrix this build cannot read
+        // are indistinguishable — both mean "no evidence".
+        const scope = accountScope(record.scopeCheck);
+        accounts.push({
+            numericUserId,
+            login,
+            usable: state === 'active',
+            ...(scope === null ? {} : { scope }),
+        });
     }
 
     return accounts;

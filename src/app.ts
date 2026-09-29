@@ -44,6 +44,7 @@ import {
     verifyHost,
 } from './panel-actions.ts';
 import { startDispatch } from './panel-dispatch.ts';
+import { mountPrerequisiteNotice, disposePrerequisites } from './prerequisites.ts';
 import { createPanelRuntime, setStatus } from './panel-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import { mountPanelUi, refresh } from './panel-ui.ts';
@@ -338,6 +339,9 @@ export function teardown(rt: PanelRuntime): void {
         rt.ui = null;
     }
 
+    // Mounted outside `ui`, so nothing above would release them.
+    disposePrerequisites(rt);
+
     if (rt.handoffView !== null) {
         rt.handoffView.dispose();
         rt.handoffView = null;
@@ -526,6 +530,8 @@ export function createSpikeApp(options: SpikeAppOptions): SpikeApp {
         copyProjectId: () => void copyProjectId(rt),
     };
 
+    // Above the tab strip on purpose: FR-073's notice has to show on every tab.
+    mountPrerequisiteNotice({ rt, parent: root });
     rt.reposSection = mountReposSection(rt, root);
     rt.ui = mountPanelUi(rt, { root: rt.reposSection.spike, handlers });
     rt.handoffView = mountHandoffDom({
