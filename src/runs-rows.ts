@@ -33,6 +33,7 @@
 import type { ListItem, Tone } from '@openchamber/sdk/ui';
 import { redact } from './redaction.ts';
 import { elapsedSince } from './repos-rows.ts';
+import { BLOCKED_PREFIX } from './runs-service.ts';
 import type { RunsState } from './panel-state.ts';
 import type { PlainRunState, RunReference, RunRow, RunState, RunVerification } from './runs-service.ts';
 
@@ -55,9 +56,6 @@ const KIND_LABELS: Record<RunRow['kind'], string> = {
     mention: 'mention',
     review: 'review',
 };
-
-/** Prefix of the open `blocked:<reason>` family (data-model §1). */
-const BLOCKED_PREFIX = 'blocked:';
 
 /** The terminal parked state, named once so the tables and tests share it. */
 const DEAD_LETTERED = 'dead-lettered' as const;
@@ -223,13 +221,28 @@ export interface RunAffordance {
 }
 
 /** Button label for the retry control (M8's copy, unchanged by 003). */
-const RETRY_LABEL = 'Retry run';
+export const RETRY_LABEL = 'Retry run';
 
 /** Button label for FR-027's resolution of an `unconfirmed` run. */
-const RESOLVE_LABEL = 'Resolve run';
+export const RESOLVE_LABEL = 'Resolve run';
 
 /** Button label for FR-033's return of a parked run to waiting. */
-const RETURN_LABEL = 'Return to waiting';
+export const RETURN_LABEL = 'Return to waiting';
+
+/** The same control once armed for its confirm step (the panel's two-step idiom). */
+export const CONFIRM_RETURN_LABEL = 'Confirm: return to waiting';
+
+/** Label of FR-027's first resolution, before the operator arms it. */
+export const SESSION_CREATED_LABEL = 'Session was created';
+
+/** Label of FR-027's first resolution, armed. */
+export const CONFIRM_SESSION_CREATED_LABEL = 'Confirm: session was created';
+
+/** Label of FR-027's second resolution, before the operator arms it. */
+export const NO_SESSION_LABEL = 'No session was created';
+
+/** Label of FR-027's second resolution, armed. */
+export const CONFIRM_NO_SESSION_LABEL = 'Confirm: no session was created';
 
 /**
  * Whether a state is one of the seven plain words the tables name.

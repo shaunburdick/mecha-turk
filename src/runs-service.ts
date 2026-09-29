@@ -49,7 +49,7 @@ export type PlainRunState = (typeof PLAIN_RUN_STATES)[number];
 export type RunState = PlainRunState | `blocked:${string}`;
 
 /** Prefix of the `blocked:<reason>` family (data-model §1). */
-const BLOCKED_PREFIX = 'blocked:';
+export const BLOCKED_PREFIX = 'blocked:';
 
 /** Trigger kinds the runs row can carry; anything else reads as `assignment`. */
 type RunKind = 'assignment' | 'mention' | 'review';

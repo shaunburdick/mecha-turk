@@ -1,21 +1,44 @@
 /**
- * The Runs section's mount (M8) — split from `repos-ui.ts`, which the pane's
- * bindings board and add form already fill to the file-length limit.
+ * The Runs section's mount and repaint (M8, widened by 003 T-025) — split
+ * from `repos-ui.ts`, which the pane's bindings board and add form already
+ * fill to the file-length limit.
  *
- * One heading, one status line, one list of recent events (newest first),
- * three actions over the selected row, a note for outcomes, and the M9
+ * One heading, one status line, one list of recent events (newest first), the
+ * actions over the selected row, a note for outcomes, and the M9
  * agent-verification banner in its own wrapper — a banner cannot be
  * unmounted through its handle, so the wrapper's `hidden` flag is what keeps
  * the area empty until a verification has something to say. Every control is
  * a documented SDK primitive repainted from state, exactly like the rest of
  * the pane, and every service-supplied string reaches the DOM through those
  * primitives' `textContent` writes (panel-service contract §3 invariant 11).
+ *
+ * The three operator actions mount as **groups that show and hide**: the SDK
+ * buttons have no "absent" state of their own, so each group wraps its buttons
+ * in an element whose `hidden` flag is the "no control here" the affordance
+ * table asks for — a disabled button would promise an action the service would
+ * refuse (FR-041, FR-074, AC-123). The resolve group carries FR-027's two
+ * resolutions plus the field where the operator names the session.
  */
 
-import { mountBanner, mountButton, mountList, mountText } from '@openchamber/sdk/ui';
-import type { BannerHandle, ButtonHandle, ListHandle, TextHandle } from '@openchamber/sdk/ui';
-import type { PanelRuntime } from './panel-state.ts';
-import { RUNS_EMPTY_TEXT, RUNS_HEADING, runRows, runsStatusText } from './runs-rows.ts';
+import { mountBanner, mountButton, mountList, mountText, mountTextField } from '@openchamber/sdk/ui';
+import type { BannerHandle, ButtonHandle, ListHandle, TextHandle, TextFieldHandle } from '@openchamber/sdk/ui';
+import type { PanelRuntime, RunsState } from './panel-state.ts';
+import {
+    CONFIRM_NO_SESSION_LABEL,
+    CONFIRM_RETURN_LABEL,
+    CONFIRM_SESSION_CREATED_LABEL,
+    NO_SESSION_LABEL,
+    RESOLVE_LABEL,
+    RETRY_LABEL,
+    RETURN_LABEL,
+    RUNS_EMPTY_TEXT,
+    RUNS_HEADING,
+    SESSION_CREATED_LABEL,
+    runAffordance,
+    runRows,
+    runsStatusText,
+    selectedRun,
+} from './runs-rows.ts';
 import type { ReposPaneHandlers } from './repos-ui.ts';
 
 /** Inputs the runs section's mounts share (runtime, pane root, handlers). */
@@ -40,9 +63,25 @@ export interface RunsBoard {
     readonly refreshRuns: ButtonHandle;
     /** Open the selected run's issue in the operator's browser. */
     readonly openRun: ButtonHandle;
-    /** Requeue the selected run. */
+    /** Wrapper around the retry control, hidden when no state accepts one. */
+    readonly retryRunBox: HTMLElement;
+    /** Requeue the selected run through `POST …/retry`. */
     readonly retryRun: ButtonHandle;
-    /** Note for load failures and retry outcomes. */
+    /** Wrapper around return-to-waiting, hidden unless the run is parked. */
+    readonly requeueRunBox: HTMLElement;
+    /** Return the selected parked run to waiting (FR-033). */
+    readonly requeueRun: ButtonHandle;
+    /** Wrapper around FR-027's two resolutions, hidden unless `unconfirmed`. */
+    readonly resolveBox: HTMLElement;
+    /** The resolution group's heading — the affordance's own label (T-024). */
+    readonly resolveHeading: TextHandle;
+    /** First resolution: the dispatch did create a session. */
+    readonly resolveSession: ButtonHandle;
+    /** Second resolution: the dispatch created no session. */
+    readonly resolveNoSession: ButtonHandle;
+    /** Where the operator names the session the first resolution records. */
+    readonly sessionField: TextFieldHandle;
+    /** Note for load failures and action outcomes. */
     readonly runsNote: TextHandle;
     /** Wrapper around the verification banner, hidden when there is none. */
     readonly agentNoticeBox: HTMLElement;
@@ -51,19 +90,160 @@ export interface RunsBoard {
 }
 
 /**
- * Create the horizontal row the runs actions mount into.
+ * Create a wrapping row the runs controls mount into.
  *
  * @param pane - The pane root.
  * @returns The row element the buttons mount into.
  */
-function createRunsControls(pane: HTMLElement): HTMLElement {
-    const controls = pane.ownerDocument.createElement('div');
-    controls.style.display = 'flex';
-    controls.style.flexWrap = 'wrap';
-    controls.style.gap = '8px';
-    pane.append(controls);
+function createControlGroup(pane: HTMLElement): HTMLElement {
+    const group = pane.ownerDocument.createElement('div');
+    group.style.display = 'flex';
+    group.style.flexWrap = 'wrap';
+    group.style.gap = '8px';
+    pane.append(group);
 
-    return controls;
+    return group;
+}
+
+/**
+ * Mount the heading, status line, and list of runs.
+ *
+ * @param input - Runtime, pane root, and handlers.
+ * @returns The three handles the list half needs.
+ */
+function mountRunList(input: MountInputs): Pick<RunsBoard, 'runsHeading' | 'runsStatus' | 'runsList'> {
+    const { pane, rt, handlers } = input;
+    const { runs } = rt.state.repos;
+
+    return {
+        runsHeading: mountText(pane, { text: RUNS_HEADING }),
+        runsStatus: mountText(pane, { text: runsStatusText(runs) }),
+        runsList: mountList(pane, {
+            items: runRows(runs),
+            ariaLabel: 'Event runs',
+            emptyText: RUNS_EMPTY_TEXT,
+            selectedId: runs.selectedRun,
+            onSelect: (id) => handlers.selectRun(id),
+        }),
+    };
+}
+
+/**
+ * Mount the two controls every selection offers: refresh, and open the issue.
+ *
+ * @param input - Pane root and handlers.
+ * @returns The two buttons.
+ */
+function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<RunsBoard, 'refreshRuns' | 'openRun'> {
+    const controls = createControlGroup(input.pane);
+
+    return {
+        refreshRuns: mountButton(controls, {
+            label: 'Refresh runs',
+            variant: 'secondary',
+            onClick: input.handlers.refreshRuns,
+        }),
+        openRun: mountButton(controls, {
+            label: 'Open issue',
+            variant: 'outline',
+            disabled: true,
+            onClick: input.handlers.openRun,
+        }),
+    };
+}
+
+/**
+ * Mount the two state-gated transitions: retry, and return to waiting.
+ *
+ * Each sits in its own group so the group's `hidden` flag can say "not this
+ * state" without leaving a greyed-out sibling visible.
+ *
+ * @param input - Pane root and handlers.
+ * @returns The groups and their buttons.
+ */
+function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
+    RunsBoard,
+    'retryRunBox' | 'retryRun' | 'requeueRunBox' | 'requeueRun'
+> {
+    const retryRunBox = createControlGroup(input.pane);
+    retryRunBox.hidden = true;
+    const retryRun = mountButton(retryRunBox, {
+        label: RETRY_LABEL,
+        variant: 'outline',
+        disabled: true,
+        onClick: input.handlers.retryRun,
+    });
+    const requeueRunBox = createControlGroup(input.pane);
+    requeueRunBox.hidden = true;
+    const requeueRun = mountButton(requeueRunBox, {
+        label: RETURN_LABEL,
+        variant: 'outline',
+        disabled: true,
+        onClick: input.handlers.requeueRun,
+    });
+
+    return { retryRunBox, retryRun, requeueRunBox, requeueRun };
+}
+
+/**
+ * Mount FR-027's two resolutions and the field that names the session.
+ *
+ * @param input - Runtime, pane root, and handlers.
+ * @returns The group, its heading, its two buttons, and the session field.
+ */
+function mountResolutions(input: MountInputs): Pick<
+    RunsBoard,
+    'resolveBox' | 'resolveHeading' | 'resolveSession' | 'resolveNoSession' | 'sessionField'
+> {
+    const { pane, rt, handlers } = input;
+    const resolveBox = createControlGroup(pane);
+    resolveBox.hidden = true;
+    const resolveHeading = mountText(resolveBox, { text: RESOLVE_LABEL });
+    const resolveSession = mountButton(resolveBox, {
+        label: SESSION_CREATED_LABEL,
+        variant: 'outline',
+        disabled: true,
+        onClick: handlers.resolveSessionCreated,
+    });
+    const resolveNoSession = mountButton(resolveBox, {
+        label: NO_SESSION_LABEL,
+        variant: 'outline',
+        disabled: true,
+        onClick: handlers.resolveNoSession,
+    });
+    const sessionField = mountTextField(resolveBox, {
+        label: 'Session id to record',
+        value: rt.state.repos.runs.sessionInput,
+        placeholder: 'ses_…',
+        mono: true,
+        disabled: true,
+        helper: 'Read it from the OpenChamber session list under the attachment id shown above.',
+        onChange: (value) => handlers.setSessionInput(value),
+    });
+
+    return { resolveBox, resolveHeading, resolveSession, resolveNoSession, sessionField };
+}
+
+/**
+ * Mount the verification banner in its own hide-able wrapper.
+ *
+ * @param pane - Pane root.
+ * @param runs - Section state, for the wrapper's first flag.
+ * @returns The wrapper and the banner.
+ */
+function mountAgentNotice(
+    pane: HTMLElement,
+    runs: RunsState,
+): Pick<RunsBoard, 'agentNoticeBox' | 'agentNotice'> {
+    const agentNoticeBox = pane.ownerDocument.createElement('div');
+    agentNoticeBox.style.marginTop = '8px';
+    agentNoticeBox.hidden = runs.agentNotice === null;
+    pane.append(agentNoticeBox);
+
+    return {
+        agentNoticeBox,
+        agentNotice: mountBanner(agentNoticeBox, { tone: 'info', title: 'Session agent', body: '' }),
+    };
 }
 
 /**
@@ -78,42 +258,64 @@ function createRunsControls(pane: HTMLElement): HTMLElement {
  * @returns The runs handles the pane repaints through.
  */
 export function mountRunsBoard(input: MountInputs): RunsBoard {
-    const { pane, rt, handlers } = input;
+    const { pane, rt } = input;
     const { runs } = rt.state.repos;
-    const runsHeading = mountText(pane, { text: RUNS_HEADING });
-    const runsStatus = mountText(pane, { text: runsStatusText(runs) });
-    const runsList = mountList(pane, {
-        items: runRows(runs),
-        ariaLabel: 'Event runs',
-        emptyText: RUNS_EMPTY_TEXT,
-        selectedId: runs.selectedRun,
-        onSelect: (id) => handlers.selectRun(id),
-    });
-    const controls = createRunsControls(pane);
-    const refreshRuns = mountButton(controls, {
-        label: 'Refresh runs',
-        variant: 'secondary',
-        onClick: handlers.refreshRuns,
-    });
-    const openRun = mountButton(controls, {
-        label: 'Open issue',
-        variant: 'outline',
-        disabled: true,
-        onClick: handlers.openRun,
-    });
-    const retryRun = mountButton(controls, {
-        label: 'Retry run',
-        variant: 'outline',
-        disabled: true,
-        onClick: handlers.retryRun,
-    });
-    const runsNote = mountText(pane, { text: runs.note });
 
-    const agentNoticeBox = pane.ownerDocument.createElement('div');
-    agentNoticeBox.style.marginTop = '8px';
-    agentNoticeBox.hidden = runs.agentNotice === null;
-    pane.append(agentNoticeBox);
-    const agentNotice = mountBanner(agentNoticeBox, { tone: 'info', title: 'Session agent', body: '' });
+    return {
+        ...mountRunList(input),
+        ...mountSharedActions(input),
+        ...mountTransitions(input),
+        ...mountResolutions(input),
+        runsNote: mountText(pane, { text: runs.note }),
+        ...mountAgentNotice(pane, runs),
+    };
+}
 
-    return { runsHeading, runsStatus, runsList, refreshRuns, openRun, retryRun, runsNote, agentNoticeBox, agentNotice };
+/**
+ * Repaint the runs half of the pane from state.
+ *
+ * The affordance table decides which transition group exists: one nobody can
+ * use is hidden rather than greyed out, because a disabled button still
+ * promises an action the service would refuse (FR-041, AC-123), and an armed
+ * control repaints its confirm label from the same state the action module
+ * wrote (T-025).
+ *
+ * @param rt - Panel runtime.
+ * @param board - The mounted runs half.
+ */
+export function repaintRunsBoard(rt: PanelRuntime, board: RunsBoard): void {
+    const { runs } = rt.state.repos;
+    const selected = selectedRun(runs);
+    const affordance = selected === null ? null : runAffordance(selected);
+
+    board.runsStatus.update({ text: runsStatusText(runs) });
+    board.runsList.update({ items: runRows(runs), selectedId: runs.selectedRun });
+    board.refreshRuns.update({ disabled: runs.status === 'loading' });
+    board.openRun.update({ disabled: selected === null });
+    board.retryRunBox.hidden = affordance?.action !== 'retry';
+    board.retryRun.update({ disabled: runs.busy });
+    board.requeueRunBox.hidden = affordance?.action !== 'requeue';
+    board.requeueRun.update({
+        label: runs.pendingAction === 'requeue' ? CONFIRM_RETURN_LABEL : RETURN_LABEL,
+        disabled: runs.busy,
+    });
+    board.resolveBox.hidden = selected?.state !== 'unconfirmed';
+    board.resolveSession.update({
+        label: runs.pendingAction === 'resolve-session' ? CONFIRM_SESSION_CREATED_LABEL : SESSION_CREATED_LABEL,
+        disabled: runs.busy,
+    });
+    board.resolveNoSession.update({
+        label: runs.pendingAction === 'resolve-no-session' ? CONFIRM_NO_SESSION_LABEL : NO_SESSION_LABEL,
+        disabled: runs.busy,
+    });
+    board.sessionField.update({ value: runs.sessionInput, disabled: runs.busy });
+    board.runsNote.update({ text: runs.note });
+    board.agentNoticeBox.hidden = runs.agentNotice === null;
+    if (runs.agentNotice !== null) {
+        board.agentNotice.update({
+            tone: runs.agentNotice.tone,
+            title: runs.agentNotice.title,
+            body: runs.agentNotice.body,
+        });
+    }
 }

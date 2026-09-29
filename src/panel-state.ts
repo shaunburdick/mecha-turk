@@ -73,6 +73,9 @@ export function initialRuns(): RunsState {
         note: '',
         selectedRun: null,
         agentNotice: null,
+        pendingAction: null,
+        sessionInput: '',
+        busy: false,
     };
 }
 
@@ -373,7 +376,25 @@ export interface RunsState {
      * first verification. Warn-only: it never blocks or kills a session.
      */
     agentNotice: PanelStatus | null;
+    /**
+     * The control the operator armed for its confirm step (003 T-025), or
+     * `null` when nothing is armed.
+     *
+     * The panel has no dialog primitive, so a destructive or state-changing
+     * action confirms the way the Remove-account control already does: first
+     * click arms and states what will happen, second click sends. Retry is
+     * deliberately absent from this list — it changes nothing the run's own
+     * history does not already explain, and the service answers it either way.
+     */
+    pendingAction: RunPendingAction | null;
+    /** Session id typed for the "a session was created" resolution (FR-027). */
+    sessionInput: string;
+    /** Single in-flight gate for the run operations; one flag, never several. */
+    busy: boolean;
 }
+
+/** The run controls that ask for a confirmation step before they act (T-025). */
+export type RunPendingAction = 'requeue' | 'resolve-session' | 'resolve-no-session';
 
 /**
  * Create the empty picker state shown before the first `listProjects()` call.

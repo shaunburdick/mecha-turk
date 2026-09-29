@@ -18,11 +18,11 @@
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import { canRetry, runAffordance, selectedRun } from './runs-rows.ts';
-import { EVENTS_PATH, retryPath, serviceGet, servicePost } from './service-calls.ts';
-import { parseRunsBody } from './runs-service.ts';
-import { describeError } from './session.ts';
+import { BLOCKED_PREFIX, parseRunsBody } from './runs-service.ts';
+import { EVENTS_PATH, requeuePath, resolvePath, retryPath, serviceGet, servicePost } from './service-calls.ts';
+import { describeError, resolveProject } from './session.ts';
 import type { ServiceErrorResult } from './service-calls.ts';
-import type { PanelRuntime } from './panel-state.ts';
+import type { PanelRuntime, RunPendingAction } from './panel-state.ts';
 import type { RunRow } from './runs-service.ts';
 
 /**
@@ -81,6 +81,10 @@ export async function loadRuns(rt: PanelRuntime): Promise<void> {
         runs.selectedRun = null;
     }
 
+    // A re-read replaces the rows a confirmation was written against, so any
+    // armed control goes back to idle rather than acting on a row that may
+    // have moved (T-025).
+    runs.pendingAction = null;
     runs.status = 'ready';
     runs.note = '';
     refresh(rt);
@@ -104,6 +108,10 @@ export function selectRun(rt: PanelRuntime, id: string): void {
 
     if (runs.rows.some((row) => row.id === id)) {
         runs.selectedRun = id;
+        // A confirmation armed against one run must not outlive the selection
+        // it was written for, and neither may a session id typed for it (T-025).
+        runs.pendingAction = null;
+        runs.sessionInput = '';
     }
 
     refresh(rt);
@@ -132,76 +140,353 @@ export async function openRun(rt: PanelRuntime): Promise<void> {
     }
 }
 
-/** Note shown when a dispatched run is asked for a retry (local and service refusal share it). */
+/** Note shown when a dispatched run is asked for a retry (the local guard's copy). */
 const ALREADY_DISPATCHED_NOTE =
     'The service refused: this run was already dispatched, and a dispatched run cannot be retried.';
 
-/**
- * Explain one retry answer in the operator's own vocabulary.
- *
- * The two documented refusals get their own sentences because they are
- * facts about the run (`invalid-transition`: already dispatched, terminal;
- * `not-found`: no longer in the queue), while anything else is reported as
- * the connection-level problem it is.
- *
- * @param result - The retry answer.
- * @param row - Run the retry targeted, for the success confirmation.
- * @returns The note to show after the list re-reads.
- */
-function retryNoteOf(result: ServiceErrorResult, row: RunRow): string {
-    if (result.ok) {
-        return `Requeued #${row.issueNumber} — the next relay poll dispatches it again.`;
-    }
+/** FR-027's two explicit resolutions, as the resolve body names them. */
+type ResolveDecision = 'session-created' | 'no-session';
 
-    if (result.code === 'invalid-transition') {
-        return ALREADY_DISPATCHED_NOTE;
-    }
+/** FR-027's first resolution: the dispatch did create a session (contract §8). */
+const SESSION_CREATED: ResolveDecision = 'session-created';
 
-    if (result.code === 'not-found') {
-        return 'The service refused: this run is no longer in the service queue.';
-    }
-
-    return redact(`The service refused the retry: ${result.problem}.`);
+/** Extra members a retry body carries when the run sits in a blocked state. */
+interface CauseMembers {
+    /** Whether the panel reports the blocking cause cleared (contract §6). */
+    readonly causeCleared?: boolean;
+    /** What was actually checked — audited as evidence, never as proof. */
+    readonly causeReport?: string;
 }
 
 /**
- * Requeue the selected run and refresh the list (M8).
+ * The operator's own reference to one run: `#<issue number>`.
  *
- * Only a run the service still treats as retryable is sent — a dispatched
- * row is refused locally with the same message the service would answer —
- * and the list is re-read afterwards either way, so the row and the note
- * never disagree about what happened.
+ * @param row - Run to name.
+ * @returns The reference every confirmation and outcome note leads with.
+ */
+function issueRef(row: RunRow): string {
+    return `#${row.issueNumber}`;
+}
+
+/**
+ * The coordinates FR-027 requires both confirmations to show (FR-029).
+ *
+ * @param row - The run being resolved.
+ * @returns `project …, worktree …, attachment …` — what the operator matches
+ *   against OpenChamber's own session list.
+ */
+function guidanceFor(row: RunRow): string {
+    return `project ${row.projectId}, worktree ${row.worktreeOption}, attachment ${row.attachmentId}`;
+}
+
+/**
+ * The return-to-waiting confirmation: what resets, and what is kept.
+ *
+ * @param row - The parked run.
+ * @returns The copy the control shows before it acts (FR-033).
+ */
+function requeueConfirmCopy(row: RunRow): string {
+    return `Confirm: return ${issueRef(row)} to waiting? The attempt count resets to 1 and the automatic `
+        + 'requeue budget to 0; source references and every prior attempt record are kept.';
+}
+
+/**
+ * A resolve confirmation: what the operator is asked to verify, and the
+ * warning FR-027 requires before either answer.
+ *
+ * @param row - The `unconfirmed` run.
+ * @param decision - Which of the two resolutions this confirmation leads to.
+ * @returns The copy the control shows before it acts.
+ */
+function resolveConfirmCopy(row: RunRow, decision: ResolveDecision): string {
+    const question = decision === SESSION_CREATED ? 'does a session exist' : 'does no session exist';
+    const warning = 'A session may still exist and this panel holds no record of it, so check the session list '
+        + 'in OpenChamber under that attachment id before you answer.';
+    const outcome = decision === SESSION_CREATED
+        ? 'Confirming records the run as dispatched with the session id you named.'
+        : 'Confirming returns the run to waiting, where it may be dispatched again.';
+
+    return `Verify first: ${question} for ${guidanceFor(row)}? ${warning} ${outcome}`;
+}
+
+/**
+ * Render a refused operation as the note: the service's own copy, verbatim.
+ *
+ * The envelope's `message` *is* the verdict — each state refusal words itself
+ * distinctly (contract §6) — so the panel reports it rather than paraphrasing
+ * it into something the operator has to translate back into the run's state.
+ *
+ * @param result - The refused answer.
+ * @returns The redacted note.
+ */
+function verdictNote(result: Extract<ServiceErrorResult, { readonly ok: false }>): string {
+    if (result.message !== null) {
+        return redact(result.message);
+    }
+
+    return redact(result.code === null ? result.problem : `${result.problem} (${result.code})`);
+}
+
+/**
+ * What the panel can honestly say about a blocked run's cause (contract §6).
+ *
+ * Each blocked reason has its own evidence, and the panel never claims more
+ * than it checked: the service re-checks the binding table itself, the panel's
+ * same-mount project list is the only evidence available for a project the
+ * host no longer resolves (the service cannot call host APIs), and any other
+ * cause is the operator's assertion on this mount — which is what gets audited.
+ *
+ * @param rt - Panel runtime, for the one host call this can make.
+ * @param row - The run being retried.
+ * @returns The members to add to the retry body.
+ */
+async function causeMembers(rt: PanelRuntime, row: RunRow): Promise<CauseMembers> {
+    if (!row.state.startsWith(BLOCKED_PREFIX)) {
+        return {};
+    }
+
+    const cause = row.state.slice(BLOCKED_PREFIX.length);
+    if (cause === 'binding-missing') {
+        return { causeCleared: true };
+    }
+
+    if (cause === 'project-missing') {
+        const resolution = await resolveProject(rt.host, row.projectId);
+
+        return resolution.ok
+            ? { causeCleared: true, causeReport: `project ${row.projectId} resolves again (checked this mount)` }
+            : { causeCleared: false };
+    }
+
+    return { causeCleared: true, causeReport: `operator confirmed the ${cause} cause cleared on this mount` };
+}
+
+/**
+ * Arm one control's confirmation, or report it is already armed.
+ *
+ * The panel has no dialog primitive, so a state-changing action confirms the
+ * way the Remove-account control already does: the first click states what
+ * will happen, the second one sends it. Arming writes the copy into the
+ * section's note and leaves the row alone — nothing is posted until the
+ * operator clicks the same control again (FR-027, FR-033).
+ *
+ * @param input - Runtime, the control being armed, and its confirmation copy.
+ * @returns `true` when the control was already armed and may act now.
+ */
+function armControl(input: {
+    /** Panel runtime. */
+    readonly rt: PanelRuntime;
+    /** Which control the click belongs to; a different arm is replaced. */
+    readonly action: RunPendingAction;
+    /** The confirmation copy for this control. */
+    readonly copy: string;
+}): boolean {
+    const { runs } = input.rt.state.repos;
+    if (runs.pendingAction === input.action) {
+        return true;
+    }
+
+    runs.pendingAction = input.action;
+    runs.note = redact(input.copy);
+    refresh(input.rt);
+
+    return false;
+}
+
+/**
+ * Post one run operation behind the section's single busy gate (T-025).
+ *
+ * One flag gates every run operation — retry, return to waiting, resolve — so
+ * the operator cannot send two of them at once, and the run state is only ever
+ * what the service answers: the list is re-read after the call and the note is
+ * written afterwards, so a refresh can never clobber the explanation.
+ *
+ * @param input - Runtime, path, body, and the copy for an accepted answer.
+ */
+async function postRunOperation(input: {
+    /** Panel runtime. */
+    readonly rt: PanelRuntime;
+    /** Run-scoped path to POST to. */
+    readonly path: string;
+    /** Serialized body the contract for that operation requires. */
+    readonly body: string;
+    /** Note for a 200 answer. */
+    readonly success: string;
+}): Promise<void> {
+    const { runs } = input.rt.state.repos;
+    runs.busy = true;
+    runs.pendingAction = null;
+    refresh(input.rt);
+
+    const result = await servicePost({
+        serviceRequest: input.rt.host.serviceRequest,
+        path: input.path,
+        body: input.body,
+    });
+    runs.busy = false;
+    if (!stillMounted(input.rt)) {
+        return;
+    }
+
+    await loadRuns(input.rt);
+    if (!stillMounted(input.rt)) {
+        return;
+    }
+
+    runs.note = result.ok ? input.success : verdictNote(result);
+    refresh(input.rt);
+}
+
+/**
+ * Retry the selected run under its own run key (M8, FR-041).
+ *
+ * Only a run the service accepts is sent — a dispatched or waiting row is
+ * refused locally with the same words the table gives it — and a blocked run
+ * goes with the evidence {@link causeMembers} could gather, so the audit row
+ * says what was actually checked rather than that something was.
  *
  * @param rt - Panel runtime.
  */
 export async function retryRun(rt: PanelRuntime): Promise<void> {
     const { runs } = rt.state.repos;
     const row = selectedRun(runs);
-    if (row === null) {
+    if (row === null || runs.busy) {
         return;
     }
 
     if (!canRetry(row)) {
-        // T-024 replaced the boolean with a table: every state that offers no
-        // retry carries its own reason, so a click (or a stale Enter key) on
-        // one lands on the fact instead of on copy written for a different
-        // state.
         runs.note = redact(row.state === 'dispatched' ? ALREADY_DISPATCHED_NOTE : runAffordance(row).reason);
         refresh(rt);
 
         return;
     }
 
-    const result = await servicePost({ serviceRequest: rt.host.serviceRequest, path: retryPath(row.id) });
+    const cause = await causeMembers(rt, row);
     if (!stillMounted(rt)) {
         return;
     }
 
-    await loadRuns(rt);
-    if (!stillMounted(rt)) {
+    await postRunOperation({
+        rt,
+        path: retryPath(row.id),
+        body: JSON.stringify({ correlationId: row.correlationId, attempt: row.attempt, ...cause }),
+        success: `Requeued ${issueRef(row)} — the next relay poll dispatches it again.`,
+    });
+}
+
+/**
+ * Return the selected parked run to waiting (FR-033), two clicks apart.
+ *
+ * @param rt - Panel runtime.
+ */
+export async function requeueRun(rt: PanelRuntime): Promise<void> {
+    const { runs } = rt.state.repos;
+    const row = selectedRun(runs);
+    if (row === null || runs.busy) {
         return;
     }
 
-    runs.note = retryNoteOf(result, row);
-    refresh(rt);
+    const affordance = runAffordance(row);
+    if (affordance.action !== 'requeue') {
+        runs.note = redact(affordance.reason);
+        refresh(rt);
+
+        return;
+    }
+
+    if (!armControl({ rt, action: 'requeue', copy: requeueConfirmCopy(row) })) {
+        return;
+    }
+
+    await postRunOperation({
+        rt,
+        path: requeuePath(row.id),
+        body: JSON.stringify({ correlationId: row.correlationId, confirm: true }),
+        success: `${issueRef(row)} is waiting again — its attempt count is back to 1.`,
+    });
+}
+
+/**
+ * Resolve the selected `unconfirmed` run one of FR-027's two ways.
+ *
+ * The state guard is the point: the two resolutions are the *only* paths out
+ * of the fail-closed wedge, so they are reachable from that state and from
+ * nowhere else, and the second click — never the first — is what posts.
+ *
+ * @param rt - Panel runtime.
+ * @param decision - Which resolution the operator confirmed.
+ */
+async function resolveRun(rt: PanelRuntime, decision: ResolveDecision): Promise<void> {
+    const { runs } = rt.state.repos;
+    const row = selectedRun(runs);
+    if (row === null || runs.busy) {
+        return;
+    }
+
+    if (row.state !== 'unconfirmed') {
+        runs.note = redact(runAffordance(row).reason);
+        refresh(rt);
+
+        return;
+    }
+
+    const armed = decision === SESSION_CREATED ? 'resolve-session' : 'resolve-no-session';
+    if (!armControl({ rt, action: armed, copy: resolveConfirmCopy(row, decision) })) {
+        return;
+    }
+
+    const sessionId = runs.sessionInput.trim();
+    if (decision === SESSION_CREATED && sessionId === '') {
+        runs.note = 'Name the session id to record — find it in the OpenChamber session list under attachment '
+            + `${row.attachmentId}.`;
+        refresh(rt);
+
+        return;
+    }
+
+    await postRunOperation({
+        rt,
+        path: resolvePath(row.id),
+        body: JSON.stringify({
+            correlationId: row.correlationId,
+            decision,
+            ...(decision === SESSION_CREATED ? { sessionId } : {}),
+            guidance: guidanceFor(row),
+        }),
+        success: decision === SESSION_CREATED
+            ? `${issueRef(row)} recorded as dispatched with session ${sessionId}.`
+            : `${issueRef(row)} resolved as no session created — it is waiting again.`,
+    });
+}
+
+/**
+ * Confirm FR-027's first resolution: the dispatch did create a session.
+ *
+ * @param rt - Panel runtime.
+ */
+export async function resolveSessionCreated(rt: PanelRuntime): Promise<void> {
+    await resolveRun(rt, SESSION_CREATED);
+}
+
+/**
+ * Confirm FR-027's second resolution: the dispatch created no session.
+ *
+ * @param rt - Panel runtime.
+ */
+export async function resolveNoSession(rt: PanelRuntime): Promise<void> {
+    await resolveRun(rt, 'no-session');
+}
+
+/**
+ * Record the session id the operator types for the first resolution.
+ *
+ * @param rt - Panel runtime.
+ * @param value - What the field holds now.
+ */
+export function setSessionInput(rt: PanelRuntime, value: string): void {
+    if (rt.disposed) {
+        return;
+    }
+
+    rt.state.repos.runs.sessionInput = value;
 }

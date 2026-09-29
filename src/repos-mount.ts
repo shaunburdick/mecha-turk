@@ -31,7 +31,16 @@ import {
 } from './repos.ts';
 import { mountRepositoriesPane } from './repos-ui.ts';
 import type { ReposPaneHandlers } from './repos-ui.ts';
-import { loadRuns, openRun, retryRun, selectRun } from './runs.ts';
+import {
+    loadRuns,
+    openRun,
+    requeueRun,
+    resolveNoSession,
+    resolveSessionCreated,
+    retryRun,
+    selectRun,
+    setSessionInput,
+} from './runs.ts';
 
 /**
  * Map the Repositories pane's callbacks onto the existing actions.
@@ -72,6 +81,10 @@ export function createRepositoriesHandlers(rt: PanelRuntime): ReposPaneHandlers 
         selectRun: (id) => selectRun(rt, id),
         openRun: () => void openRun(rt),
         retryRun: () => void retryRun(rt),
+        requeueRun: () => void requeueRun(rt),
+        resolveSessionCreated: () => void resolveSessionCreated(rt),
+        resolveNoSession: () => void resolveNoSession(rt),
+        setSessionInput: (value) => setSessionInput(rt, value),
     };
 }
 

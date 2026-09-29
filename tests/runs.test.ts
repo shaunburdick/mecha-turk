@@ -26,9 +26,18 @@ import {
     selectedRun,
     stateLabel,
 } from '../src/runs-rows.ts';
-import { loadRuns, openRun, retryRun, selectRun } from '../src/runs.ts';
+import {
+    loadRuns,
+    openRun,
+    requeueRun,
+    resolveNoSession,
+    resolveSessionCreated,
+    retryRun,
+    selectRun,
+    setSessionInput,
+} from '../src/runs.ts';
 import { parseRunsBody } from '../src/runs-service.ts';
-import { EVENTS_PATH, retryPath } from '../src/service-calls.ts';
+import { EVENTS_PATH, requeuePath, resolvePath, retryPath } from '../src/service-calls.ts';
 import type { PanelRuntime, RunsState } from '../src/panel-state.ts';
 import type { RunReference, RunRow } from '../src/runs-service.ts';
 import {
@@ -71,6 +80,12 @@ const BLOCKED_BINDING_STATE: RunRow['state'] = 'blocked:binding-missing';
 /** Agent every read-back fixture expects (and, when matched, observes). */
 const EXPECTED_AGENT = 'project-manager';
 
+/** The waiting run's projected state reason (the fixture's, and the copy's). */
+const WAITING_REASON = 'waiting for a panel';
+
+/** Body every run operation answers with when the service accepts it. */
+const ACCEPTED_BODY = '{"state":"pending"}';
+
 /** The default `GET /v1/events` key the service double answers. */
 const RUNS_GET = `GET ${EVENTS_PATH}`;
 
@@ -101,7 +116,7 @@ function runFixture(overrides: Partial<RunRow> = {}): RunRow {
         issueTitle: 'Fix the flaky test',
         issueUrl: ISSUE_URL,
         state: 'pending',
-        stateReason: 'waiting for a panel',
+        stateReason: WAITING_REASON,
         runKey: 'github|77331|acme/widget|issue|7|0',
         ordinal: 0,
         attempt: 1,
@@ -166,6 +181,8 @@ interface ServiceDouble {
     readonly serviceRequest: (request: GuestRequest) => Promise<GuestRequestResult>;
     /** Calls observed, in order, as `METHOD path`. */
     readonly calls: readonly string[];
+    /** Bodies those calls carried, in the same order (`undefined` when none). */
+    readonly bodies: readonly (string | undefined)[];
     /** Replace the route table, modelling the service's answer changing. */
     readonly setRoutes: (table: RouteTable) => void;
 }
@@ -179,16 +196,19 @@ interface ServiceDouble {
  */
 function serviceDouble(table: RouteTable): ServiceDouble {
     const calls: string[] = [];
+    const bodies: (string | undefined)[] = [];
     let routes = table;
 
     return {
         calls,
+        bodies,
         setRoutes: (next) => {
             routes = next;
         },
         serviceRequest: async (request) => {
             const key = `${request.method} ${request.path}`;
             calls.push(key);
+            bodies.push(request.body);
 
             return routes[key] ?? { status: DEFAULT_STATUS, body: DEFAULT_BODY };
         },
@@ -572,7 +592,7 @@ describe('runAffordance (003’s state→affordance table, FR-041/FR-033/FR-027)
         }
 
         expect(runAffordance(runFixture({ state: 'dispatched' })).reason).toContain('session exists');
-        expect(runAffordance(runFixture({ state: 'pending' })).reason).toContain('waiting for a panel');
+        expect(runAffordance(runFixture({ state: 'pending' })).reason).toContain(WAITING_REASON);
     });
 
     it('renders an unrecognised state raw and offers nothing', () => {
@@ -674,7 +694,9 @@ describe('retryRun (POST, refresh, honest copy)', () => {
         const { rt, service } = retryRuntime(stale, {
             [`POST ${retryPath(RUN_ID)}`]: {
                 status: 409,
-                body: '{"error":{"code":"invalid-transition","message":"already dispatched"}}',
+                // Contract §6's own wording: the note renders it verbatim.
+                body: '{"error":{"code":"invalid-transition",'
+                    + '"message":"already dispatched; a dispatched run cannot be retried"}}',
             },
             [RUNS_GET]: { status: 200, body: runsBody([actual]) },
         });
@@ -709,6 +731,199 @@ describe('retryRun (POST, refresh, honest copy)', () => {
 
         expect(service.calls).toEqual([]);
         expect(rt.state.repos.runs.note).toBe('');
+    });
+});
+
+describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
+    /** Path of the return-to-waiting operation (contract §7). */
+    const REQUEUE_POST = `POST ${requeuePath(RUN_ID)}`;
+
+    /** Path of the resolve operation (contract §8). */
+    const RESOLVE_POST = `POST ${resolvePath(RUN_ID)}`;
+
+    /** Path of the retry operation (contract §6). */
+    const RETRY_POST = `POST ${retryPath(RUN_ID)}`;
+
+    /** A route table that answers every run operation with an accepted run. */
+    function acceptedRoutes(): RouteTable {
+        return {
+            [REQUEUE_POST]: { status: 200, body: ACCEPTED_BODY },
+            [RESOLVE_POST]: { status: 200, body: ACCEPTED_BODY },
+            [RETRY_POST]: { status: 200, body: ACCEPTED_BODY },
+            [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) },
+        };
+    }
+
+    it('states the attempt reset before it sends a return-to-waiting (FR-033)', async () => {
+        const parked = runFixture({ state: DEAD_LETTERED_STATE });
+        const { rt, service } = retryRuntime(parked, acceptedRoutes());
+
+        await requeueRun(rt);
+
+        expect(service.calls).toEqual([]);
+        expect(rt.state.repos.runs.pendingAction).toBe('requeue');
+        expect(rt.state.repos.runs.note).toContain('attempt count resets to 1');
+        expect(rt.state.repos.runs.note).toContain('requeue budget to 0');
+
+        await requeueRun(rt);
+
+        expect(service.calls).toEqual([REQUEUE_POST, RUNS_GET]);
+        expect(JSON.parse(String(service.bodies[0]))).toEqual({ correlationId: RUN_ID, confirm: true });
+        expect(rt.state.repos.runs.pendingAction).toBeNull();
+    });
+
+    it('reaches the two resolutions only from unconfirmed (FR-027)', async () => {
+        const waiting = runFixture({ state: 'pending' });
+        const { rt, service } = retryRuntime(waiting, acceptedRoutes());
+
+        await resolveNoSession(rt);
+        await resolveSessionCreated(rt);
+
+        expect(service.calls).toEqual([]);
+        expect(rt.state.repos.runs.pendingAction).toBeNull();
+        expect(rt.state.repos.runs.note).toContain(WAITING_REASON);
+    });
+
+    it('states what to verify, warns, and shows the coordinates before resolving', async () => {
+        const wedge = runFixture({ state: UNCONFIRMED_STATE });
+        const { rt, service } = retryRuntime(wedge, acceptedRoutes());
+
+        await resolveSessionCreated(rt);
+
+        expect(service.calls).toEqual([]);
+        const copy = rt.state.repos.runs.note;
+        expect(copy).toContain('Verify first: does a session exist');
+        expect(copy).toContain('project prj_42');
+        expect(copy).toContain('worktree generated');
+        expect(copy).toContain(RUN_ID);
+        expect(copy).toContain('session may still exist');
+        expect(copy).toContain('OpenChamber');
+
+        // The second click is the confirmation, and it refuses to guess the id.
+        await resolveSessionCreated(rt);
+        expect(service.calls).toEqual([]);
+        expect(rt.state.repos.runs.note).toContain('Name the session id');
+
+        setSessionInput(rt, 'ses_operator_found');
+        await resolveSessionCreated(rt);
+
+        expect(service.calls).toEqual([RESOLVE_POST, RUNS_GET]);
+        const body = JSON.parse(String(service.bodies[0])) as Record<string, unknown>;
+        expect(body).toMatchObject({
+            correlationId: RUN_ID,
+            decision: 'session-created',
+            sessionId: 'ses_operator_found',
+        });
+        expect(String(body.guidance)).toContain('attachment mt-run-');
+    });
+
+    it('sends no-session with no session id and the guidance it showed', async () => {
+        const wedge = runFixture({ state: UNCONFIRMED_STATE });
+        const { rt, service } = retryRuntime(wedge, acceptedRoutes());
+
+        await resolveNoSession(rt);
+
+        expect(rt.state.repos.runs.note).toContain('Verify first: does no session exist');
+        expect(rt.state.repos.runs.note).toContain('may be dispatched again');
+
+        await resolveNoSession(rt);
+
+        expect(service.calls).toEqual([RESOLVE_POST, RUNS_GET]);
+        const body = JSON.parse(String(service.bodies[0])) as Record<string, unknown>;
+        expect(body.decision).toBe('no-session');
+        expect('sessionId' in body).toBe(false);
+        expect(String(body.guidance)).toContain('worktree generated');
+    });
+
+    it('echoes the run identity and the cause report a retry carries (contract §6)', async () => {
+        const failed = runFixture({ state: FAILED_STATE });
+        const { rt, service } = retryRuntime(failed, acceptedRoutes());
+
+        await retryRun(rt);
+
+        expect(JSON.parse(String(service.bodies[0]))).toEqual({ correlationId: RUN_ID, attempt: 1 });
+
+        const guarded = runFixture({ state: BLOCKED_BINDING_STATE, attempt: 3 });
+        const second = retryRuntime(guarded, acceptedRoutes());
+        await retryRun(second.rt);
+
+        expect(JSON.parse(String(second.service.bodies[0]))).toEqual({
+            correlationId: RUN_ID,
+            attempt: 3,
+            causeCleared: true,
+        });
+
+        // A cause only the operator can assert goes with what was asserted,
+        // so the audit row says who reported it cleared.
+        const reported = runFixture({ state: 'blocked:credential' });
+        const third = retryRuntime(reported, acceptedRoutes());
+        await retryRun(third.rt);
+
+        expect(JSON.parse(String(third.service.bodies[0]))).toMatchObject({
+            correlationId: RUN_ID,
+            attempt: 1,
+            causeCleared: true,
+            causeReport: expect.stringContaining('operator confirmed'),
+        });
+    });
+
+    it('renders the service verdict verbatim when an operation is refused', async () => {
+        const parked = runFixture({ state: DEAD_LETTERED_STATE });
+        const verdict = 'this run is not dead-lettered; it is already waiting';
+        const { rt, service } = retryRuntime(parked, {
+            ...acceptedRoutes(),
+            [REQUEUE_POST]: {
+                status: 409,
+                body: `{"error":{"code":"invalid-transition","message":"${verdict}"}}`,
+            },
+        });
+
+        await requeueRun(rt);
+        await requeueRun(rt);
+
+        expect(service.calls).toEqual([REQUEUE_POST, RUNS_GET]);
+        expect(rt.state.repos.runs.note).toBe(verdict);
+    });
+
+    it('gates every run operation behind one busy flag (T-025)', async () => {
+        // The double holds every answer until the test releases it, so the
+        // gate is observable while an operation is genuinely in flight.
+        const held: { release: () => void } = {
+            release: (): void => {
+                throw new Error('the gate was never armed');
+            },
+        };
+        const gate = new Promise<void>((resolve) => {
+            held.release = resolve;
+        });
+        const calls: string[] = [];
+        const rt = createTestRuntime(fakeHost({
+            serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
+                calls.push(`${request.method} ${request.path}`);
+                await gate;
+
+                return { status: 200, body: runsBody([runFixture()]) };
+            },
+        }));
+        rt.state.repos.runs = runsState({
+            rows: [runFixture({ state: FAILED_STATE })],
+            status: 'ready',
+            selectedRun: RUN_ID,
+        });
+
+        const first = retryRun(rt);
+        await tick();
+        expect(rt.state.repos.runs.busy).toBe(true);
+
+        // A second click while the first is in flight sends nothing.
+        await retryRun(rt);
+        expect(calls).toHaveLength(1);
+
+        held.release();
+        await first;
+
+        expect(rt.state.repos.runs.busy).toBe(false);
+        expect(rt.state.repos.runs.note).toContain('Requeued #7');
     });
 });
 
