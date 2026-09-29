@@ -8,7 +8,7 @@
 - **Branch**: `full-project-plan` (non-protected; spec artifacts land here during phases 1–3. Each spec gets its own branch when implementation starts.)
 
 ## Current State
-- **Phase**: Phase 1 COMPLETE for all four features (003, 004, 005, 006 — all Approved). **Remaining this session: the cycle's second commit (006 + amendments).** Next session: Phases 4–5 per feature (plan + tasks → `modern-architect-engineer`), then Phase 6.
+- **Phase**: **Phases 1–5 COMPLETE for all four features.** Consolidated plan gate presented; Phase 6 (implementation) not started. **Next session = Phase 6.**
 - **Completed**:
   - 002 landed and live-validated (M5: two issues → two worktree sessions); feature roadmap agreed with product owner
   - **003 spec v1.0.0 APPROVED 2026-09-28** — 53 FR / 12 NFR / 11 SC / 29 AC, 5 user stories (P1×3, P2×2), 23 edge cases, 20 clarification rows + 3 gate confirmations. Cleared for `/speckit.plan`.
@@ -20,7 +20,11 @@
   - **Amendment chain (as of the 006 gate):** 002 → **v1.5.0** (003 conformance, 004 extension, 005 placement, 006 extension+reaffirmation; body verbatim; 002's v1.5.0 entry edited in place when 006's gate widened scope — no second bump, since no requirement text/vocabulary/behaviour changed in 002 itself); 003 → **v1.3.0** (004, 005, 006 record amendments); 004 → **v1.1.0**; 005 → **v1.1.0** (006 supersedes 005 FR-070 and FR-073).
 - **In Progress**: none — final commit pending
 - **Blocked**: none
-- **Commits**: `e1037fa` — `docs: approve feature specs 003-005; amend 002 to v1.4.0` (8 files, +2210/-3, verify green 563 tests). **Pending: 006 + the three predecessor amendments** (`M 002`, `M 003/spec`, `M 005`, `M 003/pm-handoff`, `?? specs/006-settings-crud/`). Nothing is ever pushed (AGENTS.md).
+- **Commits** (all verify-green, all attributed, nothing ever pushed):
+  1. `e1037fa` — specs 003/004/005 approved + 002→v1.4.0
+  2. `70ce5ec` — spec 006 approved at v1.1.0 (wire-all gate) + amendments
+  3. `060f013` — cleanup review (card emptied, `.env` dropped, dead refs) → 002 v1.7.0 / 005 v1.3.0 / 006 v1.3.0
+  4. `cda24cc` — **Phases 4–5: plans + tasks for 003/004/005/006** (33 files, +5012)
 
 ## Git context for committing (learned this session — a resuming session needs this)
 - Worktree caveat: `.git` is a file, so hooks live in the **main gitdir** — `git rev-parse --git-path hooks` resolves to `/home/agents/github/shaunburdick/mecha-turk/.git/hooks` (the `prepare-commit-msg` attribution hook is installed there). The `check-hook.sh` script's literal `.git/hooks` path is unreliable in this worktree.
@@ -127,15 +131,31 @@ Source: `specs/002-agent-event-extension/tasks.md` debt list and its final pre-P
 
 **Double-write incident (process lesson)**: after the background 006 dispatch appeared stalled (16 ms created→updated, no outcome), the PM re-dispatched foreground — both then ran and raced on the same files. On-disk is the foreground version, verified internally consistent; the divergent draft's `requeueBudget` idea surfaced as gate answer 4. **Rule: no background-mode subagent dispatches in this environment — foreground only.**
 
-## Next Steps
-1. **006 (Settings — full config CRUD)** — Phase 1 spec, then its gate. Known scope: panel edit UI over the existing `GET`/`PUT /v1/config` (10 validated fields, additive 422 refusal, `config.json` in the service store); live-apply semantics are the open design question (recommendation to carry: `logLevel` live, `intervalMs`/`overlapMs`/`perPage` next-scheduled-poll, retention fields destructive-knob-confirmed); the Settings tab shell from 005 FR-xxx is the render target. The product-owner's decision at intake was **full CRUD over all service settings**, which is why 006 is bigger than read-mostly.
-2. **Phases 4–5 per feature** (plan + tasks via `modern-architect-engineer`), one dispatch per spec in order 003 → 004 → 005 → 006. Numbers are convention-protected: 003 (FR blocks of ten, AC-101+), 004 (FR blocks, NFR/SC/AC-120+), 005 (FR blocks, AC-1xx). Verify no renumbering.
-3. **Phase 6** per spec, routed by size (005 is Large → orchestration; 003/004/006 Medium → architect or orchestration by judgment call). `npm run verify` at every wave boundary.
-4. **Known cosmetics to fold in**: the `Rule:` framing-line fix; `#n title` copy; the 002 debt list items that 003/005 did not absorb (policy profiles, retention/export-restore, dedupe-index eviction, service-side `agentVerified` mirror, runs-list interval cadence → now "dispatches-list cadence").
-5. 003/004/005 Phase-1 work is **committed** as `e1037fa`. After 006's gate, verify green and commit 006 (conventional commit + AI attribution; never push).
+## Next Steps — Phase 6 (implementation), next session
+
+**Consolidated plan gate presented 2026-09-28** covering all four plan/task sets (116 tasks / 33 waves). Awaiting the product owner's approval + rulings on the pending defaults before any code.
+
+**Routing (per the PM's size rules — all four exceed 15 tasks)**:
+| Feature | Tasks / waves | Size | Route |
+| --- | --- | --- | --- |
+| 003 dispatch-integrity | 36 / 8 | Large | PM drives orchestration (waves: run model+migration → claim/lease → authorization → audit → panel → outcomes → operator surfaces → proof) |
+| 004 starting-prompt | 16 / 4 | Medium | `modern-architect-engineer` solo via `subagent` (W2 depends on 003's gate) |
+| 005 panel-IA | 34 / 10 | Large | Orchestration (L2 rename sub-waves first; tree green at every boundary) |
+| 006 settings-crud | 30 / 11 | Large | Orchestration (per-consumer rollout; wave 1 = declaration/projection) |
+
+**Implementation order**: 003 → 004 → 005 → 006 (dependency chain: 004 W2 needs 003; 005 renders 004's field + retires legacy settings; 006 deletes 005's bounds stand-in in T-018).
+
+**Hard handoff warnings for Phase 6**:
+1. **003's T-008 (additive config read) must land WITH 003** — 003 lands first and adds `leaseMs`/`resultDeadlineMs`; a strict read would quarantine every existing `config.json` on upgrade. Do not let 003 defer this to 006's backfill.
+2. **Pending gate defaults** (defaults encoded; overturn = one module + test): 005 settings-bounds stand-in (panel declaration cross-checked vs `service/config.ts`); settings row count follows the document (11 vs 13 fixtures); 006's single pinned `project-manager` fallback (allow-list of exactly one); 006 AC-115 tested via seeded fixture, whole-file read stays strict; AC-151 `MECHA_TURK_` scan excludes `specs/**`.
+3. **003's five plan-level design tensions** are encoded in its plan.md (attempt counting with separate `requeuesUsed`; chain-scoped token consumption; split staleness axes; 17th `dispatch.refused` audit type; three implied wire ops) — object only if a ruling is wrong.
+4. **Doc defect queued**: 003's FR-043 row wording slip contradicts 004 FR-040/AC-135 — small 003 doc pass, not implemented.
+5. Per-wave gate: `npm run verify` + rebuilt committed bundles (invariant 1); conventional commits + AI attribution claim env (see Git context); never push.
+
+**Known cosmetics in the debt list, not this cycle**: `Rule:` framing-line fix, `#n title` copy, policy profiles, retention/export-restore, dedupe-index eviction, service-side `agentVerified` mirror, dispatches-list interval cadence.
 
 ## Next-session resume instructions (PM)
-Start: read THIS file. State: three of four feature specs approved; 006 is the remaining Phase 1 task. Diagnostics: `specs/003-dispatch-integrity/pm-handoff.md`, `specs/004-starting-prompt/spec.md`, `specs/005-panel-ia/spec.md` are the authoritative current surfaces. Dispatch `spec-driven-planner` for 006 exactly as this session did for 003–005 (no slash-command invocation; read `.opencode/commands/*.md` + `.specify/templates/spec-template.md`; stay on `full-project-plan`, no branch, no git).
+Start: read THIS file. State: **all four specs approved AND planned/committed (4 commits on `full-project-plan`, nothing pushed); consolidated plan gate pending.** The authoritative surfaces are each feature's `plan.md` + `tasks.md`. Load `orchestration` for the three Large features, `spec-driven-development` for gates, `git-safety`/`ai-attribution` before any commit. Foreground subagent dispatches only (background dispatches produced a zombie + double-write earlier in this cycle). After plan-gate approval: write `specs/003-dispatch-integrity/orchestration.md` + refresh this file as `pm-handoff.md` for 003's wave work, then begin Phase 6 wave 1.
 
 ## User Preferences
 - Panel-centric UX, self-hosted, under 10 repositories, N accounts
