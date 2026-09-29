@@ -1,0 +1,293 @@
+/**
+ * The authorization routes: reserve, result, abandon, and block report (003
+ * FR-020 – FR-023, FR-026, FR-028, FR-040, FR-042; contract §1–§4).
+ *
+ * These four paths are the service side of the impossibility requirement
+ * (FR-028): between them they are the only way a run acquires an authorization to
+ * start a session, and the only ways that authorization is spent. The routes are
+ * deliberately thin — parse, delegate, map — because every decision worth
+ * arguing about lives in [`dispatch-authorize.ts`](../poll/dispatch-authorize.ts),
+ * where it is a pure function of the run and can be tested without a socket.
+ *
+ * Three wire facts this module owns:
+ *
+ * - **`/dispatched` is now addressed by the run.** It used to take a delivery id
+ *   and flip a queue row; a post-003 delivery carries no lifecycle state of its
+ *   own (data-model §2.1), so that route could only ever answer `404`. The path
+ *   shape is unchanged and the parameter is renamed, which is exactly the
+ *   contract's wire delta: "Addressed by the run, not the delivery."
+ * - **A report names one outcome or the other, never both.** A body carrying a
+ *   session id *and* a problem is refused rather than resolved by a precedence
+ *   rule: FR-040's whole point is that the two are different facts, and guessing
+ *   which one the caller meant is exactly the ambiguity constitution II forbids.
+ * - **Every answer carries `auditWritten`** (FR-063). `false` means the state
+ *   change is durable and its lifecycle row is not, and the panel turns that into
+ *   a visible warning naming the run rather than implying traceability it does not
+ *   have.
+ */
+
+import { reserveDispatch } from '../poll/dispatch-authorize.ts';
+import { BLOCKED_REASONS, blockDispatch } from '../poll/dispatch-block.ts';
+import { reportDispatch } from '../poll/dispatch-report.ts';
+import { errorResponse, STATUS, storageUnavailableResponse } from '../http.ts';
+import type { HttpResponse } from '../http.ts';
+import {
+    RUN_SCOPE_PREFIX,
+    isRefusal,
+    pathCorrelationId,
+    readRunScopeRequest,
+    runAnswer,
+    runOutcomeResponse,
+    textMember,
+    unknownRunResponse,
+} from './run-scope.ts';
+import type { Route, RouteContext, RouteRequest } from './types.ts';
+
+/** The panel declares intent to start a session and receives its token. */
+export const RESERVE_PATH = `${RUN_SCOPE_PREFIX}/reserve`;
+
+/** The panel reports what the host call produced. */
+export const DISPATCHED_PATH = `${RUN_SCOPE_PREFIX}/dispatched`;
+
+/** The panel reports that a reserved attempt created no session. */
+export const ABANDON_PATH = `${RUN_SCOPE_PREFIX}/abandon`;
+
+/** The panel reports that a fail-closed guard refused before any host call. */
+export const BLOCKED_PATH = `${RUN_SCOPE_PREFIX}/blocked`;
+
+/**
+ * Answer `POST /v1/events/:correlationId/reserve`.
+ *
+ * Mints the single-use token and records the reservation in the same write that
+ * moves the run to `starting`, so a run holding an authorization is never also
+ * `claimed` and therefore never invisible to the sweep. Every refusal writes one
+ * `dispatch.refused` row and mints nothing.
+ *
+ * @param context - Route context carrying the open store.
+ * @param request - Routed request; the path captures `:correlationId`.
+ * @returns `200 { correlationId, attempt, dispatchToken, tokenExpiresAt, state, auditWritten }`,
+ *   or the documented `404`/`409`/`422`/`503`.
+ */
+async function handleReserve(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
+    const { store } = context;
+    if (store === null) {
+        return storageUnavailableResponse();
+    }
+
+    const correlationId = pathCorrelationId(request.params.correlationId);
+    if (correlationId === null) {
+        return unknownRunResponse();
+    }
+
+    const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { leaseId: true } });
+    if (isRefusal(parsed)) {
+        return parsed;
+    }
+
+    const reserved = await reserveDispatch({
+        store,
+        log: context.log,
+        correlationId,
+        leaseId: parsed.leaseId,
+        attempt: parsed.attempt,
+    });
+
+    return runOutcomeResponse({ context, operation: 'reserve', outcome: reserved, success: (run, auditWritten) => ({
+        ...runAnswer({ correlationId, run, auditWritten }),
+        // The token is the one thing this route hands back, and neither a
+        // refusal nor a duplicate has one to give: answering `null` rather than
+        // omitting the member keeps the panel's parser from branching on
+        // whether the key is present.
+        dispatchToken: reserved.status === 'applied' ? reserved.dispatchToken : null,
+        tokenExpiresAt: reserved.status === 'applied' ? reserved.tokenExpiresAt : null,
+    }) });
+}
+
+/**
+ * Answer `POST /v1/events/:correlationId/dispatched`.
+ *
+ * Reports the outcome of an authorized attempt. A report naming a session makes
+ * the run `dispatched`; a report naming a problem makes it `failed` — never
+ * `dispatched` (FR-040). The reservation is consumed in the same write, and a
+ * repeat of an outcome already recorded answers `200` unchanged with one
+ * `dispatch.duplicate-report` row (FR-025).
+ *
+ * @param context - Route context carrying the open store.
+ * @param request - Routed request; the path captures `:correlationId`.
+ * @returns `200 { correlationId, attempt, state, auditWritten }`, or a refusal.
+ */
+async function handleDispatched(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
+    const { store } = context;
+    if (store === null) {
+        return storageUnavailableResponse();
+    }
+
+    const correlationId = pathCorrelationId(request.params.correlationId);
+    if (correlationId === null) {
+        return unknownRunResponse();
+    }
+
+    const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { dispatchToken: true } });
+    if (isRefusal(parsed)) {
+        return parsed;
+    }
+
+    const sessionId = textMember(parsed.fields.sessionId);
+    const problem = textMember(parsed.fields.problem);
+    if ((sessionId === null) === (problem === null)) {
+        return errorResponse(STATUS.validation, {
+            code: 'validation',
+            message: 'report exactly one outcome: the session that was created, or the problem that prevented one',
+        });
+    }
+
+    const reported = await reportDispatch({
+        store,
+        log: context.log,
+        correlationId,
+        dispatchToken: parsed.dispatchToken,
+        attempt: parsed.attempt,
+        operation: 'result',
+        outcome: {
+            attemptOutcome: sessionId === null ? 'failed' : 'dispatched',
+            sessionId,
+            reason: problem,
+        },
+    });
+
+    return runOutcomeResponse({ context, operation: 'result', outcome: reported, success: (run, auditWritten) =>
+        runAnswer({ correlationId, run, auditWritten }) });
+}
+
+/**
+ * Answer `POST /v1/events/:correlationId/abandon`.
+ *
+ * A reserved attempt that created no session because the panel aborted **before**
+ * any host call (FR-026). The run becomes retryable `failed` with the reason —
+ * never `unconfirmed`, which would wedge a dispatch that provably happened. It is
+ * distinguished from Result's `problem` shape by *when* it is true, not by the
+ * state it ends in: both are honest, and both are `failed`.
+ *
+ * @param context - Route context carrying the open store.
+ * @param request - Routed request; the path captures `:correlationId`.
+ * @returns `200 { correlationId, attempt, state, auditWritten }`, or a refusal.
+ */
+async function handleAbandon(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
+    const { store } = context;
+    if (store === null) {
+        return storageUnavailableResponse();
+    }
+
+    const correlationId = pathCorrelationId(request.params.correlationId);
+    if (correlationId === null) {
+        return unknownRunResponse();
+    }
+
+    const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { dispatchToken: true } });
+    if (isRefusal(parsed)) {
+        return parsed;
+    }
+
+    const reason = textMember(parsed.fields.reason);
+    if (reason === null) {
+        return errorResponse(STATUS.validation, {
+            code: 'validation',
+            message: 'reason: say why the reserved attempt was abandoned, so the failure row is readable',
+        });
+    }
+
+    const abandoned = await reportDispatch({
+        store,
+        log: context.log,
+        correlationId,
+        dispatchToken: parsed.dispatchToken,
+        attempt: parsed.attempt,
+        operation: 'abandon',
+        outcome: { attemptOutcome: 'abandoned', sessionId: null, reason },
+    });
+
+    return runOutcomeResponse({ context, operation: 'abandon', outcome: abandoned, success: (run, auditWritten) =>
+        runAnswer({ correlationId, run, auditWritten }) });
+}
+
+/**
+ * Answer `POST /v1/events/:correlationId/blocked`.
+ *
+ * A fail-closed guard refused the dispatch before any host call (FR-042). Valid
+ * only from `claimed` under the live lease, and the blocked reason is checked
+ * against the four declared causes so the resulting `blocked:<reason>` state stays
+ * parseable (data-model §2.2). The attempt number and the automatic requeue
+ * budget are untouched — a guard refusal consumes nothing, and the sweep never
+ * touches a blocked run.
+ *
+ * @param context - Route context carrying the open store.
+ * @param request - Routed request; the path captures `:correlationId`.
+ * @returns `200 { correlationId, attempt, state, auditWritten }`, or a refusal.
+ */
+async function handleBlocked(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
+    const { store } = context;
+    if (store === null) {
+        return storageUnavailableResponse();
+    }
+
+    const correlationId = pathCorrelationId(request.params.correlationId);
+    if (correlationId === null) {
+        return unknownRunResponse();
+    }
+
+    const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { leaseId: true } });
+    if (isRefusal(parsed)) {
+        return parsed;
+    }
+
+    const blockedReason = textMember(parsed.fields.blockedReason);
+    const detail = textMember(parsed.fields.detail);
+    if (blockedReason === null || !BLOCKED_REASONS.has(blockedReason) || detail === null) {
+        return errorResponse(STATUS.validation, {
+            code: 'validation',
+            message: `blockedReason: name one of ${[...BLOCKED_REASONS].join(', ')}; detail: describe the cause`,
+        });
+    }
+
+    const blocked = await blockDispatch({
+        store,
+        log: context.log,
+        correlationId,
+        leaseId: parsed.leaseId,
+        attempt: parsed.attempt,
+        blockedReason,
+        detail,
+        guidance: textMember(parsed.fields.guidance),
+    });
+
+    return runOutcomeResponse({ context, operation: 'blocked', outcome: blocked, success: (run, auditWritten) =>
+        runAnswer({ correlationId, run, auditWritten }) });
+}
+
+/** Declare intent to start a session and receive the single-use token. */
+export const reserveRoute: Route = {
+    method: 'POST',
+    path: RESERVE_PATH,
+    handler: (context, request) => handleReserve(context, request),
+};
+
+/** Report the outcome of an authorized attempt. */
+export const dispatchedRoute: Route = {
+    method: 'POST',
+    path: DISPATCHED_PATH,
+    handler: (context, request) => handleDispatched(context, request),
+};
+
+/** Report that a reserved attempt created no session. */
+export const abandonRoute: Route = {
+    method: 'POST',
+    path: ABANDON_PATH,
+    handler: (context, request) => handleAbandon(context, request),
+};
+
+/** Report that a fail-closed guard refused before any host call. */
+export const blockedRoute: Route = {
+    method: 'POST',
+    path: BLOCKED_PATH,
+    handler: (context, request) => handleBlocked(context, request),
+};

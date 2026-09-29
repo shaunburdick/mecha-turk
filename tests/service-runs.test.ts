@@ -1,15 +1,18 @@
 /**
- * The runs-history routes (Slice 2): `GET /v1/events` and
- * `POST /v1/events/:id/retry`.
+ * The runs-history route: `GET /v1/events`, plus the wire delta its retry
+ * sibling went through in 003.
  *
  * The read side is what M8's runs list will render, so it is asserted from
  * the outside — the real loopback service answering the real request — on
- * the three things that could silently betray that UI: the projection (only
+ * the two things that could silently betray that UI: the projection (only
  * the documented fields, no account identity beyond the id, and never a
- * credential even though one is registered in the same store), the ordering
- * (newest detected first) and its cap, and the retry state machine
- * (`pending`/`in-flight` answer `200` and end up pending again;
- * `dispatched` is terminal and answers `409`).
+ * credential even though one is registered in the same store) and the
+ * ordering (newest detected first) with its cap.
+ *
+ * 003 also changed the retry operation from delivery-scoped to run-scoped
+ * (`contracts/dispatch-authorization.md`), which this file records from the
+ * delivery side: a delivery id is no longer addressable at all. The run-scoped
+ * behaviour itself is covered by `tests/service-run-operations.test.ts`.
  *
  * The planted queue rows are the writer's own detection bytes plus the four
  * lifecycle stamps the shipped build wrote (`createEvent`), so the service
@@ -22,7 +25,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CONSENT_VERSION } from '../src/consent.ts';
 import { EVENTS_FILE, createEvent } from '../service/poll/events.ts';
-import { EVENTS_PATH, EVENTS_PENDING_PATH, EVENT_RETRY_PATH } from '../service/routes/events.ts';
+import { RETRY_PATH } from '../service/routes/run-ops.ts';
+import { EVENTS_PATH, EVENTS_PENDING_PATH } from '../service/routes/events.ts';
 import { VERIFY_PATH } from '../service/routes/verify.ts';
 import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
@@ -187,17 +191,6 @@ function fixtureEvent(input: {
 }
 
 /**
- * Stamp one fixture event into another queue state.
- *
- * @param event - The event to move.
- * @param patch - The state fields to overwrite.
- * @returns The event as it should be planted.
- */
-function inState(event: QueuedEvent, patch: Partial<QueuedEvent>): QueuedEvent {
-    return { ...event, ...patch };
-}
-
-/**
  * Build a strictly increasing detection stamp for one cap-fixture event.
  *
  * @param issueNumber - Issue number, which the stamp orders by.
@@ -230,17 +223,6 @@ async function storedQueue(service: TestService): Promise<readonly Record<string
     const text = await readFile(join(service.dataDir, EVENTS_FILE), 'utf8');
 
     return JSON.parse(text) as readonly Record<string, unknown>[];
-}
-
-/**
- * Post one retry request for an event id.
- *
- * @param service - Harness instance.
- * @param eventId - Id on the retry path.
- * @returns The response.
- */
-async function postRetry(service: TestService, eventId: string): Promise<Response> {
-    return await service.call(EVENT_RETRY_PATH.replace(':eventId', eventId), { method: 'POST' });
 }
 
 describe('GET /v1/events (runs history)', () => {
@@ -331,66 +313,28 @@ describe('GET /v1/events (runs history)', () => {
     });
 });
 
-describe('POST /v1/events/:id/retry', () => {
-    it('returns an in-flight event to pending and clears its claim stamp', async () => {
+describe('POST /v1/events/:correlationId/retry (wire delta from 003)', () => {
+    it('is addressed by the run, not the delivery, and refuses a delivery id', async () => {
+        // 003's wire delta replaced the delivery-scoped retry outright: a
+        // post-003 delivery carries no lifecycle state of its own, so there was
+        // nothing at the delivery layer for a retry to reset. The path segment is
+        // now the run's correlation id, and a delivery id is not one.
         const service = await startEmpty();
-        const claimed = inState(fixtureEvent({ issueNumber: 4, detectedAt: STAMP, kind: 'assignment' }), {
-            state: 'in-flight',
-            claimedAt: STAMP,
-        });
-        await plantQueue(service, [claimed]);
+        await plantQueue(service, [fixtureEvent({ issueNumber: 4, detectedAt: STAMP, kind: 'assignment' })]);
 
-        const response = await postRetry(service, claimed.id);
-
-        expect(response.status).toBe(200);
-        expect(await response.json()).toEqual({ retried: true });
-
-        const stored = await storedQueue(service);
-        expect(stored[0]?.state).toBe('pending');
-        expect(stored[0]?.claimedAt).toBeNull();
-        expect(stored[0]?.dispatchedAt).toBeNull();
-    });
-
-    it('answers 200 for an event already pending, changing nothing', async () => {
-        const service = await startEmpty();
-        const pending = fixtureEvent({ issueNumber: 5, detectedAt: STAMP, kind: 'assignment' });
-        await plantQueue(service, [pending]);
-
-        const response = await postRetry(service, pending.id);
-
-        expect(response.status).toBe(200);
-        expect(await storedQueue(service)).toEqual([pending as unknown as Record<string, unknown>]);
-    });
-
-    it('refuses a dispatched event with 409 invalid-transition', async () => {
-        const service = await startEmpty();
-        const dispatched = inState(fixtureEvent({ issueNumber: 6, detectedAt: STAMP, kind: 'assignment' }), {
-            state: 'dispatched',
-            dispatchedAt: STAMP,
-            dispatchResult: 'ses_fixture',
-        });
-        await plantQueue(service, [dispatched]);
-
-        const response = await postRetry(service, dispatched.id);
-
-        expect(response.status).toBe(409);
+        const response = await service.call(
+            RETRY_PATH.replace(':correlationId', 'evt-acme~widget~4~77331'),
+            { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ attempt: 1 }) },
+        );
         const body = (await response.json()) as { error: { code: string } };
-        expect(body.error.code).toBe('invalid-transition');
-
-        // The terminal row is untouched: the retry did not reopen it.
-        const stored = await storedQueue(service);
-        expect(stored[0]?.state).toBe('dispatched');
-        expect(stored[0]?.dispatchResult).toBe('ses_fixture');
-    });
-
-    it('answers 404 for an id the queue never held', async () => {
-        const service = await startEmpty();
-        await plantQueue(service, []);
-
-        const response = await postRetry(service, 'evt-acme~widget~9~77331');
 
         expect(response.status).toBe(404);
-        const body = (await response.json()) as { error: { code: string } };
-        expect(body.error.code).toBe('not-found');
+        expect(body.error.code).toBe('unknown-run');
+        // The delivery row is byte-identical: a refusal moves nothing.
+        expect(await storedQueue(service)).toEqual([fixtureEvent({
+            issueNumber: 4,
+            detectedAt: STAMP,
+            kind: 'assignment',
+        }) as unknown as Record<string, unknown>]);
     });
 });

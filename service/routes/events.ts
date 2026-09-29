@@ -11,16 +11,18 @@
  * lease with no panel action.
  *
  * `GET /v1/events` projects every event — pending, in-flight, and dispatched
- * alike — newest detected first without claiming anything, and
- * `POST /v1/events/:id/retry` hands one non-dispatched event back to the pending
- * queue (M8's "dispatch failed → retry"). Both still read the *delivery* queue:
- * the run-shaped history projection that replaces them is T-016's work, and the
- * delivery routes are not retired by the run layer.
+ * alike — newest detected first without claiming anything. It still reads the
+ * *delivery* queue: the run-shaped history projection that replaces it is T-016's
+ * work, and the delivery routes are not retired by the run layer.
  *
- * `POST /v1/events/:id/dispatched` marks one claimed event done and stores the
- * panel's own summary for the operator's record. Re-posting the same dispatch
- * is idempotent at the route level: the second post finds the event already
- * terminal and answers the same 200 shape.
+ * **The two delivery-scoped mutations this file used to hold are gone.** 003's
+ * wire delta addresses a dispatch outcome and an operator retry **by the run, not
+ * the delivery** (`contracts/dispatch-authorization.md`): a post-003 delivery
+ * carries no lifecycle field of its own — its truth lives on the run
+ * (data-model §2.1) — so `POST /v1/events/:eventId/dispatched` could only ever
+ * answer `404` for real work, and `POST /v1/events/:eventId/retry` had nothing to
+ * reset. They are answered instead by [`dispatch.ts`](./dispatch.ts) and
+ * [`run-ops.ts`](./run-ops.ts), under `/v1/events/:correlationId/…`.
  *
  * The same `GET /v1/events/pending` response carries the per-binding scan status
  * the panel's status line renders, because the panel polls this route on its
@@ -32,16 +34,12 @@
 import { readBindings } from '../bindings.ts';
 import { MAX_CLAIMED_RUNS } from '../poll/claim-bounds.ts';
 import { claimPendingRuns, holderOf } from '../poll/claim.ts';
-import {
-    markEventDispatched,
-    readEvents,
-    retryEvent,
-} from '../poll/events.ts';
+import { readEvents } from '../poll/events.ts';
 import { previewRunsDocument } from '../poll/runs-document.ts';
 import { readScanState } from '../poll/scan.ts';
 import type { BindingRecord } from '../bindings.ts';
 import type { EventKind, EventState, QueuedEvent } from '../poll/events.ts';
-import { errorResponse, STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
+import { STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
 import type { ServiceStore } from '../store/index.ts';
 import type { ServiceLogger } from '../log.ts';
@@ -53,17 +51,8 @@ export const EVENTS_PENDING_PATH = '/v1/events/pending';
 /** Path of the runs history: every event, every state, newest detected first. */
 export const EVENTS_PATH = '/v1/events';
 
-/** Path pattern the operator retries one non-dispatched event through. */
-export const EVENT_RETRY_PATH = '/v1/events/:eventId/retry';
-
-/** Path pattern the panel reports one dispatch through. */
-export const EVENT_DISPATCHED_PATH = '/v1/events/:eventId/dispatched';
-
 /** How many events the runs history answers with (newest detected first). */
 export const MAX_LISTED_EVENTS = 100;
-
-/** Longest event id accepted on a dispatch path; ids are built, never parsed. */
-const MAX_EVENT_ID_CHARS = 200;
 
 /** Shape of a stored queue row the status reader needs. */
 type QueueRow = Pick<QueuedEvent, 'id' | 'bindingId' | 'state'>;
@@ -86,21 +75,6 @@ export interface BindingStatusRow {
     readonly lastError: string | null;
     /** Events for this binding that are pending or in flight. */
     readonly pendingCount: number;
-}
-
-/**
- * Read the numeric event id captured from the dispatch path.
- *
- * @param raw - Captured `:eventId` segment; the pipeline does not decode it,
- *   so reuse keep this validation tight instead of trusting an encoding.
- * @returns The id, or `null` when the segment carries no usable id.
- */
-function pathEventId(raw: string | undefined): string | null {
-    if (raw === undefined || raw === '' || raw.length > MAX_EVENT_ID_CHARS) {
-        return null;
-    }
-
-    return /^[A-Za-z0-9._~-]+$/.test(raw) ? raw : null;
 }
 
 /**
@@ -213,30 +187,6 @@ function recentRuns(queue: readonly QueuedEvent[]): EventRunRow[] {
 }
 
 /**
- * Read the panel's dispatch summary out of the request body.
- *
- * The panel sends `{ sessionId: string }` after a start, or
- * `{ problem: string }` when its dispatch ended in a refusal. Both shapes are
- * panel-published, so the strings are taken as-is, but the field must be
- * strings for the record to be trustworthy: any other shape reads as no
- * summary at all rather than a partial one.
- *
- * @param raw - Parsed body, or `undefined` when the request carried none.
- * @returns `[sessionId, problem]`, nullable and in this order.
- */
-function readDispatchFields(raw: unknown): readonly [string | null, string | null] {
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-        return [null, null];
-    }
-
-    const record = raw as Record<string, unknown>;
-    const sessionId = typeof record.sessionId === 'string' ? record.sessionId : null;
-    const problem = typeof record.problem === 'string' ? record.problem : null;
-
-    return [sessionId, problem];
-}
-
-/**
  * Read the per-binding status rows.
  *
  * One row per stored binding, built from the scan state and the **run**
@@ -344,51 +294,6 @@ async function handlePendingEvents(context: RouteContext, request: RouteRequest)
 }
 
 /**
- * Answer `POST /v1/events/:eventId/dispatched` by marking one event done.
- *
- * The panel's summary (the created session id, or a problem the panel reported)
- * is stored so the operator can trace a dispatch failure without a separate
- * runs list. A re-post for an id that is already marked answers `404
- * not-found` — `markEventDispatched` waits for a dispatch result only once —
- * as does an id the queue never held, the honest answer for a stale path the
- * panel re-posted later than the queue kept it.
- *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:eventId`.
- * @returns `200 { done: true }`, or the documented refusal.
- */
-async function handleDispatchedEvent(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
-    const { store } = context;
-    if (store === null) {
-        return storageUnavailableResponse();
-    }
-
-    const eventId = pathEventId(request.params.eventId);
-    if (eventId === null) {
-        return errorResponse(STATUS.notFound, {
-            code: 'not-found',
-            message: 'the dispatch path carries no usable event id',
-        });
-    }
-
-    const [sessionId, problem] = readDispatchFields(request.body);
-    const summary = sessionId ?? problem;
-    const marked = await markEventDispatched({ store, eventId, log: context.log, result: summary });
-    if (marked === null) {
-        return errorResponse(STATUS.notFound, {
-            code: 'not-found',
-            message: 'no event with this id is waiting for a dispatch result',
-        });
-    }
-
-    if (problem !== null) {
-        context.log.warn('panel reported a dispatch problem', { eventId: marked.id, problem });
-    }
-
-    return { status: STATUS.ok, body: { done: true } };
-}
-
-/**
  * Answer `GET /v1/events` with the runs history: every queued event, in any
  * state, newest detected first.
  *
@@ -412,54 +317,6 @@ async function handleEventHistory(context: RouteContext): Promise<HttpResponse> 
     return { status: STATUS.ok, body: { events: recentRuns(queue) } };
 }
 
-/**
- * Answer `POST /v1/events/:eventId/retry` by returning one event to the
- * pending queue.
- *
- * Only a `pending` or `in-flight` event can be retried: the pending one is
- * already where a retry wants it (the answer stays `200` so a double click
- * is harmless), and the in-flight one loses its claim stamp and waits for
- * the next relay read. A dispatched event is terminal — the operator's own
- * dispatch is the record of what happened — so it answers `409` in the
- * envelope's `invalid-transition` voice, and an id the queue never held (or
- * that fell out of the dispatched tail) answers `404`.
- *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:eventId`.
- * @returns `200 { retried: true }`, or the documented refusal.
- */
-async function handleRetryEvent(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
-    const { store } = context;
-    if (store === null) {
-        return storageUnavailableResponse();
-    }
-
-    const eventId = pathEventId(request.params.eventId);
-    if (eventId === null) {
-        return errorResponse(STATUS.notFound, {
-            code: 'not-found',
-            message: 'the retry path carries no usable event id',
-        });
-    }
-
-    const outcome = await retryEvent({ store, eventId, log: context.log });
-    if (outcome === 'unknown') {
-        return errorResponse(STATUS.notFound, {
-            code: 'not-found',
-            message: 'no event with this id is in the queue',
-        });
-    }
-
-    if (outcome === 'dispatched') {
-        return errorResponse(STATUS.conflict, {
-            code: 'invalid-transition',
-            message: 'this event was already dispatched — a dispatched event cannot be retried',
-        });
-    }
-
-    return { status: STATUS.ok, body: { retried: true } };
-}
-
 /** Claim and return every waiting run, each under a fresh lease. */
 export const pendingEventsRoute: Route = {
     method: 'GET',
@@ -467,25 +324,11 @@ export const pendingEventsRoute: Route = {
     handler: (context, request) => handlePendingEvents(context, request),
 };
 
-/** Mark one claimed event dispatched on the panel's word. */
-export const dispatchedEventRoute: Route = {
-    method: 'POST',
-    path: EVENT_DISPATCHED_PATH,
-    handler: (context, request) => handleDispatchedEvent(context, request),
-};
-
 /** Read the runs history: every event, credential-free, newest first. */
 export const eventHistoryRoute: Route = {
     method: 'GET',
     path: EVENTS_PATH,
     handler: (context) => handleEventHistory(context),
-};
-
-/** Return one non-dispatched event to the pending queue. */
-export const retryEventRoute: Route = {
-    method: 'POST',
-    path: EVENT_RETRY_PATH,
-    handler: (context, request) => handleRetryEvent(context, request),
 };
 
 /** Type used to note the queue shape the status row counts from. */

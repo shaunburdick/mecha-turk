@@ -4149,45 +4149,6 @@ async function enqueueWithinChain(input) {
 async function enqueueEvents(input) {
   return await inQueueChain(async () => await enqueueWithinChain(input));
 }
-async function markEventDispatched(input) {
-  return await inQueueChain(async () => {
-    const events = await readQueue(input);
-    const match = events.find((event) => event.id === input.eventId);
-    if (match === undefined) {
-      return null;
-    }
-    if (match.state === undefined || match.state === "dispatched") {
-      return null;
-    }
-    const dispatched = {
-      ...match,
-      state: "dispatched",
-      dispatchedAt: nowIso(),
-      dispatchResult: input.result
-    };
-    const remaining = events.map((event) => event.id === input.eventId ? dispatched : event);
-    await input.store.writeJson(EVENTS_FILE, serializedQueue(remaining));
-    return dispatched;
-  });
-}
-async function retryEvent(input) {
-  return await inQueueChain(async () => {
-    const events = await readQueue(input);
-    const match = events.find((event) => event.id === input.eventId);
-    if (match === undefined) {
-      return "unknown";
-    }
-    if (match.state === undefined || match.state === "pending") {
-      return "reset";
-    }
-    if (match.state === "dispatched") {
-      return "dispatched";
-    }
-    const reset = (event) => event.id === input.eventId ? { ...event, state: "pending", claimedAt: null } : event;
-    await input.store.writeJson(EVENTS_FILE, serializedQueue(events.map(reset)));
-    return "reset";
-  });
-}
 
 // service/poll/runs-transitions.ts
 var MAX_AUTO_REQUEUES = 3;
@@ -4401,16 +4362,7 @@ async function claimPendingRuns(input) {
 // service/routes/events.ts
 var EVENTS_PENDING_PATH = "/v1/events/pending";
 var EVENTS_PATH = "/v1/events";
-var EVENT_RETRY_PATH = "/v1/events/:eventId/retry";
-var EVENT_DISPATCHED_PATH = "/v1/events/:eventId/dispatched";
 var MAX_LISTED_EVENTS = 100;
-var MAX_EVENT_ID_CHARS = 200;
-function pathEventId(raw) {
-  if (raw === undefined || raw === "" || raw.length > MAX_EVENT_ID_CHARS) {
-    return null;
-  }
-  return /^[A-Za-z0-9._~-]+$/.test(raw) ? raw : null;
-}
 function claimLimitOf(raw) {
   if (raw === null || raw === "") {
     return MAX_CLAIMED_RUNS;
@@ -4441,15 +4393,6 @@ function runRowOf(event) {
 }
 function recentRuns(queue) {
   return [...queue].sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt)).slice(0, MAX_LISTED_EVENTS).map(runRowOf);
-}
-function readDispatchFields(raw) {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return [null, null];
-  }
-  const record = raw;
-  const sessionId = typeof record.sessionId === "string" ? record.sessionId : null;
-  const problem = typeof record.problem === "string" ? record.problem : null;
-  return [sessionId, problem];
 }
 async function readStatusRows(input) {
   const [scannedState, runs] = await Promise.all([readScanState(input), previewRunsDocument(input)]);
@@ -4498,32 +4441,6 @@ async function handlePendingEvents(context, request) {
     body: { events: claimed.runs, status: rows, auditWritten: claimed.auditWritten }
   };
 }
-async function handleDispatchedEvent(context, request) {
-  const { store } = context;
-  if (store === null) {
-    return storageUnavailableResponse();
-  }
-  const eventId = pathEventId(request.params.eventId);
-  if (eventId === null) {
-    return errorResponse(STATUS.notFound, {
-      code: "not-found",
-      message: "the dispatch path carries no usable event id"
-    });
-  }
-  const [sessionId, problem] = readDispatchFields(request.body);
-  const summary = sessionId ?? problem;
-  const marked = await markEventDispatched({ store, eventId, log: context.log, result: summary });
-  if (marked === null) {
-    return errorResponse(STATUS.notFound, {
-      code: "not-found",
-      message: "no event with this id is waiting for a dispatch result"
-    });
-  }
-  if (problem !== null) {
-    context.log.warn("panel reported a dispatch problem", { eventId: marked.id, problem });
-  }
-  return { status: STATUS.ok, body: { done: true } };
-}
 async function handleEventHistory(context) {
   const { store } = context;
   if (store === null) {
@@ -4532,52 +4449,856 @@ async function handleEventHistory(context) {
   const queue = await readEvents({ store, log: context.log });
   return { status: STATUS.ok, body: { events: recentRuns(queue) } };
 }
-async function handleRetryEvent(context, request) {
-  const { store } = context;
-  if (store === null) {
-    return storageUnavailableResponse();
-  }
-  const eventId = pathEventId(request.params.eventId);
-  if (eventId === null) {
-    return errorResponse(STATUS.notFound, {
-      code: "not-found",
-      message: "the retry path carries no usable event id"
-    });
-  }
-  const outcome = await retryEvent({ store, eventId, log: context.log });
-  if (outcome === "unknown") {
-    return errorResponse(STATUS.notFound, {
-      code: "not-found",
-      message: "no event with this id is in the queue"
-    });
-  }
-  if (outcome === "dispatched") {
-    return errorResponse(STATUS.conflict, {
-      code: "invalid-transition",
-      message: "this event was already dispatched — a dispatched event cannot be retried"
-    });
-  }
-  return { status: STATUS.ok, body: { retried: true } };
-}
 var pendingEventsRoute = {
   method: "GET",
   path: EVENTS_PENDING_PATH,
   handler: (context, request) => handlePendingEvents(context, request)
-};
-var dispatchedEventRoute = {
-  method: "POST",
-  path: EVENT_DISPATCHED_PATH,
-  handler: (context, request) => handleDispatchedEvent(context, request)
 };
 var eventHistoryRoute = {
   method: "GET",
   path: EVENTS_PATH,
   handler: (context) => handleEventHistory(context)
 };
-var retryEventRoute = {
+
+// service/poll/dispatch-audit.ts
+var RUN_ENTITY_KIND2 = "run";
+var PANEL_ACTOR = "panel";
+var SERVICE_ACTOR2 = "service";
+var OPERATOR_ACTOR = "operator";
+var MAX_ROW_TEXT_CHARS = 500;
+var TEXT_TRUNCATION_MARKER = "… [truncated]";
+function rowText(value) {
+  if (value === null || value.length <= MAX_ROW_TEXT_CHARS) {
+    return value;
+  }
+  return `${value.slice(0, MAX_ROW_TEXT_CHARS)}${TEXT_TRUNCATION_MARKER}`;
+}
+function runRow(run) {
+  return { entity: { kind: RUN_ENTITY_KIND2, id: run.correlationId }, correlationId: run.correlationId };
+}
+function reservedRow(input) {
+  return {
+    eventType: "dispatch.reserved",
+    actorSource: PANEL_ACTOR,
+    ...runRow(input.run),
+    details: {
+      leaseId: input.leaseId,
+      attempt: input.run.attempt,
+      dispatchTokenFingerprint: buildDispatchTokenFingerprint(input.dispatchToken),
+      attachmentId: input.run.attachmentId
+    }
+  };
+}
+function resultRow(input) {
+  return {
+    eventType: "dispatch.result",
+    actorSource: PANEL_ACTOR,
+    ...runRow(input.run),
+    decision: input.sessionId === null ? "failed" : "dispatched",
+    details: {
+      attempt: input.run.attempt,
+      dispatchTokenFingerprint: buildDispatchTokenFingerprint(input.dispatchToken),
+      ...input.sessionId === null ? { failureReason: rowText(input.problem) } : { sessionId: input.sessionId }
+    }
+  };
+}
+function duplicateReportRow(input) {
+  return {
+    eventType: "dispatch.duplicate-report",
+    actorSource: SERVICE_ACTOR2,
+    ...runRow(input.run),
+    decision: "no-change",
+    details: {
+      attempt: input.run.attempt,
+      dispatchTokenFingerprint: buildDispatchTokenFingerprint(input.dispatchToken),
+      state: input.state
+    }
+  };
+}
+function abandonedRow(input) {
+  return {
+    eventType: "dispatch.abandoned",
+    actorSource: PANEL_ACTOR,
+    ...runRow(input.run),
+    decision: "no-session",
+    details: {
+      attempt: input.run.attempt,
+      dispatchTokenFingerprint: buildDispatchTokenFingerprint(input.dispatchToken),
+      reason: rowText(input.reason)
+    }
+  };
+}
+function blockedRow(input) {
+  return {
+    eventType: "run.blocked",
+    actorSource: PANEL_ACTOR,
+    ...runRow(input.run),
+    decision: "blocked",
+    details: {
+      blockedReason: input.blockedReason,
+      priorState: input.priorState,
+      guidance: rowText(input.guidance)
+    }
+  };
+}
+function retryRow(input) {
+  return {
+    eventType: "dispatch.retry",
+    actorSource: OPERATOR_ACTOR,
+    ...runRow(input.run),
+    decision: "retry",
+    details: {
+      priorState: input.priorState,
+      attemptBefore: input.attemptBefore,
+      attemptAfter: input.attemptAfter,
+      causeReportedCleared: input.causeReportedCleared,
+      causeClearedSource: input.causeClearedSource,
+      attemptReset: input.reset,
+      causeReport: rowText(input.causeReport)
+    }
+  };
+}
+function resolvedRow(input) {
+  return {
+    eventType: "dispatch.resolved",
+    actorSource: OPERATOR_ACTOR,
+    ...runRow(input.run),
+    decision: input.decision,
+    details: {
+      priorState: input.priorState,
+      note: rowText(input.note),
+      guidance: rowText(input.guidance)
+    }
+  };
+}
+function verificationRow(input) {
+  const { verification } = input;
+  const matched = verification.ok;
+  return {
+    eventType: matched ? "agent.verified" : "agent.mismatch",
+    actorSource: PANEL_ACTOR,
+    ...runRow(input.run),
+    decision: matched ? "verified" : "warn",
+    details: {
+      sessionId: input.run.session?.sessionId ?? "",
+      observedAgent: verification.observedAgent,
+      expectedAgent: verification.expectedAgent,
+      note: rowText(verification.note)
+    }
+  };
+}
+function refusedRow(input) {
+  return {
+    eventType: "dispatch.refused",
+    actorSource: SERVICE_ACTOR2,
+    ...runRow(input.run),
+    decision: "refused",
+    reason: input.reason,
+    details: {
+      operation: input.operation,
+      code: input.code,
+      priorState: input.run.state,
+      attempt: input.attempt,
+      ...input.leaseId === undefined ? {} : { leaseId: input.leaseId },
+      ...input.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: input.dispatchTokenFingerprint }
+    }
+  };
+}
+async function appendRunRow(input) {
+  try {
+    await appendAudit(input.store, input.row);
+    return true;
+  } catch (cause) {
+    input.log.warn("dispatch lifecycle audit row could not be appended", {
+      correlationId: input.correlationId,
+      eventType: input.row.eventType,
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return false;
+  }
+}
+
+// service/poll/run-chain.ts
+async function operateRun(target, task) {
+  const now = target.now ?? nowIso();
+  return await inQueueChain(async () => {
+    const document = await readRunsDocument(target);
+    const index = document.runs.findIndex((run2) => run2.correlationId === target.correlationId);
+    const run = document.runs[index];
+    if (run === undefined) {
+      return { status: "not-found" };
+    }
+    return await task({
+      run,
+      now,
+      persist: async (next) => {
+        const runs = [...document.runs];
+        runs[index] = next;
+        await writeRunsDocument({ store: target.store, log: target.log, document: { ...document, runs } });
+      }
+    });
+  });
+}
+async function appendRefusalRow(input) {
+  const { refusal } = input;
+  const row = refusedRow({
+    run: refusal.run,
+    operation: refusal.operation,
+    code: refusal.refusal.code,
+    reason: refusal.refusal.message,
+    attempt: refusal.attempt,
+    ...refusal.leaseId === undefined ? {} : { leaseId: refusal.leaseId },
+    ...refusal.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint }
+  });
+  return await appendRunRow({
+    store: input.store,
+    log: input.log,
+    correlationId: refusal.run.correlationId,
+    row
+  });
+}
+function sessionRefOf(input) {
+  return {
+    sessionId: input.sessionId,
+    attachmentId: input.run.attachmentId,
+    dispatchedAt: input.now,
+    title: "",
+    sourceUrl: input.run.sourceReferences[0]?.sourceUrl ?? "",
+    worktree: null
+  };
+}
+
+// service/poll/run-refusal.ts
+var STALE_LEASE_CODE = "stale-lease";
+function refuse(code, message) {
+  return { code, message };
+}
+function staleAttemptMessage(attempt, current) {
+  return `the request names attempt ${attempt} but this run stands on attempt ${current}; ` + "read the run again and act on the attempt it reports";
+}
+
+// service/poll/dispatch-authorize.ts
+var INVALID_TRANSITION = "invalid-transition";
+var STALE_MESSAGE = "the lease is expired or does not match this run";
+function sessionIdOf(run) {
+  if (run.session !== null) {
+    return run.session.sessionId;
+  }
+  return run.attempts.find((attempt) => attempt.sessionId !== null)?.sessionId ?? null;
+}
+function judgeLease(input) {
+  const { run, leaseId, attempt, now } = input;
+  const stale = refuse("stale-lease", STALE_MESSAGE);
+  if (run.lease?.leaseId !== leaseId) {
+    return stale;
+  }
+  if (attempt !== run.attempt || run.lease.attempt !== run.attempt) {
+    return stale;
+  }
+  return Date.parse(run.lease.expiresAt) <= Date.parse(now) ? stale : null;
+}
+function judgeReserve(input) {
+  const { run } = input;
+  const lease = judgeLease(input);
+  if (lease !== null) {
+    return lease;
+  }
+  if (runHistoryIndicatesSession(run)) {
+    const sessionId = sessionIdOf(run);
+    return refuse("already-dispatched", sessionId === null ? "this run already produced a session" : `a session already exists: ${sessionId}`);
+  }
+  const { reservation } = run;
+  if (reservation !== null) {
+    return refuse("already-reserved", `this run is already authorized: attempt ${reservation.attempt} must report by ` + `${reservation.resultDeadlineAt}`);
+  }
+  return run.state === "claimed" ? null : refuse(INVALID_TRANSITION, `this run is ${run.state}; only a claimed run can be authorized`);
+}
+function reservedRun(input) {
+  const { run, dispatchToken, resultDeadlineAt, now } = input;
+  return {
+    ...run,
+    state: "starting",
+    stateReason: `authorized at ${now}; result due by ${resultDeadlineAt}`,
+    reservation: { dispatchToken, attempt: run.attempt, reservedAt: now, resultDeadlineAt, consumed: false },
+    attempts: attemptHistory(run, { ...currentAttempt(run), dispatchToken, reservedAt: now }),
+    updatedAt: now
+  };
+}
+async function readResultDeadlineMs(store, log) {
+  try {
+    const stored = await store.readJson(CONFIG_FILE, parseStoredConfig);
+    return configFromStore(stored, log).resultDeadlineMs;
+  } catch (cause) {
+    log.warn("result deadline read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
+    return DEFAULT_CONFIG.resultDeadlineMs;
+  }
+}
+async function refusedReserve(input) {
+  const { call, run, refusal } = input;
+  return {
+    status: "refused",
+    refusal,
+    run,
+    auditWritten: await appendRefusalRow({
+      store: call.store,
+      log: call.log,
+      refusal: {
+        run,
+        operation: "reserve",
+        refusal,
+        attempt: call.attempt,
+        leaseId: call.leaseId
+      }
+    })
+  };
+}
+async function reserveDispatch(input) {
+  const deadlineMs = await readResultDeadlineMs(input.store, input.log);
+  return await operateRun(input, async ({ run, now, persist }) => {
+    const refusal = judgeReserve({ run, leaseId: input.leaseId, attempt: input.attempt, now });
+    if (refusal !== null) {
+      return await refusedReserve({ call: input, run, refusal });
+    }
+    const lease = run.lease;
+    const dispatchToken = buildDispatchToken(run.runKey, run.attempt);
+    const resultDeadlineAt = new Date(Date.parse(now) + deadlineMs).toISOString();
+    const starting = reservedRun({ run, dispatchToken, resultDeadlineAt, now });
+    await persist(starting);
+    return {
+      status: "applied",
+      run: starting,
+      dispatchToken,
+      tokenExpiresAt: lease.expiresAt,
+      auditWritten: await appendRunRow({
+        store: input.store,
+        log: input.log,
+        correlationId: starting.correlationId,
+        row: reservedRow({ run: starting, leaseId: lease.leaseId, dispatchToken })
+      })
+    };
+  });
+}
+
+// service/poll/dispatch-block.ts
+var BLOCKED_REASONS = new Set([
+  "project-missing",
+  "binding-missing",
+  "credential",
+  "policy"
+]);
+var INVALID_TRANSITION2 = "invalid-transition";
+function judgeBlock(input) {
+  const { run } = input;
+  const lease = judgeLease(input);
+  if (lease !== null) {
+    return lease;
+  }
+  if (runHistoryIndicatesSession(run)) {
+    const sessionId = sessionIdOf(run);
+    return refuse(INVALID_TRANSITION2, sessionId === null ? "this run already produced a session and cannot be blocked" : `this run already produced session ${sessionId} and cannot be blocked`);
+  }
+  return run.state === "claimed" ? null : refuse(INVALID_TRANSITION2, `this run is ${run.state}; only a claimed run can be blocked`);
+}
+function blockedRun(input) {
+  const { run, blockedReason, detail, now } = input;
+  return {
+    ...run,
+    state: `blocked:${blockedReason}`,
+    stateReason: detail,
+    lease: null,
+    attempts: attemptHistory(run, {
+      ...currentAttempt(run),
+      outcome: "blocked",
+      reason: detail,
+      resultReportedAt: now
+    }),
+    updatedAt: now
+  };
+}
+async function appendBlockRow(input) {
+  const { input: block, run, priorState } = input;
+  return await appendRunRow({
+    store: block.store,
+    log: block.log,
+    correlationId: run.correlationId,
+    row: blockedRow({
+      run,
+      blockedReason: block.blockedReason,
+      priorState,
+      guidance: block.guidance
+    })
+  });
+}
+async function blockDispatch(input) {
+  return await operateRun(input, async ({ run, now, persist }) => {
+    const refusal = judgeBlock({ run, leaseId: input.leaseId, attempt: input.attempt, now });
+    if (refusal !== null) {
+      return {
+        status: "refused",
+        refusal,
+        run,
+        auditWritten: await appendRefusalRow({
+          store: input.store,
+          log: input.log,
+          refusal: {
+            run,
+            operation: "blocked",
+            refusal,
+            attempt: input.attempt,
+            leaseId: input.leaseId
+          }
+        })
+      };
+    }
+    const priorState = run.state;
+    const blocked = blockedRun({ run, blockedReason: input.blockedReason, detail: input.detail, now });
+    await persist(blocked);
+    return {
+      status: "applied",
+      run: blocked,
+      auditWritten: await appendBlockRow({ input, run: blocked, priorState })
+    };
+  });
+}
+
+// service/poll/dispatch-report.ts
+var INVALID_TRANSITION3 = "invalid-transition";
+var STALE_TOKEN_MESSAGE = "the dispatch token is unknown, superseded, or already consumed by another attempt";
+function repeatedOutcome(input) {
+  const { run, outcome } = input;
+  const recorded = currentAttempt(run);
+  if (recorded.outcome !== outcome.attemptOutcome) {
+    return false;
+  }
+  return outcome.sessionId === null ? recorded.reason === outcome.reason && run.state === "failed" : recorded.sessionId === outcome.sessionId && sessionIdOf(run) === outcome.sessionId;
+}
+function conflict(run) {
+  const sessionId = sessionIdOf(run);
+  return refuse(INVALID_TRANSITION3, sessionId === null ? "a different outcome is already recorded for this attempt and cannot be replaced" : `this attempt already reported session ${sessionId}; a different outcome cannot replace it`);
+}
+function judgeReport(input) {
+  const { run, dispatchToken, attempt, outcome } = input;
+  const stale = refuse("stale-lease", STALE_TOKEN_MESSAGE);
+  const { reservation } = run;
+  if (reservation?.dispatchToken !== dispatchToken) {
+    return { refusal: stale };
+  }
+  if (reservation.attempt !== run.attempt || attempt !== run.attempt) {
+    return { refusal: stale };
+  }
+  if (reservation.consumed) {
+    return repeatedOutcome({ run, outcome }) ? { verdict: "duplicate" } : { refusal: conflict(run) };
+  }
+  return run.state === "starting" || run.state === "unconfirmed" ? { verdict: "apply" } : {
+    refusal: refuse(INVALID_TRANSITION3, `this run is ${run.state}; an authorized outcome can only be reported while it is ` + "starting or unconfirmed")
+  };
+}
+function closedAttempt(input) {
+  return {
+    ...input.attempt,
+    outcome: input.outcome.attemptOutcome,
+    sessionId: input.outcome.sessionId,
+    reason: input.outcome.reason,
+    resultReportedAt: input.now
+  };
+}
+function reportedRun(input) {
+  const { run, outcome, now } = input;
+  const reservation = run.reservation;
+  const { sessionId } = outcome;
+  return {
+    ...run,
+    state: sessionId === null ? "failed" : "dispatched",
+    stateReason: sessionId === null ? outcome.reason ?? "dispatch produced no session" : `session ${sessionId} created`,
+    lease: null,
+    reservation: { ...reservation, consumed: true },
+    attempts: attemptHistory(run, closedAttempt({ attempt: currentAttempt(run), outcome, now })),
+    ...sessionId === null ? {} : { session: sessionRefOf({ run, sessionId, now }) },
+    updatedAt: now
+  };
+}
+function reportRow(input) {
+  if (input.operation === "abandon") {
+    return abandonedRow({
+      run: input.run,
+      dispatchToken: input.dispatchToken,
+      reason: input.outcome.reason ?? ""
+    });
+  }
+  return resultRow({
+    run: input.run,
+    dispatchToken: input.dispatchToken,
+    sessionId: input.outcome.sessionId,
+    problem: input.outcome.reason
+  });
+}
+async function refusedReport(input) {
+  const { target, run, operation, refusal, attempt, dispatchToken } = input;
+  return {
+    status: "refused",
+    refusal,
+    run,
+    auditWritten: await appendRefusalRow({
+      store: target.store,
+      log: target.log,
+      refusal: {
+        run,
+        operation,
+        refusal,
+        attempt,
+        dispatchTokenFingerprint: buildDispatchTokenFingerprint(dispatchToken)
+      }
+    })
+  };
+}
+async function duplicateReport(input, run) {
+  return {
+    status: "duplicate",
+    run,
+    auditWritten: await appendRunRow({
+      store: input.store,
+      log: input.log,
+      correlationId: run.correlationId,
+      row: duplicateReportRow({ run, dispatchToken: input.dispatchToken, state: run.state })
+    })
+  };
+}
+async function applyVerdict(input) {
+  const { report, run, verdict, persist } = input;
+  if ("refusal" in verdict) {
+    return await refusedReport({
+      target: report,
+      run,
+      operation: report.operation,
+      refusal: verdict.refusal,
+      attempt: report.attempt,
+      dispatchToken: report.dispatchToken
+    });
+  }
+  if (verdict.verdict === "duplicate") {
+    return await duplicateReport(report, run);
+  }
+  const settled2 = reportedRun({ run, outcome: report.outcome, now: report.now ?? run.updatedAt });
+  await persist(settled2);
+  const auditWritten = await appendRunRow({
+    store: report.store,
+    log: report.log,
+    correlationId: settled2.correlationId,
+    row: reportRow({
+      run: settled2,
+      dispatchToken: report.dispatchToken,
+      outcome: report.outcome,
+      operation: report.operation
+    })
+  });
+  return { status: "applied", run: settled2, auditWritten };
+}
+async function reportDispatch(input) {
+  return await operateRun(input, async ({ run, now, persist }) => {
+    const report = { ...input, now };
+    const verdict = judgeReport({
+      run,
+      dispatchToken: input.dispatchToken,
+      attempt: input.attempt,
+      outcome: input.outcome
+    });
+    return await applyVerdict({ report, run, verdict, persist });
+  });
+}
+
+// service/routes/run-scope.ts
+var MAX_CORRELATION_ID_CHARS = 64;
+var CORRELATION_ID_PATTERN = /^mt-run-[0-9a-f]{24}$/;
+var LEASE_ID_PATTERN = /^lse-[0-9a-f]{24}$/;
+var DISPATCH_TOKEN_PATTERN = /^dtk-[0-9a-f]{32}$/;
+var RUN_SCOPE_PREFIX = "/v1/events/:correlationId";
+var MAX_BODY_TEXT_CHARS = 1000;
+function pathCorrelationId(raw) {
+  if (raw === undefined || raw.length === 0 || raw.length > MAX_CORRELATION_ID_CHARS) {
+    return null;
+  }
+  return CORRELATION_ID_PATTERN.test(raw) ? raw : null;
+}
+var BODY_REMEDIATION = "send a JSON object carrying the run identity and attempt";
+var ECHO_REMEDIATION = "echo the run correlation id exactly as the path names it";
+function isBodyObject(raw) {
+  return raw === undefined || typeof raw === "object" && raw !== null && !Array.isArray(raw);
+}
+function echoIssue(record, correlationId) {
+  return record.correlationId === correlationId ? null : { field: "correlationId", remediation: ECHO_REMEDIATION };
+}
+function readMember(value, pattern) {
+  return typeof value === "string" && pattern.test(value) ? value : null;
+}
+function requiredMember(input) {
+  const value = readMember(input.record[input.name], input.pattern);
+  if (input.required && value === null) {
+    input.issues.push({ field: input.name, remediation: input.remediation });
+  }
+  return value;
+}
+function parseRunScopeRequest(input) {
+  const { raw, correlationId, needs } = input;
+  const structured = isBodyObject(raw) && raw !== undefined;
+  const record = structured ? raw : {};
+  const issues = [];
+  if (raw !== undefined && !structured) {
+    issues.push({ field: "body", remediation: BODY_REMEDIATION });
+  }
+  const echo = echoIssue(record, correlationId);
+  if (echo !== null) {
+    issues.push(echo);
+  }
+  const { attempt } = record;
+  if (typeof attempt !== "number" || !Number.isInteger(attempt) || attempt < 1) {
+    issues.push({ field: "attempt", remediation: "send the attempt number this run is on, as a whole number" });
+  }
+  const leaseId = requiredMember({
+    record,
+    name: "leaseId",
+    pattern: LEASE_ID_PATTERN,
+    remediation: "send the lease id this run was claimed under",
+    required: needs.leaseId === true,
+    issues
+  });
+  const dispatchToken = requiredMember({
+    record,
+    name: "dispatchToken",
+    pattern: DISPATCH_TOKEN_PATTERN,
+    remediation: "send the dispatch token this run was authorized with",
+    required: needs.dispatchToken === true,
+    issues
+  });
+  return { correlationId, attempt, leaseId, dispatchToken, fields: record, issues };
+}
+function readRunScopeRequest(input) {
+  const { raw, correlationId, needs } = input;
+  const parsed = parseRunScopeRequest({ raw, correlationId, needs });
+  if (parsed.issues.length > 0) {
+    return validationResponse(parsed.issues);
+  }
+  const { leaseId, dispatchToken, attempt, fields } = parsed;
+  return { correlationId, attempt, leaseId, dispatchToken, fields };
+}
+function readRunScopeBody(input) {
+  const { raw, correlationId } = input;
+  const structured = isBodyObject(raw) && raw !== undefined;
+  const record = structured ? raw : {};
+  const issues = [];
+  if (raw !== undefined && !structured) {
+    issues.push({ field: "body", remediation: BODY_REMEDIATION });
+  }
+  const echo = echoIssue(record, correlationId);
+  if (echo !== null) {
+    issues.push(echo);
+  }
+  return issues.length > 0 ? validationResponse(issues) : { fields: record };
+}
+function isRefusal(parsed) {
+  return "status" in parsed;
+}
+function textMember(value, bound = MAX_BODY_TEXT_CHARS) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length === 0 || trimmed.length > bound ? null : trimmed;
+}
+function flagMember(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
+var REFUSAL_STATUS = new Map([
+  ["unknown-run", STATUS.notFound],
+  ["stale-lease", STATUS.conflict],
+  ["already-reserved", STATUS.conflict],
+  ["already-dispatched", STATUS.conflict],
+  ["invalid-transition", STATUS.conflict],
+  ["cause-not-cleared", STATUS.conflict]
+]);
+function unknownRunResponse() {
+  return errorResponse(STATUS.notFound, {
+    code: "unknown-run",
+    message: "no run carries this correlation id; refresh, it may have been evicted"
+  });
+}
+function runOutcomeResponse(input) {
+  const { context, operation, outcome, success } = input;
+  if (outcome.status === "not-found") {
+    return unknownRunResponse();
+  }
+  if (outcome.status === "refused") {
+    return errorResponse(REFUSAL_STATUS.get(outcome.refusal.code) ?? STATUS.conflict, {
+      code: outcome.refusal.code,
+      message: outcome.refusal.message
+    });
+  }
+  if (!outcome.auditWritten) {
+    context.log.warn("dispatch operation changed the run but could not record its row", {
+      correlationId: outcome.run.correlationId,
+      operation
+    });
+  }
+  return { status: STATUS.ok, body: success(outcome.run, outcome.auditWritten) };
+}
+function runAnswer(input) {
+  return {
+    correlationId: input.correlationId,
+    attempt: input.run.attempt,
+    state: input.run.state,
+    auditWritten: input.auditWritten
+  };
+}
+
+// service/routes/dispatch.ts
+var RESERVE_PATH = `${RUN_SCOPE_PREFIX}/reserve`;
+var DISPATCHED_PATH = `${RUN_SCOPE_PREFIX}/dispatched`;
+var ABANDON_PATH = `${RUN_SCOPE_PREFIX}/abandon`;
+var BLOCKED_PATH = `${RUN_SCOPE_PREFIX}/blocked`;
+async function handleReserve(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const correlationId = pathCorrelationId(request.params.correlationId);
+  if (correlationId === null) {
+    return unknownRunResponse();
+  }
+  const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { leaseId: true } });
+  if (isRefusal(parsed)) {
+    return parsed;
+  }
+  const reserved = await reserveDispatch({
+    store,
+    log: context.log,
+    correlationId,
+    leaseId: parsed.leaseId,
+    attempt: parsed.attempt
+  });
+  return runOutcomeResponse({ context, operation: "reserve", outcome: reserved, success: (run, auditWritten) => ({
+    ...runAnswer({ correlationId, run, auditWritten }),
+    dispatchToken: reserved.status === "applied" ? reserved.dispatchToken : null,
+    tokenExpiresAt: reserved.status === "applied" ? reserved.tokenExpiresAt : null
+  }) });
+}
+async function handleDispatched(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const correlationId = pathCorrelationId(request.params.correlationId);
+  if (correlationId === null) {
+    return unknownRunResponse();
+  }
+  const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { dispatchToken: true } });
+  if (isRefusal(parsed)) {
+    return parsed;
+  }
+  const sessionId = textMember(parsed.fields.sessionId);
+  const problem = textMember(parsed.fields.problem);
+  if (sessionId === null === (problem === null)) {
+    return errorResponse(STATUS.validation, {
+      code: "validation",
+      message: "report exactly one outcome: the session that was created, or the problem that prevented one"
+    });
+  }
+  const reported = await reportDispatch({
+    store,
+    log: context.log,
+    correlationId,
+    dispatchToken: parsed.dispatchToken,
+    attempt: parsed.attempt,
+    operation: "result",
+    outcome: {
+      attemptOutcome: sessionId === null ? "failed" : "dispatched",
+      sessionId,
+      reason: problem
+    }
+  });
+  return runOutcomeResponse({ context, operation: "result", outcome: reported, success: (run, auditWritten) => runAnswer({ correlationId, run, auditWritten }) });
+}
+async function handleAbandon(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const correlationId = pathCorrelationId(request.params.correlationId);
+  if (correlationId === null) {
+    return unknownRunResponse();
+  }
+  const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { dispatchToken: true } });
+  if (isRefusal(parsed)) {
+    return parsed;
+  }
+  const reason = textMember(parsed.fields.reason);
+  if (reason === null) {
+    return errorResponse(STATUS.validation, {
+      code: "validation",
+      message: "reason: say why the reserved attempt was abandoned, so the failure row is readable"
+    });
+  }
+  const abandoned = await reportDispatch({
+    store,
+    log: context.log,
+    correlationId,
+    dispatchToken: parsed.dispatchToken,
+    attempt: parsed.attempt,
+    operation: "abandon",
+    outcome: { attemptOutcome: "abandoned", sessionId: null, reason }
+  });
+  return runOutcomeResponse({ context, operation: "abandon", outcome: abandoned, success: (run, auditWritten) => runAnswer({ correlationId, run, auditWritten }) });
+}
+async function handleBlocked(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const correlationId = pathCorrelationId(request.params.correlationId);
+  if (correlationId === null) {
+    return unknownRunResponse();
+  }
+  const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { leaseId: true } });
+  if (isRefusal(parsed)) {
+    return parsed;
+  }
+  const blockedReason = textMember(parsed.fields.blockedReason);
+  const detail = textMember(parsed.fields.detail);
+  if (blockedReason === null || !BLOCKED_REASONS.has(blockedReason) || detail === null) {
+    return errorResponse(STATUS.validation, {
+      code: "validation",
+      message: `blockedReason: name one of ${[...BLOCKED_REASONS].join(", ")}; detail: describe the cause`
+    });
+  }
+  const blocked = await blockDispatch({
+    store,
+    log: context.log,
+    correlationId,
+    leaseId: parsed.leaseId,
+    attempt: parsed.attempt,
+    blockedReason,
+    detail,
+    guidance: textMember(parsed.fields.guidance)
+  });
+  return runOutcomeResponse({ context, operation: "blocked", outcome: blocked, success: (run, auditWritten) => runAnswer({ correlationId, run, auditWritten }) });
+}
+var reserveRoute = {
   method: "POST",
-  path: EVENT_RETRY_PATH,
-  handler: (context, request) => handleRetryEvent(context, request)
+  path: RESERVE_PATH,
+  handler: (context, request) => handleReserve(context, request)
+};
+var dispatchedRoute = {
+  method: "POST",
+  path: DISPATCHED_PATH,
+  handler: (context, request) => handleDispatched(context, request)
+};
+var abandonRoute = {
+  method: "POST",
+  path: ABANDON_PATH,
+  handler: (context, request) => handleAbandon(context, request)
+};
+var blockedRoute = {
+  method: "POST",
+  path: BLOCKED_PATH,
+  handler: (context, request) => handleBlocked(context, request)
 };
 
 // service/routes/bindings.ts
@@ -4638,6 +5359,427 @@ var healthRoute = {
   method: "GET",
   path: "/health",
   handler: (context) => healthResponse(context)
+};
+
+// service/poll/run-operate.ts
+var CORROBORATED_BLOCKED_REASON = "binding-missing";
+var INVALID_TRANSITION4 = "invalid-transition";
+function invalidTransition(state) {
+  const messages = new Map([
+    ["pending", "this run is already waiting for a panel"],
+    ["dispatched", "this run is already dispatched; a dispatched run cannot be retried"],
+    ["unconfirmed", "this run is unconfirmed; resolve it instead, a retry would discard the evidence"],
+    ["claimed", "an attempt is in flight; this run holds a live claim"],
+    ["starting", "an attempt is in flight; this run is already authorized to start"],
+    ["dead-lettered", "this run is dead-lettered; use return-to-waiting, which resets the attempt count"]
+  ]);
+  return refuse(INVALID_TRANSITION4, messages.get(state) ?? `this run is ${state}; it cannot be retried`);
+}
+async function refused(input) {
+  const { run, operation, refusal, store, log } = input;
+  return {
+    status: "refused",
+    refusal,
+    run,
+    auditWritten: await appendRefusalRow({
+      store,
+      log,
+      refusal: { run, operation, refusal, attempt: run.attempt }
+    })
+  };
+}
+function judgeRetry(input) {
+  const { run, causeCleared, bindings } = input;
+  if (input.attempt !== run.attempt) {
+    return refuse(STALE_LEASE_CODE, staleAttemptMessage(input.attempt, run.attempt));
+  }
+  if (run.state === "failed") {
+    return null;
+  }
+  if (!run.state.startsWith("blocked:")) {
+    return invalidTransition(run.state);
+  }
+  const blockedReason = run.state.slice("blocked:".length);
+  if (blockedReason === CORROBORATED_BLOCKED_REASON) {
+    return bindings.some((binding) => binding.bindingId === run.bindingId) ? "corroborated" : refuse("cause-not-cleared", `the cause has not cleared: the binding ${run.bindingId} is still absent`);
+  }
+  return causeCleared ? "reported" : refuse("cause-not-cleared", `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this row ` + "records what was checked");
+}
+function waitingRun(input) {
+  const { run, now } = input;
+  return {
+    ...run,
+    state: "pending",
+    stateReason: null,
+    attempt: run.attempt + 1,
+    lease: null,
+    reservation: null,
+    updatedAt: now
+  };
+}
+async function appendRetryRow(input) {
+  const { run, store, log, ...rest } = input;
+  return await appendRunRow({
+    store,
+    log,
+    correlationId: run.correlationId,
+    row: retryRow({
+      run,
+      ...rest,
+      attemptAfter: run.attempt
+    })
+  });
+}
+async function retryDispatch(input) {
+  const bindings = await readBindings({ store: input.store, log: input.log });
+  return await operateRun(input, async ({ run, now, persist }) => {
+    const verdict = judgeRetry({
+      run,
+      attempt: input.attempt,
+      causeCleared: input.causeCleared,
+      bindings
+    });
+    if (verdict !== null && typeof verdict === "object") {
+      return await refused({ ...input, run, operation: "retry", refusal: verdict });
+    }
+    const source = verdict;
+    const priorState = run.state;
+    const attemptBefore = run.attempt;
+    const retried = waitingRun({ run, now });
+    await persist(retried);
+    return { status: "applied", run: retried, auditWritten: await appendRetryRow({
+      store: input.store,
+      log: input.log,
+      run: retried,
+      priorState,
+      attemptBefore,
+      causeReportedCleared: priorState.startsWith("blocked:") ? input.causeCleared : null,
+      causeClearedSource: source,
+      reset: false,
+      causeReport: input.causeReport
+    }) };
+  });
+}
+async function requeueDispatch(input) {
+  return await operateRun(input, async ({ run, now, persist }) => {
+    if (run.state !== "dead-lettered") {
+      return await refused({
+        ...input,
+        run,
+        operation: "requeue",
+        refusal: refuse(INVALID_TRANSITION4, `this run is ${run.state}; only a dead-lettered run can be returned to waiting`)
+      });
+    }
+    const attemptBefore = run.attempt;
+    const waiting = {
+      ...run,
+      state: "pending",
+      stateReason: null,
+      attempt: 1,
+      requeuesUsed: 0,
+      lease: null,
+      reservation: null,
+      updatedAt: now
+    };
+    await persist(waiting);
+    return { status: "applied", run: waiting, auditWritten: await appendRetryRow({
+      store: input.store,
+      log: input.log,
+      run: waiting,
+      priorState: run.state,
+      attemptBefore,
+      causeReportedCleared: null,
+      causeClearedSource: null,
+      reset: true,
+      causeReport: null
+    }) };
+  });
+}
+function judgeResolve(input) {
+  const { run } = input;
+  if (run.state === "unconfirmed") {
+    return runHistoryIndicatesSession(run) ? refuse(INVALID_TRANSITION4, "this run already records a session and cannot be resolved") : null;
+  }
+  return refuse(INVALID_TRANSITION4, `this run is ${run.state}; only an unconfirmed run can be resolved`);
+}
+function resolvedRun(input) {
+  const { run, sessionId, now } = input;
+  if (sessionId === null) {
+    return {
+      ...run,
+      state: "pending",
+      stateReason: null,
+      attempt: run.attempt + 1,
+      lease: null,
+      reservation: null,
+      updatedAt: now
+    };
+  }
+  return {
+    ...run,
+    state: "dispatched",
+    stateReason: `operator confirmed session ${sessionId}`,
+    reservation: run.reservation === null ? null : { ...run.reservation, consumed: true },
+    attempts: attemptHistory(run, {
+      ...currentAttempt(run),
+      outcome: "dispatched",
+      sessionId,
+      resultReportedAt: now
+    }),
+    session: sessionRefOf({ run, sessionId, now }),
+    updatedAt: now
+  };
+}
+async function resolveDispatch(input) {
+  return await operateRun(input, async ({ run, now, persist }) => {
+    const refusal = judgeResolve({ run });
+    if (refusal !== null) {
+      return await refused({ ...input, run, operation: "resolve", refusal });
+    }
+    const priorState = run.state;
+    const resolved = resolvedRun({ run, sessionId: input.sessionId, now });
+    await persist(resolved);
+    return {
+      status: "applied",
+      run: resolved,
+      auditWritten: await appendRunRow({
+        store: input.store,
+        log: input.log,
+        correlationId: resolved.correlationId,
+        row: resolvedRow({
+          run: resolved,
+          priorState,
+          decision: input.sessionId === null ? "no-session" : "dispatched",
+          note: input.note,
+          guidance: input.guidance
+        })
+      })
+    };
+  });
+}
+
+// service/poll/run-verify.ts
+var INVALID_TRANSITION5 = "invalid-transition";
+function judgeVerification(input) {
+  const { run, attempt, sessionId } = input;
+  if (attempt !== run.attempt) {
+    return refuse(STALE_LEASE_CODE, staleAttemptMessage(attempt, run.attempt));
+  }
+  if (run.session === null) {
+    return refuse(INVALID_TRANSITION5, `this run is ${run.state} and records no session, so there is nothing to read back`);
+  }
+  return run.session.sessionId === sessionId ? null : refuse(INVALID_TRANSITION5, "the reported session is not the session this run recorded");
+}
+async function recordVerification(input) {
+  return await operateRun(input, async ({ run, now, persist }) => {
+    const refusal = judgeVerification({ run, attempt: input.attempt, sessionId: input.sessionId });
+    if (refusal !== null) {
+      return await refused({ ...input, run, operation: "verification", refusal });
+    }
+    const verification = {
+      observedAgent: input.observedAgent,
+      expectedAgent: input.expectedAgent,
+      ok: input.ok,
+      note: input.note,
+      at: now
+    };
+    const read = { ...run, verification, updatedAt: now };
+    await persist(read);
+    return {
+      status: "applied",
+      run: read,
+      auditWritten: await appendRunRow({
+        store: input.store,
+        log: input.log,
+        correlationId: read.correlationId,
+        row: verificationRow({ run: read, verification })
+      })
+    };
+  });
+}
+
+// service/routes/run-ops.ts
+var RETRY_PATH = `${RUN_SCOPE_PREFIX}/retry`;
+var REQUEUE_PATH = `${RUN_SCOPE_PREFIX}/requeue`;
+var RESOLVE_PATH = `${RUN_SCOPE_PREFIX}/resolve`;
+var VERIFICATION_PATH = `${RUN_SCOPE_PREFIX}/verification`;
+var RESOLVE_DECISIONS = new Set(["session-created", "no-session"]);
+var SESSION_CREATED = "session-created";
+async function handleRetry(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const correlationId = pathCorrelationId(request.params.correlationId);
+  if (correlationId === null) {
+    return unknownRunResponse();
+  }
+  const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: {} });
+  if (isRefusal(parsed)) {
+    return parsed;
+  }
+  const retried = await retryDispatch({
+    store,
+    log: context.log,
+    correlationId,
+    attempt: parsed.attempt,
+    causeCleared: flagMember(parsed.fields.causeCleared, false),
+    causeReport: textMember(parsed.fields.causeReport)
+  });
+  return runOutcomeResponse({
+    context,
+    operation: "retry",
+    outcome: retried,
+    success: (run, auditWritten) => runAnswer({ correlationId, run, auditWritten })
+  });
+}
+async function handleRequeue(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const correlationId = pathCorrelationId(request.params.correlationId);
+  if (correlationId === null) {
+    return unknownRunResponse();
+  }
+  const body = readRunScopeBody({ raw: request.body, correlationId });
+  if (isRefusal(body)) {
+    return body;
+  }
+  if (flagMember(body.fields.confirm, false) !== true) {
+    return errorResponse(STATUS.validation, {
+      code: "validation",
+      message: "confirm: returning a run to waiting resets its attempt count; confirm that explicitly"
+    });
+  }
+  const requeued = await requeueDispatch({ store, log: context.log, correlationId });
+  return runOutcomeResponse({
+    context,
+    operation: "requeue",
+    outcome: requeued,
+    success: (run, auditWritten) => runAnswer({ correlationId, run, auditWritten })
+  });
+}
+async function handleResolve(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const correlationId = pathCorrelationId(request.params.correlationId);
+  if (correlationId === null) {
+    return unknownRunResponse();
+  }
+  const parsedBody = readRunScopeBody({ raw: request.body, correlationId });
+  if (isRefusal(parsedBody)) {
+    return parsedBody;
+  }
+  const { fields } = parsedBody;
+  const decision = textMember(fields.decision);
+  const sessionId = textMember(fields.sessionId);
+  if (decision === null || !RESOLVE_DECISIONS.has(decision)) {
+    return errorResponse(STATUS.validation, {
+      code: "validation",
+      message: `decision: choose ${[...RESOLVE_DECISIONS].join(" or ")}`
+    });
+  }
+  if (decision === SESSION_CREATED && sessionId === null) {
+    return errorResponse(STATUS.validation, {
+      code: "validation",
+      message: "sessionId: this dispatch did create a session, so name the session id to record"
+    });
+  }
+  const resolved = await resolveDispatch({
+    store,
+    log: context.log,
+    correlationId,
+    decision,
+    sessionId: decision === SESSION_CREATED ? sessionId : null,
+    note: textMember(fields.note),
+    guidance: textMember(fields.guidance)
+  });
+  return runOutcomeResponse({
+    context,
+    operation: "resolve",
+    outcome: resolved,
+    success: (run, auditWritten) => runAnswer({ correlationId, run, auditWritten })
+  });
+}
+function readReadBack(request, correlationId) {
+  const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: {} });
+  if (isRefusal(parsed)) {
+    return parsed;
+  }
+  const { fields, attempt } = parsed;
+  const sessionId = textMember(fields.sessionId);
+  const expectedAgent = textMember(fields.expectedAgent);
+  if (sessionId === null || expectedAgent === null) {
+    return errorResponse(STATUS.validation, {
+      code: "validation",
+      message: "sessionId and expectedAgent: both are required to file a read-back against this run"
+    });
+  }
+  return {
+    attempt,
+    sessionId,
+    expectedAgent,
+    observedAgent: textMember(fields.observedAgent),
+    ok: flagMember(fields.ok, false),
+    note: textMember(fields.note)
+  };
+}
+async function handleVerification(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const correlationId = pathCorrelationId(request.params.correlationId);
+  if (correlationId === null) {
+    return unknownRunResponse();
+  }
+  const readBack = readReadBack(request, correlationId);
+  if ("status" in readBack) {
+    return readBack;
+  }
+  const recorded = await recordVerification({
+    store,
+    log: context.log,
+    correlationId,
+    ...readBack
+  });
+  return runOutcomeResponse({
+    context,
+    operation: "verification",
+    outcome: recorded,
+    success: (run, auditWritten) => ({
+      ...runAnswer({ correlationId, run, auditWritten }),
+      verification: run.verification === null ? null : {
+        observedAgent: run.verification.observedAgent,
+        expectedAgent: run.verification.expectedAgent,
+        ok: run.verification.ok,
+        note: run.verification.note
+      }
+    })
+  });
+}
+var retryRunRoute = {
+  method: "POST",
+  path: RETRY_PATH,
+  handler: (context, request) => handleRetry(context, request)
+};
+var requeueRunRoute = {
+  method: "POST",
+  path: REQUEUE_PATH,
+  handler: (context, request) => handleRequeue(context, request)
+};
+var resolveRunRoute = {
+  method: "POST",
+  path: RESOLVE_PATH,
+  handler: (context, request) => handleResolve(context, request)
+};
+var verificationRoute = {
+  method: "POST",
+  path: VERIFICATION_PATH,
+  handler: (context, request) => handleVerification(context, request)
 };
 
 // service/routes/status.ts
@@ -4879,8 +6021,14 @@ var ROUTES = [
   verifyRoute,
   rotateTokenRoute,
   deleteAccountRoute,
-  dispatchedEventRoute,
-  retryEventRoute
+  reserveRoute,
+  dispatchedRoute,
+  abandonRoute,
+  blockedRoute,
+  retryRunRoute,
+  requeueRunRoute,
+  resolveRunRoute,
+  verificationRoute
 ];
 
 // service/poll/sweep-loop.ts

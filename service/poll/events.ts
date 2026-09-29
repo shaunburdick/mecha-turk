@@ -30,12 +30,18 @@
  * - **prune run-linked rows** when their bounded terminal run is evicted, so
  *   `events.json` cannot outlive the run that explains it (T-037).
  *
- * The remaining queue operations — `markEventDispatched` and `retryEvent` —
- * are the **delivery** routes the panel has always used, still reading and
- * resetting the queue in place. They are not the dispatch path: claiming,
- * leasing, and reporting a dispatch happen against a run, through
- * [`claim.ts`](./claim.ts) and the run operations. 003 T-016 replaces the
- * `GET /v1/events` history with the run-shaped projection.
+ * The two queue mutations {@link markEventDispatched} and {@link retryEvent}
+ * are, after Wave 3, **no longer routed anywhere**: 003's wire delta
+ * re-addressed both operations by the run
+ * (`contracts/dispatch-authorization.md` — "Addressed by the run, not the
+ * delivery"), so `POST /v1/events/:correlationId/dispatched` and `…/retry` are
+ * answered by [`dispatch.ts`](../routes/dispatch.ts) and
+ * [`run-ops.ts`](../routes/run-ops.ts) instead, against `runs.json`. They are
+ * kept rather than deleted here because they are the one place the legacy
+ * queue's terminal vocabulary is still written, and `GET /v1/events` keeps
+ * reading that queue until 003 T-016 replaces it with the run-shaped
+ * projection. Nothing calls them today; retiring them is a deliberate,
+ * separately-tested removal, not an accident of this wave.
  */
 
 import { basename, join } from 'node:path';
