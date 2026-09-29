@@ -23,17 +23,24 @@ export const BINDINGS_PATH = '/v1/bindings';
 /** Path of the credential-free account collection (service contract §2.2). */
 export const ACCOUNTS_PATH = '/v1/accounts';
 
-/** Path the panel polls for queued events. */
+/** Path the panel polls for claimed runs. */
 export const EVENTS_PENDING_PATH = '/v1/events/pending';
 
-/** Path of the runs history: every event, every state, newest first (M8). */
+/** Path of the runs history: every run, every state, newest first (M8). */
 export const EVENTS_PATH = '/v1/events';
 
-/** Path pattern for one dispatch-result POST. */
-const DISPATCH_PATH_PATTERN = '/v1/events/:eventId/dispatched';
+/** Path of the correlation-filtered audit read (003 contract, run-history §2). */
+export const AUDIT_PATH = '/v1/audit';
 
-/** Path pattern for one run retry POST (M8). */
-const RETRY_PATH_PATTERN = '/v1/events/:eventId/retry';
+/**
+ * Path pattern every run-scoped operation shares (003 wire delta).
+ *
+ * The `:correlationId` segment is the **run's** correlation id (`mt-run-…`),
+ * never a delivery id: a post-003 delivery carries no lifecycle field of its
+ * own, so a delivery-addressed mutation answers `404 unknown-run`. Each helper
+ * below exists so no call site can reintroduce that shape by hand.
+ */
+const RUN_SCOPE_PATTERN = '/v1/events/:correlationId';
 
 /** Path pattern for one account resource (the delete route). */
 const ACCOUNT_DELETE_PATTERN = '/v1/accounts/:numericUserId';
@@ -276,21 +283,102 @@ export function accountDeletePath(numericUserId: string): string {
 }
 
 /**
- * Build the dispatch path for one event.
+ * Build the path of one run-scoped operation.
  *
- * @param eventId - The event's id.
+ * @param correlationId - The run's correlation id (`mt-run-…`, one segment).
+ * @param verb - The operation's suffix under `/v1/events/:correlationId/`.
  * @returns The path segment to POST to.
  */
-export function dispatchedPath(eventId: string): string {
-    return DISPATCH_PATH_PATTERN.replace(':eventId', eventId);
+function runOperationPath(correlationId: string, verb: string): string {
+    return `${RUN_SCOPE_PATTERN.replace(':correlationId', correlationId)}/${verb}`;
 }
 
 /**
- * Build the retry path for one run (M8).
+ * Build the reserve path: declare intent and receive the single-use token.
  *
- * @param eventId - The event's id.
+ * @param correlationId - The run's correlation id.
  * @returns The path segment to POST to.
  */
-export function retryPath(eventId: string): string {
-    return RETRY_PATH_PATTERN.replace(':eventId', eventId);
+export function reservePath(correlationId: string): string {
+    return runOperationPath(correlationId, 'reserve');
+}
+
+/**
+ * Build the result path: report what `host.startSession()` produced.
+ *
+ * @param correlationId - The run's correlation id (never a delivery id).
+ * @returns The path segment to POST to.
+ */
+export function dispatchedPath(correlationId: string): string {
+    return runOperationPath(correlationId, 'dispatched');
+}
+
+/**
+ * Build the abandon path: a reserved attempt that made no host call at all.
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function abandonPath(correlationId: string): string {
+    return runOperationPath(correlationId, 'abandon');
+}
+
+/**
+ * Build the block-report path: a fail-closed guard refused before any host call.
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function blockedPath(correlationId: string): string {
+    return runOperationPath(correlationId, 'blocked');
+}
+
+/**
+ * Build the retry path (M8).
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function retryPath(correlationId: string): string {
+    return runOperationPath(correlationId, 'retry');
+}
+
+/**
+ * Build the requeue path: return a dead-lettered run to waiting (FR-033).
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function requeuePath(correlationId: string): string {
+    return runOperationPath(correlationId, 'requeue');
+}
+
+/**
+ * Build the resolve path: one of FR-027's two explicit `unconfirmed` decisions.
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function resolvePath(correlationId: string): string {
+    return runOperationPath(correlationId, 'resolve');
+}
+
+/**
+ * Build the verification path: the post-dispatch agent read-back (FR-043).
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function verificationPath(correlationId: string): string {
+    return runOperationPath(correlationId, 'verification');
+}
+
+/**
+ * Build the correlation-filtered audit-read path (FR-053).
+ *
+ * @param correlationId - The run whose rows to read.
+ * @returns `GET` path carrying the filter as a query parameter.
+ */
+export function auditPath(correlationId: string): string {
+    return `${AUDIT_PATH}?correlationId=${encodeURIComponent(correlationId)}`;
 }

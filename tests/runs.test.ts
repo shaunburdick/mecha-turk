@@ -31,6 +31,7 @@ import type { RunRow } from '../src/runs-service.ts';
 import {
     DEFAULT_BODY,
     DEFAULT_STATUS,
+    FIXTURE_TIMESTAMP,
     ISSUE_URL,
     createTestRuntime,
     fakeHost,
@@ -43,8 +44,8 @@ const MINUTE_MS = 60_000;
 /** How old the fixture row is, so its meta reads `2m ago`. */
 const TWO_MINUTES = 2 * MINUTE_MS;
 
-/** Event id every fixture row shares unless a test overrides it. */
-const EVENT_ID = 'evt-run-1';
+/** Correlation id every fixture row shares unless a test overrides it. */
+const RUN_ID = 'mt-run-aaaabbbbccccddddeeeeffff';
 
 /** Session id the dispatched fixture row reports. */
 const SESSION_RESULT = 'ses_dispatched_1';
@@ -71,13 +72,29 @@ type RouteTable = Readonly<Record<string, RouteAnswer>>;
  */
 function runFixture(overrides: Partial<RunRow> = {}): RunRow {
     return {
-        id: EVENT_ID,
+        id: RUN_ID,
+        correlationId: RUN_ID,
         kind: 'assignment',
         repository: 'acme/widget',
         issueNumber: 7,
         issueTitle: 'Fix the flaky test',
         issueUrl: ISSUE_URL,
         state: 'pending',
+        stateReason: 'waiting for a panel',
+        runKey: 'github|77331|acme/widget|issue|7|0',
+        ordinal: 0,
+        attempt: 1,
+        attachmentId: RUN_ID,
+        projectId: 'prj_42',
+        worktreeOption: 'generated',
+        leaseExpiresAt: null,
+        resultDeadlineAt: null,
+        sourceReferences: [],
+        referenceCount: 0,
+        referencesTruncated: false,
+        referencesNotRetained: 0,
+        session: null,
+        verification: null,
         detectedAt: new Date(Date.now() - TWO_MINUTES).toISOString(),
         claimedAt: null,
         dispatchedAt: null,
@@ -156,7 +173,7 @@ function retryRuntime(row: RunRow, table: RouteTable): { readonly rt: PanelRunti
 
 describe('parseRunsBody (the service projection, round-tripped)', () => {
     it('reads every field the runs row renders from', () => {
-        const sent = runFixture({ state: 'in-flight', claimedAt: '2026-09-27T10:00:00.000Z' });
+        const sent = runFixture({ state: 'claimed', claimedAt: '2026-09-27T10:00:00.000Z' });
         const parsed = parseRunsBody(runsBody([sent]));
 
         expect(parsed).toHaveLength(1);
@@ -182,6 +199,81 @@ describe('parseRunsBody (the service projection, round-tripped)', () => {
         expect(parseRunsBody('{"runs":[]}')).toBeNull();
         expect(parseRunsBody(runsBody([]))).toEqual([]);
     });
+
+    it('accepts all eight states, including the open blocked family', () => {
+        const states: readonly RunRow['state'][] = [
+            'pending',
+            'claimed',
+            'starting',
+            'dispatched',
+            'failed',
+            'unconfirmed',
+            'dead-lettered',
+            'blocked:project-missing',
+            'blocked:binding-missing',
+            'blocked:credential',
+            'blocked:policy',
+        ];
+
+        for (const state of states) {
+            expect(parseRunsBody(runsBody([runFixture({ state })]))?.[0]?.state).toBe(state);
+        }
+    });
+
+    it('refuses the retired vocabulary and a malformed blocked reason', () => {
+        const refused = ['in-flight', 'blocked:', 'blocked:Project-Missing', 'blocked:a b', 'telepathy'];
+
+        for (const state of refused) {
+            expect(parseRunsBody(JSON.stringify({ events: [{ ...runFixture(), state }] }))).toBeNull();
+        }
+    });
+
+    it('round-trips a full history body with references, a session, and a read-back', () => {
+        const sent = runFixture({
+            state: 'dispatched',
+            stateReason: 'session ses_dispatched_1 created',
+            referenceCount: 2,
+            sourceReferences: [
+                {
+                    deliveryId: 'evt-1',
+                    kind: 'assignment',
+                    origin: 'assignment',
+                    sourceUrl: ISSUE_URL,
+                    detectedAt: FIXTURE_TIMESTAMP,
+                    presentAtAuthorization: true,
+                },
+                {
+                    deliveryId: 'evt-2',
+                    kind: 'mention',
+                    origin: 'comment:42',
+                    sourceUrl: ISSUE_URL,
+                    detectedAt: FIXTURE_TIMESTAMP,
+                    presentAtAuthorization: false,
+                },
+            ],
+            session: { sessionId: SESSION_RESULT, attachmentId: RUN_ID, dispatchedAt: FIXTURE_TIMESTAMP },
+            verification: { observedAgent: 'project-manager', expectedAgent: 'project-manager', ok: true, note: null },
+            dispatchResult: SESSION_RESULT,
+            dispatchedAt: FIXTURE_TIMESTAMP,
+        });
+
+        const parsed = parseRunsBody(runsBody([sent]));
+
+        expect(parsed).toHaveLength(1);
+        expect(parsed?.[0]).toEqual(sent);
+    });
+
+    it('refuses counting members that do not reconcile (T-038)', () => {
+        const missing = JSON.stringify({
+            events: [{ ...runFixture(), referenceCount: 5, referencesNotRetained: 1 }],
+        });
+        expect(parseRunsBody(missing)).toBeNull();
+
+        const unflagged = JSON.stringify({
+            events: [{ ...runFixture({ referenceCount: 1, referencesNotRetained: 1 }), referencesTruncated: false }],
+        });
+        expect(parseRunsBody(unflagged)).toBeNull();
+    });
 });
 
 describe('runRows / runsStatusText (the copy the list renders)', () => {
@@ -190,7 +282,7 @@ describe('runRows / runsStatusText (the copy the list renders)', () => {
 
         expect(rows).toHaveLength(1);
         expect(rows[0]).toEqual({
-            id: EVENT_ID,
+            id: RUN_ID,
             leading: 'assign',
             title: '#7 Fix the flaky test',
             subtitle: 'acme/widget · not dispatched yet',
@@ -211,7 +303,7 @@ describe('runRows / runsStatusText (the copy the list renders)', () => {
     it('redacts secret-shaped text before it reaches the row', () => {
         const rows = runRows(
             runsState({
-                rows: [runFixture({ state: 'in-flight', dispatchResult: 'problem ghp_abcdefghijklmnopqrstuvwx' })],
+                rows: [runFixture({ state: 'claimed', dispatchResult: 'problem ghp_abcdefghijklmnopqrstuvwx' })],
                 status: 'ready',
             }),
         );
@@ -226,10 +318,30 @@ describe('runRows / runsStatusText (the copy the list renders)', () => {
         expect(rows[0]?.subtitle).toContain('no dispatch result recorded');
     });
 
-    it('offers retry for pending and in-flight runs but not for dispatched ones', () => {
+    it('offers retry for a waiting or claimed run but not for a dispatched one', () => {
         expect(canRetry(runFixture({ state: 'pending' }))).toBe(true);
-        expect(canRetry(runFixture({ state: 'in-flight' }))).toBe(true);
+        expect(canRetry(runFixture({ state: 'claimed' }))).toBe(true);
         expect(canRetry(runFixture({ state: 'dispatched' }))).toBe(false);
+    });
+
+    it('renders every state the eight-state vocabulary can carry without guessing', () => {
+        const nonSuccess: readonly RunRow['state'][] = [
+            'claimed',
+            'starting',
+            'failed',
+            'unconfirmed',
+            'dead-lettered',
+            'blocked:project-missing',
+        ];
+        for (const state of nonSuccess) {
+            const rows = runRows(runsState({ rows: [runFixture({ state })], status: 'ready' }));
+
+            expect(rows[0]?.badge?.label).toBe(state);
+            expect(rows[0]?.badge?.tone).not.toBe('success');
+        }
+
+        const dispatched = runRows(runsState({ rows: [runFixture({ state: 'dispatched' })], status: 'ready' }));
+        expect(dispatched[0]?.badge?.tone).toBe('success');
     });
 
     it('phrases every list lifecycle state honestly', () => {
@@ -298,7 +410,7 @@ describe('loadRuns (read the history without lying about failures)', () => {
     it('drops a selection whose row disappeared', async () => {
         const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([]) } });
         const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
-        rt.state.repos.runs.selectedRun = EVENT_ID;
+        rt.state.repos.runs.selectedRun = RUN_ID;
 
         await loadRuns(rt);
 
@@ -308,15 +420,15 @@ describe('loadRuns (read the history without lying about failures)', () => {
 
 describe('retryRun (POST, refresh, honest copy)', () => {
     it('requeues the selected run, then re-reads the list', async () => {
-        const claimed = runFixture({ state: 'in-flight', claimedAt: '2026-09-27T10:00:00.000Z' });
+        const claimed = runFixture({ state: 'claimed', claimedAt: '2026-09-27T10:00:00.000Z' });
         const { rt, service } = retryRuntime(claimed, {
-            [`POST ${retryPath(EVENT_ID)}`]: { status: 200, body: '{"retried":true}' },
+            [`POST ${retryPath(RUN_ID)}`]: { status: 200, body: '{"retried":true}' },
             [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) },
         });
 
         await retryRun(rt);
 
-        expect(service.calls).toEqual([`POST ${retryPath(EVENT_ID)}`, RUNS_GET]);
+        expect(service.calls).toEqual([`POST ${retryPath(RUN_ID)}`, RUNS_GET]);
         expect(rt.state.repos.runs.note).toContain('Requeued #7');
         expect(rt.state.repos.runs.note).toContain('next relay poll');
         expect(rt.state.repos.runs.rows[0]?.state).toBe('pending');
@@ -328,7 +440,7 @@ describe('retryRun (POST, refresh, honest copy)', () => {
         const stale = runFixture({ state: 'pending' });
         const actual = runFixture({ state: 'dispatched', dispatchResult: SESSION_RESULT });
         const { rt, service } = retryRuntime(stale, {
-            [`POST ${retryPath(EVENT_ID)}`]: {
+            [`POST ${retryPath(RUN_ID)}`]: {
                 status: 409,
                 body: '{"error":{"code":"invalid-transition","message":"already dispatched"}}',
             },
@@ -337,7 +449,7 @@ describe('retryRun (POST, refresh, honest copy)', () => {
 
         await retryRun(rt);
 
-        expect(service.calls).toEqual([`POST ${retryPath(EVENT_ID)}`, RUNS_GET]);
+        expect(service.calls).toEqual([`POST ${retryPath(RUN_ID)}`, RUNS_GET]);
         expect(rt.state.repos.runs.note).toContain('already dispatched');
         expect(rt.state.repos.runs.note).toContain('cannot be retried');
         // The refresh after the refusal shows the state the service actually holds.
@@ -376,8 +488,8 @@ describe('selection, open, and the pane handler table', () => {
         selectRun(rt, 'evt-from-the-future');
         expect(rt.state.repos.runs.selectedRun).toBeNull();
 
-        selectRun(rt, EVENT_ID);
-        expect(rt.state.repos.runs.selectedRun).toBe(EVENT_ID);
+        selectRun(rt, RUN_ID);
+        expect(rt.state.repos.runs.selectedRun).toBe(RUN_ID);
         expect(selectedRun(rt.state.repos.runs)?.issueUrl).toBe(ISSUE_URL);
     });
 
@@ -389,7 +501,7 @@ describe('selection, open, and the pane handler table', () => {
             },
         });
         const rt = createTestRuntime(host);
-        rt.state.repos.runs = runsState({ rows: [runFixture()], status: 'ready', selectedRun: EVENT_ID });
+        rt.state.repos.runs = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
 
         await openRun(rt);
 
@@ -400,7 +512,7 @@ describe('selection, open, and the pane handler table', () => {
     it('lands an openUrl failure on the note instead of throwing', async () => {
         const host = fakeHost({ openUrl: () => Promise.reject(new Error('HOST_REJECTED')) });
         const rt = createTestRuntime(host);
-        rt.state.repos.runs = runsState({ rows: [runFixture()], status: 'ready', selectedRun: EVENT_ID });
+        rt.state.repos.runs = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
 
         await openRun(rt);
 

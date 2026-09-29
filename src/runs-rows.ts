@@ -16,7 +16,7 @@ import type { ListItem, Tone } from '@openchamber/sdk/ui';
 import { redact } from './redaction.ts';
 import { elapsedSince } from './repos-rows.ts';
 import type { RunsState } from './panel-state.ts';
-import type { RunRow } from './runs-service.ts';
+import type { PlainRunState, RunRow } from './runs-service.ts';
 
 /** Heading above the runs list. */
 export const RUNS_HEADING = 'Runs';
@@ -39,35 +39,76 @@ const KIND_LABELS: Record<RunRow['kind'], string> = {
 };
 
 /**
- * Badge tone per queue state.
+ * Badge tone per plain run state.
  *
- * The badge reports the *queue's* verdict — `dispatched` means the panel
- * answered the service, not that the dispatch succeeded — so success-green
- * is reserved for that answered state and the actual outcome (session id or
- * failure text) rides next to it in the row's subtitle.
+ * The badge reports the *queue's* verdict — `dispatched` means a session was
+ * reported, not that the panel is done with the run — so success-green is
+ * reserved for that one answered state. Every state that means "an operator
+ * must decide" reads as a warning, and the one state that means "the budget is
+ * spent and nothing further happens without a human" reads as an error. The
+ * tone map is deliberately never success-toned for a failure (FR-040, AC-113).
  *
- * @param state - Queue state of the run.
+ * @param state - One of the seven plain states.
+ * @returns The badge tone for that state.
+ */
+const PLAIN_STATE_TONES: Record<Exclude<PlainRunState, 'dead-lettered'>, Tone> = {
+    pending: 'neutral',
+    claimed: 'info',
+    starting: 'info',
+    dispatched: 'success',
+    failed: 'warning',
+    unconfirmed: 'warning',
+};
+
+/**
+ * Badge tone for one of the seven plain states.
+ *
+ * `dead-lettered` is handled by comparison rather than as a literal key so the
+ * map above stays exhaustively typed over the camel-case members only.
+ *
+ * @param state - One of the seven plain states.
+ * @returns The badge tone for that state.
+ */
+function plainStateTone(state: PlainRunState): Tone {
+    return state === 'dead-lettered' ? 'error' : PLAIN_STATE_TONES[state];
+}
+
+/**
+ * Whether a state is one of the open `blocked:<reason>` family.
+ *
+ * The family is open (`blocked:project-missing`, `blocked:binding-missing`,
+ * and the declared-but-not-yet-produced `blocked:credential`/`blocked:policy`),
+ * so it is matched by prefix rather than by an enum that would go stale.
+ *
+ * @param state - State of the run.
+ * @returns `true` for the family, which a plain state can never be.
+ */
+function isBlockedState(state: RunRow['state']): state is `blocked:${string}` {
+    return state.startsWith('blocked:');
+}
+
+/**
+ * Badge tone for any run state, including the `blocked:<reason>` family.
+ *
+ * @param state - State of the run.
  * @returns The badge tone for that state.
  */
 function stateTone(state: RunRow['state']): Tone {
-    if (state === 'pending') {
-        return 'neutral';
-    }
-
-    return state === 'in-flight' ? 'info' : 'success';
+    return isBlockedState(state) ? 'warning' : plainStateTone(state);
 }
 
 /**
  * Whether the retry affordance applies to one run.
  *
- * The service accepts a retry for `pending` (already queued; the answer is a
- * harmless `200`) and `in-flight` (a claim the panel never finished), and
- * answers a `dispatched` run with `409 invalid-transition` — so the button
- * is enabled exactly where the service can act, and a stale click that
- * still reaches the refusal gets the service's own explanation.
+ * The panel offers it wherever the run might still be requeued, and a click
+ * that the service's own state verdict refuses still reaches that verdict —
+ * the service answers each source state with its own distinct message, which
+ * the row renders rather than second-guessing. Narrowing this to the states
+ * the service actually accepts (`failed`, `blocked:*`) is 003 T-024's work;
+ * until then a stale click is refused honestly rather than silently dropped.
  *
  * @param row - Run to judge.
- * @returns `true` when the run can be requeued.
+ * @returns `true` when the retry control is offered.
  */
 export function canRetry(row: RunRow): boolean {
     return row.state !== 'dispatched';
