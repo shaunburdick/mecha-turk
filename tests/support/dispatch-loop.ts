@@ -28,12 +28,15 @@ import type {
     StartSessionResult,
 } from '@openchamber/sdk';
 import { drainVerifications } from '../../src/agent-verify.ts';
+import { parsePendingBody } from '../../src/claim-service.ts';
+import { EVENTS_PENDING_PATH, serviceGet } from '../../src/service-calls.ts';
 import { createEvent, enqueueEvents } from '../../service/poll/events.ts';
 import { createLogger } from '../../service/log.ts';
 import { readRunsDocument } from '../../service/poll/runs.ts';
 import { writeRunsDocument } from '../../service/poll/runs-document.ts';
 import { sweepOnce } from '../../service/poll/sweep.ts';
 import type { EventSnapshot } from '../../service/poll/events.ts';
+import type { ClaimedRun } from '../../src/claim-service.ts';
 import type { PanelRuntime } from '../../src/panel-state.ts';
 import type { PanelBinding } from '../../src/repos-service.ts';
 import type { SpikeHost } from '../../src/session.ts';
@@ -406,6 +409,27 @@ export async function startDispatchLoop(): Promise<DispatchLoop> {
     };
 
     return loop;
+}
+
+/**
+ * Claim every waiting run through one mount's own service bridge.
+ *
+ * @param rt - The mount whose bridge claims.
+ * @returns The offer the service answered with.
+ * @throws {Error} When the claim was refused or unreadable.
+ */
+export async function offerFor(rt: PanelRuntime): Promise<readonly ClaimedRun[]> {
+    const fetched = await serviceGet({ serviceRequest: rt.host.serviceRequest, path: EVENTS_PENDING_PATH });
+    if (!fetched.ok) {
+        throw new Error(`the claim failed: ${fetched.problem}`);
+    }
+
+    const parsed = parsePendingBody(fetched.body);
+    if (parsed === null) {
+        throw new Error('the claim answer could not be read');
+    }
+
+    return parsed.runs;
 }
 
 /**

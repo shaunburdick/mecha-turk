@@ -22,7 +22,7 @@ import { drainVerifications } from '../src/agent-verify.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
 import { reconcileDispatchAttempts } from '../src/reconcile.ts';
 import { dispatchClaimedRun, pollRelay } from '../src/relay.ts';
-import { EVENTS_PENDING_PATH, reservePath, serviceGet, servicePost } from '../src/service-calls.ts';
+import { reservePath, servicePost } from '../src/service-calls.ts';
 import { ABANDON_PATH, DISPATCHED_PATH, RESERVE_PATH } from '../service/routes/dispatch.ts';
 import { REQUEUE_PATH, RESOLVE_PATH, RETRY_PATH } from '../service/routes/run-ops.ts';
 import { DISPATCH_STORAGE_KEY } from '../src/dispatch-record.ts';
@@ -30,7 +30,7 @@ import type { ClaimedRun } from '../src/claim-service.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { Run } from '../service/poll/runs-types.ts';
 import { NO_SESSION, SESSION_ID } from './support/panel.ts';
-import { justPast, sessionsPerRun, startDispatchLoop } from './support/dispatch-loop.ts';
+import { justPast, offerFor, sessionsPerRun, startDispatchLoop } from './support/dispatch-loop.ts';
 import {
     bound,
     claim,
@@ -107,27 +107,6 @@ async function stateOf(issueNumber: number): Promise<string> {
     const run = await runOf(issueNumber);
 
     return run.state;
-}
-
-/**
- * Claim every waiting run through one mount's own service bridge.
- *
- * @param rt - The mount whose bridge claims.
- * @returns The offer the service answered with.
- * @throws {Error} When the claim was refused or unreadable.
- */
-async function offerFor(rt: PanelRuntime): Promise<readonly ClaimedRun[]> {
-    const fetched = await serviceGet({ serviceRequest: rt.host.serviceRequest, path: EVENTS_PENDING_PATH });
-    if (!fetched.ok) {
-        throw new Error(`the claim failed: ${fetched.problem}`);
-    }
-
-    const parsed = parsePendingBody(fetched.body);
-    if (parsed === null) {
-        throw new Error('the claim answer could not be read');
-    }
-
-    return parsed.runs;
 }
 
 /**
