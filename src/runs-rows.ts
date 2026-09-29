@@ -338,16 +338,17 @@ function padTwoDigits(part: number): string {
 }
 
 /**
- * Render one detection stamp as a compact UTC minute (`2026-09-28 09:00`).
+ * Render one stamp as a compact UTC minute (`2026-09-28 09:00`).
  *
  * Absolute rather than relative: two references detected minutes apart must
  * not collapse into the same "2m ago" when the operator is reconstructing
- * which reason fired first (FR-015, US4 scenario 2).
+ * which reason fired first (FR-015, US4 scenario 2), and an audit row's
+ * timestamp is the same kind of fact.
  *
- * @param iso - RFC 3339 stamp from a source reference.
+ * @param iso - RFC 3339 stamp from a source reference or an audit row.
  * @returns The compact stamp, or the stored text when it is not a time.
  */
-function referenceStamp(iso: string): string {
+export function utcStamp(iso: string): string {
     const at = Date.parse(iso);
     if (!Number.isFinite(at)) {
         return iso;
@@ -370,7 +371,7 @@ function referenceLabel(reference: RunReference): string {
     const origin = reference.origin === reference.kind ? '' : ` via ${reference.origin}`;
     const seen = reference.presentAtAuthorization ? '' : ' (after authorization, may not have been seen)';
 
-    return `${reference.kind} ${referenceStamp(reference.detectedAt)}${origin}${seen}`;
+    return `${reference.kind} ${utcStamp(reference.detectedAt)}${origin}${seen}`;
 }
 
 /**

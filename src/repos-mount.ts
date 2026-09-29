@@ -31,6 +31,7 @@ import {
 } from './repos.ts';
 import { mountRepositoriesPane } from './repos-ui.ts';
 import type { ReposPaneHandlers } from './repos-ui.ts';
+import { loadAuditHistory } from './audit-view.ts';
 import {
     loadRuns,
     openRun,
@@ -85,6 +86,7 @@ export function createRepositoriesHandlers(rt: PanelRuntime): ReposPaneHandlers 
         resolveSessionCreated: () => void resolveSessionCreated(rt),
         resolveNoSession: () => void resolveNoSession(rt),
         setSessionInput: (value) => setSessionInput(rt, value),
+        loadAudit: () => void loadAuditHistory(rt),
     };
 }
 

@@ -121,6 +121,10 @@ export function stubReposPane(paneBody: HTMLElement): ReposPane {
             resolveNoSession: stubHandle(),
             sessionField: stubHandle(),
             runsNote: stubHandle(),
+            auditButton: stubHandle(),
+            auditStatus: stubHandle(),
+            auditBox: paneBody.ownerDocument.createElement('div'),
+            auditList: stubHandle(),
             // A node of its own: the repaint hides the banner through this
             // wrapper, and reusing the pane body would hide the whole tab.
             agentNoticeBox: paneBody.ownerDocument.createElement('div'),

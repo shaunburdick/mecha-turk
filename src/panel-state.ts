@@ -18,6 +18,8 @@ import type { GuestProject } from '@openchamber/sdk';
 import type { SpikeConfig } from './config.ts';
 import { DEFAULT_EXPECTED_AGENT } from './config.ts';
 import type { SpikeEvidence } from './evidence.ts';
+import type { AuditViewState } from './audit-view.ts';
+import { initialAuditHistory } from './audit-view.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import type { GitHubIssue } from './github.ts';
 import { createLedger } from './ledger.ts';
@@ -76,6 +78,7 @@ export function initialRuns(): RunsState {
         pendingAction: null,
         sessionInput: '',
         busy: false,
+        audit: initialAuditHistory(),
     };
 }
 
@@ -391,6 +394,8 @@ export interface RunsState {
     sessionInput: string;
     /** Single in-flight gate for the run operations; one flag, never several. */
     busy: boolean;
+    /** The selected run's audit trail, read on demand (003 T-026). */
+    audit: AuditViewState;
 }
 
 /** The run controls that ask for a confirmation step before they act (T-025). */

@@ -15,6 +15,7 @@
  * written, so a refresh can never clobber the explanation.
  */
 
+import { initialAuditHistory } from './audit-view.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import { canRetry, runAffordance, selectedRun } from './runs-rows.ts';
@@ -79,6 +80,7 @@ export async function loadRuns(rt: PanelRuntime): Promise<void> {
     runs.rows = rows;
     if (runs.selectedRun !== null && !rows.some((row) => row.id === runs.selectedRun)) {
         runs.selectedRun = null;
+        runs.audit = initialAuditHistory();
     }
 
     // A re-read replaces the rows a confirmation was written against, so any
@@ -109,9 +111,11 @@ export function selectRun(rt: PanelRuntime, id: string): void {
     if (runs.rows.some((row) => row.id === id)) {
         runs.selectedRun = id;
         // A confirmation armed against one run must not outlive the selection
-        // it was written for, and neither may a session id typed for it (T-025).
+        // it was written for, and neither may a session id typed for it or the
+        // trail another run's id fetched (T-025, T-026).
         runs.pendingAction = null;
         runs.sessionInput = '';
+        runs.audit = initialAuditHistory();
     }
 
     refresh(rt);

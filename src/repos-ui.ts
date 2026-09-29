@@ -128,6 +128,8 @@ export interface ReposPaneHandlers {
     readonly resolveNoSession: () => void;
     /** Operators typed into the session-id field. */
     readonly setSessionInput: (value: string) => void;
+    /** Operators asked for the selected run's audit history (FR-053). */
+    readonly loadAudit: () => void;
 }
 
 /** Worktree options the add form offers (MVP: `new:` comes later). */

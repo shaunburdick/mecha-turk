@@ -22,6 +22,7 @@
 
 import { mountBanner, mountButton, mountList, mountText, mountTextField } from '@openchamber/sdk/ui';
 import type { BannerHandle, ButtonHandle, ListHandle, TextHandle, TextFieldHandle } from '@openchamber/sdk/ui';
+import { AUDIT_BUTTON_LABEL, auditItems, auditStatusText } from './audit-view.ts';
 import type { PanelRuntime, RunsState } from './panel-state.ts';
 import {
     CONFIRM_NO_SESSION_LABEL,
@@ -83,6 +84,14 @@ export interface RunsBoard {
     readonly sessionField: TextFieldHandle;
     /** Note for load failures and action outcomes. */
     readonly runsNote: TextHandle;
+    /** Reads the selected run's audit trail (FR-053, contract §3). */
+    readonly auditButton: ButtonHandle;
+    /** Status line for the audit view: idle, loading, ready, or failed. */
+    readonly auditStatus: TextHandle;
+    /** Wrapper around the trail, hidden until there are rows to show. */
+    readonly auditBox: HTMLElement;
+    /** One row per audit entry, oldest first, bounded by the fetch. */
+    readonly auditList: ListHandle;
     /** Wrapper around the verification banner, hidden when there is none. */
     readonly agentNoticeBox: HTMLElement;
     /** Agent-verification banner (M9). */
@@ -225,6 +234,46 @@ function mountResolutions(input: MountInputs): Pick<
 }
 
 /**
+ * Mount the audit view: its button, its status line, and its bounded list.
+ *
+ * The list sits in its own wrapper so it can disappear when there is nothing
+ * to show while the status line keeps saying why — an empty trail, a failed
+ * read, and a still-loading one all read differently (T-026).
+ *
+ * @param input - Runtime, pane root, and handlers.
+ * @returns The audit view's handles.
+ */
+function mountAuditView(input: MountInputs): Pick<
+    RunsBoard,
+    'auditButton' | 'auditStatus' | 'auditBox' | 'auditList'
+> {
+    const { pane, rt, handlers } = input;
+    const { audit } = rt.state.repos.runs;
+    const controls = createControlGroup(pane);
+    const auditButton = mountButton(controls, {
+        label: AUDIT_BUTTON_LABEL,
+        variant: 'secondary',
+        disabled: true,
+        onClick: handlers.loadAudit,
+    });
+    const auditStatus = mountText(pane, { text: auditStatusText(audit) });
+    const auditBox = pane.ownerDocument.createElement('div');
+    auditBox.style.marginTop = '8px';
+    auditBox.hidden = true;
+    pane.append(auditBox);
+    const auditList = mountList(auditBox, {
+        items: auditItems(audit),
+        ariaLabel: 'Audit history',
+        emptyText: 'No audit rows.',
+        onSelect: () => {
+            // The trail is display-only: rows are evidence, not a selection.
+        },
+    });
+
+    return { auditButton, auditStatus, auditBox, auditList };
+}
+
+/**
  * Mount the verification banner in its own hide-able wrapper.
  *
  * @param pane - Pane root.
@@ -267,8 +316,30 @@ export function mountRunsBoard(input: MountInputs): RunsBoard {
         ...mountTransitions(input),
         ...mountResolutions(input),
         runsNote: mountText(pane, { text: runs.note }),
+        ...mountAuditView(input),
         ...mountAgentNotice(pane, runs),
     };
+}
+
+/**
+ * Repaint FR-027's two resolutions and the field that names the session.
+ *
+ * Split out of {@link repaintRunsBoard} because the two armed labels are the
+ * two branches an operator reads as "this click will send".
+ *
+ * @param runs - The runs section's state.
+ * @param board - The mounted runs half.
+ */
+function repaintResolutions(runs: RunsState, board: RunsBoard): void {
+    board.resolveSession.update({
+        label: runs.pendingAction === 'resolve-session' ? CONFIRM_SESSION_CREATED_LABEL : SESSION_CREATED_LABEL,
+        disabled: runs.busy,
+    });
+    board.resolveNoSession.update({
+        label: runs.pendingAction === 'resolve-no-session' ? CONFIRM_NO_SESSION_LABEL : NO_SESSION_LABEL,
+        disabled: runs.busy,
+    });
+    board.sessionField.update({ value: runs.sessionInput, disabled: runs.busy });
 }
 
 /**
@@ -300,16 +371,12 @@ export function repaintRunsBoard(rt: PanelRuntime, board: RunsBoard): void {
         disabled: runs.busy,
     });
     board.resolveBox.hidden = selected?.state !== 'unconfirmed';
-    board.resolveSession.update({
-        label: runs.pendingAction === 'resolve-session' ? CONFIRM_SESSION_CREATED_LABEL : SESSION_CREATED_LABEL,
-        disabled: runs.busy,
-    });
-    board.resolveNoSession.update({
-        label: runs.pendingAction === 'resolve-no-session' ? CONFIRM_NO_SESSION_LABEL : NO_SESSION_LABEL,
-        disabled: runs.busy,
-    });
-    board.sessionField.update({ value: runs.sessionInput, disabled: runs.busy });
+    repaintResolutions(runs, board);
     board.runsNote.update({ text: runs.note });
+    board.auditButton.update({ disabled: selected === null || runs.audit.status === 'loading' });
+    board.auditStatus.update({ text: auditStatusText(runs.audit) });
+    board.auditBox.hidden = runs.audit.status !== 'ready' || runs.audit.rows.length === 0;
+    board.auditList.update({ items: auditItems(runs.audit) });
     board.agentNoticeBox.hidden = runs.agentNotice === null;
     if (runs.agentNotice !== null) {
         board.agentNotice.update({

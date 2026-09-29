@@ -37,7 +37,18 @@ import {
     setSessionInput,
 } from '../src/runs.ts';
 import { parseRunsBody } from '../src/runs-service.ts';
-import { EVENTS_PATH, requeuePath, resolvePath, retryPath } from '../src/service-calls.ts';
+import {
+    AUDIT_EMPTY_STATUS,
+    AUDIT_IDLE_STATUS,
+    AUDIT_ROW_LIMIT,
+    auditItems,
+    auditStatusText,
+    initialAuditHistory,
+    loadAuditHistory,
+    parseAuditBody,
+} from '../src/audit-view.ts';
+import type { AuditViewState } from '../src/audit-view.ts';
+import { EVENTS_PATH, auditPath, requeuePath, resolvePath, retryPath } from '../src/service-calls.ts';
 import type { PanelRuntime, RunsState } from '../src/panel-state.ts';
 import type { RunReference, RunRow } from '../src/runs-service.ts';
 import {
@@ -924,6 +935,156 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
 
         expect(rt.state.repos.runs.busy).toBe(false);
         expect(rt.state.repos.runs.note).toContain('Requeued #7');
+    });
+});
+
+/**
+ * Build one audit entry the way the trail stores it (contract §2).
+ *
+ * @param overrides - Fields the test changes.
+ * @returns A complete, valid entry.
+ */
+function auditEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+        seq: 1,
+        timestamp: '2026-09-28T09:00:00.000Z',
+        correlationId: RUN_ID,
+        eventType: 'run.created',
+        actorSource: 'service',
+        entity: { kind: 'run', id: RUN_ID },
+        decision: null,
+        reason: 'run created from a detected delivery',
+        redaction: { redacted: false, fields: [] },
+        details: { subject: 'issue' },
+        ...overrides,
+    };
+}
+
+/** The response body the audit read answers with. */
+function auditBody(entries: readonly Record<string, unknown>[]): string {
+    return JSON.stringify({ entries });
+}
+
+/** The audit view's state around a selected fixture run. */
+function auditState(overrides: Partial<AuditViewState> = {}): AuditViewState {
+    return { ...initialAuditHistory(), ...overrides };
+}
+
+describe('T-026 audit history (keyed by the selected run, plain text)', () => {
+    /** The one request the view is allowed to make: rows for this run. */
+    const AUDIT_GET = `GET ${auditPath(RUN_ID)}`;
+
+    it('fetches by the selected row correlation id and nothing else (AC-117)', async () => {
+        const service = serviceDouble({
+            [AUDIT_GET]: {
+                status: 200,
+                body: auditBody([auditEntry(), auditEntry({ seq: 2, eventType: 'dispatch.retry', decision: 'retry' })]),
+            },
+        });
+        const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+        rt.state.repos.runs = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+
+        await loadAuditHistory(rt);
+
+        expect(service.calls).toEqual([AUDIT_GET]);
+        expect(rt.state.repos.runs.audit.status).toBe('ready');
+        expect(rt.state.repos.runs.audit.correlationId).toBe(RUN_ID);
+        expect(rt.state.repos.runs.audit.rows.map((row) => row.seq)).toEqual([1, 2]);
+        expect(auditStatusText(rt.state.repos.runs.audit)).toContain('2 rows');
+        expect(auditStatusText(rt.state.repos.runs.audit)).toContain(RUN_ID);
+
+        const items = auditItems(rt.state.repos.runs.audit);
+        expect(items[0]).toEqual({
+            id: '1',
+            leading: '1',
+            title: 'run.created · service',
+            subtitle: 'run created from a detected delivery · {"subject":"issue"}',
+            meta: '2026-09-28 09:00',
+        });
+        expect(items[1]?.title).toBe('dispatch.retry · service · retry');
+    });
+
+    it('starts idle, says so, and resets with the selection (FR-053)', async () => {
+        expect(auditStatusText(initialAuditHistory())).toBe(AUDIT_IDLE_STATUS);
+        expect(auditStatusText(auditState({ status: 'ready' }))).toBe(AUDIT_EMPTY_STATUS);
+        expect(auditStatusText(auditState({ status: 'loading' }))).toContain('Reading');
+
+        const service = serviceDouble({ [AUDIT_GET]: { status: 200, body: auditBody([auditEntry()]) } });
+        const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+        const other = runFixture({
+            id: 'mt-run-bbbbccccddddeeeeffff00',
+            correlationId: 'mt-run-bbbbccccddddeeeeffff00',
+        });
+        rt.state.repos.runs = runsState({ rows: [runFixture(), other], status: 'ready', selectedRun: RUN_ID });
+
+        await loadAuditHistory(rt);
+        expect(rt.state.repos.runs.audit.status).toBe('ready');
+
+        selectRun(rt, other.id);
+
+        expect(rt.state.repos.runs.audit.status).toBe('idle');
+        expect(rt.state.repos.runs.audit.rows).toEqual([]);
+    });
+
+    it('refuses an unreadable body instead of half-showing it (fail closed)', async () => {
+        const service = serviceDouble({
+            [AUDIT_GET]: { status: 200, body: '{"entries":[{"seq":"one"}]}' },
+        });
+        const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+        rt.state.repos.runs = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+
+        await loadAuditHistory(rt);
+
+        expect(rt.state.repos.runs.audit.status).toBe('error');
+        expect(rt.state.repos.runs.audit.rows).toEqual([]);
+        expect(rt.state.repos.runs.audit.note).toContain('could not read');
+        expect(parseAuditBody('{"entries":[]}')).toEqual([]);
+        expect(parseAuditBody('{"nope":[]}')).toBeNull();
+    });
+
+    it('renders hostile reason and details as inert text (NFR-109)', () => {
+        const hostile = auditEntry({
+            reason: '<img src=x onerror="steal()">',
+            details: { note: '<script>alert(1)</script>' },
+        });
+        const rows = parseAuditBody(auditBody([hostile]));
+
+        expect(rows).not.toBeNull();
+        const items = auditItems(auditState({ status: 'ready', correlationId: RUN_ID, rows: rows ?? [] }));
+        expect(items[0]?.subtitle).toBe('<img src=x onerror="steal()"> · {"note":"<script>alert(1)</script>"}');
+        expect(items[0]?.title).toBe('run.created · service');
+    });
+
+    it('bounds the list and marks every cut (NFR-107)', () => {
+        const many = Array.from({ length: AUDIT_ROW_LIMIT + 50 }, (_value, index) => auditEntry({ seq: index + 1 }));
+        const rows = parseAuditBody(auditBody(many));
+
+        expect(rows).toHaveLength(AUDIT_ROW_LIMIT);
+        const items = auditItems(auditState({ status: 'ready', correlationId: RUN_ID, rows: rows ?? [] }));
+        expect(items).toHaveLength(AUDIT_ROW_LIMIT);
+
+        const loud = parseAuditBody(auditBody([auditEntry({ reason: null, details: { blob: 'x'.repeat(500) } })]));
+        const subtitle = auditItems(auditState({ status: 'ready', correlationId: RUN_ID, rows: loud ?? [] }))[0]
+            ?.subtitle ?? '';
+        expect(subtitle.endsWith('…')).toBe(true);
+        expect(subtitle.length).toBeLessThanOrEqual(161);
+    });
+
+    it('warns when the service cannot be reached, and keeps nothing', async () => {
+        const rt = createTestRuntime(fakeHost({
+            serviceRequest: async () => {
+                throw new Error('ECONNREFUSED');
+            },
+        }));
+        rt.state.repos.runs = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+
+        await loadAuditHistory(rt);
+
+        expect(rt.state.repos.runs.audit.status).toBe('error');
+        expect(rt.state.repos.runs.audit.rows).toEqual([]);
+        expect(rt.state.repos.runs.audit.note).toContain('Audit history not loaded');
+        expect(rt.state.repos.runs.audit.note).toContain('unreachable');
+        expect(auditStatusText(rt.state.repos.runs.audit)).toContain('not loaded');
     });
 });
 
