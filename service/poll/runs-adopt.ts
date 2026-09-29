@@ -191,6 +191,34 @@ function classifyReserved(input: { readonly runKey: string; readonly now: string
     };
 }
 
+/**
+ * Compute the expiry of the synthetic migration lease (data-model §1).
+ *
+ * The lease is **already expired by construction**, and that claim has to hold
+ * for every clock that could ever judge it, not only for clocks sampled after
+ * this mint: it is therefore the *earlier* of the legacy claim's own window
+ * closing and one millisecond before the stamp this pass is adopting under
+ * (T-045 — minting `now - 1` alone made "expired" self-referential, so a pass
+ * whose stamp predated the mint read a lease that was not yet expired and
+ * skipped the one-shot migration recovery).
+ *
+ * @param input - The legacy claim's issue stamp and the adopting stamp.
+ * @returns An RFC 3339 stamp strictly before both inputs.
+ * @throws {Error} When the adopting stamp is not a time: refusing to mint is
+ *   the fail-closed answer, because a lease that is not expired could strand
+ *   the run in `claimed` with no path back to waiting.
+ */
+function expiredAtMint(input: { readonly issuedAt: string; readonly now: string }): string {
+    const mint = Date.parse(input.now) - 1;
+    if (!Number.isFinite(mint)) {
+        throw new Error('migration lease cannot be minted without a service-clock stamp');
+    }
+
+    const issued = Date.parse(input.issuedAt);
+
+    return new Date(Number.isFinite(issued) ? Math.min(issued, mint) : mint).toISOString();
+}
+
 /** Build the synthetic already-expired lease for an in-flight legacy row. */
 function classifyInFlight(input: {
     readonly event: QueuedEvent;
@@ -209,7 +237,7 @@ function classifyInFlight(input: {
             attempt: 1,
             holder: MIGRATION_HOLDER,
             issuedAt,
-            expiresAt: new Date(Date.parse(now) - 1).toISOString(),
+            expiresAt: expiredAtMint({ issuedAt, now }),
             provenance: 'migration',
         },
         reservation: null,

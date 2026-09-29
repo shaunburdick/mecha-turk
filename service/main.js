@@ -3446,6 +3446,14 @@ function classifyReserved(input) {
     sessionId: null
   };
 }
+function expiredAtMint(input) {
+  const mint = Date.parse(input.now) - 1;
+  if (!Number.isFinite(mint)) {
+    throw new Error("migration lease cannot be minted without a service-clock stamp");
+  }
+  const issued = Date.parse(input.issuedAt);
+  return new Date(Number.isFinite(issued) ? Math.min(issued, mint) : mint).toISOString();
+}
 function classifyInFlight(input) {
   const { event, correlationId, now } = input;
   const issuedAt = event.claimedAt ?? event.detectedAt;
@@ -3458,7 +3466,7 @@ function classifyInFlight(input) {
       attempt: 1,
       holder: MIGRATION_HOLDER,
       issuedAt,
-      expiresAt: new Date(Date.parse(now) - 1).toISOString(),
+      expiresAt: expiredAtMint({ issuedAt, now }),
       provenance: "migration"
     },
     reservation: null,
@@ -4397,12 +4405,12 @@ async function claimPendingRuns(input) {
   const leaseMs = await readLeaseMs(input.store, input.log);
   const deliveries = deliveriesById(await readEvents(input));
   await whenQueueIdle();
-  const preview = await previewRunsDocument(input);
+  const preview = await previewRunsDocument({ ...input, now });
   if (!hasEligibleRun(preview)) {
     return { runs: [], deferred: 0, auditWritten: true };
   }
   const outcome = await inQueueChain(async () => {
-    const document = await readRunsDocument(input);
+    const document = await readRunsDocument({ ...input, now });
     const planned = planClaim({ document, holder: input.holder, leaseMs, now, deliveries, maxRuns, budgetChars });
     if (planned.claims.length === 0) {
       return planned;
@@ -4785,7 +4793,7 @@ async function appendRunRow(input) {
 async function operateRun(target, task) {
   const now = target.now ?? nowIso();
   return await inQueueChain(async () => {
-    const document = await readRunsDocument(target);
+    const document = await readRunsDocument({ ...target, now });
     const index = document.runs.findIndex((run2) => run2.correlationId === target.correlationId);
     const run = document.runs[index];
     if (run === undefined) {
@@ -6580,7 +6588,7 @@ function withIntents(input) {
 async function sweepOnce(input) {
   const now = input.now ?? nowIso();
   const planned = await inQueueChain(async () => {
-    const document = await readRunsDocument(input);
+    const document = await readRunsDocument({ ...input, now });
     const outcome = planSweep({ document, now });
     if (outcome.recoveries.length === 0) {
       return outcome;

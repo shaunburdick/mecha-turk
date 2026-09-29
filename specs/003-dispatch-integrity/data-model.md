@@ -43,7 +43,7 @@ Three states, no lease, no attempt, no reservation, no distinction between "sess
 | Stored delivery row | Run created at adoption | Follow-up |
 | --- | --- | --- |
 | `pending` | `pending`, attempt 1, no lease, `requeuesUsed 0` | claimable on the first post-upgrade claim |
-| `in-flight`, no reservation recorded | `claimed` with an **already-expired synthetic lease** (`leaseId` minted at adoption, `expiresAt` in the past) | boot sweep requeues once: attempt 1→2, `dispatch.lease-expired` with reason naming **migration recovery**, **not charged to the requeue budget** (plan migration strategy) |
+| `in-flight`, no reservation recorded | `claimed` with an **already-expired synthetic lease** (`leaseId` minted at adoption; `expiresAt` = the **earlier** of the legacy claim's own stamp and the adopting stamp minus one millisecond, so the lease reads as expired to any clock that could judge it — including a sweep pass whose stamp predates the mint, T-045) | boot sweep requeues once: attempt 1→2, `dispatch.lease-expired` with reason naming **migration recovery**, **not charged to the requeue budget** (plan migration strategy) |
 | `in-flight` + reservation recorded | `starting`, result deadline armed from the adoption stamp | branch unreachable for rows the shipped build wrote (no reserve operation exists); implemented and unit-tested from a synthetic row so the table is complete |
 | `dispatched` + session id in `dispatchResult` | `dispatched` (terminal) | carried through |
 | `dispatched` + problem string in `dispatchResult` | `failed`, retryable, cause from the stored string | classified per research §R2; the branch taken is recorded in `run.migrated` details |

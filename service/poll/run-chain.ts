@@ -69,7 +69,7 @@ export async function operateRun<T>(
     const now = target.now ?? nowIso();
 
     return await inQueueChain(async () => {
-        const document = await readRunsDocument(target);
+        const document = await readRunsDocument({ ...target, now });
         const index = document.runs.findIndex((run) => run.correlationId === target.correlationId);
         const run = document.runs[index];
         if (run === undefined) {

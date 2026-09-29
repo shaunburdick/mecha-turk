@@ -399,13 +399,13 @@ export async function claimPendingRuns(input: {
     // and make the panel wait a whole poll interval for work that was already
     // on its way in.
     await whenQueueIdle();
-    const preview = await previewRunsDocument(input);
+    const preview = await previewRunsDocument({ ...input, now });
     if (!hasEligibleRun(preview)) {
         return { runs: [], deferred: 0, auditWritten: true };
     }
 
     const outcome = await inQueueChain(async () => {
-        const document = await readRunsDocument(input);
+        const document = await readRunsDocument({ ...input, now });
         const planned = planClaim({ document, holder: input.holder, leaseMs, now, deliveries, maxRuns, budgetChars });
         if (planned.claims.length === 0) {
             return planned;

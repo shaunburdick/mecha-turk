@@ -104,7 +104,7 @@ async function changeRun(
     const now = input.now ?? nowIso();
 
     return await inQueueChain(async (): Promise<RunChange> => {
-        const document = await readRunsDocument(input);
+        const document = await readRunsDocument({ ...input, now });
         const index = document.runs.findIndex((run) => run.correlationId === input.correlationId);
         const current = document.runs[index];
         if (current === undefined) {

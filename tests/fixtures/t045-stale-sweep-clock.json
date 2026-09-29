@@ -1,0 +1,35 @@
+{
+  "description": "T-045's failing input shape: a shipped legacy store plus a sweep pass whose clock sample predates the migration lease the pass triggers the first-read adoption to mint. The pass adopts inside its own document read, so it judges a lease minted milliseconds later with a stamp it sampled before it — 'not yet expired', zero recoveries — and the one-shot migration recovery moves to a later pass instead of landing on the pass that adopted.",
+  "observed": {
+    "suite": "tests/service-sweep-boot.test.ts",
+    "test": "leaves a live lease alone across a restart, and recovers the same run once",
+    "migrationLeaseExpiresAt": "2026-09-29T19:42:47.205Z",
+    "migratedAt": "2026-09-29T19:42:47.206Z",
+    "sweepClockSampledAtOrBefore": "2026-09-29T19:42:47.204Z",
+    "verdict": "expected [ { ...migrationRecovery: true... } ] to deeply equal []",
+    "runsUnderLoad": "4 parallel vitest workers of the same suite"
+  },
+  "sweepNow": "2026-09-28T09:00:01.000Z",
+  "legacyRow": {
+    "id": "evt-acme~widget~404~77331",
+    "bindingId": "bnd-legacy",
+    "kind": "assignment",
+    "repository": "acme/widget",
+    "accountNumericUserId": "77331",
+    "accountLogin": "octocat",
+    "projectId": "prj_42",
+    "worktreeOption": "none",
+    "issueNumber": 404,
+    "issueTitle": "Stranded before the upgrade",
+    "issueUrl": "https://github.com/acme/widget/issues/404",
+    "issueBodyExcerpt": "body",
+    "headSha": null,
+    "baseRef": null,
+    "triggerNote": "assigned",
+    "detectedAt": "2026-09-28T09:00:00.000Z",
+    "state": "in-flight",
+    "claimedAt": "2026-09-28T09:00:00.000Z",
+    "dispatchedAt": null,
+    "dispatchResult": null
+  }
+}

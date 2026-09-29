@@ -422,7 +422,12 @@ export async function sweepOnce(input: {
 }): Promise<SweepOutcome> {
     const now = input.now ?? nowIso();
     const planned = await inQueueChain(async () => {
-        const document = await readRunsDocument(input);
+        // The pass adopts under *this* stamp: a boot pass that triggers the
+        // first-read adoption must judge the lease it just minted with the
+        // same clock sample, or a millisecond tick between the two reads makes
+        // an already-expired migration lease look live and defers the one-shot
+        // recovery to a later pass (T-045).
+        const document = await readRunsDocument({ ...input, now });
         const outcome = planSweep({ document, now });
         if (outcome.recoveries.length === 0) {
             return outcome;

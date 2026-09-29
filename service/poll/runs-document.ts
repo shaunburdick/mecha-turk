@@ -47,6 +47,26 @@ export interface RunsStoreInput {
     readonly log: ServiceLogger;
 }
 
+/**
+ * A run-document read plus the service-clock stamp its caller is acting with.
+ *
+ * The stamp matters when the read triggers the first-read adoption pass: the
+ * synthetic lease adoption mints is only "already expired" **relative to the
+ * clock that judges it**, so a pass that adopts under one stamp and judges
+ * under an earlier one skips the one-shot migration recovery and leaves the
+ * run wedged in `claimed` until some later pass happens to sample later (T-045
+ * — the defect this member closes). Threading the caller's stamp makes the
+ * adopting stamp and the judging stamp the same value by construction.
+ *
+ * `undefined` means "no stamp was supplied": the adoption pass then samples
+ * the service clock itself, which is the right answer for a read that makes
+ * no expiry decision of its own (FR-005, NFR-112).
+ */
+export interface RunsReadInput extends RunsStoreInput {
+    /** Service-clock stamp this read adopts with; `undefined` samples one. */
+    readonly now?: string | undefined;
+}
+
 /** Fields every chain-serialized transition reads. */
 export interface RunTransitionInput extends RunsStoreInput {
     /** The run this transition addresses, by correlation id. */
@@ -149,7 +169,7 @@ export function runHistoryIndicatesSession(run: Run): boolean {
  *   not be read (its bytes are quarantined and no adoption runs).
  * @throws {StorageUnavailableError} When the store cannot be read or written.
  */
-async function runAdoption(input: RunsStoreInput & { readonly now?: string }): Promise<AdoptionOutcome> {
+async function runAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
     const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);
     if (stored.status === 'ok') {
         return 'present';
@@ -183,10 +203,10 @@ async function runAdoption(input: RunsStoreInput & { readonly now?: string }): P
  * arrives while it runs. A rejected pass is dropped so the next read retries
  * rather than inheriting a failure forever.
  *
- * @param input - Store and logger.
+ * @param input - Store, logger, and the stamp to adopt with.
  * @returns The pass every reader of this handle awaits.
  */
-function startAdoption(input: RunsStoreInput & { readonly now?: string }): Promise<AdoptionOutcome> {
+function startAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
     const pass = runAdoption(input).catch((cause: unknown) => {
         adoptionPasses.delete(input.store);
         throw cause;
@@ -200,11 +220,12 @@ function startAdoption(input: RunsStoreInput & { readonly now?: string }): Promi
  * Ensure the store's run document exists, adopting the legacy queue on the
  * first read of this handle (FR-005).
  *
- * @param input - Store and logger.
+ * @param input - Store, logger, and the stamp the adopting pass mints its
+ *   synthetic lease under (the first caller's stamp wins for the handle).
  * @returns What the shared pass found; concurrent callers await one pass.
  * @throws {StorageUnavailableError} When the store itself cannot be read.
  */
-export async function ensureRunsAdopted(input: RunsStoreInput & { readonly now?: string }): Promise<AdoptionOutcome> {
+export async function ensureRunsAdopted(input: RunsReadInput): Promise<AdoptionOutcome> {
     return await (adoptionPasses.get(input.store) ?? startAdoption(input));
 }
 
@@ -213,14 +234,18 @@ export async function ensureRunsAdopted(input: RunsStoreInput & { readonly now?:
  *
  * Every writer reads through this function before it writes, and the adoption
  * pass is chain-free by design, so an adoption can never be overwritten by a
- * writer that raced it.
+ * writer that raced it. A caller that will go on to judge expiry (the sweep)
+ * passes its own {@link RunsReadInput.now}, so the synthetic lease adoption
+ * mints expires **under the same stamp the caller judges it with** — otherwise
+ * a pass whose clock sample predates the mint reads a lease that is "not yet
+ * expired" and skips the one-shot migration recovery (T-045).
  *
- * @param input - Store and logger.
+ * @param input - Store, logger, and the stamp this read adopts with.
  * @returns The document as stored (or as just adopted into).
  * @throws {Error} When `runs.json` exists but is unreadable: serving runs
  *   from an empty document could resurrect already-dispatched work.
  */
-export async function readRunsDocument(input: RunsStoreInput): Promise<RunsDocument> {
+export async function readRunsDocument(input: RunsReadInput): Promise<RunsDocument> {
     const outcome = await ensureRunsAdopted(input);
     if (outcome === 'unreadable') {
         throw new StorageUnavailableError(
@@ -253,11 +278,12 @@ export async function readRunsDocument(input: RunsStoreInput): Promise<RunsDocum
  * re-read inside {@link inQueueChain} and re-plan, because another writer may
  * have landed between the two reads.
  *
- * @param input - Store and logger.
+ * @param input - Store, logger, and the stamp this preview adopts with (same
+ *   rule as {@link readRunsDocument}).
  * @returns The document as stored, adopting the legacy queue if needed.
  * @throws {StorageUnavailableError} When the document exists but is unusable.
  */
-export async function previewRunsDocument(input: RunsStoreInput): Promise<RunsDocument> {
+export async function previewRunsDocument(input: RunsReadInput): Promise<RunsDocument> {
     const outcome = await ensureRunsAdopted(input);
     if (outcome === 'unreadable') {
         throw new StorageUnavailableError(

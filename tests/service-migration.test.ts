@@ -115,7 +115,11 @@ describe('runs.json first-read adoption', () => {
             'failed',
             'dispatched',
         ]);
-        expect(document.runs[1]?.lease?.expiresAt).toBe('2026-09-28T12:29:59.999Z');
+        // The synthetic lease is already expired **at mint** for every clock
+        // that could judge it: it expires with the legacy claim's own window
+        // (the earlier of that stamp and the adopting stamp minus a
+        // millisecond), never with a stamp only this process has seen (T-045).
+        expect(document.runs[1]?.lease?.expiresAt).toBe(STAMP);
         expect(document.runs[2]?.reservation?.reservedAt).toBe(NOW);
         expect(document.runs[2]?.reservation?.resultDeadlineAt).toBe('2026-09-28T12:32:00.000Z');
         expect(document.runs[3]?.session?.sessionId).toBe('ses_preexisting');
