@@ -1,15 +1,19 @@
 /**
- * Service surface the Repos tab and the event relay read (M3/M4 re-cut).
+ * The Repos tab's service surface: bindings, accounts, and the per-binding
+ * status rows they answer with.
  *
  * Every call here goes through the documented `host.serviceRequest()` bridge
- * with no credential material: bindings carry account identities only, the
- * accounts list is the credential-free DTO, and event payloads carry issue
- * text the service already deemed shippable. Parsing fails closed — a body
- * this module cannot fully understand reads as unreadable, and the caller
- * reports that on its own line rather than half-trusting the record.
+ * with no credential material: bindings carry account identities only and the
+ * accounts list is the credential-free DTO. Parsing fails closed — a body this
+ * module cannot fully understand reads as unreadable, and the caller reports
+ * that on its own line rather than half-trusting the record.
  *
- * MVP-DEBT: these paths are the re-cut's simple relay; the contract's
- * per-binding PATCH and lease machinery roundtrips later.
+ * The relay's claim and reserve answers live beside it in
+ * [`claim-service.ts`](./claim-service.ts); the two share exactly three
+ * things, all exported from here: the {@link BindingStatusRow} row the status
+ * member carries, its reader {@link readStatusRows}, and the two row readers
+ * `runs-service.ts` also holds an opinion about ({@link issueNumberFrom} and
+ * {@link eventKindOf}).
  */
 
 import { asRecord, fieldsHoldText, integerOrZero, parseJsonObject, textOrEmpty, textOrNull } from './json.ts';
@@ -90,37 +94,8 @@ export interface BindingStatusRow {
     readonly pendingCount: number;
 }
 
-/** One queued event as the relay delivers it. */
-export interface RelayEvent {
-    /** Deterministic event id (the dedupe key and dispatch path segment). */
-    readonly eventId: string;
-    /** Binding that produced the event. */
-    readonly bindingId: string;
-    /** Trigger kind. */
-    readonly kind: 'assignment' | 'mention' | 'review';
-    /** Repository in `owner/name` form. */
-    readonly repository: string;
-    /** The account's GitHub id. */
-    readonly accountNumericUserId: string;
-    /** The account's login. */
-    readonly accountLogin: string;
-    /** Project id the dispatch targets. */
-    readonly projectId: string;
-    /** Worktree option snapshotted at enqueue. */
-    readonly worktreeOption: string;
-    /** Issue number. */
-    readonly issueNumber: number;
-    /** Issue title. */
-    readonly issueTitle: string;
-    /** Canonical issue URL. */
-    readonly issueUrl: string;
-    /** Bounded body excerpt. */
-    readonly issueBodyExcerpt: string;
-    /** Trigger phrase for the PM context. */
-    readonly triggerNote: string;
-    /** RFC 3339 detection stamp. */
-    readonly detectedAt: string;
-}
+/** Trigger kinds the panel can render; a stored row from a future build reads as `assignment`. */
+export type EventKind = 'assignment' | 'mention' | 'review';
 
 /** What one bindings/GET answered with. */
 export interface BindingsSnapshot {
@@ -129,15 +104,6 @@ export interface BindingsSnapshot {
     /** Per-binding scan status. */
     readonly status: readonly BindingStatusRow[];
 }
-
-/** One unclaimed-event answer after the claim. */
-export interface PendingAnswer {
-    /** The events the panel now owns (claimed service-side). */
-    readonly events: readonly RelayEvent[];
-    /** Per-binding scan status. */
-    readonly status: readonly BindingStatusRow[];
-}
-
 
 /** Fields a stored binding row must carry as plain strings. */
 const BINDING_STRING_FIELDS = [
@@ -151,21 +117,6 @@ const BINDING_STRING_FIELDS = [
 
 /** Fields a stored binding row must carry as plain strings (stamps). */
 const BINDING_STAMP_FIELDS = ['createdAt', 'updatedAt'] as const;
-
-/** Fields one queued event must carry as plain strings. */
-const EVENT_STRING_FIELDS = [
-    'id',
-    'bindingId',
-    'repository',
-    'accountNumericUserId',
-    'accountLogin',
-    'projectId',
-    'worktreeOption',
-    'issueTitle',
-    'issueUrl',
-    'triggerNote',
-    'detectedAt',
-] as const;
 
 /**
  * Read one triggers object leniently; missing flags fall back to the MVP
@@ -234,7 +185,7 @@ function statusRowOf(
  * @param rows - Parsed status rows.
  * @returns Rows this panel can render, dropping rows it cannot.
  */
-function readStatusRows(rows: readonly unknown[]): BindingStatusRow[] {
+export function readStatusRows(rows: readonly unknown[]): BindingStatusRow[] {
     const usable: BindingStatusRow[] = [];
     for (const row of rows) {
         const statusRow = asRecord(row);
@@ -301,7 +252,7 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
  * @param value - Candidate kind from a stored row.
  * @returns A kind this panel can render.
  */
-export function eventKindOf(value: unknown): RelayEvent['kind'] {
+export function eventKindOf(value: unknown): EventKind {
     if (value === 'mention' || value === 'review') {
         return value;
     }
@@ -309,43 +260,6 @@ export function eventKindOf(value: unknown): RelayEvent['kind'] {
     return 'assignment';
 }
 
-/**
- * Parse one queued event.
- *
- * @param value - One element of the `events` array.
- * @returns The event, or `null` (the list then stays partial).
- */
-function parseEventEntry(value: unknown): RelayEvent | null {
-    const record = asRecord(value);
-    if (record === null || !fieldsHoldText(record, EVENT_STRING_FIELDS)) {
-        return null;
-    }
-
-    const issueNumber = issueNumberFrom(record);
-    if (issueNumber === 0) {
-        return null;
-    }
-
-    const { kind, id, bindingId, repository, accountNumericUserId, accountLogin, projectId, worktreeOption } = record;
-    const { issueTitle, issueUrl, triggerNote, detectedAt } = record;
-
-    return {
-        eventId: id as string,
-        bindingId: bindingId as string,
-        kind: eventKindOf(kind),
-        repository: repository as string,
-        accountNumericUserId: accountNumericUserId as string,
-        accountLogin: accountLogin as string,
-        projectId: projectId as string,
-        worktreeOption: worktreeOption as string,
-        issueNumber,
-        issueTitle: issueTitle as string,
-        issueUrl: issueUrl as string,
-        issueBodyExcerpt: textOrEmpty(record, 'issueBodyExcerpt'),
-        triggerNote: triggerNote as string,
-        detectedAt: detectedAt as string,
-    };
-}
 
 /**
  * Count the enabled bindings in a list.
@@ -413,31 +327,3 @@ export function parseAccountsBody(text: string): PanelAccount[] | null {
 
     return accounts;
 }
-
-/**
- * Parse the pending-events response body.
- *
- * @param text - Response body text.
- * @returns The claim answer, or `null` when the shape is unusable.
- */
-export function parsePendingBody(text: string): PendingAnswer | null {
-    const root = parseJsonObject(text);
-    if (root === null || !Array.isArray(root.events)) {
-        return null;
-    }
-
-    const events: RelayEvent[] = [];
-    for (const entry of root.events) {
-        const event = parseEventEntry(entry);
-        if (event === null) {
-            continue;
-        }
-
-        events.push(event);
-    }
-
-    const status = Array.isArray(root.status) ? root.status : [];
-
-    return { events, status: readStatusRows(status) };
-}
-

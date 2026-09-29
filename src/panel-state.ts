@@ -180,7 +180,7 @@ export type RepositoriesStatus =
     /** The host or service refused. */
     | 'error';
 
-/** The event-relay loop's runtime state (M4). */
+/** The event-relay loop's runtime state (M4, widened by 003 T-021). */
 export interface Relay {
     /** Timer handle while the loop runs. */
     timer: ReturnType<typeof setInterval> | null;
@@ -190,7 +190,17 @@ export interface Relay {
     lastPollAt: string | null;
     /** Whether a dispatch is being processed right now. */
     dispatching: boolean;
-    /** Event ids the session already handled (this mount). */
+    /**
+     * Attempts this mount has already handed to the dispatch path (FR-034),
+     * keyed `"<correlationId>#<attempt>"`.
+     *
+     * A duplicate-suppression convenience, never a durability mechanism and
+     * never evidence that a session exists: an entry is only ever *added*, and
+     * because the key carries the attempt, the service handing the same run
+     * back under a new lease and a new attempt arrives as a different key.
+     * Nothing clears an entry — least of all a failed result report, which must
+     * never on its own authorize a re-dispatch.
+     */
     handled: readonly string[];
     /** Last relay error line, else empty. */
     lastError: string | null;
@@ -311,6 +321,19 @@ export interface PanelRuntime {
     pagehideListener: (() => void) | null;
     /** Whether the event relay loop is armed on this runtime. */
     relayArmed: boolean;
+    /**
+     * Whether mount-time reconciliation has settled for this runtime (FR-025).
+     *
+     * `true` for a runtime that has not begun mounting — there is nothing to
+     * reconcile until the panel has read its own record — and `false` for the
+     * whole window in which `app.ts` is re-reporting unacknowledged attempts.
+     * `startRelayPolling` refuses to arm while it is `false`, so "no claim
+     * before reconciliation" holds no matter which call site reaches the relay
+     * first.
+     */
+    reconcileSettled: boolean;
+    /** Relay arming requested while reconciliation was still running. */
+    relayArmPending: boolean;
 }
 
 /** Per-binding event counts from the last relay poll. */
@@ -411,6 +434,8 @@ export function createPanelRuntime(
         pendingPhase: 'paused',
         pagehideListener: null,
         relayArmed: false,
+        reconcileSettled: true,
+        relayArmPending: false,
     };
 }
 

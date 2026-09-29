@@ -32,7 +32,6 @@ import { redact } from './redaction.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
 import type { PanelRuntime, PanelStatus } from './panel-state.ts';
-import type { RelayEvent } from './repos-service.ts';
 
 /** How long one verification waits for the session snapshot, in milliseconds. */
 export const AGENT_VERIFY_TIMEOUT_MS = 15_000;
@@ -233,12 +232,12 @@ export function verificationNotice(result: AgentVerification): PanelStatus {
 export async function verifyAgentAfterDispatch(inputs: {
     /** Panel runtime. */
     readonly rt: PanelRuntime;
-    /** The event whose dispatch produced the session. */
-    readonly event: RelayEvent;
+    /** The run whose dispatch produced the session (003: the correlation id). */
+    readonly correlationId: string;
     /** Session id the host created. */
     readonly sessionId: string;
 }): Promise<void> {
-    const { rt, event, sessionId } = inputs;
+    const { rt, correlationId, sessionId } = inputs;
     const expected = rt.state.expectedAgent;
     const result = await verifySessionAgent({ host: rt.host, sessionId, expected });
     if (rt.disposed) {
@@ -249,9 +248,9 @@ export async function verifyAgentAfterDispatch(inputs: {
     appendEntryAndPersist(rt, {
         at: nowIso(),
         kind: 'session',
-        correlationId: event.eventId,
+        correlationId,
         detail: {
-            eventId: event.eventId,
+            correlationId,
             sessionId,
             expectedAgent: expected,
             observedAgent,

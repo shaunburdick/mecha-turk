@@ -22,10 +22,10 @@ import {
     verifyAgentAfterDispatch,
     verifySessionAgent,
 } from '../src/agent-verify.ts';
-import { dispatchQueuedEvent } from '../src/relay.ts';
+import { dispatchClaimedRun } from '../src/relay.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { SpikeHost } from '../src/session.ts';
-import type { RelayEvent } from '../src/repos-service.ts';
+import type { ClaimedRun } from '../src/claim-service.ts';
 import type { RunRow } from '../src/runs-service.ts';
 import {
     FIXTURE_TIMESTAMP,
@@ -273,21 +273,47 @@ describe('verificationNotice (warn-only copy)', () => {
     });
 });
 
-/** The claimed event the recorder's fixture dispatch produced. */
-const EVENT: RelayEvent = {
-    eventId: 'evt-verify-1',
+/** Correlation id of the run the fixture dispatch produces. */
+const CORRELATION = 'mt-run-aaaabbbbccccddddeeeeffff';
+
+/** Lease id the fixture claim carries. */
+const LEASE_ID = 'lse-aaaabbbbccccddddeeeeffff';
+
+/** Single-use token the fixture reserve answers with. */
+const TOKEN = `dtk-${'a1b2c3d4'.repeat(4)}`;
+
+/** The run the service offers this mount, in the claimed state. */
+const CLAIM: ClaimedRun = {
+    correlationId: CORRELATION,
+    runKey: 'github|77331|acme/widget|issue|7|0',
+    ordinal: 0,
+    attempt: 1,
+    lease: {
+        leaseId: LEASE_ID,
+        attempt: 1,
+        holder: 'mount-verify',
+        issuedAt: FIXTURE_TIMESTAMP,
+        expiresAt: FIXTURE_TIMESTAMP,
+    },
+    state: 'pending',
+    stateReason: 'waiting for a panel',
     bindingId: 'bnd-verify-1',
-    kind: 'assignment',
     repository: 'acme/widget',
-    accountNumericUserId: '77331',
     accountLogin: LOGIN,
     projectId: PROJECT_ID,
     worktreeOption: 'generated',
+    subjectType: 'issue',
     issueNumber: 7,
     issueTitle: 'Fix the flaky test',
     issueUrl: ISSUE_URL,
+    headSha: null,
+    baseRef: null,
+    attachmentId: CORRELATION,
+    sourceReferences: [],
+    referenceCount: 0,
+    referencesNotRetained: 0,
+    referencesTruncated: false,
     issueBodyExcerpt: '',
-    triggerNote: 'assigned to mecha-bot',
     detectedAt: FIXTURE_TIMESTAMP,
 };
 
@@ -303,7 +329,7 @@ async function recordedVerification(agent?: string): Promise<PanelRuntime> {
         fakeHost({ onSession: double.host.onSession, openSession: double.host.openSession }),
     );
 
-    await verifyAgentAfterDispatch({ rt, event: EVENT, sessionId: SESSION });
+    await verifyAgentAfterDispatch({ rt, correlationId: CORRELATION, sessionId: SESSION });
 
     return rt;
 }
@@ -314,7 +340,7 @@ describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
         const entry = rt.state.ledger.entries.at(-1);
 
         expect(entry?.kind).toBe('session');
-        expect(entry?.correlationId).toBe(EVENT.eventId);
+        expect(entry?.correlationId).toBe(CORRELATION);
         expect(entry?.detail.agentVerified).toBe(true);
         expect(entry?.detail.observedAgent).toBe(EXPECTED_AGENT);
         expect(entry?.detail.verification).toBe('match');
@@ -337,19 +363,19 @@ describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
 
 /** One runs-history row as the service would project the fixture event. */
 const RUN_ROW: RunRow = {
-    id: EVENT.eventId,
-    correlationId: EVENT.eventId,
+    id: CORRELATION,
+    correlationId: CORRELATION,
     kind: 'assignment',
-    repository: EVENT.repository,
-    issueNumber: EVENT.issueNumber,
-    issueTitle: EVENT.issueTitle,
-    issueUrl: EVENT.issueUrl,
+    repository: CLAIM.repository,
+    issueNumber: CLAIM.issueNumber,
+    issueTitle: CLAIM.issueTitle,
+    issueUrl: CLAIM.issueUrl,
     state: 'dispatched',
     stateReason: `session ${SESSION} created`,
     runKey: 'github|77331|acme/widget|issue|7|0',
     ordinal: 0,
     attempt: 1,
-    attachmentId: EVENT.eventId,
+    attachmentId: CORRELATION,
     projectId: PROJECT_ID,
     worktreeOption: 'generated',
     leaseExpiresAt: null,
@@ -358,13 +384,13 @@ const RUN_ROW: RunRow = {
     referenceCount: 0,
     referencesTruncated: false,
     referencesNotRetained: 0,
-    session: { sessionId: SESSION, attachmentId: EVENT.eventId, dispatchedAt: FIXTURE_TIMESTAMP },
+    session: { sessionId: SESSION, attachmentId: CORRELATION, dispatchedAt: FIXTURE_TIMESTAMP },
     verification: null,
-    detectedAt: EVENT.detectedAt,
+    detectedAt: CLAIM.detectedAt,
     claimedAt: FIXTURE_TIMESTAMP,
     dispatchedAt: FIXTURE_TIMESTAMP,
     dispatchResult: SESSION,
-    bindingId: EVENT.bindingId,
+    bindingId: CLAIM.bindingId,
     headSha: null,
     baseRef: null,
 };
@@ -385,10 +411,28 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
             serviceRequest: async (request) => {
                 calls.push(`${request.method} ${request.path}`);
                 if (request.method === 'GET' && request.path === '/v1/events/pending') {
-                    return { status: 200, body: JSON.stringify({ events: [EVENT], status: [] }) };
+                    return {
+                        status: 200,
+                        body: JSON.stringify({ events: [CLAIM], status: [], auditWritten: true }),
+                    };
                 }
 
-                if (request.path === '/v1/events/evt-verify-1/dispatched') {
+                if (request.method === 'POST' && request.path === `/v1/events/${CORRELATION}/reserve`) {
+                    return {
+                        status: 200,
+                        body: JSON.stringify({
+                            correlationId: CORRELATION,
+                            attempt: 1,
+                            dispatchToken: TOKEN,
+                            tokenExpiresAt: FIXTURE_TIMESTAMP,
+                            resultDeadlineAt: FIXTURE_TIMESTAMP,
+                            state: 'starting',
+                            auditWritten: true,
+                        }),
+                    };
+                }
+
+                if (request.method === 'POST' && request.path === `/v1/events/${CORRELATION}/dispatched`) {
                     return { status: 200, body: '{"done":true}' };
                 }
 
@@ -402,10 +446,10 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
         const rt = createTestRuntime(host);
         rt.state.repos.bindings = [
             {
-                bindingId: EVENT.bindingId,
+                bindingId: CLAIM.bindingId,
                 accountNumericUserId: '77331',
                 accountLogin: LOGIN,
-                repository: EVENT.repository,
+                repository: CLAIM.repository,
                 projectId: PROJECT_ID,
                 worktreeOption: 'generated',
                 triggers: { assignment: true, mention: false, reviewRequest: false },
@@ -415,10 +459,10 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
             },
         ];
 
-        await dispatchQueuedEvent(rt, EVENT);
+        await dispatchClaimedRun(rt, CLAIM);
         await tick();
 
-        const dispatched = calls.indexOf('POST /v1/events/evt-verify-1/dispatched');
+        const dispatched = calls.indexOf(`POST /v1/events/${CORRELATION}/dispatched`);
         const opened = calls.indexOf(`openSession:${SESSION}`);
         const runsRead = calls.indexOf('GET /v1/events');
         // The service hears about the dispatch before the UI context switch.
