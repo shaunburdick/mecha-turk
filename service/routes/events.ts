@@ -10,10 +10,15 @@
  * token is the only authentication gate — and the sweep recovers an expired
  * lease with no panel action.
  *
- * `GET /v1/events` projects every event — pending, in-flight, and dispatched
- * alike — newest detected first without claiming anything. It still reads the
- * *delivery* queue: the run-shaped history projection that replaces it is T-016's
- * work, and the delivery routes are not retired by the run layer.
+ * `GET /v1/events` projects **runs** — the widened history row of
+ * [contracts/run-history-audit.md](../../specs/003-dispatch-integrity/contracts/run-history-audit.md)
+ * §1: state and reason, run key, ordinal, attempt, attachment id, the
+ * snapshotted target, lease expiry, source references with their counting
+ * members, session pointer, verification outcome — newest detected first,
+ * capped, without claiming anything (T-016). The projection itself lives in
+ * [`run-history-project.ts`](../poll/run-history-project.ts) beside the claim's,
+ * so this file stays a route; the delivery queue is read only for the members a
+ * run does not store (title, canonical link, PR coordinates).
  *
  * **The two delivery-scoped mutations this file used to hold are gone.** 003's
  * wire delta addresses a dispatch outcome and an operator retry **by the run, not
@@ -35,10 +40,11 @@ import { readBindings } from '../bindings.ts';
 import { MAX_CLAIMED_RUNS } from '../poll/claim-bounds.ts';
 import { claimPendingRuns, holderOf } from '../poll/claim.ts';
 import { readEvents } from '../poll/events.ts';
+import { projectRunHistory } from '../poll/run-history-project.ts';
 import { previewRunsDocument } from '../poll/runs-document.ts';
 import { readScanState } from '../poll/scan.ts';
 import type { BindingRecord } from '../bindings.ts';
-import type { EventKind, EventState, QueuedEvent } from '../poll/events.ts';
+import type { QueuedEvent } from '../poll/events.ts';
 import { STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
 import type { ServiceStore } from '../store/index.ts';
@@ -102,88 +108,6 @@ function claimLimitOf(raw: string | null): number | null {
     const limit = Number(raw);
 
     return limit >= 1 && limit <= MAX_CLAIMED_RUNS ? limit : null;
-}
-
-/** One event as the runs history reports it — credential-free by construction. */
-export interface EventRunRow {
-    /** Deterministic event id. */
-    readonly id: string;
-    /** Trigger kind. */
-    readonly kind: EventKind;
-    /** Repository in `owner/name` form. */
-    readonly repository: string;
-    /** Issue (or pull request) number. */
-    readonly issueNumber: number;
-    /** Issue title; untrusted source text. */
-    readonly issueTitle: string;
-    /** Canonical issue URL. */
-    readonly issueUrl: string;
-    /** Queue state. */
-    readonly state: EventState;
-    /** RFC 3339 detection stamp. */
-    readonly detectedAt: string;
-    /** Claim stamp when (or after) it was claimed, else `null`. */
-    readonly claimedAt: string | null;
-    /** Dispatch stamp once the panel answered, else `null`. */
-    readonly dispatchedAt: string | null;
-    /** Session id or the failure text the panel reported, else `null`. */
-    readonly dispatchResult: string | null;
-    /** Binding that produced the event. */
-    readonly bindingId: string;
-    /** Head SHA of a review-event pull request; absent on every other kind. */
-    readonly headSha?: string;
-    /** Base ref of that pull request; absent on every other kind. */
-    readonly baseRef?: string;
-}
-
-/**
- * Project one queue row for the runs history.
- *
- * The projection carries what a runs row reads — identity, state, stamps,
- * and the PR coordinates M7 captures — and nothing else: no account id, no
- * login, no project, no worktree option. The queue itself never holds a
- * credential, so a credential can only appear here by being projected in;
- * nothing projects one.
- *
- * A row 003 enqueued carries no lifecycle state of its own; its truth lives
- * on the run, and until the run-shaped projection lands (T-016) this reader
- * reports the one state such a row can be in — its run is `pending`, because
- * nothing has claimed it — rather than dropping the `state` key the panel's
- * parser fails closed on.
- *
- * @param event - Stored queue row.
- * @returns The credential-free row.
- */
-function runRowOf(event: QueuedEvent): EventRunRow {
-    return {
-        id: event.id,
-        kind: event.kind,
-        repository: event.repository,
-        issueNumber: event.issueNumber,
-        issueTitle: event.issueTitle,
-        issueUrl: event.issueUrl,
-        state: event.state ?? 'pending',
-        detectedAt: event.detectedAt,
-        claimedAt: event.claimedAt ?? null,
-        dispatchedAt: event.dispatchedAt ?? null,
-        dispatchResult: event.dispatchResult ?? null,
-        bindingId: event.bindingId,
-        ...(event.headSha === null ? {} : { headSha: event.headSha }),
-        ...(event.baseRef === null ? {} : { baseRef: event.baseRef }),
-    };
-}
-
-/**
- * Project the runs history: newest detected first, capped.
- *
- * @param queue - Every event the queue still holds, any state.
- * @returns At most {@link MAX_LISTED_EVENTS} rows, freshest detection first.
- */
-function recentRuns(queue: readonly QueuedEvent[]): EventRunRow[] {
-    return [...queue]
-        .sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt))
-        .slice(0, MAX_LISTED_EVENTS)
-        .map(runRowOf);
 }
 
 /**
@@ -294,14 +218,22 @@ async function handlePendingEvents(context: RouteContext, request: RouteRequest)
 }
 
 /**
- * Answer `GET /v1/events` with the runs history: every queued event, in any
+ * Answer `GET /v1/events` with the runs history: every retained run, in any
  * state, newest detected first.
  *
  * This is the read-only counterpart to the panel's claim route — it never
  * flips a state, so it can be polled as often as the operator likes without
- * stealing events from a live relay. The answer is the credential-free
- * {@link EventRunRow} projection, capped at {@link MAX_LISTED_EVENTS} so one
- * long queue cannot flood a screen.
+ * stealing runs from a live relay. The answer is the credential-free
+ * {@link projectRunHistory} row projection, capped at {@link MAX_LISTED_EVENTS}
+ * so one long history cannot flood a screen (contract §1; the cadence and
+ * pagination of this list stay 005's).
+ *
+ * The run document is read **first and directly**: it is the reader that runs
+ * the one-shot legacy adoption (FR-005), so a store upgraded moments ago
+ * answers with its adopted rows rather than with an empty list. An unreadable
+ * document throws `StorageUnavailableError`, which the pipeline maps to the
+ * contract's only refusal — `503 storage-unavailable` — instead of inventing an
+ * empty history a constitution-II reading would forbid.
  *
  * @param context - Route context carrying the open store.
  * @returns `200 { events }`, or the documented 503.
@@ -312,9 +244,19 @@ async function handleEventHistory(context: RouteContext): Promise<HttpResponse> 
         return storageUnavailableResponse();
     }
 
+    const document = await previewRunsDocument({ store, log: context.log });
     const queue = await readEvents({ store, log: context.log });
 
-    return { status: STATUS.ok, body: { events: recentRuns(queue) } };
+    return {
+        status: STATUS.ok,
+        body: {
+            events: projectRunHistory({
+                runs: document.runs,
+                deliveries: new Map(queue.map((event) => [event.id, event])),
+                cap: MAX_LISTED_EVENTS,
+            }),
+        },
+    };
 }
 
 /** Claim and return every waiting run, each under a fresh lease. */

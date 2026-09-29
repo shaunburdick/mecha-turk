@@ -1768,6 +1768,67 @@ var deleteAccountRoute = {
   handler: guardCredentialRoute(handleDeleteAccount)
 };
 
+// service/routes/audit.ts
+var AUDIT_PATH = "/v1/audit";
+var DEFAULT_AUDIT_LIMIT = 100;
+var MAX_AUDIT_LIMIT = 200;
+function auditLimitOf(raw) {
+  if (raw === null || raw.trim() === "") {
+    return DEFAULT_AUDIT_LIMIT;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_AUDIT_LIMIT;
+  }
+  return Math.min(Math.max(Math.trunc(parsed), 1), MAX_AUDIT_LIMIT);
+}
+function auditCursorOf(raw) {
+  if (raw === null || raw.trim() === "") {
+    return 0;
+  }
+  if (!/^[0-9]{1,15}$/.test(raw.trim())) {
+    return null;
+  }
+  return Number(raw.trim());
+}
+function cursorIssue() {
+  const issues = [{
+    field: "cursor",
+    remediation: "send the nextCursor this route returned, or omit it to start at the oldest row"
+  }];
+  return validationResponse(issues);
+}
+async function handleAuditRead(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const cursor = auditCursorOf(request.url.searchParams.get("cursor"));
+  if (cursor === null) {
+    return cursorIssue();
+  }
+  const limit = auditLimitOf(request.url.searchParams.get("limit"));
+  const correlationId = request.url.searchParams.get("correlationId");
+  const entries = await readAuditEntries(store);
+  const filtered = correlationId === null ? entries : entries.filter((entry) => entry.correlationId === correlationId);
+  const ahead = filtered.filter((entry) => entry.seq > cursor);
+  const page = ahead.slice(0, limit);
+  const last = page.at(-1);
+  return {
+    status: STATUS.ok,
+    body: {
+      entries: page,
+      nextCursor: ahead.length > page.length && last !== undefined ? last.seq : null,
+      count: page.length
+    }
+  };
+}
+var auditRoute = {
+  method: "GET",
+  path: AUDIT_PATH,
+  handler: (context, request) => handleAuditRead(context, request)
+};
+
 // service/config.ts
 var CONFIG_FILE = "config.json";
 var MAX_ECHOED_FIELD_CHARS = 64;
@@ -4359,6 +4420,119 @@ async function claimPendingRuns(input) {
   };
 }
 
+// service/poll/run-history-project.ts
+var WAITING_REASON = "waiting for a panel";
+function reviewCoordinates2(delivery) {
+  const head = delivery?.headSha ?? null;
+  const base = delivery?.baseRef ?? null;
+  return { ...head === null ? {} : { headSha: head }, ...base === null ? {} : { baseRef: base } };
+}
+function recordedCause(run) {
+  for (let index = run.attempts.length - 1;index >= 0; index -= 1) {
+    const reason = run.attempts[index]?.reason ?? null;
+    if (reason !== null) {
+      return reason;
+    }
+  }
+  return run.state === "failed" ? run.stateReason : null;
+}
+function dispatchResultOf(run) {
+  if (run.session !== null) {
+    return run.session.sessionId;
+  }
+  return recordedCause(run);
+}
+function deliveryView2(input) {
+  const { run, primary, delivery } = input;
+  const title = delivery?.issueTitle ?? "";
+  return {
+    issueTitle: title === "" ? `#${run.subjectNumber}` : title,
+    issueUrl: delivery?.issueUrl ?? primary?.sourceUrl ?? ""
+  };
+}
+function withReviewCoordinates(row, delivery) {
+  const coordinates = reviewCoordinates2(delivery);
+  if (coordinates.headSha === undefined && coordinates.baseRef === undefined) {
+    return row;
+  }
+  return { ...row, ...coordinates };
+}
+function liveResultDeadlineOf(run) {
+  if (run.reservation === null || run.reservation.consumed) {
+    return null;
+  }
+  return run.reservation.resultDeadlineAt;
+}
+function leaseViewOf(run) {
+  if (run.lease === null) {
+    return { leaseExpiresAt: null, claimedAt: null };
+  }
+  return { leaseExpiresAt: run.lease.expiresAt, claimedAt: run.lease.issuedAt };
+}
+function sessionViewOf(run) {
+  if (run.session === null) {
+    return null;
+  }
+  return {
+    sessionId: run.session.sessionId,
+    attachmentId: run.session.attachmentId,
+    dispatchedAt: run.session.dispatchedAt
+  };
+}
+function verificationViewOf(run) {
+  if (run.verification === null) {
+    return null;
+  }
+  return {
+    observedAgent: run.verification.observedAgent,
+    expectedAgent: run.verification.expectedAgent,
+    ok: run.verification.ok,
+    note: run.verification.note
+  };
+}
+function historyRowOf(input) {
+  const { run, deliveries } = input;
+  const primary = run.sourceReferences[0];
+  const delivery = primary === undefined ? undefined : deliveries.get(primary.deliveryId);
+  const view = deliveryView2({ run, primary, delivery });
+  const lease = leaseViewOf(run);
+  const dispatchStamp = run.session === null ? null : run.session.dispatchedAt;
+  return withReviewCoordinates({
+    id: run.correlationId,
+    state: run.state,
+    stateReason: run.stateReason ?? WAITING_REASON,
+    runKey: run.runKey,
+    ordinal: run.ordinal,
+    attempt: run.attempt,
+    correlationId: run.correlationId,
+    attachmentId: run.attachmentId,
+    projectId: run.projectId,
+    worktreeOption: run.worktreeOption,
+    leaseExpiresAt: lease.leaseExpiresAt,
+    resultDeadlineAt: liveResultDeadlineOf(run),
+    sourceReferences: run.sourceReferences,
+    referenceCount: run.referenceCount,
+    referencesTruncated: run.referencesTruncated,
+    referencesNotRetained: run.referencesNotRetained,
+    session: sessionViewOf(run),
+    verification: verificationViewOf(run),
+    kind: primary?.kind ?? "assignment",
+    repository: run.repository,
+    issueNumber: run.subjectNumber,
+    issueTitle: view.issueTitle,
+    issueUrl: view.issueUrl,
+    detectedAt: primary?.detectedAt ?? run.createdAt,
+    bindingId: run.bindingId,
+    dispatchResult: dispatchResultOf(run),
+    claimedAt: lease.claimedAt,
+    dispatchedAt: dispatchStamp
+  }, delivery);
+}
+function projectRunHistory(input) {
+  const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries }));
+  return rows.sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt)).slice(0, input.cap);
+}
+
 // service/routes/events.ts
 var EVENTS_PENDING_PATH = "/v1/events/pending";
 var EVENTS_PATH = "/v1/events";
@@ -4372,27 +4546,6 @@ function claimLimitOf(raw) {
   }
   const limit = Number(raw);
   return limit >= 1 && limit <= MAX_CLAIMED_RUNS ? limit : null;
-}
-function runRowOf(event) {
-  return {
-    id: event.id,
-    kind: event.kind,
-    repository: event.repository,
-    issueNumber: event.issueNumber,
-    issueTitle: event.issueTitle,
-    issueUrl: event.issueUrl,
-    state: event.state ?? "pending",
-    detectedAt: event.detectedAt,
-    claimedAt: event.claimedAt ?? null,
-    dispatchedAt: event.dispatchedAt ?? null,
-    dispatchResult: event.dispatchResult ?? null,
-    bindingId: event.bindingId,
-    ...event.headSha === null ? {} : { headSha: event.headSha },
-    ...event.baseRef === null ? {} : { baseRef: event.baseRef }
-  };
-}
-function recentRuns(queue) {
-  return [...queue].sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt)).slice(0, MAX_LISTED_EVENTS).map(runRowOf);
 }
 async function readStatusRows(input) {
   const [scannedState, runs] = await Promise.all([readScanState(input), previewRunsDocument(input)]);
@@ -4446,8 +4599,18 @@ async function handleEventHistory(context) {
   if (store === null) {
     return storageUnavailableResponse();
   }
+  const document = await previewRunsDocument({ store, log: context.log });
   const queue = await readEvents({ store, log: context.log });
-  return { status: STATUS.ok, body: { events: recentRuns(queue) } };
+  return {
+    status: STATUS.ok,
+    body: {
+      events: projectRunHistory({
+        runs: document.runs,
+        deliveries: new Map(queue.map((event) => [event.id, event])),
+        cap: MAX_LISTED_EVENTS
+      })
+    }
+  };
 }
 var pendingEventsRoute = {
   method: "GET",
@@ -6172,6 +6335,7 @@ var ROUTES = [
   putBindingsRoute,
   eventHistoryRoute,
   pendingEventsRoute,
+  auditRoute,
   verifyRoute,
   rotateTokenRoute,
   deleteAccountRoute,

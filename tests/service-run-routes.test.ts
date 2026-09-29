@@ -37,6 +37,7 @@ import {
     VERIFICATION_PATH,
 } from '../service/routes/run-ops.ts';
 import { EVENTS_PATH, EVENTS_PENDING_PATH } from '../service/routes/events.ts';
+import { AUDIT_PATH } from '../service/routes/audit.ts';
 import { reserveDispatch } from '../service/poll/dispatch-authorize.ts';
 import { blockDispatch } from '../service/poll/dispatch-block.ts';
 import { reportDispatch } from '../service/poll/dispatch-report.ts';
@@ -146,6 +147,7 @@ const RUN_OPERATIONS: readonly OperationFixture[] = [
 const READ_ROUTES: readonly { readonly name: string; readonly method: string; readonly path: string }[] = [
     { name: 'events history', method: 'GET', path: EVENTS_PATH },
     { name: 'claim', method: 'GET', path: EVENTS_PENDING_PATH },
+    { name: 'audit read', method: 'GET', path: AUDIT_PATH },
 ];
 
 /**
