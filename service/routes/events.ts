@@ -140,6 +140,12 @@ export interface EventRunRow {
  * credential, so a credential can only appear here by being projected in;
  * nothing projects one.
  *
+ * A row 003 enqueued carries no lifecycle state of its own; its truth lives
+ * on the run, and until the run-shaped projection lands (T-016) this reader
+ * reports the one state such a row can be in — its run is `pending`, because
+ * nothing has claimed it — rather than dropping the `state` key the panel's
+ * parser fails closed on.
+ *
  * @param event - Stored queue row.
  * @returns The credential-free row.
  */
@@ -151,11 +157,11 @@ function runRowOf(event: QueuedEvent): EventRunRow {
         issueNumber: event.issueNumber,
         issueTitle: event.issueTitle,
         issueUrl: event.issueUrl,
-        state: event.state,
+        state: event.state ?? 'pending',
         detectedAt: event.detectedAt,
-        claimedAt: event.claimedAt,
-        dispatchedAt: event.dispatchedAt,
-        dispatchResult: event.dispatchResult,
+        claimedAt: event.claimedAt ?? null,
+        dispatchedAt: event.dispatchedAt ?? null,
+        dispatchResult: event.dispatchResult ?? null,
         bindingId: event.bindingId,
         ...(event.headSha === null ? {} : { headSha: event.headSha }),
         ...(event.baseRef === null ? {} : { baseRef: event.baseRef }),
@@ -223,7 +229,10 @@ export async function readStatusRows(input: {
 
     const counts = new Map<string, number>();
     for (const event of queue) {
-        if (event.state === 'pending' || event.state === 'in-flight') {
+        // Waiting work counts whether the *delivery* still carries the legacy
+        // `pending` stamp or (a row 003 enqueued) no lifecycle state at all —
+        // both are runs that have not been claimed.
+        if (event.state === 'pending' || event.state === 'in-flight' || event.state === undefined) {
             counts.set(event.bindingId, (counts.get(event.bindingId) ?? 0) + 1);
         }
     }

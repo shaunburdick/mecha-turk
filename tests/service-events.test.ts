@@ -42,6 +42,7 @@ import { writeBindings } from '../service/bindings.ts';
 import { createLogger } from '../service/log.ts';
 import {
     EVENTS_FILE,
+    buildEventId,
     createEvent,
     enqueueEvents,
     parseStoredEvent,
@@ -316,6 +317,22 @@ async function plantEvidence(): Promise<void> {
     await writeFile(join(dataDir, EVIDENCE_FILE), JSON.stringify([unusableRow()]), 'utf8');
 }
 
+/**
+ * Build one delivery row in the **shipped** vocabulary: the writer's own
+ * detection bytes plus the four lifecycle stamps the shipped build wrote.
+ *
+ * @returns The row as an upgraded `events.json` already holds it.
+ */
+function shippedRow(): Record<string, unknown> {
+    return {
+        ...createEvent(fixtureSnapshot(2, '')),
+        state: 'pending',
+        claimedAt: null,
+        dispatchedAt: null,
+        dispatchResult: null,
+    };
+}
+
 describe('event queue round-trip (writer → reader)', () => {
     it('round-trips writer output with issueNumber stored as a number', async () => {
         const { log } = capturingLogger();
@@ -324,10 +341,14 @@ describe('event queue round-trip (writer → reader)', () => {
 
         const appended = await enqueueEvents({ store, log, incoming: [first, second] });
 
-        expect(appended).toEqual([first, second]);
+        expect(appended.map((event) => event.id)).toEqual([first.id, second.id]);
+        expect(appended.every((event) => event.runCorrelationId?.startsWith('mt-run-') ?? false)).toBe(true);
         const reread = await readEvents({ store, log });
-        expect(reread).toEqual([first, second]);
-        expect(reread.every((event) => event.state === 'pending')).toBe(true);
+        expect(reread).toEqual(appended);
+        // A row 003 enqueued carries no legacy lifecycle state at all: its
+        // truth lives on the run the enqueue pass links it to (T-004).
+        expect(reread.every((event) => !('state' in event))).toBe(true);
+        expect(reread.every((event) => !('claimedAt' in event))).toBe(true);
         // Assert the bytes, not just the parsed row: JSON numbers are numbers.
         const onDisk = JSON.parse(await readFile(join(dataDir, EVENTS_FILE), 'utf8')) as { issueNumber: unknown }[];
         expect(onDisk.map((row) => row.issueNumber)).toEqual([2, 7]);
@@ -337,12 +358,12 @@ describe('event queue round-trip (writer → reader)', () => {
     it('dedupes a replayed event id so a re-detection queues it once', async () => {
         const { log } = capturingLogger();
         const event = createEvent(fixtureSnapshot(2, ''));
-        await enqueueEvents({ store, log, incoming: [event] });
+        const appended = await enqueueEvents({ store, log, incoming: [event] });
 
         const replayed = await enqueueEvents({ store, log, incoming: [event] });
 
         expect(replayed).toEqual([]);
-        expect(await readEvents({ store, log })).toEqual([event]);
+        expect(await readEvents({ store, log })).toEqual(appended);
         expect(await quarantined()).toEqual([]);
     });
 });
@@ -364,6 +385,69 @@ describe('parseStoredEvent (the issueNumber boundary)', () => {
         expect(parseStoredEvent({ ...event, issueNumber: '2' })).toBeNull();
         expect(parseStoredEvent({ ...event, issueNumber: 0 })).toBeNull();
         expect(parseStoredEvent({ ...event, issueNumber: 2.5 })).toBeNull();
+    });
+});
+
+describe('delivery row shapes (003 run layer, T-004)', () => {
+    it('writes no lifecycle state onto a new row, and does carry its subject type', () => {
+        const row = createEvent(fixtureSnapshot(2, ''));
+        const stored = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+
+        expect('state' in stored).toBe(false);
+        expect('claimedAt' in stored).toBe(false);
+        expect('dispatchedAt' in stored).toBe(false);
+        expect('dispatchResult' in stored).toBe(false);
+        expect(JSON.stringify(row)).not.toContain('"state":');
+        expect(stored.subjectType).toBe('issue');
+        const review = createEvent({
+            ...fixtureSnapshot(3, ''),
+            kind: 'review',
+            headSha: 'deadbeefcafe000000000000000000000000beef',
+            baseRef: 'main',
+        });
+        expect(review.subjectType).toBe('pull_request');
+    });
+
+    it('parses an old-shape (shipped) row and a new-shape row alike', () => {
+        const oldShape = shippedRow();
+        const newShape = JSON.parse(JSON.stringify(createEvent(fixtureSnapshot(7, '')))) as unknown;
+
+        expect(parseStoredEvent(oldShape)).toEqual(oldShape);
+        expect(parseStoredEvent(newShape)).toEqual(newShape);
+        expect(parseStoredEvent(oldShape)?.state).toBe('pending');
+        expect('state' in (parseStoredEvent(newShape) ?? {})).toBe(false);
+    });
+
+    it('parses a pre-M7 row: no PR coordinates, all four lifecycle stamps', () => {
+        const preM7 = shippedRow();
+        delete preM7.headSha;
+        delete preM7.baseRef;
+
+        const parsed = parseStoredEvent(preM7);
+
+        expect(parsed).not.toBeNull();
+        expect(parsed?.headSha).toBeNull();
+        expect(parsed?.baseRef).toBeNull();
+        expect(parsed?.state).toBe('pending');
+        expect(parsed?.dispatchResult).toBeNull();
+    });
+
+    it('refuses a state from the run vocabulary: the layers never mix', () => {
+        expect(parseStoredEvent({ ...shippedRow(), state: 'claimed' })).toBeNull();
+        expect(parseStoredEvent({ ...shippedRow(), state: 'blocked:project-missing' })).toBeNull();
+        expect(parseStoredEvent({ ...shippedRow(), state: 'in-flight', claimedAt: 7 })).toBeNull();
+        expect(parseStoredEvent({ ...shippedRow(), runCorrelationId: '' })).toBeNull();
+        expect(parseStoredEvent({ ...shippedRow(), kind: 'unknown-trigger' })).toBeNull();
+    });
+
+    it('keeps delivery ids byte-identical to the shipped format (FR-012, AC-104)', () => {
+        const base = { repository: { owner: 'acme', name: 'widget' }, issueNumber: 12, accountNumericUserId: '77331' };
+
+        expect(buildEventId(base)).toBe('evt-acme~widget~12~77331');
+        expect(buildEventId({ ...base, discriminator: '~mention~body' })).toBe('evt-acme~widget~12~77331~mention~body');
+        expect(buildEventId({ ...base, discriminator: '~mention~4242' })).toBe('evt-acme~widget~12~77331~mention~4242');
+        expect(buildEventId({ ...base, discriminator: '~review' })).toBe('evt-acme~widget~12~77331~review');
+        expect(createEvent(fixtureSnapshot(2, '')).id).toBe('evt-acme~widget~2~77331');
     });
 });
 
@@ -405,8 +489,10 @@ describe('quarantined queue recovery', () => {
 
         // The queue is usable again immediately.
         const fresh: QueuedEvent = createEvent(fixtureSnapshot(7, ''));
-        expect(await enqueueEvents({ store, log, incoming: [fresh] })).toEqual([fresh]);
-        expect(await readEvents({ store, log })).toEqual([fresh]);
+        const appended = await enqueueEvents({ store, log, incoming: [fresh] });
+        expect(appended.map((event) => event.id)).toEqual([fresh.id]);
+        expect(appended[0]?.runCorrelationId).toMatch(/^mt-run-/);
+        expect(await readEvents({ store, log })).toEqual(appended);
     });
 
     it('replays the next cycle so the lost assignments are re-detected', async () => {
@@ -430,8 +516,8 @@ describe('quarantined queue recovery', () => {
         expect(cycle.enqueued).toBe(2);
         const queued = await readEvents({ store, log });
         expect(queued.map((event) => [event.issueNumber, event.state])).toEqual([
-            [2, 'pending'],
-            [7, 'pending'],
+            [2, undefined],
+            [7, undefined],
         ]);
         expect(await auditRowsOf(RECOVERED_EVENT)).toHaveLength(1);
 
@@ -465,8 +551,10 @@ describe('quarantined queue recovery', () => {
         expect(await auditRowsOf(RECOVERED_EVENT)).toHaveLength(1);
 
         const fresh = createEvent(fixtureSnapshot(2, ''));
-        expect(await enqueueEvents({ store, log, incoming: [fresh] })).toEqual([fresh]);
-        expect(await readEvents({ store, log })).toEqual([fresh]);
+        const appended = await enqueueEvents({ store, log, incoming: [fresh] });
+        expect(appended.map((event) => event.id)).toEqual([fresh.id]);
+        expect(appended[0]?.runCorrelationId).toMatch(/^mt-run-/);
+        expect(await readEvents({ store, log })).toEqual(appended);
     });
 
     it('leaves the windows alone when the queue file is simply absent', async () => {
@@ -503,8 +591,8 @@ describe('quarantined queue recovery', () => {
         expect(cycle.enqueued).toBe(2);
         const queued = await readEvents({ store, log });
         expect(queued.map((event) => [event.issueNumber, event.state])).toEqual([
-            [1, 'pending'],
-            [2, 'pending'],
+            [1, undefined],
+            [2, undefined],
         ]);
         expect(await auditRowsOf(RECOVERED_EVENT)).toHaveLength(1);
     });
@@ -527,8 +615,8 @@ describe('first-scan replay (product decision, 2026-09-28)', () => {
         expect(cycle.enqueued).toBe(2);
         const queued = await readEvents({ store, log });
         expect(queued.map((event) => [event.issueNumber, event.state])).toEqual([
-            [1, 'pending'],
-            [2, 'pending'],
+            [1, undefined],
+            [2, undefined],
         ]);
 
         // The completed scan arms the incremental window for the next cycle.
@@ -586,8 +674,8 @@ describe('first-scan replay (product decision, 2026-09-28)', () => {
         expect(cycle.enqueued).toBe(1);
         const queued = await readEvents({ store, log });
         expect(queued.map((event) => [event.issueNumber, event.state])).toEqual([
-            [2, 'pending'],
-            [1, 'pending'],
+            [2, undefined],
+            [1, undefined],
             [3, 'dispatched'],
         ]);
         expect(new Set(queued.map((event) => event.id)).size).toBe(3);

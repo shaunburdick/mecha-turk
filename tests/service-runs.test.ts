@@ -11,8 +11,9 @@
  * (`pending`/`in-flight` answer `200` and end up pending again;
  * `dispatched` is terminal and answers `409`).
  *
- * The planted queue rows are the writer's own bytes (`createEvent`), so the
- * service reads exactly what a scan would have written.
+ * The planted queue rows are the writer's own detection bytes plus the four
+ * lifecycle stamps the shipped build wrote (`createEvent`), so the service
+ * reads exactly what an upgraded store already holds.
  */
 
 import { readFile, writeFile } from 'node:fs/promises';
@@ -159,7 +160,13 @@ function snapshotOf(input: {
 }
 
 /**
- * Build one fixture event as the writer would have stored it.
+ * Build one fixture event in the **shipped** vocabulary.
+ *
+ * The planted rows stand for what an upgraded store already holds: the
+ * writer's own detection bytes plus the four lifecycle stamps the shipped
+ * build wrote and 003 stops writing. The runs history still projects those
+ * rows and the legacy claim still answers them (FR-005), so the suite seeds
+ * the shape those paths were written against.
  *
  * @param input - Issue number, detection stamp, and trigger kind.
  * @returns The queued event.
@@ -169,7 +176,13 @@ function fixtureEvent(input: {
     readonly detectedAt: string;
     readonly kind: EventSnapshot['kind'];
 }): QueuedEvent {
-    return createEvent(snapshotOf(input));
+    return {
+        ...createEvent(snapshotOf(input)),
+        state: 'pending',
+        claimedAt: null,
+        dispatchedAt: null,
+        dispatchResult: null,
+    };
 }
 
 /**

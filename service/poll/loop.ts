@@ -28,8 +28,6 @@
  */
 
 import { repositoryLabel } from '../../src/config.ts';
-import { newCorrelationId } from '../../src/ids.ts';
-import { appendAudit } from '../audit.ts';
 import { DEFAULT_CONFIG, CONFIG_FILE, configFromStore, parseStoredConfig } from '../config.ts';
 import { readAccount } from '../accounts/store.ts';
 import { readBindings } from '../bindings.ts';
@@ -162,16 +160,16 @@ export function windowFor(binding: BindingRecord, scanned: ScanState): string | 
 /**
  * Decide whether one issue is an assignment the binding should react to.
  *
- * Pull requests are skipped (review requests belong to the M7 trigger),
- * closed issues are skipped, and the assignment must name the bound
- * account's login.
+ * Closed subjects are skipped, and the assignment must name the bound
+ * account's login. Pull-request assignment and review triggers can
+ * both fire; the run layer coalesces them using the same PR subject key.
  *
  * @param issue - Normalized issue.
  * @param bindingLogin - The bound account's login.
  * @returns `true` when the issue is an open issue assigned to that account.
  */
 export function isIssueAssignment(issue: PollIssue, bindingLogin: string): boolean {
-    if (issue.state !== 'open' || issue.isPullRequest) {
+    if (issue.state !== 'open') {
         return false;
     }
 
@@ -194,37 +192,6 @@ function skipOf(outcome: PollFailure): ScanSkip {
     }
 
     return outcome.detail === 'timeout' || outcome.detail === 'offline' ? 'offline' : 'upstream';
-}
-
-/**
- * Record one detection in the audit trail.
- *
- * @param deps - Store and logger for the audit and its failures.
- * @param event - The event that was enqueued.
- */
-async function recordDetection(deps: ScanContext, event: QueuedEvent): Promise<void> {
-    try {
-        await appendAudit(deps.store, {
-            eventType: 'delivery.detected',
-            actorSource: 'service',
-            entity: { kind: 'delivery', id: event.id },
-            decision: null,
-            reason: `${event.kind} trigger matched a binding`,
-            correlationId: newCorrelationId(),
-            details: {
-                bindingId: event.bindingId,
-                repository: event.repository,
-                kind: event.kind,
-            },
-        });
-    } catch (cause) {
-        // The queue file is the durable record; the audit row is an extra
-        // guard whose failure is logged, not escalated to the cycle.
-        deps.log.warn('detection audit row could not be appended', {
-            eventId: event.id,
-            errorKind: describeKind(cause),
-        });
-    }
 }
 
 /**
@@ -272,6 +239,7 @@ function eventsForBinding(input: {
                 },
                 triggerNote: 'Issue assigned to the bound account',
                 detectedAt: input.detectedAt,
+                subjectType: issue.isPullRequest ? 'pull_request' : 'issue',
             }),
         );
     }
@@ -401,10 +369,6 @@ async function scanBinding(input: {
         log: deps.log,
         incoming: listed.events,
     });
-    for (const event of appended) {
-        await recordDetection({ ...deps }, event);
-    }
-
     return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
 }
 

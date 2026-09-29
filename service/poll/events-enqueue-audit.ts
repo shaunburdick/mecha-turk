@@ -1,0 +1,104 @@
+/** Run and delivery audit rows written after an enqueue becomes durable. */
+
+import { appendAudit } from '../audit.ts';
+import type { ServiceLogger } from '../log.ts';
+import type { ServiceStore } from '../store/index.ts';
+import type { QueuedEvent } from './events-parse.ts';
+import type { EnqueueOutcome } from './runs-join.ts';
+
+/** Context shared by all audit writers for one enqueue. */
+interface EnqueueAuditInput {
+    /** Open service store. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+    /** Run changes derived from the fresh deliveries. */
+    readonly outcome: EnqueueOutcome;
+    /** Persisted event rows linked to their run ids. */
+    readonly appended: readonly QueuedEvent[];
+}
+
+/** Append one audit row; durable run and queue writes are not rolled back. */
+async function appendEnqueueAudit(
+    input: Pick<EnqueueAuditInput, 'store' | 'log'>,
+    row: Parameters<typeof appendAudit>[1],
+): Promise<void> {
+    try {
+        await appendAudit(input.store, row);
+    } catch (cause) {
+        input.log.warn('enqueue audit row could not be appended', {
+            eventType: row.eventType,
+            errorKind: cause instanceof Error ? cause.name : typeof cause,
+        });
+    }
+}
+
+/** Record one run creation for every newly opened subject. */
+async function recordCreatedRuns(input: EnqueueAuditInput): Promise<void> {
+    for (const run of input.outcome.created) {
+        await appendEnqueueAudit(input, {
+            eventType: 'run.created',
+            actorSource: 'service',
+            entity: { kind: 'run', id: run.correlationId },
+            correlationId: run.correlationId,
+            reason: 'run created from a detected delivery',
+            details: {
+                subject: {
+                    provider: 'github',
+                    accountNumericUserId: run.accountNumericUserId,
+                    repository: run.repository,
+                    subjectType: run.subjectType,
+                    subjectNumber: run.subjectNumber,
+                },
+                ordinal: run.ordinal,
+                deliveryIds: run.sourceReferences.map((reference) => reference.deliveryId),
+            },
+        });
+    }
+}
+
+/** Record one coalescence for each additional source delivery. */
+async function recordJoinedDeliveries(input: EnqueueAuditInput): Promise<void> {
+    for (const joined of input.outcome.joins) {
+        await appendEnqueueAudit(input, {
+            eventType: 'run.coalesced',
+            actorSource: 'service',
+            entity: { kind: 'run', id: joined.run.correlationId },
+            correlationId: joined.run.correlationId,
+            decision: 'coalesced',
+            reason: 'delivery joined an open run',
+            details: {
+                deliveryId: joined.reference.deliveryId,
+                kind: joined.reference.kind,
+                origin: joined.reference.origin,
+                presentAtAuthorization: joined.reference.presentAtAuthorization,
+            },
+        });
+    }
+}
+
+/** Record detection rows with the service-assigned run correlation id. */
+async function recordDetectedDeliveries(input: EnqueueAuditInput): Promise<void> {
+    for (const event of input.appended) {
+        await appendEnqueueAudit(input, {
+            eventType: 'delivery.detected',
+            actorSource: 'service',
+            entity: { kind: 'delivery', id: event.id },
+            ...(event.runCorrelationId === undefined ? {} : { correlationId: event.runCorrelationId }),
+            reason: `${event.kind} trigger matched a binding`,
+            details: {
+                bindingId: event.bindingId,
+                repository: event.repository,
+                kind: event.kind,
+                ...(event.runCorrelationId === undefined ? {} : { runCorrelationId: event.runCorrelationId }),
+            },
+        });
+    }
+}
+
+/** Append creation, coalescing, then detection audit records. */
+export async function recordEnqueueAudits(input: EnqueueAuditInput): Promise<void> {
+    await recordCreatedRuns(input);
+    await recordJoinedDeliveries(input);
+    await recordDetectedDeliveries(input);
+}

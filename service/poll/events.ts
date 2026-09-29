@@ -28,13 +28,16 @@ import { newCorrelationId, nowIso } from '../../src/ids.ts';
 import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
-import { parseStoredEvent, parseStoredEvents } from './events-parse.ts';
+import { EVENTS_FILE, parseStoredEvent, parseStoredEvents } from './events-parse.ts';
+import { recordEnqueueAudits } from './events-enqueue-audit.ts';
+import { applyEnqueue } from './runs-join.ts';
+import { inQueueChain, readRunsDocument, writeRunsDocument } from './runs-document.ts';
 import { readScanState, serializeScan, writeScanState } from './scan.ts';
-import type { EventKind, EventState, QueuedEvent } from './events-parse.ts';
+import type { EventKind, EventState, QueuedEvent, SubjectType } from './events-parse.ts';
 import type { BindingScanState } from './scan.ts';
 
-/** Store file holding the event queue. */
-export const EVENTS_FILE = 'events.json';
+/** Store file holding the event queue (declared beside the row schema). */
+export { EVENTS_FILE, subjectTypeOf } from './events-parse.ts';
 
 /** How many dispatched events stay in the file for dedupe and history. */
 export const MAX_DISPATCHED_EVENTS = 500;
@@ -43,7 +46,7 @@ export const MAX_DISPATCHED_EVENTS = 500;
 export { parseStoredEvent, parseStoredEvents };
 
 /** Row types re-exported alongside them for the routes and the scan loop. */
-export type { EventKind, EventState, QueuedEvent };
+export type { EventKind, EventState, QueuedEvent, SubjectType };
 
 /** Re-exported: this module stays the one import path for the queue's writer. */
 export { buildEventId, createEvent } from './events-write.ts';
@@ -55,26 +58,6 @@ export type {
     MentionOrigin,
     ReviewEventSnapshot,
 } from './events-write.ts';
-
-/**
- * In-flight chain the queue's mutations serialize onto (the `audit.ts`
- * write-chain pattern), so a scan tick and the relay routes never interleave
- * one another's read-modify-write.
- */
-const queueChain: { write: Promise<unknown> } = { write: Promise.resolve() };
-
-/**
- * Serialize one queue mutation.
- *
- * @param task - The work to chain.
- * @returns Whatever `task` produced.
- */
-function inQueueChain<T>(task: () => Promise<T>): Promise<T> {
-    const run = queueChain.write.then(task, task);
-    queueChain.write = run;
-
-    return run;
-}
 
 /**
  * Serialize the queue into the file's canonical array form.
@@ -318,23 +301,44 @@ export async function readEvents(input: {
     }
 }
 
+/** Perform one serialized enqueue, preserving run-before-delivery durability. */
+async function enqueueWithinChain(input: {
+    readonly store: ServiceStore;
+    readonly log: ServiceLogger;
+    readonly incoming: readonly QueuedEvent[];
+}): Promise<readonly QueuedEvent[]> {
+    const existing = await readQueue(input);
+    const known = new Set(existing.map((event) => event.id));
+    const fresh = input.incoming.filter((event) => {
+        if (known.has(event.id)) {
+            return false;
+        }
+
+        known.add(event.id);
+        return true;
+    });
+    if (fresh.length === 0) {
+        return [];
+    }
+
+    const document = await readRunsDocument(input);
+    const outcome = applyEnqueue({ document, deliveries: fresh, now: nowIso() });
+    const appended = fresh.map((event) => {
+        const runCorrelationId = outcome.links.get(event.id);
+        return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
+    });
+    await writeRunsDocument({ ...input, document: outcome.document });
+    await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended]));
+    await recordEnqueueAudits({ ...input, outcome, appended });
+
+    return appended;
+}
+
 /**
- * Append events to the queue, skipping every id already recorded in any
- * state — the deterministic event id is the dedupe key, so this one check is
- * the whole of deduplication. The check reads *every* row still in the file,
- * pending, in-flight, and dispatched alike, so a replay (a first scan, or a
- * recovery reset that cleared `lastScanAt`) re-enqueues nothing the queue can
- * still see.
- *
- * MVP-DEBT: `serializedQueue` retains only the newest `MAX_DISPATCHED_EVENTS`
- * (500) dispatched rows, so an issue dispatched longer ago than that has been
- * evicted from the file — a later replay can enqueue it once more. That
- * eviction is the only gap in this dedupe (acceptable for the MVP bar: a
- * queue loss discards the whole file anyway); a durable dedupe index belongs
- * with the contract §2.4 retention machinery on the Slice 2 debt list.
+ * Append events with delivery-id deduplication and one atomic run/queue chain.
  *
  * @param input - Open store and freshly detected events.
- * @returns The events that were actually appended.
+ * @returns The events that were actually appended, linked to their run.
  */
 export async function enqueueEvents(input: {
     /** Open store. */
@@ -344,18 +348,7 @@ export async function enqueueEvents(input: {
     /** Fresh events this scan produced. */
     readonly incoming: readonly QueuedEvent[];
 }): Promise<readonly QueuedEvent[]> {
-    return await inQueueChain(async () => {
-        const existing = await readQueue(input);
-        const known = new Set(existing.map((event) => event.id));
-        const appended = input.incoming.filter((event) => !known.has(event.id));
-        if (appended.length === 0) {
-            return [];
-        }
-
-        await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended]));
-
-        return appended;
-    });
+    return await inQueueChain(async () => await enqueueWithinChain(input));
 }
 
 /**
@@ -412,7 +405,15 @@ export async function markEventDispatched(input: {
     return await inQueueChain(async () => {
         const events = await readQueue(input);
         const match = events.find((event) => event.id === input.eventId);
-        if (match === undefined || match.state === 'dispatched') {
+        if (match === undefined) {
+            return null;
+        }
+
+        // A row 003 enqueued carries no lifecycle state at all: its outcome is
+        // reported against the *run*, never against the delivery (data-model
+        // §2.1 — the frozen fields are written by nothing), so there is
+        // nothing here to mark and nothing for a stale path to flip.
+        if (match.state === undefined || match.state === 'dispatched') {
             return null;
         }
 
@@ -460,7 +461,11 @@ export async function retryEvent(input: {
             return 'unknown';
         }
 
-        if (match.state === 'pending') {
+        // A post-003 row has no lifecycle state to reset — it was never
+        // claimed at the delivery layer, and its run is what waits. Answer
+        // `reset` (200) without writing a single byte, exactly as an already
+        // pending row does.
+        if (match.state === undefined || match.state === 'pending') {
             return 'reset';
         }
 

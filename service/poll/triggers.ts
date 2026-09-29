@@ -34,7 +34,7 @@ import { repositoryLabel } from '../../src/config.ts';
 import type { RepositoryRef } from '../../src/config.ts';
 import type { BindingRecord } from '../bindings.ts';
 import { createEvent } from './events.ts';
-import type { QueuedEvent } from './events.ts';
+import type { QueuedEvent, SubjectType } from './events.ts';
 import type { GitHubIssuePoller, PollComment, PollFailure, PollIssue, PollPull } from './poller-github.ts';
 
 /** Longest body excerpt one event carries (bounded untrusted text). */
@@ -238,6 +238,17 @@ export function isReviewRequestPull(pull: PollPull, bindingLogin: string): boole
 }
 
 /**
+ * Translate one listing entry's `pull_request` marker into the subject shape
+ * the run key stores.
+ *
+ * @param isPullRequest - Whether GitHub listed the entry as a pull request.
+ * @returns The subject shape for the row this detection produces.
+ */
+function subjectShapeOf(isPullRequest: boolean): SubjectType {
+    return isPullRequest ? 'pull_request' : 'issue';
+}
+
+/**
  * Build one `mention` event from a comment that already matched.
  *
  * The issue's title and URL are resolved from the issue list the same scan
@@ -282,6 +293,12 @@ function mentionEvent(input: {
         },
         triggerNote: `Comment by ${commenter} on issue #${comment.issueNumber} mentioned the bound account`,
         detectedAt,
+        // The comment feed answers for issues *and* pull requests; when the
+        // same scan's issue list carried the item, its `pull_request` marker
+        // decides the run key's subject type. When it did not (a closed item,
+        // a paged-out one) the row keeps no subject type and reads as an
+        // issue, exactly as an adopted row does (data-model §2.1).
+        ...(issue === null ? {} : { subjectType: subjectShapeOf(issue.isPullRequest) }),
     });
 }
 
@@ -378,6 +395,7 @@ function bodyMentionEvents(input: {
                 },
                 triggerNote: 'mentioned in issue body',
                 detectedAt,
+                subjectType: subjectShapeOf(issue.isPullRequest),
             }),
         );
     }
@@ -433,6 +451,7 @@ function reviewEvents(input: {
                 },
                 triggerNote: `Pull request #${pull.pullNumber} requested the bound account's review`,
                 detectedAt,
+                subjectType: 'pull_request',
             }),
         );
     }

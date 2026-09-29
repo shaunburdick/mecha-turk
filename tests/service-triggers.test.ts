@@ -335,7 +335,7 @@ describe('mention detection (M6)', () => {
             issueTitle: ISSUE_TITLE,
             issueUrl: ISSUE_URL,
             accountLogin: ACCOUNT_LOGIN,
-            state: 'pending',
+            subjectType: 'issue',
             headSha: null,
             baseRef: null,
         });
@@ -412,7 +412,7 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             issueTitle: ISSUE_TITLE,
             issueUrl: ISSUE_URL,
             triggerNote: 'mentioned in issue body',
-            state: 'pending',
+            subjectType: 'issue',
             headSha: null,
             baseRef: null,
         });
@@ -493,6 +493,32 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
 
         expect(replayed.enqueued).toBe(0);
         expect(await readEvents({ store, log })).toHaveLength(2);
+    });
+
+    it('coalesces a pull-request assignment and review request under the PR subject', async () => {
+        const pullRequest = fixtureIssue({
+            issueNumber: 31,
+            title: 'Change 31',
+            url: 'https://github.com/acme/widget/pull/31',
+            isPullRequest: true,
+            assignees: [ACCOUNT_LOGIN],
+        });
+        const recorded = recordingPoller({
+            issues: [pullRequest],
+            pulls: [{ ...fixturePull({ pullNumber: 31, requestedReviewers: [ACCOUNT_LOGIN] }), title: 'Change 31' }],
+        });
+
+        const events = await scan(
+            fixtureBinding(MENTION_BINDING, { assignment: true, mention: false, reviewRequest: true }),
+            recorded,
+        );
+
+        expect(events.map((event) => event.kind)).toEqual(['assignment', 'review']);
+        expect(events.map((event) => event.subjectType)).toEqual(['pull_request', 'pull_request']);
+        expect(events.map((event) => event.runCorrelationId)).toEqual([
+            events[0]?.runCorrelationId,
+            events[0]?.runCorrelationId,
+        ]);
     });
 
     it('keeps a comment mention and a body mention on one issue as two distinct events', async () => {
@@ -601,7 +627,7 @@ describe('review-request detection (M7)', () => {
             issueUrl: PULL_URL,
             headSha: HEAD_SHA,
             baseRef: BASE_REF,
-            state: 'pending',
+            subjectType: 'pull_request',
         });
         // The id carries the PR number, the account, and the kind.
         expect(events[0]?.id).toBe(`evt-acme~widget~3~${ACCOUNT_ID}~review`);

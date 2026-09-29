@@ -114,6 +114,25 @@ function parseJsonText(text) {
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+function readText(value) {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+function readString(value) {
+  return typeof value === "string" ? value : null;
+}
+function readStamp(value) {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : null;
+}
+function readCount(value) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+function readPositiveInt(value) {
+  const parsed = readCount(value);
+  return parsed !== null && parsed >= 1 ? parsed : null;
+}
+function readFlag(value) {
+  return typeof value === "boolean" ? value : null;
+}
 
 // service/audit.ts
 var AUDIT_FILE = "audit.ndjson";
@@ -2218,6 +2237,7 @@ async function writeBindings(input) {
 import { basename, join as join2 } from "node:path";
 
 // service/poll/events-parse.ts
+var EVENTS_FILE = "events.json";
 var REQUIRED_FIELDS = [
   "id",
   "bindingId",
@@ -2232,19 +2252,15 @@ var REQUIRED_FIELDS = [
   "triggerNote",
   "detectedAt"
 ];
-var NULLABLE_FIELDS = ["claimedAt", "dispatchedAt", "dispatchResult"];
-var ABSENTABLE_FIELDS = ["headSha", "baseRef"];
+var ABSENTABLE_FIELDS = ["headSha", "baseRef", "claimedAt", "dispatchedAt", "dispatchResult"];
 var KNOWN_STATES = new Set(["pending", "in-flight", "dispatched"]);
+var KNOWN_KINDS = new Set(["assignment", "mention", "review"]);
+var SUBJECT_TYPES = new Set(["issue", "pull_request"]);
+var RUN_CORRELATION_ID = /^mt-run-[0-9a-f]{24}$/;
 function isUsableTextFieldSet(record, fields) {
   return fields.every((field) => {
     const value = record[field];
     return field in record && typeof value === "string" && value !== "";
-  });
-}
-function isNullableTextFieldSet(record, fields) {
-  return fields.every((field) => {
-    const value = record[field];
-    return value === null || typeof value === "string";
   });
 }
 function isAbsentableTextFieldSet(record, fields) {
@@ -2262,20 +2278,67 @@ function knownStateOf(value) {
   }
   return value;
 }
+function readStateField(record) {
+  if (record.state === undefined) {
+    return;
+  }
+  return knownStateOf(record.state);
+}
+function readSubjectTypeField(record) {
+  const value = record.subjectType;
+  if (value === undefined) {
+    return;
+  }
+  return typeof value === "string" && SUBJECT_TYPES.has(value) ? value : null;
+}
+function readRunLinkField(record) {
+  const value = record.runCorrelationId;
+  if (value === undefined) {
+    return;
+  }
+  return typeof value === "string" && RUN_CORRELATION_ID.test(value) ? value : null;
+}
 function fieldsHold(record) {
-  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isNullableTextFieldSet(record, NULLABLE_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS);
+  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS) && typeof record.kind === "string" && KNOWN_KINDS.has(record.kind) && readStateField(record) !== null && readSubjectTypeField(record) !== null && readRunLinkField(record) !== null;
+}
+function lifecycleOf(record, state) {
+  const fields = {};
+  if (state !== undefined) {
+    fields.state = state;
+  }
+  if (record.claimedAt !== undefined) {
+    fields.claimedAt = record.claimedAt;
+  }
+  if (record.dispatchedAt !== undefined) {
+    fields.dispatchedAt = record.dispatchedAt;
+  }
+  if (record.dispatchResult !== undefined) {
+    fields.dispatchResult = record.dispatchResult;
+  }
+  return fields;
+}
+function runLinkOf(record, subjectType) {
+  const runCorrelationId = readRunLinkField(record);
+  return {
+    ...runCorrelationId === undefined || runCorrelationId === null ? {} : { runCorrelationId },
+    ...subjectType === undefined ? {} : { subjectType }
+  };
+}
+function coordinatesOf(record) {
+  return {
+    headSha: typeof record.headSha === "string" ? record.headSha : null,
+    baseRef: typeof record.baseRef === "string" ? record.baseRef : null
+  };
 }
 function parseStoredEvent(raw) {
   const record = isRecord(raw) ? raw : null;
-  if (record === null) {
+  if (record === null || !fieldsHold(record)) {
     return null;
   }
-  if (!fieldsHold(record)) {
-    return null;
-  }
-  const state = knownStateOf(record.state);
+  const state = readStateField(record);
+  const subjectType = readSubjectTypeField(record);
   const issueNumber = positiveIntOf(record.issueNumber);
-  if (state === null || issueNumber === null || typeof record.issueBodyExcerpt !== "string") {
+  if (state === null || subjectType === null || issueNumber === null || typeof record.issueBodyExcerpt !== "string") {
     return null;
   }
   const detectedAt = record.detectedAt;
@@ -2295,15 +2358,15 @@ function parseStoredEvent(raw) {
     issueTitle: record.issueTitle,
     issueUrl: record.issueUrl,
     issueBodyExcerpt: record.issueBodyExcerpt,
-    headSha: typeof record.headSha === "string" ? record.headSha : null,
-    baseRef: typeof record.baseRef === "string" ? record.baseRef : null,
+    ...coordinatesOf(record),
     triggerNote: record.triggerNote,
     detectedAt,
-    state,
-    claimedAt: record.claimedAt,
-    dispatchedAt: record.dispatchedAt,
-    dispatchResult: record.dispatchResult
+    ...lifecycleOf(record, state),
+    ...runLinkOf(record, subjectType)
   };
+}
+function subjectTypeOf(delivery) {
+  return delivery.subjectType ?? (delivery.kind === "review" ? "pull_request" : "issue");
 }
 function parseStoredEvents(raw) {
   if (!Array.isArray(raw)) {
@@ -2318,6 +2381,1022 @@ function parseStoredEvents(raw) {
     events.push(event);
   }
   return events;
+}
+
+// service/poll/events-enqueue-audit.ts
+async function appendEnqueueAudit(input, row) {
+  try {
+    await appendAudit(input.store, row);
+  } catch (cause) {
+    input.log.warn("enqueue audit row could not be appended", {
+      eventType: row.eventType,
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+  }
+}
+async function recordCreatedRuns(input) {
+  for (const run of input.outcome.created) {
+    await appendEnqueueAudit(input, {
+      eventType: "run.created",
+      actorSource: "service",
+      entity: { kind: "run", id: run.correlationId },
+      correlationId: run.correlationId,
+      reason: "run created from a detected delivery",
+      details: {
+        subject: {
+          provider: "github",
+          accountNumericUserId: run.accountNumericUserId,
+          repository: run.repository,
+          subjectType: run.subjectType,
+          subjectNumber: run.subjectNumber
+        },
+        ordinal: run.ordinal,
+        deliveryIds: run.sourceReferences.map((reference) => reference.deliveryId)
+      }
+    });
+  }
+}
+async function recordJoinedDeliveries(input) {
+  for (const joined of input.outcome.joins) {
+    await appendEnqueueAudit(input, {
+      eventType: "run.coalesced",
+      actorSource: "service",
+      entity: { kind: "run", id: joined.run.correlationId },
+      correlationId: joined.run.correlationId,
+      decision: "coalesced",
+      reason: "delivery joined an open run",
+      details: {
+        deliveryId: joined.reference.deliveryId,
+        kind: joined.reference.kind,
+        origin: joined.reference.origin,
+        presentAtAuthorization: joined.reference.presentAtAuthorization
+      }
+    });
+  }
+}
+async function recordDetectedDeliveries(input) {
+  for (const event of input.appended) {
+    await appendEnqueueAudit(input, {
+      eventType: "delivery.detected",
+      actorSource: "service",
+      entity: { kind: "delivery", id: event.id },
+      ...event.runCorrelationId === undefined ? {} : { correlationId: event.runCorrelationId },
+      reason: `${event.kind} trigger matched a binding`,
+      details: {
+        bindingId: event.bindingId,
+        repository: event.repository,
+        kind: event.kind,
+        ...event.runCorrelationId === undefined ? {} : { runCorrelationId: event.runCorrelationId }
+      }
+    });
+  }
+}
+async function recordEnqueueAudits(input) {
+  await recordCreatedRuns(input);
+  await recordJoinedDeliveries(input);
+  await recordDetectedDeliveries(input);
+}
+
+// service/poll/run-key.ts
+import { createHash as createHash2 } from "node:crypto";
+var RUN_PROVIDER = "github";
+var ATTACHMENT_ID_MAX = 128;
+var CORRELATION_HEX_CHARS = 24;
+var TOKEN_HEX_CHARS = 32;
+var KEY_SEPARATOR = "|";
+function keySegments(input) {
+  if (!Number.isInteger(input.subjectNumber) || input.subjectNumber < 1) {
+    throw new Error("refusing to derive a run key without a positive subject number");
+  }
+  if (!Number.isInteger(input.ordinal) || input.ordinal < 0) {
+    throw new Error("refusing to derive a run key without a non-negative ordinal");
+  }
+  const segments = [
+    RUN_PROVIDER,
+    input.accountNumericUserId,
+    input.repository,
+    input.subjectType,
+    String(input.subjectNumber),
+    String(input.ordinal)
+  ];
+  if (segments.some((segment) => segment === "" || segment.includes(KEY_SEPARATOR))) {
+    throw new Error("refusing to derive a run key from a segment that carries the key separator");
+  }
+  return segments;
+}
+function buildRunKey(input) {
+  return keySegments(input).join(KEY_SEPARATOR);
+}
+function buildSubjectKey(input) {
+  return keySegments(input).slice(0, -1).join(KEY_SEPARATOR);
+}
+function digestHex(text, hexChars) {
+  return createHash2("sha256").update(text, "utf8").digest("hex").slice(0, hexChars);
+}
+function buildCorrelationId(runKey) {
+  return `mt-run-${digestHex(runKey, CORRELATION_HEX_CHARS)}`;
+}
+function buildAttachmentId(correlationId) {
+  if (correlationId.length > ATTACHMENT_ID_MAX || !/^[A-Za-z0-9._~-]+$/.test(correlationId)) {
+    throw new Error("refusing an attachment id that is not one path-safe segment within the host bound");
+  }
+  return correlationId;
+}
+function buildDispatchToken(runKey, attempt) {
+  if (!Number.isInteger(attempt) || attempt < 1) {
+    throw new Error("refusing to mint a dispatch token for an attempt that is not a positive integer");
+  }
+  return `dtk-${digestHex(`${runKey}${KEY_SEPARATOR}${attempt}`, TOKEN_HEX_CHARS)}`;
+}
+
+// service/poll/runs-parts-parse.ts
+var EVENT_KINDS = new Set(["assignment", "mention", "review"]);
+var ATTEMPT_OUTCOMES = new Set([
+  "dispatched",
+  "failed",
+  "abandoned",
+  "expired",
+  "blocked",
+  "unconfirmed"
+]);
+function isEventKind(value) {
+  return typeof value === "string" && EVENT_KINDS.has(value);
+}
+function isValidOrigin(origin) {
+  return origin === "assignment" || origin === "body" || origin === "review" || /^comment:[1-9][0-9]*$/.test(origin);
+}
+function isOutcome(value) {
+  return value === null || typeof value === "string" && ATTEMPT_OUTCOMES.has(value);
+}
+function parseReference(raw) {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const deliveryId = readText(raw.deliveryId);
+  const sourceUrl = readText(raw.sourceUrl);
+  const detectedAt = readStamp(raw.detectedAt);
+  const { kind, origin } = raw;
+  const present = readFlag(raw.presentAtAuthorization);
+  if (deliveryId === null || sourceUrl === null || detectedAt === null || present === null || !isEventKind(kind) || typeof origin !== "string" || !isValidOrigin(origin)) {
+    return null;
+  }
+  return { deliveryId, kind, origin, sourceUrl, detectedAt, presentAtAuthorization: present };
+}
+function parseAttempt(raw) {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const attempt = readPositiveInt(raw.attempt);
+  const { outcome, reservedAt, sessionId, reason } = raw;
+  const token = raw.dispatchToken;
+  const reportedAt = raw.resultReportedAt;
+  const nullable = [token, reservedAt, sessionId, reason, reportedAt];
+  if (attempt === null || nullable.some((value) => value !== null && typeof value !== "string") || !isOutcome(outcome)) {
+    return null;
+  }
+  return {
+    attempt,
+    dispatchToken: token,
+    reservedAt,
+    outcome,
+    sessionId,
+    reason,
+    resultReportedAt: reportedAt
+  };
+}
+function parseLease(raw) {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const { leaseId, holder, attempt, issuedAt, expiresAt } = raw;
+  const values = [
+    readText(leaseId),
+    readText(holder),
+    readPositiveInt(attempt),
+    readStamp(issuedAt),
+    readStamp(expiresAt)
+  ];
+  if (values.includes(null)) {
+    return null;
+  }
+  return {
+    leaseId,
+    holder,
+    attempt,
+    issuedAt,
+    expiresAt
+  };
+}
+function parseReservation(raw) {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const { dispatchToken, attempt, reservedAt, consumed } = raw;
+  const deadline = raw.resultDeadlineAt;
+  const values = [readText(dispatchToken), readPositiveInt(attempt), readStamp(reservedAt), readStamp(deadline)];
+  const flag = readFlag(consumed);
+  if (values.includes(null) || flag === null) {
+    return null;
+  }
+  return {
+    dispatchToken,
+    attempt,
+    reservedAt,
+    resultDeadlineAt: deadline,
+    consumed: flag
+  };
+}
+function parseWorktree(raw) {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const directory = readText(raw.directory);
+  const branch = readText(raw.branch);
+  return directory === null || branch === null ? null : { directory, branch };
+}
+function parseSession(raw) {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const { sessionId, attachmentId, dispatchedAt, title, sourceUrl } = raw;
+  const id = readText(sessionId);
+  const attachment = readText(attachmentId);
+  const stamped = readStamp(dispatchedAt);
+  const heading = readString(title);
+  const link = readString(sourceUrl);
+  if (id === null || attachment === null || stamped === null || heading === null || link === null) {
+    return null;
+  }
+  if (raw.worktree === null) {
+    return {
+      sessionId: id,
+      attachmentId: attachment,
+      dispatchedAt: stamped,
+      title: heading,
+      sourceUrl: link,
+      worktree: null
+    };
+  }
+  const worktree = parseWorktree(raw.worktree);
+  return worktree === null ? null : { sessionId: id, attachmentId: attachment, dispatchedAt: stamped, title: heading, sourceUrl: link, worktree };
+}
+function parseVerification(raw) {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const { expectedAgent, ok, at, observedAgent, note } = raw;
+  const agent = readText(expectedAgent);
+  const matched = readFlag(ok);
+  const stamped = readStamp(at);
+  if (agent === null || matched === null || stamped === null || observedAgent !== null && typeof observedAgent !== "string" || note !== null && typeof note !== "string") {
+    return null;
+  }
+  return { observedAgent, expectedAgent: agent, ok: matched, note, at: stamped };
+}
+
+// service/poll/runs-parse.ts
+var RUNS_SCHEMA_VERSION = 1;
+var MAX_SOURCE_REFERENCES = 20;
+var MAX_ATTEMPT_RECORDS = 50;
+var SIMPLE_STATES = new Set([
+  "pending",
+  "claimed",
+  "starting",
+  "dispatched",
+  "failed",
+  "unconfirmed",
+  "dead-lettered"
+]);
+var RUN_TEXT_FIELDS = [
+  "runKey",
+  "correlationId",
+  "attachmentId",
+  "repository",
+  "accountNumericUserId",
+  "bindingId",
+  "projectId",
+  "worktreeOption"
+];
+function isBlockedReason(reason) {
+  if (reason === "") {
+    return false;
+  }
+  return reason.split("-").every((part) => part !== "" && /^[a-z0-9]+$/.test(part));
+}
+function runStateOf(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  if (SIMPLE_STATES.has(value)) {
+    return value;
+  }
+  const prefix = "blocked:";
+  if (!value.startsWith(prefix) || !isBlockedReason(value.slice(prefix.length))) {
+    return null;
+  }
+  return value;
+}
+function readStateLine(raw) {
+  const state = runStateOf(raw.state);
+  const { stateReason } = raw;
+  if (state === null || stateReason !== null && typeof stateReason !== "string") {
+    return null;
+  }
+  if (state !== "pending" && (stateReason === null || stateReason === "")) {
+    return null;
+  }
+  return { state, reason: stateReason };
+}
+function parseRunScalars(raw) {
+  const line = readStateLine(raw);
+  const { subjectType } = raw;
+  if (line === null || subjectType !== "issue" && subjectType !== "pull_request") {
+    return null;
+  }
+  const ordinal = readCount(raw.ordinal);
+  const subjectNumber = readPositiveInt(raw.subjectNumber);
+  const attempt = readPositiveInt(raw.attempt);
+  const requeuesUsed = readCount(raw.requeuesUsed);
+  const referenceCount = readPositiveInt(raw.referenceCount);
+  const truncated = readFlag(raw.referencesTruncated);
+  const createdAt = readStamp(raw.createdAt);
+  const updatedAt = readStamp(raw.updatedAt);
+  const values = [ordinal, subjectNumber, attempt, requeuesUsed, referenceCount, createdAt, updatedAt];
+  if (values.includes(null) || truncated === null) {
+    return null;
+  }
+  return {
+    state: line.state,
+    stateReason: line.reason,
+    subjectType,
+    ordinal,
+    subjectNumber,
+    attempt,
+    requeuesUsed,
+    referenceCount,
+    referencesTruncated: truncated,
+    createdAt,
+    updatedAt
+  };
+}
+function runIdentityMatches(raw, scalars) {
+  try {
+    const runKey = buildRunKey({
+      accountNumericUserId: raw.accountNumericUserId,
+      repository: raw.repository,
+      subjectType: scalars.subjectType,
+      subjectNumber: scalars.subjectNumber,
+      ordinal: scalars.ordinal
+    });
+    const correlationId = buildCorrelationId(runKey);
+    return raw.runKey === runKey && raw.correlationId === correlationId && raw.attachmentId === correlationId;
+  } catch {
+    return false;
+  }
+}
+function parsePart(stored, parse) {
+  if (stored === undefined || stored === null) {
+    return { malformed: false, value: null };
+  }
+  const value = parse(stored);
+  return value === null ? { malformed: true, value: null } : { malformed: false, value };
+}
+function parseRunObjects(raw) {
+  const lease = parsePart(raw.lease, parseLease);
+  const reservation = parsePart(raw.reservation, parseReservation);
+  const session = parsePart(raw.session, parseSession);
+  const verification = parsePart(raw.verification, parseVerification);
+  const parts = [lease, reservation, session, verification];
+  if (parts.some((part) => part.malformed)) {
+    return null;
+  }
+  return {
+    lease: lease.value,
+    reservation: reservation.value,
+    session: session.value,
+    verification: verification.value
+  };
+}
+function parseList(raw, shape) {
+  if (!Array.isArray(raw) || raw.length > shape.cap) {
+    return null;
+  }
+  const rows = [];
+  for (const candidate of raw) {
+    const row = shape.parse(candidate);
+    if (row === null) {
+      return null;
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+function runRelationsHold(input) {
+  const { scalars, objects, references, attachmentId } = input;
+  const referenceIds = new Set(references.map((reference) => reference.deliveryId));
+  return references.length <= scalars.referenceCount && (objects.session === null || objects.session.attachmentId === attachmentId) && (objects.lease === null || objects.lease.attempt === scalars.attempt) && (objects.reservation === null || objects.reservation.attempt === scalars.attempt) && referenceIds.size === references.length;
+}
+function parseRunParts(raw) {
+  const scalars = parseRunScalars(raw);
+  const objects = parseRunObjects(raw);
+  const references = parseList(raw.sourceReferences, { parse: parseReference, cap: MAX_SOURCE_REFERENCES });
+  const attempts = parseList(raw.attempts, { parse: parseAttempt, cap: MAX_ATTEMPT_RECORDS });
+  if (scalars === null || !runIdentityMatches(raw, scalars) || objects === null || references === null || attempts === null) {
+    return null;
+  }
+  if (!runRelationsHold({ scalars, objects, references, attachmentId: raw.attachmentId })) {
+    return null;
+  }
+  return { scalars, objects, references, attempts };
+}
+function runFromParts(raw, parts) {
+  const { scalars, objects, references, attempts } = parts;
+  return {
+    runKey: raw.runKey,
+    correlationId: raw.correlationId,
+    attachmentId: raw.attachmentId,
+    ordinal: scalars.ordinal,
+    subjectType: scalars.subjectType,
+    subjectNumber: scalars.subjectNumber,
+    repository: raw.repository,
+    accountNumericUserId: raw.accountNumericUserId,
+    bindingId: raw.bindingId,
+    projectId: raw.projectId,
+    worktreeOption: raw.worktreeOption,
+    state: scalars.state,
+    stateReason: scalars.stateReason,
+    attempt: scalars.attempt,
+    requeuesUsed: scalars.requeuesUsed,
+    sourceReferences: references,
+    referenceCount: scalars.referenceCount,
+    referencesTruncated: scalars.referencesTruncated,
+    lease: objects.lease,
+    reservation: objects.reservation,
+    attempts,
+    session: objects.session,
+    verification: objects.verification,
+    createdAt: scalars.createdAt,
+    updatedAt: scalars.updatedAt
+  };
+}
+function parseRun(raw) {
+  if (!isRecord(raw) || !RUN_TEXT_FIELDS.every((field) => readText(raw[field]) !== null)) {
+    return null;
+  }
+  const parts = parseRunParts(raw);
+  return parts === null ? null : runFromParts(raw, parts);
+}
+function parseSubjects(raw) {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const entries = [];
+  for (const [key, value] of Object.entries(raw)) {
+    const next = readCount(value);
+    if (key === "" || next === null) {
+      return null;
+    }
+    entries.push([key, next]);
+  }
+  return Object.fromEntries(entries);
+}
+function parseRunRows(raw) {
+  const runs = [];
+  const seen = new Set;
+  const openSubjects = new Set;
+  for (const candidate of raw) {
+    const run = parseRun(candidate);
+    if (run === null || seen.has(run.correlationId)) {
+      return null;
+    }
+    seen.add(run.correlationId);
+    if (run.state !== "dispatched" && run.state !== "dead-lettered") {
+      const subjectKey = buildSubjectKey({
+        accountNumericUserId: run.accountNumericUserId,
+        repository: run.repository,
+        subjectType: run.subjectType,
+        subjectNumber: run.subjectNumber,
+        ordinal: run.ordinal
+      });
+      if (openSubjects.has(subjectKey)) {
+        return null;
+      }
+      openSubjects.add(subjectKey);
+    }
+    runs.push(run);
+  }
+  return runs;
+}
+function parseRunsDocument(raw) {
+  if (!isRecord(raw) || raw.schemaVersion !== RUNS_SCHEMA_VERSION || !Array.isArray(raw.runs)) {
+    return null;
+  }
+  const subjects = parseSubjects(raw.subjects);
+  const runs = parseRunRows(raw.runs);
+  if (subjects === null || runs === null) {
+    return null;
+  }
+  return { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs };
+}
+
+// service/poll/runs-adopt.ts
+var LEGACY_PROBLEMS = new Set([
+  "binding-missing-at-dispatch",
+  "no-session",
+  "bootstrap-failed",
+  "session-create-failed",
+  'projects snapshot reported state "error"'
+]);
+var RESULT_DEADLINE_MS = 120000;
+function recordOf(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
+}
+function hasReservation(value) {
+  const record = recordOf(value);
+  return record !== null && "reservation" in record && record.reservation !== null;
+}
+function isLegacyProblem(value) {
+  return LEGACY_PROBLEMS.has(value) || value.startsWith('project "') && value.endsWith('" is not registered in OpenChamber') || value.startsWith("listProjects failed: ");
+}
+function attemptOf(input) {
+  return {
+    attempt: 1,
+    dispatchToken: input.token ?? null,
+    reservedAt: input.reservedAt ?? null,
+    outcome: input.outcome,
+    sessionId: input.sessionId ?? null,
+    reason: input.reason ?? null,
+    resultReportedAt: input.resultReportedAt ?? null
+  };
+}
+function classifyDispatched(event, now) {
+  const result = event.dispatchResult ?? null;
+  if (result !== null && isLegacyProblem(result)) {
+    return {
+      state: "failed",
+      branch: "dispatched-problem",
+      stateReason: result,
+      lease: null,
+      reservation: null,
+      attempts: [attemptOf({ outcome: "failed", reason: result, resultReportedAt: event.dispatchedAt ?? now })],
+      sessionId: null
+    };
+  }
+  const branch = result === null ? "dispatched-unknown-outcome" : "dispatched-session";
+  const reason = result === null ? "legacy dispatch was terminal; outcome identifier unavailable" : `session ${result} created`;
+  return {
+    state: "dispatched",
+    branch,
+    stateReason: reason,
+    lease: null,
+    reservation: null,
+    attempts: [attemptOf({
+      outcome: "dispatched",
+      sessionId: result,
+      resultReportedAt: event.dispatchedAt ?? now
+    })],
+    sessionId: result
+  };
+}
+function classifyReserved(input) {
+  const reservedAt = input.now;
+  const dispatchToken = buildDispatchToken(input.runKey, 1);
+  return {
+    state: "starting",
+    branch: "in-flight-reserved",
+    stateReason: "adopted legacy reservation; awaiting its result",
+    lease: null,
+    reservation: {
+      dispatchToken,
+      attempt: 1,
+      reservedAt,
+      resultDeadlineAt: new Date(Date.parse(reservedAt) + RESULT_DEADLINE_MS).toISOString(),
+      consumed: false
+    },
+    attempts: [attemptOf({ outcome: null, token: dispatchToken, reservedAt })],
+    sessionId: null
+  };
+}
+function classifyInFlight(input) {
+  const { event, correlationId, now } = input;
+  const issuedAt = event.claimedAt ?? event.detectedAt;
+  return {
+    state: "claimed",
+    branch: "in-flight-no-reservation",
+    stateReason: "adopted legacy in-flight delivery; synthetic lease is expired",
+    lease: {
+      leaseId: `migration-${correlationId}`,
+      attempt: 1,
+      holder: "migration",
+      issuedAt,
+      expiresAt: new Date(Date.parse(now) - 1).toISOString()
+    },
+    reservation: null,
+    attempts: [attemptOf({ outcome: null })],
+    sessionId: null
+  };
+}
+function classifyLegacy(input) {
+  if (input.event.state === "dispatched") {
+    return classifyDispatched(input.event, input.now);
+  }
+  if (input.reserved) {
+    return classifyReserved({ runKey: input.runKey, now: input.now });
+  }
+  if (input.event.state === "in-flight") {
+    return classifyInFlight({ event: input.event, correlationId: input.correlationId, now: input.now });
+  }
+  return {
+    state: "pending",
+    branch: "pending",
+    stateReason: null,
+    lease: null,
+    reservation: null,
+    attempts: [],
+    sessionId: null
+  };
+}
+function sessionReference(input) {
+  const { event, correlationId, sessionId } = input;
+  if (sessionId === null) {
+    return null;
+  }
+  return {
+    sessionId,
+    attachmentId: correlationId,
+    dispatchedAt: event.dispatchedAt ?? event.detectedAt,
+    title: event.issueTitle,
+    sourceUrl: event.issueUrl,
+    worktree: null
+  };
+}
+function migratedRun(input) {
+  const { event, ordinal, now, reserved } = input;
+  const subjectType = subjectTypeOf(event);
+  const keyInput = {
+    accountNumericUserId: event.accountNumericUserId,
+    repository: event.repository,
+    subjectType,
+    subjectNumber: event.issueNumber,
+    ordinal
+  };
+  const runKey = buildRunKey(keyInput);
+  const correlationId = buildCorrelationId(runKey);
+  const classification = classifyLegacy({ event, runKey, correlationId, now, reserved });
+  const reference = referenceOf(event, true);
+  return {
+    branch: classification.branch,
+    run: {
+      runKey,
+      correlationId,
+      attachmentId: buildAttachmentId(correlationId),
+      ordinal,
+      subjectType,
+      subjectNumber: event.issueNumber,
+      repository: event.repository,
+      accountNumericUserId: event.accountNumericUserId,
+      bindingId: event.bindingId,
+      projectId: event.projectId,
+      worktreeOption: event.worktreeOption,
+      state: classification.state,
+      stateReason: classification.stateReason,
+      attempt: 1,
+      requeuesUsed: 0,
+      sourceReferences: reference === null ? [] : [reference],
+      referenceCount: reference === null ? 0 : 1,
+      referencesTruncated: false,
+      lease: classification.lease,
+      reservation: classification.reservation,
+      attempts: classification.attempts,
+      session: sessionReference({ event, correlationId, sessionId: classification.sessionId }),
+      verification: null,
+      createdAt: event.detectedAt,
+      updatedAt: now
+    }
+  };
+}
+async function readLegacyRows(store) {
+  const stored = await store.readJson("events.json", (raw) => {
+    if (!Array.isArray(raw) || raw.some((row) => parseStoredEvent(row) === null)) {
+      return null;
+    }
+    return raw;
+  });
+  if (stored.status !== "ok") {
+    return [];
+  }
+  return stored.value.flatMap((raw) => {
+    const event = parseStoredEvent(raw);
+    return event === null ? [] : [{ event, reserved: hasReservation(raw) }];
+  });
+}
+function migrationAudit(run, branches) {
+  return {
+    eventType: "run.migrated",
+    actorSource: "service",
+    entity: { kind: "run", id: run.correlationId },
+    correlationId: run.correlationId,
+    decision: "adopted",
+    reason: `legacy deliveries adopted: ${branches.join(", ")}`,
+    details: {
+      deliveryIds: run.sourceReferences.map((reference) => reference.deliveryId),
+      stateBranches: branches,
+      state: run.state
+    }
+  };
+}
+function subjectKeyOf(event) {
+  return buildSubjectKey({
+    accountNumericUserId: event.accountNumericUserId,
+    repository: event.repository,
+    subjectType: subjectTypeOf(event),
+    subjectNumber: event.issueNumber,
+    ordinal: 0
+  });
+}
+function subjectKeyOfRun(run) {
+  return buildSubjectKey({
+    accountNumericUserId: run.accountNumericUserId,
+    repository: run.repository,
+    subjectType: run.subjectType,
+    subjectNumber: run.subjectNumber,
+    ordinal: run.ordinal
+  });
+}
+function isTerminalLegacyOutcome(event) {
+  return event.state === "dispatched" && event.dispatchResult !== null && event.dispatchResult !== undefined && !isLegacyProblem(event.dispatchResult);
+}
+function addMigratedRun(input) {
+  const ordinal = input.subjects[input.key] ?? 0;
+  input.subjects[input.key] = ordinal + 1;
+  const adopted = migratedRun({ ...input.record, ordinal, now: input.now });
+  input.runs.push(adopted.run);
+  input.branches.set(adopted.run.correlationId, [adopted.branch]);
+}
+function promoteLifecycle(run, candidate) {
+  const rank = { pending: 0, failed: 1, claimed: 2, starting: 3 };
+  if ((rank[candidate.state] ?? 0) <= (rank[run.state] ?? 0)) {
+    return run;
+  }
+  return {
+    ...run,
+    state: candidate.state,
+    stateReason: candidate.stateReason,
+    lease: candidate.lease,
+    reservation: candidate.reservation,
+    attempts: candidate.attempts,
+    updatedAt: candidate.updatedAt
+  };
+}
+function mergeLegacyRow(input) {
+  const run = input.runs[input.openIndex];
+  if (run === undefined) {
+    return;
+  }
+  const reference = referenceOf(input.record.event, run.reservation === null);
+  const joined = reference === null ? run : joinReference({ run, reference, now: input.now });
+  const migrated = migratedRun({
+    event: input.record.event,
+    ordinal: run.ordinal,
+    now: input.now,
+    reserved: input.record.reserved
+  });
+  const promoted = promoteLifecycle(joined, migrated.run);
+  input.runs[input.openIndex] = promoted;
+  const recorded = input.branches.get(run.correlationId) ?? [];
+  recorded.push(migrated.branch);
+  input.branches.set(run.correlationId, recorded);
+}
+async function planAdoption(input) {
+  const now = input.now ?? nowIso();
+  const records = await readLegacyRows(input.store);
+  const runs = [];
+  const branches = new Map;
+  const subjects = {};
+  for (const record of records) {
+    const key = subjectKeyOf(record.event);
+    const openIndex = runs.findIndex((run) => run.state !== "dispatched" && run.state !== "dead-lettered" && subjectKeyOfRun(run) === key);
+    if (openIndex >= 0 && !isTerminalLegacyOutcome(record.event)) {
+      mergeLegacyRow({ runs, openIndex, record, now, branches });
+    } else {
+      addMigratedRun({ runs, record, now, subjects, branches, key });
+    }
+  }
+  return {
+    document: { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs },
+    migrated: runs.map((run) => migrationAudit(run, branches.get(run.correlationId) ?? []))
+  };
+}
+
+// service/poll/runs-document.ts
+var RUNS_FILE = "runs.json";
+var MAX_TERMINAL_RUNS = 500;
+var queueChain = { write: Promise.resolve() };
+function inQueueChain(task) {
+  const run = queueChain.write.then(task, task);
+  queueChain.write = run;
+  return run;
+}
+var adoptionPasses = new WeakMap;
+function emptyRunsDocument() {
+  return { schemaVersion: RUNS_SCHEMA_VERSION, subjects: {}, runs: [] };
+}
+function isTerminalRun(run) {
+  return run.state === "dispatched" || run.state === "dead-lettered";
+}
+async function runAdoption(input) {
+  const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);
+  if (stored.status === "ok") {
+    return "present";
+  }
+  if (stored.status === "quarantined") {
+    input.log.warn("stored run document was unusable and has been set aside", {
+      quarantinePath: stored.quarantinePath
+    });
+    return "unreadable";
+  }
+  const plan = await planAdoption({
+    store: input.store,
+    ...input.now === undefined ? {} : { now: input.now }
+  });
+  await input.store.writeJson(RUNS_FILE, plan.document);
+  for (const row of plan.migrated) {
+    try {
+      await appendAudit(input.store, row);
+    } catch (cause) {
+      input.log.warn("run migration audit row could not be appended", {
+        errorKind: cause instanceof Error ? cause.name : typeof cause
+      });
+    }
+  }
+  return "adopted";
+}
+function startAdoption(input) {
+  const pass = runAdoption(input).catch((cause) => {
+    adoptionPasses.delete(input.store);
+    throw cause;
+  });
+  adoptionPasses.set(input.store, pass);
+  return pass;
+}
+async function ensureRunsAdopted(input) {
+  return await (adoptionPasses.get(input.store) ?? startAdoption(input));
+}
+async function readRunsDocument(input) {
+  const outcome = await ensureRunsAdopted(input);
+  if (outcome === "unreadable") {
+    throw new Error("run document is unreadable; refusing to serve run state from a quarantined runs.json");
+  }
+  const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);
+  return stored.status === "ok" ? stored.value : emptyRunsDocument();
+}
+async function writeRunsDocument(input) {
+  const terminal = input.document.runs.filter((run) => isTerminalRun(run));
+  const evictCount = Math.max(terminal.length - MAX_TERMINAL_RUNS, 0);
+  const dropped = new Set(terminal.slice(0, evictCount).map((run) => run.correlationId));
+  const runs = input.document.runs.filter((run) => !dropped.has(run.correlationId));
+  await input.store.writeJson(RUNS_FILE, { ...input.document, runs });
+}
+
+// service/poll/runs-join.ts
+function subjectShapeOf(delivery) {
+  try {
+    const subjectType = subjectTypeOf(delivery);
+    const subjectKey = buildSubjectKey({
+      accountNumericUserId: delivery.accountNumericUserId,
+      repository: delivery.repository,
+      subjectType,
+      subjectNumber: delivery.issueNumber,
+      ordinal: 0
+    });
+    return { subjectKey, subjectType };
+  } catch {
+    return null;
+  }
+}
+function originOf(delivery) {
+  if (delivery.kind === "assignment") {
+    return "assignment";
+  }
+  if (delivery.kind === "review") {
+    return "review";
+  }
+  const marker = "~mention~";
+  const at = delivery.id.lastIndexOf(marker);
+  if (at < 0) {
+    return null;
+  }
+  const suffix = delivery.id.slice(at + marker.length);
+  if (suffix === "body") {
+    return "body";
+  }
+  const commentId = Number(suffix);
+  return commentId > 0 && String(commentId) === suffix ? `comment:${commentId}` : null;
+}
+function referenceOf(delivery, presentAtAuthorization) {
+  const origin = originOf(delivery);
+  if (origin === null) {
+    return null;
+  }
+  return {
+    deliveryId: delivery.id,
+    kind: delivery.kind,
+    origin,
+    sourceUrl: delivery.issueUrl,
+    detectedAt: delivery.detectedAt,
+    presentAtAuthorization
+  };
+}
+function joinReference(input) {
+  const { run, reference, now } = input;
+  const already = run.sourceReferences.some((entry) => entry.deliveryId === reference.deliveryId);
+  const joined = already ? run.sourceReferences : [...run.sourceReferences, reference];
+  const overCap = joined.length > MAX_SOURCE_REFERENCES;
+  return {
+    ...run,
+    sourceReferences: overCap ? joined.slice(0, MAX_SOURCE_REFERENCES) : joined,
+    referenceCount: already ? run.referenceCount : run.referenceCount + 1,
+    referencesTruncated: run.referencesTruncated || overCap,
+    updatedAt: now
+  };
+}
+function runForDelivery(input) {
+  const { delivery, shape, ordinal, reference, now } = input;
+  const runKey = buildRunKey({
+    accountNumericUserId: delivery.accountNumericUserId,
+    repository: delivery.repository,
+    subjectType: shape.subjectType,
+    subjectNumber: delivery.issueNumber,
+    ordinal
+  });
+  const correlationId = buildCorrelationId(runKey);
+  return {
+    runKey,
+    correlationId,
+    attachmentId: buildAttachmentId(correlationId),
+    ordinal,
+    subjectType: shape.subjectType,
+    subjectNumber: delivery.issueNumber,
+    repository: delivery.repository,
+    accountNumericUserId: delivery.accountNumericUserId,
+    bindingId: delivery.bindingId,
+    projectId: delivery.projectId,
+    worktreeOption: delivery.worktreeOption,
+    state: "pending",
+    stateReason: null,
+    attempt: 1,
+    requeuesUsed: 0,
+    sourceReferences: [reference],
+    referenceCount: 1,
+    referencesTruncated: false,
+    lease: null,
+    reservation: null,
+    attempts: [],
+    session: null,
+    verification: null,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+function subjectKeyOfRun2(run) {
+  return buildSubjectKey({
+    accountNumericUserId: run.accountNumericUserId,
+    repository: run.repository,
+    subjectType: run.subjectType,
+    subjectNumber: run.subjectNumber,
+    ordinal: 0
+  });
+}
+function applyEnqueue(input) {
+  const runs = [...input.document.runs];
+  const subjects = { ...input.document.subjects };
+  const links = new Map;
+  const created = [];
+  const joins = [];
+  for (const delivery of input.deliveries) {
+    const shape = subjectShapeOf(delivery);
+    const reference = shape === null ? null : referenceOf(delivery, true);
+    if (shape === null || reference === null) {
+      continue;
+    }
+    const index = runs.findIndex((run2) => !isTerminalRun(run2) && subjectKeyOfRun2(run2) === shape.subjectKey);
+    const open = index < 0 ? undefined : runs[index];
+    if (open !== undefined) {
+      const authorizedReference = { ...reference, presentAtAuthorization: open.reservation === null };
+      const joined = joinReference({ run: open, reference: authorizedReference, now: input.now });
+      runs[index] = joined;
+      joins.push({ run: joined, reference: authorizedReference });
+      links.set(delivery.id, joined.correlationId);
+      continue;
+    }
+    const ordinal = subjects[shape.subjectKey] ?? 0;
+    subjects[shape.subjectKey] = ordinal + 1;
+    const run = runForDelivery({ delivery, shape, ordinal, reference, now: input.now });
+    runs.push(run);
+    created.push(run);
+    links.set(delivery.id, run.correlationId);
+  }
+  return { document: { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs }, links, created, joins };
 }
 
 // service/poll/scan.ts
@@ -2384,7 +3463,6 @@ async function writeScanState(input) {
 function withBindingScanState(input) {
   return { bindings: { ...input.state.bindings, [input.bindingId]: input.slot } };
 }
-
 // service/poll/events-write.ts
 function buildEventId(input) {
   const { repository } = input;
@@ -2402,6 +3480,12 @@ function headShaOf(snapshot) {
 }
 function baseRefOf(snapshot) {
   return snapshot.kind === "review" ? snapshot.baseRef : null;
+}
+function subjectTypeOfSnapshot(snapshot) {
+  if (snapshot.subjectType !== undefined) {
+    return snapshot.subjectType;
+  }
+  return snapshot.kind === "review" ? "pull_request" : "issue";
 }
 function createEvent(snapshot) {
   const separatorIndex = snapshot.repository.indexOf("/");
@@ -2423,10 +3507,7 @@ function createEvent(snapshot) {
     baseRef: baseRefOf(snapshot),
     triggerNote: snapshot.triggerNote,
     detectedAt: snapshot.detectedAt,
-    state: "pending",
-    claimedAt: null,
-    dispatchedAt: null,
-    dispatchResult: null
+    subjectType: subjectTypeOfSnapshot(snapshot)
   };
   return {
     ...base,
@@ -2440,14 +3521,7 @@ function createEvent(snapshot) {
 }
 
 // service/poll/events.ts
-var EVENTS_FILE = "events.json";
 var MAX_DISPATCHED_EVENTS = 500;
-var queueChain = { write: Promise.resolve() };
-function inQueueChain(task) {
-  const run = queueChain.write.then(task, task);
-  queueChain.write = run;
-  return run;
-}
 function serializedQueue(events) {
   const live = events.filter((event) => event.state !== "dispatched");
   const dispatched = events.filter((event) => event.state === "dispatched").slice(-MAX_DISPATCHED_EVENTS);
@@ -2536,17 +3610,32 @@ async function readEvents(input) {
     return [];
   }
 }
-async function enqueueEvents(input) {
-  return await inQueueChain(async () => {
-    const existing = await readQueue(input);
-    const known = new Set(existing.map((event) => event.id));
-    const appended = input.incoming.filter((event) => !known.has(event.id));
-    if (appended.length === 0) {
-      return [];
+async function enqueueWithinChain(input) {
+  const existing = await readQueue(input);
+  const known = new Set(existing.map((event) => event.id));
+  const fresh = input.incoming.filter((event) => {
+    if (known.has(event.id)) {
+      return false;
     }
-    await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended]));
-    return appended;
+    known.add(event.id);
+    return true;
   });
+  if (fresh.length === 0) {
+    return [];
+  }
+  const document = await readRunsDocument(input);
+  const outcome = applyEnqueue({ document, deliveries: fresh, now: nowIso() });
+  const appended = fresh.map((event) => {
+    const runCorrelationId = outcome.links.get(event.id);
+    return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
+  });
+  await writeRunsDocument({ ...input, document: outcome.document });
+  await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended]));
+  await recordEnqueueAudits({ ...input, outcome, appended });
+  return appended;
+}
+async function enqueueEvents(input) {
+  return await inQueueChain(async () => await enqueueWithinChain(input));
 }
 async function claimPendingEvents(input) {
   return await inQueueChain(async () => {
@@ -2570,7 +3659,10 @@ async function markEventDispatched(input) {
   return await inQueueChain(async () => {
     const events = await readQueue(input);
     const match = events.find((event) => event.id === input.eventId);
-    if (match === undefined || match.state === "dispatched") {
+    if (match === undefined) {
+      return null;
+    }
+    if (match.state === undefined || match.state === "dispatched") {
       return null;
     }
     const dispatched = {
@@ -2591,7 +3683,7 @@ async function retryEvent(input) {
     if (match === undefined) {
       return "unknown";
     }
-    if (match.state === "pending") {
+    if (match.state === undefined || match.state === "pending") {
       return "reset";
     }
     if (match.state === "dispatched") {
@@ -2624,11 +3716,11 @@ function runRowOf(event) {
     issueNumber: event.issueNumber,
     issueTitle: event.issueTitle,
     issueUrl: event.issueUrl,
-    state: event.state,
+    state: event.state ?? "pending",
     detectedAt: event.detectedAt,
-    claimedAt: event.claimedAt,
-    dispatchedAt: event.dispatchedAt,
-    dispatchResult: event.dispatchResult,
+    claimedAt: event.claimedAt ?? null,
+    dispatchedAt: event.dispatchedAt ?? null,
+    dispatchResult: event.dispatchResult ?? null,
     bindingId: event.bindingId,
     ...event.headSha === null ? {} : { headSha: event.headSha },
     ...event.baseRef === null ? {} : { baseRef: event.baseRef }
@@ -2650,7 +3742,7 @@ async function readStatusRows(input) {
   const [scannedState, queue] = await Promise.all([readScanState(input), readEvents(input)]);
   const counts = new Map;
   for (const event of queue) {
-    if (event.state === "pending" || event.state === "in-flight") {
+    if (event.state === "pending" || event.state === "in-flight" || event.state === undefined) {
       counts.set(event.bindingId, (counts.get(event.bindingId) ?? 0) + 1);
     }
   }
@@ -3138,6 +4230,9 @@ function isReviewRequestPull(pull, bindingLogin) {
   const wanted = bindingLogin.toLowerCase();
   return pull.requestedReviewers.some((candidate) => candidate.toLowerCase() === wanted);
 }
+function subjectShapeOf2(isPullRequest) {
+  return isPullRequest ? "pull_request" : "issue";
+}
 function mentionEvent(input) {
   const { binding, comment, issue: issue2, detectedAt } = input;
   const repository = repositoryRefOf(binding);
@@ -3160,7 +4255,8 @@ function mentionEvent(input) {
       issueBodyExcerpt: bodyExcerptOf(comment.body)
     },
     triggerNote: `Comment by ${commenter} on issue #${comment.issueNumber} mentioned the bound account`,
-    detectedAt
+    detectedAt,
+    ...issue2 === null ? {} : { subjectType: subjectShapeOf2(issue2.isPullRequest) }
   });
 }
 function mentionEvents(input) {
@@ -3202,7 +4298,8 @@ function bodyMentionEvents(input) {
         issueBodyExcerpt: bodyExcerptOf(issue2.body)
       },
       triggerNote: "mentioned in issue body",
-      detectedAt
+      detectedAt,
+      subjectType: subjectShapeOf2(issue2.isPullRequest)
     }));
   }
   return events;
@@ -3233,7 +4330,8 @@ function reviewEvents(input) {
         issueBodyExcerpt: ""
       },
       triggerNote: `Pull request #${pull.pullNumber} requested the bound account's review`,
-      detectedAt
+      detectedAt,
+      subjectType: "pull_request"
     }));
   }
   return events;
@@ -3294,7 +4392,7 @@ function windowFor(binding, scanned) {
   return recorded !== undefined && recorded.lastScanAt !== null ? recorded.lastScanAt : null;
 }
 function isIssueAssignment(issue2, bindingLogin) {
-  if (issue2.state !== "open" || issue2.isPullRequest) {
+  if (issue2.state !== "open") {
     return false;
   }
   return issue2.assignees.some((login) => login.toLowerCase() === bindingLogin.toLowerCase());
@@ -3307,28 +4405,6 @@ function skipOf(outcome) {
     return "rate-limited";
   }
   return outcome.detail === "timeout" || outcome.detail === "offline" ? "offline" : "upstream";
-}
-async function recordDetection(deps, event) {
-  try {
-    await appendAudit(deps.store, {
-      eventType: "delivery.detected",
-      actorSource: "service",
-      entity: { kind: "delivery", id: event.id },
-      decision: null,
-      reason: `${event.kind} trigger matched a binding`,
-      correlationId: newCorrelationId(),
-      details: {
-        bindingId: event.bindingId,
-        repository: event.repository,
-        kind: event.kind
-      }
-    });
-  } catch (cause) {
-    deps.log.warn("detection audit row could not be appended", {
-      eventId: event.id,
-      errorKind: describeKind(cause)
-    });
-  }
 }
 function eventsForBinding(input) {
   const repository = repositoryRefOf(input.binding);
@@ -3355,7 +4431,8 @@ function eventsForBinding(input) {
         issueBodyExcerpt: bodyExcerptOf(issue2.body)
       },
       triggerNote: "Issue assigned to the bound account",
-      detectedAt: input.detectedAt
+      detectedAt: input.detectedAt,
+      subjectType: issue2.isPullRequest ? "pull_request" : "issue"
     }));
   }
   return events;
@@ -3422,9 +4499,6 @@ async function scanBinding(input) {
     log: deps.log,
     incoming: listed.events
   });
-  for (const event of appended) {
-    await recordDetection({ ...deps }, event);
-  }
   return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
 }
 async function saveBindingScanState(deps, scan) {
