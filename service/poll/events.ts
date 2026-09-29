@@ -30,18 +30,16 @@
  * - **prune run-linked rows** when their bounded terminal run is evicted, so
  *   `events.json` cannot outlive the run that explains it (T-037).
  *
- * The two queue mutations {@link markEventDispatched} and {@link retryEvent}
- * are, after Wave 3, **no longer routed anywhere**: 003's wire delta
- * re-addressed both operations by the run
- * (`contracts/dispatch-authorization.md` — "Addressed by the run, not the
- * delivery"), so `POST /v1/events/:correlationId/dispatched` and `…/retry` are
- * answered by [`dispatch.ts`](../routes/dispatch.ts) and
- * [`run-ops.ts`](../routes/run-ops.ts) instead, against `runs.json`. They are
- * kept rather than deleted here because they are the one place the legacy
- * queue's terminal vocabulary is still written, and `GET /v1/events` keeps
- * reading that queue until 003 T-016 replaces it with the run-shaped
- * projection. Nothing calls them today; retiring them is a deliberate,
- * separately-tested removal, not an accident of this wave.
+ * **The legacy queue's terminal mutations were removed** (T-043g). The two
+ * routes they served, `POST /v1/events/:id/dispatched` and `…/retry`, were
+ * re-addressed to the run by 003's wire delta ("Addressed by the run, not the
+ * delivery"), and are answered by [`dispatch.ts`](../routes/dispatch.ts) and
+ * [`run-ops.ts`](../routes/run-ops.ts) against `runs.json`. `markEventDispatched`
+ * and `retryEvent` had no caller and a second vocabulary for the same facts —
+ * one import away from re-creating the state-flip path 003 closed — so they are
+ * gone. Nothing here writes the frozen lifecycle fields any more; `GET
+ * /v1/events` keeps *reading* them from rows the shipped build wrote until 003
+ * T-016 replaces that projection.
  */
 
 import { basename, join } from 'node:path';
@@ -384,98 +382,3 @@ export async function enqueueEvents(input: {
     return await inQueueChain(async () => await enqueueWithinChain(input));
 }
 
-/**
- * Mark one event dispatched (terminal) by its id.
- *
- * @param input - Open store, the id, the result summary, and a logger.
- * @returns The event as it now stands, or `null` when the id was not in the
- *   queue at all or was already marked (idempotent re-posts).
- */
-export async function markEventDispatched(input: {
-    /** Open store. */
-    readonly store: ServiceStore;
-    /** Event id. */
-    readonly eventId: string;
-    /** Result summary: the session id or the failure text. */
-    readonly result: string | null;
-    /** Logger. */
-    readonly log: ServiceLogger;
-}): Promise<QueuedEvent | null> {
-    return await inQueueChain(async () => {
-        const events = await readQueue(input);
-        const match = events.find((event) => event.id === input.eventId);
-        if (match === undefined) {
-            return null;
-        }
-
-        // A row 003 enqueued carries no lifecycle state at all: its outcome is
-        // reported against the *run*, never against the delivery (data-model
-        // §2.1 — the frozen fields are written by nothing), so there is
-        // nothing here to mark and nothing for a stale path to flip.
-        if (match.state === undefined || match.state === 'dispatched') {
-            return null;
-        }
-
-        const dispatched: QueuedEvent = {
-            ...match,
-            state: 'dispatched' as const,
-            dispatchedAt: nowIso(),
-            dispatchResult: input.result,
-        };
-        const remaining = events.map((event) => (event.id === input.eventId ? dispatched : event));
-        await input.store.writeJson(EVENTS_FILE, serializedQueue(remaining));
-
-        return dispatched;
-    });
-}
-
-/** What one retry request found the event in. */
-export type RetryOutcome = 'reset' | 'dispatched' | 'unknown';
-
-/**
- * Return one event to the pending queue for another dispatch.
- *
- * The operator's "dispatch failed → retry" control (M8) posts here. An event
- * the panel claimed but never answered (`in-flight`) goes back to `pending`
- * with its claim stamp cleared; an event already waiting (`pending`) is left
- * exactly as it is — both answer `reset`, so the route answers `200` either
- * way. A terminal event answers `dispatched` (the route turns that into
- * `409`), and an id the queue never held answers `unknown` (`404`).
- *
- * @param input - Open store, the id, and a logger.
- * @returns What the id resolves to.
- */
-export async function retryEvent(input: {
-    /** Open store. */
-    readonly store: ServiceStore;
-    /** Event id. */
-    readonly eventId: string;
-    /** Logger. */
-    readonly log: ServiceLogger;
-}): Promise<RetryOutcome> {
-    return await inQueueChain(async () => {
-        const events = await readQueue(input);
-        const match = events.find((event) => event.id === input.eventId);
-        if (match === undefined) {
-            return 'unknown';
-        }
-
-        // A post-003 row has no lifecycle state to reset — it was never
-        // claimed at the delivery layer, and its run is what waits. Answer
-        // `reset` (200) without writing a single byte, exactly as an already
-        // pending row does.
-        if (match.state === undefined || match.state === 'pending') {
-            return 'reset';
-        }
-
-        if (match.state === 'dispatched') {
-            return 'dispatched';
-        }
-
-        const reset = (event: QueuedEvent): QueuedEvent =>
-            event.id === input.eventId ? { ...event, state: 'pending' as const, claimedAt: null } : event;
-        await input.store.writeJson(EVENTS_FILE, serializedQueue(events.map(reset)));
-
-        return 'reset';
-    });
-}

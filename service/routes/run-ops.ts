@@ -30,22 +30,19 @@
  * of the operator's verification is the operator's).
  */
 
-import { errorResponse, STATUS, storageUnavailableResponse } from '../http.ts';
+import { errorResponse, STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
+import type { HttpResponse } from '../http.ts';
 import { requeueDispatch, resolveDispatch, retryDispatch } from '../poll/run-operate.ts';
 import { recordVerification } from '../poll/run-verify.ts';
-import type { HttpResponse } from '../http.ts';
 import type { ResolveDecision } from '../poll/run-operate.ts';
+import { refuseRunRequest, runAnswer, runOutcomeResponse, unknownRunResponse } from './run-answer.ts';
+import { flagMember, overLongTextResponse, sessionIdIssue, textMember } from './run-fields.ts';
 import {
     RUN_SCOPE_PREFIX,
-    flagMember,
     isRefusal,
     pathCorrelationId,
     readRunScopeBody,
     readRunScopeRequest,
-    runAnswer,
-    runOutcomeResponse,
-    textMember,
-    unknownRunResponse,
 } from './run-scope.ts';
 import type { Route, RouteContext, RouteRequest } from './types.ts';
 
@@ -138,6 +135,14 @@ function readResolution(fields: Readonly<Record<string, unknown>>): ResolutionRe
         };
     }
 
+    // The id the operator names lands in the run's state reason, its attempt
+    // record, and this route's refusals, so only the host's own shape is
+    // accepted (T-043f).
+    const sessionIssue = sessionIdIssue(sessionId);
+    if (sessionIssue !== null) {
+        return { ok: false, response: validationResponse([sessionIssue]) };
+    }
+
     return {
         ok: true,
         decision,
@@ -170,7 +175,16 @@ async function handleRetry(context: RouteContext, request: RouteRequest): Promis
 
     const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: {} });
     if (isRefusal(parsed)) {
-        return parsed;
+        return await refuseRunRequest({ context, operation: 'retry', correlationId, response: parsed });
+    }
+
+    // The panel's own words about the cause land in `dispatch.retry`, so an
+    // over-long optional member is a `422` naming the field rather than a
+    // silently absent one (T-043e).
+    const causeReport = textMember(parsed.fields.causeReport);
+    const overlong = overLongTextResponse(parsed.fields, ['causeReport']);
+    if (overlong !== null) {
+        return await refuseRunRequest({ context, operation: 'retry', correlationId, response: overlong });
     }
 
     const retried = await retryDispatch({
@@ -179,7 +193,7 @@ async function handleRetry(context: RouteContext, request: RouteRequest): Promis
         correlationId,
         attempt: parsed.attempt,
         causeCleared: flagMember(parsed.fields.causeCleared, false),
-        causeReport: textMember(parsed.fields.causeReport),
+        causeReport,
     });
 
     return runOutcomeResponse({
@@ -217,13 +231,18 @@ async function handleRequeue(context: RouteContext, request: RouteRequest): Prom
     // the echo is validated and the reset counter is not required of the caller.
     const body = readRunScopeBody({ raw: request.body, correlationId });
     if (isRefusal(body)) {
-        return body;
+        return await refuseRunRequest({ context, operation: 'requeue', correlationId, response: body });
     }
 
     if (flagMember(body.fields.confirm, false) !== true) {
-        return errorResponse(STATUS.validation, {
-            code: 'validation',
-            message: 'confirm: returning a run to waiting resets its attempt count; confirm that explicitly',
+        return await refuseRunRequest({
+            context,
+            operation: 'requeue',
+            correlationId,
+            response: errorResponse(STATUS.validation, {
+                code: 'validation',
+                message: 'confirm: returning a run to waiting resets its attempt count; confirm that explicitly',
+            }),
         });
     }
 
@@ -269,13 +288,23 @@ async function handleResolve(context: RouteContext, request: RouteRequest): Prom
     // applies here.
     const parsedBody = readRunScopeBody({ raw: request.body, correlationId });
     if (isRefusal(parsedBody)) {
-        return parsedBody;
+        return await refuseRunRequest({ context, operation: 'resolve', correlationId, response: parsedBody });
     }
 
     const { fields } = parsedBody;
     const resolution = readResolution(fields);
     if (!resolution.ok) {
-        return resolution.response;
+        return await refuseRunRequest({ context, operation: 'resolve', correlationId, response: resolution.response });
+    }
+
+    // The operator's note and the guidance they were shown land in
+    // `dispatch.resolved`, so an over-long optional member is a `422` naming the
+    // field rather than a silently absent one (T-043e).
+    const note = textMember(fields.note);
+    const guidance = textMember(fields.guidance);
+    const overlong = overLongTextResponse(fields, ['note', 'guidance']);
+    if (overlong !== null) {
+        return await refuseRunRequest({ context, operation: 'resolve', correlationId, response: overlong });
     }
 
     const resolved = await resolveDispatch({
@@ -284,8 +313,8 @@ async function handleResolve(context: RouteContext, request: RouteRequest): Prom
         correlationId,
         decision: resolution.decision,
         sessionId: resolution.sessionId,
-        note: textMember(fields.note),
-        guidance: textMember(fields.guidance),
+        note,
+        guidance,
     });
 
     return runOutcomeResponse({
@@ -340,13 +369,30 @@ function readReadBack(request: RouteRequest, correlationId: string): ReadBack | 
         });
     }
 
+    // The read-back's session id is compared against the run's own and echoed
+    // into refusal messages, so only the host's shape is accepted (T-043f).
+    const sessionIssue = sessionIdIssue(sessionId);
+    if (sessionIssue !== null) {
+        return validationResponse([sessionIssue]);
+    }
+
+    // The observed agent and the operator's note land in `agent.verified` /
+    // `agent.mismatch`, so an over-long optional member is a `422` naming the
+    // field rather than a silently absent one (T-043e).
+    const observedAgent = textMember(fields.observedAgent);
+    const note = textMember(fields.note);
+    const overlong = overLongTextResponse(fields, ['observedAgent', 'note']);
+    if (overlong !== null) {
+        return overlong;
+    }
+
     return {
         attempt,
         sessionId,
         expectedAgent,
-        observedAgent: textMember(fields.observedAgent),
+        observedAgent,
         ok: flagMember(fields.ok, false),
-        note: textMember(fields.note),
+        note,
     };
 }
 
@@ -379,7 +425,7 @@ async function handleVerification(context: RouteContext, request: RouteRequest):
     // half-applied (contract, common body fields; FR-051).
     const readBack = readReadBack(request, correlationId);
     if ('status' in readBack) {
-        return readBack;
+        return await refuseRunRequest({ context, operation: 'verification', correlationId, response: readBack });
     }
 
     const recorded = await recordVerification({

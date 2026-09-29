@@ -44,7 +44,11 @@ import type { Run, RunLease } from './runs-types.ts';
 
 /** What one reserve answered. */
 export type ReserveResult =
-    | (RunApplied & { readonly dispatchToken: string; readonly tokenExpiresAt: string })
+    | (RunApplied & {
+        readonly dispatchToken: string;
+        readonly tokenExpiresAt: string;
+        readonly resultDeadlineAt: string;
+    })
     | RunDuplicate
     | RunRefused
     | RunNotFound;
@@ -298,6 +302,11 @@ export async function reserveDispatch(input: ReserveInput): Promise<ReserveResul
             run: starting,
             dispatchToken,
             tokenExpiresAt: lease.expiresAt,
+            // The authorization outlives the lease: a report is judged against
+            // the reservation, not the claim (plan D7), so a panel told only
+            // when the lease dies would conclude its token dies there too, skip
+            // the report, and strand the run in `unconfirmed` (T-043d).
+            resultDeadlineAt,
             auditWritten: await appendRunRow({
                 store: input.store,
                 log: input.log,

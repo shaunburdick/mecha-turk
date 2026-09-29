@@ -7,13 +7,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
 import { createLogger } from '../service/log.ts';
 import { createEvent, enqueueEvents, EVENTS_FILE } from '../service/poll/events.ts';
+import { reserveDispatch } from '../service/poll/dispatch-authorize.ts';
+import { reportDispatch } from '../service/poll/dispatch-report.ts';
 import {
     RUNS_FILE,
-    applyResult,
     claimRun,
     ensureRunsAdopted,
     readRunsDocument,
-    reserveRun,
 } from '../service/poll/runs.ts';
 import { openStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
@@ -199,21 +199,29 @@ describe('runs.json first-read adoption', () => {
         };
         const claim = await claimRun(claimInput);
         expect(claim.status).toBe('applied');
-        const reservation = await reserveRun({
+        // T-043g: the un-routed second minting site is gone, so the fixture
+        // authorizes and spends through the modules the routes call — which is
+        // also what makes the assertion below about a *real* durable dispatch.
+        const reservation = await reserveDispatch({
             store,
             log: LOGGER,
             correlationId: run.correlationId,
             leaseId: MIGRATION_TEST_LEASE_ID,
-            resultDeadlineAt: '2026-09-28T12:35:00.000Z',
+            attempt: 1,
             now: NOW,
         });
-        expect(reservation.status).toBe('applied');
-        const result = await applyResult({
+        if (reservation.status !== 'applied') {
+            throw new Error(`reserve did not apply: ${reservation.status}`);
+        }
+
+        const result = await reportDispatch({
             store,
             log: LOGGER,
             correlationId: run.correlationId,
-            sessionId: 'ses_durable_before_loss',
-            problem: null,
+            dispatchToken: reservation.dispatchToken,
+            attempt: 1,
+            operation: 'result',
+            outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_durable_before_loss', reason: null },
             now: NOW,
         });
         expect(result.status).toBe('applied');

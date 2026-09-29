@@ -14,6 +14,8 @@ import {
     readEvents,
 } from '../service/poll/events.ts';
 import { applyEnqueue } from '../service/poll/runs-join.ts';
+import { reserveDispatch } from '../service/poll/dispatch-authorize.ts';
+import { reportDispatch } from '../service/poll/dispatch-report.ts';
 import {
     MAX_TERMINAL_RUNS,
     MAX_SOURCE_REFERENCES,
@@ -21,8 +23,6 @@ import {
     claimRun,
     emptyRunsDocument,
     readRunsDocument,
-    reserveRun,
-    applyResult,
     writeRunsDocument,
 } from '../service/poll/runs.ts';
 import { openStore } from '../service/store/index.ts';
@@ -180,21 +180,30 @@ describe('T-006 run-aware enqueue', () => {
             now: STAMP,
         });
         expect(claim.status).toBe('applied');
-        const reservation = await reserveRun({
+        // T-043g: the routed authorization path is the only way to authorize or
+        // spend an attempt — the un-routed second minting site this suite used
+        // to reach has been deleted, so the fixture drives the same modules the
+        // routes do.
+        const reservation = await reserveDispatch({
             store,
             log: LOGGER,
             correlationId,
             leaseId: LEASE_ID,
-            resultDeadlineAt: '2026-09-28T12:10:00.000Z',
+            attempt: 1,
             now: STAMP,
         });
-        expect(reservation.status).toBe('applied');
-        const result = await applyResult({
+        if (reservation.status !== 'applied') {
+            throw new Error(`reserve did not apply: ${reservation.status}`);
+        }
+
+        const result = await reportDispatch({
             store,
             log: LOGGER,
             correlationId,
-            sessionId: 'ses_existing',
-            problem: null,
+            dispatchToken: reservation.dispatchToken,
+            attempt: 1,
+            operation: 'result',
+            outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_existing', reason: null },
             now: STAMP,
         });
         expect(result.status).toBe('applied');
@@ -352,29 +361,42 @@ describe('T-003 run transition invariants', () => {
         expect(claims.filter((result) => result.status === 'applied')).toHaveLength(1);
         expect(claims.filter((result) => result.status === 'refused')).toHaveLength(1);
 
-        const reservationInput = {
+        // T-043g: authorization and its spend are the routed modules' alone, so
+        // the concurrency fixture drives them rather than the deleted store-level
+        // wrappers. Exactly one reserve must survive — the loser answers
+        // `already-reserved` against the winner's durable reservation.
+        const reserveOnce = () => reserveDispatch({
             store,
             log: LOGGER,
             correlationId: fixture.correlationId,
             leaseId: LEASE_ID,
-            resultDeadlineAt: '2026-09-28T12:10:00.000Z',
+            attempt: 1,
             now: STAMP,
-        };
-        const reservations = await Promise.all([reserveRun(reservationInput), reserveRun(reservationInput)]);
+        });
+        const reservations = await Promise.all([reserveOnce(), reserveOnce()]);
         expect(reservations.filter((result) => result.status === 'applied')).toHaveLength(1);
         expect(reservations.filter((result) => result.status === 'refused')).toHaveLength(1);
+        const [authorized] = reservations.filter((result) => result.status === 'applied');
+        if (authorized === undefined) {
+            throw new Error('exactly one concurrent reserve must apply');
+        }
 
-        const resultInput = {
+        // Two identical reports likewise: one applies, and the chain serializes
+        // the second into FR-025's idempotent repeat of the outcome already
+        // recorded — never a second application (NFR-102, contract invariant 3).
+        const reportOnce = () => reportDispatch({
             store,
             log: LOGGER,
             correlationId: fixture.correlationId,
-            sessionId: SESSION_ID,
-            problem: null,
+            dispatchToken: authorized.dispatchToken,
+            attempt: 1,
+            operation: 'result',
+            outcome: { attemptOutcome: 'dispatched', sessionId: SESSION_ID, reason: null },
             now: STAMP,
-        };
-        const results = await Promise.all([applyResult(resultInput), applyResult(resultInput)]);
+        });
+        const results = await Promise.all([reportOnce(), reportOnce()]);
         expect(results.filter((result) => result.status === 'applied')).toHaveLength(1);
-        expect(results.filter((result) => result.status === 'refused')).toHaveLength(1);
+        expect(results.filter((result) => result.status === 'duplicate')).toHaveLength(1);
         const final = await readRunsDocument({ store, log: LOGGER });
         expect(final.runs[0]?.session?.sessionId).toBe(SESSION_ID);
         expect(final.runs[0]?.attempts).toHaveLength(1);

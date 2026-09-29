@@ -4769,6 +4769,7 @@ async function reserveDispatch(input) {
       run: starting,
       dispatchToken,
       tokenExpiresAt: lease.expiresAt,
+      resultDeadlineAt,
       auditWritten: await appendRunRow({
         store: input.store,
         log: input.log,
@@ -5019,7 +5020,6 @@ var CORRELATION_ID_PATTERN = /^mt-run-[0-9a-f]{24}$/;
 var LEASE_ID_PATTERN = /^lse-[0-9a-f]{24}$/;
 var DISPATCH_TOKEN_PATTERN = /^dtk-[0-9a-f]{32}$/;
 var RUN_SCOPE_PREFIX = "/v1/events/:correlationId";
-var MAX_BODY_TEXT_CHARS = 1000;
 function pathCorrelationId(raw) {
   if (raw === undefined || raw.length === 0 || raw.length > MAX_CORRELATION_ID_CHARS) {
     return null;
@@ -5104,23 +5104,16 @@ function readRunScopeBody(input) {
 function isRefusal(parsed) {
   return "status" in parsed;
 }
-function textMember(value, bound = MAX_BODY_TEXT_CHARS) {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length === 0 || trimmed.length > bound ? null : trimmed;
-}
-function flagMember(value, fallback) {
-  return typeof value === "boolean" ? value : fallback;
-}
+
+// service/routes/run-answer.ts
 var REFUSAL_STATUS = new Map([
   ["unknown-run", STATUS.notFound],
   ["stale-lease", STATUS.conflict],
   ["already-reserved", STATUS.conflict],
   ["already-dispatched", STATUS.conflict],
   ["invalid-transition", STATUS.conflict],
-  ["cause-not-cleared", STATUS.conflict]
+  ["cause-not-cleared", STATUS.conflict],
+  ["validation", STATUS.validation]
 ]);
 function unknownRunResponse() {
   return errorResponse(STATUS.notFound, {
@@ -5133,16 +5126,17 @@ function runOutcomeResponse(input) {
   if (outcome.status === "not-found") {
     return unknownRunResponse();
   }
+  if (!outcome.auditWritten && outcome.run !== null) {
+    context.log.warn("dispatch operation could not record its row", {
+      correlationId: outcome.run.correlationId,
+      operation,
+      outcome: outcome.status
+    });
+  }
   if (outcome.status === "refused") {
     return errorResponse(REFUSAL_STATUS.get(outcome.refusal.code) ?? STATUS.conflict, {
       code: outcome.refusal.code,
       message: outcome.refusal.message
-    });
-  }
-  if (!outcome.auditWritten) {
-    context.log.warn("dispatch operation changed the run but could not record its row", {
-      correlationId: outcome.run.correlationId,
-      operation
     });
   }
   return { status: STATUS.ok, body: success(outcome.run, outcome.auditWritten) };
@@ -5154,6 +5148,68 @@ function runAnswer(input) {
     state: input.run.state,
     auditWritten: input.auditWritten
   };
+}
+var UNREADABLE_BODY_REASON = "the request did not validate";
+function isRecord2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function refusalReason(response) {
+  const { body } = response;
+  if (!isRecord2(body) || !isRecord2(body.error)) {
+    return UNREADABLE_BODY_REASON;
+  }
+  const { message } = body.error;
+  return typeof message === "string" && message.length > 0 ? message : UNREADABLE_BODY_REASON;
+}
+async function refuseRunRequest(input) {
+  const { context, correlationId, operation, response } = input;
+  const { store } = context;
+  if (store !== null) {
+    const reason = refusalReason(response);
+    await operateRun({ store, log: context.log, correlationId }, async ({ run }) => await appendRefusalRow({
+      store,
+      log: context.log,
+      refusal: { run, operation, refusal: refuse("validation", reason), attempt: run.attempt }
+    }));
+  }
+  return response;
+}
+
+// service/routes/run-fields.ts
+var MAX_BODY_TEXT_CHARS = 1000;
+var SESSION_ID_PATTERN = /^ses_[A-Za-z0-9._~-]+$/;
+var MAX_SESSION_ID_CHARS = 128;
+function textMember(value, bound = MAX_BODY_TEXT_CHARS) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length === 0 || trimmed.length > bound ? null : trimmed;
+}
+function flagMember(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
+function sessionIdIssue(value) {
+  if (value === null) {
+    return null;
+  }
+  if (value.length > MAX_SESSION_ID_CHARS || !SESSION_ID_PATTERN.test(value)) {
+    return {
+      field: "sessionId",
+      remediation: "send the session id the host minted: ses_ followed by at most " + `${MAX_SESSION_ID_CHARS} path-safe characters`
+    };
+  }
+  return null;
+}
+function overLongTextResponse(fields, names) {
+  const issues = [];
+  for (const name of names) {
+    const value = fields[name];
+    if (typeof value === "string" && value.trim().length > MAX_BODY_TEXT_CHARS) {
+      issues.push({ field: name, remediation: `send at most ${MAX_BODY_TEXT_CHARS} characters` });
+    }
+  }
+  return issues.length > 0 ? validationResponse(issues) : null;
 }
 
 // service/routes/dispatch.ts
@@ -5172,7 +5228,7 @@ async function handleReserve(context, request) {
   }
   const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { leaseId: true } });
   if (isRefusal(parsed)) {
-    return parsed;
+    return await refuseRunRequest({ context, operation: "reserve", correlationId, response: parsed });
   }
   const reserved = await reserveDispatch({
     store,
@@ -5184,8 +5240,24 @@ async function handleReserve(context, request) {
   return runOutcomeResponse({ context, operation: "reserve", outcome: reserved, success: (run, auditWritten) => ({
     ...runAnswer({ correlationId, run, auditWritten }),
     dispatchToken: reserved.status === "applied" ? reserved.dispatchToken : null,
-    tokenExpiresAt: reserved.status === "applied" ? reserved.tokenExpiresAt : null
+    tokenExpiresAt: reserved.status === "applied" ? reserved.tokenExpiresAt : null,
+    resultDeadlineAt: reserved.status === "applied" ? reserved.resultDeadlineAt : null
   }) });
+}
+function readResultOutcome(fields) {
+  const sessionId = textMember(fields.sessionId);
+  const problem = textMember(fields.problem);
+  if (sessionId === null === (problem === null)) {
+    return {
+      ok: false,
+      response: errorResponse(STATUS.validation, {
+        code: "validation",
+        message: "report exactly one outcome: the session that was created, " + "or the problem that prevented one"
+      })
+    };
+  }
+  const sessionIssue = sessionIdIssue(sessionId);
+  return sessionIssue === null ? { ok: true, sessionId, problem } : { ok: false, response: validationResponse([sessionIssue]) };
 }
 async function handleDispatched(context, request) {
   const { store } = context;
@@ -5198,15 +5270,11 @@ async function handleDispatched(context, request) {
   }
   const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { dispatchToken: true } });
   if (isRefusal(parsed)) {
-    return parsed;
+    return await refuseRunRequest({ context, operation: "result", correlationId, response: parsed });
   }
-  const sessionId = textMember(parsed.fields.sessionId);
-  const problem = textMember(parsed.fields.problem);
-  if (sessionId === null === (problem === null)) {
-    return errorResponse(STATUS.validation, {
-      code: "validation",
-      message: "report exactly one outcome: the session that was created, or the problem that prevented one"
-    });
+  const report = readResultOutcome(parsed.fields);
+  if (!report.ok) {
+    return await refuseRunRequest({ context, operation: "result", correlationId, response: report.response });
   }
   const reported = await reportDispatch({
     store,
@@ -5216,9 +5284,9 @@ async function handleDispatched(context, request) {
     attempt: parsed.attempt,
     operation: "result",
     outcome: {
-      attemptOutcome: sessionId === null ? "failed" : "dispatched",
-      sessionId,
-      reason: problem
+      attemptOutcome: report.sessionId === null ? "failed" : "dispatched",
+      sessionId: report.sessionId,
+      reason: report.problem
     }
   });
   return runOutcomeResponse({ context, operation: "result", outcome: reported, success: (run, auditWritten) => runAnswer({ correlationId, run, auditWritten }) });
@@ -5234,13 +5302,18 @@ async function handleAbandon(context, request) {
   }
   const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { dispatchToken: true } });
   if (isRefusal(parsed)) {
-    return parsed;
+    return await refuseRunRequest({ context, operation: "abandon", correlationId, response: parsed });
   }
   const reason = textMember(parsed.fields.reason);
   if (reason === null) {
-    return errorResponse(STATUS.validation, {
-      code: "validation",
-      message: "reason: say why the reserved attempt was abandoned, so the failure row is readable"
+    return await refuseRunRequest({
+      context,
+      operation: "abandon",
+      correlationId,
+      response: errorResponse(STATUS.validation, {
+        code: "validation",
+        message: "reason: say why the reserved attempt was abandoned, so the failure row is readable"
+      })
     });
   }
   const abandoned = await reportDispatch({
@@ -5254,6 +5327,25 @@ async function handleAbandon(context, request) {
   });
   return runOutcomeResponse({ context, operation: "abandon", outcome: abandoned, success: (run, auditWritten) => runAnswer({ correlationId, run, auditWritten }) });
 }
+function readBlockReport(fields) {
+  const guidance = textMember(fields.guidance);
+  const overlong = overLongTextResponse(fields, ["guidance"]);
+  const blockedReason = textMember(fields.blockedReason);
+  const detail = textMember(fields.detail);
+  if (blockedReason === null || !BLOCKED_REASONS.has(blockedReason) || detail === null) {
+    return {
+      ok: false,
+      response: errorResponse(STATUS.validation, {
+        code: "validation",
+        message: `blockedReason: name one of ${[...BLOCKED_REASONS].join(", ")}; detail: describe the cause`
+      })
+    };
+  }
+  if (overlong !== null) {
+    return { ok: false, response: overlong };
+  }
+  return { ok: true, blockedReason, detail, guidance };
+}
 async function handleBlocked(context, request) {
   const { store } = context;
   if (store === null) {
@@ -5265,15 +5357,11 @@ async function handleBlocked(context, request) {
   }
   const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { leaseId: true } });
   if (isRefusal(parsed)) {
-    return parsed;
+    return await refuseRunRequest({ context, operation: "blocked", correlationId, response: parsed });
   }
-  const blockedReason = textMember(parsed.fields.blockedReason);
-  const detail = textMember(parsed.fields.detail);
-  if (blockedReason === null || !BLOCKED_REASONS.has(blockedReason) || detail === null) {
-    return errorResponse(STATUS.validation, {
-      code: "validation",
-      message: `blockedReason: name one of ${[...BLOCKED_REASONS].join(", ")}; detail: describe the cause`
-    });
+  const report = readBlockReport(parsed.fields);
+  if (!report.ok) {
+    return await refuseRunRequest({ context, operation: "blocked", correlationId, response: report.response });
   }
   const blocked = await blockDispatch({
     store,
@@ -5281,9 +5369,9 @@ async function handleBlocked(context, request) {
     correlationId,
     leaseId: parsed.leaseId,
     attempt: parsed.attempt,
-    blockedReason,
-    detail,
-    guidance: textMember(parsed.fields.guidance)
+    blockedReason: report.blockedReason,
+    detail: report.detail,
+    guidance: report.guidance
   });
   return runOutcomeResponse({ context, operation: "blocked", outcome: blocked, success: (run, auditWritten) => runAnswer({ correlationId, run, auditWritten }) });
 }
@@ -5645,6 +5733,10 @@ function readResolution(fields) {
       })
     };
   }
+  const sessionIssue = sessionIdIssue(sessionId);
+  if (sessionIssue !== null) {
+    return { ok: false, response: validationResponse([sessionIssue]) };
+  }
   return {
     ok: true,
     decision,
@@ -5662,7 +5754,12 @@ async function handleRetry(context, request) {
   }
   const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: {} });
   if (isRefusal(parsed)) {
-    return parsed;
+    return await refuseRunRequest({ context, operation: "retry", correlationId, response: parsed });
+  }
+  const causeReport = textMember(parsed.fields.causeReport);
+  const overlong = overLongTextResponse(parsed.fields, ["causeReport"]);
+  if (overlong !== null) {
+    return await refuseRunRequest({ context, operation: "retry", correlationId, response: overlong });
   }
   const retried = await retryDispatch({
     store,
@@ -5670,7 +5767,7 @@ async function handleRetry(context, request) {
     correlationId,
     attempt: parsed.attempt,
     causeCleared: flagMember(parsed.fields.causeCleared, false),
-    causeReport: textMember(parsed.fields.causeReport)
+    causeReport
   });
   return runOutcomeResponse({
     context,
@@ -5690,12 +5787,17 @@ async function handleRequeue(context, request) {
   }
   const body = readRunScopeBody({ raw: request.body, correlationId });
   if (isRefusal(body)) {
-    return body;
+    return await refuseRunRequest({ context, operation: "requeue", correlationId, response: body });
   }
   if (flagMember(body.fields.confirm, false) !== true) {
-    return errorResponse(STATUS.validation, {
-      code: "validation",
-      message: "confirm: returning a run to waiting resets its attempt count; confirm that explicitly"
+    return await refuseRunRequest({
+      context,
+      operation: "requeue",
+      correlationId,
+      response: errorResponse(STATUS.validation, {
+        code: "validation",
+        message: "confirm: returning a run to waiting resets its attempt count; confirm that explicitly"
+      })
     });
   }
   const requeued = await requeueDispatch({ store, log: context.log, correlationId });
@@ -5717,12 +5819,18 @@ async function handleResolve(context, request) {
   }
   const parsedBody = readRunScopeBody({ raw: request.body, correlationId });
   if (isRefusal(parsedBody)) {
-    return parsedBody;
+    return await refuseRunRequest({ context, operation: "resolve", correlationId, response: parsedBody });
   }
   const { fields } = parsedBody;
   const resolution = readResolution(fields);
   if (!resolution.ok) {
-    return resolution.response;
+    return await refuseRunRequest({ context, operation: "resolve", correlationId, response: resolution.response });
+  }
+  const note = textMember(fields.note);
+  const guidance = textMember(fields.guidance);
+  const overlong = overLongTextResponse(fields, ["note", "guidance"]);
+  if (overlong !== null) {
+    return await refuseRunRequest({ context, operation: "resolve", correlationId, response: overlong });
   }
   const resolved = await resolveDispatch({
     store,
@@ -5730,8 +5838,8 @@ async function handleResolve(context, request) {
     correlationId,
     decision: resolution.decision,
     sessionId: resolution.sessionId,
-    note: textMember(fields.note),
-    guidance: textMember(fields.guidance)
+    note,
+    guidance
   });
   return runOutcomeResponse({
     context,
@@ -5754,13 +5862,23 @@ function readReadBack(request, correlationId) {
       message: "sessionId and expectedAgent: both are required to file a read-back against this run"
     });
   }
+  const sessionIssue = sessionIdIssue(sessionId);
+  if (sessionIssue !== null) {
+    return validationResponse([sessionIssue]);
+  }
+  const observedAgent = textMember(fields.observedAgent);
+  const note = textMember(fields.note);
+  const overlong = overLongTextResponse(fields, ["observedAgent", "note"]);
+  if (overlong !== null) {
+    return overlong;
+  }
   return {
     attempt,
     sessionId,
     expectedAgent,
-    observedAgent: textMember(fields.observedAgent),
+    observedAgent,
     ok: flagMember(fields.ok, false),
-    note: textMember(fields.note)
+    note
   };
 }
 async function handleVerification(context, request) {
@@ -5774,7 +5892,7 @@ async function handleVerification(context, request) {
   }
   const readBack = readReadBack(request, correlationId);
   if ("status" in readBack) {
-    return readBack;
+    return await refuseRunRequest({ context, operation: "verification", correlationId, response: readBack });
   }
   const recorded = await recordVerification({
     store,

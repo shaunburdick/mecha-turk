@@ -10,27 +10,26 @@
  *   and the body echoes it (FR-051: the service mints it, the panel must not
  *   substitute it). A body that contradicts the path is a validation failure,
  *   never a silently-preferred one of the two.
- * - **What a refusal looks like on the wire.** One code → one status, one
- *   envelope, no per-route drift: `409` for every state verdict, `404` for an
- *   unknown run, `422` for a malformed body.
  * - **What a refusal is worth afterwards.** Every refusal about a run that
- *   *exists* writes exactly one `dispatch.refused` row (FR-003), through the
- *   operation modules, which own that write. This module only owns the mapping
- *   from an operation's answer to a status code and a message.
+ *   *exists* writes exactly one `dispatch.refused` row (FR-003) — the state
+ *   verdicts from their operation modules, and a body that never reached one
+ *   from [`run-answer.ts`](./run-answer.ts), which reads the run for the row's
+ *   `priorState` and `attempt`. This module stops at the verdict; turning it
+ *   into a status, an envelope, and a row is that module's job, which is also
+ *   where "one code → one status, one envelope, no per-route drift" is
+ *   enforced for all eight routes at once.
  *
- * The one refusal with no row is `unknown-run`, and it is deliberate rather than
- * an oversight: there is no run, so there is no entity, no prior state, and no
- * attempt for the row to name, and the contract's rule that the row's entity and
- * correlation are the run's would have to be faked to write one. The panel is
- * told the run is gone; the trail records nothing rather than a fabricated
+ * The two refusals with no row are `unknown-run` and a `422` about a run this
+ * service does not hold, and both are deliberate rather than an oversight: there
+ * is no run, so there is no entity, no prior state, and no attempt for the row
+ * to name, and the contract's rule that the row's entity and correlation are the
+ * run's would have to be faked to write one. The panel is told the run is gone
+ * or the body is malformed; the trail records nothing rather than a fabricated
  * entity.
  */
 
-import { errorResponse, STATUS, validationResponse } from '../http.ts';
+import { validationResponse } from '../http.ts';
 import type { FieldIssue, HttpResponse } from '../http.ts';
-import type { RunRefusal, RunResult } from '../poll/run-refusal.ts';
-import type { Run } from '../poll/runs-types.ts';
-import type { RouteContext } from './types.ts';
 
 /** Longest correlation id a path may present before it is refused outright. */
 const MAX_CORRELATION_ID_CHARS = 64;
@@ -46,9 +45,6 @@ const DISPATCH_TOKEN_PATTERN = /^dtk-[0-9a-f]{32}$/;
 
 /** Path prefix every run-scoped operation shares. */
 export const RUN_SCOPE_PREFIX = '/v1/events/:correlationId';
-
-/** Longest free-text body member the operations accept. */
-export const MAX_BODY_TEXT_CHARS = 1_000;
 
 /**
  * Read the `:correlationId` segment a route pattern captured.
@@ -348,126 +344,4 @@ export function readRunScopeBody(input: ReadRequest): RunScopeBody | HttpRespons
  */
 export function isRefusal(parsed: RunScopeRequest | RunScopeBody | HttpResponse): parsed is HttpResponse {
     return 'status' in parsed;
-}
-
-/**
- * Read one free-text member, treating an absent, blank, or over-long one as absent.
- *
- * Bounding here rather than accepting whatever arrived is what keeps an
- * unbounded panel string out of a durable audit row; the operation then answers
- * `422` naming the field rather than storing a truncated cause as though it were
- * the whole one.
- *
- * @param value - The member as received.
- * @param bound - Longest value accepted.
- * @returns The trimmed text, or `null`.
- */
-export function textMember(value: unknown, bound: number = MAX_BODY_TEXT_CHARS): string | null {
-    if (typeof value !== 'string') {
-        return null;
-    }
-
-    const trimmed = value.trim();
-
-    return trimmed.length === 0 || trimmed.length > bound ? null : trimmed;
-}
-
-/**
- * Read one boolean member, answering the fallback when it is absent.
- *
- * @param value - The member as received.
- * @param fallback - What an absent or non-boolean member means here.
- * @returns The boolean, or the fallback.
- */
-export function flagMember(value: unknown, fallback: boolean): boolean {
-    return typeof value === 'boolean' ? value : fallback;
-}
-
-/** Every run-scoped refusal code and the status it answers with. */
-const REFUSAL_STATUS = new Map<RunRefusal['code'], number>([
-    ['unknown-run', STATUS.notFound],
-    ['stale-lease', STATUS.conflict],
-    ['already-reserved', STATUS.conflict],
-    ['already-dispatched', STATUS.conflict],
-    ['invalid-transition', STATUS.conflict],
-    ['cause-not-cleared', STATUS.conflict],
-]);
-
-/**
- * The `404` for an operation addressed to a run this service does not have.
- *
- * @returns The unknown-run response (contract §Error-code additions).
- */
-export function unknownRunResponse(): HttpResponse {
-    return errorResponse(STATUS.notFound, {
-        code: 'unknown-run',
-        message: 'no run carries this correlation id; refresh, it may have been evicted',
-    });
-}
-
-/**
- * Turn one operation's answer into the response the panel sees.
- *
- * The refusal message is the operation's own, verbatim (contract: 005 renders
- * these strings), and it is the same string the `dispatch.refused` row records —
- * which is why this function only ever *copies* it and never composes one.
- *
- * A degraded trail is logged here rather than in each route, because FR-063's
- * "must not be swallowed" obligation is the same obligation for all eight
- * operations and one log line is what makes it observable in the service log.
- *
- * @param context - Route context, for the log a degraded trail leaves.
- * @param operation - The operation name, for that log line.
- * @param outcome - Whatever the operation returned.
- * @param success - Builds the `200` body from the run; a duplicate gets the same
- *   body, because a repeat changed nothing and must look like it.
- * @returns The response to write.
- */
-export function runOutcomeResponse(input: {
-    /** Route context, for the log a degraded trail leaves. */
-    readonly context: RouteContext;
-    /** The operation name, for that log line. */
-    readonly operation: string;
-    /** Whatever the operation returned. */
-    readonly outcome: RunResult;
-    /** Builds the `200` body from the run; a duplicate gets the same body. */
-    readonly success: (run: Run, auditWritten: boolean) => Record<string, unknown>;
-}): HttpResponse {
-    const { context, operation, outcome, success } = input;
-    if (outcome.status === 'not-found') {
-        return unknownRunResponse();
-    }
-
-    if (outcome.status === 'refused') {
-        return errorResponse(REFUSAL_STATUS.get(outcome.refusal.code) ?? STATUS.conflict, {
-            code: outcome.refusal.code,
-            message: outcome.refusal.message,
-        });
-    }
-
-    if (!outcome.auditWritten) {
-        context.log.warn('dispatch operation changed the run but could not record its row', {
-            correlationId: outcome.run.correlationId,
-            operation,
-        });
-    }
-
-    return { status: STATUS.ok, body: success(outcome.run, outcome.auditWritten) };
-}
-
-/** The `200` body every run-scoped mutation answers with, plus `auditWritten`. */
-export function runAnswer(input: {
-    /** The run the path named. */
-    readonly correlationId: string;
-    /** The run as it stands; a duplicate repeats it byte-stably. */
-    readonly run: Run;
-    /** Whether the lifecycle row reached the trail (FR-063). */
-    readonly auditWritten: boolean;
-}): Record<string, unknown> {
-    return {
-        correlationId: input.correlationId,
-        attempt: input.run.attempt,
-        state: input.run.state,
-        auditWritten: input.auditWritten,
-    };
 }

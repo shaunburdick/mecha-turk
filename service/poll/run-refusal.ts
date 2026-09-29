@@ -45,7 +45,18 @@ export type RunRefusalCode =
     /** The run is not in a state this operation accepts, with a distinct message. */
     | 'invalid-transition'
     /** A blocked run's cause has not cleared (002 §4's retained code). */
-    | 'cause-not-cleared';
+    | 'cause-not-cleared'
+    /**
+     * The body failed validation (002 §4's `422 validation`).
+     *
+     * A response code rather than an operation verdict: it never reaches
+     * {@link RunOutcome} from an operation module, because a `422` is decided in
+     * the route layer before the run is touched. It exists here so the
+     * `dispatch.refused` row a run is owed for one (contract §9, as narrowed by
+     * T-044) records **the same code the wire carried**, and so `REFUSAL_STATUS`
+     * maps it rather than falling through to a default.
+     */
+    | 'validation';
 
 /** One refusal: its machine code and the secret-free cause the row records. */
 export interface RunRefusal {

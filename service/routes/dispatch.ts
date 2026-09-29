@@ -29,18 +29,11 @@
 import { reserveDispatch } from '../poll/dispatch-authorize.ts';
 import { BLOCKED_REASONS, blockDispatch } from '../poll/dispatch-block.ts';
 import { reportDispatch } from '../poll/dispatch-report.ts';
-import { errorResponse, STATUS, storageUnavailableResponse } from '../http.ts';
+import { errorResponse, STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
-import {
-    RUN_SCOPE_PREFIX,
-    isRefusal,
-    pathCorrelationId,
-    readRunScopeRequest,
-    runAnswer,
-    runOutcomeResponse,
-    textMember,
-    unknownRunResponse,
-} from './run-scope.ts';
+import { RUN_SCOPE_PREFIX, isRefusal, pathCorrelationId, readRunScopeRequest } from './run-scope.ts';
+import { refuseRunRequest, runAnswer, runOutcomeResponse, unknownRunResponse } from './run-answer.ts';
+import { overLongTextResponse, sessionIdIssue, textMember } from './run-fields.ts';
 import type { Route, RouteContext, RouteRequest } from './types.ts';
 
 /** The panel declares intent to start a session and receives its token. */
@@ -65,8 +58,9 @@ export const BLOCKED_PATH = `${RUN_SCOPE_PREFIX}/blocked`;
  *
  * @param context - Route context carrying the open store.
  * @param request - Routed request; the path captures `:correlationId`.
- * @returns `200 { correlationId, attempt, dispatchToken, tokenExpiresAt, state, auditWritten }`,
- *   or the documented `404`/`409`/`422`/`503`.
+ * @returns `200 { correlationId, attempt, dispatchToken, tokenExpiresAt,
+ *   resultDeadlineAt, state, auditWritten }`, or the documented
+ *   `404`/`409`/`422`/`503`.
  */
 async function handleReserve(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;
@@ -81,7 +75,7 @@ async function handleReserve(context: RouteContext, request: RouteRequest): Prom
 
     const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { leaseId: true } });
     if (isRefusal(parsed)) {
-        return parsed;
+        return await refuseRunRequest({ context, operation: 'reserve', correlationId, response: parsed });
     }
 
     const reserved = await reserveDispatch({
@@ -97,10 +91,52 @@ async function handleReserve(context: RouteContext, request: RouteRequest): Prom
         // The token is the one thing this route hands back, and neither a
         // refusal nor a duplicate has one to give: answering `null` rather than
         // omitting the member keeps the panel's parser from branching on
-        // whether the key is present.
+        // whether the key is present. Both deadlines ride beside it for the same
+        // reason — the lease says when the *claim* dies, the deadline says when
+        // the *authorization* is reported or wedged (T-043d).
         dispatchToken: reserved.status === 'applied' ? reserved.dispatchToken : null,
         tokenExpiresAt: reserved.status === 'applied' ? reserved.tokenExpiresAt : null,
+        resultDeadlineAt: reserved.status === 'applied' ? reserved.resultDeadlineAt : null,
     }) });
+}
+
+/** What a result body said, after exactly one outcome validated. */
+type ResultOutcome =
+    | { readonly ok: true; readonly sessionId: string | null; readonly problem: string | null }
+    | { readonly ok: false; readonly response: HttpResponse };
+
+/**
+ * Read a result body's outcome: exactly one of `sessionId` / `problem`, and a
+ * session in the host's own shape.
+ *
+ * FR-040's whole point is that the two are different facts, so a body carrying
+ * both or neither is refused rather than resolved by a precedence rule — which
+ * is the ambiguity constitution II forbids. The session id is checked where it
+ * enters because it is echoed into the run's state reason, its attempt record,
+ * and audit details (T-043f).
+ *
+ * @param fields - The body's members, after FR-051's echo already matched.
+ * @returns The outcome, or the `422` naming what was wrong.
+ */
+function readResultOutcome(fields: Readonly<Record<string, unknown>>): ResultOutcome {
+    const sessionId = textMember(fields.sessionId);
+    const problem = textMember(fields.problem);
+    if ((sessionId === null) === (problem === null)) {
+        return {
+            ok: false,
+            response: errorResponse(STATUS.validation, {
+                code: 'validation',
+                message: 'report exactly one outcome: the session that was created, '
+                    + 'or the problem that prevented one',
+            }),
+        };
+    }
+
+    const sessionIssue = sessionIdIssue(sessionId);
+
+    return sessionIssue === null
+        ? { ok: true, sessionId, problem }
+        : { ok: false, response: validationResponse([sessionIssue]) };
 }
 
 /**
@@ -129,16 +165,12 @@ async function handleDispatched(context: RouteContext, request: RouteRequest): P
 
     const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { dispatchToken: true } });
     if (isRefusal(parsed)) {
-        return parsed;
+        return await refuseRunRequest({ context, operation: 'result', correlationId, response: parsed });
     }
 
-    const sessionId = textMember(parsed.fields.sessionId);
-    const problem = textMember(parsed.fields.problem);
-    if ((sessionId === null) === (problem === null)) {
-        return errorResponse(STATUS.validation, {
-            code: 'validation',
-            message: 'report exactly one outcome: the session that was created, or the problem that prevented one',
-        });
+    const report = readResultOutcome(parsed.fields);
+    if (!report.ok) {
+        return await refuseRunRequest({ context, operation: 'result', correlationId, response: report.response });
     }
 
     const reported = await reportDispatch({
@@ -149,9 +181,9 @@ async function handleDispatched(context: RouteContext, request: RouteRequest): P
         attempt: parsed.attempt,
         operation: 'result',
         outcome: {
-            attemptOutcome: sessionId === null ? 'failed' : 'dispatched',
-            sessionId,
-            reason: problem,
+            attemptOutcome: report.sessionId === null ? 'failed' : 'dispatched',
+            sessionId: report.sessionId,
+            reason: report.problem,
         },
     });
 
@@ -185,14 +217,19 @@ async function handleAbandon(context: RouteContext, request: RouteRequest): Prom
 
     const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { dispatchToken: true } });
     if (isRefusal(parsed)) {
-        return parsed;
+        return await refuseRunRequest({ context, operation: 'abandon', correlationId, response: parsed });
     }
 
     const reason = textMember(parsed.fields.reason);
     if (reason === null) {
-        return errorResponse(STATUS.validation, {
-            code: 'validation',
-            message: 'reason: say why the reserved attempt was abandoned, so the failure row is readable',
+        return await refuseRunRequest({
+            context,
+            operation: 'abandon',
+            correlationId,
+            response: errorResponse(STATUS.validation, {
+                code: 'validation',
+                message: 'reason: say why the reserved attempt was abandoned, so the failure row is readable',
+            }),
         });
     }
 
@@ -208,6 +245,47 @@ async function handleAbandon(context: RouteContext, request: RouteRequest): Prom
 
     return runOutcomeResponse({ context, operation: 'abandon', outcome: abandoned, success: (run, auditWritten) =>
         runAnswer({ correlationId, run, auditWritten }) });
+}
+
+/** What a block report body said, after its own members validated. */
+type BlockReport =
+    | { readonly ok: true; readonly blockedReason: string; readonly detail: string; readonly guidance: string | null }
+    | { readonly ok: false; readonly response: HttpResponse };
+
+/**
+ * Read a block report's members: the cause, the detail, and the in-panel
+ * guidance offered with it.
+ *
+ * The optional guidance is *read* first so a body with two problems is
+ * collected all at once, and *reported* after the required cause so the more
+ * fundamental failure — no `blockedReason` to build a parseable
+ * `blocked:<reason>` state from (data-model §2.2) — is the one the operator
+ * reads first. An over-long guidance is a `422` naming the field rather than a
+ * silently absent one (T-043e).
+ *
+ * @param fields - The body's members, after FR-051's echo already matched.
+ * @returns The report, or the `422` naming what was wrong.
+ */
+function readBlockReport(fields: Readonly<Record<string, unknown>>): BlockReport {
+    const guidance = textMember(fields.guidance);
+    const overlong = overLongTextResponse(fields, ['guidance']);
+    const blockedReason = textMember(fields.blockedReason);
+    const detail = textMember(fields.detail);
+    if (blockedReason === null || !BLOCKED_REASONS.has(blockedReason) || detail === null) {
+        return {
+            ok: false,
+            response: errorResponse(STATUS.validation, {
+                code: 'validation',
+                message: `blockedReason: name one of ${[...BLOCKED_REASONS].join(', ')}; detail: describe the cause`,
+            }),
+        };
+    }
+
+    if (overlong !== null) {
+        return { ok: false, response: overlong };
+    }
+
+    return { ok: true, blockedReason, detail, guidance };
 }
 
 /**
@@ -237,16 +315,12 @@ async function handleBlocked(context: RouteContext, request: RouteRequest): Prom
 
     const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: { leaseId: true } });
     if (isRefusal(parsed)) {
-        return parsed;
+        return await refuseRunRequest({ context, operation: 'blocked', correlationId, response: parsed });
     }
 
-    const blockedReason = textMember(parsed.fields.blockedReason);
-    const detail = textMember(parsed.fields.detail);
-    if (blockedReason === null || !BLOCKED_REASONS.has(blockedReason) || detail === null) {
-        return errorResponse(STATUS.validation, {
-            code: 'validation',
-            message: `blockedReason: name one of ${[...BLOCKED_REASONS].join(', ')}; detail: describe the cause`,
-        });
+    const report = readBlockReport(parsed.fields);
+    if (!report.ok) {
+        return await refuseRunRequest({ context, operation: 'blocked', correlationId, response: report.response });
     }
 
     const blocked = await blockDispatch({
@@ -255,9 +329,9 @@ async function handleBlocked(context: RouteContext, request: RouteRequest): Prom
         correlationId,
         leaseId: parsed.leaseId,
         attempt: parsed.attempt,
-        blockedReason,
-        detail,
-        guidance: textMember(parsed.fields.guidance),
+        blockedReason: report.blockedReason,
+        detail: report.detail,
+        guidance: report.guidance,
     });
 
     return runOutcomeResponse({ context, operation: 'blocked', outcome: blocked, success: (run, auditWritten) =>
