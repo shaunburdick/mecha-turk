@@ -13,6 +13,16 @@
  * corroborate is a **conflict** and is refused — a session id must never be
  * overwritable by a problem, nor swapped (contract §2).
  *
+ * The attempt history is also what makes the derivation safe *across* a
+ * dead-letter reset. FR-020 pins the token to `sha256(runKey|attempt)`, and
+ * FR-033's reset returns a run to attempt 1 — so chain 2 re-mints chain 1's
+ * **byte-identical** token, and the live reservation alone cannot tell the two
+ * apart. {@link tokenSpent} is the difference: a token any *earlier* record
+ * closed can never authorize a report again, whatever a later reservation says
+ * (FR-020, FR-022, FR-025, FR-028, AC-110, NFR-102). The check reads history
+ * and nothing else, so `reserve` — which consults no history — still authorizes
+ * after a reset and the dead-letter path cannot dead-end.
+ *
  * Abandon is a result report whose outcome is *no session* (FR-026), so it shares
  * this operation and this matrix entirely; it is distinguished from Result's
  * `problem` shape by when it is true rather than by the state it ends in.
@@ -119,6 +129,40 @@ function conflict(run: Run): RunRefusal {
     );
 }
 
+/**
+ * Whether the attempt history already spent this token **on an earlier record**.
+ *
+ * A record "spent" the token when it carries it **and** is closed: either the
+ * stamp landed (`resultReportedAt`) or an outcome was recorded. The derivation
+ * is a pure function of `(runKey, attempt)` (FR-020), and FR-033's reset returns
+ * the run to attempt 1, so a later chain re-mints the exact bytes an earlier one
+ * consumed — which is why "does the live reservation hold this token" is the
+ * wrong question to ask on its own. The history is durable, append-only, and
+ * survives the reset (plan D6), so it is the one record that can still tell the
+ * chains apart.
+ *
+ * **The current attempt's own record is excluded, and only it.** That is the
+ * record `reserveDispatch` writes and `reservation.consumed` already governs —
+ * and the sweep's `unconfirmed` wedge *closes* it (the result deadline passed)
+ * while leaving the authorization deliberately live, because a late report must
+ * still reconcile the run (FR-025, contract §2's `unconfirmed` row, AC-111).
+ * Excluding exactly that one record is what keeps the two requirements from
+ * contradicting each other: every *other* record carrying a closed token is a
+ * token from a chain the run has already left, and none of them may ever apply.
+ *
+ * @param run - The run being reported on.
+ * @param dispatchToken - Token the report presented.
+ * @returns `true` when some record other than the live reservation's own already
+ *   closed this token.
+ */
+function tokenSpent(run: Run, dispatchToken: string): boolean {
+    const live = currentAttempt(run);
+
+    return run.attempts.some((record) => record !== live
+        && record.dispatchToken === dispatchToken
+        && (record.resultReportedAt !== null || record.outcome !== null));
+}
+
 /** The verdict's three arms, so each is applied by its own named step. */
 type ReportVerdict =
     | { readonly verdict: 'apply' }
@@ -131,9 +175,11 @@ type ReportVerdict =
  * The matrix, in the order a request can fail it: an unknown, mismatched, or
  * superseded token is stale; a consumed token is a duplicate **only** when the
  * recorded outcome is exactly the one being repeated and the run state
- * corroborates it, and a conflict otherwise; an unconsumed token applies from
- * `starting` or from `unconfirmed` (FR-025's reconciliation), and from nowhere
- * else.
+ * corroborates it, and a conflict otherwise; a token the attempt history has
+ * already closed is stale whatever the live reservation says (the cross-chain
+ * replay a dead-letter reset makes possible); and an unconsumed token applies
+ * from `starting` or from `unconfirmed` (FR-025's reconciliation), and from
+ * nowhere else.
  *
  * @param input - The run, the token presented, the attempt, and the outcome.
  * @returns `apply`, `duplicate`, or the refusal.
@@ -164,6 +210,20 @@ function judgeReport(input: {
 
     if (reservation.consumed) {
         return repeatedOutcome({ run, outcome }) ? { verdict: 'duplicate' } : { refusal: conflict(run) };
+    }
+
+    // The live reservation holds this token and has not spent it — which is
+    // exactly the shape a dead-letter reset produces, because the reset returns
+    // the run to attempt 1 and the derivation re-mints chain 1's bytes. Every
+    // record the history already closed *around* this one is a token from a
+    // chain the run has left, so the report in front of us is that chain's late
+    // arrival rather than this one's, and it is refused instead of applied
+    // (FR-020, FR-022, FR-028, AC-110). The live reservation's own record is
+    // excluded from that scan — it is the one `reservation.consumed` above
+    // already governs, and the sweep's wedge closes it while the authorization
+    // is still meant to be reportable (FR-025, AC-111).
+    if (tokenSpent(run, dispatchToken)) {
+        return { refusal: stale };
     }
 
     return run.state === 'starting' || run.state === 'unconfirmed'

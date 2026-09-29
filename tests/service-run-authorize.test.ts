@@ -437,6 +437,10 @@ async function seedRunInState(input: {
 /**
  * Seed one run that already produced a session.
  *
+ * Deliberately **leaseless**: an applied result clears the lease, so this is the
+ * shape a dispatched run actually has, and the reserve refusal the fixture
+ * reaches has to survive having no lease to ride on (T-042e, AC-112).
+ *
  * @param issueNumber - Issue to build the run from.
  * @param sessionId - The session the run recorded.
  * @returns The seeded run.
@@ -446,8 +450,6 @@ async function seedRunWithSession(input: {
     readonly issueNumber: number;
     /** The session the run recorded. */
     readonly sessionId: string;
-    /** Whether to keep a live lease on a dispatched run. */
-    readonly liveLease?: boolean;
 }): Promise<Run> {
     const { issueNumber, sessionId } = input;
     const delivery = createEvent(assignment(issueNumber));
@@ -461,9 +463,7 @@ async function seedRunWithSession(input: {
         ...created,
         state: 'dispatched',
         stateReason: `session ${sessionId} created`,
-        // A dispatched run normally holds no lease; the fixture can keep one to
-        // reach the refusal that must name the session.
-        lease: input.liveLease === true ? liveLease() : null,
+        lease: null,
         session: {
             sessionId,
             attachmentId: created.attachmentId,
@@ -615,13 +615,16 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         expect(afterDuplicate.reservation?.dispatchToken).toBe(authorized.reservation?.dispatchToken);
     });
 
-    it('refuses a run that already produced a session, naming that session', async () => {
-        // A run that produced a session is normally leaseless, in which case the
-        // lease check refuses it first as stale. This fixture keeps a live lease
-        // so the assertion reaches the branch it is actually about: AC-112's
-        // requirement that the refusal **name the session**, which only a
-        // valid-authorization refusal can carry.
-        const run = await seedRunWithSession({ issueNumber: 9, sessionId: 'ses_already', liveLease: true });
+    it('refuses a leaseless dispatched run by naming the session, not the absent lease', async () => {
+        // AC-112 on the natural path: a dispatched run holds **no lease** — an
+        // applied result clears it — so the session check has to be asked before
+        // the lease check or this verdict is unreachable and every such run
+        // answers `stale-lease` instead (FR-022). The fixture is leaseless for
+        // exactly that reason; a live lease here would have hidden the ordering
+        // it exists to pin.
+        const run = await seedRunWithSession({ issueNumber: 9, sessionId: 'ses_already' });
+        expect(run.lease).toBeNull();
+
         const outcome = await reserve({ correlationId: run.correlationId, leaseId: leaseOf(run) });
 
         expect(outcome.status).toBe(REFUSED);
@@ -629,15 +632,17 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         expect(refusal?.code).toBe('already-dispatched');
         // AC-112 in full: the refusal names the session.
         expect(refusal?.message).toContain('ses_already');
+        const refusals = await rowsOf(REFUSED_ROW);
+        expect(refusals.some((row) => row.code === 'already-dispatched')).toBe(true);
     });
 
     it('refuses a live-lease run that is not claimed as invalid-transition, naming the state', async () => {
-        // Contract §1 orders the lease check first, so `invalid-transition` is
-        // reachable only for a run whose lease is still live while its state is
-        // not `claimed`. The parser accepts exactly that (it requires only that a
-        // lease's attempt match the run's), which makes it the real shape this
-        // branch exists for: a run that failed or was resolved while a panel
-        // still held its claim.
+        // Contract §1's verdict order is session → lease → reservation → state
+        // (T-042e), so `invalid-transition` is reachable only for a run whose
+        // lease is still live while its state is not `claimed`. The parser
+        // accepts exactly that (it requires only that a lease's attempt match the
+        // run's), which makes it the real shape this branch exists for: a run
+        // that failed or was resolved while a panel still held its claim.
         for (const [index, state] of ([FAILED, UNCONFIRMED] as const).entries()) {
             const run = await seedRunInState({ issueNumber: 20 + index, state, liveLease: true });
 
@@ -650,10 +655,13 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         }
     });
 
-    it('refuses a leaseless run as stale, because the lease is checked first', async () => {
+    it('refuses a leaseless run as stale, because the session check finds no session first', async () => {
         // The other half of the ordering, and the honest answer: a run in
         // `failed`, `unconfirmed`, or `dead-lettered` holds no lease, so there is
-        // nothing for a reserve to ride on regardless of its state.
+        // nothing for a reserve to ride on regardless of its state. The session
+        // check runs before the lease check now (T-042e), and none of these
+        // fixtures records a session — which is what leaves the lease verdict as
+        // the first one that can fire.
         for (const [index, state] of (['pending', FAILED, UNCONFIRMED, 'dead-lettered'] as const).entries()) {
             const run = await seedRunInState({ issueNumber: 24 + index, state });
 

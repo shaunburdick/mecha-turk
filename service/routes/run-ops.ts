@@ -68,6 +68,84 @@ const RESOLVE_DECISIONS: ReadonlySet<string> = new Set<ResolveDecision>(['sessio
 const SESSION_CREATED = 'session-created';
 
 /**
+ * Narrow a body member to one of the two explicit resolutions (FR-027).
+ *
+ * `Set.has` cannot narrow a `string` to the set's element type on its own, and
+ * widening the decision back to `string` would push an unchecked value into
+ * `resolveDispatch` — the one operation whose `decision` decides whether a run
+ * may be re-dispatched. The guard is where the union is enforced.
+ *
+ * @param value - The member as read from the body.
+ * @returns `true` for `session-created` and `no-session`.
+ */
+function isResolveDecision(value: string): value is ResolveDecision {
+    return RESOLVE_DECISIONS.has(value);
+}
+
+/** What a resolve body read: either its two members, or the refusal to answer. */
+type ResolutionRead =
+    | { readonly ok: true; readonly decision: ResolveDecision; readonly sessionId: string | null }
+    | { readonly ok: false; readonly response: HttpResponse };
+
+/**
+ * Read a resolve body's own members: the decision, and the session it names.
+ *
+ * Split out of the handler because these are the checks that make an ambiguous
+ * body *stay* ambiguous rather than be resolved by a precedence rule, and
+ * because `no-session` is the only path that re-dispatches an `unconfirmed` run:
+ *
+ * - `session-created` requires the session id — without it the operator's
+ *   decision records a fact the row cannot carry.
+ * - `no-session` **rejects** one — silently discarding it would obtain a fresh
+ *   authorization for a run whose session the same body just reported, which is
+ *   exactly the ambiguity the result handler refuses with "report exactly one
+ *   outcome" (FR-040, constitution II).
+ *
+ * @param fields - The body's members, after FR-051's echo already matched.
+ * @returns The decision and the session it names, or the `422` naming the field.
+ */
+function readResolution(fields: Readonly<Record<string, unknown>>): ResolutionRead {
+    const decision = textMember(fields.decision);
+    const sessionId = textMember(fields.sessionId);
+    if (decision === null || !isResolveDecision(decision)) {
+        return {
+            ok: false,
+            response: errorResponse(STATUS.validation, {
+                code: 'validation',
+                message: `decision: choose ${[...RESOLVE_DECISIONS].join(' or ')}`,
+            }),
+        };
+    }
+
+    if (decision === SESSION_CREATED && sessionId === null) {
+        return {
+            ok: false,
+            response: errorResponse(STATUS.validation, {
+                code: 'validation',
+                message: 'sessionId: this dispatch did create a session, so name the session id to record',
+            }),
+        };
+    }
+
+    if (decision !== SESSION_CREATED && sessionId !== null) {
+        return {
+            ok: false,
+            response: errorResponse(STATUS.validation, {
+                code: 'validation',
+                message: 'sessionId: a no-session resolution reports that no session exists, so name exactly one '
+                    + 'outcome — drop sessionId, or choose session-created to record it',
+            }),
+        };
+    }
+
+    return {
+        ok: true,
+        decision,
+        sessionId: decision === SESSION_CREATED ? sessionId : null,
+    };
+}
+
+/**
  * Answer `POST /v1/events/:correlationId/retry`.
  *
  * Returns a `failed` or `blocked:*` run to waiting under the **same run key**,
@@ -166,7 +244,10 @@ async function handleRequeue(context: RouteContext, request: RouteRequest): Prom
  * `session-created` requires the session id, and `no-session` is the **only** path
  * that re-dispatches an `unconfirmed` run — the one place in the service where a
  * second `host.startSession()` can be authorized for a run that may already have
- * one, which is exactly why it is an explicit, audited human decision.
+ * one, which is exactly why it is an explicit, audited human decision. A body
+ * that carries a session id *with* `no-session` is therefore refused `422`
+ * naming `sessionId` rather than silently dropped: the request would otherwise
+ * obtain a fresh authorization for a run whose session it just reported.
  *
  * @param context - Route context carrying the open store.
  * @param request - Routed request; the path captures `:correlationId`.
@@ -192,28 +273,17 @@ async function handleResolve(context: RouteContext, request: RouteRequest): Prom
     }
 
     const { fields } = parsedBody;
-    const decision = textMember(fields.decision);
-    const sessionId = textMember(fields.sessionId);
-    if (decision === null || !RESOLVE_DECISIONS.has(decision)) {
-        return errorResponse(STATUS.validation, {
-            code: 'validation',
-            message: `decision: choose ${[...RESOLVE_DECISIONS].join(' or ')}`,
-        });
-    }
-
-    if (decision === SESSION_CREATED && sessionId === null) {
-        return errorResponse(STATUS.validation, {
-            code: 'validation',
-            message: 'sessionId: this dispatch did create a session, so name the session id to record',
-        });
+    const resolution = readResolution(fields);
+    if (!resolution.ok) {
+        return resolution.response;
     }
 
     const resolved = await resolveDispatch({
         store,
         log: context.log,
         correlationId,
-        decision: decision as ResolveDecision,
-        sessionId: decision === SESSION_CREATED ? sessionId : null,
+        decision: resolution.decision,
+        sessionId: resolution.sessionId,
         note: textMember(fields.note),
         guidance: textMember(fields.guidance),
     });

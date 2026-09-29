@@ -19,13 +19,16 @@
  * - **Nothing is minted before the verdict.** A refused reserve leaves no
  *   reservation, no token, and no `dispatch.reserved` row — only the one
  *   `dispatch.refused` row (contract §1).
- * - **The session check runs before the state check**, inverting the order the
- *   contract's prose lists. Read in that order, `already-dispatched` would be
- *   unreachable: the store's parser only accepts a recorded session on a run that
- *   is `dispatched`, so the state check would always fire first and the refusal
- *   could never name the session. FR-022, AC-112, and the contract's own refusal
- *   table all require that name, so the most specific verdict wins and
- *   `invalid-transition` remains the answer for every other live-lease state.
+ * - **The session check runs first**, before the lease check, inverting the
+ *   order the contract's prose listed. Read lease-first, a `dispatched` run —
+ *   which holds no lease by construction — would always answer `stale-lease`
+ *   and the session-naming refusal could never be reached: the store's parser
+ *   only accepts a recorded session on a run that is `dispatched`, so the
+ *   verdict that *can* name it has to be asked first. FR-022, AC-112, and the
+ *   contract's own refusal table all require that name. The reservation check
+ *   sits ahead of the state check for the same reason, which keeps
+ *   `already-reserved` reachable for a `starting` run; `invalid-transition`
+ *   remains the answer for every other live-lease state.
  */
 
 import { CONFIG_FILE, DEFAULT_CONFIG, configFromStore, parseStoredConfig } from '../config.ts';
@@ -125,6 +128,16 @@ export function judgeLease(input: {
 /**
  * Judge a reserve (contract §1).
  *
+ * The four checks run **most specific first**: recorded session, lease,
+ * reservation, state. The order is load-bearing twice over. Reading the lease
+ * before the session would answer `stale-lease` for a `dispatched` run — which
+ * holds no lease by construction — and make FR-022's "the refusal MUST name the
+ * existing session" (AC-112) unreachable on the natural path. Reading the state
+ * before the reservation would answer `invalid-transition` for a `starting` run
+ * and make `already-reserved` unreachable instead. Both verdicts exist because
+ * the contract's table names them, so the order is the one in which both stay
+ * reachable, and contract §1's prose states exactly this.
+ *
  * @param input - The run, the lease, the attempt, and the service clock.
  * @returns The refusal, or `null` when this run may be authorized now.
  */
@@ -139,17 +152,17 @@ function judgeReserve(input: {
     readonly now: string;
 }): RunRefusal | null {
     const { run } = input;
-    const lease = judgeLease(input);
-    if (lease !== null) {
-        return lease;
-    }
-
     if (runHistoryIndicatesSession(run)) {
         const sessionId = sessionIdOf(run);
 
         return refuse('already-dispatched', sessionId === null
             ? 'this run already produced a session'
             : `a session already exists: ${sessionId}`);
+    }
+
+    const lease = judgeLease(input);
+    if (lease !== null) {
+        return lease;
     }
 
     const { reservation } = run;

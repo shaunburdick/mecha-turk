@@ -4699,13 +4699,13 @@ function judgeLease(input) {
 }
 function judgeReserve(input) {
   const { run } = input;
-  const lease = judgeLease(input);
-  if (lease !== null) {
-    return lease;
-  }
   if (runHistoryIndicatesSession(run)) {
     const sessionId = sessionIdOf(run);
     return refuse("already-dispatched", sessionId === null ? "this run already produced a session" : `a session already exists: ${sessionId}`);
+  }
+  const lease = judgeLease(input);
+  if (lease !== null) {
+    return lease;
   }
   const { reservation } = run;
   if (reservation !== null) {
@@ -4876,6 +4876,10 @@ function conflict(run) {
   const sessionId = sessionIdOf(run);
   return refuse(INVALID_TRANSITION3, sessionId === null ? "a different outcome is already recorded for this attempt and cannot be replaced" : `this attempt already reported session ${sessionId}; a different outcome cannot replace it`);
 }
+function tokenSpent(run, dispatchToken) {
+  const live = currentAttempt(run);
+  return run.attempts.some((record) => record !== live && record.dispatchToken === dispatchToken && (record.resultReportedAt !== null || record.outcome !== null));
+}
 function judgeReport(input) {
   const { run, dispatchToken, attempt, outcome } = input;
   const stale = refuse("stale-lease", STALE_TOKEN_MESSAGE);
@@ -4888,6 +4892,9 @@ function judgeReport(input) {
   }
   if (reservation.consumed) {
     return repeatedOutcome({ run, outcome }) ? { verdict: "duplicate" } : { refusal: conflict(run) };
+  }
+  if (tokenSpent(run, dispatchToken)) {
+    return { refusal: stale };
   }
   return run.state === "starting" || run.state === "unconfirmed" ? { verdict: "apply" } : {
     refusal: refuse(INVALID_TRANSITION3, `this run is ${run.state}; an authorized outcome can only be reported while it is ` + "starting or unconfirmed")
@@ -5605,6 +5612,45 @@ var RESOLVE_PATH = `${RUN_SCOPE_PREFIX}/resolve`;
 var VERIFICATION_PATH = `${RUN_SCOPE_PREFIX}/verification`;
 var RESOLVE_DECISIONS = new Set(["session-created", "no-session"]);
 var SESSION_CREATED = "session-created";
+function isResolveDecision(value) {
+  return RESOLVE_DECISIONS.has(value);
+}
+function readResolution(fields) {
+  const decision = textMember(fields.decision);
+  const sessionId = textMember(fields.sessionId);
+  if (decision === null || !isResolveDecision(decision)) {
+    return {
+      ok: false,
+      response: errorResponse(STATUS.validation, {
+        code: "validation",
+        message: `decision: choose ${[...RESOLVE_DECISIONS].join(" or ")}`
+      })
+    };
+  }
+  if (decision === SESSION_CREATED && sessionId === null) {
+    return {
+      ok: false,
+      response: errorResponse(STATUS.validation, {
+        code: "validation",
+        message: "sessionId: this dispatch did create a session, so name the session id to record"
+      })
+    };
+  }
+  if (decision !== SESSION_CREATED && sessionId !== null) {
+    return {
+      ok: false,
+      response: errorResponse(STATUS.validation, {
+        code: "validation",
+        message: "sessionId: a no-session resolution reports that no session exists, so name exactly one " + "outcome — drop sessionId, or choose session-created to record it"
+      })
+    };
+  }
+  return {
+    ok: true,
+    decision,
+    sessionId: decision === SESSION_CREATED ? sessionId : null
+  };
+}
 async function handleRetry(context, request) {
   const { store } = context;
   if (store === null) {
@@ -5674,26 +5720,16 @@ async function handleResolve(context, request) {
     return parsedBody;
   }
   const { fields } = parsedBody;
-  const decision = textMember(fields.decision);
-  const sessionId = textMember(fields.sessionId);
-  if (decision === null || !RESOLVE_DECISIONS.has(decision)) {
-    return errorResponse(STATUS.validation, {
-      code: "validation",
-      message: `decision: choose ${[...RESOLVE_DECISIONS].join(" or ")}`
-    });
-  }
-  if (decision === SESSION_CREATED && sessionId === null) {
-    return errorResponse(STATUS.validation, {
-      code: "validation",
-      message: "sessionId: this dispatch did create a session, so name the session id to record"
-    });
+  const resolution = readResolution(fields);
+  if (!resolution.ok) {
+    return resolution.response;
   }
   const resolved = await resolveDispatch({
     store,
     log: context.log,
     correlationId,
-    decision,
-    sessionId: decision === SESSION_CREATED ? sessionId : null,
+    decision: resolution.decision,
+    sessionId: resolution.sessionId,
     note: textMember(fields.note),
     guidance: textMember(fields.guidance)
   });

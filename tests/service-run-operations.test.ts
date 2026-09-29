@@ -43,7 +43,7 @@ import {
     retryDispatch,
 } from '../service/poll/run-operate.ts';
 import { recordVerification } from '../service/poll/run-verify.ts';
-import { emptyRunsDocument, readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
+import { deadLetterRun, emptyRunsDocument, readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
 import { applyEnqueue } from '../service/poll/runs-join.ts';
 import { openStore } from '../service/store/index.ts';
 import type { BindingRecord } from '../service/bindings.ts';
@@ -79,6 +79,8 @@ const REPORTED = 'reported';
 const EXPECTED_AGENT = 'project-manager';
 /** The state a successful dispatch lands in. */
 const DISPATCHED = 'dispatched';
+/** The state an authorized run holds while its token is live and unspent. */
+const STARTING = 'starting';
 /** The terminal state only the dead-letter return-to-waiting leaves. */
 const DEAD_LETTERED = 'dead-lettered';
 /** The one resolution that authorises a re-dispatch (FR-027). */
@@ -312,6 +314,134 @@ async function readRun(correlationId: string): Promise<Run> {
     }
 
     return run;
+}
+
+/**
+ * Give a run the record of an earlier chain that already spent attempt 1's token.
+ *
+ * A dead-letter reset deliberately keeps attempt history (plan D6), and that
+ * history is the only record left which can tell chain 1's bytes from the chain-2
+ * reservation a later reserve re-mints from them — so a fixture asserting the
+ * difference has to carry it. The record is written the way
+ * `reportDispatch` writes it: the token, the outcome, and the stamp that closes
+ * it.
+ *
+ * @param run - The run whose history gains the closed record.
+ * @returns The token attempt 1 of this run's key mints.
+ */
+async function recordEarlierChain(run: Run): Promise<string> {
+    const dispatchToken = buildDispatchToken(run.runKey, 1);
+    const earlier: DispatchAttempt = {
+        attempt: 1,
+        dispatchToken,
+        reservedAt: STAMP,
+        outcome: 'failed',
+        sessionId: null,
+        reason: SEEDED_FAILURE,
+        resultReportedAt: STAMP,
+    };
+    const document = await readRunsDocument({ store, log: LOGGER });
+    const runs = document.runs.map((candidate) => candidate.correlationId === run.correlationId
+        ? { ...candidate, attempts: [earlier, ...candidate.attempts] }
+        : candidate);
+    await writeRunsDocument({ store, log: LOGGER, document: { ...document, runs } });
+
+    return dispatchToken;
+}
+
+/** Claim one waiting run and answer the lease the claim minted for it. */
+async function claimLeaseOf(correlationId: string, holder: string): Promise<string> {
+    const claimed = await claimPendingRuns({ store, log: LOGGER, holder, now: NOW });
+    const run = claimed.runs.find((candidate) => candidate.correlationId === correlationId);
+    if (run === undefined) {
+        throw new Error('the run was not claimable');
+    }
+
+    return run.lease.leaseId;
+}
+
+/**
+ * Drive one run through the crash permutation the audit replayed, end to end.
+ *
+ * `reserve → failed → retry → dead-letter → requeue → claim → reserve`. Every
+ * step is the routed operation rather than a hand-written document, because the
+ * property under test *is* what those operations record: FR-020 pins the token to
+ * `sha256(runKey|attempt)`, so the reset at step five returns the run to attempt
+ * 1 and the reserve at step seven re-mints attempt 1's exact bytes.
+ *
+ * @param issueNumber - Issue to build the run from.
+ * @returns The run's identity, both chains' tokens, and the second claim's lease.
+ */
+async function crashPermutation(issueNumber: number): Promise<{
+    /** The run every step acted on. */
+    readonly correlationId: string;
+    /** The run key both chains derive from. */
+    readonly runKey: string;
+    /** Token chain 1 minted and then spent. */
+    readonly chainOneToken: string;
+    /** Token chain 2 minted after the reset. */
+    readonly chainTwoToken: string;
+    /** Lease chain 2's reserve was made under. */
+    readonly leaseId: string;
+}> {
+    const seeded = await seedRun({ issueNumber, state: 'pending' });
+    const { correlationId } = seeded;
+
+    const firstLease = await claimLeaseOf(correlationId, 'panel-chain-1');
+    const authorized = await reserveDispatch({
+        store, log: LOGGER, correlationId, leaseId: firstLease, attempt: 1, now: NOW,
+    });
+    if (authorized.status !== 'applied') {
+        throw new Error('chain 1 did not authorize');
+    }
+
+    const chainOneToken = authorized.dispatchToken;
+    const reported = await reportDispatch({
+        store,
+        log: LOGGER,
+        correlationId,
+        dispatchToken: chainOneToken,
+        attempt: 1,
+        operation: 'result',
+        outcome: { attemptOutcome: 'failed', sessionId: null, reason: SEEDED_FAILURE },
+        now: NOW,
+    });
+    if (reported.status !== 'applied') {
+        throw new Error('chain 1 did not report');
+    }
+
+    const retried = await retryDispatch({
+        store, log: LOGGER, correlationId, attempt: 1, causeCleared: true, causeReport: null, now: NOW,
+    });
+    if (retried.status !== 'applied') {
+        throw new Error('the retry did not apply');
+    }
+
+    const parked = await deadLetterRun({
+        store,
+        log: LOGGER,
+        correlationId,
+        reason: 'requeue budget exhausted',
+        now: NOW,
+    });
+    if (parked.status !== 'applied') {
+        throw new Error('the run did not dead-letter');
+    }
+
+    const requeued = await requeueDispatch({ store, log: LOGGER, correlationId, now: NOW });
+    if (requeued.status !== 'applied') {
+        throw new Error('the return-to-waiting did not apply');
+    }
+
+    const leaseId = await claimLeaseOf(correlationId, 'panel-chain-2');
+    const reauthorized = await reserveDispatch({
+        store, log: LOGGER, correlationId, leaseId, attempt: 1, now: NOW,
+    });
+    if (reauthorized.status !== 'applied') {
+        throw new Error('the post-reset reserve did not apply');
+    }
+
+    return { correlationId, runKey: seeded.runKey, chainOneToken, chainTwoToken: reauthorized.dispatchToken, leaseId };
 }
 
 /**
@@ -956,7 +1086,13 @@ describe('T-014 the token chain across a dead-letter reset (plan D6, research §
         // possible again (otherwise a dead-lettered run is unrecoverable), and it
         // must not resurrect a token an earlier attempt already spent (otherwise
         // FR-022's single-use rule leaks across the boundary the reset draws).
+        //
+        // Both chains are replayed, not only attempt 4's: the reset re-mints
+        // attempt **1**, so attempt 4's token is the easy refusal (the live
+        // reservation never held it) and attempt 1's is the one that matters —
+        // it is byte-identical to the authorization chain 2 now holds.
         const run = await seedRun({ issueNumber: 64, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
+        const chainOneToken = await recordEarlierChain(run);
         await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
 
         const claimed = await claimPendingRuns({ store, log: LOGGER, holder: 'panel-token-chain', now: NOW });
@@ -979,8 +1115,10 @@ describe('T-014 the token chain across a dead-letter reset (plan D6, research §
             throw new Error('a reserve after the reset must apply');
         }
         // The new chain is derived from the reset attempt, so it is a different
-        // token than the one attempt 4 would have minted.
+        // token than the one attempt 4 would have minted — and the byte-identical
+        // one to the token attempt 1 already spent.
         expect(reserved.dispatchToken).toBe(buildDispatchToken(run.runKey, 1));
+        expect(reserved.dispatchToken).toBe(chainOneToken);
 
         const stale = await reportDispatch({
             store,
@@ -994,10 +1132,134 @@ describe('T-014 the token chain across a dead-letter reset (plan D6, research §
         });
 
         expect(stale.status).toBe('refused');
+
+        // The replay the derivation makes possible: chain 1's spent token, which
+        // chain 2's live reservation now carries byte for byte.
+        const replay = await reportDispatch({
+            store,
+            log: LOGGER,
+            correlationId: run.correlationId,
+            dispatchToken: chainOneToken,
+            attempt: 1,
+            operation: 'result',
+            outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_wrong_chain', reason: null },
+            now: NOW,
+        });
+
+        expect(replay.status).toBe('refused');
+        expect(replay.status === 'refused' ? replay.refusal.code : '').toBe(STALE_LEASE);
         const stored = await readRun(run.correlationId);
         expect(stored.state).toBe('starting');
         expect(stored.session).toBeNull();
         expect(stored.reservation?.dispatchToken).toBe(reserved.dispatchToken);
+    });
+});
+
+describe('T-042 a token the attempt history closed never authorizes a report (FR-020, FR-028, AC-110)', () => {
+    it('re-mints byte-identical bytes across a dead-letter reset, so history is the only guard', async () => {
+        // The reproduction the audit ran, asserted as a fact about the
+        // derivation rather than as a bug report: FR-020 pins the token to
+        // sha256(runKey|attempt) and FR-033's reset returns the run to attempt 1,
+        // so the collision is structural. Contract §9's "two attempts of one run
+        // mint two different tokens" holds *within* a chain and is false across a
+        // reset — which is exactly why T-044 corrects it and this suite fences it.
+        const permutation = await crashPermutation(80);
+
+        expect(permutation.chainTwoToken).toBe(permutation.chainOneToken);
+        expect(permutation.chainOneToken).toBe(buildDispatchToken(permutation.runKey, 1));
+    });
+
+    it('refuses the audit\u2019s crash permutation, from the first reserve to the replayed report', async () => {
+        const permutation = await crashPermutation(81);
+        const before = await readRun(permutation.correlationId);
+        expect(before.state).toBe(STARTING);
+
+        const replay = await reportDispatch({
+            store,
+            log: LOGGER,
+            correlationId: permutation.correlationId,
+            dispatchToken: permutation.chainOneToken,
+            attempt: 1,
+            operation: 'result',
+            outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_late', reason: null },
+            now: NOW,
+        });
+
+        expect(replay.status).toBe('refused');
+        expect(replay.status === 'refused' ? replay.refusal.code : '').toBe(STALE_LEASE);
+        // The whole point: chain 2's honest session is not displaced, and no
+        // session exists for this run at all (FR-025, FR-028, AC-110, NFR-102).
+        const stored = await readRun(permutation.correlationId);
+        expect(stored.state).toBe(STARTING);
+        expect(stored.session).toBeNull();
+        expect(stored.attempt).toBe(1);
+        expect(stored.reservation?.consumed).toBe(false);
+        expect(stored.reservation?.dispatchToken).toBe(permutation.chainTwoToken);
+
+        const refusals = await rowsOf(REFUSED_ROW);
+        expect(refusals).toHaveLength(1);
+        expect(refusals[0]).toMatchObject({ operation: 'result', code: STALE_LEASE, attempt: 1 });
+    });
+
+    it('never applies a report whose token an earlier attempt record already closed', async () => {
+        // The standing assertion the auditor asked for, stated generally: walk
+        // every record *outside the live reservation's own* that the history
+        // already closed and replay its token. Each one must be refused, whatever
+        // the live reservation happens to say. The reservation's record is
+        // governed by `reservation.consumed` instead — which is what keeps the
+        // sweep's `unconfirmed` wedge reconcilable (AC-111, asserted separately
+        // in the authorize suite).
+        const permutation = await crashPermutation(82);
+        const stored = await readRun(permutation.correlationId);
+        // Resolved independently of the implementation's own helper: the record
+        // the live reservation stands on is the *last* one for the current attempt.
+        let liveIndex = -1;
+        for (const [index, record] of stored.attempts.entries()) {
+            if (record.attempt === stored.attempt) {
+                liveIndex = index;
+            }
+        }
+        const closed = stored.attempts.filter((record, index) => index !== liveIndex
+            && record.dispatchToken !== null
+            && (record.resultReportedAt !== null || record.outcome !== null));
+        expect(closed.length).toBeGreaterThan(0);
+
+        for (const record of closed) {
+            const replay = await reportDispatch({
+                store,
+                log: LOGGER,
+                correlationId: permutation.correlationId,
+                dispatchToken: record.dispatchToken ?? '',
+                attempt: record.attempt,
+                operation: 'result',
+                outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_replay', reason: null },
+                now: NOW,
+            });
+
+            expect(replay.status, `attempt ${record.attempt}'s closed token was applied`).toBe('refused');
+            expect(replay.status === 'refused' ? replay.refusal.code : '').toBe(STALE_LEASE);
+        }
+
+        const after = await readRun(permutation.correlationId);
+        expect(after.session).toBeNull();
+        expect(after.state).toBe(STARTING);
+    });
+
+    it('still authorizes a reserve after the reset, so the dead-letter path cannot dead-end', async () => {
+        // The other half of the ruling: the spend check reads history only where
+        // a *report* is being judged. Reserve consults no history, so an operator
+        // returning a run to waiting can always obtain a fresh authorization and
+        // the run is recoverable rather than wedged by its own past.
+        const run = await seedRun({ issueNumber: 83, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
+        await recordEarlierChain(run);
+        await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
+        const leaseId = await claimLeaseOf(run.correlationId, 'panel-recoverable');
+
+        const reserved = await reserveDispatch({
+            store, log: LOGGER, correlationId: run.correlationId, leaseId, attempt: 1, now: NOW,
+        });
+
+        expect(reserved.status).toBe('applied');
     });
 });
 
