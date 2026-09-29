@@ -8,7 +8,7 @@
 - **Branch**: `full-project-plan` (non-protected; spec artifacts land here during phases 1–3. Each spec gets its own branch when implementation starts.)
 
 ## Current State
-- **Phase**: **Phases 1–5 COMPLETE for all four features.** Consolidated plan gate presented; Phase 6 (implementation) not started. **Next session = Phase 6.**
+- **Phase**: **Phases 1–5 COMPLETE for all four features; consolidated plan gate APPROVED (2026-09-28).** Phase 6 not started. **Next session = Phase 6, starting with 003.**
 - **Completed**:
   - 002 landed and live-validated (M5: two issues → two worktree sessions); feature roadmap agreed with product owner
   - **003 spec v1.0.0 APPROVED 2026-09-28** — 53 FR / 12 NFR / 11 SC / 29 AC, 5 user stories (P1×3, P2×2), 23 edge cases, 20 clarification rows + 3 gate confirmations. Cleared for `/speckit.plan`.
@@ -133,7 +133,7 @@ Source: `specs/002-agent-event-extension/tasks.md` debt list and its final pre-P
 
 ## Next Steps — Phase 6 (implementation), next session
 
-**Consolidated plan gate presented 2026-09-28** covering all four plan/task sets (116 tasks / 33 waves). Awaiting the product owner's approval + rulings on the pending defaults before any code.
+**Consolidated plan gate APPROVED 2026-09-28** covering all four plan/task sets (116 tasks / 33 waves): *"Approve all four, proceed to Phase 6."* All encoded design tensions and pending defaults stand. **Phase 6 (implementation) starts next session.**
 
 **Routing (per the PM's size rules — all four exceed 15 tasks)**:
 | Feature | Tasks / waves | Size | Route |
