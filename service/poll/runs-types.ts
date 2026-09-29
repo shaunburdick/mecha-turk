@@ -64,9 +64,28 @@ export interface DispatchAttempt {
     readonly resultReportedAt: string | null;
 }
 
-/** The claim's time-bounded authorization to act (FR-030). */
+/**
+ * Which path minted a lease (FR-030, data-model §1).
+ *
+ * A lease is a **fencing/consistency token, not a capability**: its id carries
+ * no authority of its own, is a deterministic function of answer-visible inputs
+ * (the run's correlation id, the attempt, and the service clock), and gates
+ * nothing. The service's bearer token is the only authentication gate, and the
+ * single-use dispatch token (FR-020) is the only authorization to start a
+ * session. Provenance is recorded as a typed member rather than as a naming
+ * convention inside the id so {@link parseLease} can refuse an id shape no path
+ * in this build mints, and so the sweep's migration-recovery accounting reads a
+ * field instead of a string prefix.
+ */
+export type LeaseProvenance =
+    /** A panel's live claim through `GET /v1/events/pending`. */
+    | 'panel'
+    /** The synthetic, already-expired lease adoption mints for a legacy `in-flight` row. */
+    | 'migration';
+
+/** The claim's time-bounded coordination record (FR-030). */
 export interface RunLease {
-    /** Lease identifier. */
+    /** Lease identifier; one path-safe segment, `lse-` or `migration-` shaped. */
     readonly leaseId: string;
     /** Attempt the lease was issued under. */
     readonly attempt: number;
@@ -76,6 +95,8 @@ export interface RunLease {
     readonly issuedAt: string;
     /** RFC 3339 expiry stamp; the sweep compares it to the service clock. */
     readonly expiresAt: string;
+    /** Which path minted this lease; drives migration-recovery accounting. */
+    readonly provenance: LeaseProvenance;
 }
 
 /** The reservation that authorizes one `host.startSession()` (FR-021). */
@@ -190,7 +211,10 @@ export interface Run {
     readonly updatedAt: string;
 }
 
-/** Durable intent for the two audit rows whose creation can span a crash. */
+/** Structured, credential-free details a lifecycle audit row records. */
+export type RunAuditDetails = Readonly<Record<string, string | number | boolean | null>>;
+
+/** Durable intent for an audit row whose append can span a crash (T-037, T-040b). */
 export type RunAuditIntent =
     | {
         /** A newly created run needs its creation row. */
@@ -211,6 +235,32 @@ export type RunAuditIntent =
         readonly stateBranches: readonly string[];
         /** Adopted state at the moment of migration. */
         readonly state: RunState;
+    }
+    | {
+        /**
+         * A sweep recovery needs its lifecycle row (T-040b).
+         *
+         * The sweep has no caller to answer, so its trail is the only record an
+         * operator has of an automatic recovery; the intent is what makes a
+         * failed append recoverable rather than lost.
+         */
+        readonly eventType: 'dispatch.lease-expired' | 'run.dead_lettered' | 'dispatch.unconfirmed';
+        /** The run's identity (FR-062: never a fresh identifier). */
+        readonly correlationId: string;
+        /** The decision the row records. */
+        readonly decision: string;
+        /** Secret-free reason naming the exact cause. */
+        readonly reason: string;
+        /** Structured, credential-free details; never a dispatch token value. */
+        readonly details: RunAuditDetails;
+        /**
+         * What distinguishes this row from an earlier one for the same run.
+         *
+         * The outbox retires an intent by finding a matching row, and a run can
+         * be lease-expired three times — without a discriminator the second
+         * recovery would match the first row and never be written at all.
+         */
+        readonly sequence: string;
     };
 
 /** The `runs.json` document: schema marker, ordinal counters, and runs. */

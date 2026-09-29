@@ -327,13 +327,13 @@ function startBootSweep(input: {
     readonly log: ServiceLogger;
 }): Promise<SweepOutcome> {
     if (input.store === null) {
-        return Promise.resolve({ recoveries: [] });
+        return Promise.resolve({ recoveries: [], auditWritten: true });
     }
 
     return sweepOnce({ store: input.store, log: input.log }).catch((error: unknown) => {
         input.log.warn('boot sweep failed', { errorKind: error instanceof Error ? error.name : typeof error });
 
-        return { recoveries: [] };
+        return { recoveries: [], auditWritten: false };
     });
 }
 

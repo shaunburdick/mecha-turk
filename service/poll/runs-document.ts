@@ -25,6 +25,7 @@
 
 import type { ServiceLogger } from '../log.ts';
 import { isRecord } from '../json.ts';
+import { StorageUnavailableError } from '../store/errors.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { EVENTS_FILE } from './events-parse.ts';
 import { MAX_ATTEMPT_RECORDS, RUNS_SCHEMA_VERSION, parseRunsDocument } from './runs-parse.ts';
@@ -77,6 +78,37 @@ export function inQueueChain<T>(task: () => Promise<T>): Promise<T> {
     queueChain.write = run;
 
     return run;
+}
+
+/**
+ * Resolve once every chain task queued so far has settled.
+ *
+ * A reader that decides *whether* to take the chain needs this first: a read
+ * issued while writes are still landing would see a document that is about to
+ * change, and acting on that snapshot as though it were settled would skip work
+ * the very next poll would then have to serve. Draining first makes the
+ * snapshot true at the moment it is taken, and a writer that arrives afterwards
+ * is an ordinary race the next poll resolves.
+ *
+ * This is a *read* helper and takes no chain slot of its own, so the head-of-line
+ * saving the claim's preview exists for is preserved: an idle queue resolves
+ * immediately without queueing behind anything.
+ *
+ * @returns A promise that settles once the chain is idle.
+ */
+/**
+ * The "the chain is idle" handler, written once so both arms of
+ * {@link whenQueueIdle} cannot drift.
+ *
+ * Intentionally empty: a drained chain and a failed one are both idle, and
+ * the caller's own read reports any failure with the store's own error.
+ */
+function settled(): void {
+    return undefined;
+}
+
+export function whenQueueIdle(): Promise<void> {
+    return queueChain.write.then(settled, settled);
 }
 
 /** One adoption pass per store handle, shared by every concurrent reader. */
@@ -191,15 +223,61 @@ export async function ensureRunsAdopted(input: RunsStoreInput & { readonly now?:
 export async function readRunsDocument(input: RunsStoreInput): Promise<RunsDocument> {
     const outcome = await ensureRunsAdopted(input);
     if (outcome === 'unreadable') {
-        throw new Error('run document is unreadable; refusing to serve run state from a quarantined runs.json');
+        throw new StorageUnavailableError(
+            'run document is unreadable; refusing to serve run state from a quarantined runs.json',
+        );
     }
 
     const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);
     if (stored.status !== 'ok') {
-        throw new Error('run document disappeared after adoption; refusing to serve an empty run history');
+        throw new StorageUnavailableError(
+            'run document disappeared after adoption; refusing to serve an empty run history',
+        );
     }
 
     return await flushRunAuditIntents({ ...input, document: stored.value, runsFile: RUNS_FILE });
+}
+
+/**
+ * Read the run document for a *decision*, without taking the write chain.
+ *
+ * The claim needs to know whether anything is waiting **before** it decides to
+ * serialize a write, and a document read that occupies the exclusive chain
+ * makes every poll from every panel a queue behind an operation that is about
+ * to discover it has nothing to do. The read is safe outside the chain because
+ * {@link store.writeJson} is atomic: a reader always sees one whole document,
+ * and the only write a bare read can perform is the audit-intent flush, which
+ * is itself a whole-document replacement and re-reads the trail first.
+ *
+ * The returned document is a **snapshot**: a caller that goes on to mutate must
+ * re-read inside {@link inQueueChain} and re-plan, because another writer may
+ * have landed between the two reads.
+ *
+ * @param input - Store and logger.
+ * @returns The document as stored, adopting the legacy queue if needed.
+ * @throws {StorageUnavailableError} When the document exists but is unusable.
+ */
+export async function previewRunsDocument(input: RunsStoreInput): Promise<RunsDocument> {
+    const outcome = await ensureRunsAdopted(input);
+    if (outcome === 'unreadable') {
+        throw new StorageUnavailableError(
+            'run document is unreadable; refusing to serve run state from a quarantined runs.json',
+        );
+    }
+
+    // An absent file is only "absent" because adoption ran and found nothing to
+    // adopt; anything else — quarantined, torn, or a document this build cannot
+    // read — refuses rather than answering an empty history. Serving `[]` here
+    // would report "nothing is waiting" for work the store cannot describe,
+    // which is the one answer constitution II forbids.
+    const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);
+    if (stored.status !== 'ok') {
+        throw new StorageUnavailableError(
+            'run document disappeared after adoption; refusing to serve an empty run history',
+        );
+    }
+
+    return stored.value;
 }
 
 /** Remove linked state-free deliveries only when their bounded terminal run is evicted. */

@@ -129,7 +129,27 @@ export function parseAttempt(raw: unknown): DispatchAttempt | null {
 }
 
 /**
- * Validate the lease sub-object.
+ * Validate a lease identifier against the two shapes this build mints.
+ *
+ * Fail-closed on purpose: the identifier is a coordination token, so accepting
+ * any non-empty string would let a stored value this build could never have
+ * written decide the sweep's migration-recovery accounting. A panel claim
+ * mints `lse-<24 hex>`; adoption mints `migration-<correlation id>`.
+ *
+ * @param leaseId - Candidate identifier.
+ * @returns The identifier, or `null` when it is neither legal shape.
+ */
+function readLeaseId(leaseId: unknown): string | null {
+    const value = readText(leaseId);
+    if (value === null) {
+        return null;
+    }
+
+    return /^lse-[0-9a-f]{24}$/.test(value) || /^migration-mt-run-[0-9a-f]{24}$/.test(value) ? value : null;
+}
+
+/**
+ * Validate the lease sub-object, including its typed provenance.
  *
  * @param raw - Candidate value.
  * @returns The lease, or `null` when malformed.
@@ -139,24 +159,26 @@ export function parseLease(raw: unknown): RunLease | null {
         return null;
     }
 
-    const { leaseId, holder, attempt, issuedAt, expiresAt } = raw;
+    const { leaseId, holder, attempt, issuedAt, expiresAt, provenance } = raw;
     const values = [
-        readText(leaseId),
+        readLeaseId(leaseId),
         readText(holder),
         readPositiveInt(attempt),
         readStamp(issuedAt),
         readStamp(expiresAt),
     ];
-    if (values.includes(null)) {
+    const source = provenance === 'panel' || provenance === 'migration' ? provenance : null;
+    if (values.includes(null) || source === null) {
         return null;
     }
 
     return {
-        leaseId: leaseId as string,
+        leaseId: values[0] as string,
         holder: holder as string,
         attempt: attempt as number,
         issuedAt: issuedAt as string,
         expiresAt: expiresAt as string,
+        provenance: source,
     };
 }
 

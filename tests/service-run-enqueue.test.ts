@@ -32,7 +32,10 @@ import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
 
 const STAMP = '2026-09-28T12:00:00.000Z';
 const HOLDER = 'panel-mount-1';
-const LEASE_ID = 'lease-test-1';
+// The two legal lease shapes `parseLease` accepts (T-040e): a panel claim
+// mints `lse-<24 hex>`, adoption mints `migration-<correlation id>`.
+const LEASE_ID = `lse-${'a'.repeat(24)}`;
+const COMPETING_LEASE_ID = `lse-${'b'.repeat(24)}`;
 const SESSION_ID = 'ses_once';
 const RUN_SUBJECT_KEY = 'github|77331|acme/widget|issue|900';
 const ISSUE_URL_PREFIX = 'https://github.com/acme/widget/issues/';
@@ -242,16 +245,16 @@ describe('T-006 run-aware enqueue', () => {
         const [results, claimed] = await Promise.all([Promise.all(scans), concurrentClaim]);
         const document = await readRunsDocument({ store, log: LOGGER });
 
-        expect(claimed).toHaveLength(1);
-        expect(claimed[0]?.correlationId).toBe(document.runs[0]?.correlationId);
-        expect(claimed[0]?.sourceReferences).toHaveLength(10);
+        expect(claimed.runs).toHaveLength(1);
+        expect(claimed.runs[0]?.correlationId).toBe(document.runs[0]?.correlationId);
+        expect(claimed.runs[0]?.sourceReferences).toHaveLength(10);
         expect(results.reduce((total: number, rows: readonly unknown[]) => total + rows.length, 0)).toBe(10);
         expect(document.runs).toHaveLength(1);
         expect(document.runs[0]?.referenceCount).toBe(10);
         expect(document.runs[0]?.sourceReferences).toHaveLength(10);
         // The claim leases the run it was offered, so it is no longer claimable.
         const again = await claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
-        expect(again).toEqual([]);
+        expect(again.runs).toEqual([]);
     });
 
     it('retains every reference up to the cap, then counts the overflow visibly (T-038)', async () => {
@@ -344,7 +347,7 @@ describe('T-003 run transition invariants', () => {
         };
 
         const firstClaim = claimRun(claimInputs);
-        const competingClaim = claimRun({ ...claimInputs, leaseId: 'lease-test-2' });
+        const competingClaim = claimRun({ ...claimInputs, leaseId: COMPETING_LEASE_ID });
         const claims = await Promise.all([firstClaim, competingClaim]);
         expect(claims.filter((result) => result.status === 'applied')).toHaveLength(1);
         expect(claims.filter((result) => result.status === 'refused')).toHaveLength(1);

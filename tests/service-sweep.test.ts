@@ -32,8 +32,9 @@ import { DEFAULT_CONFIG } from '../service/config.ts';
 import { createLogger } from '../service/log.ts';
 import { claimPendingRuns } from '../service/poll/claim.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
+import { buildDispatchTokenFingerprint } from '../service/poll/run-key.ts';
 import { applyEnqueue } from '../service/poll/runs-join.ts';
-import { MIGRATION_LEASE_PREFIX } from '../service/poll/runs-adopt.ts';
+import { buildMigrationLeaseId } from '../service/poll/runs-adopt.ts';
 import { readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
 import { sweepIntervalMs, sweepOnce } from '../service/poll/sweep.ts';
 import { openStore } from '../service/store/index.ts';
@@ -178,6 +179,7 @@ async function claimSeeded(run: Run, expiresAt: string): Promise<void> {
             holder: HOLDER,
             issuedAt: DETECTED_AT,
             expiresAt,
+            provenance: 'panel',
         },
         attempts: [openAttempt(candidate.attempt)],
     }));
@@ -195,9 +197,10 @@ async function adoptAsMigrationClaim(run: Run, expiresAt: string): Promise<void>
             ...candidate,
             lease: {
                 ...lease,
-                leaseId: `${MIGRATION_LEASE_PREFIX}${candidate.correlationId}`,
+                leaseId: buildMigrationLeaseId(candidate.correlationId),
                 holder: MIGRATION_HOLDER,
                 expiresAt,
+                provenance: 'migration',
             },
         };
     });
@@ -311,7 +314,8 @@ describe('T-009 lease expiry (FR-032)', () => {
             details: { requeuesUsed: 3, budget: 3, priorState: 'claimed' },
         });
         // A parked run is terminal, so it is never claimed again (FR-037).
-        expect(await claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: ONE_HOUR_LATER })).toEqual([]);
+        const reclaim = await claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: ONE_HOUR_LATER });
+        expect(reclaim.runs).toEqual([]);
     });
 });
 
@@ -335,10 +339,13 @@ describe('T-009 late dispatch result (FR-023)', () => {
             details: {
                 priorState: 'starting',
                 attempt: 1,
-                dispatchToken: 'dtk-0123456789abcdef0123456789abcdef',
+                // The outstanding authorization is named by its fingerprint and
+                // never by its value (T-040c, FR-061).
+                dispatchTokenFingerprint: buildDispatchTokenFingerprint(DISPATCH_TOKEN),
                 deadline: RESULT_DEADLINE,
             },
         });
+        expect(JSON.stringify(rows[0])).not.toContain(DISPATCH_TOKEN);
     });
 
     it('leaves a reserved run alone before its deadline', async () => {

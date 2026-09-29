@@ -16,7 +16,7 @@
  * sleeping — the claim takes its stamp at the seam.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -24,6 +24,7 @@ import { readAuditEntries } from '../service/audit.ts';
 import { DEFAULT_CONFIG } from '../service/config.ts';
 import { createLogger } from '../service/log.ts';
 import { UNKNOWN_HOLDER, buildLeaseId, claimPendingRuns, holderOf } from '../service/poll/claim.ts';
+import { MAX_CLAIMED_RUNS } from '../service/poll/claim-bounds.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { applyEnqueue } from '../service/poll/runs-join.ts';
 import { emptyRunsDocument, readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
@@ -97,9 +98,11 @@ async function setLeaseMs(leaseMs: number): Promise<void> {
     await store.writeJson('config.json', { ...DEFAULT_CONFIG, leaseMs, resultDeadlineMs: leaseMs });
 }
 
-/** Claim with the shared fixture holder and stamp. */
-async function claim(holder = HOLDER): Promise<Awaited<ReturnType<typeof claimPendingRuns>>> {
-    return await claimPendingRuns({ store, log: LOGGER, holder, now: STAMP });
+/** Claim with the shared fixture holder and stamp, and answer with its runs. */
+async function claim(holder = HOLDER): Promise<readonly ClaimedRun[]> {
+    const result = await claimPendingRuns({ store, log: LOGGER, holder, now: STAMP });
+
+    return result.runs;
 }
 
 /** Seed one run and move it into `state`, with an optional session pointer. */
@@ -473,5 +476,147 @@ describe('T-007 GET /v1/events/pending over the loopback service', () => {
         expect(response.status).toBe(401);
         const stored = await readRunsDocument({ store: running, log: LOGGER });
         expect(stored.runs[0]?.state).toBe('pending');
+    });
+});
+
+describe('T-040 the claim answer is honest about its own trail (FR-063)', () => {
+    let service: TestService | null = null;
+
+    afterEach(async () => {
+        if (service === null) {
+            return;
+        }
+
+        await service.shutdown();
+        service = null;
+    });
+
+    it('answers auditWritten true and lands every claimed row', async () => {
+        service = await startTestService();
+        const running = openHarnessStore(service);
+
+        await enqueueEvents({ store: running, log: LOGGER, incoming: [createEvent(assignment(31))] });
+
+        const response = await service.call(CLAIM_PATH);
+        const body: { events: ClaimedRun[]; auditWritten: boolean } = await response.json();
+        const audits = await readAuditEntries(running);
+
+        expect(response.status).toBe(200);
+        expect(body.events).toHaveLength(1);
+        expect(body.auditWritten).toBe(true);
+        expect(audits.filter((entry) => entry.eventType === 'dispatch.claimed')).toHaveLength(1);
+    });
+
+    it('answers auditWritten true for a claim that leased nothing', async () => {
+        service = await startTestService();
+
+        const response = await service.call(CLAIM_PATH);
+        const body: { events: ClaimedRun[]; auditWritten: boolean } = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(body.events).toEqual([]);
+        // Nothing was leased and nothing was owed, so there is no failure to
+        // report: `true` here is the honest answer, not a default.
+        expect(body.auditWritten).toBe(true);
+    });
+});
+
+describe('T-040 the claim limit is validated before anything is leased', () => {
+    let service: TestService | null = null;
+
+    afterEach(async () => {
+        if (service === null) {
+            return;
+        }
+
+        await service.shutdown();
+        service = null;
+    });
+
+    it('refuses a limit over the cap with a named field, leasing nothing', async () => {
+        service = await startTestService();
+        const running = openHarnessStore(service);
+
+        await enqueueEvents({ store: running, log: LOGGER, incoming: [createEvent(assignment(41))] });
+
+        const response = await service.call(`${CLAIM_PATH}?limit=${MAX_CLAIMED_RUNS + 1}`);
+        const body: { error: { code: string; message: string; issues?: readonly { field: string }[] } } =
+            await response.json();
+        const stored = await readRunsDocument({ store: running, log: LOGGER });
+
+        // A documented client error, not the 500 the transport's size guard used
+        // to produce after the leases were already durable.
+        expect(response.status).toBe(422);
+        expect(body.error.code).toBe('validation');
+        expect(body.error.issues?.[0]?.field).toBe('limit');
+        // The remediation names the cap; the received value is never echoed.
+        expect(body.error.message).toContain(String(MAX_CLAIMED_RUNS));
+        expect(body.error.message).not.toContain(String(MAX_CLAIMED_RUNS + 1));
+        expect(stored.runs[0]?.state).toBe('pending');
+        expect(stored.runs[0]?.lease).toBeNull();
+    });
+
+    it('refuses a limit that is not a usable positive integer, leasing nothing', async () => {
+        service = await startTestService();
+        const running = openHarnessStore(service);
+
+        await enqueueEvents({ store: running, log: LOGGER, incoming: [createEvent(assignment(42))] });
+
+        for (const limit of ['0', '-1', 'many', '1.5', `${MAX_CLAIMED_RUNS}0`]) {
+            const response = await service.call(`${CLAIM_PATH}?limit=${encodeURIComponent(limit)}`);
+            expect(response.status, `limit=${limit}`).toBe(422);
+        }
+
+        const stored = await readRunsDocument({ store: running, log: LOGGER });
+        expect(stored.runs[0]?.state).toBe('pending');
+        expect(stored.runs[0]?.lease).toBeNull();
+    });
+
+    it('accepts a limit within the cap and honours it', async () => {
+        service = await startTestService();
+        const running = openHarnessStore(service);
+
+        await enqueueEvents({
+            store: running,
+            log: LOGGER,
+            incoming: [1, 2, 3].map((issue) => createEvent(assignment(50 + issue))),
+        });
+
+        const response = await service.call(`${CLAIM_PATH}?limit=2`);
+        const body: { events: ClaimedRun[] } = await response.json();
+        const remainder = await service.call(CLAIM_PATH);
+        const rest = await remainder.json() as { events: ClaimedRun[] };
+
+        expect(response.status).toBe(200);
+        expect(body.events).toHaveLength(2);
+        expect(rest.events).toHaveLength(1);
+    });
+});
+
+describe('T-040h a quarantined run document answers the documented 503', () => {
+    let service: TestService | null = null;
+
+    afterEach(async () => {
+        if (service === null) {
+            return;
+        }
+
+        await service.shutdown();
+        service = null;
+    });
+
+    it('answers 503 storage-unavailable rather than 500 internal', async () => {
+        service = await startTestService();
+
+        await writeFile(join(service.dataDir, 'runs.json'), '{ this is not a run document', 'utf8');
+
+        const response = await service.call(CLAIM_PATH);
+        const body: { error: { code: string; message: string } } = await response.json();
+
+        // The store cannot serve run state, which is the documented setup
+        // prerequisite failure — not an unexpected internal error.
+        expect(response.status).toBe(503);
+        expect(body.error.code).toBe('storage-unavailable');
+        expect(body.error.message).not.toContain('correlationId');
     });
 });

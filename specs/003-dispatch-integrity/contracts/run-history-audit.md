@@ -23,7 +23,7 @@ Read-only, never claims (unchanged behaviour), newest detected first, capped at 
 | `attachmentId` | string | = correlation id; displayed so an operator can find the session (FR-029) |
 | `projectId`, `worktreeOption` | string | the dispatch target, snapshotted (AC-124) |
 | `leaseExpiresAt` | string \| null | live lease expiry, else `null` (wire delta) |
-| `sourceReferences[]` | `{ deliveryId, kind, origin, sourceUrl, detectedAt, presentAtAuthorization }[]` + `referenceCount`, `referencesTruncated` | FR-013/FR-015: the panel draws the primary label from the earliest reference, shows how many more reasons fired, and marks post-authorization references; excerpts are **not** projected here (untrusted text stays on the claim answer) |
+| `sourceReferences[]` | `{ deliveryId, kind, origin, sourceUrl, detectedAt, presentAtAuthorization }[]` + `referenceCount`, `referencesTruncated`, `referencesNotRetained` | FR-013/FR-015: the panel draws the primary label from the earliest reference, shows how many more reasons fired, and marks post-authorization references; excerpts are **not** projected here (untrusted text stays on the claim answer). `referenceCount` is the **total** that ever joined and `referencesNotRetained` is how many the 200-reference cap did not retain, so a row is never silently lossy (T-038) |
 | `session` | `{ sessionId, attachmentId, dispatchedAt } \| null` | SessionRef pointer (FR-028's proof) |
 | `verification` | `{ observedAgent, expectedAgent, ok, note } \| null` | FR-043 — visible on the row, mismatch renders as a warning (AC-125) |
 | `kind`, `repository`, `issueNumber`, `issueTitle`, `issueUrl`, `detectedAt`, `bindingId`, `headSha?`, `baseRef?` | as shipped | identity/age fields the existing row already renders |

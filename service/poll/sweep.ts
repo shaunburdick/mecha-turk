@@ -1,5 +1,5 @@
 /**
- * The lease/deadline sweep (003 FR-032, FR-033, FR-023, FR-036; T-009).
+ * The lease/deadline sweep (003 FR-032, FR-033, FR-023, FR-036; T-009, T-040).
  *
  * The sweep is the only automatic handler in the service, and the discipline
  * that makes it safe is that it touches **exactly two** conditions and nothing
@@ -19,25 +19,40 @@
  *
  * Expiry is judged against the service's own clock and nothing else (NFR-112);
  * tests therefore inject the stamp at the seam and never wait on a timer.
+ *
+ * Four properties this module owes the rest of the service (T-040):
+ *
+ * - **The rows are recoverable.** Every row the sweep owes is written as a
+ *   durable intent in the same `runs.json` write that moved the run, using the
+ *   outbox [`runs-audit.ts`](./runs-audit.ts) already drains on the next read.
+ *   A failed append is therefore *retried*, not lost — the sweep has no reader
+ *   to answer, so its own trail is the only operator-visible record it has.
+ * - **The answer reports the live failure.** `auditWritten` on
+ *   {@link SweepOutcome} is `false` when an append failed during this pass, so
+ *   FR-063's "must not be swallowed" holds for the sweep as well as for the
+ *   result route.
+ * - **Provenance is a typed member, not an id prefix** (T-040e): the lease's
+ *   `provenance` says whether adoption minted it, instead of the parser
+ *   accepting any non-empty string and a sweep helper reading `migration-`.
+ * - **The cadence is read before it is armed** (T-040f): the first tick is
+ *   scheduled from the *stored* durations, not the defaults, so an operator
+ *   who set `leaseMs` to its 30,000 ms minimum does not wait 60,000 ms for the
+ *   first pass.
  */
 
 import { nowIso } from '../../src/ids.ts';
 import { appendAudit } from '../audit.ts';
-import { CONFIG_FILE, DEFAULT_CONFIG, configFromStore, parseStoredConfig } from '../config.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
-import { isMigrationLease } from './runs-adopt.ts';
+import { buildDispatchTokenFingerprint } from './run-key.ts';
+import { sweepAuditRow } from './runs-audit.ts';
 import { inQueueChain, readRunsDocument, writeRunsDocument } from './runs-document.ts';
 import { MAX_AUTO_REQUEUES, expireLease, parkRun, wedgeUnconfirmed } from './runs-transitions.ts';
 import type { Run, RunLease, RunState, RunsDocument } from './runs-types.ts';
 
-/** The two durations the sweep reads; also the knobs it reschedules on. */
-interface SweepDurations {
-    /** Lease duration in milliseconds. */
-    readonly leaseMs: number;
-    /** Result deadline in milliseconds. */
-    readonly resultDeadlineMs: number;
-}
+/** The timer lives beside this module; re-exported so callers keep one path. */
+export { readSweepDurations, startSweep, sweepIntervalMs } from './sweep-loop.ts';
+export type { SweepDurations, SweepLoop, SweepLoopInput } from './sweep-loop.ts';
 
 /** One recovery the sweep performed, with the reason it recorded. */
 export interface SweepRecovery {
@@ -51,12 +66,53 @@ export interface SweepRecovery {
     readonly reason: string;
     /** Structured, credential-free details for the audit row. */
     readonly details: Readonly<Record<string, string | number | boolean | null>>;
+    /**
+     * The durable intent that will (re)write this row if the append fails.
+     *
+     * Carried on the recovery rather than rebuilt at write time so the row the
+     * outbox later appends is byte-for-byte the row this pass owed, even if the
+     * run has moved on in between.
+     */
+    readonly intent: SweepAuditIntent;
+}
+
+/** The audit vocabulary entries the sweep's rows belong to. */
+export type SweepEventType = SweepRecovery['eventType'];
+
+/** A durable intent for one sweep row, replayed by the run-audit outbox. */
+export interface SweepAuditIntent {
+    /** The row's vocabulary name. */
+    readonly eventType: SweepEventType;
+    /** The run this row concerns (FR-062: never a fresh identifier). */
+    readonly correlationId: string;
+    /** The decision the row records. */
+    readonly decision: string;
+    /** Secret-free reason naming the exact cause. */
+    readonly reason: string;
+    /** Structured, credential-free details; never a dispatch token value. */
+    readonly details: Readonly<Record<string, string | number | boolean | null>>;
+    /**
+     * What makes this row distinct from an earlier one for the same run.
+     *
+     * The outbox retires an intent by finding a matching row, and a run can be
+     * lease-expired three times: without a discriminator the second recovery
+     * would match the first row and never be written.
+     */
+    readonly sequence: string;
 }
 
 /** What one sweep pass changed. */
 export interface SweepOutcome {
     /** Every recovery this pass made, in run order. */
     readonly recoveries: readonly SweepRecovery[];
+    /**
+     * Whether every row this pass owed reached the trail.
+     *
+     * `false` means the recovery is durable and the row is not **yet** — the
+     * durable intent will write it on the next run-document read. Reported so
+     * the boot pass and any caller can see a degraded trail (FR-063).
+     */
+    readonly auditWritten: boolean;
 }
 
 /** One run's recovery, before it is written. */
@@ -112,21 +168,32 @@ function parkExhaustedRun(input: {
         return null;
     }
 
+    const reason = budgetReason(run.requeuesUsed);
+    const details = {
+        priorState: run.state,
+        leaseId: lease.leaseId,
+        leaseExpiry: lease.expiresAt,
+        attemptBefore: run.attempt,
+        attemptAfter: parked.attempt,
+        requeuesUsed: run.requeuesUsed,
+        budget: MAX_AUTO_REQUEUES,
+    };
+
     return {
         run: parked,
         recovery: {
             run: parked,
             eventType: 'run.dead_lettered',
             priorState: run.state,
-            reason: budgetReason(run.requeuesUsed),
-            details: {
-                priorState: run.state,
-                leaseId: lease.leaseId,
-                leaseExpiry: lease.expiresAt,
-                attemptBefore: run.attempt,
-                attemptAfter: parked.attempt,
-                requeuesUsed: run.requeuesUsed,
-                budget: MAX_AUTO_REQUEUES,
+            reason,
+            details,
+            intent: {
+                eventType: 'run.dead_lettered',
+                correlationId: parked.correlationId,
+                decision: 'dead-lettered',
+                reason,
+                details,
+                sequence: `${lease.leaseId}:${parked.attempt}`,
             },
         },
     };
@@ -136,9 +203,10 @@ function parkExhaustedRun(input: {
  * Recover one run whose lease expired with no reservation (FR-032).
  *
  * A **migrated** claim — the synthetic lease adoption mints for a legacy
- * `in-flight` row — is recovered once as migration recovery and is *not*
- * charged to the budget (data-model §1, plan migration table): the budget
- * bounds a crashed-panel loop, and a one-shot adoption cannot loop.
+ * `in-flight` row, which the lease's `provenance` names — is recovered once as
+ * migration recovery and is *not* charged to the budget (data-model §1, plan
+ * migration table): the budget bounds a crashed-panel loop, and a one-shot
+ * adoption cannot loop.
  *
  * @param input - The expired run and the service-clock stamp.
  * @returns The recovery, or `null` when the run is not an expired claim.
@@ -150,7 +218,7 @@ function recoverExpiredLease(input: { readonly run: Run; readonly now: string })
         return null;
     }
 
-    const migration = isMigrationLease(lease.leaseId);
+    const migration = lease.provenance === 'migration';
     const requeued = expireLease({ run, now, chargeBudget: !migration });
     if (requeued === null) {
         return null;
@@ -163,23 +231,34 @@ function recoverExpiredLease(input: { readonly run: Run; readonly now: string })
         }
     }
 
+    const reason = migration ? MIGRATION_RECOVERY_REASON : LEASE_EXPIRED_REASON;
+    const details = {
+        priorState: run.state,
+        leaseId: lease.leaseId,
+        leaseExpiry: lease.expiresAt,
+        attemptBefore: run.attempt,
+        attemptAfter: requeued.attempt,
+        requeuesBefore: run.requeuesUsed,
+        requeuesAfter: requeued.requeuesUsed,
+        budget: MAX_AUTO_REQUEUES,
+        migrationRecovery: migration,
+    };
+
     return {
         run: requeued,
         recovery: {
             run: requeued,
             eventType: 'dispatch.lease-expired',
             priorState: run.state,
-            reason: migration ? MIGRATION_RECOVERY_REASON : LEASE_EXPIRED_REASON,
-            details: {
-                priorState: run.state,
-                leaseId: lease.leaseId,
-                leaseExpiry: lease.expiresAt,
-                attemptBefore: run.attempt,
-                attemptAfter: requeued.attempt,
-                requeuesBefore: run.requeuesUsed,
-                requeuesAfter: requeued.requeuesUsed,
-                budget: MAX_AUTO_REQUEUES,
-                migrationRecovery: migration,
+            reason,
+            details,
+            intent: {
+                eventType: 'dispatch.lease-expired',
+                correlationId: requeued.correlationId,
+                decision: 'requeued',
+                reason,
+                details,
+                sequence: `${lease.leaseId}:${requeued.attempt}`,
             },
         },
     };
@@ -187,6 +266,12 @@ function recoverExpiredLease(input: { readonly run: Run; readonly now: string })
 
 /**
  * Wedge one run whose result never arrived (FR-023).
+ *
+ * The row records the outstanding token's **fingerprint**, never the token
+ * (T-040c): an unconsumed dispatch token is a live authorization to report a
+ * result, this file is operator-facing and retained for months, and the row
+ * still answers which token was outstanding because the fingerprint is derived
+ * from it and is reproducible by the service.
  *
  * @param input - The authorized run and the service-clock stamp.
  * @returns The recovery, or `null` when the run is not past its deadline.
@@ -203,18 +288,29 @@ function recoverLateResult(input: { readonly run: Run; readonly now: string }): 
         return null;
     }
 
+    const reason = `no dispatch result by ${reservation.resultDeadlineAt}`;
+    const details = {
+        priorState: run.state,
+        attempt: run.attempt,
+        dispatchTokenFingerprint: buildDispatchTokenFingerprint(reservation.dispatchToken),
+        deadline: reservation.resultDeadlineAt,
+    };
+
     return {
         run: wedged,
         recovery: {
             run: wedged,
             eventType: 'dispatch.unconfirmed',
             priorState: run.state,
-            reason: `no dispatch result by ${reservation.resultDeadlineAt}`,
-            details: {
-                priorState: run.state,
-                attempt: run.attempt,
-                dispatchToken: reservation.dispatchToken,
-                deadline: reservation.resultDeadlineAt,
+            reason,
+            details,
+            intent: {
+                eventType: 'dispatch.unconfirmed',
+                correlationId: wedged.correlationId,
+                decision: 'unconfirmed',
+                reason,
+                details,
+                sequence: `${run.attempt}:${reservation.resultDeadlineAt}`,
             },
         },
     };
@@ -251,20 +347,13 @@ export function planSweep(input: {
 }
 
 /**
- * The decision each sweep row records (003 `## Audit Vocabulary`).
+ * Append one lifecycle row; a failure never undoes the recovery.
  *
- * @param recovery - The recovery being written.
- * @returns `requeued`, `dead-lettered`, or `unconfirmed`.
+ * The row is built from the recovery's own intent through the outbox's shared
+ * builder, so the row this pass writes and the row a replay would write are the
+ * same bytes — which is what lets the outbox retire this intent by matching it
+ * rather than appending the same recovery twice (T-040b).
  */
-function decisionFor(recovery: SweepRecovery): string {
-    if (recovery.eventType === 'run.dead_lettered') {
-        return 'dead-lettered';
-    }
-
-    return recovery.eventType === 'dispatch.unconfirmed' ? 'unconfirmed' : 'requeued';
-}
-
-/** Append one lifecycle row; a failure never undoes the recovery. */
 async function appendSweepAudit(input: {
     /** Open store. */
     readonly store: ServiceStore;
@@ -272,36 +361,55 @@ async function appendSweepAudit(input: {
     readonly log: ServiceLogger;
     /** The recovery to record. */
     readonly recovery: SweepRecovery;
-}): Promise<void> {
+}): Promise<boolean> {
     const { recovery } = input;
     try {
-        await appendAudit(input.store, {
-            eventType: recovery.eventType,
-            actorSource: 'service',
-            entity: { kind: 'run', id: recovery.run.correlationId },
-            correlationId: recovery.run.correlationId,
-            decision: decisionFor(recovery),
-            reason: recovery.reason,
-            details: recovery.details,
-        });
+        await appendAudit(input.store, sweepAuditRow(recovery.intent));
+
+        return true;
     } catch (cause) {
         input.log.warn('dispatch sweep audit row could not be appended', {
             correlationId: recovery.run.correlationId,
             eventType: recovery.eventType,
             errorKind: cause instanceof Error ? cause.name : typeof cause,
         });
+
+        return false;
     }
+}
+
+/**
+ * Add the durable intents for a pass's recoveries to the document it persists.
+ *
+ * The intents travel in the **same atomic write** as the state change they
+ * describe, so a crash between the recovery and its row leaves the row owed
+ * rather than lost — the same durability the enqueue path gets from T-037's
+ * outbox, reused rather than reinvented.
+ *
+ * @param input - The document to persist and the recoveries it owes rows for.
+ * @returns The document with its intents appended.
+ */
+function withIntents(input: {
+    /** The document the pass decided on. */
+    readonly document: RunsDocument;
+    /** The recoveries the pass made. */
+    readonly recoveries: readonly SweepRecovery[];
+}): RunsDocument {
+    return {
+        ...input.document,
+        auditIntents: [...(input.document.auditIntents ?? []), ...input.recoveries.map((entry) => entry.intent)],
+    };
 }
 
 /**
  * Run one sweep pass: recover every expired lease and every late result.
  *
- * The durable write comes first and the audit rows follow, so a row that
- * cannot be appended is logged and surfaced rather than rolling a recovery
- * back (FR-063).
+ * The durable write comes first — state **and** the intents for its rows — and
+ * the audit rows follow, so a row that cannot be appended is retried by the
+ * outbox on the next read rather than rolled back (FR-063, T-040b).
  *
  * @param input - Store, logger, and an injectable service-clock stamp.
- * @returns The recoveries this pass made; empty when there was nothing to do.
+ * @returns The recoveries this pass made and whether their rows reached the trail.
  * @throws {StorageUnavailableError} When the store cannot be read or written.
  */
 export async function sweepOnce(input: {
@@ -320,9 +428,13 @@ export async function sweepOnce(input: {
             return outcome;
         }
 
-        return { ...outcome, document: await writeRunsDocument({ ...input, document: outcome.document }) };
+        return {
+            ...outcome,
+            document: await writeRunsDocument({ ...input, document: withIntents(outcome) }),
+        };
     });
 
+    const written: boolean[] = [];
     for (const recovery of planned.recoveries) {
         input.log.info('dispatch sweep recovered a run', {
             correlationId: recovery.run.correlationId,
@@ -330,114 +442,8 @@ export async function sweepOnce(input: {
             priorState: recovery.priorState,
             newState: recovery.run.state,
         });
-        await appendSweepAudit({ ...input, recovery });
+        written.push(await appendSweepAudit({ ...input, recovery }));
     }
 
-    return { recoveries: planned.recoveries };
-}
-
-/** Read the two sweep durations, answering the defaults when unreadable. */
-async function readDurations(input: {
-    /** Open store. */
-    readonly store: ServiceStore;
-    /** Structured logger. */
-    readonly log: ServiceLogger;
-}): Promise<SweepDurations> {
-    try {
-        const stored = await input.store.readJson(CONFIG_FILE, parseStoredConfig);
-        const config = configFromStore(stored, input.log);
-
-        return { leaseMs: config.leaseMs, resultDeadlineMs: config.resultDeadlineMs };
-    } catch (cause) {
-        input.log.warn('sweep cadence read failed', { errorKind: cause instanceof Error ? cause.name : typeof cause });
-
-        return { leaseMs: DEFAULT_CONFIG.leaseMs, resultDeadlineMs: DEFAULT_CONFIG.resultDeadlineMs };
-    }
-}
-
-/**
- * The cadence one tick waits before the next: half the shorter of the two
- * durations, so every lease and every result deadline is examined at least
- * twice inside its own window (FR-032's "at least once per lease duration"),
- * independently of the poll interval — a 300 s poll cadence must not push the
- * lease sweep past its own bound.
- *
- * @param durations - The configured lease and result deadline.
- * @returns Milliseconds between ticks.
- */
-export function sweepIntervalMs(durations: SweepDurations): number {
-    return Math.floor(Math.min(durations.leaseMs, durations.resultDeadlineMs) / 2);
-}
-
-/** A running sweep, stopped on shutdown. */
-export interface SweepLoop {
-    /** Cancel the pending tick; a pass in flight finishes on its own. */
-    stop(): void;
-}
-
-/**
- * Start the periodic sweep on its own unref'd timer.
- *
- * The timer is unref'd so it never keeps an idle process alive, and each tick
- * re-reads the configured durations, so `PUT /v1/config` retunes the cadence
- * without a restart. A tick still running when the next one fires is skipped,
- * never overlapped: the sweep is a chain task, and two passes would only
- * contend for the same lock.
- *
- * @param input - Store and logger.
- * @returns A handle that stops the timer.
- */
-export function startSweep(input: {
-    /** Open store. */
-    readonly store: ServiceStore;
-    /** Structured logger. */
-    readonly log: ServiceLogger;
-}): SweepLoop {
-    const state = { timer: null as NodeJS.Timeout | null, stopped: false, inFlight: false };
-
-    /** Read through a function so the compiler cannot narrow the flag away. */
-    const halted = (): boolean => state.stopped;
-
-    const cycle = async (): Promise<void> => {
-        if (halted() || state.inFlight) {
-            return;
-        }
-
-        state.inFlight = true;
-        const durations = await readDurations(input);
-        try {
-            await sweepOnce(input);
-        } catch (cause) {
-            input.log.warn('dispatch sweep pass failed', {
-                errorKind: cause instanceof Error ? cause.name : typeof cause,
-            });
-        } finally {
-            state.inFlight = false;
-        }
-
-        // A shutdown that landed mid-pass must not re-arm the timer.
-        if (!halted()) {
-            state.timer = setTimeout(() => {
-                state.timer = null;
-                void cycle();
-            }, sweepIntervalMs(durations));
-            state.timer.unref();
-        }
-    };
-
-    state.timer = setTimeout(() => {
-        state.timer = null;
-        void cycle();
-    }, sweepIntervalMs(DEFAULT_CONFIG));
-    state.timer.unref();
-
-    return {
-        stop: (): void => {
-            state.stopped = true;
-            if (state.timer !== null) {
-                clearTimeout(state.timer);
-                state.timer = null;
-            }
-        },
-    };
+    return { recoveries: planned.recoveries, auditWritten: written.every(Boolean) };
 }

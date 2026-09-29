@@ -183,6 +183,22 @@ Only from `unconfirmed` (else 409 `invalid-transition`). The panel must present 
 
 Rules: entity = the run, correlation = the run's id, reason = the same secret-free cause the response carries (never the token, never a received value beyond the identifiers), exactly one row per refusal. **Scope reading**: a refusal *by the panel* that never reached the service (FR-035's "do not dispatch what was not offered") changes no run and is recorded in the panel's ledger for that mount — the service cannot audit a request it never received, and inventing a report call for a no-op would add a wire operation the spec does not ask for. Panel refusals that *do* change a run already have their own vocabulary row (`run.blocked`), and operator-facing refusals the service answers (`retry`, `resolve`, `requeue`, `reserve`, `result`) all land here.
 
+## Naming a dispatch token in a row: the fingerprint, never the value
+
+**No audit row in this directory may carry a `dtk-` value** (FR-061; T-040c). An unconsumed dispatch token is a **live authorization to report a result**, `audit.ndjson` is operator-facing, and it is retained for months — so a row that embeds one stores a working capability in a file whose entire purpose is to be read.
+
+Rows that must identify the authorization record it as a **fingerprint** instead:
+
+| `details` member | Value |
+| --- | --- |
+| `dispatchTokenFingerprint` | `tokfp-<16 hex>` — `sha256(dispatchToken)` truncated to 16 hex characters, derived by the service and reproducible by it |
+
+The fingerprint is derived from the **token value**, not from the run key, so it identifies *that* authorization: two attempts of one run mint two different tokens and therefore produce two different fingerprints, which is exactly what makes the row answer "which token was outstanding".
+
+**The prefix is deliberately not `dtk-`.** A fingerprint that shared the token's prefix would be indistinguishable from a leaked token to the standing scan below and to an operator grepping the trail.
+
+`SECRET_PATTERNS` is **not** extended to cover `dtk-`: 003 T-019 legitimately stores dispatch tokens in panel storage (`mecha-turk:dispatches`, data-model §3), so a redaction guard that refused them would break the feature it is meant to protect. The defence is the **scan**, not redaction — a test drives every audit-writing path this build has and asserts that **no** row written anywhere matches `/dtk-[0-9a-f]{8,}/`. `dispatch.unconfirmed` is the one row of the three Wave 2 ships that names a token; when Wave 3's rows are built, they name it the same way, and the same scan enforces it.
+
 ## Error-code additions to 002 contract §4
 
 | HTTP | `code` | Meaning | Panel copy family |

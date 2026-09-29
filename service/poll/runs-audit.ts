@@ -1,10 +1,43 @@
-/** Durable outbox for required run-creation and migration audit rows. */
+/**
+ * Durable outbox for run-lifecycle audit rows whose append can span a crash
+ * (003 T-037, T-040b).
+ *
+ * Three producers owe rows the audit trail must eventually carry: run creation,
+ * migration adoption, and the lease/deadline sweep. Each writes its intent into
+ * the same `runs.json` write that changed the state it describes, so the only
+ * way a row goes missing is a process that dies between the two — and the next
+ * reader of the document finds the intent and writes the row anyway.
+ *
+ * That is the whole point of the outbox. FR-063 says a failed lifecycle append
+ * must not roll back a durable state change and must not be swallowed; before
+ * this module the sweep had no way to satisfy either half, because it has no
+ * caller to answer: the only place an operator could learn that a lease expired
+ * and the run was requeued was the trail, so a lost row was a lost recovery.
+ *
+ * The sweep's intents are distinguished by a `sequence` discriminator rather
+ * than by their event type alone, because one run can be lease-expired three
+ * times (FR-033's budget) and a matcher that only compared the event type would
+ * retire the second recovery against the first row and never write it.
+ */
 
 import { appendAudit, readAuditEntries } from '../audit.ts';
 import type { AuditEntry, AuditInput } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import type { Run, RunAuditIntent, RunsDocument } from './runs-types.ts';
+
+/** The run entity every lifecycle row carries (FR-061's entity requirement). */
+const RUN_ENTITY_KIND = 'run';
+
+/** Actor source for every row this outbox writes; all three are service rows. */
+const SERVICE_ACTOR = 'service';
+
+/** The rejection a row builder raises when handed the wrong intent variant. */
+const WRONG_VARIANT = 'intent variant does not match the row builder';
+
+/** Vocabulary names for the two run-creation intents, named once. */
+const RUN_CREATED = 'run.created';
+const RUN_MIGRATED = 'run.migrated';
 
 /** Shape used while rebuilding one contract-defined audit row. */
 interface IntentRowInput {
@@ -14,34 +47,44 @@ interface IntentRowInput {
     readonly run: Run;
 }
 
-/** Build the existing audit-contract row from its durable intent. */
-function auditRowForIntent(input: IntentRowInput): AuditInput {
+/** Build the creation row from its durable intent and the run it names. */
+function createdRow(input: IntentRowInput): AuditInput {
     const { intent, run } = input;
-    if (intent.eventType === 'run.created') {
-        return {
-            eventType: intent.eventType,
-            actorSource: 'service',
-            entity: { kind: 'run', id: intent.correlationId },
-            correlationId: intent.correlationId,
-            reason: 'run created from a detected delivery',
-            details: {
-                subject: {
-                    provider: 'github',
-                    accountNumericUserId: run.accountNumericUserId,
-                    repository: run.repository,
-                    subjectType: run.subjectType,
-                    subjectNumber: run.subjectNumber,
-                },
-                ordinal: run.ordinal,
-                deliveryIds: intent.deliveryIds,
-            },
-        };
+    if (intent.eventType !== RUN_CREATED) {
+        throw new Error(WRONG_VARIANT);
     }
 
     return {
         eventType: intent.eventType,
-        actorSource: 'service',
-        entity: { kind: 'run', id: intent.correlationId },
+        actorSource: SERVICE_ACTOR,
+        entity: { kind: RUN_ENTITY_KIND, id: intent.correlationId },
+        correlationId: intent.correlationId,
+        reason: 'run created from a detected delivery',
+        details: {
+            subject: {
+                provider: 'github',
+                accountNumericUserId: run.accountNumericUserId,
+                repository: run.repository,
+                subjectType: run.subjectType,
+                subjectNumber: run.subjectNumber,
+            },
+            ordinal: run.ordinal,
+            deliveryIds: intent.deliveryIds,
+        },
+    };
+}
+
+/** Build the migration row from its durable intent. */
+function migratedRow(input: IntentRowInput): AuditInput {
+    const { intent } = input;
+    if (intent.eventType !== RUN_MIGRATED) {
+        throw new Error(WRONG_VARIANT);
+    }
+
+    return {
+        eventType: intent.eventType,
+        actorSource: SERVICE_ACTOR,
+        entity: { kind: RUN_ENTITY_KIND, id: intent.correlationId },
         correlationId: intent.correlationId,
         decision: 'adopted',
         reason: `legacy deliveries adopted: ${intent.stateBranches.join(', ')}`,
@@ -53,12 +96,63 @@ function auditRowForIntent(input: IntentRowInput): AuditInput {
     };
 }
 
+/**
+ * Build a sweep row from its durable intent.
+ *
+ * The sweep's rows need no run lookup: the intent already carries the decision,
+ * reason, and details exactly as the pass recorded them, so a replay writes the
+ * same bytes even if the run has moved on since.
+ *
+ * **Exported because the sweep's own live append must use this exact builder**,
+ * not a parallel copy. The outbox retires an intent by finding a row that
+ * matches it, so a live row written from different members than its own intent
+ * would never match — the recovery would append the same recovery twice.
+ */
+export function sweepAuditRow(intent: Extract<RunAuditIntent, { readonly sequence: string }>): AuditInput {
+    return {
+        eventType: intent.eventType,
+        actorSource: SERVICE_ACTOR,
+        entity: { kind: RUN_ENTITY_KIND, id: intent.correlationId },
+        correlationId: intent.correlationId,
+        decision: intent.decision,
+        reason: intent.reason,
+        details: { ...intent.details, sequence: intent.sequence },
+    };
+}
+
+/** Build the existing audit-contract row from its durable intent. */
+function auditRowForIntent(input: IntentRowInput): AuditInput {
+    const { intent } = input;
+
+    if (intent.eventType === RUN_CREATED) {
+        return createdRow(input);
+    }
+
+    return intent.eventType === RUN_MIGRATED
+        ? migratedRow(input)
+        : sweepAuditRow(intent);
+}
+
+/** Whether an intent is one of the sweep's self-contained rows. */
+function isSweepIntent(intent: RunAuditIntent): intent is Extract<RunAuditIntent, { readonly sequence: string }> {
+    return intent.eventType !== RUN_CREATED && intent.eventType !== RUN_MIGRATED;
+}
+
 /** Find a durable row that proves an intent's append completed before a crash. */
 function intentIsWritten(intent: RunAuditIntent, entries: readonly AuditEntry[]): boolean {
-    return entries.some((entry) => entry.eventType === intent.eventType
-        && entry.correlationId === intent.correlationId
-        && entry.entity.kind === 'run'
-        && entry.entity.id === intent.correlationId);
+    return entries.some((entry) => {
+        if (entry.eventType !== intent.eventType || entry.correlationId !== intent.correlationId) {
+            return false;
+        }
+        if (entry.entity.kind !== RUN_ENTITY_KIND || entry.entity.id !== intent.correlationId) {
+            return false;
+        }
+
+        // A sweep row is only the same row when its discriminator matches too —
+        // a run can be lease-expired three times, and matching on the event type
+        // alone would retire recovery #2 against row #1.
+        return !isSweepIntent(intent) || entry.details.sequence === intent.sequence;
+    });
 }
 
 /** Append one intent if needed, leaving it pending on any storage failure. */

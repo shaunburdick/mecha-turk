@@ -5,10 +5,7 @@
  * `events.json` until the panel carries them into a `host.startSession()`
  * dispatch. One JSON file holds the whole queue; dedupe is by the event's own
  * deterministic `id` (one assignment on one issue can only ever produce one
- * event), a claim is a state flip with a stamp, and a dispatch is terminal.
- * This is the deliberately simple replacement for the contract's long-poll/
- * lease relay (§2.4) — the MVP cut trades leases and run keys for a queue one
- * panel reads through two routes.
+ * event), and a dispatch is terminal.
  *
  * The row schema and its validator live beside this module in
  * `events-parse.ts` (the read side of the same contract). A queue file that
@@ -17,10 +14,28 @@
  * so the assignments the lost queue carried are re-detected on the next
  * pass instead of silently dropped.
  *
- * MVP-DEBT: retention beyond the dispatched tail and delivery leases are
- * contract §2.4 machinery still deferred; the Slice-2 runs history
- * (`GET /v1/events`) and its retry (`POST /v1/events/:id/retry`) read and
- * reset this queue in place instead of adding a second store.
+ * **What changed in 003 (T-001–T-006).** A delivery is no longer the unit of
+ * dispatch — the **run** is (data-model §1, §2.2) — and this module no longer
+ * performs the claim itself. What it does now is:
+ *
+ * - **enqueue through the run layer**: a fresh delivery either opens a run or
+ *   joins an open one (FR-011), on the same chain `runs.json` shares, writing
+ *   `runs.json` first and `events.json` second so a crash between the two
+ *   self-heals on re-detect (research §R4);
+ * - **write the forward link** `runCorrelationId` on the rows it enqueues, and
+ *   carry the `subjectType` captured at detection, while leaving the legacy
+ *   lifecycle fields (`state`, `claimedAt`, `dispatchedAt`, `dispatchResult`)
+ *   frozen — a post-003 row carries none of them, and that absence is what
+ *   tells the two vocabularies apart on read (FR-012);
+ * - **prune run-linked rows** when their bounded terminal run is evicted, so
+ *   `events.json` cannot outlive the run that explains it (T-037).
+ *
+ * The remaining queue operations — `markEventDispatched` and `retryEvent` —
+ * are the **delivery** routes the panel has always used, still reading and
+ * resetting the queue in place. They are not the dispatch path: claiming,
+ * leasing, and reporting a dispatch happen against a run, through
+ * [`claim.ts`](./claim.ts) and the run operations. 003 T-016 replaces the
+ * `GET /v1/events` history with the run-shaped projection.
  */
 
 import { basename, join } from 'node:path';

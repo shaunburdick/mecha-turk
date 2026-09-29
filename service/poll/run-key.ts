@@ -22,6 +22,12 @@
  * ever produces `dtk-<hex>`, which matches none of {@link findSecretLeak}'s
  * credential shapes.
  *
+ * A row that must **name** a token without carrying it uses
+ * {@link buildDispatchTokenFingerprint} instead: an unconsumed token is a live
+ * authorization to report a result, and the audit trail is operator-facing and
+ * retained for months, so the trail records a one-way `tokfp-…` identifier and
+ * never the `dtk-…` value.
+ *
  * The attachment bound is mirrored from the SDK's `GUEST_ATTACH_ID_MAX`
  * rather than imported: the service bundle must stay stdlib-only (AGENTS.md
  * invariant 6 keeps `@openchamber/sdk` a panel-side dependency), and a
@@ -41,6 +47,19 @@ const CORRELATION_HEX_CHARS = 24;
 
 /** Hex characters taken from the SHA-256 digest for a dispatch token. */
 const TOKEN_HEX_CHARS = 32;
+
+/** Hex characters taken from the SHA-256 digest for a dispatch-token fingerprint. */
+const FINGERPRINT_HEX_CHARS = 16;
+
+/**
+ * Prefix every token **fingerprint** carries.
+ *
+ * Deliberately *not* `dtk-`: the token namespace is itself a standing assertion
+ * (no audit row may ever carry a `dtk-` value), so a fingerprint that shared the
+ * prefix would be indistinguishable from a leaked token to that scan and to an
+ * operator grepping the trail.
+ */
+export const FINGERPRINT_PREFIX = 'tokfp-';
 
 /** Separator joining the run key's tuple segments. */
 const KEY_SEPARATOR = '|';
@@ -184,4 +203,23 @@ export function buildDispatchToken(runKey: string, attempt: number): string {
     }
 
     return `dtk-${digestHex(`${runKey}${KEY_SEPARATOR}${attempt}`, TOKEN_HEX_CHARS)}`;
+}
+
+/**
+ * Fingerprint one dispatch token for a row that must name it without carrying
+ * it (003 FR-061; the `dispatch.unconfirmed` row).
+ *
+ * An unconsumed dispatch token is a live authorization to report a result, and
+ * `audit.ndjson` is operator-facing and retained for months — so a row may name
+ * *which* token was outstanding, never its value. This is a one-way digest of
+ * the token bytes, not of the run key: two different tokens for one run (a
+ * re-mint under a new attempt) produce two different fingerprints, so the row
+ * still identifies the exact authorization, and the digest cannot be inverted
+ * to recover a 256-bit token.
+ *
+ * @param dispatchToken - The token as recorded on the run's reservation.
+ * @returns `tokfp-<16 hex characters>` — one path-safe segment.
+ */
+export function buildDispatchTokenFingerprint(dispatchToken: string): string {
+    return `${FINGERPRINT_PREFIX}${digestHex(dispatchToken, FINGERPRINT_HEX_CHARS)}`;
 }

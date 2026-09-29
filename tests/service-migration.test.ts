@@ -23,6 +23,8 @@ const STAMP = '2026-09-28T12:00:00.000Z';
 const NOW = '2026-09-28T12:30:00.000Z';
 const BINDING_ID = 'bnd-migrate';
 const SCAN_STATE_FILE = 'scan-state.json';
+/** A panel-minted lease id in the one shape `parseLease` accepts (T-040e). */
+const MIGRATION_TEST_LEASE_ID = `lse-${'c'.repeat(24)}`;
 const MIGRATED_EVENT = 'run.migrated';
 const LOG_LINES: string[] = [];
 const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
@@ -190,7 +192,7 @@ describe('runs.json first-read adoption', () => {
             log: LOGGER,
             correlationId: run.correlationId,
             holder: 'panel-migration-test',
-            leaseId: 'lease-migration-test',
+            leaseId: MIGRATION_TEST_LEASE_ID,
             issuedAt: NOW,
             expiresAt: '2026-09-28T12:35:00.000Z',
             now: NOW,
@@ -201,7 +203,7 @@ describe('runs.json first-read adoption', () => {
             store,
             log: LOGGER,
             correlationId: run.correlationId,
-            leaseId: 'lease-migration-test',
+            leaseId: MIGRATION_TEST_LEASE_ID,
             resultDeadlineAt: '2026-09-28T12:35:00.000Z',
             now: NOW,
         });

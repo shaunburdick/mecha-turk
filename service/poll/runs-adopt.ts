@@ -39,25 +39,27 @@ const LEGACY_PROBLEMS = new Set([
 /** The result deadline an adopted reservation is armed with (T-008's default). */
 const RESULT_DEADLINE_MS = DEFAULT_CONFIG.resultDeadlineMs;
 
-/** Prefix every synthetic adoption lease carries (data-model §1). */
+/** Prefix every synthetic adoption lease identifier carries (data-model §1). */
 export const MIGRATION_LEASE_PREFIX = 'migration-';
 
 /** Holder recorded on a synthetic adoption lease. */
 const MIGRATION_HOLDER = 'migration';
 
 /**
- * Recognise the synthetic lease adoption mints for a legacy `in-flight` row.
+ * Mint the synthetic lease an adopted `in-flight` row is recovered under.
  *
- * The sweep needs to tell an adopted claim from a real one: an adopted claim is
- * recovered **once** as migration recovery and is not charged to the automatic
- * requeue budget, because that budget bounds a crashed-panel loop and a
- * one-shot adoption cannot loop (plan migration table).
+ * The identifier is a **fencing/consistency token, not a capability**: it
+ * authorizes nothing, and the service's bearer token is the only authentication
+ * gate. It is a deterministic function of answer-visible inputs (the run's
+ * correlation id), which is what makes it re-derivable; provenance travels as
+ * the typed {@link RunLease} member beside it rather than as this prefix, so
+ * `parseLease` can enforce the two legal shapes.
  *
- * @param leaseId - The lease identifier as stored.
- * @returns `true` for a lease this build's adoption minted.
+ * @param correlationId - The adopted run's correlation id.
+ * @returns `migration-<correlationId>` — one path-safe segment.
  */
-export function isMigrationLease(leaseId: string): boolean {
-    return leaseId.startsWith(MIGRATION_LEASE_PREFIX);
+export function buildMigrationLeaseId(correlationId: string): string {
+    return `${MIGRATION_LEASE_PREFIX}${correlationId}`;
 }
 
 /** Input needed to build a migration plan without mutating legacy rows. */
@@ -203,11 +205,12 @@ function classifyInFlight(input: {
         branch: 'in-flight-no-reservation',
         stateReason: 'adopted legacy in-flight delivery; synthetic lease is expired',
         lease: {
-            leaseId: `${MIGRATION_LEASE_PREFIX}${correlationId}`,
+            leaseId: buildMigrationLeaseId(correlationId),
             attempt: 1,
             holder: MIGRATION_HOLDER,
             issuedAt,
             expiresAt: new Date(Date.parse(now) - 1).toISOString(),
+            provenance: 'migration',
         },
         reservation: null,
         attempts: [attemptOf({ outcome: null })],

@@ -36,7 +36,7 @@ import {
 } from './runs-document.ts';
 import { buildDispatchToken } from './run-key.ts';
 import { isRunState } from './runs-parse.ts';
-import { expireLease, leaseRun, parkRun, wedgeUnconfirmed } from './runs-transitions.ts';
+import { leaseRun, parkRun } from './runs-transitions.ts';
 import type { RunChange, RunTransitionInput } from './runs-document.ts';
 import type { LeaseCoordinates } from './runs-transitions.ts';
 import type { Run, SessionRef } from './runs-types.ts';
@@ -82,6 +82,7 @@ function leaseCoordinatesOf(input: ClaimInput): LeaseCoordinates {
         leaseId: input.leaseId,
         issuedAt: input.issuedAt,
         expiresAt: input.expiresAt,
+        provenance: 'panel',
     };
 }
 
@@ -430,18 +431,6 @@ export async function resolveRun(
 }
 
 /**
- * Requeue a claimed run whose lease expired with no reservation: attempt and
- * requeue budget both increment (FR-032, plan D5). The sweep owns the call
- * and the audit row; only the service clock decides expiry (NFR-112).
- *
- * @param input - The stranded run and the stamp expiry is judged against.
- * @returns The waiting run, or why nothing was requeued.
- */
-export async function requeueExpiredRun(input: RunTransitionInput): Promise<RunChange> {
-    return await changeRun(input, (run, now) => expireLease({ run, now, chargeBudget: true }));
-}
-
-/**
  * Park a run in `dead-lettered`: the requeue budget is exhausted, or the
  * operator parked it. Terminal runs and runs that already produced a session
  * are never parked (FR-028, FR-033).
@@ -451,16 +440,4 @@ export async function requeueExpiredRun(input: RunTransitionInput): Promise<RunC
  */
 export async function deadLetterRun(input: RunTransitionInput & { readonly reason: string }): Promise<RunChange> {
     return await changeRun(input, (run, now) => parkRun({ run, now, reason: input.reason }));
-}
-
-/**
- * Move an authorized run whose result never arrived to `unconfirmed` — the
- * fail-closed wedge that never re-queues, never re-leases, and never expires
- * (FR-023).
- *
- * @param input - The run whose result deadline passed.
- * @returns The wedged run, or why nothing moved.
- */
-export async function markUnconfirmed(input: RunTransitionInput): Promise<RunChange> {
-    return await changeRun(input, (run, now) => wedgeUnconfirmed({ run, now }));
 }

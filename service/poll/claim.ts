@@ -18,12 +18,28 @@
  *    the lease id, the attempt, the holder, and the expiry, and the sweep
  *    recovers it from that record alone.
  *
+ * Two more properties come from the review that shaped this module (T-039,
+ * T-040), and both are about the order of operations:
+ *
+ * - **The answer is projected before anything is leased.** The batch is
+ *   planned, projected, and measured against the documented bounds
+ *   ([`claim-bounds.ts`](./claim-bounds.ts)) *first*; only the runs that fit
+ *   are leased, and the rest stay `pending` for the panel's next poll. A lease
+ *   is therefore never left behind by an answer the transport could not carry
+ *   — the failure that burned attempts and requeue budget down to
+ *   `dead-lettered` (FR-032, FR-033).
+ * - **The document is read outside the exclusive chain**, and the chain is
+ *   taken only once the read shows a write is actually needed, where the
+ *   document is re-read and the plan recomputed. A claim that leases nothing
+ *   never occupies the queue at all (T-040d).
+ *
  * The answer projects only what the contract lists, and it is credential-free
  * by construction: every field is either a run identifier, a lease coordinate,
  * a snapshotted dispatch target, or source text the operator already sees on
  * the run row. Excerpts ride along because FR-014 requires the dispatch to
  * carry *every* retained source reference, bounded per reference; the run row
- * deliberately does not carry them (untrusted text lives on the claim answer).
+ * deliberately does not carry them (untrusted text lives on the claim answer),
+ * and [`claim-bounds.ts`](./claim-bounds.ts) bounds how much of it does.
  */
 
 import { createHash } from 'node:crypto';
@@ -32,11 +48,23 @@ import { appendAudit } from '../audit.ts';
 import { CONFIG_FILE, DEFAULT_CONFIG, configFromStore, parseStoredConfig } from '../config.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
+import { CLAIM_EVENTS_BUDGET_CHARS, MAX_CLAIMED_RUNS, measureEvents } from './claim-bounds.ts';
+import { projectClaimedRun } from './claim-project.ts';
 import { readEvents } from './events.ts';
-import { inQueueChain, readRunsDocument, runHistoryIndicatesSession, writeRunsDocument } from './runs-document.ts';
+import {
+    inQueueChain,
+    previewRunsDocument,
+    readRunsDocument,
+    runHistoryIndicatesSession,
+    whenQueueIdle,
+    writeRunsDocument,
+} from './runs-document.ts';
 import { leaseRun } from './runs-transitions.ts';
+import type { ClaimedLease, ClaimedReference, ClaimedRun, ClaimRecord } from './claim-project.ts';
 import type { QueuedEvent } from './events-parse.ts';
-import type { ReferenceOrigin, Run, RunsDocument } from './runs-types.ts';
+import type { Run, RunsDocument } from './runs-types.ts';
+
+export type { ClaimedLease, ClaimedReference, ClaimedRun, ClaimRecord };
 
 /** Holder recorded on a lease when the panel sent no `holder` parameter. */
 export const UNKNOWN_HOLDER = 'unknown';
@@ -47,111 +75,30 @@ const MAX_HOLDER_CHARS = 64;
 /** Hex characters taken from a lease id's digest. */
 const LEASE_ID_HEX_CHARS = 24;
 
-/** The lease a claim issues, as the answer reports it (FR-030). */
-export interface ClaimedLease {
-    /** Lease identifier; the panel echoes it on every run operation. */
-    readonly leaseId: string;
-    /** Attempt this lease is issued under (the run's *current* attempt). */
-    readonly attempt: number;
-    /** Opaque per-mount id of the panel holding it; informational only. */
-    readonly holder: string;
-    /** RFC 3339 issue stamp (service clock, NFR-112). */
-    readonly issuedAt: string;
-    /** RFC 3339 expiry stamp; the sweep reclaims exactly here. */
-    readonly expiresAt: string;
-}
-
-/** One retained source reference as the claim answer carries it (FR-013). */
-export interface ClaimedReference {
-    /** The joining delivery's unchanged id (FR-012). */
-    readonly deliveryId: string;
-    /** Trigger kind the delivery was detected under. */
-    readonly kind: QueuedEvent['kind'];
-    /** Where it matched: assignment, issue body, a comment id, or review. */
-    readonly origin: ReferenceOrigin;
-    /** Canonical link back to the source. */
-    readonly sourceUrl: string;
-    /** That delivery's detection stamp. */
-    readonly detectedAt: string;
-    /** Bounded trigger excerpt (≤600 characters as detected), transport only. */
-    readonly excerpt: string;
-    /** `false` iff the run already held a reservation when this arrived. */
-    readonly presentAtAuthorization: boolean;
-}
-
-/** One claimed run, as the panel receives it. */
-export interface ClaimedRun {
-    /** Run identity on the wire; every later call is addressed by it. */
-    readonly correlationId: string;
-    /** FR-010's human-readable tuple, shown beside the correlation id. */
-    readonly runKey: string;
-    /** 0-based ordinal of this run for its subject. */
-    readonly ordinal: number;
-    /** Attempt this lease is issued under. */
-    readonly attempt: number;
-    /** The claim itself. */
-    readonly lease: ClaimedLease;
-    /**
-     * The state the run was **offered** in — always `pending` (FR-037).
-     *
-     * The lease member, not this string, is the proof the run is now held; a
-     * reader that needs the stored state after the claim reads the run history.
-     */
-    readonly state: 'pending';
-    /** Why the run was waiting, rendered as the row's reason line (FR-074). */
-    readonly stateReason: string;
-    /** Binding the run dispatches through. */
-    readonly bindingId: string;
-    /** `owner/name`. */
-    readonly repository: string;
-    /** Login of the account this run is answered under. */
-    readonly accountLogin: string;
-    /** Target project, snapshotted at enqueue. */
-    readonly projectId: string;
-    /** Worktree option, snapshotted at enqueue. */
-    readonly worktreeOption: string;
-    /** Whether the subject is an issue or a pull request. */
-    readonly subjectType: Run['subjectType'];
-    /** Issue or pull request number. */
-    readonly issueNumber: number;
-    /** Issue title; untrusted source text. */
-    readonly issueTitle: string;
-    /** Canonical issue URL. */
-    readonly issueUrl: string;
-    /** Head SHA of a review-origin pull request; absent otherwise. */
-    readonly headSha?: string;
-    /** Base ref of that pull request; absent otherwise. */
-    readonly baseRef?: string;
-    /** `= correlationId`; the panel uses it verbatim as `startSession().id`. */
-    readonly attachmentId: string;
-    /** Every retained source reference, in join order (FR-014). */
-    readonly sourceReferences: readonly ClaimedReference[];
-    /** How many triggers joined the run, retained or not. */
-    readonly referenceCount: number;
-    /** How many joining triggers the cap kept off the list (T-038). */
-    readonly referencesNotRetained: number;
-    /** Whether the reference list was cut at the cap. */
-    readonly referencesTruncated: boolean;
-    /** Primary subject excerpt, the field the existing context builder reads. */
-    readonly issueBodyExcerpt: string;
-    /** Earliest source reference's detection stamp (row age). */
-    readonly detectedAt: string;
-}
-
-/** One run the claim leased, with the lease the answer reports. */
-export interface ClaimRecord {
-    /** The run as it now stands in `runs.json`. */
-    readonly run: Run;
-    /** The lease issued for it. */
-    readonly lease: ClaimedLease;
-}
-
 /** What one claim pass changed, in the order the caller must persist it. */
 export interface ClaimOutcome {
     /** The document to persist, with every claimed run leased. */
     readonly document: RunsDocument;
     /** Runs the claim leased, oldest run first, each with its lease. */
     readonly claims: readonly ClaimRecord[];
+    /** Eligible runs this page left behind, still `pending` and claimable. */
+    readonly deferred: number;
+}
+
+/** What {@link claimPendingRuns} hands the route. */
+export interface ClaimResult {
+    /** The runs this claim leased, bounded and credential-free. */
+    readonly runs: readonly ClaimedRun[];
+    /** How many eligible runs stayed claimable for the next call. */
+    readonly deferred: number;
+    /**
+     * Whether every `dispatch.claimed` row reached the trail.
+     *
+     * `false` means the leases are durable and the rows are not — FR-063's
+     * operator-visible surfacing, which used to have no mechanism outside the
+     * result route and would otherwise be a silent gap in the trail.
+     */
+    readonly auditWritten: boolean;
 }
 
 /**
@@ -181,6 +128,11 @@ export function holderOf(raw: string | null): string {
  * same attempt after an expiry is a different lease, exactly as FR-030's "a
  * fresh lease" requires.
  *
+ * The id is a **fencing/consistency token, not a capability**: it authorizes
+ * nothing (the service's bearer token is the only authentication gate), and it
+ * is a deterministic function of answer-visible inputs, so an operator reading
+ * the audit trail can recompute it.
+ *
  * @param input - The run, the attempt, and the RFC 3339 issue stamp.
  * @returns `lse-<24 hex characters>` — one path-safe segment.
  */
@@ -201,36 +153,6 @@ export function buildLeaseId(input: {
 }
 
 /**
- * Project one reference for the claim answer.
- *
- * The excerpt lives on the delivery, not on the run (data-model §2.3), so a
- * reference whose delivery row is no longer retained answers with an empty
- * excerpt rather than a missing reference — the reference itself is the
- * durable record and always travels.
- *
- * @param input - The stored reference and the delivery rows it points at.
- * @returns The claim transport row.
- */
-function claimedReference(input: {
-    /** The stored source reference. */
-    readonly reference: Run['sourceReferences'][number];
-    /** Delivery rows keyed by id, as read from the queue. */
-    readonly deliveries: ReadonlyMap<string, QueuedEvent>;
-}): ClaimedReference {
-    const { reference, deliveries } = input;
-
-    return {
-        deliveryId: reference.deliveryId,
-        kind: reference.kind,
-        origin: reference.origin,
-        sourceUrl: reference.sourceUrl,
-        detectedAt: reference.detectedAt,
-        excerpt: deliveries.get(reference.deliveryId)?.issueBodyExcerpt ?? '',
-        presentAtAuthorization: reference.presentAtAuthorization,
-    };
-}
-
-/**
  * Index the queue by delivery id so each reference finds its excerpt.
  *
  * @param queue - Every row the queue still holds.
@@ -240,121 +162,8 @@ function deliveriesById(queue: readonly QueuedEvent[]): Map<string, QueuedEvent>
     return new Map(queue.map((event) => [event.id, event]));
 }
 
-/**
- * Pull-request coordinates, present only on a review-origin run.
- *
- * The contract marks both members optional: an issue-origin run carries
- * neither, and a member that is absent stays absent rather than becoming an
- * empty string the panel cannot tell apart from a real value.
- *
- * @param delivery - The delivery that opened the run, when the queue holds it.
- * @returns The members this delivery actually has.
- */
-function reviewCoordinates(delivery: QueuedEvent | undefined): { headSha?: string; baseRef?: string } {
-    const head = delivery?.headSha ?? null;
-    const base = delivery?.baseRef ?? null;
-
-    return { ...(head === null ? {} : { headSha: head }), ...(base === null ? {} : { baseRef: base }) };
-}
-
-/** The members of a claim answer row that only the delivery rows can supply. */
-interface DeliveryView {
-    /** Login of the account the run is answered under. */
-    readonly accountLogin: string;
-    /** Issue title; untrusted source text. */
-    readonly issueTitle: string;
-    /** Canonical issue URL. */
-    readonly issueUrl: string;
-    /** Primary subject excerpt, the field the existing context builder reads. */
-    readonly issueBodyExcerpt: string;
-    /** Head SHA of a review-origin pull request. */
-    readonly headSha?: string;
-    /** Base ref of that pull request. */
-    readonly baseRef?: string;
-}
-
-/**
- * The members only the delivery rows can supply: the account login, the
- * untrusted title and excerpt, and the PR coordinates. Every one of them
- * degrades to an empty or absent member when the queue row is gone, so a
- * missing delivery can never blank the run's own identity.
- *
- * @param input - The delivery that opened the run and the run's first link.
- * @returns The delivery-derived members of the claim answer row.
- */
-function deliveryView(input: {
-    /** The delivery that opened the run, when the queue still holds it. */
-    readonly delivery: QueuedEvent | undefined;
-    /** The run's first source reference, which names the subject's link. */
-    readonly primary: Run['sourceReferences'][number] | undefined;
-}): DeliveryView {
-    const { delivery, primary } = input;
-
-    return {
-        accountLogin: delivery?.accountLogin ?? '',
-        issueTitle: delivery?.issueTitle ?? '',
-        issueUrl: primary?.sourceUrl ?? '',
-        issueBodyExcerpt: delivery?.issueBodyExcerpt ?? '',
-        ...reviewCoordinates(delivery),
-    };
-}
-
-/**
- * Project one claimed run for the wire.
- *
- * The run is the record; the delivery rows supply only the things the run
- * deliberately does not store (untrusted excerpt text, the title the operator
- * reads, and the PR coordinates the trigger layer captured).
- *
- * @param input - The claimed run, its lease, and the delivery rows.
- * @returns The claim answer row; every member is credential-free.
- */
-function claimedRunOf(input: {
-    /** The claimed run. */
-    readonly run: Run;
-    /** The lease issued for it. */
-    readonly lease: ClaimedLease;
-    /** Delivery rows keyed by id, as read from the queue. */
-    readonly deliveries: ReadonlyMap<string, QueuedEvent>;
-}): ClaimedRun {
-    const { run, lease, deliveries } = input;
-    const primary = run.sourceReferences[0];
-    const delivery = primary === undefined ? undefined : deliveries.get(primary.deliveryId);
-
-    return {
-        correlationId: run.correlationId,
-        runKey: run.runKey,
-        ordinal: run.ordinal,
-        attempt: run.attempt,
-        lease,
-        state: 'pending',
-        stateReason: `waiting for a panel; leased until ${lease.expiresAt}`,
-        bindingId: run.bindingId,
-        repository: run.repository,
-        projectId: run.projectId,
-        worktreeOption: run.worktreeOption,
-        subjectType: run.subjectType,
-        issueNumber: run.subjectNumber,
-        attachmentId: run.attachmentId,
-        sourceReferences: run.sourceReferences.map((reference) => claimedReference({ reference, deliveries })),
-        referenceCount: run.referenceCount,
-        referencesNotRetained: run.referencesNotRetained,
-        referencesTruncated: run.referencesTruncated,
-        detectedAt: primary?.detectedAt ?? run.createdAt,
-        ...deliveryView({ delivery, primary }),
-    };
-}
-
-/**
- * Plan one claim pass over a document, without writing anything.
- *
- * Pure, so the route can read the document once, see exactly which runs this
- * call takes, and keep every exclusion a no-write decision.
- *
- * @param input - The document, the holder, the lease duration, and the stamp.
- * @returns The document to persist plus the claims to answer and audit.
- */
-export function planClaim(input: {
+/** Everything one claim pass needs to project and bound its answer. */
+interface ClaimPlanInput {
     /** Document as stored, before this claim. */
     readonly document: RunsDocument;
     /** Opaque per-mount id taking every lease. */
@@ -363,42 +172,109 @@ export function planClaim(input: {
     readonly leaseMs: number;
     /** Service-clock stamp for the whole batch. */
     readonly now: string;
-}): ClaimOutcome {
+    /** Delivery rows keyed by id, for the excerpt projection. */
+    readonly deliveries: ReadonlyMap<string, QueuedEvent>;
+    /** Most runs this page may offer. */
+    readonly maxRuns: number;
+    /** Most characters the projected `events` member may occupy. */
+    readonly budgetChars: number;
+}
+
+/**
+ * Project the next claimable run, without deciding whether it fits.
+ *
+ * Splitting this out is what makes the planner's bound honest: the projection
+ * — including the lease the answer reports — is complete *before* the byte
+ * budget is consulted, so a run the answer cannot carry is never leased and
+ * never audited.
+ *
+ * @param input - The document, the holder, the durations, the bounds, and the queue.
+ * @param run - The run being considered.
+ * @returns The leased run, its lease, and its answer row; `null` when it is not claimable.
+ */
+function planOne(input: ClaimPlanInput, run: Run): ClaimRecord | null {
+    const expiresAt = new Date(Date.parse(input.now) + input.leaseMs).toISOString();
+    const leaseId = buildLeaseId({ correlationId: run.correlationId, attempt: run.attempt, issuedAt: input.now });
+    const claimed = leaseRun({
+        run,
+        lease: { leaseId, holder: input.holder, issuedAt: input.now, expiresAt, provenance: 'panel' },
+        now: input.now,
+    });
+    if (claimed === null) {
+        return null;
+    }
+
+    const lease: ClaimedLease = {
+        leaseId,
+        attempt: claimed.attempt,
+        holder: input.holder,
+        issuedAt: input.now,
+        expiresAt,
+    };
+
+    return { run: claimed, lease, claimed: projectClaimedRun({ run: claimed, lease, deliveries: input.deliveries }) };
+}
+
+/**
+ * Plan one claim pass over a document, bounding the answer as it goes.
+ *
+ * Pure, so the caller can project the whole page, measure it, and persist
+ * nothing it cannot answer. Runs are added in document order until one of the
+ * documented bounds trips — {@link MAX_CLAIMED_RUNS} or the byte budget — and
+ * every eligible run past that point is counted as deferred rather than leased.
+ *
+ * @param input - The document, the holder, the durations, the bounds, and the queue.
+ * @returns The document to persist, the claims to answer and audit, and the count deferred.
+ */
+export function planClaim(input: ClaimPlanInput): ClaimOutcome {
     const claims: ClaimRecord[] = [];
     const runs = [...input.document.runs];
+    let eligible = 0;
+    let deferred = 0;
+    let used = measureEvents([]);
 
     for (const [index, run] of runs.entries()) {
         if (run.state !== 'pending' || runHistoryIndicatesSession(run)) {
             continue;
         }
 
-        const expiresAt = new Date(Date.parse(input.now) + input.leaseMs).toISOString();
-        const leaseId = buildLeaseId({ correlationId: run.correlationId, attempt: run.attempt, issuedAt: input.now });
-        const claimed = leaseRun({
-            run,
-            lease: { leaseId, holder: input.holder, issuedAt: input.now, expiresAt },
-            now: input.now,
-        });
-        if (claimed === null) {
+        eligible += 1;
+        const attempt = planOne(input, run);
+        if (attempt === null) {
+            deferred += 1;
             continue;
         }
 
-        runs[index] = claimed;
-        claims.push({
-            run: claimed,
-            lease: {
-                leaseId,
-                attempt: claimed.attempt,
-                holder: input.holder,
-                issuedAt: input.now,
-                expiresAt,
-            },
-        });
+        // `used` tracks the serialized `events` array with the same stringify the
+        // transport performs, plus one comma per entry after the first, so a
+        // page that fits here fits there.
+        const cost = measureEvents([attempt.claimed]) + (claims.length > 0 ? 1 : 0);
+        if (claims.length >= input.maxRuns || used + cost > input.budgetChars) {
+            deferred += 1;
+            continue;
+        }
+
+        used += cost;
+        runs[index] = attempt.run;
+        claims.push(attempt);
     }
 
-    return { claims, document: { ...input.document, runs } };
+    // `eligible` is the independent check on the tally: a run the transition
+    // itself refused must not be counted as deferred (nothing is waiting behind
+    // it), and one the budget excluded must be counted exactly once.
+    return { claims, document: { ...input.document, runs }, deferred: Math.max(deferred, eligible - claims.length) };
 }
 
+/**
+ * Whether any run in the document is waiting and therefore worth the chain.
+ *
+ * The same eligibility rule the planner applies, read without projecting: this
+ * only decides whether a write is needed, and the planner re-checks everything
+ * inside the chain before anything is leased.
+ *
+ * @param document - The document as previewed.
+ * @returns `true` when at least one run is claimable.
+ */
 /**
  * Read the effective lease duration, answering the default when unreadable.
  *
@@ -430,7 +306,7 @@ async function appendClaimAudit(input: {
     readonly log: ServiceLogger;
     /** The claim to record. */
     readonly claim: ClaimRecord;
-}): Promise<void> {
+}): Promise<boolean> {
     try {
         await appendAudit(input.store, {
             eventType: 'dispatch.claimed',
@@ -441,28 +317,60 @@ async function appendClaimAudit(input: {
                 leaseId: input.claim.lease.leaseId,
                 attempt: input.claim.lease.attempt,
                 leaseExpiry: input.claim.lease.expiresAt,
-                sourceReferenceCount: input.claim.run.sourceReferences.length,
+                // The **retained** count, which is what the operator can verify
+                // against the answer; `run.referenceCount` is the total. The
+                // difference is only ever visible at the overflow marker.
+                sourceReferenceCount: input.claim.claimed.sourceReferences.length,
                 holder: input.claim.lease.holder,
             },
         });
+
+        return true;
     } catch (cause) {
         input.log.warn('dispatch claim audit row could not be appended', {
             correlationId: input.claim.run.correlationId,
             errorKind: cause instanceof Error ? cause.name : typeof cause,
         });
+
+        return false;
     }
 }
 
+/** Bounds one claim pass applies when the caller names none. */
+const DEFAULT_CLAIM_BOUNDS = {
+    /** Most runs one claim offers. */
+    maxRuns: MAX_CLAIMED_RUNS,
+    /** Most characters the projected `events` member may occupy. */
+    budgetChars: CLAIM_EVENTS_BUDGET_CHARS,
+} as const;
+
 /**
- * Claim every waiting run for one panel, in one atomic batch.
+ * Whether any run in the document is waiting and therefore worth the chain.
  *
- * The durable order is runs first, then the audit rows (FR-063): a failed
- * append never rolls back a lease the panel is already acting on, and the
- * failure is logged rather than thrown at the panel.
+ * The same eligibility rule the planner applies, read without projecting: this
+ * only decides whether a write is needed, and the planner re-checks everything
+ * inside the chain before anything is leased.
  *
- * @param input - Store, logger, the claim's holder, and an injectable stamp.
- * @returns One projection per run this call leased; `[]` when none was.
- * @throws {StorageUnavailableError} When the store cannot be read or written.
+ * @param document - The document as previewed.
+ * @returns `true` when at least one run is claimable.
+ */
+function hasEligibleRun(document: RunsDocument): boolean {
+    return document.runs.some((run) => run.state === 'pending' && !runHistoryIndicatesSession(run));
+}
+
+/**
+ * Claim the waiting runs for one panel, in one bounded atomic batch.
+ *
+ * The durable order is: peek the document **outside** the chain (T-040d) and
+ * return immediately when nothing is claimable; otherwise take the chain,
+ * re-read, re-plan, and write. The leases are then durable before the audit
+ * rows, which never roll back a lease the panel is already acting on (FR-063);
+ * a row that cannot be appended is reported as `auditWritten: false` rather
+ * than swallowed.
+ *
+ * @param input - Store, logger, the claim's holder, an injectable stamp, and optional bounds.
+ * @returns The runs this claim leased, how many stayed claimable, and whether the rows landed.
+ * @throws {StorageUnavailableError} When the store or the run document cannot be read or written.
  */
 export async function claimPendingRuns(input: {
     /** Open store. */
@@ -473,26 +381,47 @@ export async function claimPendingRuns(input: {
     readonly holder: string;
     /** Service-clock stamp for the batch; injectable so tests never sleep. */
     readonly now?: string;
-}): Promise<readonly ClaimedRun[]> {
+    /** Most runs to offer; the documented cap by default. */
+    readonly maxRuns?: number;
+    /** Most characters the projected `events` member may occupy. */
+    readonly budgetChars?: number;
+}): Promise<ClaimResult> {
     const now = input.now ?? nowIso();
+    const maxRuns = input.maxRuns ?? DEFAULT_CLAIM_BOUNDS.maxRuns;
+    const budgetChars = input.budgetChars ?? DEFAULT_CLAIM_BOUNDS.budgetChars;
     const leaseMs = await readLeaseMs(input.store, input.log);
+    const deliveries = deliveriesById(await readEvents(input));
+
+    // Outside the chain on purpose: a claim that finds nothing to lease must not
+    // occupy the queue other writers are waiting on (T-040d). The chain is
+    // drained *first*, so this snapshot is not one a queued enqueue is about to
+    // invalidate — otherwise a claim racing a scan would report an empty queue
+    // and make the panel wait a whole poll interval for work that was already
+    // on its way in.
+    await whenQueueIdle();
+    const preview = await previewRunsDocument(input);
+    if (!hasEligibleRun(preview)) {
+        return { runs: [], deferred: 0, auditWritten: true };
+    }
 
     const outcome = await inQueueChain(async () => {
         const document = await readRunsDocument(input);
-        const planned = planClaim({ document, holder: input.holder, leaseMs, now });
+        const planned = planClaim({ document, holder: input.holder, leaseMs, now, deliveries, maxRuns, budgetChars });
         if (planned.claims.length === 0) {
-            return { ...planned, deliveries: new Map<string, QueuedEvent>() };
+            return planned;
         }
 
-        const persisted = await writeRunsDocument({ ...input, document: planned.document });
-        const queue = await readEvents(input);
-
-        return { ...planned, document: persisted, deliveries: deliveriesById(queue) };
+        return { ...planned, document: await writeRunsDocument({ ...input, document: planned.document }) };
     });
 
+    const written: boolean[] = [];
     for (const claim of outcome.claims) {
-        await appendClaimAudit({ store: input.store, log: input.log, claim });
+        written.push(await appendClaimAudit({ store: input.store, log: input.log, claim }));
     }
 
-    return outcome.claims.map((claim) => claimedRunOf({ ...claim, deliveries: outcome.deliveries }));
+    return {
+        runs: outcome.claims.map((claim) => claim.claimed),
+        deferred: outcome.deferred,
+        auditWritten: written.every(Boolean),
+    };
 }

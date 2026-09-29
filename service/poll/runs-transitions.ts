@@ -25,7 +25,7 @@ import {
     openedHistory,
     runHistoryIndicatesSession,
 } from './runs-document.ts';
-import type { Run } from './runs-types.ts';
+import type { LeaseProvenance, Run } from './runs-types.ts';
 
 /**
  * Automatic requeues one run consumes before it is dead-lettered (FR-033).
@@ -40,12 +40,14 @@ export const MAX_AUTO_REQUEUES = 3;
 export interface LeaseCoordinates {
     /** Opaque per-mount id taking the lease; informational, never authorization. */
     readonly holder: string;
-    /** Lease identifier minted for this claim. */
+    /** Lease identifier minted for this claim. a fencing token, not a capability. */
     readonly leaseId: string;
     /** RFC 3339 issue stamp (service clock, NFR-112). */
     readonly issuedAt: string;
     /** RFC 3339 expiry stamp; the sweep compares it to the service clock. */
     readonly expiresAt: string;
+    /** Which path minted the lease; a panel claim is the only live one. */
+    readonly provenance: LeaseProvenance;
 }
 
 /**
