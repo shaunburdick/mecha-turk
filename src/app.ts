@@ -48,7 +48,7 @@ import {
 } from './project-actions.ts';
 import { redact } from './redaction.ts';
 import { reconcileDispatchAttempts } from './reconcile.ts';
-import { settleReconciliation, startRelayPolling } from './relay.ts';
+import { settleReconciliation, startRelayPolling, stopRelayPolling } from './relay.ts';
 import { loadDispatches } from './dispatches.ts';
 import { loadStatus } from './status-tab.ts';
 import { mountTabShell } from './tabs.ts';
@@ -270,6 +270,10 @@ export function teardown(rt: PanelRuntime): void {
 
     rt.disposed = true;
     stopPolling(rt);
+    // The relay is root-owned (plan D2), so this is where its loop stops: a
+    // torn-down panel must leave no surviving timer behind (FR-017, SC-108),
+    // and nothing else in the teardown path knows the loop exists.
+    stopRelayPolling(rt);
     if (rt.pagehideListener !== null) {
         rt.panelWindow.removeEventListener('pagehide', rt.pagehideListener);
         rt.pagehideListener = null;
