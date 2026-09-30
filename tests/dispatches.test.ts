@@ -16,16 +16,17 @@ import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import type { Tone } from '@openchamber/sdk/ui';
 import { createBindingsHandlers } from '../src/bindings-mount.ts';
 import { initialDispatches } from '../src/panel-state.ts';
+import { PLAIN_RUN_STATES } from '../src/run-state.ts';
 import {
     DISPATCHES_EMPTY_STATUS,
     DISPATCHES_EMPTY_TEXT,
-    canRetry,
     runAffordance,
     dispatchRows,
     dispatchesStatusText,
     selectedRun,
     stateLabel,
 } from '../src/dispatches-rows.ts';
+import type { RunAffordance } from '../src/dispatches-rows.ts';
 import {
     loadDispatches,
     openDispatch,
@@ -410,9 +411,11 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
     });
 
     it('offers retry only where the service accepts one (T-024’s affordance table)', () => {
-        expect(canRetry(runFixture({ state: FAILED_STATE }))).toBe(true);
-        expect(canRetry(runFixture({ state: BLOCKED_PROJECT_STATE }))).toBe(true);
-        expect(canRetry(runFixture({ state: BLOCKED_BINDING_STATE }))).toBe(true);
+        const retries = (state: RunRow['state']): boolean =>
+            runAffordance(runFixture({ state })).action === 'retry';
+        expect(retries(FAILED_STATE)).toBe(true);
+        expect(retries(BLOCKED_PROJECT_STATE)).toBe(true);
+        expect(retries(BLOCKED_BINDING_STATE)).toBe(true);
 
         const notRetryable: readonly RunRow['state'][] = [
             'pending',
@@ -423,7 +426,7 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
             DEAD_LETTERED_STATE,
         ];
         for (const state of notRetryable) {
-            expect(canRetry(runFixture({ state })), state).toBe(false);
+            expect(retries(state), state).toBe(false);
         }
     });
 
@@ -435,7 +438,7 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
             ['dispatched', 'dispatched', 'success'],
             [FAILED_STATE, 'dispatch failed', 'warning'],
             [UNCONFIRMED_STATE, 'unconfirmed', 'warning'],
-            [DEAD_LETTERED_STATE, 'dead-lettered', 'error'],
+            [DEAD_LETTERED_STATE, DEAD_LETTERED_STATE, 'error'],
             [BLOCKED_PROJECT_STATE, 'blocked: project-missing', 'warning'],
             [BLOCKED_BINDING_STATE, 'blocked: binding-missing', 'warning'],
         ];
@@ -448,13 +451,13 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
 
     it('phrases every list lifecycle state honestly', () => {
         expect(dispatchesStatusText(runsState())).toContain('have not been read');
-        expect(dispatchesStatusText(runsState({ status: 'loading' }))).toBe('Loading runs…');
+        expect(dispatchesStatusText(runsState({ status: 'loading' }))).toBe('Loading dispatches…');
         expect(dispatchesStatusText(runsState({ status: 'error' }))).toContain('see the note');
         expect(dispatchesStatusText(runsState({ status: 'ready' }))).toBe(DISPATCHES_EMPTY_STATUS);
         expect(dispatchesStatusText(runsState({ status: 'ready', rows: [runFixture()] }))).toBe(
-            '1 run · newest first · select a row to open or retry',
+            '1 dispatch · newest first · select a row to open or retry',
         );
-        expect(DISPATCHES_EMPTY_TEXT).toBe('No runs yet.');
+        expect(DISPATCHES_EMPTY_TEXT).toBe('No dispatches yet.');
     });
 });
 
@@ -628,18 +631,18 @@ describe('runAffordance (003’s state→affordance table, FR-041/FR-033/FR-027)
     it('names the control and its reason for the three actionable states', () => {
         const failed = runAffordance(runFixture({ state: FAILED_STATE }));
         expect(failed.action).toBe('retry');
-        expect(failed.label).toBe('Retry run');
+        expect(failed.label).toBe('Retry dispatch');
         expect(failed.reason).toContain('retry returns it to waiting');
 
         const blocked = runAffordance(runFixture({ state: BLOCKED_PROJECT_STATE }));
         expect(blocked.action).toBe('retry');
-        expect(blocked.label).toBe('Retry run');
+        expect(blocked.label).toBe('Retry dispatch');
         expect(blocked.reason).toContain('project-missing');
         expect(blocked.reason).toContain('once the cause clears');
 
         expect(runAffordance(runFixture({ state: UNCONFIRMED_STATE }))).toMatchObject({
             action: 'resolve',
-            label: 'Resolve run',
+            label: 'Resolve dispatch',
         });
         expect(runAffordance(runFixture({ state: DEAD_LETTERED_STATE }))).toMatchObject({
             action: 'requeue',
@@ -662,13 +665,74 @@ describe('runAffordance (003’s state→affordance table, FR-041/FR-033/FR-027)
     });
 
     it('renders an unrecognised state raw and offers nothing', () => {
-        expect(stateLabel('archived')).toBe('archived');
+        expect(stateLabel('archived')).toBe('unknown state: archived');
         expect(stateLabel('blocked:archived')).toBe('blocked: archived');
         expect(runAffordance({ state: 'archived' })).toEqual({
             action: 'none',
             label: null,
-            reason: 'this run reports a state the panel does not recognise — no action is offered',
+            reason: 'this dispatch reports a state the panel does not recognise — no action is offered',
         });
+    });
+});
+
+/**
+ * SC-104: one fixture per state of 003's `## Dispatch State Model`.
+ *
+ * The table **is** the assertion: every state the model declares appears here
+ * with the label it must render and the control it must offer, and the guard
+ * below refuses the table while `PLAIN_RUN_STATES` holds a state it does not
+ * name — so a state added to 003 fails this suite until it is given a label
+ * and an affordance, which is exactly what SC-104 asks for.
+ */
+describe('SC-104 one fixture per state of the dispatch state model', () => {
+    /** Every declared state, with the label and control it must render. */
+    const TABLE: readonly {
+        readonly state: RunRow['state'];
+        readonly label: string;
+        readonly action: RunAffordance['action'];
+    }[] = [
+        { state: 'pending', label: 'waiting', action: 'none' },
+        { state: 'claimed', label: 'claimed', action: 'none' },
+        { state: 'starting', label: 'starting', action: 'none' },
+        { state: 'dispatched', label: 'dispatched', action: 'none' },
+        { state: FAILED_STATE, label: 'dispatch failed', action: 'retry' },
+        { state: UNCONFIRMED_STATE, label: 'unconfirmed', action: 'resolve' },
+        { state: DEAD_LETTERED_STATE, label: 'dead-lettered', action: 'requeue' },
+        { state: BLOCKED_PROJECT_STATE, label: 'blocked: project-missing', action: 'retry' },
+        { state: BLOCKED_BINDING_STATE, label: 'blocked: binding-missing', action: 'retry' },
+    ];
+
+    it('names a label, a reason, and a control for every declared state', () => {
+        for (const row of TABLE) {
+            expect(stateLabel(row.state), row.state).toBe(row.label);
+
+            const affordance = runAffordance({ state: row.state });
+            expect(affordance.action, row.state).toBe(row.action);
+            expect(affordance.reason, row.state).not.toBe('');
+            // Absence is meaningful: no control means no label, never a greyed one.
+            expect(affordance.label === null, row.state).toBe(row.action === 'none');
+        }
+    });
+
+    it('covers every plain state the parser accepts, so a new one fails here first', () => {
+        const named = new Set(TABLE.map((row) => row.state));
+        for (const state of PLAIN_RUN_STATES) {
+            expect(named.has(state), `003 declared ${state} and SC-104 has no row for it`).toBe(true);
+        }
+    });
+
+    it('offers Retry on exactly failed and the blocked family, and Resolve only on unconfirmed', () => {
+        const retried = TABLE.filter((row) => row.action === 'retry').map((row) => row.state);
+        expect(retried).toEqual([FAILED_STATE, BLOCKED_PROJECT_STATE, BLOCKED_BINDING_STATE]);
+
+        const resolved = TABLE.filter((row) => row.action === 'resolve').map((row) => row.state);
+        expect(resolved).toEqual([UNCONFIRMED_STATE]);
+
+        for (const state of ['pending', 'dispatched', UNCONFIRMED_STATE]) {
+            expect(runAffordance({ state }).action, state).not.toBe('retry');
+        }
+
+        expect(runAffordance({ state: DEAD_LETTERED_STATE }).label).toBe('Return to waiting');
     });
 });
 
@@ -1185,7 +1249,7 @@ describe('selection, open, and the pane handler table', () => {
         expect(rt.state.dispatches.note).toContain('HOST_REJECTED');
     });
 
-    it('wires Refresh runs through the pane handler table to a real read', async () => {
+    it('wires Refresh dispatches through the pane handler table to a real read', async () => {
         const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) } });
         const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
         const handlers = createBindingsHandlers(rt);

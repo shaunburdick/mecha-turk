@@ -18,7 +18,7 @@
 import { initialAuditHistory } from './audit-view.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
-import { canRetry, runAffordance, selectedRun } from './dispatches-rows.ts';
+import { runAffordance, selectedRun } from './dispatches-rows.ts';
 import { parseDispatchListBody } from './dispatches-list.ts';
 import { BLOCKED_PREFIX } from './dispatches-service.ts';
 import { cursorFor, recordDispatchPageMeta } from './dispatch-page.ts';
@@ -183,7 +183,7 @@ export async function openDispatch(rt: PanelRuntime): Promise<void> {
 
 /** Note shown when a dispatched run is asked for a retry (the local guard's copy). */
 const ALREADY_DISPATCHED_NOTE =
-    'The service refused: this run was already dispatched, and a dispatched run cannot be retried.';
+    'The service refused: this dispatch was already dispatched; there is nothing left to retry.';
 
 /** FR-027's two explicit resolutions, as the resolve body names them. */
 type ResolveDecision = 'session-created' | 'no-session';
@@ -395,7 +395,9 @@ export async function retryRun(rt: PanelRuntime): Promise<void> {
         return;
     }
 
-    if (!canRetry(row)) {
+    // The one table decides: it is the same source the button's visibility
+    // comes from, so the guard and the control can never disagree (FR-044).
+    if (runAffordance(row).action !== 'retry') {
         runs.note = redact(row.state === 'dispatched' ? ALREADY_DISPATCHED_NOTE : runAffordance(row).reason);
         refresh(rt);
 

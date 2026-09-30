@@ -37,15 +37,15 @@ import { BLOCKED_PREFIX } from './dispatches-service.ts';
 import type { DispatchesState } from './panel-state.ts';
 import type { PlainRunState, RunReference, RunRow, RunState, RunVerification } from './dispatches-service.ts';
 
-/** Heading above the runs list. */
-export const DISPATCHES_HEADING = 'Runs';
+/** Heading above the dispatch list. */
+export const DISPATCHES_HEADING = 'Dispatches';
 
 /** In-list placeholder while the service reports no events at all. */
-export const DISPATCHES_EMPTY_TEXT = 'No runs yet.';
+export const DISPATCHES_EMPTY_TEXT = 'No dispatches yet.';
 
 /** Status line while the list is ready but empty. */
 export const DISPATCHES_EMPTY_STATUS =
-    'No runs yet — a bound repository trigger appears here after the next scan.';
+    'No dispatches yet — a bound repository trigger appears here after the next scan.';
 
 /** Instruction appended to the ready status line when there is something to act on. */
 export const DISPATCHES_SELECT_HINT = 'select a row to open or retry';
@@ -95,14 +95,14 @@ const STATE_REASONS: Record<PlainRunState, string> = {
     pending: 'waiting for a panel — there is nothing to retry until it fails or a guard refuses it',
     claimed: 'a panel holds the lease — its result, or the lease expiring, decides what happens next',
     starting: 'a dispatch is authorized and in progress — the result or the deadline decides what happens next',
-    dispatched: 'a session exists for this run — a dispatched run cannot be retried',
+    dispatched: 'a session exists for this dispatch — a dispatched dispatch cannot be retried',
     failed: 'the dispatch made no session — a retry returns it to waiting under the same run key',
     unconfirmed: 'no result arrived before the deadline — choose what to verify, then resolve it',
     [DEAD_LETTERED]: 'the automatic requeue budget is spent — return it to waiting to reset the attempt count',
 };
 
-/** Reason a run carries a state this build does not recognise (FR-074). */
-const UNKNOWN_STATE_REASON = 'this run reports a state the panel does not recognise — no action is offered';
+/** Reason a dispatch carries a state this build does not recognise (FR-074). */
+const UNKNOWN_STATE_REASON = 'this dispatch reports a state the panel does not recognise — no action is offered';
 
 /**
  * Badge tone per plain run state.
@@ -153,7 +153,11 @@ export function stateLabel(state: string): string {
         return `${BLOCKED_PREFIX} ${state.slice(BLOCKED_PREFIX.length)}`;
     }
 
-    return PLAIN_STATE_LABELS[state] ?? state;
+    const label = PLAIN_STATE_LABELS[state];
+
+    // A value outside the model is named as what it is, with the raw value
+    // kept in the label so the operator can report it (FR-041, FR-003).
+    return label ?? `unknown state: ${state}`;
 }
 
 /**
@@ -220,11 +224,11 @@ export interface RunAffordance {
     readonly reason: string;
 }
 
-/** Button label for the retry control (M8's copy, unchanged by 003). */
-export const RETRY_LABEL = 'Retry run';
+/** Button label for the retry control. */
+export const RETRY_LABEL = 'Retry dispatch';
 
-/** Button label for FR-027's resolution of an `unconfirmed` run. */
-export const RESOLVE_LABEL = 'Resolve run';
+/** Button label for FR-027's resolution of an `unconfirmed` dispatch. */
+export const RESOLVE_LABEL = 'Resolve dispatch';
 
 /** Button label for FR-033's return of a parked run to waiting. */
 export const RETURN_LABEL = 'Return to waiting';
@@ -296,17 +300,6 @@ export function runAffordance(row: { readonly state: string }): RunAffordance {
     // A state from a future build: no control, and the reason says so rather
     // than guessing which transition the service would accept.
     return { action: 'none', label: null, reason: UNKNOWN_STATE_REASON };
-}
-
-/**
- * Whether the retry control applies to one run.
- *
- * @param row - Run to judge.
- * @returns `true` only where the service accepts a retry: `failed` and
- *   `blocked:*` (FR-041). A parked run is *return to waiting*, not a retry.
- */
-export function canRetry(row: RunRow): boolean {
-    return runAffordance(row).action === 'retry';
 }
 
 /**
@@ -494,22 +487,22 @@ export function dispatchRows(runs: DispatchesState): ListItem[] {
  */
 export function dispatchesStatusText(runs: DispatchesState): string {
     if (runs.status === 'idle') {
-        return 'Runs have not been read yet — press Refresh runs.';
+        return 'Dispatches have not been read yet — press Refresh dispatches.';
     }
 
     if (runs.status === 'loading') {
-        return 'Loading runs…';
+        return 'Loading dispatches…';
     }
 
     if (runs.status === 'error') {
-        return 'Runs list not loaded — see the note below.';
+        return 'Dispatch list not loaded — see the note below.';
     }
 
     if (runs.rows.length === 0) {
         return DISPATCHES_EMPTY_STATUS;
     }
 
-    const noun = runs.rows.length === 1 ? 'run' : 'runs';
+    const noun = runs.rows.length === 1 ? 'dispatch' : 'dispatches';
 
     return `${runs.rows.length} ${noun} · newest first · ${DISPATCHES_SELECT_HINT}`;
 }

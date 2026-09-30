@@ -132,7 +132,7 @@ function mountDispatchesList(input: MountInputs): Pick<DispatchesBoard, Dispatch
         dispatchesStatus: mountText(pane, { text: dispatchesStatusText(runs) }),
         dispatchesList: mountList(pane, {
             items: dispatchRows(runs),
-            ariaLabel: 'Event runs',
+            ariaLabel: 'Dispatches',
             emptyText: DISPATCHES_EMPTY_TEXT,
             selectedId: runs.selectedRun,
             onSelect: (id) => handlers.selectDispatch(id),
@@ -154,7 +154,7 @@ function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick
 
     return {
         refreshDispatches: mountButton(controls, {
-            label: 'Refresh runs',
+            label: 'Refresh dispatches',
             variant: 'secondary',
             onClick: input.handlers.refreshDispatches,
         }),
