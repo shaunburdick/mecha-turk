@@ -15,7 +15,41 @@
 
 import type { GuestProject, GuestProjectsSnapshot } from '@openchamber/sdk';
 import type { SelectOption } from '@openchamber/sdk/ui';
-import type { PanelState, ProjectPickerState } from './panel-state.ts';
+import type { PanelState } from './panel-state.ts';
+
+/** Lifecycle of the project picker's project list. */
+export type ProjectPickerStatus =
+    /** Nothing requested yet; the picker shows its idle text. */
+    | 'idle'
+    /** `host.listProjects()` is in flight. */
+    | 'loading'
+    /** The host answered with a usable snapshot. */
+    | 'ready'
+    /** The host refused, failed, or reported an error snapshot. */
+    | 'error';
+
+/** Project picker state carried by the panel runtime. */
+export interface ProjectPickerState {
+    /** Where the last `host.listProjects()` call got to. */
+    status: ProjectPickerStatus;
+    /** Projects the host reported; retained across a failed refresh. */
+    projects: readonly GuestProject[];
+    /** Operator-facing note about the picker, already redacted. */
+    note: string;
+}
+
+/**
+ * Create the empty picker state shown before the first `listProjects()` call.
+ *
+ * Lives with the picker rather than with the shared runtime state because it
+ * *is* picker state: the lifecycle above, the retained list, and the note are
+ * what `pickerNote`, `pickerPlaceholder`, and `applyProjectSnapshot` read.
+ *
+ * @returns The initial project picker state.
+ */
+export function initialProjectPicker(): ProjectPickerState {
+    return { status: 'idle', projects: [], note: '' };
+}
 
 /** Note shown before the first `host.listProjects()` call. */
 const IDLE_NOTE = 'Projects have not been loaded yet.';

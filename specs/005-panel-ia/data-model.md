@@ -1,6 +1,6 @@
 # Data Model: Panel IA — Six Tabs
 
-**Feature**: `specs/005-panel-ia` · **Spec**: v1.3.0 · **Date**: 2026-09-28
+**Feature**: `specs/005-panel-ia` · **Spec**: v1.4.0 · **Date**: 2026-09-28 (§1.4 added 2026-09-30 at Phase 6, wave 8)
 
 Scope: what changes in the **panel runtime state**, in the **status projection document**, in the **dispatch-list read**, and in the **account record** — plus the `mecha-turk:` storage keys this feature touches and the state it deliberately does **not** persist. Entities 005 *renders but does not own* (run, binding, prerequisite, diagnostic) are summarised with a pointer to the predecessor that defines them.
 
@@ -48,6 +48,7 @@ interface PanelRuntime {
 | **read state (per tab)** | `'idle' \| 'loading' \| 'loaded' \| 'error'` + `note` + `staleSince` | a failed read keeps the last successful payload **and marks it stale** (FR-019, NFR-111); an empty result is never rendered as a successful empty result |
 | **`BindingsTabState`** | `bindings[]`, `accounts[]`, `statusRows[]`, `repoInput`, `accountSelection`, `repoProjectSelection`, `triggerAssignment`, `triggerMention`, `triggerReviewRequest`, `worktreeSelection`, `selectedBinding`, `removeAccountArmed`, `note` | unchanged in meaning from today's `Repositories` minus `activeTab` and minus `runs` (FR-024). Draft fields are cleared only by an explicit submit or cancel — never by a tab switch (006's unsaved-edit expectation, FR-013's mount-once) |
 | **`DispatchesState`** | `rows`, `status`, `note`, `selectedDispatch`, `agentNotice`, **`filters`**, **`page`** | §3 below |
+| **`AccountsTabState`** *(added Phase 6, T-024/T-026)* | `selected`, `displayNameRow`, `displayNameDraft`, `displayNameError`, `removeArmed`, `rotateArmed`, `note` | The Accounts tab's **working** state only, in its own module `src/accounts-state.ts` (the shared state file is at its length cap). The account **list** stays `BindingsTabState.accounts` because one read fetches both; every field here is per-selection working state — it resets when another row opens, and no `host.storage` key is added (FR-025) |
 
 ### 1.3 Retained, deliberately
 

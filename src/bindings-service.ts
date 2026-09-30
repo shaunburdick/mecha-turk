@@ -18,6 +18,7 @@
 
 import { asRecord, fieldsHoldText, integerOrZero, parseJsonObject, textOrEmpty, textOrNull } from './json.ts';
 import { readScopeMirror } from './account-mirror.ts';
+import type { ScopeCapability, ScopeResult } from './account-mirror.ts';
 
 /** Path of the bindings collection. */
 
@@ -81,6 +82,9 @@ export interface PanelBinding {
 /** Verdict one account's recorded scope matrix gives its token (FR-010). */
 export type AccountScopeVerdict = 'ok' | 'missing' | 'unknown';
 
+/** The four-capability FR-010 matrix as the account DTO carries it (FR-062). */
+export type AccountScopeMatrix = Readonly<Record<ScopeCapability, ScopeResult>>;
+
 /** One registered account the panel can bind (credential never present). */
 export interface PanelAccount {
     /** GitHub numeric user id. */
@@ -105,6 +109,24 @@ export interface PanelAccount {
      * section renders it as not checkable, never as satisfied (FR-072).
      */
     readonly scope?: AccountScopeVerdict;
+    /**
+     * Lifecycle state as the accounts DTO reports it (005 FR-062), absent
+     * when this body carried none.
+     *
+     * Deliberately `string` rather than a closed union: an unknown state has
+     * to reach the operator as `unknown state: <raw>` rather than be narrowed
+     * away (FR-003, NFR-112), and `usable` below is derived from the value,
+     * not from this annotation.
+     */
+    readonly state?: string;
+    /** Connection state as the DTO reports it, absent when not carried (FR-062). */
+    readonly connectionState?: string;
+    /** RFC 3339 stamp of the last successful verification, or absent (FR-062). */
+    readonly verifiedAt?: string;
+    /** Cause when `state` is `error`; `null`/absent means none was recorded. */
+    readonly errorReason?: string | null;
+    /** The four-capability FR-010 matrix, absent when the DTO carried none. */
+    readonly scopeMatrix?: AccountScopeMatrix;
 }
 
 /** One per-binding poll-status row from the service. */
@@ -402,6 +424,62 @@ function readPanelLabel(record: Record<string, unknown>): LabelRead {
     return { ok: true, label: displayName };
 }
 
+/** Members of one account record the Accounts rows render, beyond identity. */
+type AccountDetail = Pick<
+    PanelAccount,
+    'state' | 'connectionState' | 'verifiedAt' | 'errorReason' | 'scopeMatrix'
+>;
+
+/**
+ * Read one account record's FR-062 detail members (005 FR-062, FR-067).
+ *
+ * Present-and-not-text refuses the whole body (invariant 8) rather than being
+ * dropped, because a row that silently lost its lifecycle state would render
+ * an account as unexplained. Absent stays absent: a member this DTO did not
+ * carry reads as *not reported*, never as a plausible default (FR-003).
+ *
+ * @param record - One entry of the `accounts` array.
+ * @returns The detail, or `null` when a member was present but unusable.
+ */
+function readAccountDetail(record: Record<string, unknown>): AccountDetail | null {
+    const detail: {
+        state?: string;
+        connectionState?: string;
+        verifiedAt?: string;
+        errorReason?: string | null;
+        scopeMatrix?: AccountScopeMatrix;
+    } = {};
+
+    for (const field of ['state', 'connectionState', 'verifiedAt'] as const) {
+        const value = record[field];
+        if (value === undefined) {
+            continue;
+        }
+
+        if (typeof value !== 'string') {
+            return null;
+        }
+
+        detail[field] = value;
+    }
+
+    const { errorReason } = record;
+    if (errorReason !== undefined && errorReason !== null) {
+        if (typeof errorReason !== 'string') {
+            return null;
+        }
+
+        detail.errorReason = errorReason;
+    }
+
+    const matrix = readScopeMirror(record.scopeCheck)?.results;
+    if (matrix !== undefined) {
+        detail.scopeMatrix = matrix;
+    }
+
+    return detail;
+}
+
 export function parseAccountsBody(text: string): PanelAccount[] | null {
     const root = parseJsonObject(text);
     if (root === null || !Array.isArray(root.accounts)) {
@@ -415,13 +493,18 @@ export function parseAccountsBody(text: string): PanelAccount[] | null {
             return null;
         }
 
-        const { numericUserId, login, state } = record;
+        const { numericUserId, login } = record;
         if (typeof numericUserId !== 'string' || typeof login !== 'string') {
             return null;
         }
 
         const label = readPanelLabel(record);
         if (!label.ok) {
+            return null;
+        }
+
+        const detail = readAccountDetail(record);
+        if (detail === null) {
             return null;
         }
 
@@ -433,7 +516,8 @@ export function parseAccountsBody(text: string): PanelAccount[] | null {
             numericUserId,
             login,
             displayName: label.label,
-            usable: state === 'active',
+            usable: detail.state === 'active',
+            ...detail,
             ...(scope === null ? {} : { scope }),
         });
     }

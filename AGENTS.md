@@ -138,6 +138,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `audit-view.ts` | One run's audit history under its correlation id, rendered as text (never markup) |
 | `agent-verify.ts` | Post-dispatch `openSession()` agent read-back, reported to the service (warn-only) |
 | `handoff*.ts` / `account*.ts` / `consent*.ts` | One-shot token handoff, consent gate, credential-free account mirror |
+| `accounts-rows.ts` / `accounts-tab.ts` | The Accounts tab: every FR-062 row word (lifecycle, connection, scope matrix, remediation, binding count) as pure functions, plus the body's mounts, repaint, and single read |
 | `storage-write.ts` | Guarded storage writes |
 
 ## Module map (service, `service/`)

@@ -169,7 +169,14 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
         expect(rt.state.bindings.status).toBe('ready');
         expect(rt.state.bindings.note).toBe('');
         expect(rt.state.bindings.accounts).toEqual([
-            { numericUserId: '77331', login: LOGIN, displayName: null, usable: true },
+            {
+                numericUserId: '77331',
+                login: LOGIN,
+                displayName: null,
+                usable: true,
+                state: 'active',
+                connectionState: 'connected',
+            },
         ]);
     });
 });

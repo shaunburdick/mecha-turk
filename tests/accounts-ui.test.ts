@@ -14,8 +14,18 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { adoptServiceAccounts } from '../src/account-adoption.ts';
+import {
+    HANDOFF_REMEDIATION,
+    accountDetail,
+    accountRows,
+    accountTitle,
+    connectionPhrase,
+    lifecycleCopy,
+} from '../src/accounts-rows.ts';
+import { bindingRows } from '../src/bindings-rows.ts';
+import { tabSpecs } from '../src/tab-bodies.ts';
 import {
     acceptConsentAndRepaint,
     handoffInputEnabled,
@@ -29,7 +39,12 @@ import {
     restoreStoredConsent,
 } from '../src/consent.ts';
 import { ACCOUNTS_STORAGE_KEY } from '../src/account-mirror.ts';
+import type { ScopeResult } from '../src/account-mirror.ts';
 import { STORAGE_REFUSAL } from '../src/handoff-copy.ts';
+import { initialBindings } from '../src/panel-state.ts';
+import type { BindingsTabState, PanelRuntime } from '../src/panel-state.ts';
+import type { PanelHandlers } from '../src/panel-ui.ts';
+import type { AccountScopeMatrix, PanelAccount, PanelBinding } from '../src/bindings-service.ts';
 import {
     CONNECTED_ID,
     CONNECTED_LOGIN,
@@ -41,7 +56,37 @@ import {
     scopeResults,
     scriptedRuntime,
 } from './support/handoff.ts';
+import { fakeDom } from './support/dom.ts';
 import { createStorageDouble, createTestRuntime, fakeHost } from './support/panel.ts';
+
+/** Props every SDK mount received, so "what rendered" can be asserted. */
+const mounts = vi.hoisted(() => ({
+    log: [] as { readonly key: string; readonly props: unknown }[],
+}));
+
+vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
+    const actual = await importOriginal<Record<string, unknown>>();
+    const stubbed: Record<string, unknown> = { ...actual };
+    for (const key of Object.keys(stubbed)) {
+        if (key.startsWith('mount')) {
+            stubbed[key] = (_root: unknown, props: unknown): {
+                readonly update: (patched?: unknown) => void;
+                readonly dispose: () => void;
+            } => {
+                mounts.log.push({ key, props });
+
+                return {
+                    update: (patched?: unknown): void => {
+                        mounts.log.push({ key: `${key}:update`, props: patched });
+                    },
+                    dispose: (): void => undefined,
+                };
+            };
+        }
+    }
+
+    return stubbed;
+});
 
 /** Filesystem path of the DOM adapter, for the static rendering scan. */
 const DOM_SOURCE_PATH = resolve(import.meta.dirname, '../src/accounts-ui.ts');
@@ -310,6 +355,324 @@ describe('restoring accepted consent at mount (remount must not re-ask)', () => 
         await restoreStoredConsent(host.rt);
 
         expect(host.rt.state.handoff.consentGiven).toBe(false);
+    });
+});
+
+
+/** The picker callbacks the shell takes; none is exercised by this suite. */
+const inertHandlers: PanelHandlers = {
+    refreshProjects: (): void => undefined,
+    selectProject: (): void => undefined,
+    copyProjectId: (): void => undefined,
+};
+
+/** Every lifecycle state FR-062 names, in the order the DTO lists them. */
+const LIFECYCLE_STATES = [
+    'pending_handoff',
+    'verifying',
+    'active',
+    'rejected',
+    'revoked',
+    'error',
+] as const;
+
+/** The connection state a credential GitHub refused reports (FR-062). */
+const AUTH_FAILED = 'auth-failed';
+
+/** Every connection state FR-062 names. */
+const CONNECTION_STATES = ['connected', AUTH_FAILED, 'rate-limited', 'offline'] as const;
+
+/** The words each lifecycle state must render, in the table's own order. */
+const LIFECYCLE_LABELS = new Map<string, string>([
+    ['pending_handoff', 'pending handoff'],
+    ['verifying', 'verifying'],
+    ['active', 'active'],
+    ['rejected', 'rejected'],
+    ['revoked', 'revoked'],
+    ['error', 'error'],
+]);
+
+/** A payload that must reach the DOM as bytes, never as markup (FR-080). */
+const HOSTILE_TITLE = '<img src=x onerror="alert(1)">';
+
+/** Every FR-010 capability, in the order the contract's matrix reports them. */
+const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] as const;
+
+/**
+ * Build a fixture scope matrix where every capability carries one verdict.
+ *
+ * `Record<ScopeCapability, …>` cannot be written as an object literal here
+ * without one hyphenated key tripping the naming rule, so the matrix is built
+ * from the capability tuple exactly as the service does (same shape, same
+ * cast, no invented verdict).
+ *
+ * @param verdict - The verdict every capability carries.
+ * @returns The four-capability matrix.
+ */
+function scopeMatrixAll(verdict: ScopeResult): AccountScopeMatrix {
+    return Object.fromEntries(SCOPE_CAPABILITIES.map((capability) => [capability, verdict])) as AccountScopeMatrix;
+}
+
+/**
+ * Build one credential-free account for the row fixtures.
+ *
+ * @param overrides - Fields the test changes.
+ * @returns One complete account.
+ */
+function accountFixture(overrides: Partial<PanelAccount> = {}): PanelAccount {
+    return {
+        numericUserId: CONNECTED_ID,
+        login: CONNECTED_LOGIN,
+        displayName: null,
+        usable: true,
+        state: 'active',
+        connectionState: 'connected',
+        scopeMatrix: scopeMatrixAll('ok'),
+        ...overrides,
+    };
+}
+
+/**
+ * Build the tab state the row functions read.
+ *
+ * @param input - The accounts to render and any bindings they back.
+ * @returns A ready Bindings-tab state carrying them.
+ */
+function accountsState(input: {
+    /** Accounts the list renders. */
+    readonly accounts: readonly PanelAccount[];
+    /** Bindings the count and consequence lines read. */
+    readonly bindings?: readonly PanelBinding[];
+}): BindingsTabState {
+    return {
+        ...initialBindings(),
+        status: 'ready',
+        accounts: input.accounts,
+        bindings: input.bindings ?? [],
+    };
+}
+
+/**
+ * Read every string one mount was handed.
+ *
+ * @param props - Whatever the SDK primitive received.
+ * @returns The strings among them, in property order.
+ */
+function stringsIn(props: unknown): readonly string[] {
+    if (typeof props === 'string') {
+        return [props];
+    }
+
+    if (typeof props !== 'object' || props === null) {
+        return [];
+    }
+
+    return Object.values(props).filter((value): value is string => typeof value === 'string');
+}
+
+/**
+ * Mount only the Accounts body against the recording SDK stub.
+ *
+ * @param setup - State to arrange before the body mounts.
+ * @returns The runtime, the disposer, and every string handed to the SDK.
+ */
+function mountAccountsTab(setup?: (rt: PanelRuntime) => void): {
+    /** The runtime the body mounted against. */
+    readonly rt: PanelRuntime;
+    /** The shell's disposer for this body. */
+    readonly dispose: () => void;
+    /** Every string the mount and its first repaint handed to the SDK. */
+    readonly strings: readonly string[];
+} {
+    mounts.log.length = 0;
+    const rt = createTestRuntime(fakeHost());
+    setup?.(rt);
+    const dom = fakeDom();
+    const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'accounts');
+    if (spec === undefined) {
+        throw new Error('the Accounts tab spec is missing from the shell');
+    }
+
+    const dispose = spec.mount(dom.root);
+    if (dispose === null) {
+        throw new Error('the Accounts body mounted no disposer');
+    }
+
+    const strings = mounts.log.flatMap((entry) => stringsIn(entry.props));
+
+    return { rt, dispose, strings };
+}
+
+/**
+ * Read the rows the account list was last painted with.
+ *
+ * The mount paints an empty list; the repaint that follows is what the
+ * operator sees, so the last call to `mountList` is the one to read.
+ *
+ * @returns The rows, in paint order.
+ */
+function mountedListItems(): readonly { readonly title?: string; readonly subtitle?: string }[] {
+    const calls = mounts.log.filter(
+        (candidate) => candidate.key === 'mountList' || candidate.key === 'mountList:update',
+    );
+    const props = calls[calls.length - 1]?.props as
+        | { readonly items?: { readonly title?: string }[] }
+        | undefined;
+
+    return props?.items ?? [];
+}
+
+describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
+    it('renders each of the six lifecycle states against each of the four connection states', () => {
+        for (const state of LIFECYCLE_STATES) {
+            for (const connection of CONNECTION_STATES) {
+                const account = accountFixture({
+                    state,
+                    connectionState: connection,
+                    errorReason: state === 'error' ? AUTH_FAILED : null,
+                });
+                const detail = accountDetail(accountsState({ accounts: [account] }), account);
+
+                expect(detail).toContain(LIFECYCLE_LABELS.get(state));
+                expect(detail).toContain(connection);
+                expect(detail).toContain(`id ${CONNECTED_ID}`);
+                expect(detail).toContain('scope: metadata ok');
+            }
+        }
+    });
+
+    it('tells pending_handoff apart from an interrupted handoff while sharing the way out (FR-068)', () => {
+        const pending = lifecycleCopy(accountFixture({ state: 'pending_handoff' }));
+        const interrupted = lifecycleCopy(
+            accountFixture({ state: 'error', errorReason: 'interrupted-handoff' }),
+        );
+
+        expect(pending.label).not.toBe(interrupted.label);
+        expect(pending.label).toContain('pending handoff');
+        expect(interrupted.label).toContain('interrupted-handoff');
+        expect(pending.remediation).toBe(HANDOFF_REMEDIATION);
+        expect(interrupted.remediation).toBe(HANDOFF_REMEDIATION);
+    });
+
+    it('gives every bad state a remediation and a good one none (FR-063)', () => {
+        for (const state of ['rejected', 'revoked', 'error']) {
+            expect(lifecycleCopy(accountFixture({ state })).remediation).not.toBeNull();
+        }
+
+        expect(lifecycleCopy(accountFixture({ state: 'active' })).remediation).toBeNull();
+        // An unknown state is its own words, never a mapped guess (FR-003).
+        expect(lifecycleCopy(accountFixture({ state: 'something-new' })).label)
+            .toBe('unknown state: something-new');
+    });
+
+    it('marks an unreported member as unreported, never as a pass (NFR-112)', () => {
+        const bare: PanelAccount = {
+            numericUserId: CONNECTED_ID,
+            login: CONNECTED_LOGIN,
+            displayName: null,
+            usable: false,
+        };
+        const detail = accountDetail(accountsState({ accounts: [bare] }), bare);
+
+        expect(detail).toContain('state not reported');
+        expect(detail).toContain('connection not reported');
+        expect(detail).toContain('scope: not checked');
+        expect(connectionPhrase(bare)).toBe('connection not reported');
+        expect(detail).not.toContain('scope: ok');
+    });
+
+    it('shows every binding an unusable account backs as unable to poll (FR-063)', () => {
+        const binding: PanelBinding = {
+            bindingId: 'bnd-1',
+            accountNumericUserId: CONNECTED_ID,
+            accountLogin: CONNECTED_LOGIN,
+            repository: 'acme/widget',
+            projectId: 'prj_42',
+            worktreeOption: 'none',
+            triggers: { assignment: true, mention: false, reviewRequest: false },
+            state: 'active',
+            createdAt: GIVEN_AT,
+            updatedAt: GIVEN_AT,
+        };
+        const rows = bindingRows(accountsState({
+            accounts: [accountFixture({ usable: false, state: 'revoked' })],
+            bindings: [binding],
+        }));
+
+        expect(rows[0]?.subtitle).toContain('account cannot poll (revoked)');
+    });
+
+    it('counts the bindings an account backs, in the row and in the detail', () => {
+        const account = accountFixture();
+        const binding: PanelBinding = {
+            bindingId: 'bnd-9',
+            accountNumericUserId: account.numericUserId,
+            accountLogin: account.login,
+            repository: 'acme/other',
+            projectId: 'prj_7',
+            worktreeOption: 'none',
+            triggers: { assignment: false, mention: true, reviewRequest: false },
+            state: 'active',
+            createdAt: GIVEN_AT,
+            updatedAt: GIVEN_AT,
+        };
+        const state = accountsState({ accounts: [account], bindings: [binding] });
+        const [row] = accountRows(state);
+
+        expect(row?.meta).toBe('1');
+        expect(accountDetail(state, account)).toContain('1 bindings');
+        expect(accountTitle(account)).toBe(CONNECTED_LOGIN);
+    });
+});
+
+describe('T-024 the Accounts tab copy and secret posture (FR-020, FR-067, AC-129)', () => {
+    it('renders Accounts copy on the tab itself and none of the retired noun', () => {
+        const { dispose, strings } = mountAccountsTab((rt): void => {
+            rt.state.bindings = accountsState({ accounts: [accountFixture()] });
+        });
+        dispose();
+
+        expect(strings.some((line) => line.startsWith('Accounts: '))).toBe(true);
+        expect(strings.some((line) => line.includes('Repositories'))).toBe(false);
+    });
+
+    it('renders a hostile display name as bytes, never as markup (FR-080)', () => {
+        const hostile = accountFixture({ displayName: HOSTILE_TITLE });
+        const state = accountsState({ accounts: [hostile] });
+
+        expect(accountTitle(hostile)).toBe(HOSTILE_TITLE);
+        expect(accountDetail(state, hostile)).toContain(HOSTILE_TITLE);
+
+        const { dispose, strings } = mountAccountsTab((rt): void => {
+            rt.state.bindings = accountsState({ accounts: [hostile] });
+            rt.state.accounts.selected = hostile.numericUserId;
+        });
+        dispose();
+
+        const [row] = mountedListItems();
+        expect(row?.title).toBe(HOSTILE_TITLE);
+        // The detail line carries it too, as text on a text node — the fake
+        // document has no HTML sink at all, so a sink would have thrown.
+        expect(strings.some((line) => line.includes('onerror'))).toBe(true);
+    });
+
+    it('renders no credential member and no credential bytes (AC-129)', () => {
+        const account = accountFixture({ state: 'rejected', errorReason: AUTH_FAILED });
+        const state = accountsState({ accounts: [account] });
+        const rendered = [
+            ...accountRows(state).flatMap((row) => [row.title, row.subtitle, row.leading ?? '', row.meta ?? '']),
+            accountDetail(state, account),
+        ].join('\n');
+
+        expect(Object.keys(account)).not.toContain('credential');
+        expect(Object.keys(account)).not.toContain('expectedLogin');
+        expectNoCredentialInStrings([rendered]);
+
+        const { dispose, strings } = mountAccountsTab((rt): void => {
+            rt.state.bindings = accountsState({ accounts: [account] });
+        });
+        dispose();
+        expectNoCredentialInStrings(strings);
     });
 });
 

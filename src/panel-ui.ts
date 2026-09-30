@@ -12,6 +12,7 @@
 import { mountBanner, mountButton, mountList, mountSelect, mountText } from '@openchamber/sdk/ui';
 import type { BannerHandle, ButtonHandle, ListHandle, ListItem, SelectHandle, TextHandle } from '@openchamber/sdk/ui';
 import { refreshHandoff } from './accounts-ui.ts';
+import { repaintAccountsBody } from './accounts-tab.ts';
 import { repaintDispatchesBoard } from './dispatches-ui.ts';
 import { ledgerTail } from './ledger.ts';
 import {
@@ -346,9 +347,13 @@ export function refresh(rt: PanelRuntime): void {
         ui.summary.update({ text: summarizeState(state) });
     }
 
-    const { bindingsUi, dispatchesUi, pickerUi, aboutUi } = rt;
+    const { bindingsUi, dispatchesUi, pickerUi, aboutUi, accountsUi } = rt;
     if (bindingsUi !== null) {
         repaintBindingsPane(rt, bindingsUi);
+    }
+
+    if (accountsUi !== null) {
+        repaintAccountsBody(rt, accountsUi);
     }
 
     if (dispatchesUi !== null) {

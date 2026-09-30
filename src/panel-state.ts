@@ -7,7 +7,6 @@
  */
 
 import type { BannerTone } from '@openchamber/sdk/ui';
-import type { GuestProject } from '@openchamber/sdk';
 import type { SpikeConfig } from './config.ts';
 import type { SpikeEvidence } from './evidence.ts';
 import type { AuditViewState } from './audit-view.ts';
@@ -20,6 +19,14 @@ import type { SpikeLedger } from './ledger.ts';
 import type { HandoffState } from './handoff.ts';
 import type { HandoffView } from './accounts-ui.ts';
 import type { BindingsPane } from './bindings-ui.ts';
+import type { AccountsBody } from './accounts-tab.ts';
+import { initialAccounts } from './accounts-state.ts';
+import type { AccountsTabState } from './accounts-state.ts';
+import { initialProjectPicker } from './project-picker.ts';
+import type { ProjectPickerState } from './project-picker.ts';
+
+export type { AccountsTabState } from './accounts-state.ts';
+export { initialProjectPicker, type ProjectPickerState };
 import type { DispatchesBoard } from './dispatches-ui.ts';
 import type { StatusTabUi } from './status-tab.ts';
 import { initialStatusTab } from './status-document.ts';
@@ -53,27 +60,6 @@ export interface PanelStatus {
     readonly title: string;
     /** Supporting detail; never contains secret material. */
     readonly body: string;
-}
-
-/** Lifecycle of the project picker's project list. */
-export type ProjectPickerStatus =
-    /** Nothing requested yet; the picker shows its idle text. */
-    | 'idle'
-    /** `host.listProjects()` is in flight. */
-    | 'loading'
-    /** The host answered with a usable snapshot. */
-    | 'ready'
-    /** The host refused, failed, or reported an error snapshot. */
-    | 'error';
-
-/** Project picker state carried by the panel runtime. */
-export interface ProjectPickerState {
-    /** Where the last `host.listProjects()` call got to. */
-    status: ProjectPickerStatus;
-    /** Projects the host reported; retained across a failed refresh. */
-    projects: readonly GuestProject[];
-    /** Operator-facing note about the picker, already redacted. */
-    note: string;
 }
 
 /**
@@ -192,6 +178,8 @@ export interface PanelState {
     handoff: HandoffState;
     /** Repository bindings as the Bindings tab reads and edits them (M3). */
     bindings: BindingsTabState;
+    /** Which row the Accounts tab has open, armed, or drafting (FR-060). */
+    accounts: AccountsTabState;
     /** Dispatches list, selection, and M9 notice, as its own tab slice (FR-012). */
     dispatches: DispatchesState;
     /** The Status tab's projection, read state, and staleness (FR-019, FR-030). */
@@ -309,6 +297,8 @@ export interface PanelRuntime {
     shell: TabShell | null;
     /** Bindings body's mounted view, `null` until that tab first activates. */
     bindingsUi: BindingsPane | null;
+    /** Accounts body's mounted view, `null` until that tab first activates. */
+    accountsUi: AccountsBody | null;
     /** Dispatches body's mounted board, `null` until that tab first activates. */
     dispatchesUi: DispatchesBoard | null;
     /** Status body's mounted view, `null` until that tab first activates. */
@@ -429,15 +419,6 @@ export interface DispatchesState {
 export type RunPendingAction = 'requeue' | 'resolve-session' | 'resolve-no-session';
 
 /**
- * Create the empty picker state shown before the first `listProjects()` call.
- *
- * @returns The initial project picker state.
- */
-export function initialProjectPicker(): ProjectPickerState {
-    return { status: 'idle', projects: [], note: '' };
-}
-
-/**
  * Build the mutable state one mount starts with.
  *
  * Split out of {@link createPanelRuntime} so the constructor reads as a list of
@@ -468,6 +449,7 @@ function initialState(createdAt: string): PanelState {
         busy: false,
         handoff: initialHandoffState(),
         bindings: initialBindings(),
+        accounts: initialAccounts(),
         dispatches: initialDispatches(),
         statusTab: initialStatusTab(),
         relay: initialRelay(),
@@ -496,6 +478,7 @@ export function createPanelRuntime(
         handoffView: null,
         shell: null,
         bindingsUi: null,
+        accountsUi: null,
         dispatchesUi: null,
         statusUi: null,
         pickerUi: null,

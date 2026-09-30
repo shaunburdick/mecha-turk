@@ -12,15 +12,9 @@
  * are still being filled (FR-010).
  */
 
-import {
-    acceptConsentAndRepaint,
-    mountHandoffDom,
-    refreshHandoff,
-    submitHandoffAndRepaint,
-} from './accounts-ui.ts';
+import { createAccountsHandlers, mountAccountsBody as mountAccountsTab } from './accounts-tab.ts';
 import { createBindingsHandlers, mountBindingsTabBody } from './bindings-mount.ts';
 import { disposeDispatchesBoard, mountDispatchesBoard } from './dispatches-ui.ts';
-import { declineHandoffConsent } from './handoff.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import { mountDiagnostics, mountProjectPicker } from './panel-ui.ts';
 import type { PanelHandlers } from './panel-ui.ts';
@@ -29,35 +23,25 @@ import { disposeStatusTab, mountStatusTab } from './status-tab.ts';
 import type { TabSpec } from './tabs.ts';
 
 /**
- * Mount the Accounts body: the one-shot handoff group (FR-060, FR-061).
+ * The Accounts body: the handoff group, the account list, and one detail
+ * line (FR-060, FR-061, FR-062).
  *
  * The flow is relocated, not redesigned — same consent gate, same storage
- * pre-flight, same two-step refusal — so this is the mount call the spike body
- * used to own, pointed at the container the shell created instead.
+ * pre-flight, same two-step refusal — and the list is the credential-free DTO
+ * the service answers with. Only this body's own handles are disposed here:
+ * the handoff view stays owned by the panel root, exactly as before.
  *
  * @param rt - Panel runtime.
  * @param body - The Accounts body container the shell created.
- * @returns `null`: teardown owns the handoff view, exactly as before.
+ * @returns A disposer that releases the list, detail, and note handles.
  */
-function mountAccountsBody(rt: PanelRuntime, body: HTMLElement): null {
-    rt.handoffView = mountHandoffDom({
-        root: body,
-        handlers: {
-            accept: () => {
-                void acceptConsentAndRepaint(rt);
-            },
-            decline: () => {
-                declineHandoffConsent(rt);
-                refreshHandoff(rt);
-            },
-            submit: (token) => {
-                void submitHandoffAndRepaint(rt, token);
-            },
-        },
-    });
-    refreshHandoff(rt);
+function mountAccountsBody(rt: PanelRuntime, body: HTMLElement): () => void {
+    const view = mountAccountsTab({ rt, body, handlers: createAccountsHandlers(rt) });
 
-    return null;
+    return () => {
+        view.dispose();
+        rt.accountsUi = null;
+    };
 }
 
 /**

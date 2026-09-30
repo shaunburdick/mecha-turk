@@ -201,6 +201,43 @@ function statePhrase(state: BindingView['state'], reason: string | null): string
 }
 
 /**
+ * Why a binding cannot poll because its account cannot (005 FR-063).
+ *
+ * A binding whose account is unusable is the thing the operator is actually
+ * looking at when nothing arrives, so the consequence is stated on *this*
+ * row rather than left to a visit to the Accounts tab. The claim is gated on
+ * a completed accounts read for the same reason {@link disabledReason} is:
+ * a list the panel never loaded is not evidence that an account is unusable.
+ *
+ * @param bindings - Bindings state.
+ * @param binding - The binding being judged.
+ * @returns The consequence phrase, or `null` when the account can poll or the
+ *   panel cannot tell.
+ */
+export function accountConsequencePhrase(
+    bindings: BindingsTabState,
+    binding: BindingView,
+): string | null {
+    if (bindings.status !== 'ready') {
+        return null;
+    }
+
+    const account = bindings.accounts.find(
+        (candidate) => candidate.numericUserId === binding.accountNumericUserId,
+    );
+    if (account === undefined || account.usable) {
+        return null;
+    }
+
+    const reason =
+        account.state === 'error' && typeof account.errorReason === 'string'
+            ? account.errorReason
+            : account.state ?? account.connectionState ?? 'not reported';
+
+    return `account cannot poll (${reason})`;
+}
+
+/**
  * Compose one binding row.
  *
  * @param bindings - Bindings state.
@@ -212,7 +249,15 @@ export function bindingRow(bindings: BindingsTabState, binding: BindingView): Li
     const scan = row === null ? NOT_SCANNED : scanPhrase(row);
     const reason = disabledReason(bindings, binding);
     const state = statePhrase(binding.state, reason);
-    const parts = [state, `polled as ${binding.accountLogin}`, binding.projectId, promptSummary(binding), scan];
+    const consequence = accountConsequencePhrase(bindings, binding);
+    const parts = [
+        state,
+        `polled as ${binding.accountLogin}`,
+        consequence,
+        binding.projectId,
+        promptSummary(binding),
+        scan,
+    ];
     const subtitle = parts.filter((part): part is string => part !== null).join(' · ');
 
     return {
