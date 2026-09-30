@@ -29,7 +29,7 @@ interface PendingEntry {
 }
 
 /** The service's logger surface; every method takes a static message. */
-export interface ServiceLogger {
+export interface ServiceLogger extends LoggerControl {
     /** Log a diagnostic entry at `debug`. */
     debug(message: string, fields?: LogFields): void;
     /** Log a normal lifecycle entry at `info`. */
@@ -38,6 +38,28 @@ export interface ServiceLogger {
     warn(message: string, fields?: LogFields): void;
     /** Log a failure entry at `error`. */
     error(message: string, fields?: LogFields): void;
+}
+
+/**
+ * The logger's movable half: the threshold stops being a construction
+ * constant (006 FR-033, FR-037).
+ *
+ * Every logger in the tree comes from {@link createLogger}, so requiring this
+ * half of the surface on {@link ServiceLogger} is enough for `startService`
+ * (adopt the stored level once the store opens) and `PUT /v1/config` (apply an
+ * accepted level before the answer is sent) to share one mechanism.
+ */
+export interface LoggerControl {
+    /**
+     * Move the severity threshold.
+     *
+     * The **next** entry is judged against the new level — there is no queue
+     * to drain and no restart to survive, which is exactly what makes
+     * `logLevel` `immediate` rather than `next-cycle`.
+     *
+     * @param level - Threshold the emit path reads from now on.
+     */
+    setLevel(level: LogLevel): void;
 }
 
 /** Logger construction options. */
@@ -76,7 +98,12 @@ function serialize(entry: PendingEntry): string {
 }
 
 /**
- * Create a level-filtered logger.
+ * Create a level-filtered logger whose threshold can be moved at runtime.
+ *
+ * The emit path reads the **current** threshold per entry rather than a value
+ * captured at construction, so `setLevel` changes the very next line with no
+ * restart (006 FR-033). The redaction pass runs after the filter, unchanged:
+ * a level change can decide *whether* a line is written, never *what* it says.
  *
  * @param options - Level plus an optional sink (tests capture lines here).
  * @returns The logger handed to routes and the pipeline.
@@ -87,7 +114,7 @@ export function createLogger(options: LoggerOptions): ServiceLogger {
         ((line: string): void => {
             process.stdout.write(line);
         });
-    const threshold = SEVERITY[options.level];
+    let threshold = SEVERITY[options.level];
     const emit = (entry: PendingEntry): void => {
         if (SEVERITY[entry.level] < threshold) {
             return;
@@ -97,6 +124,9 @@ export function createLogger(options: LoggerOptions): ServiceLogger {
     };
 
     return {
+        setLevel: (level: LogLevel): void => {
+            threshold = SEVERITY[level];
+        },
         debug: (message, fields = {}) => emit({ level: 'debug', message, fields }),
         info: (message, fields = {}) => emit({ level: 'info', message, fields }),
         warn: (message, fields = {}) => emit({ level: 'warn', message, fields }),

@@ -73,7 +73,7 @@ function createLogger(options) {
   const sink = options.sink ?? ((line) => {
     process.stdout.write(line);
   });
-  const threshold = SEVERITY[options.level];
+  let threshold = SEVERITY[options.level];
   const emit = (entry) => {
     if (SEVERITY[entry.level] < threshold) {
       return;
@@ -81,6 +81,9 @@ function createLogger(options) {
     sink(serialize(entry));
   };
   return {
+    setLevel: (level) => {
+      threshold = SEVERITY[level];
+    },
     debug: (message, fields = {}) => emit({ level: "debug", message, fields }),
     info: (message, fields = {}) => emit({ level: "info", message, fields }),
     warn: (message, fields = {}) => emit({ level: "warn", message, fields }),
@@ -612,6 +615,318 @@ async function reconcileInterruptedAccounts(deps) {
   return { examined: stranded.length, marked, restored };
 }
 
+// service/http.ts
+var LOOPBACK_HOST = "127.0.0.1";
+var MAX_TARGET_CHARS = 2000;
+var REQUEST_BODY_MAX_CHARS = 60000;
+var RESPONSE_BODY_MAX_CHARS = 256000;
+var JSON_CONTENT_TYPE = "application/json; charset=utf-8";
+var STATUS = {
+  ok: 200,
+  created: 201,
+  badRequest: 400,
+  unauthorized: 401,
+  notFound: 404,
+  methodNotAllowed: 405,
+  conflict: 409,
+  payloadTooLarge: 413,
+  validation: 422,
+  tooManyRequests: 429,
+  internal: 500,
+  badGateway: 502,
+  storageUnavailable: 503
+};
+function errorBody(details) {
+  return {
+    error: {
+      code: details.code,
+      message: details.message,
+      ...details.correlationId === undefined ? {} : { correlationId: details.correlationId },
+      ...details.issues === undefined ? {} : { issues: details.issues },
+      ...details.reasonClass === undefined ? {} : { reasonClass: details.reasonClass }
+    }
+  };
+}
+function errorResponse(status, details) {
+  return { status, body: errorBody(details) };
+}
+function validationResponse(issues) {
+  return errorResponse(STATUS.validation, {
+    code: "validation",
+    message: issues.map((issue) => `${issue.field}: ${issue.remediation}`).join("; "),
+    issues
+  });
+}
+var RETRY_AFTER_HEADER = "retry-after";
+function throttleResponse(options) {
+  const headers = {};
+  headers[RETRY_AFTER_HEADER] = String(options.retryAfterSeconds);
+  return {
+    status: options.status,
+    body: errorBody({ code: options.code, message: options.message }),
+    headers
+  };
+}
+function unauthorizedResponse() {
+  return errorResponse(STATUS.unauthorized, {
+    code: "unauthorized",
+    message: "service authentication failed"
+  });
+}
+function storageUnavailableResponse() {
+  return errorResponse(STATUS.storageUnavailable, {
+    code: "storage-unavailable",
+    message: "the data directory is not writable; setup cannot continue until it is"
+  });
+}
+function parseRequestTarget(raw) {
+  if (raw === undefined || !raw.startsWith("/") || raw.length > MAX_TARGET_CHARS) {
+    return null;
+  }
+  try {
+    const url = new URL(raw, `http://${LOOPBACK_HOST}`);
+    return url.host === LOOPBACK_HOST ? url : null;
+  } catch {
+    return null;
+  }
+}
+function serializeBody(body) {
+  try {
+    const text = JSON.stringify(body);
+    if (text.length > RESPONSE_BODY_MAX_CHARS) {
+      return {
+        ok: false,
+        fallback: errorResponse(STATUS.internal, {
+          code: "response-too-large",
+          message: "response exceeded the documented size cap; paginate instead"
+        })
+      };
+    }
+    return { ok: true, text };
+  } catch {
+    return {
+      ok: false,
+      fallback: errorResponse(STATUS.internal, {
+        code: "internal",
+        message: "response could not be serialized"
+      })
+    };
+  }
+}
+
+// service/config.ts
+var CONFIG_FILE = "config.json";
+var MAX_ECHOED_FIELD_CHARS = 64;
+var LOG_LEVEL_VALUES = ["debug", "info", "warn", "error"];
+var LOG_LEVELS = new Set(LOG_LEVEL_VALUES);
+var NUMERIC_BOUNDS = {
+  intervalMs: { min: 15000, max: 300000, unit: "milliseconds" },
+  overlapMs: { min: 60000, max: 7200000, unit: "milliseconds" },
+  perPage: { min: 1, max: 30, unit: "items per page" },
+  retryMaxAttempts: { min: 1, max: 10, unit: "attempts" },
+  retryBaseMs: { min: 1000, max: 60000, unit: "milliseconds" },
+  retryMaxMs: { min: 5000, max: 300000, unit: "milliseconds" },
+  auditRetentionDays: { min: 7, max: 3650, unit: "days" },
+  auditMaxEntries: { min: 1000, max: 1e6, unit: "entries" },
+  excerptRetentionDays: { min: 1, max: 365, unit: "days" },
+  leaseMs: { min: 30000, max: 600000, unit: "milliseconds" },
+  resultDeadlineMs: { min: 30000, max: 600000, unit: "milliseconds" }
+};
+var NUMERIC_FIELDS = Object.keys(NUMERIC_BOUNDS);
+var EXPECTED_AGENT_RULE = {
+  maxLength: 80,
+  format: "letters, digits, and . _ - @ : / (a single token, no spaces)",
+  pattern: /^[A-Za-z0-9.@/_:-]+$/
+};
+var DEFAULT_CONFIG = {
+  intervalMs: 60000,
+  overlapMs: 600000,
+  perPage: 30,
+  retryMaxAttempts: 5,
+  retryBaseMs: 5000,
+  retryMaxMs: 60000,
+  auditRetentionDays: 180,
+  auditMaxEntries: 50000,
+  excerptRetentionDays: 30,
+  leaseMs: 120000,
+  resultDeadlineMs: 120000,
+  logLevel: "info",
+  expectedAgent: "project-manager"
+};
+function isLogLevel(value) {
+  return typeof value === "string" && LOG_LEVELS.has(value);
+}
+function numericIssue(raw, field) {
+  const bounds = NUMERIC_BOUNDS[field];
+  const value = raw[field];
+  if (typeof value === "number" && Number.isInteger(value) && value >= bounds.min && value <= bounds.max) {
+    return [];
+  }
+  return [
+    {
+      field,
+      remediation: `set ${field} to an integer between ${bounds.min} and ${bounds.max} ${bounds.unit}`
+    }
+  ];
+}
+function retryOrderIssue(raw) {
+  const base = raw.retryBaseMs;
+  const ceiling = raw.retryMaxMs;
+  if (typeof base === "number" && typeof ceiling === "number" && base > ceiling) {
+    return [
+      {
+        field: "retryMaxMs",
+        remediation: "set retryMaxMs to a value greater than or equal to retryBaseMs"
+      }
+    ];
+  }
+  return [];
+}
+function unknownFieldIssue(key) {
+  if (findSecretLeak(key) !== null) {
+    return {
+      field: "<withheld>",
+      remediation: "remove this key; only the documented ServiceConfig fields are accepted"
+    };
+  }
+  const name = key.length > MAX_ECHOED_FIELD_CHARS ? `${key.slice(0, MAX_ECHOED_FIELD_CHARS)}…` : key;
+  return {
+    field: name,
+    remediation: "remove this key; only the documented ServiceConfig fields are accepted"
+  };
+}
+function isKnownField(key) {
+  return Object.hasOwn(DEFAULT_CONFIG, key);
+}
+function expectedAgentIssue(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (text === "") {
+    return [{ field: "expectedAgent", remediation: "set expectedAgent to a non-empty agent name" }];
+  }
+  if (text.length > EXPECTED_AGENT_RULE.maxLength) {
+    return [
+      {
+        field: "expectedAgent",
+        remediation: `set expectedAgent to at most ${EXPECTED_AGENT_RULE.maxLength} characters`
+      }
+    ];
+  }
+  if (!EXPECTED_AGENT_RULE.pattern.test(text)) {
+    return [
+      {
+        field: "expectedAgent",
+        remediation: "set expectedAgent to letters, digits, and . _ - @ : / with no spaces"
+      }
+    ];
+  }
+  if (findSecretLeak(text) !== null) {
+    return [{ field: "expectedAgent", remediation: "set expectedAgent to an agent name, not a credential" }];
+  }
+  return [];
+}
+function collectIssues(raw) {
+  const issues = [];
+  for (const field of NUMERIC_FIELDS) {
+    issues.push(...numericIssue(raw, field));
+  }
+  if (!isLogLevel(raw.logLevel)) {
+    issues.push({
+      field: "logLevel",
+      remediation: "set logLevel to one of debug, info, warn, error"
+    });
+  }
+  issues.push(...expectedAgentIssue(raw.expectedAgent));
+  issues.push(...retryOrderIssue(raw));
+  for (const key of Object.keys(raw)) {
+    if (!isKnownField(key)) {
+      issues.push(unknownFieldIssue(key));
+    }
+  }
+  return issues;
+}
+function readNumber(raw, field) {
+  const value = raw[field];
+  if (typeof value !== "number") {
+    throw new Error(`validated configuration is missing ${field}`);
+  }
+  return value;
+}
+function readLogLevel(raw) {
+  const value = raw.logLevel;
+  if (!isLogLevel(value)) {
+    throw new Error("validated configuration is missing logLevel");
+  }
+  return value;
+}
+function readExpectedAgent(raw) {
+  const value = raw.expectedAgent;
+  if (typeof value !== "string") {
+    throw new Error("validated configuration is missing expectedAgent");
+  }
+  return value.trim();
+}
+function buildConfig(raw) {
+  return {
+    intervalMs: readNumber(raw, "intervalMs"),
+    overlapMs: readNumber(raw, "overlapMs"),
+    perPage: readNumber(raw, "perPage"),
+    retryMaxAttempts: readNumber(raw, "retryMaxAttempts"),
+    retryBaseMs: readNumber(raw, "retryBaseMs"),
+    retryMaxMs: readNumber(raw, "retryMaxMs"),
+    auditRetentionDays: readNumber(raw, "auditRetentionDays"),
+    auditMaxEntries: readNumber(raw, "auditMaxEntries"),
+    excerptRetentionDays: readNumber(raw, "excerptRetentionDays"),
+    leaseMs: readNumber(raw, "leaseMs"),
+    resultDeadlineMs: readNumber(raw, "resultDeadlineMs"),
+    logLevel: readLogLevel(raw),
+    expectedAgent: readExpectedAgent(raw)
+  };
+}
+function validateConfig(raw) {
+  if (!isRecord(raw)) {
+    return {
+      ok: false,
+      issues: [{ field: "body", remediation: "send a JSON object holding the full ServiceConfig" }]
+    };
+  }
+  const issues = collectIssues(raw);
+  if (issues.length > 0) {
+    return { ok: false, issues };
+  }
+  return { ok: true, config: buildConfig(raw) };
+}
+function parseStoredConfig(raw) {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const filled = { ...raw };
+  const defaultsApplied = [];
+  for (const field of Object.keys(DEFAULT_CONFIG)) {
+    if (!Object.hasOwn(filled, field)) {
+      filled[field] = DEFAULT_CONFIG[field];
+      defaultsApplied.push(field);
+    }
+  }
+  const validation = validateConfig(filled);
+  return validation.ok ? { config: validation.config, defaultsApplied } : null;
+}
+function configFromStore(result, log) {
+  if (result.status === "ok") {
+    return {
+      config: result.value.config,
+      source: "stored",
+      defaultsApplied: result.value.defaultsApplied
+    };
+  }
+  if (result.status === "quarantined") {
+    log.warn("stored configuration was unusable and has been set aside", {
+      quarantinePath: result.quarantinePath
+    });
+    return { config: DEFAULT_CONFIG, source: "quarantined", defaultsApplied: [] };
+  }
+  return { config: DEFAULT_CONFIG, source: "default", defaultsApplied: [] };
+}
+
 // service/github.ts
 var API_ORIGIN = "https://api.github.com";
 var USER_PATH = "/user";
@@ -629,7 +944,7 @@ var STATUS_FORBIDDEN = 403;
 var STATUS_NOT_FOUND = 404;
 var STATUS_TOO_MANY_REQUESTS = 429;
 var RATE_REMAINING_HEADER = "x-ratelimit-remaining";
-var RETRY_AFTER_HEADER = "retry-after";
+var RETRY_AFTER_HEADER2 = "retry-after";
 var SSO_HEADER = "x-github-sso";
 var OAUTH_SCOPES_HEADER = "x-oauth-scopes";
 function credentialKindOf(token) {
@@ -674,7 +989,7 @@ function buildScopeCheck(header) {
   return { checkedAt: nowIso(), results: scopeResults(granted) };
 }
 function retryAfterOf(response) {
-  const header = response.headers.get(RETRY_AFTER_HEADER);
+  const header = response.headers.get(RETRY_AFTER_HEADER2);
   if (header === null || !/^\d+$/.test(header)) {
     return DEFAULT_RETRY_AFTER_SECONDS;
   }
@@ -696,7 +1011,7 @@ async function readRateBaseline(response) {
   return { limit, remaining, resetAt: resetDate.toISOString() };
 }
 function isRateLimited(response) {
-  return response.status === STATUS_TOO_MANY_REQUESTS || response.headers.get(RATE_REMAINING_HEADER) === "0" || response.headers.has(RETRY_AFTER_HEADER);
+  return response.status === STATUS_TOO_MANY_REQUESTS || response.headers.get(RATE_REMAINING_HEADER) === "0" || response.headers.has(RETRY_AFTER_HEADER2);
 }
 function isSsoRefusal(response) {
   const sso = response.headers.get(SSO_HEADER);
@@ -767,105 +1082,6 @@ function createGitHubVerifier(fetchImpl = (url, init) => globalThis.fetch(url, i
       };
     }
   };
-}
-
-// service/http.ts
-var LOOPBACK_HOST = "127.0.0.1";
-var MAX_TARGET_CHARS = 2000;
-var REQUEST_BODY_MAX_CHARS = 60000;
-var RESPONSE_BODY_MAX_CHARS = 256000;
-var JSON_CONTENT_TYPE = "application/json; charset=utf-8";
-var STATUS = {
-  ok: 200,
-  created: 201,
-  badRequest: 400,
-  unauthorized: 401,
-  notFound: 404,
-  methodNotAllowed: 405,
-  conflict: 409,
-  payloadTooLarge: 413,
-  validation: 422,
-  tooManyRequests: 429,
-  internal: 500,
-  badGateway: 502,
-  storageUnavailable: 503
-};
-function errorBody(details) {
-  return {
-    error: {
-      code: details.code,
-      message: details.message,
-      ...details.correlationId === undefined ? {} : { correlationId: details.correlationId },
-      ...details.issues === undefined ? {} : { issues: details.issues },
-      ...details.reasonClass === undefined ? {} : { reasonClass: details.reasonClass }
-    }
-  };
-}
-function errorResponse(status, details) {
-  return { status, body: errorBody(details) };
-}
-function validationResponse(issues) {
-  return errorResponse(STATUS.validation, {
-    code: "validation",
-    message: issues.map((issue) => `${issue.field}: ${issue.remediation}`).join("; "),
-    issues
-  });
-}
-var RETRY_AFTER_HEADER2 = "retry-after";
-function throttleResponse(options) {
-  const headers = {};
-  headers[RETRY_AFTER_HEADER2] = String(options.retryAfterSeconds);
-  return {
-    status: options.status,
-    body: errorBody({ code: options.code, message: options.message }),
-    headers
-  };
-}
-function unauthorizedResponse() {
-  return errorResponse(STATUS.unauthorized, {
-    code: "unauthorized",
-    message: "service authentication failed"
-  });
-}
-function storageUnavailableResponse() {
-  return errorResponse(STATUS.storageUnavailable, {
-    code: "storage-unavailable",
-    message: "the data directory is not writable; setup cannot continue until it is"
-  });
-}
-function parseRequestTarget(raw) {
-  if (raw === undefined || !raw.startsWith("/") || raw.length > MAX_TARGET_CHARS) {
-    return null;
-  }
-  try {
-    const url = new URL(raw, `http://${LOOPBACK_HOST}`);
-    return url.host === LOOPBACK_HOST ? url : null;
-  } catch {
-    return null;
-  }
-}
-function serializeBody(body) {
-  try {
-    const text = JSON.stringify(body);
-    if (text.length > RESPONSE_BODY_MAX_CHARS) {
-      return {
-        ok: false,
-        fallback: errorResponse(STATUS.internal, {
-          code: "response-too-large",
-          message: "response exceeded the documented size cap; paginate instead"
-        })
-      };
-    }
-    return { ok: true, text };
-  } catch {
-    return {
-      ok: false,
-      fallback: errorResponse(STATUS.internal, {
-        code: "internal",
-        message: "response could not be serialized"
-      })
-    };
-  }
 }
 
 // service/auth.ts
@@ -1927,219 +2143,6 @@ var auditRoute = {
   handler: (context, request) => handleAuditRead(context, request)
 };
 
-// service/config.ts
-var CONFIG_FILE = "config.json";
-var MAX_ECHOED_FIELD_CHARS = 64;
-var LOG_LEVEL_VALUES = ["debug", "info", "warn", "error"];
-var LOG_LEVELS = new Set(LOG_LEVEL_VALUES);
-var NUMERIC_BOUNDS = {
-  intervalMs: { min: 15000, max: 300000, unit: "milliseconds" },
-  overlapMs: { min: 60000, max: 7200000, unit: "milliseconds" },
-  perPage: { min: 1, max: 30, unit: "items per page" },
-  retryMaxAttempts: { min: 1, max: 10, unit: "attempts" },
-  retryBaseMs: { min: 1000, max: 60000, unit: "milliseconds" },
-  retryMaxMs: { min: 5000, max: 300000, unit: "milliseconds" },
-  auditRetentionDays: { min: 7, max: 3650, unit: "days" },
-  auditMaxEntries: { min: 1000, max: 1e6, unit: "entries" },
-  excerptRetentionDays: { min: 1, max: 365, unit: "days" },
-  leaseMs: { min: 30000, max: 600000, unit: "milliseconds" },
-  resultDeadlineMs: { min: 30000, max: 600000, unit: "milliseconds" }
-};
-var NUMERIC_FIELDS = Object.keys(NUMERIC_BOUNDS);
-var EXPECTED_AGENT_RULE = {
-  maxLength: 80,
-  format: "letters, digits, and . _ - @ : / (a single token, no spaces)",
-  pattern: /^[A-Za-z0-9.@/_:-]+$/
-};
-var DEFAULT_CONFIG = {
-  intervalMs: 60000,
-  overlapMs: 600000,
-  perPage: 30,
-  retryMaxAttempts: 5,
-  retryBaseMs: 5000,
-  retryMaxMs: 60000,
-  auditRetentionDays: 180,
-  auditMaxEntries: 50000,
-  excerptRetentionDays: 30,
-  leaseMs: 120000,
-  resultDeadlineMs: 120000,
-  logLevel: "info",
-  expectedAgent: "project-manager"
-};
-function isLogLevel(value) {
-  return typeof value === "string" && LOG_LEVELS.has(value);
-}
-function numericIssue(raw, field) {
-  const bounds = NUMERIC_BOUNDS[field];
-  const value = raw[field];
-  if (typeof value === "number" && Number.isInteger(value) && value >= bounds.min && value <= bounds.max) {
-    return [];
-  }
-  return [
-    {
-      field,
-      remediation: `set ${field} to an integer between ${bounds.min} and ${bounds.max} ${bounds.unit}`
-    }
-  ];
-}
-function retryOrderIssue(raw) {
-  const base = raw.retryBaseMs;
-  const ceiling = raw.retryMaxMs;
-  if (typeof base === "number" && typeof ceiling === "number" && base > ceiling) {
-    return [
-      {
-        field: "retryMaxMs",
-        remediation: "set retryMaxMs to a value greater than or equal to retryBaseMs"
-      }
-    ];
-  }
-  return [];
-}
-function unknownFieldIssue(key) {
-  if (findSecretLeak(key) !== null) {
-    return {
-      field: "<withheld>",
-      remediation: "remove this key; only the documented ServiceConfig fields are accepted"
-    };
-  }
-  const name = key.length > MAX_ECHOED_FIELD_CHARS ? `${key.slice(0, MAX_ECHOED_FIELD_CHARS)}…` : key;
-  return {
-    field: name,
-    remediation: "remove this key; only the documented ServiceConfig fields are accepted"
-  };
-}
-function isKnownField(key) {
-  return Object.hasOwn(DEFAULT_CONFIG, key);
-}
-function expectedAgentIssue(value) {
-  const text = typeof value === "string" ? value.trim() : "";
-  if (text === "") {
-    return [{ field: "expectedAgent", remediation: "set expectedAgent to a non-empty agent name" }];
-  }
-  if (text.length > EXPECTED_AGENT_RULE.maxLength) {
-    return [
-      {
-        field: "expectedAgent",
-        remediation: `set expectedAgent to at most ${EXPECTED_AGENT_RULE.maxLength} characters`
-      }
-    ];
-  }
-  if (!EXPECTED_AGENT_RULE.pattern.test(text)) {
-    return [
-      {
-        field: "expectedAgent",
-        remediation: "set expectedAgent to letters, digits, and . _ - @ : / with no spaces"
-      }
-    ];
-  }
-  if (findSecretLeak(text) !== null) {
-    return [{ field: "expectedAgent", remediation: "set expectedAgent to an agent name, not a credential" }];
-  }
-  return [];
-}
-function collectIssues(raw) {
-  const issues = [];
-  for (const field of NUMERIC_FIELDS) {
-    issues.push(...numericIssue(raw, field));
-  }
-  if (!isLogLevel(raw.logLevel)) {
-    issues.push({
-      field: "logLevel",
-      remediation: "set logLevel to one of debug, info, warn, error"
-    });
-  }
-  issues.push(...expectedAgentIssue(raw.expectedAgent));
-  issues.push(...retryOrderIssue(raw));
-  for (const key of Object.keys(raw)) {
-    if (!isKnownField(key)) {
-      issues.push(unknownFieldIssue(key));
-    }
-  }
-  return issues;
-}
-function readNumber(raw, field) {
-  const value = raw[field];
-  if (typeof value !== "number") {
-    throw new Error(`validated configuration is missing ${field}`);
-  }
-  return value;
-}
-function readLogLevel(raw) {
-  const value = raw.logLevel;
-  if (!isLogLevel(value)) {
-    throw new Error("validated configuration is missing logLevel");
-  }
-  return value;
-}
-function readExpectedAgent(raw) {
-  const value = raw.expectedAgent;
-  if (typeof value !== "string") {
-    throw new Error("validated configuration is missing expectedAgent");
-  }
-  return value.trim();
-}
-function buildConfig(raw) {
-  return {
-    intervalMs: readNumber(raw, "intervalMs"),
-    overlapMs: readNumber(raw, "overlapMs"),
-    perPage: readNumber(raw, "perPage"),
-    retryMaxAttempts: readNumber(raw, "retryMaxAttempts"),
-    retryBaseMs: readNumber(raw, "retryBaseMs"),
-    retryMaxMs: readNumber(raw, "retryMaxMs"),
-    auditRetentionDays: readNumber(raw, "auditRetentionDays"),
-    auditMaxEntries: readNumber(raw, "auditMaxEntries"),
-    excerptRetentionDays: readNumber(raw, "excerptRetentionDays"),
-    leaseMs: readNumber(raw, "leaseMs"),
-    resultDeadlineMs: readNumber(raw, "resultDeadlineMs"),
-    logLevel: readLogLevel(raw),
-    expectedAgent: readExpectedAgent(raw)
-  };
-}
-function validateConfig(raw) {
-  if (!isRecord(raw)) {
-    return {
-      ok: false,
-      issues: [{ field: "body", remediation: "send a JSON object holding the full ServiceConfig" }]
-    };
-  }
-  const issues = collectIssues(raw);
-  if (issues.length > 0) {
-    return { ok: false, issues };
-  }
-  return { ok: true, config: buildConfig(raw) };
-}
-function parseStoredConfig(raw) {
-  if (!isRecord(raw)) {
-    return null;
-  }
-  const filled = { ...raw };
-  const defaultsApplied = [];
-  for (const field of Object.keys(DEFAULT_CONFIG)) {
-    if (!Object.hasOwn(filled, field)) {
-      filled[field] = DEFAULT_CONFIG[field];
-      defaultsApplied.push(field);
-    }
-  }
-  const validation = validateConfig(filled);
-  return validation.ok ? { config: validation.config, defaultsApplied } : null;
-}
-function configFromStore(result, log) {
-  if (result.status === "ok") {
-    return {
-      config: result.value.config,
-      source: "stored",
-      defaultsApplied: result.value.defaultsApplied
-    };
-  }
-  if (result.status === "quarantined") {
-    log.warn("stored configuration was unusable and has been set aside", {
-      quarantinePath: result.quarantinePath
-    });
-    return { config: DEFAULT_CONFIG, source: "quarantined", defaultsApplied: [] };
-  }
-  return { config: DEFAULT_CONFIG, source: "default", defaultsApplied: [] };
-}
-
 // service/config-schema.ts
 var NEXT_CYCLE = "next-cycle";
 var TAKE_EFFECT = {
@@ -2215,6 +2218,7 @@ async function handlePutConfig(context, request) {
     return storageUnavailableResponse();
   }
   await context.store.writeJson(CONFIG_FILE, validation.config);
+  context.log.setLevel(validation.config.logLevel);
   return { status: STATUS.ok, body: { config: validation.config } };
 }
 var getConfigRoute = {
@@ -8241,6 +8245,19 @@ async function openStoreSafe(options) {
     return null;
   }
 }
+async function adoptStoredLogLevel(store, log) {
+  if (store === null) {
+    return;
+  }
+  try {
+    const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
+    log.setLevel(config.logLevel);
+  } catch (cause) {
+    log.warn("stored log level read failed", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+  }
+}
 function listen(server, port) {
   return new Promise((resolve3, reject) => {
     const onError = (error) => {
@@ -8345,21 +8362,25 @@ function startSchedulers(input) {
   const sweep = store === null ? null : startSweep({ store, log });
   return { poll, sweep };
 }
+function buildContext(input) {
+  return {
+    store: input.store,
+    dataDir: input.options.dataDir,
+    startedAt: Date.now(),
+    log: input.options.log,
+    schemaVersion: SERVICE_SCHEMA_VERSION,
+    github: input.github,
+    throttle: createVerifyThrottle(),
+    polling: input.polling.view
+  };
+}
 async function startService(options) {
   const store = await openStoreSafe(options);
+  await adoptStoredLogLevel(store, options.log);
   const github = options.github ?? createGitHubVerifier();
   const state = { inFlight: 0 };
   const polling = createPollingView();
-  const context = {
-    store,
-    dataDir: options.dataDir,
-    startedAt: Date.now(),
-    log: options.log,
-    schemaVersion: SERVICE_SCHEMA_VERSION,
-    github,
-    throttle: createVerifyThrottle(),
-    polling: polling.view
-  };
+  const context = buildContext({ options, store, github, polling });
   const deps = { env: options.env, context, routes: ROUTES, log: options.log, state };
   const server = createServer(createRequestHandler(deps));
   const swept = await startBootSweep({ store, log: options.log });

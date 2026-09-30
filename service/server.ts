@@ -13,6 +13,7 @@
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { reconcileInterruptedAccounts } from './accounts/reconcile.ts';
+import { CONFIG_FILE, configFromStore, parseStoredConfig } from './config.ts';
 import { createGitHubVerifier } from './github.ts';
 import type { GitHubIssuePoller } from './poll/poller-github.ts';
 import { LOOPBACK_HOST } from './http.ts';
@@ -139,6 +140,33 @@ async function openStoreSafe(options: StartServiceOptions): Promise<ServiceStore
         options.log.error('store unavailable', { dataDir: options.dataDir, error: error.message });
 
         return null;
+    }
+}
+
+/**
+ * Adopt the stored `logLevel` once the store is open (006 FR-033, D12).
+ *
+ * The threshold moves *before* the listener binds, so boot-time lines after
+ * this point — the sweep, the poll loop, every route — are judged at the
+ * operator's configured level with no restart. A store that could not be
+ * opened, or a configuration that could not be read, keeps the construction
+ * level: a level change is never a reason to fail a start.
+ *
+ * @param store - Open store, or `null` when the directory was unusable.
+ * @param log - Logger whose threshold is moved.
+ */
+async function adoptStoredLogLevel(store: ServiceStore | null, log: ServiceLogger): Promise<void> {
+    if (store === null) {
+        return;
+    }
+
+    try {
+        const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
+        log.setLevel(config.logLevel);
+    } catch (cause) {
+        log.warn('stored log level read failed', {
+            errorKind: cause instanceof Error ? cause.name : typeof cause,
+        });
     }
 }
 
@@ -391,6 +419,34 @@ function startSchedulers(input: {
 }
 
 /**
+ * Build the route context every handler is handed.
+ *
+ * @param input - Start options plus the store, verifier, and scheduler view.
+ * @returns The context bound to this instance.
+ */
+function buildContext(input: {
+    /** Start options carrying the data directory and logger. */
+    readonly options: StartServiceOptions;
+    /** Open store, or `null` when the directory was unusable. */
+    readonly store: ServiceStore | null;
+    /** Verifier for the credential routes and startup reconciliation. */
+    readonly github: GitHubVerifier;
+    /** Scheduler view the status route reads. */
+    readonly polling: PollingViewSlot;
+}): RouteContext {
+    return {
+        store: input.store,
+        dataDir: input.options.dataDir,
+        startedAt: Date.now(),
+        log: input.options.log,
+        schemaVersion: SERVICE_SCHEMA_VERSION,
+        github: input.github,
+        throttle: createVerifyThrottle(),
+        polling: input.polling.view,
+    };
+}
+
+/**
  * Start the loopback service.
  *
  * @param options - Environment, data directory, and logger.
@@ -400,22 +456,17 @@ function startSchedulers(input: {
  */
 export async function startService(options: StartServiceOptions): Promise<ServiceHandle> {
     const store = await openStoreSafe(options);
+    // FR-033/FR-037 (006): the stored level is in force from here on, so the
+    // first line this instance writes after the store opens is judged at the
+    // configured threshold — the whole `immediate` promise, before `listen`.
+    await adoptStoredLogLevel(store, options.log);
     const github = options.github ?? createGitHubVerifier();
     const state: PipelineState = { inFlight: 0 };
     // The scheduler view exists before the context so every route can hold a
     // stable reference; the loop is observed into it below, before the first
     // request can be served (no await sits between `listen` and that call).
     const polling = createPollingView();
-    const context: RouteContext = {
-        store,
-        dataDir: options.dataDir,
-        startedAt: Date.now(),
-        log: options.log,
-        schemaVersion: SERVICE_SCHEMA_VERSION,
-        github,
-        throttle: createVerifyThrottle(),
-        polling: polling.view,
-    };
+    const context = buildContext({ options, store, github, polling });
     const deps: PipelineDeps = { env: options.env, context, routes: ROUTES, log: options.log, state };
     const server = createServer(createRequestHandler(deps));
     // FR-032: the sweep runs at service start, before the server accepts a

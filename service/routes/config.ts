@@ -84,6 +84,10 @@ async function handlePutConfig(context: RouteContext, request: RouteRequest): Pr
     }
 
     await context.store.writeJson(CONFIG_FILE, validation.config);
+    // FR-033: an accepted write applies its level *before* the answer is sent,
+    // so the first line after the acknowledgement is judged at the new
+    // threshold. A refused write never reaches here, so it moves nothing.
+    context.log.setLevel(validation.config.logLevel);
 
     return { status: STATUS.ok, body: { config: validation.config } };
 }

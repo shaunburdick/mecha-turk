@@ -72,6 +72,7 @@ function capturingLogger(): CapturedLogger {
 
     return {
         warnings,
+        setLevel: noop,
         debug: noop,
         info: noop,
         error: noop,

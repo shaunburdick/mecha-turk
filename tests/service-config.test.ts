@@ -9,16 +9,20 @@
  * against the contract's fixed shape, including its truthful wave-1 contents.
  */
 
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG, NUMERIC_BOUNDS, parseStoredConfig, validateConfig } from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
+import { readServiceEnv } from '../service/env.ts';
+import { createLogger } from '../service/log.ts';
+import { startService } from '../service/server.ts';
 import { SERVICE_SCHEMA_VERSION } from '../service/store/index.ts';
 import type { ServiceConfig } from '../service/config.ts';
 import type { FieldDescriptor } from '../service/config-schema.ts';
 import type { ServiceStatusBody } from '../service/routes/status.ts';
+import { offlineVerifier } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 
@@ -703,5 +707,104 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
             default: 'info',
             takesEffect: 'immediate',
         });
+    });
+});
+
+/**
+ * Corrupt the stored configuration on disk, so the next read sets it aside
+ * and emits the warn line whose presence or absence *is* the threshold.
+ *
+ * @param dataDir - Store directory of a running instance.
+ */
+async function corruptStoredConfig(dataDir: string): Promise<void> {
+    const unusable = JSON.stringify({ ...DEFAULT_CONFIG, surprise: 1 });
+    await writeFile(join(dataDir, CONFIG_FILE), unusable, 'utf8');
+}
+
+describe('logLevel is immediate (006 FR-033, FR-037, AC-103, SC-105)', () => {
+    /** The one warn line a configuration read emits when it sets a file aside. */
+    const SET_ASIDE = 'stored configuration was unusable and has been set aside';
+
+    /** Bearer token for the instance this suite starts directly. */
+    const BEARER_TOKEN = 'ab'.repeat(24);
+
+    it('adopts the stored level at start-up and an accepted save on the very next line', async () => {
+        const lines: string[] = [];
+        const log = createLogger({
+            level: 'debug',
+            sink: (line) => {
+                lines.push(line);
+            },
+        });
+        const home = await mkdtemp(join(tmpdir(), 'mecha-turk-loglevel-'));
+        const dataDir = join(home, 'store');
+        await mkdir(dataDir, { recursive: true });
+        await writeFile(
+            join(dataDir, CONFIG_FILE),
+            JSON.stringify({ ...DEFAULT_CONFIG, logLevel: 'error' }),
+            'utf8',
+        );
+
+        const hostEnv: Record<string, string | undefined> = {};
+        hostEnv.HOME = home;
+        hostEnv.OPENCHAMBER_SERVICE_PORT = '0';
+        hostEnv.OPENCHAMBER_SERVICE_TOKEN = BEARER_TOKEN;
+        const handle = await startService({
+            env: readServiceEnv(hostEnv),
+            dataDir,
+            log,
+            github: offlineVerifier(),
+        });
+        const origin = `http://127.0.0.1:${handle.port}`;
+        const headers = { authorization: `Bearer ${BEARER_TOKEN}` };
+        const setAsideCount = (): number => lines.filter((line) => line.includes(SET_ASIDE)).length;
+
+        /**
+         * Read the configuration once and discard the answer.
+         *
+         * @returns The HTTP status the read answered with.
+         */
+        const readConfig = async (): Promise<number> => {
+            const response = await fetch(`${origin}${CONFIG_PATH}`, { headers });
+            await response.text();
+
+            return response.status;
+        };
+
+        try {
+            // AC-103: the stored `error` level is in force with no restart, so
+            // a warn emitted after start-up does not reach the sink.
+            await corruptStoredConfig(dataDir);
+            expect(await readConfig()).toBe(200);
+            expect(setAsideCount()).toBe(0);
+
+            // A refused write moves no threshold.
+            const refused = await fetch(`${origin}${CONFIG_PATH}`, {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify({ ...DEFAULT_CONFIG, intervalMs: 1 }),
+            });
+            await refused.text();
+            expect(refused.status).toBe(422);
+            await corruptStoredConfig(dataDir);
+            expect(await readConfig()).toBe(200);
+            expect(setAsideCount()).toBe(0);
+
+            // SC-105: the accepted save flips the very next line — no restart,
+            // no second write, and nothing else done in between.
+            const accepted = await fetch(`${origin}${CONFIG_PATH}`, {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify({ ...DEFAULT_CONFIG, logLevel: 'info' }),
+            });
+            await accepted.text();
+            expect(accepted.status).toBe(200);
+            await corruptStoredConfig(dataDir);
+            expect(await readConfig()).toBe(200);
+            expect(setAsideCount()).toBe(1);
+        } finally {
+            await handle.shutdown();
+            await rm(home, { recursive: true, force: true });
+        }
     });
 });
