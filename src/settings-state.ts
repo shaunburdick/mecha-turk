@@ -64,8 +64,17 @@ export const SAVE_LABEL = 'Save configuration';
 /** Label of the discard control (FR-015). */
 export const DISCARD_LABEL = 'Discard changes';
 
-/** Label of the restore-defaults control; non-primary, and not a write here (FR-016). */
+/** Label of the non-primary restore-defaults control, whose second activation writes (FR-016). */
 export const RESTORE_LABEL = 'Restore defaults';
+
+/**
+ * Label of the control that disarms an armed confirmation (006 FR-054).
+ *
+ * The panel has no dialog primitive and never grows one: the confirmation is
+ * dismissed by this control the same way every other two-step action in the
+ * product is completed or cancelled — with a button a keyboard can reach.
+ */
+export const CONFIRM_CANCEL_LABEL = 'Cancel';
 
 /** What each documented `source` means, in the contract's own words (§3). */
 export const SOURCE_LINES: Readonly<Record<ConfigSource, string>> = {

@@ -1,5 +1,5 @@
 /**
- * The Settings tab's regions: the four things it mounts outside its rows
+ * The Settings tab's regions: the things it mounts outside its rows
  * (006 T-020; FR-012, FR-013, FR-014, FR-042, FR-078).
  *
  * Split from [`settings-tab.ts`](./settings-tab.ts) so the view keeps the
@@ -7,13 +7,15 @@
  * a parameter rather than being imported, which is what keeps the two modules
  * from importing each other — and what makes each region testable on its own.
  *
- * Three regions, one rule each:
+ * Four regions, one rule each:
  *
  * - **The read row** carries the re-read control and the read-state line
  *   (FR-014, FR-078); it never writes.
  * - **The save bar** carries the one write, the discard, and the non-primary
  *   restore — mounted *hidden* when no save is possible, so the tab never
  *   shows a control that cannot act (FR-011, FR-042).
+ * - **The confirmation box** carries what an armed write will do and its
+ *   Cancel, mounted hidden until something is armed (FR-016, FR-051, FR-054).
  * - **The error region** carries the service's issues in the service's order,
  *   as text (FR-024, FR-029).
  */
@@ -23,6 +25,7 @@ import type { BannerHandle, ButtonHandle, TextHandle } from '@openchamber/sdk/ui
 import type { SettingsTabUi } from './settings-tab.ts';
 import {
     CONFIG_SOURCE,
+    CONFIRM_CANCEL_LABEL,
     DISCARD_LABEL,
     FAILURE_TITLE,
     NO_DOCUMENT,
@@ -44,7 +47,7 @@ export interface RowRegion {
     readonly rowsBox: HTMLElement;
 }
 
-/** What the save bar and its two regions produced. */
+/** What the save bar, the armed confirmation, and the two notices produced. */
 export interface ControlRegion {
     /** Wrapper around the save bar. */
     readonly saveBox: HTMLElement;
@@ -56,6 +59,12 @@ export interface ControlRegion {
     readonly restore: ButtonHandle;
     /** Save state plus pending markers. */
     readonly saveLine: TextHandle;
+    /** Wrapper around the armed confirmation, hidden until one is armed. */
+    readonly armBox: HTMLElement;
+    /** What the armed write will do — the contract's content items, as text. */
+    readonly armText: TextHandle;
+    /** The control that disarms the confirmation and returns the fields (FR-054). */
+    readonly cancel: ButtonHandle;
     /** Wrapper around the named reason a save is not offered. */
     readonly blockedBox: HTMLElement;
     /** The reason itself. */
@@ -110,21 +119,57 @@ export function mountRowRegion(pane: HTMLElement): RowRegion {
 }
 
 /**
- * Mount the save bar, the "no save" reason, and the error region (FR-012,
- * FR-013, FR-042).
+ * Mount the armed-confirmation box, hidden until something arms (FR-016,
+ * FR-051, FR-054).
  *
- * @param input - The pane, and the three handlers the controls invoke.
+ * A box rather than a dialog: it mounts the same way the "no save" reason
+ * does, so an unarmed tab never shows a control that cannot act.
+ *
+ * @param input - The pane, and what Cancel does.
+ * @returns The wrapper, the copy inside it, and the control that disarms it.
+ */
+function mountArmBox(input: {
+    /** Pane the box mounts into. */
+    readonly pane: HTMLElement;
+    /** What Cancel does: disarm and return the fields (FR-054). */
+    readonly onCancel: () => void;
+}): Pick<ControlRegion, 'armBox' | 'armText' | 'cancel'> {
+    const armBox = input.pane.ownerDocument.createElement('div');
+    armBox.hidden = true;
+    input.pane.append(armBox);
+    const armText = mountText(armBox, { text: '' });
+    const cancel = mountButton(armBox, {
+        label: CONFIRM_CANCEL_LABEL,
+        variant: 'secondary',
+        onClick: input.onCancel,
+    });
+
+    return { armBox, armText, cancel };
+}
+
+/**
+ * Mount the save bar, the armed confirmation, the "no save" reason, and the
+ * error region (FR-012, FR-013, FR-016, FR-042, FR-051).
+ *
+ * The confirmation is **a box, not a dialog**: it mounts hidden exactly the
+ * way the "no save" reason does, so an unarmed tab never shows a control that
+ * cannot act — and it carries its own Cancel, because the panel has no dialog
+ * primitive to lean on and never reintroduces one (FR-054).
+ *
+ * @param input - The pane, and the four handlers the controls invoke.
  * @returns The handles and wrappers.
  */
 export function mountControlRegion(input: {
-    /** Pane the three regions mount into. */
+    /** Pane the four regions mount into. */
     readonly pane: HTMLElement;
-    /** What Save does: one whole-document write (FR-040). */
+    /** What Save does: arm, or one whole-document write (FR-040, FR-051). */
     readonly onSave: () => void;
     /** What Discard does: restore the last-read draft (FR-015). */
     readonly onDiscard: () => void;
-    /** What Restore defaults does: stage the declared defaults (FR-016). */
+    /** What Restore defaults does: stage the defaults under a confirmation (FR-016). */
     readonly onRestore: () => void;
+    /** What Cancel does: disarm and return the fields to the last-read values (FR-054). */
+    readonly onCancel: () => void;
 }): ControlRegion {
     const { pane } = input;
     const saveBox = pane.ownerDocument.createElement('div');
@@ -137,6 +182,8 @@ export function mountControlRegion(input: {
     const restore = mountButton(saveBox, { label: RESTORE_LABEL, variant: 'secondary', onClick: input.onRestore });
     const saveLine = mountText(saveBox, { text: SAVE_LINES.idle });
 
+    const { armBox, armText, cancel } = mountArmBox({ pane, onCancel: input.onCancel });
+
     const blockedBox = pane.ownerDocument.createElement('div');
     blockedBox.hidden = true;
     pane.append(blockedBox);
@@ -147,7 +194,20 @@ export function mountControlRegion(input: {
     pane.append(issuesBox);
     const issues = mountText(issuesBox, { text: '' });
 
-    return { saveBox, save, discard, restore, saveLine, blockedBox, blockedLine, issuesBox, issues };
+    return {
+        saveBox,
+        save,
+        discard,
+        restore,
+        saveLine,
+        armBox,
+        armText,
+        cancel,
+        blockedBox,
+        blockedLine,
+        issuesBox,
+        issues,
+    };
 }
 
 /**
@@ -198,7 +258,7 @@ function disposeRegions(input: {
     readonly notice: { readonly box: HTMLElement; readonly failure: BannerHandle };
     /** The rows region. */
     readonly region: RowRegion;
-    /** The save bar and its two regions. */
+    /** The save bar, the armed confirmation, and the two notices. */
     readonly controlsRegion: ControlRegion;
 }): void {
     const { pane, heading, banner, controls, notice, region, controlsRegion } = input;
@@ -214,9 +274,12 @@ function disposeRegions(input: {
     controlsRegion.discard.dispose();
     controlsRegion.restore.dispose();
     controlsRegion.saveLine.dispose();
+    controlsRegion.armText.dispose();
+    controlsRegion.cancel.dispose();
     controlsRegion.blockedLine.dispose();
     controlsRegion.issues.dispose();
     controlsRegion.saveBox.remove();
+    controlsRegion.armBox.remove();
     controlsRegion.blockedBox.remove();
     controlsRegion.issuesBox.remove();
     notice.box.remove();
@@ -247,7 +310,7 @@ export function buildTabUi(input: {
     readonly notice: { readonly box: HTMLElement; readonly failure: BannerHandle };
     /** The rows region. */
     readonly region: RowRegion;
-    /** The save bar and its two regions. */
+    /** The save bar, the armed confirmation, and the two notices. */
     readonly controlsRegion: ControlRegion;
 }): SettingsTabUi {
     const { pane, heading, banner, controls, notice, region, controlsRegion } = input;

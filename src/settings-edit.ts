@@ -29,6 +29,7 @@
  */
 
 import type { ConfigIssueView } from './service-envelope.ts';
+import type { SettingsConfirmation } from './settings-confirm.ts';
 import type { ConfigEnvelope, ConfigValue, FieldDescriptor, TakeEffectClass } from './settings-schema.ts';
 
 /** Where one save stands (006 FR-013). */
@@ -60,6 +61,13 @@ export interface SettingsEdit {
     readonly pending: readonly PendingField[];
     /** What the last discard reverted, so the tab can say it out loud (AC-122). */
     readonly reverted: readonly string[];
+    /**
+     * The confirmation this write is armed behind, or `null` (006 FR-051,
+     * FR-016). Set only by the arming actions; every path that moves the
+     * baseline — a landed read, an edit, a discard, any answer — clears it,
+     * because an arm describes **one** document and that document just moved.
+     */
+    readonly confirm: SettingsConfirmation | null;
 }
 
 /** Why a save is not offered when nothing has ever been read (AC-124). */
@@ -92,6 +100,7 @@ export function emptyEdit(): SettingsEdit {
         problem: null,
         pending: [],
         reverted: [],
+        confirm: null,
     };
 }
 
@@ -181,6 +190,7 @@ export function loadEdit(edit: SettingsEdit, envelope: ConfigEnvelope | null): S
             blocked: READ_FAILED_REASON,
             issues: [],
             saveState: edit.saveState === 'saving' ? 'saving' : 'idle',
+            confirm: null,
         };
     }
 
@@ -195,6 +205,7 @@ export function loadEdit(edit: SettingsEdit, envelope: ConfigEnvelope | null): S
         issues: [],
         problem: null,
         reverted: [],
+        confirm: null,
     };
 }
 
@@ -228,6 +239,10 @@ export function editField(input: {
         issues: [],
         problem: null,
         reverted: [],
+        // An arm describes the document as it stood when it was raised; an
+        // edit moves that document, so the confirmation it authorised is
+        // retired rather than re-pointed at a write nobody read (FR-051).
+        confirm: null,
     };
 }
 
@@ -250,6 +265,10 @@ export function discard(edit: SettingsEdit, envelope: ConfigEnvelope): SettingsE
         issues: [],
         problem: null,
         reverted,
+        // Discard and cancel are the same retreat: the fields go back to the
+        // last-read values, so the arm they were armed for goes with them
+        // (AC-121, AC-122).
+        confirm: null,
     };
 }
 
@@ -359,6 +378,7 @@ export function recordSaved(input: {
         problem: null,
         pending,
         reverted: [],
+        confirm: null,
     };
 }
 
@@ -390,6 +410,7 @@ export function recordRefused(input: {
         issues,
         problem: null,
         reverted: [],
+        confirm: null,
     };
 }
 
@@ -401,7 +422,7 @@ export function recordRefused(input: {
  * @returns The state after the failure.
  */
 export function recordFailed(edit: SettingsEdit, problem: string): SettingsEdit {
-    return { ...edit, saveState: 'failed', issues: [], problem };
+    return { ...edit, saveState: 'failed', issues: [], problem, confirm: null };
 }
 
 /**

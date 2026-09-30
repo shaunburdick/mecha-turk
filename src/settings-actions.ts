@@ -17,14 +17,19 @@
  *   gate refuses a second activation instead of queueing it, the refusal path
  *   keeps the service's issues in the service's order (FR-024), and the
  *   success path adopts the configuration the **service returned** (FR-044).
- * - **Discard and restore-defaults touch the draft only** — no write, ever
- *   (FR-015, FR-049; the restore's two-step confirmation is T-022's).
+ * - **A destructive save arms before it writes** (FR-051, T-022): lowering a
+ *   retention knob, and restoring defaults, raise the confirmation built by
+ *   `settings-confirm.ts` on the first activation and perform exactly one
+ *   write on the second — the first activation issues **no** request at all.
+ * - **Discard and cancel touch the draft only** — no write, ever (FR-015,
+ *   FR-049, FR-054).
  */
 
 import { nowIso } from './ids.ts';
 import { redact } from './redaction.ts';
 import { CONFIG_PATH, serviceGet, servicePutConfig } from './service-calls.ts';
 import { parseConfigEnvelope } from './settings-schema.ts';
+import { restoreConfirmation, saveConfirmation } from './settings-confirm.ts';
 import {
     beginSave,
     discard,
@@ -154,18 +159,19 @@ export function applyFieldEdit(input: {
 }
 
 /**
- * Save the draft: one activation, one whole-document write (FR-040, FR-046).
+ * Send the one write a save activation authorises: one `PUT`, the whole
+ * document (FR-040), issued only after every gate has passed.
+ *
+ * Extracted from {@link applySave} so the two arming actions — a save that
+ * lowered a retention knob, and a confirmed restore — perform **exactly** the
+ * same write from the same place, rather than each growing a copy of it.
  *
  * @param rt - Panel runtime.
  * @param repaint - What repaints the tab after the state moves.
  * @returns Resolves once the answer has been applied.
  */
-export async function applySave(rt: PanelRuntime, repaint: Repaint): Promise<void> {
+async function performWrite(rt: PanelRuntime, repaint: Repaint): Promise<void> {
     const slice = rt.state.settingsTab;
-    if (rt.disposed) {
-        return;
-    }
-
     const attempt = beginSave(slice.edit, slice.doc);
     if (!attempt.ok) {
         // Nothing is sent: the reason the tab renders is the only effect
@@ -176,7 +182,7 @@ export async function applySave(rt: PanelRuntime, repaint: Repaint): Promise<voi
     }
 
     const changed = [...slice.edit.dirty];
-    slice.edit = { ...slice.edit, saveState: 'saving', issues: [], problem: null };
+    slice.edit = { ...slice.edit, saveState: 'saving', issues: [], problem: null, confirm: null };
     repaint(rt);
 
     const answer = await servicePutConfig({
@@ -216,6 +222,45 @@ export async function applySave(rt: PanelRuntime, repaint: Repaint): Promise<voi
 }
 
 /**
+ * Save the draft: one activation, one whole-document write — unless the write
+ * would delete history, in which case the first activation arms the
+ * confirmation and sends nothing (FR-040, FR-046, FR-051; AC-117, AC-118).
+ *
+ * @param rt - Panel runtime.
+ * @param repaint - What repaints the tab after the state moves.
+ * @returns Resolves once the answer has been applied.
+ */
+export async function applySave(rt: PanelRuntime, repaint: Repaint): Promise<void> {
+    const slice = rt.state.settingsTab;
+    if (rt.disposed) {
+        return;
+    }
+
+    const armed = slice.edit.confirm;
+    if (armed !== null) {
+        // A restore is armed: only its own control confirms it, so Save
+        // neither arms nor writes while that confirmation stands — a
+        // confirmation the wrong button could complete would not be one
+        // (FR-051's two steps are two activations of *the* control).
+        if (armed.action !== 'save') {
+            repaint(rt);
+
+            return;
+        }
+    } else if (slice.doc !== null && slice.edit.blocked === null) {
+        const confirmation = saveConfirmation({ envelope: slice.doc, draft: slice.edit.draft });
+        if (confirmation !== null) {
+            slice.edit = { ...slice.edit, confirm: confirmation };
+            repaint(rt);
+
+            return;
+        }
+    }
+
+    await performWrite(rt, repaint);
+}
+
+/**
  * Discard the unsaved edits, naming what reverted (FR-015, AC-122).
  *
  * @param rt - Panel runtime.
@@ -232,36 +277,64 @@ export function applyDiscard(rt: PanelRuntime, repaint: Repaint): void {
 }
 
 /**
- * Stage the service's declared defaults in the draft — a draft change, never a
- * write (FR-016, FR-049).
+ * Restore the declared defaults — two steps, no write without the
+ * confirmation (FR-016, FR-049, FR-051).
  *
- * The two-step confirmation and the one-activation write this control will
- * drive arrive with the destructive-confirmation task (006 T-022); until then
- * staging the defaults is the honest extent of what it can do, because a
- * restore that skipped FR-051's confirmation would be the exact affordance the
- * spec forbids.
+ * The first activation stages the service's own defaults into the draft and
+ * arms a confirmation that names **every** field the write will change, with
+ * its current → default value; the second one writes the whole document.
+ * Nothing is written by staging alone, so an operator who changes their mind
+ * at the armed step cancels back to the last-read values (AC-121).
  *
  * @param rt - Panel runtime.
  * @param repaint - What repaints the tab after the state moves.
+ * @returns Resolves once a confirmed write has been applied.
  */
-export function applyStageDefaults(rt: PanelRuntime, repaint: Repaint): void {
+export async function applyStageDefaults(rt: PanelRuntime, repaint: Repaint): Promise<void> {
     const slice = rt.state.settingsTab;
-    if (rt.disposed || slice.doc === null || slice.edit.saveState === 'saving') {
+    if (rt.disposed || slice.doc === null || slice.edit.saveState === 'saving' || slice.edit.blocked !== null) {
         return;
     }
 
     const baseline = slice.doc;
-    for (const descriptor of baseline.fields) {
-        const staged = String(descriptor.default);
-        if (staged !== (slice.edit.draft[descriptor.name] ?? '')) {
-            slice.edit = editField({
-                edit: slice.edit,
-                envelope: baseline,
-                field: descriptor.name,
-                value: staged,
-            });
+    if (slice.edit.confirm?.action !== 'restore') {
+        for (const descriptor of baseline.fields) {
+            const staged = String(descriptor.default);
+            if (staged !== (slice.edit.draft[descriptor.name] ?? '')) {
+                slice.edit = editField({
+                    edit: slice.edit,
+                    envelope: baseline,
+                    field: descriptor.name,
+                    value: staged,
+                });
+            }
         }
+
+        slice.edit = { ...slice.edit, confirm: restoreConfirmation({ envelope: baseline, draft: slice.edit.draft }) };
+        repaint(rt);
+
+        return;
     }
 
+    await performWrite(rt, repaint);
+}
+
+/**
+ * Disarm the confirmation: nothing is written, and every field returns to the
+ * last-read value (FR-054, AC-121).
+ *
+ * @param rt - Panel runtime.
+ * @param repaint - What repaints the tab after the state moves.
+ */
+export function applyConfirmCancel(rt: PanelRuntime, repaint: Repaint): void {
+    const slice = rt.state.settingsTab;
+    if (rt.disposed || slice.doc === null || slice.edit.confirm === null || slice.edit.saveState === 'saving') {
+        return;
+    }
+
+    // Discard *is* the retreat: it restores the baseline draft, reports what
+    // reverted, and clears the arm — one rule rather than two that could
+    // drift apart about where the fields end up.
+    slice.edit = discard(slice.edit, slice.doc);
     repaint(rt);
 }

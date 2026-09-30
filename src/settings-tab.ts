@@ -32,6 +32,7 @@ import { mountBanner, mountText } from '@openchamber/sdk/ui';
 import type { BannerHandle, ButtonHandle, TextHandle } from '@openchamber/sdk/ui';
 import {
     applyConfigRead,
+    applyConfirmCancel,
     applyDiscard,
     applyFieldEdit,
     applySave,
@@ -63,6 +64,7 @@ import {
 import type { PanelRuntime } from './panel-state.ts';
 import type { SettingsRow, SettingsRowsUi, RowsContext } from './settings-rows.ts';
 import type { ConfigEnvelope } from './settings-schema.ts';
+import type { SettingsConfirmation } from './settings-confirm.ts';
 import type { SettingsEdit } from './settings-edit.ts';
 import type { SettingsTabState } from './settings-state.ts';
 
@@ -104,6 +106,12 @@ export interface SettingsTabUi {
     readonly restore: ButtonHandle;
     /** One line of save state plus the pending markers (FR-013, FR-038). */
     readonly saveLine: TextHandle;
+    /** Wrapper around the armed confirmation, hidden while nothing is armed. */
+    readonly armBox: HTMLElement;
+    /** What an armed write will do — the contract's content items (FR-051). */
+    readonly armText: TextHandle;
+    /** Disarms the confirmation and returns the fields to the last read (FR-054). */
+    readonly cancel: ButtonHandle;
     /** Wrapper around the "no save is possible" reason, hidden while one is. */
     readonly blockedBox: HTMLElement;
     /** The named reason a save is not offered (FR-042). */
@@ -203,7 +211,9 @@ function rowsContext(
         values: slice.edit.draft,
         issues: issueByField(slice),
         notes: pendingNotes(slice.edit),
-        disabled: slice.edit.blocked !== null || slice.edit.saveState === 'saving',
+        disabled: slice.edit.blocked !== null
+            || slice.edit.saveState === 'saving'
+            || slice.edit.confirm !== null,
         onChange,
     };
 }
@@ -289,8 +299,43 @@ function repaintRows(input: {
 }
 
 /**
- * Repaint the save bar, the named reason, the save state, and the issues
- * (FR-013, FR-024, FR-042).
+ * How the save bar's three controls should be enabled right now.
+ *
+ * Computed as one value rather than inlined at each call site, because the
+ * arming rule — *only the control that raised a confirmation may act* — is a
+ * single decision that four separate flags have to agree on (FR-016, FR-051).
+ *
+ * @param slice - The Settings tab's state.
+ * @returns The armed confirmation, and the three enabled flags.
+ */
+function saveControlsFor(slice: SettingsTabState): {
+    /** Whether a write is in flight. */
+    readonly saving: boolean;
+    /** The armed confirmation, or `null`. */
+    readonly armed: SettingsConfirmation | null;
+    /** Whether Save may act. */
+    readonly saveDisabled: boolean;
+    /** Whether Discard may act. */
+    readonly discardDisabled: boolean;
+    /** Whether Restore defaults may act. */
+    readonly restoreDisabled: boolean;
+} {
+    const saving = slice.edit.saveState === 'saving';
+    const armed = slice.edit.confirm;
+    const idle = slice.edit.dirty.length === 0;
+
+    return {
+        saving,
+        armed,
+        saveDisabled: saving || idle || (armed !== null && armed.action !== 'save'),
+        discardDisabled: idle || armed !== null,
+        restoreDisabled: slice.doc === null || (armed !== null && armed.action !== 'restore'),
+    };
+}
+
+/**
+ * Repaint the save bar, the armed confirmation, the named reason, the save
+ * state, and the issues (FR-013, FR-016, FR-024, FR-042, FR-051).
  *
  * @param ui - The mounted view.
  * @param slice - The Settings tab's state.
@@ -303,10 +348,15 @@ function repaintControls(ui: SettingsTabUi, slice: SettingsTabState): void {
         ui.blockedLine.update({ text: slice.edit.blocked ?? '' });
     }
 
-    const saving = slice.edit.saveState === 'saving';
-    ui.save.update({ disabled: saving || slice.edit.dirty.length === 0, loading: saving });
-    ui.discard.update({ disabled: slice.edit.dirty.length === 0 });
-    ui.restore.update({ disabled: slice.doc === null });
+    const controls = saveControlsFor(slice);
+    ui.armBox.hidden = controls.armed === null;
+    if (controls.armed !== null) {
+        ui.armText.update({ text: controls.armed.copy });
+    }
+
+    ui.save.update({ disabled: controls.saveDisabled, loading: controls.saving });
+    ui.discard.update({ disabled: controls.discardDisabled });
+    ui.restore.update({ disabled: controls.restoreDisabled });
     const pending = slice.edit.pending.map((entry) => `${entry.field}: ${takeEffectWords(entry.boundary)}`);
     ui.saveLine.update({
         text: pending.length === 0
@@ -381,18 +431,30 @@ export function discardSettings(rt: PanelRuntime): void {
 }
 
 /**
- * Stage the service's declared defaults in the draft; never a write here
- * (FR-016 — the two-step confirmation arrives with 006 T-022).
+ * Restore the declared defaults: stage them under a confirmation, and write
+ * only on the armed control's second activation (FR-016, T-022).
+ *
+ * @param rt - Panel runtime.
+ * @returns Resolves once a confirmed write has been applied.
+ */
+export async function stageDefaults(rt: PanelRuntime): Promise<void> {
+    await applyStageDefaults(rt, repaintSettingsTab);
+}
+
+/**
+ * Disarm the confirmation: nothing is written, and every field returns to the
+ * last-read value (FR-054, AC-121).
  *
  * @param rt - Panel runtime.
  */
-export function stageDefaults(rt: PanelRuntime): void {
-    applyStageDefaults(rt, repaintSettingsTab);
+export function cancelConfirm(rt: PanelRuntime): void {
+    applyConfirmCancel(rt, repaintSettingsTab);
 }
 
 /**
  * Mount the Settings tab: heading, banner, read state, the re-read control,
- * the failure notice, the rows, the save bar, and the two regions (FR-010).
+ * the failure notice, the rows, the save bar, the confirmation, and the two
+ * notices (FR-010).
  *
  * @param input - Runtime and the body container the shell created.
  * @returns The mounted view.
@@ -424,7 +486,10 @@ export function mountSettingsTab(input: {
             void saveSettings(rt);
         },
         onDiscard: (): void => discardSettings(rt),
-        onRestore: (): void => stageDefaults(rt),
+        onRestore: (): void => {
+            void stageDefaults(rt);
+        },
+        onCancel: (): void => cancelConfirm(rt),
     });
 
     const ui = buildTabUi({ pane, heading, banner, controls, notice, region, controlsRegion });

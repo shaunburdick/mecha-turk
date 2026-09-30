@@ -630,8 +630,10 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
 
         expect(text).toContain('Editing the whole configuration');
         expect(text).toContain('replaces the entire configuration');
-        // One write, and the read control beside it.
-        expect(mounts.log.filter((entry) => entry.key === 'mountButton')).toHaveLength(4);
+        // The read control plus the save bar's four: save, discard, restore,
+        // and Cancel — which mounts hidden and appears only once something is
+        // armed (006 FR-054), so an unarmed tab never offers it.
+        expect(mounts.log.filter((entry) => entry.key === 'mountButton')).toHaveLength(5);
         expect(view.requests.map((request) => `${request.method} ${request.path}`)).toEqual(['GET /v1/config']);
         view.dispose();
     });
