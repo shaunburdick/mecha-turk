@@ -11,8 +11,11 @@
  * deliberately naming **no version** for it (FR-073).
  *
  * What each row *says* lives in [`settings-rows.ts`](./settings-rows.ts);
- * this module owns the read, the read state, and the painting. Two rules
- * shape the rendering:
+ * this module owns the read, the read state, and the painting. Since 006
+ * T-018 the read is the **projection** envelope — `{ config, fields, source,
+ * defaultsApplied }` — and the rows are built from its descriptors, so no
+ * bound, unit, default, or class is a panel-side copy any more (FR-022,
+ * AC-106). Two rules shape the rendering:
  *
  * - **Static content survives an unreachable service** (FR-078): heading,
  *   read-only statement, source note, and read-state line all stay on screen
@@ -31,8 +34,10 @@ import type { BannerHandle, ButtonHandle, TextHandle } from '@openchamber/sdk/ui
 import { nowIso } from './ids.ts';
 import { redact } from './redaction.ts';
 import { CONFIG_PATH, serviceGet } from './service-calls.ts';
-import { parseConfigDocument, settingsRows } from './settings-rows.ts';
-import type { ConfigDocument, SettingsRow } from './settings-rows.ts';
+import { settingsRows } from './settings-rows.ts';
+import { parseConfigEnvelope } from './settings-schema.ts';
+import type { SettingsRow } from './settings-rows.ts';
+import type { ConfigEnvelope, ConfigSource } from './settings-schema.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
 /** Heading above the read-only statement. */
@@ -80,9 +85,23 @@ export interface SettingsTabState {
     problem: string | null;
     /** Whether `doc` is from an earlier read than the one that just failed. */
     stale: boolean;
-    /** The last document this tab could read, or `null` when there is none. */
-    doc: ConfigDocument | null;
+    /** The last envelope this tab could read, or `null` when there is none. */
+    doc: ConfigEnvelope | null;
 }
+
+/**
+ * What each documented `source` means, in the contract's own words (§3).
+ *
+ * The quarantine sentence is a promise the panel makes when — and only when —
+ * the service said `quarantined`: an operator must never read defaults as
+ * their own values, which is why this is a per-source line rather than a
+ * footnote (005 FR-003, 006 contract §3).
+ */
+const SOURCE_LINES: Readonly<Record<ConfigSource, string>> = {
+    stored: 'Values below are the configuration the service holds.',
+    default: 'No stored configuration yet — the values below are the documented defaults.',
+    quarantined: 'The stored configuration was unusable and set aside — the values below are the documented defaults.',
+};
 
 /**
  * Build the empty Settings tab state.
@@ -204,6 +223,9 @@ export function repaintSettingsTab(rt: PanelRuntime): void {
 
     const rows = slice.doc === null ? [] : settingsRows(slice.doc);
     ui.emptyText.update({ text: rows.length === 0 ? NO_DOCUMENT : '' });
+    ui.sourceNote.update({
+        text: slice.doc === null ? SOURCE_NOTE : `${SOURCE_NOTE} ${SOURCE_LINES[slice.doc.source]}`,
+    });
     paintRows(ui, rows);
 }
 
@@ -245,7 +267,7 @@ export async function loadSettings(rt: PanelRuntime): Promise<void> {
         return;
     }
 
-    const doc = answer.ok ? parseConfigDocument(answer.body) : null;
+    const doc = answer.ok ? parseConfigEnvelope(answer.body) : null;
     if (doc === null) {
         slice.phase = 'failed';
         slice.problem = redact(

@@ -119,7 +119,8 @@ network — those checks are operator-gated and recorded in the spec (see
 | `tab-bodies.ts` | The six tab bodies in FR-010's order: what each container mounts on first activation |
 | `dispatch-page.ts` | The Dispatches list's paging state: cursor stack, page size, filters, and the reset rule |
 | `redaction.ts` / `json.ts` | Secret-shape detection; typed bridge to the host's `JsonValue` |
-| `service-calls.ts` | Shared `host.serviceRequest()` GET/PUT/POST/DELETE wrappers + the run-scoped paths (reserve, result, abandon, blocked, retry, requeue, resolve, verification, audit read) |
+| `service-calls.ts` | Shared `host.serviceRequest()` GET/PUT/POST/DELETE wrappers (including `servicePutConfig`, the configuration write) + the run-scoped paths (reserve, result, abandon, blocked, retry, requeue, resolve, verification, audit read) |
+| `service-envelope.ts` | The one place an answer is classified: status → problem/code/message/issues, with the resource each refusal names (006 FR-043) |
 | `bindings-mode.ts` | Bindings-authoritative mode: first enabled binding is dispatch context |
 | `bindings*.ts` / `dispatches*.ts` | The Bindings tab (binding rows, the editor, the add form) plus the Dispatches list's rows, paging, and controls |
 | `bindings-grant.ts` | The whole-file `PUT /v1/bindings` write: prompt-key stripping (004 FR-014), the "nothing changed" refusal note, and the relay arming that follows a confirmed list |
@@ -135,8 +136,9 @@ network — those checks are operator-gated and recorded in the spec (see
 | `reconcile.ts` | Mount-time re-report of every unacknowledged attempt, before the first claim (bounded, warns visibly) |
 | `prerequisites.ts` | The six first-run prerequisites, each `met` / `not-met` / `not-checkable`, with its remediation line |
 | `status-document.ts` / `status-lines.ts` / `status-tab.ts` | The `GET /v1/status` document parsed fail closed and the read state that holds it; the Status tab's operator-facing copy as pure functions; and the tab's mount, repaint, and single read |
-| `settings-rows.ts` | The Settings tab's row declaration (bounds, defaults, enum set, take-effect) pinned to `service/config.ts` by a cross-check test — a stand-in 006's T-018 deletes with that test |
-| `settings-tab.ts` | The Settings body: the one `GET /v1/config` read, its fail-closed read state, and the read-only rows (005 FR-070–FR-073, FR-078) |
+| `settings-rows.ts` | The Settings tab's row builder: one row per projected descriptor plus one per undocumented member — name, unit-or-*none*, bounds-or-format, value, and class words, every one of them from the wire (005's bounds stand-in retired by 006 T-018) |
+| `settings-schema.ts` | Fail-closed reader for `GET /v1/config`'s envelope: the closed descriptor union, plus the `unreadable` and `undisplayed` flags (006 T-017; FR-021, FR-027, FR-028) |
+| `settings-tab.ts` | The Settings body: the one `GET /v1/config` read, its fail-closed read state, and the projection-driven rows (005 FR-070–FR-073, FR-078; 006 T-018) |
 | `about-tab.ts` | The About body: the single version read from the service health answer (no panel-side literal), the static identity and posture copy, and the read-only Diagnostics section (005 FR-074–FR-077) |
 | `audit-view.ts` | One run's audit history under its correlation id, rendered as text (never markup) |
 | `agent-verify.ts` | Post-dispatch `openSession()` agent read-back, reported to the service (warn-only) |
@@ -164,11 +166,15 @@ network — those checks are operator-gated and recorded in the spec (see
 | `poll/run-history-project.ts` | The capped, credential-free run-history projection |
 | `poll/backoff.ts` | The poll-*request* ladder — pure delay arithmetic plus the injected-sleep driver; requests/attempts, never 003's requeue (006 FR-058) |
 | `poll/window.ts` | The scan window: `lastScanAt − overlapMs`, the replay case, and the closure of 002 FR-019's conformance gap (006 FR-059(a)) |
+| `poll/excerpt-trim.ts` | The excerpt retention pass: text-only clearing on terminal rows past `excerptRetentionDays`, the `excerptTrimmedAt` marker, and one `audit.trimmed` row after the rewrite (006 FR-057) |
 | `routes/` | `/v1/status`, `/health`, `/v1/bindings`, `/v1/accounts`, `/v1/events*`, credential verify |
 | `routes/dispatch.ts` / `routes/run-ops.ts` | Reserve, result, abandon, blocked; retry, requeue, resolve, verification |
 | `routes/audit.ts` | `GET /v1/audit`, filtered by correlation identifier |
 | `routes/run-scope.ts` / `routes/run-fields.ts` / `routes/run-answer.ts` | Shared run-scoped path/body readers and the `200` / refusal envelopes |
 | `audit.ts` / `log.ts` | `audit.ndjson` rows + structured, secret-free logs |
+| `audit-trim.ts` | The audit retention pass: FR-056's protected set computed by rule, oldest-first removal under the day window and the entry cap, survivors plus their `audit.trimmed` row in one atomic rewrite |
+| `config-audit.ts` | The `config.changed` row: `configChanges` (which doubles as the no-op detector), the `applied` shape with `from`/`to`/`takesEffect`, and the value-free `refused` shape (006 FR-070–FR-072) |
+| `retention.ts` | Both retention passes wired at their two boundaries — store open and the cycle boundary — each guarded so one failure still runs the other (006 FR-055, FR-057, FR-047) |
 | `store/` | 0700/0600 store, JSON/NDJSON IO, quarantine-and-repair reads |
 | `config.ts` / `env.ts` / `throttle.ts` | Operator-tunable polling/retry/retention, env, rate budgets |
 | `config-schema.ts` | That declaration projected onto the wire: the exhaustive `TAKE_EFFECT` table, the closed `FieldDescriptor` union, `configSchema()` (006 FR-020–FR-022) |

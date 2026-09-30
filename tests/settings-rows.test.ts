@@ -1,30 +1,40 @@
 /**
- * The Settings tab (005 T-027; FR-070, FR-071, FR-072, FR-073, FR-078,
- * FR-039, AC-132, AC-135).
+ * The Settings tab (005 T-027, superseded in part by 006 T-018; FR-014,
+ * FR-022, FR-070 – FR-073, FR-078, FR-039; AC-101, AC-104, AC-106, SC-102).
  *
- * The tab has two ways to be wrong, so the suite has two halves:
+ * The suite has three halves now, and the middle one is the reason it exists
+ * in this shape:
  *
- * 1. **Drift** — the row declaration is a panel-side copy of the service's
- *    own bounds, defaults, and enum set (research Q1), so the copy is
- *    cross-checked against `service/config.ts` and the check is shown to
- *    bite. A bound changed in the service fails this file, not an operator's
- *    screen.
- * 2. **Dishonest rendering** — rows must carry value, unit, and bounds; an
- *    unreadable value must say so with its remediation and never show a
- *    default as though it were configured; a field this build declares
- *    nothing for must still render; and the tab must offer **no input
- *    control at all** (FR-070), because editing is 006's.
+ * 1. **The scan** (AC-106). 005's cross-check asserted that the panel's
+ *    declaration matched the service's; 006 reversed it: the panel source
+ *    contains **no** configuration literal at all, with exactly one
+ *    documented exception (`DEFAULT_EXPECTED_AGENT`, pinned to
+ *    `DEFAULT_CONFIG.expectedAgent`). The check is shown to bite by running
+ *    the same rules over a pasted stand-in.
+ * 2. **The rows** — built from the projection, eleven against an 006-only
+ *    fixture and thirteen against the combined one, every row carrying name,
+ *    unit-or-*none*, bounds-or-format, value, and the class words the service's
+ *    class maps to (AC-101, SC-102, FR-014, FR-030).
+ * 3. **The body** — still read-only, mounting exactly one control, keeping its
+ *    static content when the service is unreachable, and releasing every handle
+ *    it mounted (FR-070, FR-078, FR-017).
  *
  * Everything runs against the panel's own doubles: the SDK mounts are
  * recorded, the fake DOM creates elements, and `host.serviceRequest` answers
  * from the test. No live host, no token, no network (FR-086).
  */
 
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
-import { DEFAULT_CONFIG, LOG_LEVELS, NUMERIC_BOUNDS } from '../service/config.ts';
-import { SETTINGS_FIELDS, parseConfigDocument, settingsRows } from '../src/settings-rows.ts';
-import type { ConfigDocument, SettingsRow, SettingsRowDecl } from '../src/settings-rows.ts';
+import { DEFAULT_CONFIG, NUMERIC_BOUNDS } from '../service/config.ts';
+import { configSchema } from '../service/config-schema.ts';
+import { DEFAULT_EXPECTED_AGENT } from '../src/config.ts';
+import { settingsRows } from '../src/settings-rows.ts';
+import { parseConfigEnvelope } from '../src/settings-schema.ts';
+import type { ConfigEnvelope, FieldDescriptor, TakeEffectClass } from '../src/settings-schema.ts';
+import type { SettingsRow } from '../src/settings-rows.ts';
 import { readStateLine } from '../src/settings-tab.ts';
 import type { SettingsTabState } from '../src/settings-tab.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
@@ -88,26 +98,250 @@ const INPUT_MOUNTS: readonly string[] = [
     'mountMenu',
 ];
 
-/** The declaration under test, for the drift checks. */
-function declarationFor(field: string): SettingsRowDecl {
-    const decl = SETTINGS_FIELDS.find((candidate) => candidate.field === field);
-    if (decl === undefined) {
-        throw new Error(`${field} has no Settings row declaration`);
-    }
+/** The eleven fields 006 itself declares (FR-084, AC-101). */
+const SPECS_006_FIELDS: readonly string[] = [
+    'intervalMs',
+    'logLevel',
+    'overlapMs',
+    'perPage',
+    'retryMaxAttempts',
+    'retryBaseMs',
+    'retryMaxMs',
+    'auditRetentionDays',
+    'auditMaxEntries',
+    'excerptRetentionDays',
+    'expectedAgent',
+];
 
-    return decl;
+/** Directory the zero-literals scan reads. */
+const SRC_DIR = 'src';
+
+/** One panel source file, read for the scan. */
+interface PanelSource {
+    /** File name, for a failure that should say where. */
+    readonly name: string;
+    /** File text, scanned as written (comments included). */
+    readonly text: string;
 }
 
 /**
- * The document `GET /v1/config` is modeled as answering with this build's own
- * configuration, so "the document the service actually carries" is not a
- * hand-typed fixture that could drift from `DEFAULT_CONFIG`.
+ * Read every panel source file once.
  *
- * @param overrides - Fields to replace in the document.
- * @returns A response body.
+ * @returns The files, in directory order.
  */
-function configBody(overrides: Record<string, unknown> = {}): string {
-    return JSON.stringify({ config: { ...DEFAULT_CONFIG, ...overrides } });
+async function panelSources(): Promise<readonly PanelSource[]> {
+    const entries = await readdir(SRC_DIR);
+    const names = entries.filter((name) => name.endsWith('.ts')).sort();
+    const sources: PanelSource[] = [];
+    for (const name of names) {
+        sources.push({ name, text: await readFile(join(SRC_DIR, name), 'utf8') });
+    }
+
+    return sources;
+}
+
+/** The declarations of every documented field name, for the attachment scan. */
+const FIELD_NAMES: readonly string[] = Object.keys(DEFAULT_CONFIG);
+
+/** Every class token the wire vocabulary carries (FR-030). */
+const CLASS_TOKENS: readonly TakeEffectClass[] = [
+    'immediate',
+    'next-cycle',
+    'next-dispatch',
+    'restart',
+    'none',
+];
+
+/** Lines of context the attachment scan looks at either side of a class token. */
+const CLASS_WINDOW = 6;
+
+/** Every unit phrase the service declares, quoted the way a copy would write it. */
+const UNIT_LITERALS: readonly string[] = [...new Set(Object.values(NUMERIC_BOUNDS).map((bounds) => bounds.unit))];
+
+/**
+ * Report every configuration literal the scan looks for in one file.
+ *
+ * @param source - One panel source file.
+ * @returns The literals found, by class (006 AC-106's five).
+ */
+function configurationLiteralsIn(source: PanelSource): {
+    /** Unit phrases written as string literals. */
+    readonly units: readonly string[];
+    /** Declaration-shaped numerics: `min:` / `max:` / `defaultValue:` + a number. */
+    readonly declarationNumbers: readonly string[];
+    /** The level set's sentinel, which a copied enum would carry. */
+    readonly levelSentinel: boolean;
+    /** Default strings, by name (the allow-list keys off these). */
+    readonly stringDefaults: readonly { readonly value: string; readonly line: number }[];
+    /** Lines carrying a class token *and* a field name — a claim about a row. */
+    readonly attachedClasses: readonly string[];
+} {
+    const lines = source.text.split('\n');
+    const units = UNIT_LITERALS.filter((unit) => source.text.includes(`'${unit}'`));
+    const declarationNumbers = [...source.text.matchAll(/\b(?:min|max|defaultValue)\s*:\s*[0-9]/g)].map(
+        (match) => match[0],
+    );
+    const levelSentinel = source.text.includes("'debug'");
+    const stringDefaults = lines
+        .map((line, index) => ({ line: index + 1, text: line }))
+        .filter((line) => line.text.includes(`'${DEFAULT_CONFIG.expectedAgent}'`))
+        .map((line) => ({ value: DEFAULT_CONFIG.expectedAgent, line: line.line }));
+    const attachedClasses = lines.flatMap((line, index) => {
+        if (!CLASS_TOKENS.some((token) => line.includes(`'${token}'`))) {
+            return [];
+        }
+
+        // A declaration is a block, not a line: 005's own stand-in spread a
+        // field, its bounds, and its class over a dozen lines, so the scan
+        // looks at the window around the token rather than the token's line.
+        const window = lines.slice(Math.max(0, index - CLASS_WINDOW), index + CLASS_WINDOW + 1).join('\n');
+
+        return FIELD_NAMES.some((name) => window.includes(`'${name}'`)) ? [line] : [];
+    });
+
+    return { units, declarationNumbers, levelSentinel, stringDefaults, attachedClasses };
+}
+
+/**
+ * A pasted stand-in: the shape 005's retired declaration had, which every
+ * rule above must flag (a check that cannot fail is not a check).
+ *
+ * @returns One source file's worth of the old `SETTINGS_FIELDS` entry.
+ */
+function standInSnippet(): PanelSource {
+    return {
+        name: 'pasted-stand-in.ts',
+        text: [
+            'export const SETTINGS_FIELDS = [{',
+            "    field: 'intervalMs',",
+            '    bounds: { min: 15_000, max: 300_000 },',
+            "    unit: 'milliseconds',",
+            '    defaultValue: 60_000,',
+            "    effect: 'next-cycle',",
+            "    values: ['debug', 'info'],",
+            "    { field: 'expectedAgent', defaultValue: 'project-manager' },",
+            "    takeEffect: 'No effect in this build: nothing reads it.',",
+            '}];',
+        ].join('\n'),
+    };
+}
+
+/**
+ * Build a `GET /v1/config` body the way the service sends it.
+ *
+ * @param input - Members to replace; the defaults are the combined tree.
+ * @returns The response body.
+ */
+function envelopeBody(input: {
+    /** Members to merge into the document; `null` replaces it outright. */
+    readonly config?: Record<string, unknown>;
+    /** The descriptor list. */
+    readonly fields?: readonly FieldDescriptor[];
+    /** The source member. */
+    readonly source?: string;
+    /** The filled-keys list. */
+    readonly defaultsApplied?: readonly string[];
+} = {}): string {
+    return JSON.stringify({
+        config: input.config ?? { ...DEFAULT_CONFIG },
+        fields: input.fields ?? configSchema(),
+        source: input.source ?? 'stored',
+        defaultsApplied: input.defaultsApplied ?? [],
+    });
+}
+
+/**
+ * Whether a field name is one of the eleven 006 itself declares (AC-101).
+ *
+ * @param name - Document member name.
+ * @returns `true` for 006's own fields.
+ */
+function isSpecs006Field(name: string): boolean {
+    return SPECS_006_FIELDS.includes(name);
+}
+
+/**
+ * The eleven-field projection and document 006 itself declares (AC-101).
+ *
+ * @returns The envelope a build carrying only 006's fields answers with.
+ */
+function specs006OnlyEnvelope(): ConfigEnvelope {
+    const config: Record<string, unknown> = {};
+    for (const [name, value] of Object.entries(DEFAULT_CONFIG)) {
+        if (isSpecs006Field(name)) {
+            config[name] = value;
+        }
+    }
+
+    const parsed = parseConfigEnvelope(
+        envelopeBody({
+            config,
+            fields: configSchema().filter((descriptor) => isSpecs006Field(descriptor.name)),
+        }),
+    );
+    if (parsed === null) {
+        throw new Error('the 006-only fixture did not parse');
+    }
+
+    return parsed;
+}
+
+/**
+ * Read an envelope, failing the test when the body is not one.
+ *
+ * @param body - Response body text.
+ * @returns The envelope.
+ */
+function envelopeFor(body: string): ConfigEnvelope {
+    const envelope = parseConfigEnvelope(body);
+    if (envelope === null) {
+        throw new Error(`${body.slice(0, 120)} did not parse as an envelope`);
+    }
+
+    return envelope;
+}
+
+/**
+ * The phrase a row must carry for one declared class (FR-030).
+ *
+ * The words this assertion looks for, spelled here rather than read back out
+ * of the panel module — a test that imports the string it asserts would pass
+ * no matter what the panel printed. `restart` and `none` answer `''` because
+ * no field in this feature declares them; if one ever did, this is the line
+ * that would have to grow with it.
+ *
+ * @param takesEffect - The class the service declared.
+ * @returns The phrase the row must contain.
+ */
+function classWords(takesEffect: TakeEffectClass): string {
+    if (takesEffect === 'next-cycle') {
+        return 'in effect from the next poll';
+    }
+
+    if (takesEffect === 'immediate') {
+        return 'takes effect immediately';
+    }
+
+    if (takesEffect === 'next-dispatch') {
+        return 'in effect from the next dispatch';
+    }
+
+    return '';
+}
+
+/** The combined-tree envelope, the one the service in this repo answers with. */
+function combinedEnvelope(): ConfigEnvelope {
+    return envelopeFor(envelopeBody());
+}
+
+/**
+ * Build the rows a body produces.
+ *
+ * @param body - Response body text.
+ * @returns The rows, in paint order.
+ */
+function rowsFor(body: string): readonly SettingsRow[] {
+    return settingsRows(envelopeFor(body));
 }
 
 /**
@@ -118,19 +352,6 @@ function configBody(overrides: Record<string, unknown> = {}): string {
  */
 function renderedRows(strings: readonly string[]): readonly string[] {
     return strings.filter((text) => /^[a-z][A-Za-z0-9]*: (?:unreadable|[0-9a-z])/.test(text));
-}
-
-/**
- * Build the rows a document produces.
- *
- * @param body - Response body text.
- * @returns The rows; fails the test when the body is not a document.
- */
-function rowsFor(body: string): readonly SettingsRow[] {
-    const doc: ConfigDocument | null = parseConfigDocument(body);
-    expect(doc, `${body} did not parse as a configuration document`).not.toBeNull();
-
-    return settingsRows(doc ?? { fields: [] });
 }
 
 /** What one mount of the Settings body recorded. */
@@ -229,117 +450,150 @@ function settingsSlice(overrides: Partial<SettingsTabState> = {}): SettingsTabSt
     return { phase: 'idle', at: null, problem: null, stale: false, doc: null, ...overrides };
 }
 
-describe('the Settings row declaration is the service\'s own (research Q1)', () => {
-    it('declares exactly the fields the service configuration carries', () => {
-        const declared = SETTINGS_FIELDS.map((decl) => decl.field).sort();
-        const service = [...Object.keys(NUMERIC_BOUNDS), 'logLevel'].sort();
+describe('the panel source carries no configuration literal (006 AC-106)', () => {
+    it('carries no unit phrase, no declaration-shaped bound, and no level set', async () => {
+        const sources = await panelSources();
+        const offending = sources.filter((source) => {
+            const found = configurationLiteralsIn(source);
 
-        expect(declared).toEqual(service);
-        for (const field of declared) {
-            expect(DEFAULT_CONFIG, `${field} is not a service configuration field`).toHaveProperty(field);
-        }
+            return found.units.length > 0 || found.declarationNumbers.length > 0 || found.levelSentinel;
+        });
+
+        expect(offending.map((source) => source.name)).toEqual([]);
     });
 
-    it('matches NUMERIC_BOUNDS min, max, and unit for every numeric field', () => {
-        for (const [field, bounds] of Object.entries(NUMERIC_BOUNDS)) {
-            const decl = declarationFor(field);
-            expect(decl.bounds, `${field} declares no bounds`).not.toBeNull();
-            expect({ min: decl.bounds?.min, max: decl.bounds?.max, unit: decl.bounds?.unit }).toEqual({
-                min: bounds.min,
-                max: bounds.max,
-                unit: bounds.unit,
-            });
-        }
+    it('carries the single documented default exception, pinned to the service default', async () => {
+        const sources = await panelSources();
+        const occurrences = sources.flatMap((source) =>
+            configurationLiteralsIn(source).stringDefaults.map((entry) => ({ file: source.name, line: entry.line })),);
+
+        // Exactly one entry in the allow-list, and it is the pinned constant
+        // plan X7 records (research Q3's ruling): the verification baseline
+        // that has to exist before the first successful config read.
+        expect(occurrences).toHaveLength(1);
+        expect(occurrences[0]?.file).toBe('config.ts');
+        expect(DEFAULT_EXPECTED_AGENT).toBe(DEFAULT_CONFIG.expectedAgent);
     });
 
-    it('matches DEFAULT_CONFIG defaults and the LOG_LEVELS enum set', () => {
-        for (const decl of SETTINGS_FIELDS) {
-            const service = DEFAULT_CONFIG[decl.field as keyof typeof DEFAULT_CONFIG];
-            expect(decl.defaultValue, `${decl.field} default drifted`).toBe(service);
-        }
+    it('never attaches a take-effect class to a field', async () => {
+        const sources = await panelSources();
+        const offending = sources.filter((source) => configurationLiteralsIn(source).attachedClasses.length > 0);
 
-        expect(declarationFor('logLevel').values).toEqual([...LOG_LEVELS]);
-        expect(declarationFor('logLevel').bounds).toBeNull();
+        expect(offending.map((source) => source.name)).toEqual([]);
     });
 
-    it('fails on a bound the service does not declare', () => {
-        // The check has to bite before it can be believed (review convention):
-        // a drifted copy of a real declaration must not satisfy the same
-        // comparison the cross-check above runs.
-        const drift = {
-            ...declarationFor('intervalMs'),
-            bounds: { min: 1, max: 999_999, unit: 'milliseconds' },
-        };
-        const own = Object.entries(NUMERIC_BOUNDS).find(([field]) => field === 'intervalMs')?.[1];
+    it('never claims a value changes nothing in this build', async () => {
+        const sources = await panelSources();
+        const forbidden = /changes nothing in this build|no effect in this build/i;
+        const offending = sources.filter((source) => forbidden.test(source.text));
 
-        expect(own).toBeDefined();
-        expect(drift.bounds).not.toEqual({ min: own?.min, max: own?.max, unit: own?.unit });
+        expect(offending.map((source) => source.name)).toEqual([]);
+        // The declaration 005 retired is gone with it: nothing in `src/` still
+        // answers to the old `SETTINGS_FIELDS` name, so no second source of
+        // truth can be mistaken for the projection.
+        expect(sources.filter((source) => source.text.includes('SETTINGS_FIELDS'))).toEqual([]);
+    });
+
+    it('bites: every rule flags a pasted stand-in', () => {
+        const found = configurationLiteralsIn(standInSnippet());
+
+        expect(found.units).toEqual(['milliseconds']);
+        expect(found.declarationNumbers.length).toBeGreaterThan(0);
+        expect(found.levelSentinel).toBe(true);
+        expect(found.stringDefaults).toHaveLength(1);
+        expect(found.attachedClasses.length).toBeGreaterThan(0);
     });
 });
 
-describe('rows render the document, honestly (AC-135, FR-071, FR-072)', () => {
-    it('renders one row per field the document carries, with value, unit, and bounds', () => {
-        const rows = rowsFor(configBody());
-
-        expect(rows).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
-        const interval = rows.find((row) => row.field === 'intervalMs');
-        expect(interval?.text).toContain('60000 milliseconds');
-        expect(interval?.text).toContain('bounds 15000–300000');
-        expect(interval?.text).toContain('default 60000');
-        expect(interval?.text).toContain('no restart');
-        const level = rows.find((row) => row.field === 'logLevel');
-        expect(level?.text).toContain('info · accepted: debug, info, warn, error');
+describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () => {
+    it('renders eleven rows against the 006-only fixture and thirteen against the combined one', () => {
+        expect(settingsRows(specs006OnlyEnvelope())).toHaveLength(SPECS_006_FIELDS.length);
+        const combined = settingsRows(combinedEnvelope());
+        expect(combined).toHaveLength(configSchema().length);
+        // The count is derived, never asserted from a literal: it follows the
+        // projection, which is what lets 003's two fields arrive untouched.
+        expect(combined.length).toBe(Object.keys(DEFAULT_CONFIG).length);
     });
 
-    it('gives 003\'s two fields the bounds 003 declared and a next-cycle statement', () => {
-        const rows = rowsFor(configBody());
-        const lease = rows.find((row) => row.field === 'leaseMs');
-        const deadline = rows.find((row) => row.field === 'resultDeadlineMs');
+    it('gives every one of 006\'s eleven fields its five attributes', () => {
+        const envelope = combinedEnvelope();
+        const rows = settingsRows(envelope);
+        expect(rows).toHaveLength(configSchema().length);
 
-        expect(lease?.text).toContain('bounds 30000–600000');
-        expect(lease?.text).toContain('Takes effect at the next claim');
-        expect(deadline?.text).toContain('Takes effect for the next dispatch');
-        expect(declarationFor('leaseMs').effect).toBe('next-cycle');
-        expect(declarationFor('resultDeadlineMs').effect).toBe('next-cycle');
+        for (const name of SPECS_006_FIELDS) {
+            const descriptor = envelope.fields.find((candidate) => candidate.name === name);
+            expect(descriptor, `${name} is missing from the projection`).toBeDefined();
+            const row = rows.find((candidate) => candidate.field === name);
+            expect(row, `${name} rendered no row`).toBeDefined();
+
+            // 1. the documented name, 2. its value as the document holds it.
+            expect(row?.text.startsWith(`${name}: `)).toBe(true);
+            expect(row?.text).toContain(String(envelope.config[name]));
+
+            // 3. unit-or-none and 4. bounds-or-format, both from the wire.
+            if (descriptor?.kind === 'integer') {
+                expect(row?.text).toContain(descriptor.unit);
+                expect(row?.text).toContain(`bounds ${descriptor.min}–${descriptor.max}`);
+            } else if (descriptor?.kind === 'enum') {
+                expect(row?.text).toContain('(unit none)');
+                expect(row?.text).toContain(`accepted: ${descriptor.values.join(', ')}`);
+            } else if (descriptor !== undefined) {
+                expect(row?.text).toContain('(unit none)');
+                expect(row?.text).toContain(`format: ${descriptor.format}`);
+            }
+
+            // 5. the class, in the product's words, and the declared default.
+            const words = descriptor === undefined ? '' : classWords(descriptor.takesEffect);
+            expect(row?.text).toContain(words);
+            expect(row?.text).toContain(`default ${String(descriptor?.default)}`);
+        }
     });
 
-    it('renders an unreadable field with its remediation and never a default', () => {
-        const rows = rowsFor('{"config":{"intervalMs":"soon","perPage":30}}');
+    it('marks a row the stored document lacked as default, not as configured', () => {
+        const envelope = envelopeFor(envelopeBody({ defaultsApplied: ['expectedAgent'] }));
+        const row = settingsRows(envelope).find((candidate) => candidate.field === 'expectedAgent');
+
+        expect(row?.text).toContain('reads as default');
+        expect(row?.text).toContain(`default ${DEFAULT_CONFIG.expectedAgent}`);
+    });
+
+    it('renders an unreadable value with its remediation and never a default (AC-116)', () => {
+        const rows = rowsFor(envelopeBody({ config: { intervalMs: 'soon', perPage: 12 } }));
         const interval = rows.find((row) => row.field === 'intervalMs');
 
         expect(interval?.text).toContain('intervalMs: unreadable');
-        expect(interval?.text).toContain('set intervalMs to an integer between 15000 and 300000 milliseconds');
-        // Never a default dressed as a configured value (FR-003, NFR-112).
-        expect(interval?.text).not.toContain('60000');
+        expect(interval?.text).toContain(
+            `set intervalMs to an integer between ${NUMERIC_BOUNDS.intervalMs.min}` +
+                ` and ${NUMERIC_BOUNDS.intervalMs.max} ${NUMERIC_BOUNDS.intervalMs.unit}`,
+        );
+        // Never a default dressed as a configured value (FR-028, NFR-112).
+        expect(interval?.text).not.toContain(`${DEFAULT_CONFIG.intervalMs}`);
         expect(interval?.text).not.toContain('default');
         // The field beside it still renders — one bad field hides nothing.
         expect(rows.find((row) => row.field === 'perPage')?.text).toContain('bounds 1–30');
     });
 
-    it('renders a field this build declares nothing for rather than dropping it', () => {
-        const rows = rowsFor('{"config":{"expectedAgent":"project-manager","intervalMs":60000}}');
+    it('renders a member with no descriptor as this version not showing it (AC-115)', () => {
+        const rows = rowsFor(
+            envelopeBody({ config: { ...DEFAULT_CONFIG, expectedAgent: 'other-agent' }, fields: [] }),
+        );
 
-        expect(rows.map((row) => row.field)).toEqual(['expectedAgent', 'intervalMs']);
-        expect(rows[0]?.text).toContain('expectedAgent: project-manager');
-        expect(rows[0]?.text).toContain('bounds and take-effect not declared by this build');
-    });
-
-    it('refuses a body that is not a configuration document', () => {
-        expect(parseConfigDocument('not json')).toBeNull();
-        expect(parseConfigDocument('[]')).toBeNull();
-        expect(parseConfigDocument('{"config":null}')).toBeNull();
-        expect(parseConfigDocument('{"config":[]}')).toBeNull();
-        expect(parseConfigDocument('{"intervalMs":60000}')).toBeNull();
+        expect(rows.map((row) => row.field)).toEqual(Object.keys(DEFAULT_CONFIG));
+        expect(rows.every((row) => row.text.includes('field this version does not show'))).toBe(true);
+        // It borrows no bound and promises no effect (FR-027).
+        const agent = rows.find((row) => row.field === 'expectedAgent');
+        expect(agent?.text).toContain('other-agent');
+        expect(agent?.text).not.toContain('bounds');
     });
 });
 
-describe('the Settings body mounts read-only (AC-135, FR-070, FR-073)', () => {
+describe('the Settings body mounts read-only (005 FR-070, FR-073, FR-078)', () => {
     it('renders rows with value, unit, and bounds and no input control', async () => {
-        const view = await mountSettings({ answer: configAnswer(configBody()) });
+        const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
         const rows = renderedRows(view.strings);
 
         expect(rows).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
-        expect(rows.join('\n')).toContain('bounds 15000–300000');
+        expect(rows.join('\n')).toContain(`bounds ${NUMERIC_BOUNDS.intervalMs.min}–${NUMERIC_BOUNDS.intervalMs.max}`);
 
         const inputMounts = mounts.log
             .map((entry) => entry.key)
@@ -355,9 +609,22 @@ describe('the Settings body mounts read-only (AC-135, FR-070, FR-073)', () => {
         expect(text).toContain('feature 006');
         // FR-073: names the feature, never a version number for it.
         expect(text).not.toMatch(/\d+\.\d+\.\d+/);
+        // The source member reaches the operator: `stored` says the values are
+        // the configuration the service holds (006 contract §3).
+        expect(text).toContain('the configuration the service holds');
 
         // FR-070: the tab's only request is a read of the document.
         expect(view.requests.map((request) => `${request.method} ${request.path}`)).toEqual(['GET /v1/config']);
+        view.dispose();
+    });
+
+    it('says so in the operator\'s words when the service set a document aside', async () => {
+        const view = await mountSettings({ answer: configAnswer(envelopeBody({ source: 'quarantined' })) });
+        const text = view.strings.join('\n');
+
+        expect(text).toContain('unusable and set aside');
+        expect(text).toContain('documented defaults');
+        expect(view.rt.state.settingsTab.doc?.source).toBe('quarantined');
         view.dispose();
     });
 
@@ -378,8 +645,18 @@ describe('the Settings body mounts read-only (AC-135, FR-070, FR-073)', () => {
         view.dispose();
     });
 
+    it('reports a document it cannot read instead of rendering half of it', async () => {
+        const view = await mountSettings({ answer: configAnswer('{"config":{}') });
+        const text = view.strings.join('\n');
+
+        expect(view.rt.state.settingsTab.phase).toBe('failed');
+        expect(text).toContain('a configuration document the panel could not read');
+        expect(renderedRows(view.strings)).toEqual([]);
+        view.dispose();
+    });
+
     it('offers exactly one control: the re-read (FR-014, FR-078)', async () => {
-        const view = await mountSettings({ answer: configAnswer(configBody()) });
+        const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
         expect(view.requests).toHaveLength(1);
 
         const button = mounts.log.find(
@@ -396,7 +673,7 @@ describe('the Settings body mounts read-only (AC-135, FR-070, FR-073)', () => {
     });
 
     it('keeps the configured value for itself: the Status slice stays untouched (FR-039)', async () => {
-        const view = await mountSettings({ answer: configAnswer(configBody()) });
+        const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
 
         expect(view.rt.state.settingsTab.phase).toBe('loaded');
         expect(view.rt.state.statusTab.phase).toBe('idle');
@@ -406,7 +683,7 @@ describe('the Settings body mounts read-only (AC-135, FR-070, FR-073)', () => {
     });
 
     it('releases every handle it mounted, and leaves no slot behind (FR-017)', async () => {
-        const view = await mountSettings({ answer: configAnswer(configBody()) });
+        const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
         const mounted = mounts.log
             .filter((entry) => entry.key.startsWith('mount') && !entry.key.includes(':'))
             .length;

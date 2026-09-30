@@ -1,375 +1,185 @@
 /**
- * The Settings tab's row declaration and row builder (005 T-027).
+ * The Settings tab's row builder (006 T-018; FR-014, FR-022, FR-027, FR-030).
  *
- * **A stand-in, deliberately.** `GET /v1/config` answers with values only —
- * no units, no bounds, no defaults, no take-effect classes — and 005's own
- * `## Wire Surface Delta` keeps that document unchanged, so FR-071's
- * "each bound is the service's own, not a re-typed copy" cannot be met from
- * the wire yet (research Q1). This file is the panel-side declaration that
- * fills the gap for 005's window, and
- * **`tests/settings-rows.test.ts` cross-checks it against
- * `service/config.ts`'s `NUMERIC_BOUNDS`, `DEFAULT_CONFIG`, and `LOG_LEVELS`
- * on every run**, so a service bound change fails the build instead of
- * printing a stale number to the operator.
+ * **005's stand-in is retired.** This file used to carry a panel-side copy of
+ * the service's bounds, defaults, and enum set — a declaration that had to be
+ * cross-checked against `service/config.ts` on every run because it *would*
+ * drift, and that `tests/settings-rows.test.ts` has now reversed into
+ * AC-106's zero-literals scan: the panel source carries no bound, unit,
+ * default, accepted-value, or take-effect literal of its own (plan X7's single
+ * documented exception is `DEFAULT_EXPECTED_AGENT`, pinned to
+ * `DEFAULT_CONFIG.expectedAgent` by test).
  *
- * **006 T-018 deletes this file and that test together** — the projection
- * moves onto the wire, where FR-071's "service's own" rule needs no
- * stand-in. Treat every line here as the temporary surface it is: no control,
- * no write path, no member 006 will not carry.
+ * What is here now is the projection-driven half: one row per descriptor the
+ * service sent, plus a row for any `config` member it sent **no** descriptor
+ * for. Three rules the rows obey (FR-014, FR-027, NFR-112):
  *
- * Three rules the rows obey (FR-071, FR-072, NFR-112):
+ * 1. **Every attribute comes from the wire** — name, unit-or-*none*,
+ *    bounds-or-format, value, and the class the service declared. Nothing here
+ *    knows a number the service did not send.
+ * 2. **A value the build cannot type renders *unreadable*** with a remediation
+ *    derived from the descriptor, and **never** a default in its place
+ *    (AC-116, FR-028).
+ * 3. **A member with no descriptor renders *field this version does not
+ *    show***, with no borrowed bound and no promised effect (AC-115, FR-027).
  *
- * 1. **One row per field the document actually carries** — no hard-coded
- *    count; a field this build does not declare still renders (research Q2),
- *    and a declared field the document does not carry renders nothing.
- * 2. **Never a bound the service did not declare** — an undeclared field
- *    says so rather than borrowing a neighbour's numbers.
- * 3. **Never a default presented as a configured value** — an unreadable
- *    field renders *unreadable* with its remediation and no default at all.
- *
- * The take-effect statements name the consumer this build actually has:
- * three fields are read (the poll loop, the claim and sweep, the dispatch
- * authorization) and nine are stored and validated but never consumed here,
- * which is exactly FR-072's "not at all without the write path" case.
+ * The take-effect *words* are panel copy — the service sends the class token,
+ * and FR-030 requires the product's own words beside the field — so the map
+ * below is keyed by the service's vocabulary and names no field: it claims
+ * nothing about any particular row, which is exactly the line AC-106 draws.
  */
 
-import { asRecord, parseJsonObject } from './json.ts';
+import type { ConfigEnvelope, FieldDescriptor, TakeEffectClass } from './settings-schema.ts';
 
-/** Where a change to one field reaches the service, in this build (FR-072). */
-export type TakeEffect =
-    /** Read from the document again at the consumer's next scheduling boundary. */
-    | 'next-cycle'
-    /** Stored and validated, but read by no part of this build. */
-    | 'no-effect';
-
-/** Inclusive numeric bounds of one declared field, with the unit they are in. */
-export interface DeclaredBounds {
-    /** Lowest accepted integer. */
-    readonly min: number;
-    /** Highest accepted integer. */
-    readonly max: number;
-    /** The service's own unit phrase (`milliseconds`, `days`, …). */
-    readonly unit: string;
-}
-
-/** One field of `GET /v1/config`, as this build declares it for the tab. */
-export interface SettingsRowDecl {
-    /** Document member this row renders. */
-    readonly field: string;
-    /** Inclusive bounds for a numeric field; `null` for the enum field. */
-    readonly bounds: DeclaredBounds | null;
-    /** Accepted values for an enum field; `null` for a numeric field. */
-    readonly values: readonly string[] | null;
-    /** The service's own default, rendered as *default*, never as the value. */
-    readonly defaultValue: number | string;
-    /** The effect class, for tests and for 006's own cross-check. */
-    readonly effect: TakeEffect;
-    /** The honest one-line statement of what a change does and when (FR-072). */
-    readonly takeEffect: string;
-}
-
-/** The effect class for a field this build re-reads on its own boundary. */
-const NEXT_CYCLE: TakeEffect = 'next-cycle';
-
-/** Fields 003 added to the document, named once for the shared statement. */
-const CONSUMER_READ_STATEMENT =
-    'No effect in this build: nothing reads it from this document, so a change takes effect ' +
-    'nowhere — not at the next cycle and not on a restart. Editing arrives with feature 006.';
-
-/**
- * The single row declaration: one entry per field `GET /v1/config` carried
- * when this feature was built.
- *
- * Bounds, defaults, and the enum set are the service's own values, pinned by
- * `tests/settings-rows.test.ts` — this array is the copy under test, not the
- * source of truth.
- */
-export const SETTINGS_FIELDS: readonly SettingsRowDecl[] = [
-    {
-        field: 'intervalMs',
-        bounds: { min: 15_000, max: 300_000, unit: 'milliseconds' },
-        values: null,
-        defaultValue: 60_000,
-        effect: NEXT_CYCLE,
-        takeEffect:
-            'Takes effect at the next poll cycle: the loop re-reads the interval from this document ' +
-            'before scheduling that cycle, so no restart is needed.',
-    },
-    {
-        field: 'overlapMs',
-        bounds: { min: 60_000, max: 7_200_000, unit: 'milliseconds' },
-        values: null,
-        defaultValue: 600_000,
-        effect: 'no-effect',
-        takeEffect: CONSUMER_READ_STATEMENT,
-    },
-    {
-        field: 'perPage',
-        bounds: { min: 1, max: 30, unit: 'items per page' },
-        values: null,
-        defaultValue: 30,
-        effect: 'no-effect',
-        takeEffect: CONSUMER_READ_STATEMENT,
-    },
-    {
-        field: 'retryMaxAttempts',
-        bounds: { min: 1, max: 10, unit: 'attempts' },
-        values: null,
-        defaultValue: 5,
-        effect: 'no-effect',
-        takeEffect: CONSUMER_READ_STATEMENT,
-    },
-    {
-        field: 'retryBaseMs',
-        bounds: { min: 1_000, max: 60_000, unit: 'milliseconds' },
-        values: null,
-        defaultValue: 5_000,
-        effect: 'no-effect',
-        takeEffect: CONSUMER_READ_STATEMENT,
-    },
-    {
-        field: 'retryMaxMs',
-        bounds: { min: 5_000, max: 300_000, unit: 'milliseconds' },
-        values: null,
-        defaultValue: 60_000,
-        effect: 'no-effect',
-        takeEffect: CONSUMER_READ_STATEMENT,
-    },
-    {
-        field: 'auditRetentionDays',
-        bounds: { min: 7, max: 3_650, unit: 'days' },
-        values: null,
-        defaultValue: 180,
-        effect: 'no-effect',
-        takeEffect: CONSUMER_READ_STATEMENT,
-    },
-    {
-        field: 'auditMaxEntries',
-        bounds: { min: 1_000, max: 1_000_000, unit: 'entries' },
-        values: null,
-        defaultValue: 50_000,
-        effect: 'no-effect',
-        takeEffect: CONSUMER_READ_STATEMENT,
-    },
-    {
-        field: 'excerptRetentionDays',
-        bounds: { min: 1, max: 365, unit: 'days' },
-        values: null,
-        defaultValue: 30,
-        effect: 'no-effect',
-        takeEffect: CONSUMER_READ_STATEMENT,
-    },
-    {
-        field: 'leaseMs',
-        bounds: { min: 30_000, max: 600_000, unit: 'milliseconds' },
-        values: null,
-        defaultValue: 120_000,
-        effect: NEXT_CYCLE,
-        takeEffect:
-            'Takes effect at the next claim and sweep pass: both read this document when they run, ' +
-            'so no restart is needed.',
-    },
-    {
-        field: 'resultDeadlineMs',
-        bounds: { min: 30_000, max: 600_000, unit: 'milliseconds' },
-        values: null,
-        defaultValue: 120_000,
-        effect: NEXT_CYCLE,
-        takeEffect:
-            'Takes effect for the next dispatch: the deadline is read from this document when an ' +
-            'attempt is reserved, so no restart is needed.',
-    },
-    {
-        field: 'logLevel',
-        bounds: null,
-        values: ['debug', 'info', 'warn', 'error'],
-        defaultValue: 'info',
-        effect: 'no-effect',
-        takeEffect:
-            'No effect in this build: the service logs at the level it started with and never reads ' +
-            'this field, so a change takes effect nowhere — editing arrives with feature 006.',
-    },
-];
-
-/** One field of the configuration document, as the tab can render it. */
-export type DocumentField =
-    /** A finite number. */
-    | { readonly name: string; readonly kind: 'number'; readonly value: number }
-    /** A string. */
-    | { readonly name: string; readonly kind: 'string'; readonly value: string }
-    /** A value the tab refuses to render, with the action that would fix it. */
-    | { readonly name: string; readonly kind: 'unreadable'; readonly remediation: string };
-
-/** A parsed `GET /v1/config` answer: every field, in document order. */
-export interface ConfigDocument {
-    /** The fields the document carried. */
-    readonly fields: readonly DocumentField[];
-}
-
-/** One rendered row: the field it belongs to and the line the tab paints. */
+/** One rendered row: the member it belongs to and the line the tab paints. */
 export interface SettingsRow {
-    /** Document member the row renders. */
+    /** Document member this row renders (a descriptor name, or an extra key). */
     readonly field: string;
-    /** The painted line: value, unit, bounds, and take-effect (FR-071). */
+    /** The painted line: value, unit-or-none, bounds-or-format, and class (FR-014). */
     readonly text: string;
 }
 
 /**
- * Find the declaration for one field.
+ * The product's words for each class the service may declare (FR-030).
  *
- * @param name - Document member name.
- * @returns Its declaration, or `null` when this build declares no row for it.
+ * An if-chain rather than an object literal keyed by the vocabulary, for the
+ * same reason every other panel module spells these tokens as comparisons:
+ * the class token is the **service's**, and this function only ever translates
+ * the class it is handed — it never decides which class a field has (AC-106).
+ * `none` and `restart` are covered because the vocabulary is closed (FR-021);
+ * no field in this feature declares either.
+ *
+ * @param takesEffect - The class the descriptor carried.
+ * @returns The words to print beside the field.
  */
-function declarationFor(name: string): SettingsRowDecl | null {
-    return SETTINGS_FIELDS.find((candidate) => candidate.field === name) ?? null;
+function takeEffectWords(takesEffect: TakeEffectClass): string {
+    if (takesEffect === 'immediate') {
+        return 'takes effect immediately, with no restart';
+    }
+
+    if (takesEffect === 'next-cycle') {
+        return 'in effect from the next poll';
+    }
+
+    if (takesEffect === 'next-dispatch') {
+        return 'in effect from the next dispatch';
+    }
+
+    if (takesEffect === 'restart') {
+        return 'in effect after a service restart';
+    }
+
+    return 'no take-effect boundary declared';
 }
 
 /**
- * Read one document field, never echoing what it held.
+ * The value segment of a readable row: the value, its unit or the explicit
+ * absence of one, and the shape the service declared (FR-014).
  *
- * @param name - Document member name.
- * @param value - Value read out of the document.
- * @returns The field, or its remediation when it is not a scalar.
- */
-function readField(name: string, value: unknown): DocumentField {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-        return { name, kind: 'number', value };
-    }
-
-    if (typeof value === 'string') {
-        return { name, kind: 'string', value };
-    }
-
-    return {
-        name,
-        kind: 'unreadable',
-        remediation: `set ${name} to a finite number or a string`,
-    };
-}
-
-/**
- * Read a `GET /v1/config` body fail closed (FR-003).
- *
- * The envelope is all-or-nothing: no `config` object means no document, so
- * the tab reports a failed read instead of an empty configuration. The
- * *fields* are read one at a time on purpose: a field this build cannot read
- * earns its own remediation row rather than blanking the eleven it sits
- * beside — which is what makes "renders *unreadable*, never a default" a
- * per-field promise (T-027).
- *
- * @param body - Response body text.
- * @returns The document, or `null` when the answer is not one.
- */
-export function parseConfigDocument(body: string): ConfigDocument | null {
-    const root = parseJsonObject(body);
-    const config = root === null ? null : asRecord(root.config);
-    if (config === null) {
-        return null;
-    }
-
-    const fields: DocumentField[] = [];
-    for (const [name, value] of Object.entries(config)) {
-        fields.push(readField(name, value));
-    }
-
-    return { fields };
-}
-
-/**
- * The remediation for a value that does not match its declaration.
- *
- * The wording is the service validator's own voice (`service/config.ts`), so
- * an operator who sees it in the panel and in a 422 sees the same sentence.
- *
- * @param decl - The field's declaration.
- * @returns The action that would make the row render.
- */
-function shapeRemediation(decl: SettingsRowDecl): string {
-    if (decl.bounds !== null) {
-        const { min, max, unit } = decl.bounds;
-
-        return `set ${decl.field} to an integer between ${min} and ${max} ${unit}`;
-    }
-
-    return `set ${decl.field} to one of ${(decl.values ?? []).join(', ')}`;
-}
-
-/** A field of the configuration document this tab will actually render. */
-type ReadableField = Extract<DocumentField, { readonly value: number | string }>;
-
-/**
- * The value half of a declared row: what the document holds, its unit or
- * accepted set, and its default — labelled, so neither can read as the other.
- *
- * @param decl - The field's declaration.
- * @param field - Its value as read.
+ * @param descriptor - The field's descriptor.
+ * @param value - Its value as read from the document.
  * @returns The value segment.
  */
-function valuePart(decl: SettingsRowDecl, field: ReadableField): string {
-    const value = field.kind === 'number' ? String(field.value) : field.value;
-    const unit = decl.bounds === null ? '' : ` ${decl.bounds.unit}`;
-    const range = decl.bounds === null
-        ? `accepted: ${(decl.values ?? []).join(', ')}`
-        : `bounds ${decl.bounds.min}–${decl.bounds.max}`;
+function valuePart(descriptor: FieldDescriptor, value: number | string): string {
+    if (descriptor.kind === 'integer') {
+        return `${value} ${descriptor.unit} · bounds ${descriptor.min}–${descriptor.max}`;
+    }
 
-    return `${value}${unit} · ${range} · default ${decl.defaultValue}`;
+    if (descriptor.kind === 'enum') {
+        return `${value} (unit none) · accepted: ${descriptor.values.join(', ')}`;
+    }
+
+    return `${value} (unit none) · format: ${descriptor.format}, max ${descriptor.maxLength} characters`;
 }
 
 /**
- * Build the row for one declared field the document carried.
+ * The remediation for a value that does not match its descriptor.
  *
- * @param decl - The field's declaration.
- * @param field - Its value as read.
- * @returns The painted line, or the refusal line when the value does not fit.
+ * Built from the descriptor, never from a literal, so an operator who sees it
+ * here and in a `422` reads the same sentence the service would have sent
+ * (FR-024's spirit on the read path).
+ *
+ * @param descriptor - The field's descriptor.
+ * @returns The action that would make the row render as configured.
  */
-function declaredRow(decl: SettingsRowDecl, field: DocumentField): SettingsRow {
-    if (field.kind === 'unreadable') {
-        return { field: decl.field, text: `${decl.field}: unreadable — ${field.remediation}` };
+function shapeRemediation(descriptor: FieldDescriptor): string {
+    if (descriptor.kind === 'integer') {
+        const { min, max, unit } = descriptor;
+
+        return `set ${descriptor.name} to an integer between ${min} and ${max} ${unit}`;
     }
 
-    if (decl.bounds !== null && field.kind !== 'number') {
-        return { field: decl.field, text: `${decl.field}: unreadable — ${shapeRemediation(decl)}` };
+    if (descriptor.kind === 'enum') {
+        return `set ${descriptor.name} to one of ${descriptor.values.join(', ')}`;
     }
 
-    if (decl.values !== null && (field.kind !== 'string' || !decl.values.includes(field.value))) {
-        return { field: decl.field, text: `${decl.field}: unreadable — ${shapeRemediation(decl)}` };
+    return `set ${descriptor.name} to text matching ${descriptor.format}`;
+}
+
+/**
+ * Build the row for a member the service declared.
+ *
+ * @param envelope - The parsed document.
+ * @param descriptor - The member's descriptor.
+ * @returns The painted line, or the unreadable line when its value did not fit.
+ */
+function descriptorRow(envelope: ConfigEnvelope, descriptor: FieldDescriptor): SettingsRow {
+    const filled = envelope.defaultsApplied.includes(descriptor.name);
+    const suffix = filled ? ' · reads as default' : '';
+    const words = takeEffectWords(descriptor.takesEffect);
+    const value = envelope.config[descriptor.name];
+    if (value === undefined) {
+        return {
+            field: descriptor.name,
+            text: `${descriptor.name}: unreadable — ${shapeRemediation(descriptor)} · ${words}`,
+        };
     }
+
+    const marked = `${descriptor.name}: ${valuePart(descriptor, value)} · default ${descriptor.default}` +
+        `${suffix} · ${words}`;
+
+    return { field: descriptor.name, text: marked };
+}
+
+/**
+ * Build the row for a member the service sent no descriptor for (AC-115).
+ *
+ * It borrows no bound and promises no effect: this build has nothing to say
+ * about a field it does not know beyond naming it and showing what arrived.
+ *
+ * @param envelope - The parsed document.
+ * @param name - The member's name.
+ * @returns The painted line.
+ */
+function undisplayedRow(envelope: ConfigEnvelope, name: string): SettingsRow {
+    if (envelope.unreadable.includes(name)) {
+        return { field: name, text: `${name}: unreadable — this version cannot read its value` };
+    }
+
+    const value = envelope.config[name];
 
     return {
-        field: decl.field,
-        text: `${decl.field}: ${valuePart(decl, field)} · ${decl.takeEffect}`,
+        field: name,
+        text: `${name}: ${String(value)} · field this version does not show`,
     };
 }
 
 /**
- * Build the row for a field this build declares nothing for (research Q2).
+ * Build every row the tab paints: one per descriptor in the service's order,
+ * then one per member it declared nothing for (FR-014, FR-027).
  *
- * @param field - Its value as read.
- * @returns The painted line, which borrows no bound and promises no effect.
+ * The count is derived, never asserted from a literal: eleven against an
+ * 006-only projection, thirteen once 003's two fields are in it, and one more
+ * for every key the service sent without a descriptor (AC-101, SC-102).
+ *
+ * @param envelope - The parsed `GET /v1/config` answer.
+ * @returns The rows, in paint order.
  */
-function undeclaredRow(field: DocumentField): SettingsRow {
-    if (field.kind === 'unreadable') {
-        return { field: field.name, text: `${field.name}: unreadable — ${field.remediation}` };
+export function settingsRows(envelope: ConfigEnvelope): readonly SettingsRow[] {
+    const rows: SettingsRow[] = envelope.fields.map((descriptor) => descriptorRow(envelope, descriptor));
+    for (const name of envelope.undisplayed) {
+        rows.push(undisplayedRow(envelope, name));
     }
 
-    const value = field.kind === 'number' ? String(field.value) : field.value;
-
-    return {
-        field: field.name,
-        text: `${field.name}: ${value} · bounds and take-effect not declared by this build`,
-    };
-}
-
-/**
- * Build every row the tab paints, in document order (FR-071).
- *
- * @param doc - The parsed configuration document.
- * @returns One row per field the document carried.
- */
-export function settingsRows(doc: ConfigDocument): readonly SettingsRow[] {
-    return doc.fields.map((field) => {
-        const decl = declarationFor(field.name);
-
-        return decl === null ? undeclaredRow(field) : declaredRow(decl, field);
-    });
+    return rows;
 }

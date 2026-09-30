@@ -21,6 +21,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_CONFIG } from '../service/config.ts';
+import { configSchema } from '../service/config-schema.ts';
 import { loadSettings, readStateLine } from '../src/settings-tab.ts';
 import { loadVersion } from '../src/about-tab.ts';
 import { pollRelay, startRelayPolling, stopRelayPolling } from '../src/relay.ts';
@@ -80,20 +82,10 @@ const UNROUTED = '{"error":{"code":"not-found","message":"unrouted"}}';
 
 /** One healthy `GET /v1/config` answer, so a read can land before it fails. */
 const CONFIG_BODY = JSON.stringify({
-    config: {
-        intervalMs: 60_000,
-        overlapMs: 600_000,
-        perPage: 30,
-        retryMaxAttempts: 5,
-        retryBaseMs: 5_000,
-        retryMaxMs: 60_000,
-        auditRetentionDays: 180,
-        auditMaxEntries: 50_000,
-        excerptRetentionDays: 30,
-        leaseMs: 120_000,
-        resultDeadlineMs: 120_000,
-        logLevel: 'info',
-    },
+    config: { ...DEFAULT_CONFIG },
+    fields: configSchema(),
+    source: 'stored',
+    defaultsApplied: [],
 });
 
 /** One healthy `GET /health` answer. */

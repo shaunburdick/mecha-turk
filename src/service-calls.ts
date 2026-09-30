@@ -2,17 +2,42 @@
  * Service read/write side the Bindings tab and the relay share (re-cut).
  *
  * One small client for the HTTP calls the panel makes over the documented
- * `host.serviceRequest()` bridge: bindings GET/PUT, event relay GET/POST,
- * and the runs history GET/POST. Status classification lives here so the tab
- * and the loop draw problems from one vocabulary (never quoting a payload).
+ * `host.serviceRequest()` bridge: bindings GET/PUT, the configuration PUT,
+ * event relay GET/POST, and the runs history GET/POST. Classification of the
+ * answer itself lives in [`service-envelope.ts`](./service-envelope.ts) — one
+ * classifier for every wrapper, so the tab and the loop draw problems from one
+ * vocabulary (never quoting a payload).
  *
  * MVP-DEBT: a long-poll cursor and lease headers are contract §2.4
  * machinery this simple client replaces for the MVP cut.
  */
 
-import type { GuestRequestResult } from '@openchamber/sdk';
 import type { SpikeHost } from './session.ts';
-import { parseJsonObject } from './json.ts';
+import type { ServiceConfigPutResult, ServiceErrorResult, ServiceResource, ServiceResult } from './service-envelope.ts';
+import {
+    configResultOf,
+    describeTransport,
+    resultOf,
+    resultWithErrorOf,
+} from './service-envelope.ts';
+
+/** The classifier's vocabulary, re-exported so one import path still serves. */
+export type {
+    ConfigIssueView,
+    ServiceConfigPutResult,
+    ServiceErrorResult,
+    ServiceResource,
+    ServiceResult,
+} from './service-envelope.ts';
+
+/**
+ * The resource every pre-006 wrapper describes, kept byte-identical.
+ *
+ * A bindings refusal still says *bindings* (006 T-016's "nothing regresses"),
+ * so the four shared wrappers pass this constant rather than each spelling the
+ * sentence's subject — one literal, one meaning.
+ */
+const LEGACY_RESOURCE: ServiceResource = 'bindings list';
 
 /** The one method the wrappers call, typed as the documented host surface. */
 export type ServiceRequester = Pick<SpikeHost, 'serviceRequest'>['serviceRequest'];
@@ -88,148 +113,6 @@ const FORCE_DISABLE_QUERY = '?force=1';
 /** The path segment every account route substitutes the numeric id into. */
 const ACCOUNT_ID_SEGMENT = ':numericUserId';
 
-/** Lowest HTTP status code a service answer counts as success. */
-const STATUS_OK_MIN = 200;
-
-/** HTTP status just past the last success code (`2xx`). */
-const STATUS_OK_MAX_EXCLUSIVE = 300;
-
-/** HTTP status the service answers with a `validation` error body. */
-const STATUS_VALIDATION = 422;
-
-/** Lowest HTTP status that carries the documented error envelope (§1). */
-const STATUS_ERROR_MIN = 400;
-
-/** Result of one service round trip through the host bridge. */
-export type ServiceResult =
-    | { readonly ok: true; readonly body: string }
-    | { readonly ok: false; readonly problem: string };
-
-/** Result of one call where the service's error code matters to the caller. */
-export type ServiceErrorResult =
-    | { readonly ok: true; readonly body: string }
-    | {
-        readonly ok: false;
-        readonly problem: string;
-        readonly code: string | null;
-        /** The envelope's own refusal copy, verbatim; `null` when it sent none. */
-        readonly message: string | null;
-    };
-
-/**
- * Decide whether one HTTP status lands in the 2xx band.
- *
- * @param status - Status to check.
- * @returns `true` inside the band.
- */
-function isOkStatus(status: number): boolean {
-    return status >= STATUS_OK_MIN && status < STATUS_OK_MAX_EXCLUSIVE;
-}
-
-/**
- * Decide whether one HTTP status carries the documented error envelope.
- *
- * Every status from 400 up answers with `{ error: { code, ... } }`
- * (contract §1), so the extraction only needs the band boundary.
- *
- * @param status - Status to check.
- * @returns `true` inside the error band.
- */
-function isErrorStatus(status: number): boolean {
-    return status >= STATUS_ERROR_MIN;
-}
-
-/**
- * Describe one non-2xx service answer from the status alone.
- *
- * @param status - HTTP status the service answered with.
- * @returns A short, secret-free problem string.
- */
-function httpProblem(status: number): string {
-    if (status === STATUS_VALIDATION) {
-        return 'service refused the bindings list';
-    }
-
-    return `service answered ${status}`;
-}
-
-/**
- * Read one string member out of an error envelope, without trusting it.
- *
- * The envelope is never quoted back into a request — it is read so a refusal
- * can *name its cause*: `code` is what the panel branches on, `message` is the
- * service's own copy, which the contract says 005 (and this panel's notes)
- * render verbatim.
- *
- * @param body - Response body text (unchecked).
- * @param field - Envelope member to read.
- * @returns The member, or `null` when absent or not a string.
- */
-function envelopeFieldOf(body: string, field: string): string | null {
-    const root = parseJsonObject(body);
-    const error = root?.error;
-    if (error === null || typeof error !== 'object' || Array.isArray(error)) {
-        return null;
-    }
-
-    const value = (error as Record<string, unknown>)[field];
-
-    return typeof value === 'string' ? value : null;
-}
-
-/**
- * Turn one service answer into the wrapper's result.
- *
- * @param answer - The result the host bridged back.
- * @returns The body, or a status-named problem.
- */
-function resultOf(answer: GuestRequestResult): ServiceResult {
-    if (isOkStatus(answer.status)) {
-        return { ok: true, body: answer.body };
-    }
-
-    return { ok: false, problem: httpProblem(answer.status) };
-}
-
-/**
- * Turn one service answer into the error-aware wrapper's result.
- *
- * Same as {@link resultOf}, except a refusal in the error bands also carries
- * the envelope's machine code **and its own message** — both extracted from
- * the body, never quoted into anything but a note — so a caller can
- * distinguish a documented refusal from anything else without parsing the body
- * twice, and can still tell the operator what the service said.
- *
- * @param answer - The result the host bridged back.
- * @returns The body, or a problem plus the error code and copy when one was sent.
- */
-function resultWithErrorOf(answer: GuestRequestResult): ServiceErrorResult {
-    if (isOkStatus(answer.status)) {
-        return { ok: true, body: answer.body };
-    }
-
-    const inEnvelope = isErrorStatus(answer.status);
-
-    return {
-        ok: false,
-        problem: httpProblem(answer.status),
-        code: inEnvelope ? envelopeFieldOf(answer.body, 'code') : null,
-        message: inEnvelope ? envelopeFieldOf(answer.body, 'message') : null,
-    };
-}
-
-/**
- * Describe one transport failure without quoting host payloads.
- *
- * @param cause - Caught value.
- * @returns A short, secret-free problem string.
- */
-function describeTransport(cause: unknown): string {
-    const code = typeof cause === 'object' && cause !== null && 'code' in cause ? cause.code : null;
-
-    return typeof code === 'string' ? `service unreachable: ${code}` : 'service unreachable';
-}
-
 /**
  * Run one GET through `host.serviceRequest`.
  *
@@ -245,7 +128,7 @@ export async function serviceGet(input: {
     try {
         const answer = await input.serviceRequest({ method: 'GET', path: input.path });
 
-        return resultOf(answer);
+        return resultOf(answer, LEGACY_RESOURCE);
     } catch (cause) {
         return { ok: false, problem: describeTransport(cause) };
     }
@@ -273,9 +156,40 @@ export async function servicePut(input: {
     try {
         const answer = await input.serviceRequest({ method: 'PUT', path: input.path, body: input.body });
 
-        return resultWithErrorOf(answer);
+        return resultWithErrorOf(answer, LEGACY_RESOURCE);
     } catch (cause) {
         return { ok: false, problem: describeTransport(cause), code: null, message: null };
+    }
+}
+
+/**
+ * Write the whole configuration document, keeping the refusal's issue list.
+ *
+ * The one configuration path in the panel (006 FR-040: `PUT /v1/config` and
+ * nothing else), and the wrapper the misnamed-refusal problem was about (FR-043):
+ * the answer keeps the service's own `error.issues` **in the service's order**,
+ * so a `422` can be rendered field by field with the service's wording instead
+ * of behind one generic sentence — and its problem string names the
+ * *configuration*, never the bindings list (AC-112). A `503`, a `401`, and a
+ * transport failure reach the caller as themselves with no issues: they are not
+ * refusals of these values, and the panel must not present them as one (FR-061,
+ * FR-063).
+ *
+ * @param input - The host surface and the complete document to write.
+ * @returns The body on success; the problem, code, and issues on a refusal.
+ */
+export async function servicePutConfig(input: {
+    /** Host surface. */
+    readonly serviceRequest: ServiceRequester;
+    /** The complete configuration document, serialized. */
+    readonly body: string;
+}): Promise<ServiceConfigPutResult> {
+    try {
+        const answer = await input.serviceRequest({ method: 'PUT', path: CONFIG_PATH, body: input.body });
+
+        return configResultOf(answer);
+    } catch (cause) {
+        return { ok: false, problem: describeTransport(cause), code: null, issues: [] };
     }
 }
 
@@ -306,7 +220,7 @@ export async function servicePost(input: {
             ...(input.body === undefined ? {} : { body: input.body }),
         });
 
-        return resultWithErrorOf(answer);
+        return resultWithErrorOf(answer, LEGACY_RESOURCE);
     } catch (cause) {
         return { ok: false, problem: describeTransport(cause), code: null, message: null };
     }
@@ -332,7 +246,7 @@ export async function serviceDelete(input: {
     try {
         const answer = await input.serviceRequest({ method: 'DELETE', path: input.path });
 
-        return resultWithErrorOf(answer);
+        return resultWithErrorOf(answer, LEGACY_RESOURCE);
     } catch (cause) {
         return { ok: false, problem: describeTransport(cause), code: null, message: null };
     }
