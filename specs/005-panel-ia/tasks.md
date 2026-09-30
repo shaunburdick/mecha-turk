@@ -105,6 +105,10 @@ No GitHub write of any kind (FR-002, 002 FR-031, 003 FR-002). **No `PUT /v1/conf
 
 ---
 
+## Post-dispatch-2 defect (PM review of T-011)
+
+- [x] **T-035** **Restore the integration card's connectivity/identity diagnostic (002 FR-011(b)).** Evidence: before T-011a, `ensureIdentity` had two production callers — `src/app.ts:126` and `src/app.ts:236` — and T-011a's legacy-path retirement removed both, so the card now delivers only the identity badge while 002 FR-011(v1.7.0) defines it as having **two** products: (a) the connected-login identity badge *and* (b) one read-only connectivity/identity diagnostic. Rewire `ensureIdentity` back into the connection path where it was, keeping every other part of T-011's retirement intact — the legacy single-repo poll arming, `parseSpikeConfig`, `resolveProjectId`, `parseExpectedAgent`, `PanelState.expectedAgent`, and the six card settings ids stay gone. The `/user` read may happen where it did before; do not let the restoration re-introduce a poll start. *Tests*: the diagnostic runs on connect and reports its outcome; no legacy arming path is reachable; the AC-021 static scan still proves no reader takes a card id from `ctx.settings`.
+
 ## Wave 8 — Accounts tab (User Story 4, P1)
 
 **Goal**: know which accounts can poll, and fix the ones that cannot — without moving a credential. Independent test (US4): fixture DTOs covering all six lifecycle states and all four connection states; the DTO carries no credential member; rotation retains history; the delete confirmation names the cascade.

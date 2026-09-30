@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { GuestProjectsSnapshot, JsonValue } from '@openchamber/sdk';
 import {
@@ -35,12 +37,16 @@ import {
     REPOSITORY,
     SESSION_CREATED,
     SESSION_ID,
+    USER_PATH,
+    USER_RESPONSE,
     createStorageDouble,
     createTestRuntime,
     fakeHost,
     fakeWindow,
+    requestDouble,
     testConfig,
     testEvidence,
+    tick,
 } from './support/panel.ts';
 
 /**
@@ -110,6 +116,35 @@ const OTHER_ID = 'prj_7';
 
 /** Banner a panel with no dispatch context shows (002 FR-041). */
 const WAITING_FOR_BINDING = 'Waiting for a binding';
+
+/**
+ * Collect every panel-source line that *calls* a retired single-repo poll starter.
+ *
+ * `startPolling` and `restartPolling` stay exported machinery that the tests
+ * drive, but no production line may call one: `ensureIdentity` was their only
+ * caller, and 005 T-035 restored the card's identity diagnostic **without**
+ * its poll start (005 T-011, 002 FR-011(b)). The declaration line itself does
+ * not count — a definition is not a call site.
+ *
+ * @returns One `file: line` entry per call site found under `src/`.
+ */
+function legacyPollCallers(): readonly string[] {
+    const root = resolvePath(import.meta.dirname, '..');
+    const callSite = /(^|\s)(?:startPolling|restartPolling)\s*\(/;
+    const declaration = /export function (?:startPolling|restartPolling)\s*\(/;
+    const modules = readdirSync(resolvePath(root, 'src'), { recursive: true }).map(String);
+    const callers: string[] = [];
+    for (const name of modules.filter((entry) => entry.endsWith('.ts'))) {
+        const lines = readFileSync(resolvePath(root, 'src', name), 'utf8').split('\n');
+        for (const line of lines) {
+            if (callSite.test(line) && !declaration.test(line)) {
+                callers.push(`${name}: ${line.trim()}`);
+            }
+        }
+    }
+
+    return callers;
+}
 
 /**
  * Build a settings record.
@@ -302,6 +337,45 @@ describe('handleConnection (FR-011 optional integration card)', () => {
         expect(runtime.state.status.tone).toBe('info');
         expect(runtime.state.status.title).toBe('Connected');
         expect(runtime.state.status.body).toContain(WAITING_FOR_BINDING);
+    });
+
+    it('runs the card’s read-only identity diagnostic on connect and reports its outcome', async () => {
+        const runtime = createTestRuntime(fakeHost({ request: requestDouble({ [USER_PATH]: USER_RESPONSE }) }));
+        runtime.state.config = null;
+        runtime.state.login = null;
+
+        handleConnection(runtime, true);
+        await tick();
+
+        expect(runtime.state.login).toBe(LOGIN);
+        expect(runtime.state.status.tone).toBe('info');
+        expect(runtime.state.status.title).toBe('Authenticated');
+        expect(runtime.state.status.body).toBe(`Machine account: ${LOGIN}`);
+        expect(runtime.state.ledger.entries.at(-1)?.kind).toBe('identity');
+        // 002 FR-011(b) makes the diagnostic *read-only*: restoring it (005
+        // T-035) must leave the retired single-repo arming path unreachable.
+        expect(runtime.pollTimer).toBeNull();
+        expect(runtime.state.config).toBeNull();
+    });
+
+    it('lands a refused identity read on the banner without arming a poll', async () => {
+        // The default host double answers every path 404, which is what an
+        // unconfigured integration card looks like to `/user`.
+        const runtime = createTestRuntime(fakeHost());
+        runtime.state.config = null;
+        runtime.state.login = null;
+
+        handleConnection(runtime, true);
+        await tick();
+
+        expect(runtime.state.login).toBeNull();
+        expect(runtime.state.status.tone).toBe('error');
+        expect(runtime.state.status.title).toBe('Request failed');
+        expect(runtime.pollTimer).toBeNull();
+    });
+
+    it('keeps the retired poll starters unreachable from panel source (T-011 stands)', () => {
+        expect(legacyPollCallers()).toEqual([]);
     });
 });
 

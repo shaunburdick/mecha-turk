@@ -370,13 +370,29 @@ export function stopPolling(rt: PanelRuntime): void {
 }
 
 /**
- * Authenticate the connected token once and start polling.
+ * Read `/user` through the connected card and report what it answered (002 FR-011(b)).
+ *
+ * This is the integration card's second product: **one read-only
+ * connectivity/identity diagnostic**. It runs on connect, records an `identity`
+ * ledger entry either way, and reports its outcome on the banner — the login
+ * it authenticated as, or the exact reason the check failed.
+ *
+ * Two things it deliberately does **not** do:
+ *
+ * - **It arms no poll.** Since 005 T-011 the legacy single-repo loop has no
+ *   arming site, and the service's poll loop plus the root-owned relay are the
+ *   only loops in the product; a diagnostic that started one would silently
+ *   reinstate the retired path.
+ * - **It needs no dispatch context.** The legacy guard this replaced required
+ *   a parsed single-repo config; the card's diagnostic is about the *token*,
+ *   so it runs whenever the panel is connected and has not read an identity
+ *   yet, checking the login against a bound account's expectation only when
+ *   one happens to be in context.
  *
  * @param rt - Panel runtime.
  */
 export async function ensureIdentity(rt: PanelRuntime): Promise<void> {
-    const { config } = rt.state;
-    if (config === null || rt.state.login !== null) {
+    if (rt.state.login !== null) {
         return;
     }
 
@@ -387,13 +403,14 @@ export async function ensureIdentity(rt: PanelRuntime): Promise<void> {
             return;
         }
 
-        const identity = checkMachineIdentity(login, config.expectedLogin);
+        const expectedLogin = rt.state.config?.expectedLogin ?? null;
+        const identity = checkMachineIdentity(login, expectedLogin);
         if (!identity.ok) {
             appendEntryAndPersist(rt, {
                 at: nowIso(),
                 kind: 'identity',
                 correlationId,
-                detail: { problem: identity.problem, expectedLogin: config.expectedLogin, correlationId },
+                detail: { problem: identity.problem, expectedLogin, correlationId },
             });
             setStatus(rt, { tone: 'error', title: 'Identity check failed', body: identity.problem });
             refresh(rt);
@@ -405,10 +422,9 @@ export async function ensureIdentity(rt: PanelRuntime): Promise<void> {
             at: nowIso(),
             kind: 'identity',
             correlationId,
-            detail: { authenticatedLogin: login, expectedLogin: config.expectedLogin, correlationId },
+            detail: { authenticatedLogin: login, expectedLogin, correlationId },
         });
         setStatus(rt, { tone: 'info', title: 'Authenticated', body: `Machine account: ${login}` });
-        startPolling(rt);
     } catch (cause) {
         recordFailure(rt, { kind: 'identity', cause, correlationId });
     }

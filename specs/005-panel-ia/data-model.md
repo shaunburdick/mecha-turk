@@ -227,6 +227,8 @@ Adds exactly one optional member: `displayName: string | null`. The existing typ
 | Observed agent differs / unreadable | warns | **unchanged** — warns; only an observed problem blocks |
 | Slot on the runtime | `PanelState.expectedAgent: string` | **unchanged slot**; provenance travels with the verification report, not into the runtime |
 
+> **Pointer note (005 T-011a, recorded here so §1.3/§5 do not read as still true):** the slot was *deleted* with the card-settings path — `PanelState.expectedAgent` no longer exists; `src/prerequisites.ts` names `DEFAULT_EXPECTED_AGENT` and `src/agent-verify.ts` reads the baseline from `GET /v1/config` per verification.
+
 005's Settings tab renders an `expectedAgent` row **only if `GET /v1/config` carries the field** — which it does not until 006 FR-100 lands. Rendering a row for a field the document does not hold would be inventing a value (FR-003).
 
 ---

@@ -161,23 +161,35 @@ describe('ensureIdentity', () => {
         expect(String(identity?.detail.problem)).toContain('does not match');
     });
 
-    it('records the machine account and starts polling when it matches', async () => {
-        const answers = { [USER_PATH]: USER_RESPONSE, [ISSUE_LIST_PATH]: NO_ISSUES };
+    it('records the machine account and arms no poll when it matches', async () => {
+        const answers = { [USER_PATH]: USER_RESPONSE };
         const runtime = createTestRuntime(fakeHost({ request: requestDouble(answers) }));
         runtime.state.login = null;
 
-        try {
-            await ensureIdentity(runtime);
+        await ensureIdentity(runtime);
+        await tick();
 
-            expect(runtime.state.login).toBe(LOGIN);
-            expect(runtime.state.status.title).toBe('Authenticated');
-            expect(runtime.pollTimer).not.toBeNull();
-            const identity = runtime.state.ledger.entries.at(-1);
-            expect(identity?.kind).toBe('identity');
-            expect(identity?.detail.authenticatedLogin).toBe(LOGIN);
-        } finally {
-            stopPolling(runtime);
-        }
+        expect(runtime.state.login).toBe(LOGIN);
+        expect(runtime.state.status.title).toBe('Authenticated');
+        // The diagnostic is read-only (002 FR-011(b), 005 T-035): restoring it
+        // must not re-arm the retired single-repo poll loop.
+        expect(runtime.pollTimer).toBeNull();
+        const identity = runtime.state.ledger.entries.at(-1);
+        expect(identity?.kind).toBe('identity');
+        expect(identity?.detail.authenticatedLogin).toBe(LOGIN);
+    });
+
+    it('runs for a connected card with no dispatch context at all', async () => {
+        const runtime = createTestRuntime(fakeHost({ request: requestDouble({ [USER_PATH]: USER_RESPONSE }) }));
+        runtime.state.login = null;
+        runtime.state.config = null;
+
+        await ensureIdentity(runtime);
+        await tick();
+
+        expect(runtime.state.login).toBe(LOGIN);
+        expect(runtime.state.status.title).toBe('Authenticated');
+        expect(runtime.pollTimer).toBeNull();
     });
 });
 
