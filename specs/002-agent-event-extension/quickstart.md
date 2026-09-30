@@ -36,7 +36,7 @@ Expect: 0 lint errors/warnings (zero suppressions — no `eslint-disable`, no `@
 2. Approval dialog shows `sessions`, `prompt`, `service`, `network`. Read the local-service line (*"a separate program with your full user access"*) and choose **Allow and enable**.
 3. Open the **Mecha Turk** rail panel. It opens on **Status**: the honest projection (service, polling, accounts, bindings, agent pin) with the **Setup prerequisites** section beneath it — six lines (Default Agent pin, OpenChamber running, desktop-or-web surface, GitHub token scopes, registered project per binding, service-capability approval), each rendered *met*, *not met*, or **not checkable by the panel**, each with its own remediation, and any checkable-and-unmet item also raises a notice above the tabs. The Default Agent pin reads **not checkable** on purpose (the panel cannot read that setting), so §0 step 2 remains the operator's own action; verification still reads the pin back after every dispatch and warns when a session reports another agent.
 
-   The strip has six tabs, in order: **Status** (the overview and prerequisites above), **Dispatches** (every queued, running, and finished dispatch, with paging and filters), **Bindings** (the repositories you watch, plus the project picker and the add form), **Accounts** (the GitHub accounts, their scope, and the add form), **Settings** (read-only service configuration), and **About** (identity, the data directory, and read-only diagnostics).
+   The strip has six tabs, in order: **Status** (the overview and prerequisites above), **Dispatches** (every queued, running, and finished dispatch, with paging and filters), **Bindings** (the repositories you watch, plus the project picker and the add form), **Accounts** (the GitHub accounts, their scope, and the add form), **Settings** (the single configuration input for the whole service configuration), and **About** (identity, the data directory, and read-only diagnostics).
 
 ## 4. First run (happy path, ~5 minutes)
 
@@ -106,23 +106,37 @@ Each change writes one `binding.prompt-updated` row to `audit.ndjson` — bindin
 
 ### Configuration (the Settings tab)
 
-The **Settings** tab is the configuration surface for the **whole** service
-configuration: it renders every field `GET /v1/config` carries — poll
+The **Settings** tab is the **single configuration input** for the whole
+service configuration: the eleven documented fields plus `expectedAgent` — poll
 interval, overlap window, page size, the retry bounds, audit and excerpt
-retention, the lease and result deadlines, and the log level — with each
-field's value, its unit, its bounds, and an honest statement of where a change
-would take effect. The tab is **read-only in this release**: it reads
-`config.json` in the store and offers no edit control; editing arrives with
-feature 006.
+retention, the lease and result deadlines, the log level, and the
+agent-verification baseline — each rendered from the service's own declaration
+with its value, its unit, its bounds or format, and the line that says **when
+a change takes effect** (*takes effect immediately*, *in effect from the next
+poll*, *in effect from the next dispatch*).
+
+Editing is live: one save writes the whole document and the service is the
+only validator, so a value outside a field's bounds is sent and refused there
+with a field name and a remediation rather than blocked by the panel.
+Lowering a retention limit — and restoring the defaults — first arms a
+two-step confirmation that states **what will be deleted, when the trim pass
+runs, and what survives it**; raising a limit deletes nothing, and the panel
+says so.
+
+The configuration lives in `config.json` in the service store (`0600`, under
+the data directory **About** names), so it is operator-backable: you can back
+it up or hand-edit it, and a document that fails validation is set aside and
+the documented defaults take over, with the tab saying exactly that. Nothing
+is configured through an environment file, an environment variable, or an
+integration-card setting.
 
 The integration card carries **no settings**, so nothing is configured through
-card fields, environment variables, or an *agent-verification baseline* the
-card no longer has: that baseline (`expectedAgent`, default
-`project-manager`) is service configuration, read by verification through
-`GET /v1/config` and falling back to the documented default when the document
-does not carry the field. Changing anything in `config.json` is therefore the
-only configuration input, and the Settings tab is where you read what the
-service is actually using.
+card fields or an *agent-verification baseline* the card no longer has: that
+baseline (`expectedAgent`, default `project-manager`) is service
+configuration, read by verification through `GET /v1/config` and falling back
+to the documented default when the document does not carry the field. The
+Settings tab is therefore where you both read and change what the service is
+actually using.
 
 ## 7. Cleanup (manual only)
 

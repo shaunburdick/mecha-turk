@@ -23,8 +23,11 @@ import type { DispatchLoop } from './support/dispatch-loop.ts';
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
 
+/** Repository-relative path of the committed panel bundle. */
+const PANEL_BUNDLE_PATH = 'panel/main.js';
+
 /** Bundled panel entry produced by `npm run build`. */
-const BUNDLE = resolve(ROOT, 'panel/main.js');
+const BUNDLE = resolve(ROOT, PANEL_BUNDLE_PATH);
 
 /** Repository-relative path of the committed service bundle. */
 const SERVICE_BUNDLE_PATH = 'service/main.js';
@@ -66,6 +69,17 @@ describe('built panel bundle', () => {
         for (const pattern of TOKEN_PATTERNS) {
             expect(bundle).not.toMatch(pattern);
         }
+    });
+
+    it('is committed to the repository (006 AC-145, invariant 1)', () => {
+        // The host never compiles TypeScript for the panel either, so an
+        // uncommitted bundle would install a shell with nothing behind it.
+        const tracked = execFileSync('git', ['ls-files', '--error-unmatch', PANEL_BUNDLE_PATH], {
+            cwd: ROOT,
+            encoding: UTF8,
+        });
+
+        expect(tracked.trim()).toBe(PANEL_BUNDLE_PATH);
     });
 
     it('ships the Bindings body (MVP blocker, 2026-09-27; re-cut by 005 T-009)', () => {
@@ -156,6 +170,19 @@ describe('built service bundle', () => {
         for (const pattern of TOKEN_PATTERNS) {
             expect(bundle).not.toMatch(pattern);
         }
+    });
+
+    it('ships a service version pinned to the extension package (006 AC-145, invariant 5)', () => {
+        const { version } = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), UTF8)) as {
+            readonly version?: string;
+        };
+        const health = readFileSync(resolve(ROOT, 'service/routes/health.ts'), UTF8);
+
+        expect(version).toBeDefined();
+        expect(health).toContain(`SERVICE_VERSION = '${version}'`);
+        // The shipped bytes carry the same number, so a bump that forgot to
+        // rebuild would be visible from the artifact itself.
+        expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain(String(version));
     });
 });
 
@@ -687,5 +714,148 @@ describe('004 the field is documented, and the editor it points at is the shippe
             expect(text, `${page} does not name the shipped editor`).toContain('Bindings editor');
             expect(text, `${page} points at a retired spec path`).not.toContain('specs/001');
         }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * 006 Settings surface and offline posture (T-028: FR-085, FR-086, NFR-102,
+ * AC-144, AC-145, SC-112)
+ *
+ * The scans above prove the shipped bytes are clean in general; these two
+ * groups are 006's own halves: the edit surface actually reached the bundle
+ * (invariant 1 — a green suite over sources that never shipped would prove
+ * nothing), and the suite that claims to run offline really does.
+ * ------------------------------------------------------------------------- */
+
+/** Fragments present only when the Settings edit surface was bundled. */
+const SETTINGS_MARKERS: readonly string[] = [
+    'Save configuration',
+    'deletes history',
+    'service not running — settings read-only',
+    'did not reach the trail',
+    'config.changed',
+];
+
+/** A literal bearer credential, which no shipped artifact may embed. */
+const BEARER_LITERAL = /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/;
+
+/** Third-party HTTP clients an offline suite must never import. */
+const HTTP_CLIENT_IMPORT = /\bfrom ['"](axios|node-fetch|got|undici|superagent|request)['"]/;
+
+/**
+ * A `fetch(` **call** — not the string a scan of its own source necessarily
+ * contains, which is why the quote characters are excluded from the prefix.
+ */
+const FETCH_CALL = /(^|[^A-Za-z0-9_.'"`])fetch\s*\(/;
+
+/**
+ * Where an offline test may fetch: every alternative is a locally bound
+ * address — the service double's own base URL, the `127.0.0.1` fixtures, and
+ * `nonLoopbackAddress()`, which the refusal case proves does *not* answer.
+ */
+const LOCAL_FETCH_TARGET = /(baseUrl|\$\{origin\}|\$\{HOST\}|\$\{external\})/;
+
+/**
+ * A credential read out of the process environment.
+ *
+ * The suite deliberately **plants** token-shaped strings to prove they are
+ * redacted; what AC-144 rules out is a *real* credential being required, and
+ * a developer's own token can only enter through the environment.
+ */
+const CREDENTIAL_ENV = /\bprocess\.env\.[A-Z_]*(TOKEN|PAT|SECRET|PASSWORD|API_KEY)\b/;
+
+/**
+ * Every `.ts` file under `tests/`, path and text.
+ *
+ * @returns The modules, in directory order.
+ */
+function testModules(): readonly ScannedFile[] {
+    const entries = readdirSync(resolve(ROOT, 'tests'), { recursive: true })
+        .map((entry) => String(entry))
+        .filter((entry) => entry.endsWith('.ts'))
+        .sort();
+
+    return entries.map((entry) => ({
+        path: `tests/${entry}`,
+        text: readFileSync(resolve(ROOT, 'tests', entry), UTF8),
+    }));
+}
+
+/**
+ * The lines of a file that are not comments — the offline scan is about what
+ * a test *does*, so a doc comment that names a URL is not a request.
+ *
+ * @param text - File text.
+ * @returns The code lines, trimmed.
+ */
+function codeLinesOf(text: string): readonly string[] {
+    return text
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line !== '' && !/^(\/\/|\/?\*)/.test(line));
+}
+
+describe('006 the Settings edit surface ships in the panel bundle (T-028, invariant 1)', () => {
+    it('carries the confirmation, the failure causes, and the audit warning', () => {
+        const bundle = readFileSync(BUNDLE, UTF8);
+
+        for (const marker of SETTINGS_MARKERS) {
+            expect(bundle, `panel/main.js does not carry ${marker}`).toContain(marker);
+        }
+    });
+
+    it('carries no credential shape in either bundle, with no exemption (NFR-102)', () => {
+        for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
+            const text = readFileSync(bundle, UTF8);
+            for (const pattern of TOKEN_PATTERNS) {
+                expect(text, `${bundle} carries a token shape`).not.toMatch(pattern);
+            }
+
+            expect(text, `${bundle} embeds a bearer literal`).not.toMatch(BEARER_LITERAL);
+        }
+    });
+});
+
+describe('006 the suite runs offline (T-028, AC-144, SC-112)', () => {
+    it('reads every test module rather than a sample', () => {
+        const files = testModules();
+
+        expect(files.length).toBeGreaterThan(90);
+        expect(files.some((file) => file.path === 'tests/support/service.ts')).toBe(true);
+    });
+
+    it('only ever fetches a locally bound address', () => {
+        const offenders: string[] = [];
+        for (const file of testModules()) {
+            for (const line of codeLinesOf(file.text)) {
+                if (!FETCH_CALL.test(line)) {
+                    continue;
+                }
+
+                if (LOCAL_FETCH_TARGET.test(line)) {
+                    continue;
+                }
+
+                offenders.push(`${file.path}: ${line}`);
+            }
+        }
+
+        expect(offenders).toEqual([]);
+    });
+
+    it('never imports a third-party HTTP client', () => {
+        const importers = testModules()
+            .filter((file) => HTTP_CLIENT_IMPORT.test(file.text))
+            .map((file) => file.path);
+
+        expect(importers).toEqual([]);
+    });
+
+    it('never reads a credential out of the environment (AC-144: no real token)', () => {
+        const readers = testModules()
+            .filter((file) => codeLinesOf(file.text).some((line) => CREDENTIAL_ENV.test(line)))
+            .map((file) => file.path);
+
+        expect(readers).toEqual([]);
     });
 });

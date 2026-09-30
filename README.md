@@ -54,17 +54,34 @@ The rail panel has one strip with six tabs, in order:
 | **Dispatches** | Every queued, running, and finished dispatch, newest first, with cursor paging and server-side filters by binding and by state; each row carries its state, its reason line, its correlation id, its source references, and the controls that move it (open, retry, resolve, return to waiting, audit history) |
 | **Bindings** | The repositories you watch, the project picker with its *not listed?* guidance, and the add form |
 | **Accounts** | Every GitHub account with its lifecycle, connection, and scope matrix, plus the add form: consent → PAT → optional expected GitHub login |
-| **Settings** | The whole service configuration — read-only in this release; editing arrives with feature 006 |
+| **Settings** | The **single configuration input** for the whole service configuration: one editable row per field — value, unit, bounds or format, and the line saying when a change takes effect — plus save, discard, the two-step confirmation before a retention limit is lowered, and restore defaults |
 | **About** | Product identity, the panel id, the version read from the service, the data directory to back up, the vocabulary list, and read-only diagnostics |
 
 ### Configuration
 
-**Settings** is the configuration surface for the **whole** service
-configuration: it renders every field `GET /v1/config` carries — poll
+**Settings** is the **single configuration input** for the whole service
+configuration: the eleven documented fields plus `expectedAgent` — poll
 interval, overlap window, page size, retry bounds, audit and excerpt
-retention, lease and result deadlines, log level — with each field's value,
-unit, bounds, and an honest statement of where a change takes effect. The tab
-reads `config.json` in the store and offers no edit control in this release.
+retention, lease and result deadlines, log level, and the agent-verification
+baseline — each rendered from the service's own declaration with its value,
+its unit, its bounds or format, and the line that says **when a change takes
+effect**: *takes effect immediately*, *in effect from the next poll*, or *in
+effect from the next dispatch*.
+
+One save writes the whole document, and the service is the only validator: an
+out-of-range value is sent and refused there, with the field and the
+remediation it named, rather than blocked by the panel. Lowering a retention
+limit — and restoring the defaults — arms a two-step confirmation that states
+**what will be deleted, when the trim pass runs, and what survives it**,
+because trimming is real and has no undo. Raising a limit deletes nothing, and
+the panel says so too.
+
+The configuration lives in `config.json` in the service store (`0600`, under
+the data directory **About** names), so it is operator-backable; a hand-edited
+document that fails validation is set aside and the documented defaults take
+over, and the tab says exactly that. Nothing is configured through an
+environment file, an environment variable, or an integration-card setting:
+`GET`/`PUT /v1/config` and this tab are the whole surface.
 
 The integration card carries **no settings**. The agent-verification baseline
 (`expectedAgent`, default `project-manager`) is service configuration, not a

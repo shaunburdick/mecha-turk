@@ -1,13 +1,19 @@
 /**
- * Documentation sync (005 T-033, discharging 002 FR-042 and AC-022).
+ * Documentation sync (005 T-033 + 006 T-029, discharging 002 FR-042 and AC-022).
  *
  * The two operator-facing documents must describe the product that shipped,
  * not the one that shipped in September: the six tabs and their vocabulary,
  * the prerequisites section on **Status**, the Dispatches list with its
- * paging and filters, **Settings** as the configuration surface for the whole
- * service configuration (including the agent-verification baseline the
- * integration card no longer carries), and the Accounts add form as the
- * expected-login supply surface.
+ * paging and filters, **Settings** as the **single configuration input** for
+ * the whole service configuration — every field `GET /v1/config` carries,
+ * the take-effect line each row carries, the two-step confirmation before a
+ * retention limit is lowered, where the document lives, and the
+ * agent-verification baseline the integration card no longer carries — and
+ * the Accounts add form as the expected-login supply surface.
+ *
+ * The Settings claims are 006 T-029's, **extending** 005 T-033 rather than
+ * repeating it: what 005 wrote as *read-only in this release* has shipped, so
+ * the documents now assert the editable surface instead.
  *
  * The negative half of AC-022 is here too: neither document may instruct an
  * operator to configure anything through `MECHA_TURK_*` or a `.env` file, may
@@ -112,16 +118,29 @@ describe('002 FR-042 / AC-022 the two operator documents describe the shipped pa
         }
     });
 
-    it('describes Settings as the surface for the whole service configuration', () => {
+    it('describes Settings as the single configuration input for the whole service configuration', () => {
         for (const doc of PAGES) {
-            const text = page(doc);
-            expect(text, `${doc} does not point at the configuration document`).toContain('GET /v1/config');
-            expect(text, `${doc} does not say the tab is read-only`).toContain('read-only in this release');
+            // Prose asserts against whitespace-normalized text: both documents
+            // wrap at ~80 columns, so a phrase's words can be on two lines.
+            const prose = page(doc).replace(/\s+/g, ' ');
+            expect(prose, `${doc} does not point at the configuration document`).toContain('GET /v1/config');
+            // 006 T-029 (extending 005 T-033): the read-only era is history —
+            // the tab edits, and the documents must say so rather than repeat
+            // the release note that has now shipped.
+            expect(prose, `${doc} still calls the tab read-only`).not.toContain('read-only in this release');
+            expect(prose, `${doc} does not claim the single input`).toContain('single configuration input');
             // The baseline the integration card no longer carries (002 FR-029,
             // 006 FR-100): named, sourced from the service, defaulted.
-            expect(text, `${doc} does not name the baseline field`).toContain('expectedAgent');
-            expect(text, `${doc} does not name the documented default`).toContain('project-manager');
-            expect(text, `${doc} does not say the card carries no settings`).toMatch(/carries \*\*no settings\*\*/);
+            expect(prose, `${doc} does not name the baseline field`).toContain('expectedAgent');
+            expect(prose, `${doc} does not name the documented default`).toContain('project-manager');
+            expect(prose, `${doc} does not say the card carries no settings`).toMatch(/carries \*\*no settings\*\*/);
+            // 006's own surface claims: the take-effect line each row carries,
+            // the two-step confirmation before anything is deleted, and where
+            // the document lives (operator-backable, not an environment file).
+            expect(prose, `${doc} does not name the take-effect line`).toContain('when a change takes effect');
+            expect(prose, `${doc} does not describe the confirmation`).toContain('two-step confirmation');
+            expect(prose, `${doc} does not say where the configuration lives`).toContain('config.json');
+            expect(prose, `${doc} does not say it is operator-backable`).toContain('operator-backable');
         }
     });
 

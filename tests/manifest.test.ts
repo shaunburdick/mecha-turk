@@ -107,6 +107,21 @@ describe('manifest identity', () => {
     it('ships a semver version on the extension package', () => {
         expect(EXTENSION_MANIFEST.version).toMatch(/^\d+\.\d+\.\d+/);
     });
+
+    it('keeps the kebab-case identity and its storage-key prefix (006 T-028, AGENTS 4)', () => {
+        const panelId = openchamberBlock(EXTENSION_MANIFEST).contributes?.panel?.id ?? '';
+        expect(panelId).toMatch(/^[a-z][a-z0-9-]*$/);
+
+        // The storage namespace is the *same* identity: every panel storage
+        // key is prefixed with it, so renaming either one is a user-visible
+        // storage reset. Asserted here, where the identity is declared.
+        const prefixed = readdirSync(resolve(ROOT, 'src'), { recursive: true })
+            .map((entry) => String(entry))
+            .filter((entry) => entry.endsWith('.ts'))
+            .filter((entry) => readFileSync(resolve(ROOT, 'src', entry), 'utf8').includes(`${panelId}:`));
+
+        expect(prefixed.length).toBeGreaterThan(0);
+    });
 });
 
 describe('SDK pinning', () => {
