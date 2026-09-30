@@ -17,7 +17,7 @@ import { StorageUnavailableError } from './errors.ts';
  * @returns `true` only for `ENOENT`; permission and I/O errors return `false`
  *   so they surface as storage-unavailable instead of silent absence.
  */
-function isMissingFile(error: unknown): boolean {
+export function isMissingFile(error: unknown): boolean {
     return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 

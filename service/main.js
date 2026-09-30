@@ -3532,6 +3532,9 @@ async function quarantine(filePath) {
   try {
     await fs3.rename(filePath, quarantinePath);
   } catch (error) {
+    if (isMissingFile(error)) {
+      return { status: "absent" };
+    }
     throw new StorageUnavailableError(`unusable store file cannot be set aside: ${filePath}`, error);
   }
   return { status: "quarantined", quarantinePath };

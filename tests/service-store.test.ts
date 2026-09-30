@@ -179,6 +179,25 @@ describe('atomic json writes', () => {
         expect(result.status).toBe('quarantined');
     });
 
+    it('reports absence when another reader set the file aside first', async () => {
+        const target = join(dataDir, CONFIG_FILE);
+        await writeFile(target, '{"intervalMs": 60_00', 'utf8');
+        // Two readers can both reject the same document — a cycle reading the
+        // configuration while the operator's request reads it, say — and the
+        // loser's rename finds the file already gone. That is absence, not a
+        // storage failure: the evidence is on disk under the winner's name.
+        const rename = vi
+            .spyOn(fs, 'rename')
+            .mockRejectedValue(Object.assign(new Error('no such file or directory'), { code: 'ENOENT' }));
+
+        try {
+            const result = await readJsonFile(target, numericInterval);
+            expect(result).toEqual({ status: 'absent' });
+        } finally {
+            rename.mockRestore();
+        }
+    });
+
     it('ignores a leftover temporary file when reading', async () => {
         await writeFile(join(dataDir, `${CONFIG_FILE}.tmp.deadbeef`), 'not json', 'utf8');
 
