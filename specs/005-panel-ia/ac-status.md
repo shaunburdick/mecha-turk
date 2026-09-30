@@ -44,7 +44,7 @@ superseded the literal text — both notes cite the amendment.
 | AC-132 | Met | `tests/settings-rows.test.ts` + `tests/about-tab.test.ts` — with the service unreachable both tabs keep static content and name what could not be read |
 | AC-133 | Met (reading note) | `tests/about-tab.test.ts` — About renders the service's `SERVICE_VERSION`, which equals `package.json`; the *one* version literal in the product is the service's own, and the panel source carries **zero** (FR-074 forbids the panel any literal of its own; the AC's "one" is the product-wide count) |
 | AC-134 | Met | `tests/about-tab.test.ts` — unreachable ⇒ exactly `unknown (service unreachable)`, no digit on the version line |
-| AC-135 | Met (reading note) | `tests/settings-rows.test.ts` — every field the document carries renders with value, unit, bounds, and **zero input controls**; the row count follows the document (12 today), per 005 v1.3.0 handing the count criterion to 006 AC-101 |
+| AC-135 | Met (reading note) | `tests/settings-rows.test.ts` — every field the document carries renders with value, unit, bounds, and **zero input controls**; the row count follows the document (13 today), per 005 v1.3.0 handing the count criterion to 006 AC-101 |
 | AC-136 | Met | `tests/lifecycle-proof.test.ts` + `tests/app.test.ts` — one armed loop survives a mid-flight switch; one `host.startSession`, no second claim |
 | AC-137 | Met | `tests/lifecycle-proof.test.ts` — after visiting every tab, teardown returns nodes, timers, and registries to their pre-mount values |
 | AC-138 | Met | `tests/containment-proof.test.ts` and the whole suite — fake host, loopback service on temp dirs, fixture credentials; no live host, token, or network |
@@ -59,7 +59,7 @@ literal text.
 
 ## Notes
 
-**The four retained *the run* sentences are correct (005 T-036(c)) — a
+**The six retained *the run* sentences are correct (005 T-036(c)) — a
 pre-PR review must not re-open them.** Two grounds, both normative:
 
 1. **`run` is an L4 domain term.** FR-022 retains `run`, `run key`,

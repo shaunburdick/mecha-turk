@@ -56,3 +56,13 @@ jobs:
 
       - name: Run the repository gate
         run: npm run verify
+
+      # AGENTS.md invariant 1, enforced by CI instead of by review: OpenChamber
+      # never compiles TypeScript, so `panel/main.js` and `service/main.js`
+      # ship exactly as committed and must match their sources byte-for-byte.
+      # The step above rebuilds both of them; if the rebuild leaves a tracked
+      # file dirty, the commit forgot the bundle its source requires (or the
+      # bundle drifted from the source it claims to come from). Non-zero exit
+      # fails the gate — and this workflow only reads, so nothing is pushed.
+      - name: Assert the committed bundles match their sources
+        run: git diff --exit-code
