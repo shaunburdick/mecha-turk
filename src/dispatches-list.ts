@@ -12,13 +12,18 @@
  * the `events` array keeps its name and its newest-detected-first order, the
  * four accepted page sizes are the service's own, `total` may be `null` and
  * is never the page size by accident, and the `filter` echo is what the tab
- * shows as active rather than the panel's own assumption (FR-043).
+ * shows as active rather than the panel's own assumption (FR-043). This is
+ * also where the **query half** of that contract lives (`dispatchListPath`),
+ * so asking for a page and reading it back sit in one module and cannot
+ * drift apart.
  */
 
 import { asRecord, parseJsonObject } from './json.ts';
-import { DISPATCH_PAGE_SIZES } from './dispatch-page.ts';
+import { cursorFor, DISPATCH_PAGE_SIZES } from './dispatch-page.ts';
+import { EVENTS_PATH } from './service-calls.ts';
 import { parseEventRows } from './dispatches-service.ts';
 import type { DispatchFilters } from './dispatch-page.ts';
+import type { DispatchesState } from './panel-state.ts';
 import type { RunRow } from './dispatches-service.ts';
 
 /** What the `page` member of a paged answer carries (005 contract §2). */
@@ -141,4 +146,33 @@ export function parseDispatchListBody(text: string): DispatchListAnswer | null {
     }
 
     return { rows, page };
+}
+
+/**
+ * Build the query one paged read sends (005 contract §1).
+ *
+ * Every value the panel cannot stand behind is simply omitted: the cursor only
+ * travels when the operator has stepped past page one, and a filter only when
+ * it is on — so the barest call is still the closest analogue of an unfiltered
+ * first page rather than a filter nobody chose (FR-042, FR-043).
+ *
+ * @param runs - The section's filters and paging position.
+ * @returns `GET /v1/events` with this read's parameters.
+ */
+export function dispatchListPath(runs: DispatchesState): string {
+    const params: string[] = [`limit=${runs.page.limit}`];
+    const cursor = cursorFor(runs.page);
+    if (cursor !== null) {
+        params.push(`cursor=${encodeURIComponent(cursor)}`);
+    }
+
+    if (runs.filters.bindingId !== null) {
+        params.push(`bindingId=${encodeURIComponent(runs.filters.bindingId)}`);
+    }
+
+    if (runs.filters.state !== null) {
+        params.push(`state=${encodeURIComponent(runs.filters.state)}`);
+    }
+
+    return `${EVENTS_PATH}?${params.join('&')}`;
 }

@@ -32,6 +32,7 @@ import type {
     TextFieldHandle,
 } from '@openchamber/sdk/ui';
 import type { PanelRuntime, BindingsTabState } from './panel-state.ts';
+import type { DispatchControlsHandlers } from './dispatches-controls.ts';
 import { notListedGuidance } from './project-picker.ts';
 import { bindingRows } from './bindings-rows.ts';
 
@@ -74,7 +75,7 @@ export interface BindingsPane {
 }
 
 /** Callbacks the mounted Bindings pane invokes. */
-export interface BindingsPaneHandlers {
+export interface BindingsPaneHandlers extends DispatchControlsHandlers {
     /** Operators re-read the bindings and accounts. */
     readonly refresh: () => void;
     /** Operators submitted the add form. */

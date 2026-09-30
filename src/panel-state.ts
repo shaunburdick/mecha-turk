@@ -94,6 +94,7 @@ export function initialDispatches(): DispatchesState {
         audit: initialAuditHistory(),
         filters: initialDispatchFilters(),
         page: initialDispatchListPage(),
+        referencesOpen: false,
     };
 }
 
@@ -405,6 +406,8 @@ export interface DispatchesState {
     filters: DispatchFilters;
     /** Paging position inside the set the filters describe (FR-042). */
     page: DispatchListPage;
+    /** Whether the selected row's source-reference reveal is open (FR-048). */
+    referencesOpen: boolean;
 }
 
 /** The run controls that ask for a confirmation step before they act (T-025). */

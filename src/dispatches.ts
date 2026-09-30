@@ -19,43 +19,14 @@ import { initialAuditHistory } from './audit-view.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import { runAffordance, selectedRun } from './dispatches-rows.ts';
-import { parseDispatchListBody } from './dispatches-list.ts';
+import { dispatchListPath, parseDispatchListBody } from './dispatches-list.ts';
 import { BLOCKED_PREFIX } from './dispatches-service.ts';
-import { cursorFor, recordDispatchPageMeta } from './dispatch-page.ts';
-import { EVENTS_PATH, requeuePath, resolvePath, retryPath, serviceGet, servicePost } from './service-calls.ts';
+import { recordDispatchPageMeta } from './dispatch-page.ts';
+import { requeuePath, resolvePath, retryPath, serviceGet, servicePost } from './service-calls.ts';
 import { describeError, resolveProject } from './session.ts';
 import type { ServiceErrorResult } from './service-calls.ts';
-import type { PanelRuntime, DispatchesState, RunPendingAction } from './panel-state.ts';
+import type { PanelRuntime, RunPendingAction } from './panel-state.ts';
 import type { RunRow } from './dispatches-service.ts';
-
-/**
- * Build the query one paged read sends (005 contract §1).
- *
- * Every value the panel cannot stand behind is simply omitted: the cursor only
- * travels when the operator has stepped past page one, and a filter only when
- * it is on — so the barest call is still the closest analogue of an unfiltered
- * first page rather than a filter nobody chose (FR-042, FR-043).
- *
- * @param runs - The section's filters and paging position.
- * @returns `GET /v1/events` with this read's parameters.
- */
-export function dispatchListPath(runs: DispatchesState): string {
-    const params: string[] = [`limit=${runs.page.limit}`];
-    const cursor = cursorFor(runs.page);
-    if (cursor !== null) {
-        params.push(`cursor=${encodeURIComponent(cursor)}`);
-    }
-
-    if (runs.filters.bindingId !== null) {
-        params.push(`bindingId=${encodeURIComponent(runs.filters.bindingId)}`);
-    }
-
-    if (runs.filters.state !== null) {
-        params.push(`state=${encodeURIComponent(runs.filters.state)}`);
-    }
-
-    return `${EVENTS_PATH}?${params.join('&')}`;
-}
 
 /**
  * Whether the mount still runs; a function call the analyzer never narrows.
@@ -117,6 +88,7 @@ export async function loadDispatches(rt: PanelRuntime): Promise<void> {
     runs.page = recordDispatchPageMeta(runs.page, answer.page);
     if (runs.selectedRun !== null && !answer.rows.some((row) => row.id === runs.selectedRun)) {
         runs.selectedRun = null;
+        runs.referencesOpen = false;
         runs.audit = initialAuditHistory();
     }
 
@@ -148,10 +120,12 @@ export function selectDispatch(rt: PanelRuntime, id: string): void {
     if (runs.rows.some((row) => row.id === id)) {
         runs.selectedRun = id;
         // A confirmation armed against one run must not outlive the selection
-        // it was written for, and neither may a session id typed for it or the
-        // trail another run's id fetched (T-025, T-026).
+        // it was written for, and neither may a session id typed for it, the
+        // trail another run's id fetched, or another row's revealed references
+        // (T-025, T-026, FR-048).
         runs.pendingAction = null;
         runs.sessionInput = '';
+        runs.referencesOpen = false;
         runs.audit = initialAuditHistory();
     }
 
@@ -532,4 +506,58 @@ export function setSessionInput(rt: PanelRuntime, value: string): void {
     }
 
     rt.state.dispatches.sessionInput = value;
+}
+
+/**
+ * Reveal or hide the selected row's source references (FR-048, AC-120).
+ *
+ * A view toggle, not a run operation: it sends nothing, changes no row, and
+ * costs no budget. Selecting a different row closes it (see
+ * {@link selectDispatch}), so the reveal can never show one dispatch's
+ * references under another dispatch's selection.
+ *
+ * @param rt - Panel runtime.
+ */
+export function toggleReferences(rt: PanelRuntime): void {
+    const { dispatches: runs } = rt.state;
+    if (rt.disposed || runs.selectedRun === null) {
+        return;
+    }
+
+    runs.referencesOpen = !runs.referencesOpen;
+    refresh(rt);
+}
+
+/**
+ * Copy the selected row's correlation id to the clipboard (FR-049).
+ *
+ * Every outcome lands on the note line rather than being swallowed: no
+ * selection says there is nothing to copy, and a clipboard the frame refuses
+ * says so with the cause — an unavailable copy is always a reason, never a
+ * silent nothing (FR-003, FR-049).
+ *
+ * @param rt - Panel runtime.
+ */
+export async function copyCorrelationId(rt: PanelRuntime): Promise<void> {
+    const { dispatches: runs } = rt.state;
+    const row = selectedRun(runs);
+    if (row === null) {
+        runs.note = 'Nothing to copy: select a dispatch first.';
+        refresh(rt);
+
+        return;
+    }
+
+    try {
+        await rt.host.writeClipboard(row.correlationId);
+        if (!rt.disposed) {
+            runs.note = `Correlation id ${row.correlationId} copied.`;
+        }
+    } catch (cause) {
+        if (!rt.disposed) {
+            runs.note = redact(`The correlation id could not be copied: ${describeError(cause)}.`);
+        }
+    }
+
+    refresh(rt);
 }

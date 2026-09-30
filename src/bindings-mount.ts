@@ -32,6 +32,15 @@ import { mountBindingsBody } from './bindings-ui.ts';
 import type { BindingsPaneHandlers } from './bindings-ui.ts';
 import { loadAuditHistory } from './audit-view.ts';
 import {
+    clearFilters,
+    nextPage,
+    previousPage,
+    setBindingFilter,
+    setPageLimit,
+    setStateFilter,
+} from './dispatches-paging.ts';
+import {
+    copyCorrelationId,
     loadDispatches,
     openDispatch,
     requeueRun,
@@ -40,6 +49,7 @@ import {
     retryRun,
     selectDispatch,
     setSessionInput,
+    toggleReferences,
 } from './dispatches.ts';
 
 /**
@@ -85,6 +95,14 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
         resolveNoSession: () => void resolveNoSession(rt),
         setSessionInput: (value) => setSessionInput(rt, value),
         loadAudit: () => void loadAuditHistory(rt),
+        previousPage: () => void previousPage(rt),
+        nextPage: () => void nextPage(rt),
+        setPageLimit: (limit) => setPageLimit(rt, limit),
+        setBindingFilter: (bindingId) => setBindingFilter(rt, bindingId),
+        setStateFilter: (state) => setStateFilter(rt, state),
+        clearFilters: () => clearFilters(rt),
+        toggleReferences: () => toggleReferences(rt),
+        copyCorrelationId: () => void copyCorrelationId(rt),
     };
 }
 

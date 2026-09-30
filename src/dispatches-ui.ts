@@ -32,7 +32,6 @@ import {
     RESOLVE_LABEL,
     RETRY_LABEL,
     RETURN_LABEL,
-    DISPATCHES_EMPTY_TEXT,
     DISPATCHES_HEADING,
     SESSION_CREATED_LABEL,
     runAffordance,
@@ -41,6 +40,16 @@ import {
     selectedRun,
 } from './dispatches-rows.ts';
 import type { BindingsPaneHandlers } from './bindings-ui.ts';
+import {
+    combineControls,
+    createControlGroup,
+    dispatchEmptyText,
+    mountDispatchesControls,
+    mountRowDetail,
+    repaintDispatchesControls,
+    rowActionLabel,
+} from './dispatches-controls.ts';
+import type { DispatchesControls } from './dispatches-controls.ts';
 
 /** Inputs the runs section's mounts share (runtime, pane root, handlers). */
 interface MountInputs {
@@ -96,44 +105,55 @@ export interface DispatchesBoard {
     readonly agentNoticeBox: HTMLElement;
     /** Agent-verification banner (M9). */
     readonly agentNotice: BannerHandle;
+    /** Paging, filter, and row-detail controls (005 T-017, FR-042/FR-043/FR-048). */
+    readonly controls: DispatchesControls;
 }
 
+/** Board members the heading half owns. */
+type DispatchesHeadKeys = 'dispatchesHeading' | 'dispatchesStatus';
+
+/** Board members the list itself owns. */
+type DispatchesListKeys = 'dispatchesList';
+
 /**
- * Create a wrapping row the runs controls mount into.
+ * Mount the heading and the status line.
  *
- * @param pane - The pane root.
- * @returns The row element the buttons mount into.
+ * Split from the list so the range line and the filters can sit between what
+ * the tab *says* and what it *shows*: an operator reads which set is on
+ * screen, and which filters describe it, before reading the rows (FR-042,
+ * FR-043).
+ *
+ * @param input - Pane root and runtime.
+ * @returns The two handles the heading half needs.
  */
-function createControlGroup(pane: HTMLElement): HTMLElement {
-    const group = pane.ownerDocument.createElement('div');
-    group.style.display = 'flex';
-    group.style.flexWrap = 'wrap';
-    group.style.gap = '8px';
-    pane.append(group);
+function mountDispatchesHead(input: Pick<MountInputs, 'pane' | 'rt'>): Pick<DispatchesBoard, DispatchesHeadKeys> {
+    const { pane, rt } = input;
 
-    return group;
+    return {
+        dispatchesHeading: mountText(pane, { text: DISPATCHES_HEADING }),
+        dispatchesStatus: mountText(pane, { text: dispatchesStatusText(rt.state.dispatches) }),
+    };
 }
 
-/** Board members the list half owns. */
-type DispatchesListKeys = 'dispatchesHeading' | 'dispatchesStatus' | 'dispatchesList';
-
 /**
- * Mount the heading, status line, and list of runs.
+ * Mount the list of runs.
+ *
+ * Its empty slot is the one AC-122 polices: with a filter on it says the
+ * filter matched nothing and offers the control that clears it, never that
+ * there are no dispatches (FR-043).
  *
  * @param input - Runtime, pane root, and handlers.
- * @returns The three handles the list half needs.
+ * @returns The list handle.
  */
 function mountDispatchesList(input: MountInputs): Pick<DispatchesBoard, DispatchesListKeys> {
     const { pane, rt, handlers } = input;
     const { dispatches: runs } = rt.state;
 
     return {
-        dispatchesHeading: mountText(pane, { text: DISPATCHES_HEADING }),
-        dispatchesStatus: mountText(pane, { text: dispatchesStatusText(runs) }),
         dispatchesList: mountList(pane, {
             items: dispatchRows(runs),
             ariaLabel: 'Dispatches',
-            emptyText: DISPATCHES_EMPTY_TEXT,
+            emptyText: dispatchEmptyText(runs),
             selectedId: runs.selectedRun,
             onSelect: (id) => handlers.selectDispatch(id),
         }),
@@ -142,6 +162,9 @@ function mountDispatchesList(input: MountInputs): Pick<DispatchesBoard, Dispatch
 
 /** Board members the shared action row owns. */
 type SharedActionKeys = 'refreshDispatches' | 'openDispatch';
+
+/** Label of the control that opens the selected row's issue. */
+const OPEN_ISSUE_LABEL = 'Open issue';
 
 /**
  * Mount the two controls every selection offers: refresh, and open the issue.
@@ -159,7 +182,7 @@ function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick
             onClick: input.handlers.refreshDispatches,
         }),
         openDispatch: mountButton(controls, {
-            label: 'Open issue',
+            label: OPEN_ISSUE_LABEL,
             variant: 'outline',
             disabled: true,
             onClick: input.handlers.openDispatch,
@@ -302,32 +325,6 @@ function mountAgentNotice(
 }
 
 /**
- * Mount the runs section: heading, status, list, actions, and notes.
- *
- * The list starts from whatever state the mount already holds (idle on a
- * fresh panel, rows after a restore), so the first repaint after
- * `loadDispatches` completes is the one that fills it in — exactly how the
- * bindings board above behaves.
- *
- * @param input - Runtime, pane root, and handlers.
- * @returns The runs handles the pane repaints through.
- */
-export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
-    const { pane, rt } = input;
-    const { dispatches: runs } = rt.state;
-
-    return {
-        ...mountDispatchesList(input),
-        ...mountSharedActions(input),
-        ...mountTransitions(input),
-        ...mountResolutions(input),
-        dispatchesNote: mountText(pane, { text: runs.note }),
-        ...mountAuditView(input),
-        ...mountAgentNotice(pane, runs),
-    };
-}
-
-/**
  * Dispose every SDK handle a mounted dispatches board owns (FR-017).
  *
  * The wrapper elements go with their body's node; the handles themselves carry
@@ -358,26 +355,37 @@ export function disposeDispatchesBoard(board: DispatchesBoard): void {
     for (const handle of handles) {
         handle.dispose();
     }
+
+    board.controls.dispose();
 }
 
 /**
  * Repaint FR-027's two resolutions and the field that names the session.
  *
  * Split out of {@link repaintDispatchesBoard} because the two armed labels are the
- * two branches an operator reads as "this click will send".
+ * two branches an operator reads as "this click will send". Each label names
+ * the row it will act on (FR-081).
  *
- * @param runs - The runs section's state.
- * @param board - The mounted runs half.
+ * @param input - The runs state, the label namer, and the mounted board.
  */
-function repaintResolutions(runs: DispatchesState, board: DispatchesBoard): void {
-    board.resolveSession.update({
-        label: runs.pendingAction === 'resolve-session' ? CONFIRM_SESSION_CREATED_LABEL : SESSION_CREATED_LABEL,
-        disabled: runs.busy,
-    });
-    board.resolveNoSession.update({
-        label: runs.pendingAction === 'resolve-no-session' ? CONFIRM_NO_SESSION_LABEL : NO_SESSION_LABEL,
-        disabled: runs.busy,
-    });
+function repaintResolutions(input: {
+    /** The runs section's state. */
+    readonly runs: DispatchesState;
+    /** Names one action label with the selected row. */
+    readonly labelFor: (base: string) => string;
+    /** The mounted runs half. */
+    readonly board: DispatchesBoard;
+}): void {
+    const { runs, labelFor, board } = input;
+    const sessionBase = runs.pendingAction === 'resolve-session'
+        ? CONFIRM_SESSION_CREATED_LABEL
+        : SESSION_CREATED_LABEL;
+    const noSessionBase = runs.pendingAction === 'resolve-no-session'
+        ? CONFIRM_NO_SESSION_LABEL
+        : NO_SESSION_LABEL;
+
+    board.resolveSession.update({ label: labelFor(sessionBase), disabled: runs.busy });
+    board.resolveNoSession.update({ label: labelFor(noSessionBase), disabled: runs.busy });
     board.sessionField.update({ value: runs.sessionInput, disabled: runs.busy });
 }
 
@@ -390,6 +398,11 @@ function repaintResolutions(runs: DispatchesState, board: DispatchesBoard): void
  * control repaints its confirm label from the same state the action module
  * wrote (T-025).
  *
+ * Every row-level action also repaints an **accessible name that names its
+ * row** — *Retry dispatch for #412 in owner/name* — because a list of
+ * identically-labelled buttons is a list an operator cannot act on with a
+ * screen reader (FR-081).
+ *
  * @param rt - Panel runtime.
  * @param board - The mounted runs half.
  */
@@ -397,20 +410,25 @@ export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard)
     const { dispatches: runs } = rt.state;
     const selected = selectedRun(runs);
     const affordance = selected === null ? null : runAffordance(selected);
+    const labelFor = (base: string): string => (selected === null ? base : rowActionLabel(base, selected));
 
     board.dispatchesStatus.update({ text: dispatchesStatusText(runs) });
-    board.dispatchesList.update({ items: dispatchRows(runs), selectedId: runs.selectedRun });
+    board.dispatchesList.update({
+        items: dispatchRows(runs),
+        selectedId: runs.selectedRun,
+        emptyText: dispatchEmptyText(runs),
+    });
     board.refreshDispatches.update({ disabled: runs.status === 'loading' });
-    board.openDispatch.update({ disabled: selected === null });
+    board.openDispatch.update({ disabled: selected === null, label: labelFor(OPEN_ISSUE_LABEL) });
     board.retryRunBox.hidden = affordance?.action !== 'retry';
-    board.retryRun.update({ disabled: runs.busy });
+    board.retryRun.update({ disabled: runs.busy, label: labelFor(RETRY_LABEL) });
     board.requeueRunBox.hidden = affordance?.action !== 'requeue';
     board.requeueRun.update({
-        label: runs.pendingAction === 'requeue' ? CONFIRM_RETURN_LABEL : RETURN_LABEL,
+        label: labelFor(runs.pendingAction === 'requeue' ? CONFIRM_RETURN_LABEL : RETURN_LABEL),
         disabled: runs.busy,
     });
     board.resolveBox.hidden = selected?.state !== 'unconfirmed';
-    repaintResolutions(runs, board);
+    repaintResolutions({ runs, labelFor, board });
     board.dispatchesNote.update({ text: runs.note });
     board.auditButton.update({ disabled: selected === null || runs.audit.status === 'loading' });
     board.auditStatus.update({ text: auditStatusText(runs.audit) });
@@ -424,4 +442,50 @@ export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard)
             body: runs.agentNotice.body,
         });
     }
+
+    repaintDispatchesControls(rt, board.controls);
+}
+
+/**
+ * Mount the runs section: heading, controls, list, actions, and notes.
+ *
+ * The list starts from whatever state the mount already holds (idle on a
+ * fresh panel, rows after a restore), so a mount finishes with **one repaint**
+ * — the body first appears long after the mount-time read landed, and without
+ * it the paging controls would render their pre-read flags while the rows
+ * already show the answer (FR-019, FR-081).
+ *
+ * @param input - Runtime, pane root, and handlers.
+ * @returns The runs handles the pane repaints through.
+ */
+export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
+    const { pane, rt } = input;
+    const { dispatches: runs } = rt.state;
+    // Mount order is DOM order: what the tab says, the controls that say which
+    // slice of the set is on screen and under which filters, then the rows
+    // those controls describe — and the selected row's detail after them.
+    const head = mountDispatchesHead(input);
+    const paging = mountDispatchesControls(input);
+    const list = mountDispatchesList(input);
+    const shared = mountSharedActions(input);
+    const transitions = mountTransitions(input);
+    const resolutions = mountResolutions(input);
+    const detail = mountRowDetail(input);
+    const note = mountText(pane, { text: runs.note });
+    const audit = mountAuditView(input);
+    const agent = mountAgentNotice(pane, runs);
+    const board: DispatchesBoard = {
+        ...head,
+        ...list,
+        ...shared,
+        ...transitions,
+        ...resolutions,
+        controls: combineControls(paging, detail),
+        dispatchesNote: note,
+        ...audit,
+        ...agent,
+    };
+    repaintDispatchesBoard(rt, board);
+
+    return board;
 }
