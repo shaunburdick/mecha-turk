@@ -15,7 +15,12 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CONSENT_VERSION } from '../src/consent.ts';
 import { ACCOUNTS_DIR, BINDINGS_FILE } from '../service/accounts/store.ts';
-import { ACCOUNTS_PATH, ACCOUNT_PATH, ACCOUNT_TOKEN_PATH } from '../service/routes/accounts.ts';
+import {
+    ACCOUNTS_PATH,
+    ACCOUNT_DISPLAY_NAME_PATH,
+    ACCOUNT_PATH,
+    ACCOUNT_TOKEN_PATH,
+} from '../service/routes/accounts.ts';
 import { VERIFY_PATH } from '../service/routes/verify.ts';
 import { STATUS_PATH } from '../service/routes/status.ts';
 import type { AccountDto } from '../service/accounts/model.ts';
@@ -27,6 +32,9 @@ import type { TestService } from './support/service.ts';
 
 /** Credential registered with this suite's scans; deliberately un-prefixed. */
 const REGISTERED_TOKEN = `registered-persist-credential-${'p'.repeat(32)}`;
+
+/** Code the refusal envelope carries when no account holds the path id. */
+const UNKNOWN_ACCOUNT_CODE = 'unknown-account';
 
 /** Numeric id the fixture token belongs to. */
 const ACCOUNT_ID = 77_331;
@@ -362,7 +370,7 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
         const error = (await response.json()) as { error?: { code?: string } };
 
         expect(response.status).toBe(404);
-        expect(error.error?.code).toBe('unknown-account');
+        expect(error.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
     });
 
     it('restores an errored account to active after a successful rotation', async () => {
@@ -429,7 +437,7 @@ describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7
             const response = await service.call(ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, id), { method: 'DELETE' });
             const error = (await response.json()) as { error?: { code?: string } };
             expect(response.status).toBe(404);
-            expect(error.error?.code).toBe('unknown-account');
+            expect(error.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
         }
     });
 });
@@ -490,5 +498,250 @@ describe('F13 — startup reconciliation of interrupted handoffs', () => {
         expect(account.errorReason).toBeNull();
         expect(audit).toContain('"eventType":"account.error"');
         expect(audit).toContain('interrupted handoff re-verified at startup');
+    });
+});
+
+/** The field name every display-name refusal on that route names. */
+const FIELD = 'displayName';
+
+/** A planted sentinel inside a credential-shaped value (AC-130). */
+const SENTINEL = 'zzPLANTEDzz';
+
+/**
+ * PUT one display-name body against a routed account path.
+ *
+ * @param options - Harness instance, the path id, and the request body.
+ * @returns The response.
+ */
+function putDisplayNameAt(options: {
+    /** Harness instance to call. */
+    readonly service: TestService;
+    /** Path id the label is written against. */
+    readonly userId: string;
+    /** Request body exactly as the client would send it. */
+    readonly body: string;
+}): Promise<Response> {
+    const { service, userId, body } = options;
+
+    return service.call(ACCOUNT_DISPLAY_NAME_PATH.replace(ACCOUNT_PATH_PARAM, userId), {
+        method: 'PUT',
+        headers: jsonHeaders(),
+        body,
+    });
+}
+
+/**
+ * PUT one display-name body against the fixture account's path.
+ *
+ * @param service - Harness instance.
+ * @param body - The request body exactly as the client would send it.
+ * @returns The response.
+ */
+function putDisplayName(service: TestService, body: string): Promise<Response> {
+    return putDisplayNameAt({ service, userId: String(ACCOUNT_ID), body });
+}
+
+/**
+ * PUT one display-name body and report the response status alone.
+ *
+ * @param service - Harness instance.
+ * @param body - The request body exactly as the client would send it.
+ * @returns The HTTP status the service answered.
+ */
+async function putStatus(service: TestService, body: string): Promise<number> {
+    const response = await putDisplayName(service, body);
+
+    return response.status;
+}
+
+/**
+ * Read the refusal envelope's first issue.
+ *
+ * @param response - The `422` answer.
+ * @returns Its `field` and remediation.
+ */
+async function issueOf(response: Response): Promise<{ readonly field: string; readonly remediation: string }> {
+    const body = (await response.json()) as {
+        readonly error: { readonly issues: { readonly field: string; readonly remediation: string }[] };
+    };
+
+    return body.error.issues[0] ?? { field: '', remediation: '' };
+}
+
+/**
+ * Read the stored account document straight from the service's directory.
+ *
+ * @param service - Harness instance owning the directory.
+ * @returns The parsed record.
+ */
+async function storedAccount(service: TestService): Promise<Record<string, unknown>> {
+    return await readStoredAccount(service.dataDir);
+}
+
+/**
+ * The absolute path of the fixture account's stored record.
+ *
+ * @param service - Harness instance owning the directory.
+ * @returns The path.
+ */
+function accountFileOf(service: TestService): string {
+    return join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
+}
+
+describe('PUT /v1/accounts/:id/display-name — the one display-only field (005 FR-066)', () => {
+    it('stores a label, trims it, and changes nothing but the label and its stamp', async () => {
+        const service = await startService({ user: USER_OK });
+        await verifyOk(service);
+        const before = await storedAccount(service);
+
+        const response = await putDisplayName(service, JSON.stringify({ displayName: '  Octo platform  ' }));
+        const body = (await response.json()) as { readonly account: AccountDto };
+
+        expect(response.status).toBe(200);
+        expect(body.account.displayName).toBe('Octo platform');
+        expect('credential' in body.account).toBe(false);
+
+        const after = await storedAccount(service);
+        const changed = Object.keys(after).filter((key) => JSON.stringify(after[key]) !== JSON.stringify(before[key]));
+        expect(changed).toContain(FIELD);
+        expect(changed.filter((key) => key !== FIELD && key !== 'updatedAt')).toEqual([]);
+    });
+
+    it('refuses a body that does not carry the member, rather than no-oping', async () => {
+        const service = await startService({ user: USER_OK });
+        await verifyOk(service);
+        const file = accountFileOf(service);
+        const before = await readFile(file, 'utf8');
+
+        const response = await putDisplayName(service, JSON.stringify({}));
+        const issue = await issueOf(response);
+
+        expect(response.status).toBe(422);
+        expect(issue.field).toBe(FIELD);
+        expect(issue.remediation).not.toBe('');
+        expect(await readFile(file, 'utf8')).toBe(before);
+    });
+
+    it('refuses a credential-shaped value by field, never echoing what was sent (AC-130)', async () => {
+        const service = await startService({ user: USER_OK });
+        await verifyOk(service);
+        await putDisplayName(service, JSON.stringify({ displayName: 'the label in force' }));
+        const file = accountFileOf(service);
+        const before = await readFile(file, 'utf8');
+        const submitted = `ghp_${SENTINEL}${'a'.repeat(24)}`;
+
+        const response = await putDisplayName(service, JSON.stringify({ displayName: submitted }));
+        const text = await response.text();
+        const parsed = JSON.parse(text) as {
+            readonly error: { readonly issues: { readonly field: string; readonly remediation: string }[] };
+        };
+        const issue = parsed.error.issues[0] ?? { field: '', remediation: '' };
+
+        expect(response.status).toBe(422);
+        expect(issue.field).toBe(FIELD);
+        expect(issue.remediation).toContain('credential-shaped material');
+        expect(text).not.toContain(SENTINEL);
+        // The previous label stays in force, byte for byte.
+        expect(await readFile(file, 'utf8')).toBe(before);
+    });
+
+    it('clears on null and on empty-after-trim, and refuses anything that is not text', async () => {
+        const service = await startService({ user: USER_OK });
+        await verifyOk(service);
+
+        expect(await putStatus(service, JSON.stringify({ displayName: 'kept' }))).toBe(200);
+        expect(await putStatus(service, JSON.stringify({ displayName: '   ' }))).toBe(200);
+        const afterBlank = await storedAccount(service);
+        expect(afterBlank[FIELD]).toBeNull();
+
+        expect(await putStatus(service, JSON.stringify({ displayName: 'back again' }))).toBe(200);
+        expect(await putStatus(service, JSON.stringify({ displayName: null }))).toBe(200);
+        const afterNull = await storedAccount(service);
+        expect(afterNull[FIELD]).toBeNull();
+
+        const refused = await putDisplayName(service, JSON.stringify({ displayName: 42 }));
+        expect(refused.status).toBe(422);
+        const issue = await issueOf(refused);
+        expect(issue.field).toBe(FIELD);
+    });
+
+    it('caps the label at 80 code points and refuses control characters', async () => {
+        const service = await startService({ user: USER_OK });
+        await verifyOk(service);
+
+        expect(await putStatus(service, JSON.stringify({ displayName: 'x'.repeat(80) }))).toBe(200);
+
+        const overCap = await putDisplayName(service, JSON.stringify({ displayName: 'x'.repeat(81) }));
+        const capIssue = await issueOf(overCap);
+        expect(overCap.status).toBe(422);
+        expect(capIssue.field).toBe(FIELD);
+        expect(capIssue.remediation).toContain('80');
+
+        const controlled = await putDisplayName(service, JSON.stringify({ displayName: 'badname\u0007x' }));
+
+        const controlIssue = await issueOf(controlled);
+        expect(controlled.status).toBe(422);
+        expect(controlIssue.field).toBe(FIELD);
+        expect(controlIssue.remediation).toContain('control characters');
+        expect(controlIssue.remediation).not.toContain('bad');
+    });
+
+    it('reads as null for a store that predates the field, rewriting nothing (FR-005)', async () => {
+        const dataDir = await sharedDataDir();
+        const service = await startService({ user: USER_OK }, dataDir);
+        await verifyOk(service);
+        const file = join(dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
+        const legacy = await readStoredAccount(dataDir);
+        const withoutLabel = Object.fromEntries(Object.entries(legacy).filter(([key]) => key !== FIELD));
+        await writeFile(file, JSON.stringify(withoutLabel, null, 2), 'utf8');
+        const bytes = await readFile(file, 'utf8');
+
+        const response = await service.call(ACCOUNTS_PATH);
+        const body = (await response.json()) as { readonly accounts: readonly AccountDto[] };
+
+        expect(body.accounts[0]?.displayName).toBeNull();
+        expect(await readFile(file, 'utf8')).toBe(bytes);
+    });
+
+    it('keeps the label when an upstream login rename refreshes the login (AC-128)', async () => {
+        const github = fakeGitHub({ user: USER_OK });
+        const service = await startWithVerifier(github.verifier);
+        await verifyOk(service);
+        expect(await putStatus(service, JSON.stringify({ displayName: 'Platform team' }))).toBe(200);
+        github.setScript({ user: USER_RENAMED });
+
+        const rotated = await rotateToken({ service, token: `${REGISTERED_TOKEN}-rotated` });
+        expect(rotated.status).toBe(200);
+
+        const listed = await service.call(ACCOUNTS_PATH);
+        const body = (await listed.json()) as { readonly accounts: readonly AccountDto[] };
+
+        expect(body.accounts[0]?.login).toBe(ROTATED_LOGIN);
+        expect(body.accounts[0]?.displayName).toBe('Platform team');
+    });
+
+    it('answers a populated label with no credential-shaped text (AC-129)', async () => {
+        const service = await startService({ user: USER_OK });
+        await verifyOk(service);
+        const benign = 'Platform owned by the release rotation, contact ops';
+        expect(await putStatus(service, JSON.stringify({ displayName: benign }))).toBe(200);
+
+        const listed = await service.call(ACCOUNTS_PATH);
+        const text = await listed.text();
+
+        expect(text).toContain(benign);
+        expect(text).not.toMatch(/\bgh[pousr]_[A-Za-z0-9]{20,}/);
+        expect(text).not.toMatch(/\bgithub_pat_[A-Za-z0-9_]{20,}/);
+    });
+
+    it('answers 404 for an id no account holds', async () => {
+        const service = await startService({ user: USER_OK });
+
+        const body = JSON.stringify({ displayName: 'nobody' });
+        const response = await putDisplayNameAt({ service, userId: '123456789', body });
+        const envelope = (await response.json()) as { error?: { code?: string } };
+
+        expect(response.status).toBe(404);
+        expect(envelope.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
     });
 });

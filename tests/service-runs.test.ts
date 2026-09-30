@@ -28,6 +28,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { CONSENT_VERSION } from '../src/consent.ts';
 import { EVENTS_FILE, createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { readRunsDocument } from '../service/poll/runs.ts';
+import { createPollingView } from '../service/poll/view.ts';
 import { RETRY_PATH } from '../service/routes/run-ops.ts';
 import { EVENTS_PATH, EVENTS_PENDING_PATH, eventHistoryRoute } from '../service/routes/events.ts';
 import { VERIFY_PATH } from '../service/routes/verify.ts';
@@ -332,6 +333,27 @@ async function readStoredRuns(service: TestService): Promise<readonly Run[]> {
     return document.runs;
 }
 
+/** One `GET /v1/events` answer, with the 005 paging member beside the rows. */
+interface HistoryAnswer {
+    /** The page's rows, newest detected first. */
+    readonly events: Record<string, unknown>[];
+    /** The paging member the route now answers with (005 FR-042). */
+    readonly page: {
+        /** Effective page size. */
+        readonly limit: number;
+        /** Boundary token for the next page, or `null` at the end. */
+        readonly nextCursor: string | null;
+        /** Whether a further page exists. */
+        readonly hasMore: boolean;
+        /** Size of the filtered set. */
+        readonly total: number | null;
+        /** Stamp this read carries. */
+        readonly snapshotAt: string;
+        /** Echo of the applied filters. */
+        readonly filter: { readonly bindingId: string | null; readonly state: string | null };
+    };
+}
+
 describe('GET /v1/events (runs history)', () => {
     it('projects every run newest-detected-first, field set exactly as documented', async () => {
         const service = await startWithQueue([
@@ -369,7 +391,7 @@ describe('GET /v1/events (runs history)', () => {
         expect(stored.every((run) => run.lease === null)).toBe(true);
     });
 
-    it('caps the history at 100 rows, dropping the oldest detections', async () => {
+    it('pages the history: 25 by default, 100 at most, and the oldest still reachable', async () => {
         const rows: QueuedEvent[] = [];
         for (let issueNumber = 1; issueNumber <= 105; issueNumber += 1) {
             rows.push(fixtureEvent({ issueNumber, detectedAt: detectionStamp(issueNumber), kind: 'assignment' }));
@@ -377,13 +399,46 @@ describe('GET /v1/events (runs history)', () => {
 
         const service = await startWithQueue(rows);
 
-        const response = await service.call(EVENTS_PATH);
-        expect(response.status).toBe(200);
+        const first = await service.call(EVENTS_PATH);
+        expect(first.status).toBe(200);
+        const pageOne = (await first.json()) as HistoryAnswer;
+        // The default page is 25, and the total is the set — never the page.
+        expect(pageOne.events).toHaveLength(25);
+        expect(pageOne.page.limit).toBe(25);
+        expect(pageOne.page.total).toBe(105);
+        expect(pageOne.page.hasMore).toBe(true);
+        expect(pageOne.page.nextCursor).not.toBeNull();
+        expect(pageOne.page.filter).toEqual({ bindingId: null, state: null });
+        expect(pageOne.page.snapshotAt).not.toBe('');
+        expect(pageOne.events[0]?.issueNumber).toBe(105);
 
-        const body = (await response.json()) as { events: Record<string, unknown>[] };
-        expect(body.events).toHaveLength(100);
-        expect(body.events[0]?.issueNumber).toBe(105);
-        expect(body.events.at(-1)?.issueNumber).toBe(6);
+        // The shipped 100-row cap is the maximum page size, not a wall.
+        const capped = await service.call(`${EVENTS_PATH}?limit=100`);
+        const capAnswer = (await capped.json()) as HistoryAnswer;
+        expect(capAnswer.events).toHaveLength(100);
+        expect(capAnswer.page.limit).toBe(100);
+        expect(capAnswer.page.total).toBe(105);
+        expect(capAnswer.events[0]?.issueNumber).toBe(105);
+        expect(capAnswer.events.at(-1)?.issueNumber).toBe(6);
+
+        // …so the 101st row is reachable through the boundary token.
+        const cursor = capAnswer.page.nextCursor;
+        expect(cursor).not.toBeNull();
+        const tail = await service.call(`${EVENTS_PATH}?limit=100&cursor=${encodeURIComponent(cursor ?? '')}`);
+        const tailAnswer = (await tail.json()) as HistoryAnswer;
+        expect(tailAnswer.events).toHaveLength(5);
+        expect(tailAnswer.events[0]?.issueNumber).toBe(5);
+        expect(tailAnswer.events.at(-1)?.issueNumber).toBe(1);
+        expect(tailAnswer.page.hasMore).toBe(false);
+        expect(tailAnswer.page.nextCursor).toBeNull();
+        expect(tailAnswer.page.total).toBe(105);
+
+        // No duplicate and no gap across the boundary (AC-121).
+        const seen = new Set([
+            ...capAnswer.events.map((row) => String(row.correlationId)),
+            ...tailAnswer.events.map((row) => String(row.correlationId)),
+        ]);
+        expect(seen.size).toBe(105);
     });
 
     it('keeps the claim route reachable beside the new literal route', async () => {
@@ -477,6 +532,7 @@ function noStoreContext(): RouteContext {
         schemaVersion: 1,
         github: offlineVerifier(),
         throttle: createVerifyThrottle(),
+        polling: createPollingView().view,
     };
 }
 

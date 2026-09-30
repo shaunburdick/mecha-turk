@@ -364,12 +364,10 @@ describe('GET /v1/status', () => {
         expect(body.accounts).toEqual([]);
         expect(body.repositories).toEqual([]);
         expect(body.agentPin).toEqual({ expectedAgent: null, lastVerification: null });
-        expect(body.polling).toEqual({
-            intervalMs: DEFAULT_CONFIG.intervalMs,
-            nextPollAt: null,
-            paused: true,
-            pausedReason: 'config-incomplete',
-        });
+        expect(body.polling.intervalMs).toBe(DEFAULT_CONFIG.intervalMs);
+        expect(body.polling.paused).toBe(false);
+        expect(body.polling.pausedReason).toBe('');
+        expect(Date.parse(body.polling.nextPollAt ?? '')).toBeGreaterThan(Date.now());
         expect(body.surface.supported).toBe(true);
     });
 

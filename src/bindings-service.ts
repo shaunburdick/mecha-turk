@@ -74,6 +74,14 @@ export interface PanelAccount {
     readonly numericUserId: string;
     /** Display login. */
     readonly login: string;
+    /**
+     * Operator display label as the service stored it, or `null` when unset
+     * (005 FR-066).
+     *
+     * The panel reads it; it never renders it as identity — `login` stays the
+     * fact the row shows when there is no label.
+     */
+    readonly displayName: string | null;
     /** `true` only for accounts whose latest verification succeeded. */
     readonly usable: boolean;
     /**
@@ -343,6 +351,36 @@ function accountScope(raw: unknown): AccountScopeVerdict | null {
  * @param text - Response body text.
  * @returns The accounts, or `null` when the shape is unusable.
  */
+/** How the accounts reader narrows the display label (005 FR-066). */
+type LabelRead =
+    /** Absent or `null` read as "no label"; a string passes through. */
+    | { readonly ok: true; readonly label: string | null }
+    /** Present and not text: the whole body is refused (invariant 8). */
+    | { readonly ok: false };
+
+/**
+ * Narrow one account record's display label.
+ *
+ * Extracted so the reader below stays inside its complexity budget: this is
+ * the one member the 005 DTO added, and a value that is neither text nor
+ * `null` refuses the body rather than being dropped.
+ *
+ * @param record - One entry of the `accounts` array.
+ * @returns The label, or the refusal that stops the read.
+ */
+function readPanelLabel(record: Record<string, unknown>): LabelRead {
+    const { displayName } = record;
+    if (displayName === undefined || displayName === null) {
+        return { ok: true, label: null };
+    }
+
+    if (typeof displayName !== 'string') {
+        return { ok: false };
+    }
+
+    return { ok: true, label: displayName };
+}
+
 export function parseAccountsBody(text: string): PanelAccount[] | null {
     const root = parseJsonObject(text);
     if (root === null || !Array.isArray(root.accounts)) {
@@ -361,6 +399,11 @@ export function parseAccountsBody(text: string): PanelAccount[] | null {
             return null;
         }
 
+        const label = readPanelLabel(record);
+        if (!label.ok) {
+            return null;
+        }
+
         // The key stays *absent* when there is no readable matrix, so a
         // record that never carried one and a matrix this build cannot read
         // are indistinguishable — both mean "no evidence".
@@ -368,6 +411,7 @@ export function parseAccountsBody(text: string): PanelAccount[] | null {
         accounts.push({
             numericUserId,
             login,
+            displayName: label.label,
             usable: state === 'active',
             ...(scope === null ? {} : { scope }),
         });

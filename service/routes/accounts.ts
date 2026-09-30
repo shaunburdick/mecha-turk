@@ -21,8 +21,8 @@
 
 import { newCorrelationId, nowIso } from '../../src/ids.ts';
 import { appendAudit } from '../audit.ts';
-import { errorResponse, STATUS, storageUnavailableResponse } from '../http.ts';
-import { isNumericUserId, toAccountDto } from '../accounts/model.ts';
+import { errorResponse, STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
+import { isNumericUserId, toAccountDto, validateDisplayName } from '../accounts/model.ts';
 import {
     accountPath,
     bindingsReferencing,
@@ -59,6 +59,9 @@ export const ACCOUNT_TOKEN_PATH = `${ACCOUNTS_PATH}/:numericUserId/token`;
 
 /** Path pattern of one account resource (delete). */
 export const ACCOUNT_PATH = `${ACCOUNTS_PATH}/:numericUserId`;
+
+/** Path pattern of one account's display-label resource (005 FR-066). */
+export const ACCOUNT_DISPLAY_NAME_PATH = `${ACCOUNTS_PATH}/:numericUserId/display-name`;
 
 /** Query flag that authorises a delete past the binding refusal (operator-only). */
 const FORCE_QUERY_FLAG = 'force';
@@ -104,6 +107,22 @@ function bindingsRefusalResponse(count: number): HttpResponse {
         code: 'invalid-transition',
         message: `${count} binding(s) still reference this account — remove them, or confirm a force delete`,
     });
+}
+
+/**
+ * The `422` a display-name body answers with when it does not carry the field.
+ *
+ * Absent means *refused*, never "nothing to do": a PUT that silently no-ops on
+ * a missing member teaches a client that omitting a field clears or preserves
+ * something, and this route promises neither (005 contract §2).
+ *
+ * @returns `422 validation` naming the field and the body it owes.
+ */
+function displayNameBodyRefusal(): HttpResponse {
+    return validationResponse([{
+        field: 'displayName',
+        remediation: 'the body must carry displayName, as text or null',
+    }]);
 }
 
 /**
@@ -457,6 +476,55 @@ async function handleDeleteAccount(context: RouteContext, request: RouteRequest)
     return { status: STATUS.ok, body: { removed: true } };
 }
 
+/**
+ * Run `PUT /v1/accounts/:numericUserId/display-name` from body to response.
+ *
+ * A dedicated narrow operation rather than a whole-account PUT: it can change
+ * nothing but `displayName` and `updatedAt`, so a mistyped body can never reach
+ * custody (`state`, `scopeCheck`, `credential`). The stored value is replaced
+ * by the validator's own answer — trimmed, capped, credential-free — so a
+ * refused write leaves the previous label in force byte for byte (AC-130).
+ *
+ * No audit row is written: 005 adds no event type to the vocabulary
+ * (FR-027), and a display label is not a fact the dispatch trail needs.
+ *
+ * @param context - Route context carrying the open store.
+ * @param request - The routed request; the body must carry `displayName`.
+ * @returns `200 { account }`, or the documented 404/422/503.
+ */
+async function handleSetDisplayName(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
+    const { store } = context;
+    if (store === null) {
+        return storageUnavailableResponse();
+    }
+
+    const pathId = pathAccountId(request);
+    const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId });
+    if (pathId === null || account === null) {
+        return unknownAccountResponse();
+    }
+
+    const { body } = request;
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+        return displayNameBodyRefusal();
+    }
+
+    const record = body as Record<string, unknown>;
+    if (!('displayName' in record)) {
+        return displayNameBodyRefusal();
+    }
+
+    const validation = validateDisplayName(record.displayName);
+    if (!validation.ok) {
+        return validationResponse([validation.issue]);
+    }
+
+    const updated: Account = { ...account, displayName: validation.displayName, updatedAt: nowIso() };
+    await writeAccount(store, updated);
+
+    return { status: STATUS.ok, body: { account: toAccountDto(updated) } };
+}
+
 /** List every registered account without its credential. */
 export const listAccountsRoute: Route = {
     method: 'GET',
@@ -469,6 +537,13 @@ export const rotateTokenRoute: Route = {
     method: 'POST',
     path: ACCOUNT_TOKEN_PATH,
     handler: guardCredentialRoute(handleRotateToken),
+};
+
+/** Set one account's operator display label; changes nothing else (005 FR-066). */
+export const setDisplayNameRoute: Route = {
+    method: 'PUT',
+    path: ACCOUNT_DISPLAY_NAME_PATH,
+    handler: guardCredentialRoute(handleSetDisplayName),
 };
 
 /** Remove one account once its bindings allow it (or are force-disabled). */

@@ -87,10 +87,25 @@ interface ScanContext {
     readonly poller: GitHubIssuePoller;
 }
 
+/** Scheduler state the status projection reads; see [`view.ts`](./view.ts). */
+export interface PollLoopState {
+    /** Whether `stop()` has been called on this loop. */
+    readonly stopped: boolean;
+    /** Epoch milliseconds of the next armed cycle, or `null` when none is armed. */
+    readonly nextPollAtMs: number | null;
+}
+
 /** Handle to the running poll loop. */
 export interface PollLoop {
     /** Cancel the pending cycle; an in-flight cycle finishes on its own. */
     stop(): void;
+    /**
+     * Read the scheduler's own state; never mutates it.
+     *
+     * The status projection reads the loop through this reader rather than
+     * keeping a second copy of the schedule it could drift from (005 FR-031).
+     */
+    state(): PollLoopState;
 }
 
 /** Return the caught value's error name alone; never one word of the cause (SEC-11). */

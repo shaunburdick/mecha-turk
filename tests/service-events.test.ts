@@ -50,6 +50,10 @@ import {
 } from '../service/poll/events.ts';
 import { runScanCycle, windowFor } from '../service/poll/loop.ts';
 import { SCAN_STATE_FILE, readScanState } from '../service/poll/scan.ts';
+import { RUNS_FILE, emptyRunsDocument } from '../service/poll/runs.ts';
+import { applyEnqueue } from '../service/poll/runs-join.ts';
+import { EVENTS_PATH } from '../service/routes/events.ts';
+import { buildEventPage } from '../service/routes/events-page.ts';
 import { openStore } from '../service/store/index.ts';
 import type { Account } from '../service/accounts/model.ts';
 import type { AuditEntry } from '../service/audit.ts';
@@ -57,7 +61,10 @@ import type { BindingRecord } from '../service/bindings.ts';
 import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller, PollIssue } from '../service/poll/poller-github.ts';
+import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { startTestService } from './support/service.ts';
+import type { TestService } from './support/service.ts';
 import { scopeResults } from './support/verify.ts';
 
 /** First fixture binding. */
@@ -190,6 +197,7 @@ function fixtureAccount(): Account {
         numericUserId: ACCOUNT_ID,
         login: ACCOUNT_LOGIN,
         expectedLogin: null,
+        displayName: null,
         credential: { token: 'fixture-token-not-a-real-credential', kind: 'classic', verifiedAt: CREATED_AT },
         scopeCheck: { checkedAt: CREATED_AT, results: scopeResults('ok') },
         state: 'active',
@@ -686,5 +694,335 @@ describe('first-scan replay (product decision, 2026-09-28)', () => {
             [3, 'dispatched'],
         ]);
         expect(new Set(queued.map((event) => event.id)).size).toBe(3);
+    });
+});
+
+/** One run the paging block seeds; distinct subjects keep the runs distinct. */
+interface RunSeed {
+    /** Subject number, which makes the run's key unique. */
+    readonly issueNumber: number;
+    /** Binding the run dispatches through. */
+    readonly bindingId: string;
+    /** Detection stamp the row's age and order derive from. */
+    readonly detectedAt: string;
+    /** State to store instead of a fresh run's `pending`. */
+    readonly state?: Run['state'];
+}
+
+/** Services the paging block started; shut down before the store goes away. */
+const paged: TestService[] = [];
+
+afterEach(async () => {
+    while (paged.length > 0) {
+        const service = paged.pop();
+        await service?.shutdown();
+    }
+});
+
+/**
+ * Build the delivery snapshot one seed describes.
+ *
+ * @param seed - The run to detect.
+ * @returns The event the run is created from.
+ */
+function snapshotFor(seed: RunSeed): EventSnapshot {
+    return {
+        bindingId: seed.bindingId,
+        repository: `acme/${seed.bindingId}`,
+        accountNumericUserId: ACCOUNT_ID,
+        accountLogin: ACCOUNT_LOGIN,
+        projectId: 'prj_42',
+        worktreeOption: 'none',
+        kind: 'assignment',
+        issue: {
+            issueNumber: seed.issueNumber,
+            issueTitle: `Issue ${seed.issueNumber}`,
+            issueUrl: `https://github.com/acme/widget/issues/${seed.issueNumber}`,
+            issueBodyExcerpt: 'body excerpt',
+        },
+        triggerNote: 'assigned',
+        detectedAt: seed.detectedAt,
+    };
+}
+
+/**
+ * Build a runs document from seeds, patching the states the filter needs.
+ *
+ * The runs themselves come from the same pure writer production uses
+ * (`applyEnqueue`), so the document parses as stored; only the state word is
+ * replaced, because a blocked or failed run cannot be produced by detection
+ * alone.
+ *
+ * @param seeds - The runs to create, in creation order.
+ * @returns The document as `runs.json` would hold it.
+ */
+function documentFor(seeds: readonly RunSeed[]): RunsDocument {
+    let document = emptyRunsDocument();
+    for (const seed of seeds) {
+        const applied = applyEnqueue({
+            document,
+            deliveries: [createEvent(snapshotFor(seed))],
+            now: seed.detectedAt,
+        });
+        ({ document } = applied);
+    }
+
+    const runs = document.runs.map((run, index) => {
+        const seed = seeds[index];
+        if (seed?.state === undefined) {
+            return run;
+        }
+
+        return { ...run, state: seed.state, stateReason: 'seeded by the filter fixture' };
+    });
+
+    return { ...document, runs };
+}
+
+/**
+ * Start a service whose store already holds the seeded runs.
+ *
+ * @param seeds - The runs to serve.
+ * @returns The running instance.
+ */
+async function startWithRuns(seeds: readonly RunSeed[]): Promise<TestService> {
+    await writeFile(join(dataDir, RUNS_FILE), JSON.stringify(documentFor(seeds), null, 2), 'utf8');
+    const service = await startTestService({ dataDir });
+    paged.push(service);
+
+    return service;
+}
+
+/** The paging member every answer in this block carries. */
+interface PageMember {
+    /** Effective page size. */
+    readonly limit: number;
+    /** Boundary token, or `null` at the end. */
+    readonly nextCursor: string | null;
+    /** Whether a further page exists. */
+    readonly hasMore: boolean;
+    /** Size of the filtered set, or `null` when withheld. */
+    readonly total: number | null;
+    /** Stamp this read carries. */
+    readonly snapshotAt: string;
+    /** Echo of the applied filters. */
+    readonly filter: { readonly bindingId: string | null; readonly state: string | null };
+}
+
+/** The answer shape this block reads. */
+interface HistoryBody {
+    /** The page's rows. */
+    readonly events: Record<string, unknown>[];
+    /** The paging member. */
+    readonly page: PageMember;
+}
+
+/** The blocked cause the fixture seeds and the exact-state filter asks for. */
+const BLOCKED_PROJECT = 'blocked:project-missing';
+
+/** One issue inside a `422` refusal envelope. */
+interface RefusalIssue {
+    /** The field the refusal names. */
+    readonly field: string;
+    /** How to fix it; never echoes what was submitted. */
+    readonly remediation: string;
+}
+
+/** The refusal envelope this block reads. */
+interface RefusalBody {
+    /** Error envelope: catalog code plus the field issues. */
+    readonly error: { readonly code: string; readonly issues: readonly RefusalIssue[] };
+}
+
+/**
+ * Read one history answer through the loopback route.
+ *
+ * Both awaits are separate statements on purpose: awaiting a member call on an
+ * awaited response reads as one expression nobody can step through.
+ *
+ * @param service - The running instance.
+ * @param query - Path plus query string.
+ * @returns The parsed answer.
+ */
+async function historyAnswer(service: TestService, query: string): Promise<HistoryBody> {
+    const response = await service.call(query);
+
+    return (await response.json()) as HistoryBody;
+}
+
+/**
+ * Read one refusal envelope through the loopback route.
+ *
+ * @param response - The `4xx` answer.
+ * @returns The parsed envelope.
+ */
+async function refusalOf(response: Response): Promise<RefusalBody> {
+    return (await response.json()) as RefusalBody;
+}
+
+/**
+ * The detection stamp one seed carries.
+ *
+ * @param minute - Minutes past midnight, which keeps the fixture's order
+ *   deterministic without a clock read.
+ * @returns The RFC 3339 stamp.
+ */
+function seedStamp(minute: number): string {
+    return `2026-09-27T00:${String(minute).padStart(2, '0')}:00.000Z`;
+}
+
+/** Seeds: three bindings, interleaved detections, and three states to filter. */
+function filterSeeds(): readonly RunSeed[] {
+    return [
+        { issueNumber: 1, bindingId: 'bnd-one', detectedAt: seedStamp(10) },
+        { issueNumber: 2, bindingId: 'bnd-two', detectedAt: seedStamp(20) },
+        { issueNumber: 3, bindingId: 'bnd-one', detectedAt: seedStamp(30), state: BLOCKED_PROJECT },
+        { issueNumber: 4, bindingId: 'bnd-two', detectedAt: seedStamp(40), state: 'failed' },
+        { issueNumber: 5, bindingId: 'bnd-one', detectedAt: seedStamp(50), state: 'blocked:binding-removed' },
+        { issueNumber: 6, bindingId: 'bnd-three', detectedAt: seedStamp(55) },
+    ];
+}
+
+describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-121)', () => {
+    it('refuses a page size outside the accepted set and changes nothing', async () => {
+        const service = await startWithRuns(filterSeeds());
+
+        const response = await service.call(`${EVENTS_PATH}?limit=7`);
+        const body = await refusalOf(response);
+
+        expect(response.status).toBe(422);
+        expect(body.error.code).toBe('validation');
+        expect(body.error.issues[0]?.field).toBe('limit');
+        // The remediation names every accepted value and never echoes the one
+        // that was sent.
+        for (const size of ['10', '25', '50', '100']) {
+            expect(body.error.issues[0]?.remediation).toContain(size);
+        }
+        expect(body.error.issues[0]?.remediation).not.toContain('7');
+
+        const untouched = await service.call(EVENTS_PATH);
+        const answer = (await untouched.json()) as HistoryBody;
+        expect(answer.events).toHaveLength(6);
+    });
+
+    it('refuses a cursor this service did not issue instead of restarting at page one', async () => {
+        const service = await startWithRuns(filterSeeds());
+
+        const response = await service.call(`${EVENTS_PATH}?cursor=not-a-boundary`);
+        const body = await refusalOf(response);
+
+        expect(response.status).toBe(422);
+        expect(body.error.code).toBe('validation');
+        expect(body.error.issues[0]?.field).toBe('cursor');
+    });
+
+    it('refuses a state outside the dispatch vocabulary', async () => {
+        const service = await startWithRuns(filterSeeds());
+
+        const response = await service.call(`${EVENTS_PATH}?state=bogus`);
+        const body = await refusalOf(response);
+
+        expect(response.status).toBe(422);
+        expect(body.error.code).toBe('validation');
+        expect(body.error.issues[0]?.field).toBe('state');
+        expect(body.error.issues[0]?.remediation).toContain('blocked');
+        expect(body.error.issues[0]?.remediation).not.toContain('bogus');
+    });
+
+    it('returns both blocked-family rows for state=blocked and only failed for state=failed', async () => {
+        const service = await startWithRuns(filterSeeds());
+
+        const blocked = await historyAnswer(service, `${EVENTS_PATH}?state=blocked`);
+        expect(blocked.events).toHaveLength(2);
+        expect(blocked.events.every((row) => String(row.state).startsWith('blocked:'))).toBe(true);
+        expect(blocked.page.filter.state).toBe('blocked');
+
+        const exact = await historyAnswer(service, `${EVENTS_PATH}?state=${BLOCKED_PROJECT}`);
+        expect(exact.events).toHaveLength(1);
+        expect(exact.events[0]?.state).toBe(BLOCKED_PROJECT);
+
+        const failed = await historyAnswer(service, `${EVENTS_PATH}?state=failed`);
+        expect(failed.events).toHaveLength(1);
+        expect(failed.events[0]?.state).toBe('failed');
+    });
+
+    it('composes a binding filter with every page and reports one total', async () => {
+        const seeds = Array.from({ length: 12 }, (_, index) => ({
+            issueNumber: index + 1,
+            bindingId: index % 2 === 0 ? 'bnd-one' : 'bnd-two',
+            detectedAt: `2026-09-27T00:${String(index + 1).padStart(2, '0')}:00.000Z`,
+        }));
+        const service = await startWithRuns(seeds);
+
+        const seen: string[] = [];
+        let cursor = '';
+        for (let page = 0; page < 4; page += 1) {
+            const tail = cursor === '' ? '' : `&cursor=${encodeURIComponent(cursor)}`;
+            const answer = await historyAnswer(service, `${EVENTS_PATH}?limit=10&bindingId=bnd-one${tail}`);
+
+            expect(answer.page.total).toBe(6);
+            expect(answer.page.filter.bindingId).toBe('bnd-one');
+            for (const row of answer.events) {
+                expect(row.bindingId).toBe('bnd-one');
+                seen.push(String(row.correlationId));
+            }
+
+            if (!answer.page.hasMore || answer.page.nextCursor === null) {
+                break;
+            }
+
+            cursor = answer.page.nextCursor;
+        }
+
+        expect(seen).toHaveLength(6);
+        expect(new Set(seen).size).toBe(6);
+    });
+
+    it('answers an unknown binding id with an empty set rather than a 404', async () => {
+        const service = await startWithRuns(filterSeeds());
+
+        const response = await service.call(`${EVENTS_PATH}?bindingId=bnd-nothing`);
+        const answer = (await response.json()) as HistoryBody;
+
+        expect(response.status).toBe(200);
+        expect(answer.events).toEqual([]);
+        expect(answer.page.total).toBe(0);
+        expect(answer.page.filter.bindingId).toBe('bnd-nothing');
+    });
+
+    it('keeps the order stable when rows share a detection stamp', async () => {
+        const at = '2026-09-27T00:30:00.000Z';
+        const service = await startWithRuns([
+            { issueNumber: 1, bindingId: 'bnd-one', detectedAt: at },
+            { issueNumber: 2, bindingId: 'bnd-one', detectedAt: at },
+            { issueNumber: 3, bindingId: 'bnd-one', detectedAt: at },
+        ]);
+
+        const first = await historyAnswer(service, `${EVENTS_PATH}?limit=10`);
+        const second = await historyAnswer(service, `${EVENTS_PATH}?limit=10`);
+
+        expect(first.events.map((row) => row.correlationId)).toEqual(second.events.map((row) => row.correlationId));
+        // The tiebreak is the row key descending, so the boundary is exact.
+        expect(String(first.events[0]?.correlationId) > String(first.events[1]?.correlationId)).toBe(true);
+    });
+
+    it('never reports the page size as the total', async () => {
+        const service = await startWithRuns(filterSeeds());
+
+        const answer = await historyAnswer(service, `${EVENTS_PATH}?limit=10`);
+
+        expect(answer.events).toHaveLength(6);
+        expect(answer.page.total).toBe(6);
+        expect(answer.page.total === answer.page.limit).toBe(false);
+        // A withheld total stays withheld: `null` is the honest "unavailable",
+        // and the page size is never substituted for it.
+        expect(buildEventPage({
+            limit: 25,
+            nextCursor: null,
+            hasMore: false,
+            total: null,
+            snapshotAt: '2026-09-27T00:00:00.000Z',
+            filter: { bindingId: null, state: null },
+        }).total).toBeNull();
     });
 });

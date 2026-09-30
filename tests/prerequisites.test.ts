@@ -132,7 +132,9 @@ function bindingWith(projectId: string): PanelBinding {
 function configuredState(): PanelState {
     const state = freshState();
     state.settings = {};
-    state.bindings.accounts = [{ numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, usable: true, scope: VERDICT_OK }];
+    state.bindings.accounts = [
+        { numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, displayName: null, usable: true, scope: VERDICT_OK },
+    ];
     state.bindings.bindings = [bindingWith('prj_42')];
     state.handoff.consentGiven = true;
     state.handoff.preflighted = true;
@@ -257,7 +259,13 @@ describe('the unmet notice outside the section (FR-073)', () => {
     it('raises a notice naming the unmet scopes', () => {
         const state = freshState();
         state.bindings.accounts = [
-            { numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, usable: true, scope: VERDICT_MISSING },
+            {
+                numericUserId: ACCOUNT_ID,
+                login: ACCOUNT_LOGIN,
+                displayName: null,
+                usable: true,
+                scope: VERDICT_MISSING,
+            },
         ];
 
         const notice = prerequisiteNotice(derivePrerequisites(state));
@@ -329,7 +337,9 @@ describe('account scope evidence (FR-071, fail-closed parsing)', () => {
 
     it('treats an unusable account as no evidence at all', () => {
         const state = freshState();
-        state.bindings.accounts = [{ numericUserId: PARSED_ID, login: PARSED_LOGIN, usable: false, scope: VERDICT_OK }];
+        state.bindings.accounts = [
+            { numericUserId: PARSED_ID, login: PARSED_LOGIN, displayName: null, usable: false, scope: VERDICT_OK },
+        ];
 
         expect(prerequisiteOf(state, IDS.tokenScopes).state).toBe(NOT_MET);
     });

@@ -170,7 +170,7 @@ describe('removeAccount (two-step delete affordance)', () => {
         });
         const rt = createTestRuntime({ ...host, storage: storage.storage });
         rt.state.bindings.status = 'ready';
-        rt.state.bindings.accounts = [{ numericUserId: ACCOUNT_ID, login: LOGIN, usable: true }];
+        rt.state.bindings.accounts = [{ numericUserId: ACCOUNT_ID, login: LOGIN, displayName: null, usable: true }];
         rt.state.handoff.connected = { numericUserId: ACCOUNT_ID, login: LOGIN };
 
         return { rt, requests };
@@ -234,7 +234,7 @@ describe('removeAccount (two-step delete affordance)', () => {
         });
         const rt = createTestRuntime(host);
         rt.state.bindings.status = 'ready';
-        rt.state.bindings.accounts = [{ numericUserId: ACCOUNT_ID, login: LOGIN, usable: true }];
+        rt.state.bindings.accounts = [{ numericUserId: ACCOUNT_ID, login: LOGIN, displayName: null, usable: true }];
         rt.state.handoff.connected = { numericUserId: ACCOUNT_ID, login: LOGIN };
 
         await removeAccount(rt);
@@ -243,7 +243,9 @@ describe('removeAccount (two-step delete affordance)', () => {
         expect(rt.state.bindings.note).toContain('remove them first');
         // Nothing was deleted: the identity and the state stay as they were.
         expect(rt.state.handoff.connected).toEqual({ numericUserId: ACCOUNT_ID, login: LOGIN });
-        expect(rt.state.bindings.accounts).toEqual([{ numericUserId: ACCOUNT_ID, login: LOGIN, usable: true }]);
+        expect(rt.state.bindings.accounts).toEqual([
+            { numericUserId: ACCOUNT_ID, login: LOGIN, displayName: null, usable: true },
+        ]);
     });
 
     it('builds the delete path from the numeric id', () => {

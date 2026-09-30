@@ -1,34 +1,45 @@
 /**
  * `GET /v1/status` — the health model the panel renders (contract §2.1).
  *
- * The service reports itself, where its data lives, why nothing is polling
- * yet, and — since custody landed in Wave 2 — the registered accounts with
- * their connection state, projected without credential material. The
- * `repositories` and `agentPin` sections stay empty until their waves; a
- * fixed shape with truthful contents beats a shape that grows under the
- * panel's feet, and `service.status: 'degraded'` with a `null` schema version
- * is how an unusable data directory reaches the operator (FR-039).
+ * The service reports itself, where its data lives, why it is or is not
+ * polling, the registered accounts with their connection state, and one row
+ * per stored binding — each projected without credential material.
+ *
+ * Three members used to be literals a running process contradicted
+ * (005 FR-031–FR-033): `polling` said it was paused with no next poll no
+ * matter what the scheduler was doing, `repositories` was always `[]`, and
+ * `agentPin.lastVerification` was always `null`. They are now computed —
+ * `polling` from a read-only view of the live scheduler
+ * ([`poll/view.ts`](../poll/view.ts)), `repositories` from the **same**
+ * `readStatusRows` the Bindings tab reads, and the verification from the run
+ * document the service already holds.
  *
  * `service.storage.writable` is the handoff pre-flight the panel reads before
  * it enables the token input (SEC-08/F10), and `surface.supported` is `true`
  * by construction: a service process only runs where the host spawns services
  * (desktop and web), so an answering process cannot be on an unsupported
  * surface — the panel owns the unsupported-surface banner (AC-017).
+ *
+ * The document answers `200` even when the store is down: that is exactly when
+ * the operator needs to read it (contract §1).
  */
 
 import { DEFAULT_CONFIG, CONFIG_FILE, configFromStore, parseStoredConfig } from '../config.ts';
 import { listAccounts } from '../accounts/store.ts';
+import { readBindings } from '../bindings-read.ts';
+import { previewRunsDocument } from '../poll/runs-document.ts';
+import { nextPollAtOf, pausedReasonOf } from '../poll/view.ts';
 import { STATUS } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
 import type { ServiceConfig } from '../config.ts';
 import type { Account, ConnectionState } from '../accounts/model.ts';
+import type { BindingRecord } from '../bindings.ts';
+import type { RunVerification } from '../poll/runs-types.ts';
+import { readStatusRows } from './events.ts';
 import type { Route, RouteContext } from './types.ts';
 
 /** Path of the status resource. */
 export const STATUS_PATH = '/v1/status';
-
-/** Why polling is paused: a fresh store has no accounts to poll for (FR-039). */
-const PAUSED_REASON = 'config-incomplete';
 
 /** Per-account rate state as the health model reports it (data-model RateState). */
 export interface RateStateReport {
@@ -62,6 +73,67 @@ export interface StatusAccount {
     readonly streams: readonly unknown[];
 }
 
+/**
+ * One binding as the `repositories` member reports it (005 FR-032).
+ *
+ * The member keeps its historical name (FR-026) and every field but one comes
+ * straight from the `readStatusRows` projection the Bindings tab reads, so the
+ * two surfaces cannot disagree about a binding. `readable` is the addition: a
+ * row whose scan projection could not be read appears with `readable: false`
+ * and is **never omitted**, because an omitted binding reads as a deleted one
+ * (AC-105).
+ */
+export interface StatusRepositoryRow {
+    /** Binding the row describes. */
+    readonly bindingId: string;
+    /** `owner/name`. */
+    readonly repository: string;
+    /** The binding's project id. */
+    readonly projectId: string;
+    /** The account login this binding polls under. */
+    readonly accountLogin: string;
+    /** `true` when the binding is enabled right now. */
+    readonly active: boolean;
+    /** RFC 3339 stamp of the last completed scan, or `null`. */
+    readonly lastScanAt: string | null;
+    /** Short machine reason the last scan skipped, else `null`. */
+    readonly lastError: string | null;
+    /** Events for this binding that are pending or in flight. */
+    readonly pendingCount: number;
+    /**
+     * Whether the scan projection behind this row could be read.
+     *
+     * `false` turns every scan-derived member into "unknown": the panel renders
+     * the row as *unreadable* rather than believing a zero (005 AC-105).
+     */
+    readonly readable: boolean;
+}
+
+/**
+ * The agent pin's verification member (005 FR-033).
+ *
+ * Three shapes, and none of them means "ok": the most recent outcome the
+ * service holds, an explicit *not available* marker when the run document that
+ * holds them could not be read, or `null` when no dispatch has ever been
+ * verified. `null` never renders as a pass (AC-106).
+ */
+export type StatusVerification =
+    /** The most recent read-back the service holds, matched or mismatched. */
+    | {
+        /** Agent the read-back observed, or `null` when it was unreadable. */
+        readonly observedAgent: string | null;
+        /** Agent the binding expected. */
+        readonly expectedAgent: string;
+        /** Whether the two matched; a mismatch is a warning, never a state. */
+        readonly ok: boolean;
+        /** RFC 3339 stamp of the read-back. */
+        readonly at: string;
+    }
+    /** The service cannot say: the outcome lives on the dispatch row and audit. */
+    | { readonly available: false; readonly reason: 'no-service-mirror' }
+    /** Nothing has ever been verified. */
+    | null;
+
 /** Health of the service process itself, as `GET /v1/status` reports it. */
 export type ServiceHealth = 'ok' | 'degraded';
 
@@ -86,22 +158,22 @@ export interface ServiceStatusBody {
     };
     /** Registered accounts, projected without any credential material. */
     readonly accounts: readonly StatusAccount[];
-    /** Per-repository poll state; populated once the poller lands. */
-    readonly repositories: readonly unknown[];
+    /** One row per stored binding, under the member's historical name (FR-026). */
+    readonly repositories: readonly StatusRepositoryRow[];
     /** Agent pin state; `expectedAgent` arrives with the panel's setting mirror. */
     readonly agentPin: {
         /** Expected session agent, `null` until the panel mirrors the setting. */
         readonly expectedAgent: string | null;
-        /** Last verification; none exists before the first dispatch. */
-        readonly lastVerification: null;
+        /** Most recent verification, an explicit *not available*, or `null`. */
+        readonly lastVerification: StatusVerification;
     };
-    /** Polling schedule; paused until there is something to poll. */
+    /** Polling schedule, computed from the live scheduler (005 FR-031). */
     readonly polling: {
         /** Effective interval from the configuration. */
         readonly intervalMs: number;
-        /** Next scheduled poll; `null` while paused. */
-        readonly nextPollAt: null;
-        /** Whether polling is currently running. */
+        /** Next scheduled poll; `null` while polling does not run. */
+        readonly nextPollAt: string | null;
+        /** `true` only when the loop is genuinely not running. */
         readonly paused: boolean;
         /** Machine-readable reason the panel renders verbatim. */
         readonly pausedReason: string;
@@ -168,6 +240,139 @@ async function statusAccounts(context: RouteContext): Promise<readonly StatusAcc
 }
 
 /**
+ * Read the bindings the repository rows are keyed by.
+ *
+ * @param context - Route context carrying the open store.
+ * @returns The stored bindings, or none when they cannot be read — a row list
+ *   built from bindings nobody can name would invent rows, not report them.
+ */
+async function storedBindings(context: RouteContext): Promise<readonly BindingRecord[]> {
+    if (context.store === null) {
+        return [];
+    }
+
+    try {
+        return await readBindings({ store: context.store, log: context.log });
+    } catch (error) {
+        context.log.warn('bindings could not be listed for status', {
+            errorKind: error instanceof Error ? error.name : typeof error,
+        });
+
+        return [];
+    }
+}
+
+/**
+ * The row reported for a binding whose scan projection could not be read.
+ *
+ * Identity members come from the binding file (which was read), every
+ * scan-derived member is `null`/`0`, and `readable: false` tells the panel not
+ * to believe them (AC-105; FR-003: a missing value never reads as a healthy
+ * one).
+ *
+ * @param binding - The stored binding this row is keyed by.
+ * @returns The unreadable row; present, never omitted.
+ */
+function unreadableRepositoryRow(binding: BindingRecord): StatusRepositoryRow {
+    return {
+        bindingId: binding.bindingId,
+        repository: binding.repository,
+        projectId: binding.projectId,
+        accountLogin: binding.accountLogin,
+        active: binding.state === 'active',
+        lastScanAt: null,
+        lastError: null,
+        pendingCount: 0,
+        readable: false,
+    };
+}
+
+/**
+ * The most recent verification outcome a run list holds, else `null`.
+ *
+ * Takes the structural view of a run it actually needs — `verification` — so
+ * the projection can be driven by a one-field fixture instead of a whole
+ * stored run.
+ *
+ * @param runs - Runs (or anything carrying a run's verification record).
+ * @returns The freshest read-back by its own stamp, or `null` when no dispatch
+ *   has ever been verified.
+ */
+export function mostRecentVerification(
+    runs: readonly { readonly verification: RunVerification | null }[],
+): StatusVerification {
+    let freshest: RunVerification | null = null;
+    for (const run of runs) {
+        const { verification } = run;
+        if (verification === null) {
+            continue;
+        }
+
+        if (freshest === null || Date.parse(verification.at) >= Date.parse(freshest.at)) {
+            freshest = verification;
+        }
+    }
+
+    if (freshest === null) {
+        return null;
+    }
+
+    return {
+        observedAgent: freshest.observedAgent,
+        expectedAgent: freshest.expectedAgent,
+        ok: freshest.ok,
+        at: freshest.at,
+    };
+}
+
+/** The explicit *not available* marker: the outcome lives on the run and audit. */
+function notAvailableVerification(): StatusVerification {
+    return { available: false, reason: 'no-service-mirror' };
+}
+
+/**
+ * Read the two run-derived halves of the document: the binding rows and the
+ * agent pin's last verification.
+ *
+ * Both come from the same documents the rest of the panel reads, and both
+ * degrade to an explicit *unreadable* answer rather than to an empty one — the
+ * store being unable to describe its runs is exactly when a reassuring `[]`
+ * would be a lie (constitution II).
+ *
+ * @param context - Route context carrying the open store.
+ * @param bindings - The stored bindings every row is keyed by.
+ * @returns The rows plus the verification member.
+ */
+async function runDerivedProjection(
+    context: RouteContext,
+    bindings: readonly BindingRecord[],
+): Promise<{ readonly repositories: readonly StatusRepositoryRow[]; readonly verification: StatusVerification }> {
+    const { store } = context;
+    if (store === null) {
+        return { repositories: [], verification: notAvailableVerification() };
+    }
+
+    try {
+        const rows = await readStatusRows({ store, log: context.log, bindings });
+        const document = await previewRunsDocument({ store, log: context.log });
+
+        return {
+            repositories: rows.map((row) => ({ ...row, readable: true })),
+            verification: mostRecentVerification(document.runs),
+        };
+    } catch (error) {
+        context.log.warn('run projection could not be read for status', {
+            errorKind: error instanceof Error ? error.name : typeof error,
+        });
+
+        return {
+            repositories: bindings.map(unreadableRepositoryRow),
+            verification: notAvailableVerification(),
+        };
+    }
+}
+
+/**
  * Read the configuration the status reports the polling interval from.
  *
  * @param context - Route context carrying the open store.
@@ -187,28 +392,43 @@ async function readConfig(context: RouteContext): Promise<ServiceConfig> {
  * Assemble the status document.
  *
  * @param context - Route context carrying store, clock, and data directory.
- * @returns The health model, with truthful contents for this wave.
+ * @returns The health model, with every member computed from what the service
+ *   actually knows (005 FR-031–FR-034).
  */
 async function buildStatusBody(context: RouteContext): Promise<ServiceStatusBody> {
     const config = await readConfig(context);
-    const { store } = context;
+    const { store, polling } = context;
+    const storeUsable = store !== null;
+    const accounts = await statusAccounts(context);
+    const bindings = await storedBindings(context);
+    const { repositories, verification } = await runDerivedProjection(context, bindings);
+    // The scheduler's own answer: paused only when the loop is genuinely not
+    // running, never a literal the running process would contradict (FR-031).
+    const running = storeUsable && polling.isRunning();
+    const activeBindings = bindings.filter((binding) => binding.state === 'active').length;
+    const pausedReason = pausedReasonOf({
+        storeUsable,
+        running,
+        stopping: polling.isStopping(),
+        activeBindings,
+    });
 
     return {
         service: {
-            status: store === null ? 'degraded' : 'ok',
+            status: storeUsable ? 'ok' : 'degraded',
             uptimeMs: Date.now() - context.startedAt,
             dataDir: context.dataDir,
             schemaVersion: store?.schemaVersion ?? null,
-            storage: { writable: store !== null },
+            storage: { writable: storeUsable },
         },
-        accounts: await statusAccounts(context),
-        repositories: [],
-        agentPin: { expectedAgent: null, lastVerification: null },
+        accounts,
+        repositories,
+        agentPin: { expectedAgent: null, lastVerification: verification },
         polling: {
             intervalMs: config.intervalMs,
-            nextPollAt: null,
-            paused: true,
-            pausedReason: PAUSED_REASON,
+            nextPollAt: nextPollAtOf(polling, config.intervalMs),
+            paused: !running,
+            pausedReason,
         },
         surface: { supported: true },
     };

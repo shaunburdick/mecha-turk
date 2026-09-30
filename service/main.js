@@ -323,18 +323,32 @@ function isCredentialRecord(raw) {
 function isNullableString(value) {
   return value === null || typeof value === "string";
 }
+function isOptionalNullableString(value) {
+  return value === undefined || value === null || typeof value === "string";
+}
 function readAccountStrings(raw) {
-  const { login, expectedLogin, verifiedAt, errorReason, createdAt, updatedAt } = raw;
+  const { login, expectedLogin, displayName, verifiedAt, errorReason, createdAt, updatedAt } = raw;
   if (typeof login !== "string" || login === "") {
     return null;
   }
   if (!isNullableString(expectedLogin) || !isNullableString(errorReason)) {
     return null;
   }
+  if (!isOptionalNullableString(displayName)) {
+    return null;
+  }
   if (typeof verifiedAt !== "string" || typeof createdAt !== "string" || typeof updatedAt !== "string") {
     return null;
   }
-  return { login, expectedLogin, verifiedAt, errorReason, createdAt, updatedAt };
+  return {
+    login,
+    expectedLogin,
+    displayName: displayName ?? null,
+    verifiedAt,
+    errorReason,
+    createdAt,
+    updatedAt
+  };
 }
 function parseStoredAccount(raw) {
   if (!isRecord(raw) || !isNumericUserId(raw.numericUserId)) {
@@ -364,6 +378,7 @@ function toAccountDto(account) {
     numericUserId: account.numericUserId,
     login: account.login,
     expectedLogin: account.expectedLogin,
+    displayName: account.displayName,
     state: account.state,
     connectionState: account.connectionState,
     verifiedAt: account.verifiedAt,
@@ -372,6 +387,51 @@ function toAccountDto(account) {
     createdAt: account.createdAt,
     updatedAt: account.updatedAt
   };
+}
+var DISPLAY_NAME_MAX_CODE_POINTS = 80;
+var DISPLAY_NAME_TYPE = "displayName must be text, or null to clear it";
+var DISPLAY_NAME_CAP = `displayName must be at most ${DISPLAY_NAME_MAX_CODE_POINTS} characters` + " (Unicode code points) after trimming";
+var DISPLAY_NAME_CONTROL = "displayName must not contain control characters";
+var LAST_C0 = 31;
+var FIRST_C1 = 127;
+var LAST_C1 = 159;
+function hasControlCharacter(value) {
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code <= LAST_C0 || code >= FIRST_C1 && code <= LAST_C1) {
+      return true;
+    }
+  }
+  return false;
+}
+function validateDisplayName(raw) {
+  if (raw !== null && typeof raw !== "string") {
+    return { ok: false, issue: { field: "displayName", remediation: DISPLAY_NAME_TYPE } };
+  }
+  if (raw === null) {
+    return { ok: true, displayName: null };
+  }
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return { ok: true, displayName: null };
+  }
+  if ([...trimmed].length > DISPLAY_NAME_MAX_CODE_POINTS) {
+    return { ok: false, issue: { field: "displayName", remediation: DISPLAY_NAME_CAP } };
+  }
+  const label = findSecretLeak(trimmed);
+  if (label !== null) {
+    return {
+      ok: false,
+      issue: {
+        field: "displayName",
+        remediation: `displayName must not contain credential-shaped material (matched shape: ${label})`
+      }
+    };
+  }
+  if (hasControlCharacter(trimmed)) {
+    return { ok: false, issue: { field: "displayName", remediation: DISPLAY_NAME_CONTROL } };
+  }
+  return { ok: true, displayName: trimmed };
 }
 
 // service/accounts/store.ts
@@ -1554,6 +1614,7 @@ function guardCredentialRoute(handler) {
 var ACCOUNTS_PATH = "/v1/accounts";
 var ACCOUNT_TOKEN_PATH = `${ACCOUNTS_PATH}/:numericUserId/token`;
 var ACCOUNT_PATH = `${ACCOUNTS_PATH}/:numericUserId`;
+var ACCOUNT_DISPLAY_NAME_PATH = `${ACCOUNTS_PATH}/:numericUserId/display-name`;
 var FORCE_QUERY_FLAG = "force";
 var FORCE_QUERY_VALUE = "1";
 var ROTATION_ID_MISMATCH = "the new token belongs to a different GitHub account than this one";
@@ -1572,6 +1633,12 @@ function bindingsRefusalResponse(count) {
     code: "invalid-transition",
     message: `${count} binding(s) still reference this account — remove them, or confirm a force delete`
   });
+}
+function displayNameBodyRefusal() {
+  return validationResponse([{
+    field: "displayName",
+    remediation: "the body must carry displayName, as text or null"
+  }]);
 }
 function pathAccountId(request) {
   const raw = request.params.numericUserId;
@@ -1752,6 +1819,32 @@ async function handleDeleteAccount(context, request) {
   await recordAccountDeleted(store, pathId);
   return { status: STATUS.ok, body: { removed: true } };
 }
+async function handleSetDisplayName(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const pathId = pathAccountId(request);
+  const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId });
+  if (pathId === null || account === null) {
+    return unknownAccountResponse();
+  }
+  const { body } = request;
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return displayNameBodyRefusal();
+  }
+  const record = body;
+  if (!("displayName" in record)) {
+    return displayNameBodyRefusal();
+  }
+  const validation = validateDisplayName(record.displayName);
+  if (!validation.ok) {
+    return validationResponse([validation.issue]);
+  }
+  const updated = { ...account, displayName: validation.displayName, updatedAt: nowIso() };
+  await writeAccount(store, updated);
+  return { status: STATUS.ok, body: { account: toAccountDto(updated) } };
+}
 var listAccountsRoute = {
   method: "GET",
   path: ACCOUNTS_PATH,
@@ -1761,6 +1854,11 @@ var rotateTokenRoute = {
   method: "POST",
   path: ACCOUNT_TOKEN_PATH,
   handler: guardCredentialRoute(handleRotateToken)
+};
+var setDisplayNameRoute = {
+  method: "PUT",
+  path: ACCOUNT_DISPLAY_NAME_PATH,
+  handler: guardCredentialRoute(handleSetDisplayName)
 };
 var deleteAccountRoute = {
   method: "DELETE",
@@ -4896,10 +4994,146 @@ function projectRunHistory(input) {
   return rows.sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt)).slice(0, input.cap);
 }
 
+// service/routes/events-page.ts
+var MIN_PAGE_SIZE = 10;
+var DEFAULT_PAGE_SIZE = 25;
+var MID_PAGE_SIZE = 50;
+var MAX_PAGE_SIZE = 100;
+var LIST_PAGE_SIZES = [MIN_PAGE_SIZE, DEFAULT_PAGE_SIZE, MID_PAGE_SIZE, MAX_PAGE_SIZE];
+var LISTABLE_STATES = [
+  "pending",
+  "claimed",
+  "starting",
+  "dispatched",
+  "failed",
+  "unconfirmed",
+  "dead-lettered"
+];
+function pageSizeOf(raw) {
+  if (raw === null || raw === "") {
+    return DEFAULT_PAGE_SIZE;
+  }
+  if (!/^\d{1,3}$/.test(raw)) {
+    return null;
+  }
+  const parsed = Number(raw);
+  return LIST_PAGE_SIZES.includes(parsed) ? parsed : null;
+}
+function boundaryOf(raw) {
+  if (raw === null || raw === "") {
+    return { ok: true, boundary: null };
+  }
+  let decoded;
+  try {
+    decoded = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
+  } catch {
+    return { ok: false };
+  }
+  if (typeof decoded !== "object" || decoded === null) {
+    return { ok: false };
+  }
+  const record = decoded;
+  const stamp = record.detectedAt;
+  const key = record.id;
+  if (typeof stamp !== "string" || typeof key !== "string" || key === "" || Number.isNaN(Date.parse(stamp))) {
+    return { ok: false };
+  }
+  return { ok: true, boundary: { detectedAt: stamp, id: key } };
+}
+function encodeBoundary(row) {
+  const payload = { detectedAt: row.detectedAt, id: row.id };
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+function isKebabReason(value) {
+  if (value === "") {
+    return false;
+  }
+  return value.split("-").every((part) => /^[a-z0-9]+$/.test(part));
+}
+function stateFilterOf(raw) {
+  if (raw === null || raw === "") {
+    return { ok: true, state: null };
+  }
+  if (LISTABLE_STATES.includes(raw) || raw === "blocked") {
+    return { ok: true, state: raw };
+  }
+  const prefix = "blocked:";
+  if (raw.startsWith(prefix) && isKebabReason(raw.slice(prefix.length))) {
+    return { ok: true, state: raw };
+  }
+  return { ok: false };
+}
+function listQueryOf(request) {
+  const params = request.url.searchParams;
+  const limit = pageSizeOf(params.get("limit"));
+  if (limit === null) {
+    return {
+      ok: false,
+      response: validationResponse([{
+        field: "limit",
+        remediation: `ask for one of ${LIST_PAGE_SIZES.join(", ")} rows per page`
+      }])
+    };
+  }
+  const cursor = boundaryOf(params.get("cursor"));
+  if (!cursor.ok) {
+    return {
+      ok: false,
+      response: validationResponse([{
+        field: "cursor",
+        remediation: "the cursor is not one this service issued; drop it to start at the first page"
+      }])
+    };
+  }
+  const state = stateFilterOf(params.get("state"));
+  if (!state.ok) {
+    return {
+      ok: false,
+      response: validationResponse([{
+        field: "state",
+        remediation: `ask for one of ${LISTABLE_STATES.join(", ")}, blocked, or blocked:<reason>`
+      }])
+    };
+  }
+  const bindingId = params.get("bindingId") ?? "";
+  return {
+    ok: true,
+    query: { limit, boundary: cursor.boundary, state: state.state, bindingId }
+  };
+}
+function matchesFilters(row, query) {
+  if (query.bindingId !== "" && row.bindingId !== query.bindingId) {
+    return false;
+  }
+  if (query.state === null) {
+    return true;
+  }
+  return query.state === "blocked" ? row.state.startsWith("blocked:") : row.state === query.state;
+}
+function newestFirst(left, right) {
+  const byStamp = Date.parse(right.detectedAt) - Date.parse(left.detectedAt);
+  if (byStamp !== 0) {
+    return byStamp;
+  }
+  if (left.id === right.id) {
+    return 0;
+  }
+  return left.id < right.id ? 1 : -1;
+}
+function afterBoundary(row, boundary) {
+  const byStamp = Date.parse(row.detectedAt) - Date.parse(boundary.detectedAt);
+  if (byStamp !== 0) {
+    return byStamp < 0;
+  }
+  return row.id < boundary.id;
+}
+function buildEventPage(input) {
+  return { ...input };
+}
+
 // service/routes/events.ts
 var EVENTS_PENDING_PATH = "/v1/events/pending";
 var EVENTS_PATH = "/v1/events";
-var MAX_LISTED_EVENTS = 100;
 function claimLimitOf(raw) {
   if (raw === null || raw === "") {
     return MAX_CLAIMED_RUNS;
@@ -4957,20 +5191,44 @@ async function handlePendingEvents(context, request) {
     body: { events: claimed.runs, status: rows, auditWritten: claimed.auditWritten }
   };
 }
-async function handleEventHistory(context) {
+async function projectHistory(context, store) {
+  const document = await previewRunsDocument({ store, log: context.log });
+  const queue = await readEvents({ store, log: context.log });
+  return projectRunHistory({
+    runs: document.runs,
+    deliveries: new Map(queue.map((event) => [event.id, event])),
+    cap: document.runs.length
+  }).sort(newestFirst);
+}
+async function handleEventHistory(context, request) {
   const { store } = context;
   if (store === null) {
     return storageUnavailableResponse();
   }
-  const document = await previewRunsDocument({ store, log: context.log });
-  const queue = await readEvents({ store, log: context.log });
+  const parsed = listQueryOf(request);
+  if (!parsed.ok) {
+    return parsed.response;
+  }
+  const { query } = parsed;
+  const rows = await projectHistory(context, store);
+  const filtered = rows.filter((row) => matchesFilters(row, query));
+  const { boundary } = query;
+  const remaining = boundary === null ? filtered : filtered.filter((row) => afterBoundary(row, boundary));
+  const window = remaining.slice(0, query.limit + 1);
+  const hasMore = window.length > query.limit;
+  const events = window.slice(0, query.limit);
+  const last = events[events.length - 1];
   return {
     status: STATUS.ok,
     body: {
-      events: projectRunHistory({
-        runs: document.runs,
-        deliveries: new Map(queue.map((event) => [event.id, event])),
-        cap: MAX_LISTED_EVENTS
+      events,
+      page: buildEventPage({
+        limit: query.limit,
+        nextCursor: hasMore && last !== undefined ? encodeBoundary(last) : null,
+        hasMore,
+        total: filtered.length,
+        snapshotAt: new Date().toISOString(),
+        filter: { bindingId: query.bindingId === "" ? null : query.bindingId, state: query.state }
       })
     }
   };
@@ -4983,7 +5241,7 @@ var pendingEventsRoute = {
 var eventHistoryRoute = {
   method: "GET",
   path: EVENTS_PATH,
-  handler: (context) => handleEventHistory(context)
+  handler: (context, request) => handleEventHistory(context, request)
 };
 
 // service/poll/dispatch-audit.ts
@@ -6504,9 +6762,48 @@ var verificationRoute = {
   handler: (context, request) => handleVerification(context, request)
 };
 
+// service/poll/view.ts
+function createPollingView() {
+  let loop = null;
+  let stopping = false;
+  const running = () => !stopping && loop !== null && !loop.state().stopped;
+  const view = {
+    isRunning: () => running(),
+    nextPollAtMs: () => running() ? loop?.state().nextPollAtMs ?? null : null,
+    isStopping: () => stopping
+  };
+  return {
+    view,
+    observe: (next) => {
+      loop = next;
+    },
+    beginShutdown: () => {
+      stopping = true;
+    }
+  };
+}
+function nextPollAtOf(view, intervalMs) {
+  if (!view.isRunning()) {
+    return null;
+  }
+  const armed = view.nextPollAtMs();
+  return new Date(armed ?? Date.now() + intervalMs).toISOString();
+}
+function pausedReasonOf(input) {
+  if (!input.storeUsable) {
+    return "store-unavailable";
+  }
+  if (input.stopping) {
+    return "stopping";
+  }
+  if (input.running) {
+    return "";
+  }
+  return input.activeBindings > 0 ? "config-incomplete" : "no-active-bindings";
+}
+
 // service/routes/status.ts
 var STATUS_PATH = "/v1/status";
-var PAUSED_REASON = "config-incomplete";
 function statusAccountRow(account) {
   return {
     numericUserId: account.numericUserId,
@@ -6538,6 +6835,78 @@ async function statusAccounts(context) {
     return [];
   }
 }
+async function storedBindings(context) {
+  if (context.store === null) {
+    return [];
+  }
+  try {
+    return await readBindings({ store: context.store, log: context.log });
+  } catch (error) {
+    context.log.warn("bindings could not be listed for status", {
+      errorKind: error instanceof Error ? error.name : typeof error
+    });
+    return [];
+  }
+}
+function unreadableRepositoryRow(binding) {
+  return {
+    bindingId: binding.bindingId,
+    repository: binding.repository,
+    projectId: binding.projectId,
+    accountLogin: binding.accountLogin,
+    active: binding.state === "active",
+    lastScanAt: null,
+    lastError: null,
+    pendingCount: 0,
+    readable: false
+  };
+}
+function mostRecentVerification(runs) {
+  let freshest = null;
+  for (const run of runs) {
+    const { verification } = run;
+    if (verification === null) {
+      continue;
+    }
+    if (freshest === null || Date.parse(verification.at) >= Date.parse(freshest.at)) {
+      freshest = verification;
+    }
+  }
+  if (freshest === null) {
+    return null;
+  }
+  return {
+    observedAgent: freshest.observedAgent,
+    expectedAgent: freshest.expectedAgent,
+    ok: freshest.ok,
+    at: freshest.at
+  };
+}
+function notAvailableVerification() {
+  return { available: false, reason: "no-service-mirror" };
+}
+async function runDerivedProjection(context, bindings) {
+  const { store } = context;
+  if (store === null) {
+    return { repositories: [], verification: notAvailableVerification() };
+  }
+  try {
+    const rows = await readStatusRows({ store, log: context.log, bindings });
+    const document = await previewRunsDocument({ store, log: context.log });
+    return {
+      repositories: rows.map((row) => ({ ...row, readable: true })),
+      verification: mostRecentVerification(document.runs)
+    };
+  } catch (error) {
+    context.log.warn("run projection could not be read for status", {
+      errorKind: error instanceof Error ? error.name : typeof error
+    });
+    return {
+      repositories: bindings.map(unreadableRepositoryRow),
+      verification: notAvailableVerification()
+    };
+  }
+}
 async function readConfig(context) {
   if (context.store === null) {
     return DEFAULT_CONFIG;
@@ -6547,23 +6916,35 @@ async function readConfig(context) {
 }
 async function buildStatusBody(context) {
   const config = await readConfig(context);
-  const { store } = context;
+  const { store, polling } = context;
+  const storeUsable = store !== null;
+  const accounts = await statusAccounts(context);
+  const bindings = await storedBindings(context);
+  const { repositories, verification } = await runDerivedProjection(context, bindings);
+  const running = storeUsable && polling.isRunning();
+  const activeBindings = bindings.filter((binding) => binding.state === "active").length;
+  const pausedReason = pausedReasonOf({
+    storeUsable,
+    running,
+    stopping: polling.isStopping(),
+    activeBindings
+  });
   return {
     service: {
-      status: store === null ? "degraded" : "ok",
+      status: storeUsable ? "ok" : "degraded",
       uptimeMs: Date.now() - context.startedAt,
       dataDir: context.dataDir,
       schemaVersion: store?.schemaVersion ?? null,
-      storage: { writable: store !== null }
+      storage: { writable: storeUsable }
     },
-    accounts: await statusAccounts(context),
-    repositories: [],
-    agentPin: { expectedAgent: null, lastVerification: null },
+    accounts,
+    repositories,
+    agentPin: { expectedAgent: null, lastVerification: verification },
     polling: {
       intervalMs: config.intervalMs,
-      nextPollAt: null,
-      paused: true,
-      pausedReason: PAUSED_REASON
+      nextPollAt: nextPollAtOf(polling, config.intervalMs),
+      paused: !running,
+      pausedReason
     },
     surface: { supported: true }
   };
@@ -6652,6 +7033,7 @@ async function persistVerified(attempt) {
     numericUserId: outcome.identity.numericUserId,
     login: outcome.identity.login,
     expectedLogin: credential.expectedLogin,
+    displayName: null,
     credential: { token: credential.token, kind: outcome.credentialKind, verifiedAt: at },
     scopeCheck: outcome.scopeCheck,
     state: "active",
@@ -6743,6 +7125,7 @@ var ROUTES = [
   auditRoute,
   verifyRoute,
   rotateTokenRoute,
+  setDisplayNameRoute,
   deleteAccountRoute,
   reserveRoute,
   dispatchedRoute,
@@ -7650,6 +8033,7 @@ function startPollLoop(deps) {
   let timer = null;
   let stopped = false;
   let inFlight = false;
+  let nextAtMs = null;
   const cycle = async () => {
     if (stopped || inFlight) {
       return;
@@ -7666,8 +8050,10 @@ function startPollLoop(deps) {
       if (stopped) {
         return null;
       }
+      nextAtMs = Date.now() + interval;
       timer = setTimeout(() => {
         timer = null;
+        nextAtMs = null;
         cycle();
       }, interval);
       timer.unref();
@@ -7678,11 +8064,13 @@ function startPollLoop(deps) {
   return {
     stop: () => {
       stopped = true;
+      nextAtMs = null;
       if (timer !== null) {
         clearTimeout(timer);
         timer = null;
       }
-    }
+    },
+    state: () => ({ stopped, nextPollAtMs: nextAtMs })
   };
 }
 function createDefaultPoller() {
@@ -7795,7 +8183,8 @@ async function withTimeout(promise, timeoutMs) {
   }
 }
 async function performShutdown(input) {
-  const { server, state, poll, sweep } = input;
+  const { server, state, poll, sweep, polling } = input;
+  polling.beginShutdown();
   poll?.stop();
   sweep?.stop();
   const closed = new Promise((resolve3) => {
@@ -7816,7 +8205,8 @@ function createHandle(parts) {
       server: parts.server,
       state: parts.state,
       poll: parts.poll ?? null,
-      sweep: parts.sweep ?? null
+      sweep: parts.sweep ?? null,
+      polling: parts.polling
     });
     return closing;
   };
@@ -7826,6 +8216,7 @@ function createHandle(parts) {
     store: parts.store,
     reconciled: parts.reconciled,
     swept: parts.swept,
+    poll: parts.poll ?? null,
     shutdown
   };
 }
@@ -7846,10 +8237,18 @@ function startBootSweep(input) {
     return { recoveries: [], auditWritten: false };
   });
 }
+function startSchedulers(input) {
+  const { store, log, poller, polling } = input;
+  const poll = store === null ? null : startPollLoop({ store, log, poller });
+  polling.observe(poll);
+  const sweep = store === null ? null : startSweep({ store, log });
+  return { poll, sweep };
+}
 async function startService(options) {
   const store = await openStoreSafe(options);
   const github = options.github ?? createGitHubVerifier();
   const state = { inFlight: 0 };
+  const polling = createPollingView();
   const context = {
     store,
     dataDir: options.dataDir,
@@ -7857,19 +8256,20 @@ async function startService(options) {
     log: options.log,
     schemaVersion: SERVICE_SCHEMA_VERSION,
     github,
-    throttle: createVerifyThrottle()
+    throttle: createVerifyThrottle(),
+    polling: polling.view
   };
   const deps = { env: options.env, context, routes: ROUTES, log: options.log, state };
   const server = createServer(createRequestHandler(deps));
   const swept = await startBootSweep({ store, log: options.log });
   await listen(server, options.env.port);
   const reconciled = startReconciliation({ store, github, log: options.log });
-  const poll = store === null ? null : startPollLoop({
+  const { poll, sweep } = startSchedulers({
     store,
     log: options.log,
-    poller: options.poller ?? createDefaultPoller()
+    poller: options.poller ?? createDefaultPoller(),
+    polling
   });
-  const sweep = store === null ? null : startSweep({ store, log: options.log });
   return createHandle({
     server,
     state,
@@ -7879,7 +8279,8 @@ async function startService(options) {
     reconciled,
     swept: Promise.resolve(swept),
     poll,
-    sweep
+    sweep,
+    polling
   });
 }
 

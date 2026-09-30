@@ -19,7 +19,7 @@
  * up once a panel needs it.
  */
 
-import { deleteAccountRoute, listAccountsRoute, rotateTokenRoute } from './accounts.ts';
+import { deleteAccountRoute, listAccountsRoute, rotateTokenRoute, setDisplayNameRoute } from './accounts.ts';
 import { auditRoute } from './audit.ts';
 import { getConfigRoute, putConfigRoute } from './config.ts';
 import { eventHistoryRoute, pendingEventsRoute } from './events.ts';
@@ -45,6 +45,7 @@ export const ROUTES: readonly Route[] = [
     auditRoute,
     verifyRoute,
     rotateTokenRoute,
+    setDisplayNameRoute,
     deleteAccountRoute,
     reserveRoute,
     dispatchedRoute,

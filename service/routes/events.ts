@@ -45,10 +45,20 @@ import { previewRunsDocument } from '../poll/runs-document.ts';
 import { readScanState } from '../poll/scan.ts';
 import type { BindingRecord } from '../bindings.ts';
 import type { QueuedEvent } from '../poll/events.ts';
+import type { RunHistoryRow } from '../poll/run-history-project.ts';
 import { STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
 import type { ServiceStore } from '../store/index.ts';
 import type { ServiceLogger } from '../log.ts';
+import {
+    MAX_PAGE_SIZE,
+    afterBoundary,
+    buildEventPage,
+    encodeBoundary,
+    listQueryOf,
+    matchesFilters,
+    newestFirst,
+} from './events-page.ts';
 import type { Route, RouteContext, RouteRequest } from './types.ts';
 
 /** Path the panel polls for queued events. */
@@ -57,8 +67,14 @@ export const EVENTS_PENDING_PATH = '/v1/events/pending';
 /** Path of the runs history: every event, every state, newest detected first. */
 export const EVENTS_PATH = '/v1/events';
 
-/** How many events the runs history answers with (newest detected first). */
-export const MAX_LISTED_EVENTS = 100;
+/**
+ * How many events the runs history answered with before paging (contract §0).
+ *
+ * The shipped 100-row cap is the **maximum page size** now: the 101st
+ * dispatch is reachable through the cursor (FR-042), and this name is kept
+ * because the contract set and the tests read it.
+ */
+export const MAX_LISTED_EVENTS = MAX_PAGE_SIZE;
 
 /** Shape of a stored queue row the status reader needs. */
 type QueueRow = Pick<QueuedEvent, 'id' | 'bindingId' | 'state'>;
@@ -218,15 +234,7 @@ async function handlePendingEvents(context: RouteContext, request: RouteRequest)
 }
 
 /**
- * Answer `GET /v1/events` with the runs history: every retained run, in any
- * state, newest detected first.
- *
- * This is the read-only counterpart to the panel's claim route — it never
- * flips a state, so it can be polled as often as the operator likes without
- * stealing runs from a live relay. The answer is the credential-free
- * {@link projectRunHistory} row projection, capped at {@link MAX_LISTED_EVENTS}
- * so one long history cannot flood a screen (contract §1; the cadence and
- * pagination of this list stay 005's).
+ * Project the whole history in the retained order.
  *
  * The run document is read **first and directly**: it is the reader that runs
  * the one-shot legacy adoption (FR-005), so a store upgraded moments ago
@@ -235,25 +243,71 @@ async function handlePendingEvents(context: RouteContext, request: RouteRequest)
  * contract's only refusal — `503 storage-unavailable` — instead of inventing an
  * empty history a constitution-II reading would forbid.
  *
- * @param context - Route context carrying the open store.
- * @returns `200 { events }`, or the documented 503.
+ * @param context - Route context carrying the structured logger.
+ * @param store - Open store.
+ * @returns Every retained run's row, newest detected first with the tiebreak.
  */
-async function handleEventHistory(context: RouteContext): Promise<HttpResponse> {
+async function projectHistory(
+    context: RouteContext,
+    store: ServiceStore,
+): Promise<readonly RunHistoryRow[]> {
+    const document = await previewRunsDocument({ store, log: context.log });
+    const queue = await readEvents({ store, log: context.log });
+
+    return projectRunHistory({
+        runs: document.runs,
+        deliveries: new Map(queue.map((event) => [event.id, event])),
+        // The whole projection: the cap is a page size now, not a wall (FR-042).
+        cap: document.runs.length,
+    }).sort(newestFirst);
+}
+
+/**
+ * Answer `GET /v1/events` with one page of the runs history (005 FR-042).
+ *
+ * The read is read-only: it never flips a state, so it can be polled as often
+ * as the operator likes without stealing runs from a live relay. The query is
+ * validated before any document is read, the order is the retained one, and
+ * the answer carries the `page` member beside the rows.
+ *
+ * @param context - Route context carrying the open store.
+ * @param request - Routed request; the query may carry `limit`, `cursor`,
+ *   `bindingId`, and `state`.
+ * @returns `200 { events, page }`, or the documented 422/503.
+ */
+async function handleEventHistory(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;
     if (store === null) {
         return storageUnavailableResponse();
     }
 
-    const document = await previewRunsDocument({ store, log: context.log });
-    const queue = await readEvents({ store, log: context.log });
+    const parsed = listQueryOf(request);
+    if (!parsed.ok) {
+        return parsed.response;
+    }
+
+    const { query } = parsed;
+    const rows = await projectHistory(context, store);
+
+    const filtered = rows.filter((row) => matchesFilters(row, query));
+    const { boundary } = query;
+    const remaining = boundary === null ? filtered : filtered.filter((row) => afterBoundary(row, boundary));
+    const window = remaining.slice(0, query.limit + 1);
+    const hasMore = window.length > query.limit;
+    const events = window.slice(0, query.limit);
+    const last = events[events.length - 1];
 
     return {
         status: STATUS.ok,
         body: {
-            events: projectRunHistory({
-                runs: document.runs,
-                deliveries: new Map(queue.map((event) => [event.id, event])),
-                cap: MAX_LISTED_EVENTS,
+            events,
+            page: buildEventPage({
+                limit: query.limit,
+                nextCursor: hasMore && last !== undefined ? encodeBoundary(last) : null,
+                hasMore,
+                total: filtered.length,
+                snapshotAt: new Date().toISOString(),
+                filter: { bindingId: query.bindingId === '' ? null : query.bindingId, state: query.state },
             }),
         },
     };
@@ -270,7 +324,7 @@ export const pendingEventsRoute: Route = {
 export const eventHistoryRoute: Route = {
     method: 'GET',
     path: EVENTS_PATH,
-    handler: (context) => handleEventHistory(context),
+    handler: (context, request) => handleEventHistory(context, request),
 };
 
 /** Type used to note the queue shape the status row counts from. */

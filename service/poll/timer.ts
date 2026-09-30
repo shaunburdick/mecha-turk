@@ -11,7 +11,7 @@
 import { currentIntervalMs, describeKind, runScanCycle } from './loop.ts';
 import { createGitHubIssuePoller } from './poller-github.ts';
 import type { GitHubIssuePoller } from './poller-github.ts';
-import type { PollLoop, ScanDeps } from './loop.ts';
+import type { PollLoop, PollLoopState, ScanDeps } from './loop.ts';
 
 export type { PollLoop };
 
@@ -30,6 +30,10 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
     let timer: NodeJS.Timeout | null = null;
     let stopped = false;
     let inFlight = false;
+    // Epoch stamp of the armed timer, published read-only through `state()`
+    // so the status projection reports the scheduler's own schedule instead of
+    // a second one it could drift from (005 FR-031).
+    let nextAtMs: number | null = null;
 
     const cycle = async (): Promise<void> => {
         if (stopped || inFlight) {
@@ -50,8 +54,10 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
                 return null;
             }
 
+            nextAtMs = Date.now() + interval;
             timer = setTimeout(() => {
                 timer = null;
+                nextAtMs = null;
                 void cycle();
             }, interval);
             timer.unref();
@@ -65,11 +71,13 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
     return {
         stop: (): void => {
             stopped = true;
+            nextAtMs = null;
             if (timer !== null) {
                 clearTimeout(timer);
                 timer = null;
             }
         },
+        state: (): PollLoopState => ({ stopped, nextPollAtMs: nextAtMs }),
     };
 }
 

@@ -159,7 +159,7 @@ describe('post-connect Bindings reload (MVP fix 3, accounts dropdown)', () => {
         expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
         expect(host.rt.state.bindings.status).toBe('ready');
         expect(host.rt.state.bindings.accounts).toEqual([
-            { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, usable: true },
+            { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, displayName: null, usable: true },
         ]);
         expect(host.requests.map((request) => request.path)).toEqual([
             STATUS_PATH,
@@ -375,7 +375,7 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
         // operator's dropdown shows it without a manual Refresh.
         expect(host.rt.state.handoff.connected).toEqual({ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN });
         expect(host.rt.state.bindings.accounts).toEqual([
-            { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, usable: true },
+            { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, displayName: null, usable: true },
         ]);
         expectNoCredential(host);
     });

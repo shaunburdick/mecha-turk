@@ -13,6 +13,7 @@
  */
 
 import { isRecord } from '../json.ts';
+import { findSecretLeak } from '../../src/redaction.ts';
 import type { CredentialKind, ScopeCheck } from '../github.ts';
 
 /** Lifecycle state of an account (data-model.md Account). */
@@ -39,6 +40,15 @@ export interface Account {
     readonly login: string;
     /** Operator-supplied expected login, or `null` when not constrained. */
     readonly expectedLogin: string | null;
+    /**
+     * Operator-supplied display label, or `null` when unset (005 FR-066).
+     *
+     * Display only: it never takes part in identity, in a durable key, or in
+     * the binding's account reference — the numeric id stays the key (002
+     * FR-009). Absent in every record this build wrote before the field, which
+     * reads as `null` without a migration (FR-005: the upgrade writes nothing).
+     */
+    readonly displayName: string | null;
     /** Credential at rest; excluded from every response by {@link toAccountDto}. */
     readonly credential: CredentialRecord;
     /** FR-010 scope matrix taken at the last verification. */
@@ -65,6 +75,8 @@ export interface AccountDto {
     readonly login: string;
     /** Operator-supplied expected login, or `null`. */
     readonly expectedLogin: string | null;
+    /** Operator-supplied display label, or `null` when unset (005 FR-066). */
+    readonly displayName: string | null;
     /** Lifecycle state. */
     readonly state: AccountState;
     /** Last observed connection state. */
@@ -190,6 +202,8 @@ interface StoredAccountStrings {
     readonly login: string;
     /** Operator-supplied expected login, or `null`. */
     readonly expectedLogin: string | null;
+    /** Operator-supplied display label, or `null` when absent or unset. */
+    readonly displayName: string | null;
     /** RFC 3339 timestamp of the last successful verification. */
     readonly verifiedAt: string;
     /** Cause when `state` is `error`, otherwise `null`. */
@@ -211,13 +225,28 @@ function isNullableString(value: unknown): value is string | null {
 }
 
 /**
+ * Narrow a value to "absent, null, or text".
+ *
+ * The absent half is the pre-005 shape of `displayName`, which reads as
+ * `null` without a migration (FR-005: the upgrade writes nothing); a
+ * present-but-not-text value is refused like every other malformed member
+ * (invariant 8) rather than silently dropped.
+ *
+ * @param value - Candidate value from a stored record.
+ * @returns `true` for a string, `null`, or an absent key.
+ */
+function isOptionalNullableString(value: unknown): value is string | null | undefined {
+    return value === undefined || value === null || typeof value === 'string';
+}
+
+/**
  * Read and check the record's string fields in one pass.
  *
  * @param raw - Parsed document already known to be a record.
  * @returns The checked strings, or `null` when any of them is unusable.
  */
 function readAccountStrings(raw: Record<string, unknown>): StoredAccountStrings | null {
-    const { login, expectedLogin, verifiedAt, errorReason, createdAt, updatedAt } = raw;
+    const { login, expectedLogin, displayName, verifiedAt, errorReason, createdAt, updatedAt } = raw;
     if (typeof login !== 'string' || login === '') {
         return null;
     }
@@ -226,11 +255,23 @@ function readAccountStrings(raw: Record<string, unknown>): StoredAccountStrings 
         return null;
     }
 
+    if (!isOptionalNullableString(displayName)) {
+        return null;
+    }
+
     if (typeof verifiedAt !== 'string' || typeof createdAt !== 'string' || typeof updatedAt !== 'string') {
         return null;
     }
 
-    return { login, expectedLogin, verifiedAt, errorReason, createdAt, updatedAt };
+    return {
+        login,
+        expectedLogin,
+        displayName: displayName ?? null,
+        verifiedAt,
+        errorReason,
+        createdAt,
+        updatedAt,
+    };
 }
 
 /**
@@ -283,6 +324,7 @@ export function toAccountDto(account: Account): AccountDto {
         numericUserId: account.numericUserId,
         login: account.login,
         expectedLogin: account.expectedLogin,
+        displayName: account.displayName,
         state: account.state,
         connectionState: account.connectionState,
         verifiedAt: account.verifiedAt,
@@ -291,4 +333,112 @@ export function toAccountDto(account: Account): AccountDto {
         createdAt: account.createdAt,
         updatedAt: account.updatedAt,
     };
+}
+
+/** Longest accepted display name, in Unicode code points (005 contract §2). */
+export const DISPLAY_NAME_MAX_CODE_POINTS = 80;
+
+/** The field every display-name refusal names, so a client renders it in place. */
+export type DisplayNameField = 'displayName';
+
+/** Refused because the value is present but is not text (contract §2 step 1). */
+const DISPLAY_NAME_TYPE = 'displayName must be text, or null to clear it';
+
+/** Refused because the value is over the cap (contract §2 step 4); never quotes it. */
+const DISPLAY_NAME_CAP = `displayName must be at most ${DISPLAY_NAME_MAX_CODE_POINTS} characters`
+    + ' (Unicode code points) after trimming';
+
+/** Refused because the value carries invisible or direction-altering text (step 6). */
+const DISPLAY_NAME_CONTROL = 'displayName must not contain control characters';
+
+/** Last C0 control character (inclusive). */
+const LAST_C0 = 0x1f;
+
+/** C1 control range, inclusive on both ends. */
+const FIRST_C1 = 0x7f;
+const LAST_C1 = 0x9f;
+
+/**
+ * Whether a string carries a C0 or C1 control character.
+ *
+ * Written as a code-point walk rather than a regular expression so the
+ * character classes are visible as numbers: a control character in source is
+ * exactly the kind of thing that renders as nothing and reads as a space.
+ *
+ * @param value - The already-trimmed candidate.
+ * @returns `true` when at least one character is invisible or direction-altering.
+ */
+function hasControlCharacter(value: string): boolean {
+    for (const character of value) {
+        const code = character.codePointAt(0) ?? 0;
+        if (code <= LAST_C0 || (code >= FIRST_C1 && code <= LAST_C1)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/** One refused display name, in the `field` + remediation voice every refusal shares. */
+export interface DisplayNameIssue {
+    /** Always the display-name field, so the refusal renders where it belongs. */
+    readonly field: DisplayNameField;
+    /** How to fix it; never echoes any part of the submitted value. */
+    readonly remediation: string;
+}
+
+/** Result of validating one candidate display name (005 contract §2). */
+export type DisplayNameValidation =
+    /** Usable text (trimmed), or `null` for "no display name". */
+    | { readonly ok: true; readonly displayName: string | null }
+    /** A refusal; nothing is written and nothing of the value is echoed. */
+    | { readonly ok: false; readonly issue: DisplayNameIssue };
+
+/**
+ * Validate one candidate display name, in the contract's six-step order.
+ *
+ * Type → trim → empty-or-null clears → cap → credential shape → control
+ * characters. The order matters: the cap is checked *before* the detector, so
+ * an oversized credential-shaped value is refused on its length alone and the
+ * refusal cannot leak a single character of what was submitted (AC-130,
+ * FR-085). No content policy beyond these steps — it is a label, and the
+ * service does not decide what an operator may call their own account.
+ *
+ * @param raw - The value exactly as the body carried it.
+ * @returns The trimmed name (`null` to clear), or the refusal that beat it.
+ */
+export function validateDisplayName(raw: unknown): DisplayNameValidation {
+    if (raw !== null && typeof raw !== 'string') {
+        return { ok: false, issue: { field: 'displayName', remediation: DISPLAY_NAME_TYPE } };
+    }
+
+    if (raw === null) {
+        return { ok: true, displayName: null };
+    }
+
+    const trimmed = raw.trim();
+    if (trimmed === '') {
+        return { ok: true, displayName: null };
+    }
+
+    if ([...trimmed].length > DISPLAY_NAME_MAX_CODE_POINTS) {
+        return { ok: false, issue: { field: 'displayName', remediation: DISPLAY_NAME_CAP } };
+    }
+
+    const label = findSecretLeak(trimmed);
+    if (label !== null) {
+        return {
+            ok: false,
+            issue: {
+                field: 'displayName',
+                remediation: `displayName must not contain credential-shaped material (matched shape: ${label})`,
+            },
+        };
+    }
+
+    if (hasControlCharacter(trimmed)) {
+        return { ok: false, issue: { field: 'displayName', remediation: DISPLAY_NAME_CONTROL } };
+    }
+
+    return { ok: true, displayName: trimmed };
 }

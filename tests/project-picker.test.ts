@@ -484,7 +484,7 @@ function loadedBindingDraft(): PanelRuntime {
     rt.state.projects.status = 'ready';
     rt.state.projects.projects = PROJECTS.projects;
     rt.state.bindings.repoInput = 'acme/widget';
-    rt.state.bindings.accounts = [{ numericUserId: '77331', login: 'acme-bot', usable: true }];
+    rt.state.bindings.accounts = [{ numericUserId: '77331', login: 'acme-bot', displayName: null, usable: true }];
     rt.state.bindings.accountSelection = '77331';
 
     return rt;

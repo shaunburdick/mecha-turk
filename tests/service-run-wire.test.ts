@@ -45,6 +45,7 @@ import { reportDispatch } from '../service/poll/dispatch-report.ts';
 import { sweepOnce } from '../service/poll/sweep.ts';
 import { buildDispatchToken } from '../service/poll/run-key.ts';
 import { emptyRunsDocument, readRunsDocument } from '../service/poll/runs.ts';
+import { createPollingView } from '../service/poll/view.ts';
 import { applyEnqueue } from '../service/poll/runs-join.ts';
 import { createLogger } from '../service/log.ts';
 import { createVerifyThrottle } from '../service/throttle.ts';
@@ -477,6 +478,7 @@ function answerContext(sink: (line: string) => void): RouteContext {
         schemaVersion: 1,
         github: offlineVerifier(),
         throttle: createVerifyThrottle(),
+        polling: createPollingView().view,
     };
 }
 
