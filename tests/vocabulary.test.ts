@@ -1,9 +1,17 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { VOCABULARY_SHORT_FORM } from '../src/about-tab.ts';
+import { RESOLVE_LABEL, RETRY_LABEL, RETURN_LABEL } from '../src/dispatches-rows.ts';
+import { AUDIT_BUTTON_LABEL } from '../src/audit-view.ts';
+import { tabSpecs } from '../src/tab-bodies.ts';
+import { mountTabShell } from '../src/tabs.ts';
+import type { PanelHandlers } from '../src/panel-ui.ts';
+import { fakeDom } from './support/dom.ts';
+import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
 
 /**
- * The four-layer vocabulary guard (005 T-003, FR-020–FR-024, FR-028).
+ * The four-layer vocabulary guard (005 T-003 + T-029, FR-020–FR-024, FR-028).
  *
  * Waves 1 and 2 renamed the panel's *source* vocabulary — L2 — while leaving
  * user-facing copy (L1), wire paths (L3), and the run domain (L4) alone. This
@@ -14,9 +22,14 @@ import { describe, expect, it } from 'vitest';
  *    here instead of surprising the typechecker later;
  * 3. the L4 terms FR-022 retains must still be present, so the L2 guard cannot
  *    be satisfied by over-renaming the domain vocabulary away;
- * 4. `AGENTS.md`'s panel module map must list every file `src/` actually holds.
+ * 4. `AGENTS.md`'s panel module map must list every file `src/` actually holds;
+ * 5. **the L1 half (T-029)**: the six tabs' rendered output and `README.md`
+ *    carry neither retired noun *as a noun*, with exactly one exemption — the
+ *    short mapping list, which is supposed to contain them (FR-029) — and test
+ *    names follow their subject's layer (FR-028).
  *
- * Everything here reads the local tree only: no host, no service, no network.
+ * The L1 scan reads what the tabs actually handed the SDK, recursively, so a
+ * tab label or a list row title counts as much as a headline does.
  */
 
 /** Repository root, derived from this file's location. */
@@ -320,5 +333,282 @@ describe("AGENTS.md's panel module map lists every file src/ contains (005 T-003
         expect(mapEntryCovers('handoff*.ts', 'session.ts')).toBe(false);
         expect(mapEntryCovers('json.ts', 'json.ts')).toBe(true);
         expect(mapEntryCovers('json.ts', 'jsonx.ts')).toBe(false);
+    });
+});
+
+/* -------------------------------------------------------------------- *
+ * L1 — the words an operator reads (005 T-029, FR-020, FR-029, FR-028)
+ * -------------------------------------------------------------------- */
+
+/** Props every SDK mount received, so "what rendered" can be asserted. */
+const mounts = vi.hoisted(() => ({
+    log: [] as { readonly key: string; readonly props: unknown }[],
+}));
+
+vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
+    const actual = await importOriginal<Record<string, unknown>>();
+    const stubbed: Record<string, unknown> = { ...actual };
+    for (const key of Object.keys(stubbed)) {
+        if (key.startsWith('mount')) {
+            stubbed[key] = (_root: unknown, props: unknown): {
+                readonly update: (patched?: unknown) => void;
+                readonly dispose: () => void;
+            } => {
+                mounts.log.push({ key, props });
+
+                return {
+                    update: (patched?: unknown): void => {
+                        mounts.log.push({ key: `${key}:update`, props: patched });
+                    },
+                    dispose: (): void => undefined,
+                };
+            };
+        }
+    }
+
+    return stubbed;
+});
+
+/** The six tabs FR-010 puts in the strip, in strip order. */
+const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
+
+/** The picker callbacks the bodies take; none is exercised by a mount. */
+const inertHandlers: PanelHandlers = {
+    refreshProjects: (): void => undefined,
+    selectProject: (): void => undefined,
+    copyProjectId: (): void => undefined,
+};
+
+/** One retired-noun rule: a shape that can only be a noun use. */
+interface NounRule {
+    /** What the finding means, printed when the rule bites. */
+    readonly name: string;
+    /** The shape to look for. */
+    readonly pattern: RegExp;
+}
+
+/**
+ * The nouns the rename retired (FR-020, SC-107).
+ *
+ * The imperative verb survives on purpose — *Run OpenChamber on web or
+ * desktop* is an instruction, and its capitalized complement is what tells
+ * the two apart from *Run shows …*. The retained domain vocabulary (FR-022)
+ * survives too: `runKey`, `runs.json`, and `mt-run-…` are identifiers, not
+ * prose, so no rule below looks for them.
+ */
+const CAPITAL_NOUNS: readonly NounRule[] = [
+    { name: 'Repositories (the bindings noun)', pattern: /\bRepositories\b/g },
+    { name: 'Runs (the work-unit noun)', pattern: /\bRuns\b/g },
+    { name: 'Run followed by a lowercase word (a noun use of Run)', pattern: /\bRun\b\s+[a-z]/g },
+];
+
+/**
+ * The domain noun in prose (`the run …`), which FR-022 retains for the
+ * domain but FR-020 never wanted in a sentence an operator reads.
+ *
+ * Deliberately **not** applied to test titles: FR-028 keeps a test of the
+ * run model named as a test of the run model.
+ */
+const DOMAIN_PROSE_RULE: NounRule = {
+    name: 'an article + run (the domain noun in a sentence)',
+    pattern: /\b(?:the|this|each|every|its|same|selected|one|that|own)\s+run\b/gi,
+};
+
+/**
+ * Collect every string inside one SDK mount's props, however deeply nested.
+ *
+ * Tab labels, list titles, and subtitles all live one level down, so a
+ * shallow read would skip exactly the rows FR-020 names first.
+ *
+ * @param value - Anything a mount was handed.
+ * @param found - Accumulator the caller owns.
+ */
+function collectStrings(value: unknown, found: string[]): void {
+    if (typeof value === 'string') {
+        found.push(value);
+
+        return;
+    }
+
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            collectStrings(item, found);
+        }
+
+        return;
+    }
+
+    if (typeof value === 'object' && value !== null) {
+        for (const item of Object.values(value)) {
+            collectStrings(item, found);
+        }
+    }
+}
+
+/**
+ * Every string one SDK mount was handed, at any depth.
+ *
+ * @param props - Whatever the primitive received.
+ * @returns The strings among them, in property order.
+ */
+function stringsIn(props: unknown): readonly string[] {
+    const found: string[] = [];
+    collectStrings(props, found);
+
+    return found;
+}
+
+/**
+ * Find the retired-noun uses in a text.
+ *
+ * @param rules - Which rules to apply.
+ * @param text - The text to scan.
+ * @returns One finding per match: the rule and the word it caught.
+ */
+function hits(rules: readonly NounRule[], text: string): readonly string[] {
+    const findings: string[] = [];
+    for (const rule of rules) {
+        for (const match of text.matchAll(rule.pattern)) {
+            findings.push(`${rule.name}: “${match[0]}”`);
+        }
+    }
+
+    return findings;
+}
+
+/**
+ * Mount all six tabs once and collect every string they handed the SDK.
+ *
+ * @returns The strings, newest paint last.
+ */
+async function renderedSixTabs(): Promise<readonly string[]> {
+    mounts.log.length = 0;
+    const rt = createTestRuntime(fakeHost());
+    const dom = fakeDom();
+    mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
+    for (const id of TAB_IDS) {
+        rt.shell?.activate(id);
+    }
+
+    // Settings and About read on their first activation; a macrotask lets
+    // both land so their repainted strings are in the scan too.
+    await tick();
+    const strings = mounts.log.flatMap((entry) => stringsIn(entry.props));
+    rt.shell?.dispose();
+
+    return strings;
+}
+
+/**
+ * Remove a document's vocabulary section, the one place the retired words
+ * are supposed to appear (FR-029).
+ *
+ * @param text - The document to strip.
+ * @returns The document without any `## …Vocabulary…` section.
+ */
+function withoutMappingSection(text: string): string {
+    const lines = text.split('\n');
+    const kept: string[] = [];
+    let skipping = false;
+
+    for (const line of lines) {
+        if (line.startsWith('## ')) {
+            skipping = /vocabulary/i.test(line);
+        }
+
+        if (!skipping) {
+            kept.push(line);
+        }
+    }
+
+    return kept.join('\n');
+}
+
+describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', () => {
+    it('mounts all six tabs, so the scan is not vacuous', async () => {
+        const strings = await renderedSixTabs();
+
+        expect(strings.length).toBeGreaterThan(40);
+        for (const label of ['Status', 'Dispatches', 'Bindings', 'Accounts', 'Settings', 'About']) {
+            expect(strings).toContain(label);
+        }
+    });
+
+    it('renders no retired noun in any of the six tabs', async () => {
+        const rendered = await renderedSixTabs();
+        const strings = rendered.filter((text) => text !== VOCABULARY_SHORT_FORM);
+
+        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], strings.join('\n'))).toEqual([]);
+    });
+
+    it('shows the short mapping list in About, retired words and all (FR-029)', async () => {
+        const strings = await renderedSixTabs();
+
+        expect(strings).toContain(VOCABULARY_SHORT_FORM);
+        // The exemption is not vacuous: the mapping really does carry them.
+        expect(hits(CAPITAL_NOUNS, VOCABULARY_SHORT_FORM).length).toBeGreaterThan(0);
+        expect(VOCABULARY_SHORT_FORM).toContain('Dispatches');
+        expect(VOCABULARY_SHORT_FORM).toContain('Bindings');
+    });
+
+    it('renders no retired noun in the row-level labels the tabs export', () => {
+        const labels = [RETRY_LABEL, RESOLVE_LABEL, RETURN_LABEL, AUDIT_BUTTON_LABEL].join('\n');
+
+        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], labels)).toEqual([]);
+    });
+
+    it('bites on every retired shape, so the scan cannot pass vacuously', () => {
+        const sample = 'the Runs list — the Repositories tab — Run shows a reason';
+
+        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], sample)).toHaveLength(3);
+        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'the run key')).toHaveLength(1);
+        // The two shapes that must keep working: the imperative verb and the
+        // retained identifiers.
+        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'Run OpenChamber on web')).toEqual([]);
+        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'runs.json runKey mt-run-1')).toEqual([]);
+    });
+
+    it('README.md names neither retired noun outside its mapping (AC-140)', () => {
+        const text = withoutMappingSection(readFileSync(resolve(ROOT, 'README.md'), 'utf8'));
+
+        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], text)).toEqual([]);
+        // Not vacuous: the imperative use of the word still reads as English.
+        expect(text).toContain('Run OpenChamber on web or desktop.');
+    });
+});
+
+describe('FR-028: a test is named for the layer its subject is in', () => {
+    it('has no test file named after a retired panel module', () => {
+        const retired = readdirSync(resolve(ROOT, 'tests'), { recursive: true })
+            .map((entry) => String(entry))
+            .filter((entry) => entry.endsWith('.ts'))
+            .filter((entry) => /(^|[\\/])(runs|repos)[-.]/.test(entry));
+
+        expect(retired).toEqual([]);
+    });
+
+    it('keeps the wire and domain subjects named as they are', () => {
+        // The other half of FR-028: a guard that passes by renaming
+        // everything would have deleted the domain's own vocabulary.
+        for (const kept of ['service-runs.test.ts', 'service-run-key.test.ts', 'service-run-wire.test.ts']) {
+            expect(existsSync(resolve(ROOT, 'tests', kept)), `${kept} must keep its name`).toBe(true);
+        }
+    });
+
+    it('titles no test with a retired capital noun', () => {
+        const titles: string[] = [];
+        for (const entry of readdirSync(resolve(ROOT, 'tests'))) {
+            if (!String(entry).endsWith('.ts')) {
+                continue;
+            }
+
+            const source = readFileSync(resolve(ROOT, 'tests', String(entry)), 'utf8');
+            for (const match of source.matchAll(/\b(?:it|describe|test)\(\s*'([^']*)'/g)) {
+                titles.push(match[1] ?? '');
+            }
+        }
+
+        expect(titles.length).toBeGreaterThan(100);
+        expect(hits(CAPITAL_NOUNS, titles.join('\n'))).toEqual([]);
     });
 });

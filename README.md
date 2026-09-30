@@ -23,11 +23,11 @@ GitHub (read-only) ──poll──> local service ──durable event queue─�
   clamped 15–300 s) for the triggers you enable. Polling is service-side, so
   it continues while the panel is closed.
 - **The panel dispatches.** Triggers that hit the same issue coalesce into one
-  **run**, and a run produces at most one `host.startSession()` call —
-  OpenChamber's own harness creates the session, the worktree, and the chat.
-  A single-use dispatch token makes a second session for one run impossible
-  rather than merely unlikely, and the Runs list shows every result with a
-  manual **Retry run** where a retry is allowed.
+  **dispatch**, and a dispatch produces at most one `host.startSession()`
+  call — OpenChamber's own harness creates the session, the worktree, and the
+  chat. A single-use dispatch token makes a second session for one dispatch
+  impossible rather than merely unlikely, and the **Dispatches** list shows
+  every result with a manual **Retry dispatch** where a retry is allowed.
 - **Everything is recorded.** Discoveries, dispatches, refusals, and account
   changes land in a durable audit trail and a redacted ledger, so you can
   always explain why an event was accepted, ignored, or retried.
@@ -77,7 +77,7 @@ GitHub (read-only) ──poll──> local service ──durable event queue─�
    | --- | --- |
    | `sessions` | Start agent sessions on your behalf when work is detected |
    | `prompt` | Use the host prompt surface when launching those sessions |
-   | `service` | Run a separate local program with your user access — the poller that watches GitHub |
+   | `service` | Launch a separate local program with your user access — the poller that watches GitHub |
    | `network` | Outbound HTTPS to `api.github.com` (polling, plus the optional identity card) |
 
 5. Click the **Mecha Turk** icon on the rail.
@@ -97,7 +97,7 @@ settings carry over, and you re-approve only if the new version asks for more.
    - Paste a fine-grained, read-only PAT. The token exists only in transit:
      it is never written to panel state, storage, logs, or the audit trail.
    - You should see `Connected as <your login>`.
-3. **Bind a repository** — panel → **Repositories** tab → *Add repository*:
+3. **Bind a repository** — panel → **Bindings** tab → *Add binding*:
    - **Poll as account**: the account to poll as
    - **Project**: an existing OpenChamber project from the picker
    - **Triggers**: assignment, review request, and/or mention
@@ -189,38 +189,39 @@ prompt survives an unrelated save elsewhere in the list.
 Every change writes one `binding.prompt-updated` row to `audit.ndjson`: the
 binding, the new fingerprint (`mtp-…`), presence, length, and who made the
 change — never the text. The instruction itself lives in exactly two places,
-the binding record and the run's own snapshot at detection, so a retry
+the binding record and the dispatch's own snapshot at detection, so a retry
 composes a byte-identical message and an edit never changes queued work.
 
 ## First dispatch
 
 1. Assign an issue to the bound account's identity (or request a review /
    mention the account).
-2. Within about two poll intervals, a row appears under **Runs** and
+2. Within about two poll intervals, a row appears under **Dispatches** and
    `host.startSession()` fires — the app may switch to the new chat once so
    the panel can verify which agent took the session.
-3. The run is marked **dispatched** with a link to the session. A run that
-   did not dispatch keeps a **Retry run** button (an already-dispatched run
-   never re-dispatches).
-4. Select the run row and press **Audit history** to read that run's whole
-   trail — creation, claim, authorization, result, verification — under its
-   correlation identifier, in order, from the panel alone.
+3. The dispatch is marked **dispatched** with a link to the session. A
+   dispatch that made no session keeps a **Retry dispatch** button (an
+   already-dispatched dispatch never re-dispatches).
+4. Select the dispatch row and press **Audit history** to read that
+   dispatch's whole trail — creation, claim, authorization, result,
+   verification — under its correlation identifier, in order, from the panel
+   alone.
 
 ## When a dispatch doesn't go through
 
-Every run carries a state and a reason line, and each non-terminal state has
-a control that moves it:
+Every dispatch carries a state and a reason line, and each non-terminal state
+has a control that moves it:
 
 | State | What it means | What you do |
 | --- | --- | --- |
-| `dispatch failed` | The dispatch ran and made no session; the cause is recorded | **Retry run** — same run, attempt counted up |
-| `blocked: <reason>` | A fail-closed guard refused before any session was started (unregistered project, missing or disabled binding) | Fix the cause, then **Retry run** |
-| `unconfirmed` | A session may exist: intent was reported and no result arrived before the deadline | The panel reconciles this on its next mount; otherwise **Resolve run**, only after checking OpenChamber's own session list |
+| `dispatch failed` | The dispatch ran and made no session; the cause is recorded | **Retry dispatch** — same dispatch, attempt counted up |
+| `blocked: <reason>` | A fail-closed guard refused before any session was started (unregistered project, missing or disabled binding) | Fix the cause, then **Retry dispatch** |
+| `unconfirmed` | A session may exist: intent was reported and no result arrived before the deadline | The panel reconciles this on its next mount; otherwise **Resolve dispatch**, only after checking OpenChamber's own session list |
 | `dead-lettered` | The automatic requeue budget is spent | **Return to waiting** (resets the attempt count) |
 
 Closing the panel never strands work: a claim whose lease expires returns to
 waiting on its own with the attempt counted up and the reason audited, while a
-run whose result never arrived is held `unconfirmed` and is **never**
+dispatch whose result never arrived is held `unconfirmed` and is **never**
 re-dispatched automatically — only an explicit operator decision can do that.
 
 ## Where your data lives
@@ -260,7 +261,7 @@ through OpenChamber's own surfaces.
 | `NO_SERVICE` | The `service` capability wasn't approved | Settings → Extensions → review permissions |
 | `SERVICE_FAILED` | The service crashed or wasn't ready within 15 s | Retry from **Health**; check the store path's permissions |
 | Handoff refused | Consent or capability gate | Complete the consent step / approve capabilities |
-| Run shows `project "<id>" is not registered` | The project was removed from OpenChamber after binding | Register the project again, then trigger the work for a fresh event |
+| A dispatch shows `project "<id>" is not registered` | The project was removed from OpenChamber after binding | Register the project again, then trigger the work for a fresh event |
 | Warning: dispatched, but the session agent was `\<x\>` | Default Agent ≠ expected agent | Set Session Defaults → Default Agent (warn-only — the session still runs) |
 | `storage-unavailable` | Data dir not writable | Fix permissions on `~/.config/openchamber/mecha-turk` |
 | Polling seems stale | OpenChamber or the service isn't running | Both must be up; **Health** shows the honest state |
