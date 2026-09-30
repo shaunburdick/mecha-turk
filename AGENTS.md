@@ -107,6 +107,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `prompt.ts` / `prompt-wire.ts` | The operator fence, the reserved marker prefixes, trim/normalise/code-point rules, and `composeFirstMessage`; the wire readers for the prompt's reference members (fail closed: `promptText` non-null iff `promptPresent`) |
 | `context-blocks.ts` | The bounded excerpt renderer: untrusted delimiters, defusing, the per-source budget, and the roll-up line |
 | `evidence.ts` | Normalized, redacted evidence record |
+| `ids.ts` | Correlation identifier and RFC 3339 clock helpers (fail closed when the secure-context UUID source is missing) |
 | `ledger.ts` / `ledger-repair.ts` | Redacted `host.storage` ledger, phases, gap analysis, bounded-write repair |
 | `session.ts` / `host-verify.ts` | `startSession()` framing (attachment id = the run's correlation id, multi-reference bounded excerpt) + host-owned project/worktree/session read-back |
 | `lifecycle.ts` | Lifecycle experiment plan and mount bookkeeping |
@@ -128,7 +129,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `prerequisites.ts` | The six first-run prerequisites, each `met` / `not-met` / `not-checkable`, with its remediation line |
 | `audit-view.ts` | One run's audit history under its correlation id, rendered as text (never markup) |
 | `agent-verify.ts` | Post-dispatch `openSession()` agent read-back, reported to the service (warn-only) |
-| `handoff*.ts` / `accounts*.ts` / `consent*.ts` | One-shot token handoff, consent gate, credential-free account mirror |
+| `handoff*.ts` / `account*.ts` / `consent*.ts` | One-shot token handoff, consent gate, credential-free account mirror |
 | `storage-write.ts` | Guarded storage writes |
 
 ## Module map (service, `service/`)
