@@ -87,6 +87,21 @@ trail — creation, claim, authorization, result, verification — from
 - The store also holds `events.json` (the delivery queue), **`runs.json`** — since 003: one run per subject with its lease, single-use dispatch token, attempt history, per-subject ordinal counter, and the durable audit outbox — `bindings.json`, `scan-state.json`, `config.json`, `state.json`, and `audit.ndjson`. Upgrading from a pre-003 build adopts the existing queue into runs on first read without quarantining a file or resetting a scan window.
 - If you run OpenChamber with a custom `OPENCHAMBER_DATA_DIR`, the service still writes to the default path above (the service env does not receive host variables) — documented limitation, surfaced in health.
 
+### Starting prompt (004)
+
+`bindings.json` also holds one optional per-binding **starting prompt**: a block of operator text the session opens with, above the automatic framing. Until the panel grows a field for it, the store file *is* the set path.
+
+- **Set it** by adding `"startingPrompt": "…"` to a binding record in `bindings.json` (same file, same permissions: dir `0700`, files `0600`).
+- **Clear it** by leaving the member out, or by writing `null` / `""`. A binding with no prompt dispatches byte-identically to what it dispatched before this field existed.
+- **The text is literal — no placeholders.** Nothing is substituted or expanded; `{number}` arrives as those seven characters.
+- **The session's agent is your pinned Default Agent, and the text cannot change it.** A prompt that names an agent is delivered as ordinary instruction text.
+- **2,000 characters** (Unicode code points) after trimming; longer values are refused naming the field and the cap, never truncated.
+- **A credential-shaped value is refused, not stored.** The save is blocked, the previous prompt stays in force, and the rejected value reaches no file, log, audit row, or bundle.
+- **Omission preserves on a whole-file save.** `PUT /v1/bindings` replaces the whole list, so a binding submitted *without* the member keeps whatever the store already holds for it — only an explicit value changes it. The panel saves this way, so your prompt survives an unrelated save.
+- **Malformed values quarantine the file** with `startingPrompt: <remediation>` logged (never the value); every binding stops scanning until you repair it.
+
+Each change writes one `binding.prompt-updated` row to `audit.ndjson` — binding id, `mtp-…` fingerprint, presence, length, actor — never the text. The instruction lives in exactly two places: the binding record and the run's snapshot taken when the event was detected, so an edit never changes queued work and a retry composes a byte-identical message.
+
 ## 7. Cleanup (manual only)
 
 The extension never deletes sessions, worktrees, or projects. Route cleanup to OpenChamber's own surfaces (session list, worktrees view, project management). Disabling a repository binding stops its polling; removing the extension stops the service (SIGTERM) and clears its grant.

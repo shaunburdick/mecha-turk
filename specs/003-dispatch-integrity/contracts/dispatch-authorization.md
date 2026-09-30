@@ -61,6 +61,15 @@ A refused reserve never writes `dispatch.reserved` (no reservation exists); it w
 
 **Result deadline**: `now + resultDeadlineMs` (config; default 120,000 ms, 30,000–600,000). After it passes, the sweep moves the run to `unconfirmed` — never back to waiting (FR-023).
 
+> **004's additive delta (built)**: `dispatch.reserved`'s `details` gain four
+> required keys — `bindingId`, `promptPresent`, `promptFingerprint`,
+> `promptLength` — written by the service from the run's own snapshot, never
+> from the request body. No existing detail key is renamed or removed, the
+> entity stays the run, and the correlation id stays the run's id (FR-062: the
+> fingerprint is derived from the prompt text, never minted per row).
+> Authoritative text:
+> [`004-starting-prompt/contracts/dispatch-prompt.md`](../../004-starting-prompt/contracts/dispatch-prompt.md) §3.
+
 ---
 
 ## 2. Result — `POST /v1/events/:correlationId/dispatched`
@@ -77,6 +86,13 @@ A refused reserve never writes `dispatch.reserved` (no reservation exists); it w
 ```
 
 **Service actions**: validate token against the run's recorded reservation (see staleness matrix) → apply outcome: `sessionId` non-empty → `dispatched` (terminal, SessionRef stored); `problem` → **`failed` with the cause** (never `dispatched` — FR-040) → consume the reservation → append the attempt record → write `dispatch.result` (`decision: dispatched|failed`, attempt, token, sessionId **or** failure reason).
+
+> **004's additive delta (built)**: `dispatch.result`'s `details` gain the
+> same four required keys — `bindingId`, `promptPresent`, `promptFingerprint`,
+> `promptLength` — from the run's snapshot, beside the existing `attempt`,
+> token fingerprint, and `sessionId` **or** failure reason. No existing detail
+> key is renamed or removed. Authoritative text:
+> [`004-starting-prompt/contracts/dispatch-prompt.md`](../../004-starting-prompt/contracts/dispatch-prompt.md) §3.
 
 ### Staleness / idempotency matrix (plan D7 — this is the heart of AC-109/AC-110/AC-112)
 

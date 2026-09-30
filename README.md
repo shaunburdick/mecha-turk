@@ -117,6 +117,81 @@ settings carry over, and you re-approve only if the new version asks for more.
    because the panel genuinely cannot read that setting, and any checkable
    prerequisite that is unmet also raises a notice above the tabs.
 
+## Starting prompt
+
+A binding can open its sessions with **your** sentence. The starting prompt is
+one block of operator text per binding, delivered to the agent verbatim as the
+first thing it reads, above the automatic framing Mecha Turk builds from the
+event. It is configuration, not a template, and it is per binding only —
+there is no account-level or global prompt, and no default is ever invented
+for a binding that has none.
+
+What the field guarantees:
+
+- **The text is literal — no placeholders.** `{number}`, `$var`, and `%s`
+  arrive as those exact characters. Nothing is substituted, expanded, or
+  interpolated, now or later.
+- **The session's agent is your pinned Default Agent, and the text cannot
+  change it.** The prompt is instruction, never a selector: no wording in it
+  selects an agent, model, or variant, and the post-dispatch read-back still
+  reports the agent the session actually ran under.
+- **2,000 characters** (Unicode code points) after trimming. A longer value is
+  refused naming the field and the cap — it is never truncated silently.
+- **A credential-shaped value is refused, not stored.** If the text looks like
+  a token, an `Authorization:` header, or a bearer credential, the save is
+  refused, the previously stored prompt stays in force, and the rejected value
+  appears nowhere: not in the file, not in a log, not in an audit row, not in
+  a bundle.
+- **Reserved markers are refused.** A line starting with `--- BEGIN ` or
+  `--- END ` would imitate the composition's own containment structure, so it
+  is refused rather than delivered. Those two prefixes are the whole rule, so
+  a marker added later is covered without a new rule.
+- **No content policy.** Those four refusals — length, credential shape,
+  reserved marker, well-formedness — are the complete set. What you say to
+  your own agent is your own business.
+
+### Setting it until the panel grows the field
+
+There is no editor for this field yet. The supported way to set it is the
+service's own bindings store:
+
+`~/.config/openchamber/mecha-turk/bindings.json` — directory `0700`, files
+`0600`, the same file the panel already saves through.
+
+Add the `startingPrompt` member to the binding you want:
+
+```jsonc
+[
+  {
+    "bindingId": "bnd-…",
+    "repository": "owner/name",
+    "startingPrompt": "Reproduce first, then patch. Say so in the summary."
+  }
+]
+```
+
+Leave the member out — or set it to `null`, or to an empty string — to clear
+it: a binding with no prompt dispatches with the automatic framing only,
+byte-identically to what it dispatched before this field existed.
+
+The file is validated on read. A value that breaks the rules above quarantines
+the whole file with the reason logged (`startingPrompt: <remediation>` — never
+the value), and every binding stops scanning until you repair it. No file is
+silently rewritten and no binding is silently dropped.
+
+### Whole-file saves preserve it
+
+`PUT /v1/bindings` replaces the whole list, so a submitted binding **without**
+the member keeps whatever the store already holds for it — only an explicit
+value changes it. The panel saves this way today, which is exactly why your
+prompt survives an unrelated save elsewhere in the list.
+
+Every change writes one `binding.prompt-updated` row to `audit.ndjson`: the
+binding, the new fingerprint (`mtp-…`), presence, length, and who made the
+change — never the text. The instruction itself lives in exactly two places,
+the binding record and the run's own snapshot at detection, so a retry
+composes a byte-identical message and an edit never changes queued work.
+
 ## First dispatch
 
 1. Assign an issue to the bound account's identity (or request a review /

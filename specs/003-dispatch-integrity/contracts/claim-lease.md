@@ -46,6 +46,17 @@ The `events` member name is **retained** (additive-within-v1, 005's L3 retention
 | `detectedAt` | string | earliest source reference's detection stamp (row age) |
 | `stateReason` | string | why it is waiting (rendered as the row's reason line, FR-074) |
 
+> **004's additive delta (built)**: `ClaimedRun` also carries four members —
+> `promptPresent`, `promptFingerprint`, `promptLength`, and `promptText`. The
+> first three are the run's prompt reference (presence, `mtp-…` fingerprint,
+> code points); `promptText` is the text the panel composes with, **claim
+> transport only**, exactly like `sourceReferences[].excerpt`. An unset run
+> answers `false` / `null` / `null` / `null` explicitly, and `promptText` is
+> non-null **iff** `promptPresent` is `true` — one that disagrees refuses the
+> entry, and one refused entry refuses the answer. Authoritative text:
+> [`004-starting-prompt/contracts/dispatch-prompt.md`](../../004-starting-prompt/contracts/dispatch-prompt.md) §1.
+> No member above is renamed, retyped, or removed by that addition.
+
 ### Counting the references an operator reconciles
 
 `dispatch.claimed`'s `sourceReferenceCount` is the **retained** count — the length of the `sourceReferences` array the answer actually carried. The run's own `referenceCount` is the **total** that ever joined. **At and after the overflow the two differ, and that difference is not a bug**: it is exactly what `referencesNotRetained` records. An operator reconciling them reads the retained count against the answer and the total against the run row, and the gap between them is the not-retained count. Below the cap all three are the same number.

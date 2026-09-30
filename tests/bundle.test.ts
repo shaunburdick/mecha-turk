@@ -631,3 +631,31 @@ describe('004 full-cycle containment (AC-133, AC-143, NFR-121)', () => {
         }
     });
 });
+
+describe('004 the field is documented, and no editor is promised (FR-062, FR-074)', () => {
+    /** The two operator pages that owe the field a section. */
+    const pages: readonly string[] = ['README.md', 'specs/002-agent-event-extension/quickstart.md'];
+
+    it('states the set path, the cap, the literal rule, the refusal, and the pinned agent', () => {
+        for (const page of pages) {
+            const text = readFileSync(resolve(ROOT, page), UTF8);
+            expect(text, `${page} names the member`).toContain('startingPrompt');
+            expect(text, `${page} names the store file`).toContain('bindings.json');
+            expect(text, `${page} names the cap`).toContain('2,000');
+            expect(text, `${page} promises literal text`).toContain('literal');
+            expect(text, `${page} promises refusal, not storage`).toContain('refused, not stored');
+            expect(text, `${page} names the pinned agent`).toContain('Default Agent');
+            expect(text, `${page} documents omission-preserves`).toContain('keeps whatever the store');
+        }
+    });
+
+    it('promises no panel editor before 005, and cites no retired spec path (FR-062)', () => {
+        for (const page of pages) {
+            const text = readFileSync(resolve(ROOT, page), UTF8);
+            expect(text, `${page} promises an editor`).toMatch(
+                /no editor for this field yet|Until the panel grows a field/,
+            );
+            expect(text, `${page} points at a retired spec path`).not.toContain('specs/001');
+        }
+    });
+});

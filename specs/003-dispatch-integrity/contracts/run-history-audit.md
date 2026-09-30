@@ -33,7 +33,13 @@ Credential-free by construction: nothing in the projection is or can be a creden
 
 **Legacy rows**: none reach this endpoint — every stored queue row has been adopted into a run before the service answers (data-model §1). A pre-003 *panel* would not parse the new states; the co-ship assumption makes that impossible.
 
-**004's additive delta (not built here)**: prompt presence / fingerprint / length join this row when 004 lands (003 v1.1.0 record — no field above is renamed, retyped, or removed by that addition).
+> **004's additive delta (built)**: `RunHistoryRow` also carries `promptPresent`,
+> `promptFingerprint`, and `promptLength` — presence, `mtp-…` fingerprint, and
+> code points, and **never `promptText`**. A run written before 004 projects
+> `false` / `null` / `null`, which is a true statement about that run rather
+> than a hole in the record. Authoritative text:
+> [`004-starting-prompt/contracts/dispatch-prompt.md`](../../004-starting-prompt/contracts/dispatch-prompt.md) §2.
+> No field above is renamed, retyped, or removed by that addition.
 
 ### Refusals
 

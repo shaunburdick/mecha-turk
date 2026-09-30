@@ -104,6 +104,8 @@ network — those checks are operator-gated and recorded in the spec (see
 | `config.ts` | Parse and validate operator settings (fail closed) |
 | `github.ts` | GitHub REST access through `host.request()` only (legacy single-repo path) |
 | `matching.ts` | The single configured-match rule |
+| `prompt.ts` / `prompt-wire.ts` | The operator fence, the reserved marker prefixes, trim/normalise/code-point rules, and `composeFirstMessage`; the wire readers for the prompt's reference members (fail closed: `promptText` non-null iff `promptPresent`) |
+| `context-blocks.ts` | The bounded excerpt renderer: untrusted delimiters, defusing, the per-source budget, and the roll-up line |
 | `evidence.ts` | Normalized, redacted evidence record |
 | `ledger.ts` / `ledger-repair.ts` | Redacted `host.storage` ledger, phases, gap analysis, bounded-write repair |
 | `session.ts` / `host-verify.ts` | `startSession()` framing (attachment id = the run's correlation id, multi-reference bounded excerpt) + host-owned project/worktree/session read-back |
@@ -117,6 +119,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `bindings-mode.ts` | Bindings-authoritative mode: first enabled binding is dispatch context |
 | `repos*.ts` / `runs*.ts` | Repositories tab (bindings, accounts, add form) + Runs history/retry |
 | `runs-service.ts` / `runs-rows.ts` | Run DTO parsed fail-closed across the eight dispatch states; each state's label, tone, and retry validity |
+| `run-state.ts` | The eight-state dispatch vocabulary, its `blocked:<reason>` family, and the narrowers that refuse an unknown word |
 | `relay.ts` | Relay tick: claim → handled key → guards → attempt; one handoff per `correlationId#attempt` per mount |
 | `relay-gates.ts` / `relay-attempt.ts` | Binding/project guards, the `blocked` report, and the reserve step; then host call → record → report → acknowledge → read-back |
 | `dispatch-record.ts` | `mecha-turk:dispatches`: the durable attempt record, written between the host call and its report and acknowledged on its own 2xx |
@@ -135,7 +138,8 @@ network — those checks are operator-gated and recorded in the spec (see
 | `main.ts` / `server.ts` / `http.ts` | Entry, loopback HTTP server, routing, body/size caps |
 | `auth.ts` / `consent.ts` | Extension grant + consent gates on every call |
 | `accounts/` | Durable account model, credential files, startup reconcile |
-| `bindings.ts` | Whole-file bindings store (validated, capped) |
+| `bindings.ts` / `bindings-read.ts` | Whole-file bindings store (validated, capped) + the read path: quarantine-reason capture and the prompt-change observation funnel |
+| `prompt.ts` / `prompt-audit.ts` | The starting-prompt domain (four refusals, `mtp-` fingerprint, run snapshot) and the per-store chain that writes exactly one `binding.prompt-updated` row per change |
 | `poll/` | Per-binding scan loop, trigger detection over the rate budget, durable event queue (deterministic ids, claim, terminal dispatch) |
 | `poll/run-key.ts` | Run key, correlation id, dispatch token, and token-fingerprint derivation |
 | `poll/runs*.ts` | `runs.json` document: fail-closed parser, join/create, one-shot adoption of pre-003 rows, lifecycle audit rows and the durable audit outbox |
