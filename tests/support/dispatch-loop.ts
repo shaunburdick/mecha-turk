@@ -28,6 +28,7 @@ import type {
     StartSessionResult,
 } from '@openchamber/sdk';
 import { drainVerifications } from '../../src/agent-verify.ts';
+import { DISPATCH_STORAGE_KEY } from '../../src/dispatch-record.ts';
 import { parsePendingBody } from '../../src/claim-service.ts';
 import { EVENTS_PENDING_PATH, serviceGet } from '../../src/service-calls.ts';
 import { createEvent, enqueueEvents } from '../../service/poll/events.ts';
@@ -51,8 +52,8 @@ import {
     createTestRuntime,
     fakeHost,
 } from './panel.ts';
-import { startTestService } from './service.ts';
 import type { StorageDouble } from './panel.ts';
+import { startTestService } from './service.ts';
 import type { TestService } from './service.ts';
 
 /** Trigger shapes the loop's fixtures enqueue. */
@@ -144,6 +145,8 @@ export interface DispatchLoop {
     readonly store: ServiceStore;
     /** Attachment id of every `host.startSession()` call this loop ever saw. */
     readonly sessions: readonly string[];
+    /** Everything the mounted panel did, in order: `METHOD path`, `record`, `ack`, `startSession:<id>`. */
+    readonly timeline: string[];
     /** The shared `host.storage` values every mount reads and writes. */
     readonly panelStorage: Map<string, JsonValue>;
     /** Enqueue fixture deliveries through the real coalescing path. */
@@ -225,8 +228,11 @@ async function forward(input: {
     readonly options: MountOptions;
     /** Whether this mount has already lost its report. */
     readonly lost: { value: boolean };
+    /** Timeline every call is recorded on. */
+    readonly timeline: string[];
 }): Promise<GuestRequestResult> {
-    const { service, request, options, lost } = input;
+    const { service, request, options, lost, timeline } = input;
+    timeline.push(`${request.method} ${request.path}`);
     const isResult = request.method === 'POST' && request.path.endsWith('/dispatched');
     if (options.loseFirstReport === true && isResult && !lost.value) {
         lost.value = true;
@@ -244,6 +250,27 @@ async function forward(input: {
     return { status: response.status, body: await response.text() };
 }
 
+/**
+ * Whether a value written to the dispatch record already carries an
+ * acknowledgement, so the timeline can tell the record write from the flip.
+ *
+ * @param value - Value the panel stored.
+ * @returns `true` once any stored attempt is acknowledged.
+ */
+function acknowledgesAttempt(value: JsonValue): boolean {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return false;
+    }
+
+    const { attempts } = value;
+    if (!Array.isArray(attempts)) {
+        return false;
+    }
+
+    return attempts.some((entry) =>
+        typeof entry === 'object' && entry !== null && !Array.isArray(entry) && entry.acknowledged === true);
+}
+
 /** Build the host one mount runs on: the loopback bridge plus a counting host. */
 function buildHost(input: {
     /** The running instance the bridge forwards to. */
@@ -252,28 +279,34 @@ function buildHost(input: {
     readonly options: MountOptions;
     /** Session list every default `startSession` appends to. */
     readonly sessions: string[];
-    /** Shared storage double every mount reads and writes. */
-    readonly storage: StorageDouble;
+    /** Timeline every call and storage flip is recorded on. */
+    readonly timeline: string[];
+    /** Shared storage every mount reads and writes. */
+    readonly storage: SpikeHost['storage'];
     /** Whether this mount has already lost its report. */
     readonly lost: { value: boolean };
 }): SpikeHost {
-    const { service, options, sessions, storage, lost } = input;
+    const { service, options, sessions, timeline, storage, lost } = input;
 
     return fakeHost({
-        serviceRequest: async (request) => await forward({ service, request, options, lost }),
+        serviceRequest: async (request) => await forward({ service, request, options, lost, timeline }),
         startSession: options.startSession
             ?? (async (request: StartSessionRequest): Promise<StartSessionResult> => {
                 sessions.push(request.id);
+                timeline.push(`startSession:${request.id}`);
 
                 return SESSION_CREATED;
             }),
         listProjects: async () => PROJECTS,
+        openSession: async (sessionId) => {
+            timeline.push(`openSession:${sessionId}`);
+        },
         onSession: (listener) => {
             listener(SESSION_SNAPSHOT);
 
             return IDLE_UNSUBSCRIBE;
         },
-        storage: storage.storage,
+        storage,
     });
 }
 
@@ -353,6 +386,76 @@ async function ageStoredLeases(input: { readonly store: ServiceStore }): Promise
 }
 
 /**
+ * Build the shared `host.storage` the mounts read and write, recording each
+ * dispatch-record flip on the loop's timeline.
+ *
+ * @param input - The storage double to wrap and the timeline to record on.
+ * @returns The storage surface every mount runs on.
+ */
+function sharedStorageFor(input: {
+    /** Storage double whose map the loop exposes. */
+    readonly storage: StorageDouble;
+    /** Timeline every record/ack flip is appended to. */
+    readonly timeline: string[];
+}): SpikeHost['storage'] {
+    return {
+        ...input.storage.storage,
+        set: async (key, value) => {
+            if (key === DISPATCH_STORAGE_KEY) {
+                input.timeline.push(acknowledgesAttempt(value) ? 'ack' : 'record');
+            }
+
+            await input.storage.storage.set(key, value);
+        },
+    };
+}
+
+/**
+ * The open store of whichever instance is running, demanded rather than
+ * defaulted: a loop that cannot read its runs cannot answer for a dispatch.
+ *
+ * @param service - The running instance.
+ * @returns Its open store.
+ * @throws {Error} When the instance opened no store.
+ */
+function currentStoreOf(service: TestService): ServiceStore {
+    const opened = service.handle.store;
+    if (opened === null) {
+        throw new Error('the loop service opened no store');
+    }
+
+    return opened;
+}
+
+/**
+ * Mount one panel on a loop and collect it for teardown.
+ *
+ * @param input - Instance, mount options, counters, storage, and the list to
+ *   collect the mount on.
+ * @returns The mounted runtime, configured with the loop's active binding.
+ */
+function mountPanel(input: {
+    /** The running instance the bridge forwards to. */
+    readonly service: TestService;
+    /** Mount options this panel honours. */
+    readonly options: MountOptions;
+    /** Session list every default `startSession` appends to. */
+    readonly sessions: string[];
+    /** Timeline every call and storage flip is recorded on. */
+    readonly timeline: string[];
+    /** Shared storage the panel reads and writes. */
+    readonly storage: SpikeHost['storage'];
+    /** Mounts collected for teardown. */
+    readonly mounts: PanelRuntime[];
+}): PanelRuntime {
+    const rt = createTestRuntime(buildHost({ ...input, lost: { value: false } }));
+    rt.state.repos.bindings = [loopBinding()];
+    input.mounts.push(rt);
+
+    return rt;
+}
+
+/**
  * Start one loop: a temp store and the real service serving it.
  *
  * @returns The loop, ready for fixtures and mounts.
@@ -364,7 +467,9 @@ export async function startDispatchLoop(): Promise<DispatchLoop> {
 
     let service = await startTestService({ dataDir });
     const sessions: string[] = [];
+    const timeline: string[] = [];
     const storage = createStorageDouble();
+    const sharedStorage = sharedStorageFor({ storage, timeline });
     const mounts: PanelRuntime[] = [];
 
     const loop: DispatchLoop = {
@@ -372,14 +477,10 @@ export async function startDispatchLoop(): Promise<DispatchLoop> {
             return service;
         },
         get store(): ServiceStore {
-            const opened = service.handle.store;
-            if (opened === null) {
-                throw new Error('the loop service opened no store');
-            }
-
-            return opened;
+            return currentStoreOf(service);
         },
         sessions,
+        timeline,
         panelStorage: storage.values,
         enqueue: async (input) =>
             await enqueueTriggers({
@@ -388,14 +489,14 @@ export async function startDispatchLoop(): Promise<DispatchLoop> {
                 triggers: input.triggers,
                 detectedAt: input.detectedAt,
             }),
-        mount: (options = {}) => {
-            const lost = { value: false };
-            const rt = createTestRuntime(buildHost({ service, options, sessions, storage, lost }));
-            rt.state.repos.bindings = [loopBinding()];
-            mounts.push(rt);
-
-            return rt;
-        },
+        mount: (options = {}) => mountPanel({
+            service,
+            options,
+            sessions,
+            timeline,
+            storage: sharedStorage,
+            mounts,
+        }),
         unmount: (rt) => stopMount(rt),
         sweepAt: async (stamp) => {
             await sweepOnce({ store: loop.store, log: LOOP_LOGGER, now: stamp });
