@@ -44,6 +44,63 @@ GitHub (read-only) ──poll──> local service ──durable event queue─�
 - Mecha Turk has **no GitHub write access**. It can read issues and pull
   requests; it cannot comment, label, assign, or merge.
 
+## The panel: six tabs
+
+The rail panel has one strip with six tabs, in order:
+
+| Tab | What it is for |
+| --- | --- |
+| **Status** | The honest projection — service, polling, accounts, bindings, agent pin — plus the **Setup prerequisites** section: six lines, each *met*, *not met*, or **not checkable by the panel**, each with its own remediation, with any checkable-and-unmet item raised as a notice above the tabs |
+| **Dispatches** | Every queued, running, and finished dispatch, newest first, with cursor paging and server-side filters by binding and by state; each row carries its state, its reason line, its correlation id, its source references, and the controls that move it (open, retry, resolve, return to waiting, audit history) |
+| **Bindings** | The repositories you watch, the project picker with its *not listed?* guidance, and the add form |
+| **Accounts** | Every GitHub account with its lifecycle, connection, and scope matrix, plus the add form: consent → PAT → optional expected GitHub login |
+| **Settings** | The whole service configuration — read-only in this release; editing arrives with feature 006 |
+| **About** | Product identity, the panel id, the version read from the service, the data directory to back up, the vocabulary list, and read-only diagnostics |
+
+### Configuration
+
+**Settings** is the configuration surface for the **whole** service
+configuration: it renders every field `GET /v1/config` carries — poll
+interval, overlap window, page size, retry bounds, audit and excerpt
+retention, lease and result deadlines, log level — with each field's value,
+unit, bounds, and an honest statement of where a change takes effect. The tab
+reads `config.json` in the store and offers no edit control in this release.
+
+The integration card carries **no settings**. The agent-verification baseline
+(`expectedAgent`, default `project-manager`) is service configuration, not a
+card field: verification reads it through `GET /v1/config` and falls back to
+the documented default when the document does not carry it.
+
+## Vocabulary mapping
+
+The product says **Dispatches** for the unit of work and **Bindings** for the
+watched-repository configuration, everywhere a human reads it. The wire paths
+and the run domain keep their own names. This is the full mapping (005
+`## Vocabulary Mapping`, normative):
+
+| Today | 005 name | Layer | Disposition |
+| --- | --- | --- | --- |
+| Runs (panel section) | **Dispatches** | L1 | Renamed — one tab, one list |
+| Repositories (panel tab) | **Bindings** | L1 | Renamed — one tab |
+| "Run" on screen | **Dispatch** | L1 | Renamed — the row is a dispatch, the domain object is a run |
+| `src/runs*.ts` | `src/dispatches*.ts` | L2 | Renamed |
+| `src/repos*.ts` | `src/bindings*.ts` | L2 | Renamed |
+| `PanelState.repos` | `PanelState.bindings` | L2 | Renamed |
+| `ReposSection` | `BindingsSection` | L2 | Renamed |
+| `RepositoriesStatus` | `BindingsStatus` | L2 | Renamed |
+| `Repositories.activeTab` | *(deleted)* | L2 | Removed — the shell's single activation field replaces it |
+| "Spike" tab | *(deleted)* | L1, L2 | Retired — not hidden, not reachable |
+| `pendingPhase` | *Diagnostics* record | L2 | Renamed and moved — read-only in About |
+| `run` (entity, key, ordinal) | `run` | L4 | Retained — the domain object is still a run |
+| `attempt` | `attempt` | L4 | Retained |
+| `run.` audit prefix | `run.` | L4 | Retained |
+| `binding.` audit prefix | `binding.` | L4 | Retained |
+| `GET /v1/events` and its operations | *retained* | L3 | Retained — the panel maps Dispatches onto them |
+| `repositories` (status member) | `repositories` | L3 | Retained — rendered as **Bindings** |
+| `GET` / `PUT /v1/bindings` | *retained* | L3 | Retained — already correctly named |
+| panel id `mecha-turk` | *retained* | L3 | Retained |
+| `extension-spike-1` evidence schema | *retained* | L4 | Retained |
+
 ## Requirements
 
 - **OpenChamber desktop or web.** (VS Code and mobile builds do not run
@@ -96,6 +153,10 @@ settings carry over, and you re-approve only if the new version asks for more.
      access; the step exists so you accept it knowingly).
    - Paste a fine-grained, read-only PAT. The token exists only in transit:
      it is never written to panel state, storage, logs, or the audit trail.
+   - Optionally type an **expected GitHub login** — the per-account constraint
+     from FR-009, supplied where the account is created. Empty means no
+     constraint; a value that disagrees with GitHub's `/user` answer is
+     refused fail-closed.
    - You should see `Connected as <your login>`.
 3. **Bind a repository** — panel → **Bindings** tab → *Add binding*:
    - **Poll as account**: the account to poll as
@@ -107,8 +168,9 @@ settings carry over, and you re-approve only if the new version asks for more.
    is a *non-authoritative* convenience: it shows a connected-login badge and
    backs one read-only identity diagnostic. It is never used for polling,
    discovery, or dispatch, and Mecha Turk works fully without it.
-5. **Read the panel's setup prerequisites** — the panel shows a **Setup
-   prerequisites** section covering the six things a first dispatch needs:
+5. **Read the panel's setup prerequisites** — the **Status** tab shows a
+   **Setup prerequisites** section covering the six things a first dispatch
+   needs:
    the Default Agent pin, OpenChamber running, the desktop-or-web surface,
    the GitHub token scopes, a registered project per binding, and
    service-capability approval with the in-panel consent step. Each line has
@@ -233,7 +295,7 @@ re-dispatched automatically — only an explicit operator decision can do that.
 
 Treat the service folder like `~/.ssh`: include it in backups deliberately,
 never commit it, and revoke a PAT on GitHub the moment you no longer need it.
-The absolute store path is printed in the panel's **Health** view and in
+The absolute store path is printed in the panel's **Status** view and in
 `GET /v1/status`.
 
 ## Security at a glance
@@ -259,12 +321,12 @@ through OpenChamber's own surfaces.
 | Symptom | Meaning | What to do |
 | --- | --- | --- |
 | `NO_SERVICE` | The `service` capability wasn't approved | Settings → Extensions → review permissions |
-| `SERVICE_FAILED` | The service crashed or wasn't ready within 15 s | Retry from **Health**; check the store path's permissions |
+| `SERVICE_FAILED` | The service crashed or wasn't ready within 15 s | Retry from **Status**; check the store path's permissions |
 | Handoff refused | Consent or capability gate | Complete the consent step / approve capabilities |
 | A dispatch shows `project "<id>" is not registered` | The project was removed from OpenChamber after binding | Register the project again, then trigger the work for a fresh event |
 | Warning: dispatched, but the session agent was `\<x\>` | Default Agent ≠ expected agent | Set Session Defaults → Default Agent (warn-only — the session still runs) |
 | `storage-unavailable` | Data dir not writable | Fix permissions on `~/.config/openchamber/mecha-turk` |
-| Polling seems stale | OpenChamber or the service isn't running | Both must be up; **Health** shows the honest state |
+| Polling seems stale | OpenChamber or the service isn't running | Both must be up; **Status** shows the honest state |
 
 ## Development
 

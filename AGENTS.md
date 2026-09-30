@@ -121,7 +121,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `redaction.ts` / `json.ts` | Secret-shape detection; typed bridge to the host's `JsonValue` |
 | `service-calls.ts` | Shared `host.serviceRequest()` GET/PUT/POST/DELETE wrappers + the run-scoped paths (reserve, result, abandon, blocked, retry, requeue, resolve, verification, audit read) |
 | `bindings-mode.ts` | Bindings-authoritative mode: first enabled binding is dispatch context |
-| `bindings*.ts` / `dispatches*.ts` | Repositories tab (bindings, accounts, add form) + Runs history/retry |
+| `bindings*.ts` / `dispatches*.ts` | The Bindings tab (binding rows, the editor, the add form) plus the Dispatches list's rows, paging, and controls |
 | `bindings-grant.ts` | The whole-file `PUT /v1/bindings` write: prompt-key stripping (004 FR-014), the "nothing changed" refusal note, and the relay arming that follows a confirmed list |
 | `bindings-prompt.ts` | The binding editor's starting-prompt field — the one element in the panel that ever holds its text (005 FR-051) |
 | `bindings-editor.ts` | The editor's derived field views: the mention token in force and its override mark (005 FR-057, no store in this build), the bound-account scope for edit vs add, and the worktree option declaration |

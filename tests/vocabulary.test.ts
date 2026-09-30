@@ -603,7 +603,10 @@ describe('FR-028: a test is named for the layer its subject is in', () => {
             }
 
             const source = readFileSync(resolve(ROOT, 'tests', String(entry)), 'utf8');
-            for (const match of source.matchAll(/\b(?:it|describe|test)\(\s*'([^']*)'/g)) {
+            // `it(` / `describe(` / `test(` at a call site — not `.test(`,
+            // which is how a matcher's own fixture would read as a title.
+            const call = /(?:^|[\s;{(])(?:it|describe|test)\(\s*'([^']*)'/g;
+            for (const match of source.matchAll(call)) {
                 titles.push(match[1] ?? '');
             }
         }
