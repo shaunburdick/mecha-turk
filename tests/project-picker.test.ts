@@ -167,7 +167,7 @@ describe('selection guards', () => {
         expect(describeProjectSelection(state)).toMatch(/dispatch stays blocked/);
 
         state.config = testConfig();
-        expect(describeProjectSelection(state)).toMatch(/integration setting/);
+        expect(describeProjectSelection(state)).toMatch(/binding/);
 
         state.projectSelection = OTHER_ID;
         expect(describeProjectSelection(state)).toContain(OTHER_ID);

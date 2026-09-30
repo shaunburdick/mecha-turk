@@ -9,7 +9,6 @@
 import type { BannerTone } from '@openchamber/sdk/ui';
 import type { GuestProject } from '@openchamber/sdk';
 import type { SpikeConfig } from './config.ts';
-import { DEFAULT_EXPECTED_AGENT } from './config.ts';
 import type { SpikeEvidence } from './evidence.ts';
 import type { AuditViewState } from './audit-view.ts';
 import { initialAuditHistory } from './audit-view.ts';
@@ -139,9 +138,20 @@ export function initialRelay(): Relay {
 export interface PanelState {
     /** Ledger being built for this mount. */
     ledger: SpikeLedger;
-    /** Validated operator settings, or `null` until they parse. */
+    /**
+     * Dispatch context derived from the first enabled binding, or `null`
+     * while no binding supplies one. Since 002 FR-041 emptied the manifest
+     * card, this is the **only** producer of the shape — nothing parses it
+     * out of `ctx.settings` any more.
+     */
     config: SpikeConfig | null;
-    /** Latest settings snapshot from the host, or `null` before the first one. */
+    /**
+     * Latest settings snapshot from the host, or `null` before the first one.
+     *
+     * The card declares zero settings, so the snapshot is a "the host is
+     * ready" marker rather than a configuration source; prerequisites reads
+     * it for exactly that (005 FR-037).
+     */
     settings: Readonly<Record<string, string>> | null;
     /**
      * How many service bindings are enabled, as the last bindings read
@@ -153,8 +163,8 @@ export interface PanelState {
     /**
      * Project id chosen by the panel picker, restored from extension storage.
      *
-     * `null` means "no panel selection": configuration resolution then falls
-     * back to the `project-id` integration setting.
+     * `null` means "no panel selection": no project is configured, and the
+     * panel says so rather than inventing one (002 FR-004, FR-041).
      */
     projectSelection: string | null;
     /** Project list backing the picker. */
@@ -179,13 +189,6 @@ export interface PanelState {
     dispatches: DispatchesState;
     /** Event-relay loop state (M4). */
     relay: Relay;
-    /**
-     * Agent the dispatched session should report (M9), resolved from the
-     * `expected-agent` integration setting by `applySettings` — it lives on
-     * the runtime rather than in `SpikeConfig` so bindings-authoritative
-     * mode, which derives its config from a binding, sees the same value.
-     */
-    expectedAgent: string;
 }
 
 /** Lifecycle of the Bindings tab's data. */
@@ -442,7 +445,6 @@ function initialState(createdAt: string): PanelState {
         bindings: initialBindings(),
         dispatches: initialDispatches(),
         relay: initialRelay(),
-        expectedAgent: DEFAULT_EXPECTED_AGENT,
     };
 }
 

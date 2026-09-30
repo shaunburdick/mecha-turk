@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { GuestProjectsSnapshot, JsonValue } from '@openchamber/sdk';
 import {
     applySettings,
@@ -11,21 +11,18 @@ import {
 import { EVIDENCE_STORAGE_KEY, serializeEvidence } from '../src/evidence.ts';
 import { parseJsonValue } from '../src/json.ts';
 import { LEDGER_STORAGE_KEY, readLedger } from '../src/ledger.ts';
-import { startPolling, stopPolling } from '../src/panel-actions.ts';
+import { startPolling } from '../src/panel-actions.ts';
 import { createPanelRuntime } from '../src/panel-state.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { PROJECT_STORAGE_KEY } from '../src/project-actions.ts';
+import { selectedProjectId } from '../src/project-picker.ts';
 import type { PanelBinding } from '../src/bindings-service.ts';
 import {
     FIXTURE_TIMESTAMP,
-    INTERVAL_MS,
-    ISSUE_LIST_PATH,
     LOGIN,
-    NO_ISSUES,
     PROJECT_DIR,
     PROJECT_ID,
     REPOSITORY,
-    countingRequest,
     createStorageDouble,
     createTestRuntime,
     fakeHost,
@@ -34,30 +31,24 @@ import {
     testEvidence,
 } from './support/panel.ts';
 
-/** Interval a settings change switches the running poll timer to. */
-const SHORT_INTERVAL_MS = 30_000;
-
 /** Second registered project used by the picker tests. */
 const OTHER_ID = 'prj_7';
 
-/**
- * Build the complete settings record the spike accepts.
- *
- * The manifest's setting ids are kebab-case, so they travel as string values
- * in a tuple list rather than as object property names — the same convention
- * `tests/config.test.ts` uses.
- *
- * @param intervalMs - Poll interval to publish.
- * @returns Settings ready for {@link applySettings}.
- */
-function completeSettings(intervalMs: number): Readonly<Record<string, string>> {
-    const entries: readonly (readonly [string, string])[] = [
-        ['repository', REPOSITORY],
-        ['project-id', PROJECT_ID],
-        ['worktree-option', 'generated'],
-        ['poll-interval-ms', String(intervalMs)],
-    ];
+/** Banner a panel with no dispatch context shows (002 FR-041). */
+const WAITING_FOR_BINDING = 'Waiting for a binding';
 
+/**
+ * Build a settings record.
+ *
+ * The manifest declares zero settings (002 FR-041), so a record is an inert
+ * snapshot: it exists on the runtime only as the "the host is ready" marker
+ * prerequisites reads. These helpers keep that fact visible in the tests that
+ * feed one.
+ *
+ * @param entries - Setting id and value pairs, if any.
+ * @returns A settings record ready for {@link applySettings}.
+ */
+function settingsOf(entries: readonly (readonly [string, string])[] = []): Readonly<Record<string, string>> {
     return Object.fromEntries(entries);
 }
 
@@ -154,59 +145,46 @@ describe('handlePagehide', () => {
 });
 
 describe('applySettings', () => {
-    it('stops a running poll loop when the settings are incomplete', async () => {
-        vi.useFakeTimers();
-        const counting = countingRequest({ [ISSUE_LIST_PATH]: NO_ISSUES });
-        const runtime = createTestRuntime(fakeHost({ request: counting.request }));
+    it('records the snapshot and waits for a binding when none is active', () => {
+        const runtime = createTestRuntime(fakeHost());
 
-        try {
-            startPolling(runtime);
-            await vi.advanceTimersByTimeAsync(0);
-            expect(runtime.pollTimer).not.toBeNull();
+        applySettings(runtime, settingsOf());
 
-            applySettings(runtime, { repository: '' });
-
-            expect(runtime.state.config).toBeNull();
-            expect(runtime.pollTimer).toBeNull();
-            expect(runtime.state.status.title).toBe('Configuration incomplete');
-        } finally {
-            stopPolling(runtime);
-            vi.useRealTimers();
-        }
+        // 002 FR-041: the card declares zero settings, so the snapshot is a
+        // readiness marker and never a configuration source.
+        expect(runtime.state.settings).toEqual({});
+        expect(runtime.state.config).toBeNull();
+        expect(runtime.state.status.tone).toBe('info');
+        expect(runtime.state.status.title).toBe(WAITING_FOR_BINDING);
+        expect(runtime.state.status.body).toContain('integration card declares no settings');
     });
 
-    it('restarts a running poll loop when the interval changes', async () => {
-        vi.useFakeTimers();
-        const counting = countingRequest({ [ISSUE_LIST_PATH]: NO_ISSUES });
-        const runtime = createTestRuntime(fakeHost({ request: counting.request }));
+    it('takes no configuration from a record that still carries the card ids', () => {
+        const runtime = createTestRuntime(fakeHost());
+        const cardShaped = settingsOf([
+            ['repository', REPOSITORY],
+            ['project-id', PROJECT_ID],
+            ['worktree-option', 'generated'],
+            ['poll-interval-ms', '45000'],
+            ['expected-login', LOGIN],
+            ['expected-agent', 'planner'],
+        ]);
 
-        try {
-            startPolling(runtime);
-            await vi.advanceTimersByTimeAsync(0);
-            expect(counting.calls()).toBe(1);
+        applySettings(runtime, cardShaped);
 
-            applySettings(runtime, completeSettings(SHORT_INTERVAL_MS));
-
-            expect(runtime.state.config?.pollIntervalMs).toBe(SHORT_INTERVAL_MS);
-            await vi.advanceTimersByTimeAsync(SHORT_INTERVAL_MS);
-            expect(counting.calls()).toBe(2);
-            await vi.advanceTimersByTimeAsync(SHORT_INTERVAL_MS);
-            expect(counting.calls()).toBe(3);
-        } finally {
-            stopPolling(runtime);
-            vi.useRealTimers();
-        }
+        expect(runtime.state.config).toBeNull();
+        expect(runtime.state.status.title).toBe(WAITING_FOR_BINDING);
     });
 
-    it('does not block on a missing repository setting while a binding is active', () => {
+    it('does not block while a binding is active', () => {
         const runtime = createTestRuntime(fakeHost());
         runtime.state.bindings.bindings = [activeBinding()];
         runtime.state.bindingsActive = 1;
 
-        // No `repository` setting at all: the legacy parse would refuse with
-        // "repository must be owner/name…", but the binding is authoritative.
-        const settings = Object.fromEntries([['project-id', PROJECT_ID]]);
-        applySettings(runtime, settings);
+        // No `repository` setting at all: the retired legacy parse would have
+        // refused with "repository must be owner/name…", but the binding is
+        // authoritative and always was.
+        applySettings(runtime, settingsOf([['project-id', PROJECT_ID]]));
 
         expect(runtime.state.status.tone).toBe('info');
         expect(runtime.state.status.title).toBe('Bindings active');
@@ -224,9 +202,10 @@ describe('handleConnection (FR-011 optional integration card)', () => {
 
         handleConnection(runtime, false);
 
-        // The card is optional and non-authoritative: the banner still stops
-        // the legacy single-repo loop, but it points at the account flow the
-        // product actually polls under.
+        // The card is optional, non-authoritative, and (since 002 FR-041)
+        // declares no settings at all: the banner stops any lingering poll
+        // timer, points at the account flow the product actually polls under,
+        // and does not steer the operator toward a credential surface.
         expect(runtime.state.connected).toBe(false);
         expect(runtime.pollTimer).toBeNull();
         expect(runtime.state.status.tone).toBe('warning');
@@ -234,6 +213,21 @@ describe('handleConnection (FR-011 optional integration card)', () => {
         expect(runtime.state.status.body).toContain('Repositories → Poll as account');
         expect(runtime.state.status.body).toContain('optional GitHub (token) integration card');
         expect(runtime.state.status.body).not.toContain('Settings → Integrations');
+    });
+
+    it('arms no single-repo poll when a card is connected but no binding exists', () => {
+        const runtime = createTestRuntime(fakeHost());
+        // Mount state: no binding has answered yet, so no dispatch context.
+        runtime.state.config = null;
+
+        handleConnection(runtime, true);
+
+        expect(runtime.state.connected).toBe(true);
+        expect(runtime.state.config).toBeNull();
+        expect(runtime.pollTimer).toBeNull();
+        expect(runtime.state.status.tone).toBe('info');
+        expect(runtime.state.status.title).toBe('Connected');
+        expect(runtime.state.status.body).toContain(WAITING_FOR_BINDING);
     });
 });
 
@@ -275,39 +269,39 @@ const TWO_PROJECTS: GuestProjectsSnapshot = {
 };
 
 /**
- * Load the complete settings record and mark the picker list as loaded.
+ * Mark the picker list as loaded, with the host's settings snapshot recorded.
  *
  * @param runtime - Runtime under test.
  */
 function configureWithLoadedProjects(runtime: PanelRuntime): void {
-    applySettings(runtime, completeSettings(INTERVAL_MS));
+    applySettings(runtime, settingsOf());
     runtime.state.projects.status = 'ready';
     runtime.state.projects.projects = TWO_PROJECTS.projects;
 }
 
 describe('project selection', () => {
-    it('resolves the project id from the restored panel selection', () => {
+    it('records the restored panel selection as this mount’s choice', () => {
         const runtime = createTestRuntime(fakeHost());
         runtime.state.projectSelection = OTHER_ID;
 
-        applySettings(runtime, completeSettings(INTERVAL_MS));
+        applySettings(runtime, settingsOf());
 
-        expect(runtime.state.config?.projectId).toBe(OTHER_ID);
-        expect(runtime.state.status.body).toContain('projectId from the panel picker');
+        expect(runtime.state.projectSelection).toBe(OTHER_ID);
+        expect(selectedProjectId(runtime.state)).toBe(OTHER_ID);
+        // 002 FR-041: settings resolve nothing, so no config appears from one.
+        expect(runtime.state.config).toBeNull();
     });
 
-    it('adopts a pick, stores it, and re-resolves the config', async () => {
+    it('adopts a pick and stores it', async () => {
         const storage = createStorageDouble();
         const runtime = createTestRuntime(
             fakeHost({ storage: storage.storage, listProjects: async () => TWO_PROJECTS }),
         );
         configureWithLoadedProjects(runtime);
-        expect(runtime.state.config?.projectId).toBe(PROJECT_ID);
 
         await selectProject(runtime, OTHER_ID);
 
         expect(runtime.state.projectSelection).toBe(OTHER_ID);
-        expect(runtime.state.config?.projectId).toBe(OTHER_ID);
         expect(storage.values.get(PROJECT_STORAGE_KEY)).toBe(OTHER_ID);
         expect(runtime.state.projects.note).toContain('stored for the next mount');
     });
@@ -322,7 +316,6 @@ describe('project selection', () => {
         await selectProject(runtime, 'prj_invented');
 
         expect(runtime.state.projectSelection).toBeNull();
-        expect(runtime.state.config?.projectId).toBe(PROJECT_ID);
         expect(storage.values.has(PROJECT_STORAGE_KEY)).toBe(false);
         expect(runtime.state.projects.note).toContain('prj_invented');
     });
@@ -345,7 +338,6 @@ describe('project selection', () => {
         await selectProject(runtime, OTHER_ID);
 
         expect(runtime.state.projectSelection).toBe(OTHER_ID);
-        expect(runtime.state.config?.projectId).toBe(OTHER_ID);
         expect(runtime.state.projects.note).toContain('for this session only');
     });
 });

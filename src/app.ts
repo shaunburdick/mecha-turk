@@ -1,24 +1,27 @@
 /**
- * Panel application for the extension spike.
+ * Panel application for the extension.
  *
- * The app wires the documented host surface to one bounded flow: parse the
- * operator settings, authenticate through `host.request()`, poll one
- * repository for one configured-match issue, persist a redacted evidence
- * record, dispatch one `host.startSession()` call, verify host-owned project,
- * worktree, and session state, and keep a redacted ledger in `host.storage`.
+ * The app wires the documented host surface to one bounded flow: record the
+ * host's settings snapshot, follow the service's bindings and event relay,
+ * dispatch exactly one `host.startSession()` per claimed run, verify
+ * host-owned project, worktree, and session state, and keep a redacted
+ * ledger in `host.storage`.
+ *
+ * Configuration resolution is **bindings-authoritative only** (002 FR-041):
+ * the integration card declares zero settings, so nothing here parses
+ * `ctx.settings` into a repository, project, interval, or expected login.
  *
  * Every lifecycle transition the experiment needs (mounted, closed, paused,
- * removed, server-switch) is recorded explicitly; polling never survives the
- * frame because the frame is the only thing running it. Each step is a module
- * level function over the shared runtime so no single function hides the
- * whole flow.
+ * removed, server-switch) is recorded explicitly; the frame is the only thing
+ * running, so nothing survives it. Each step is a module level function over
+ * the shared runtime so no single function hides the whole flow.
  */
 
 import type { HostReadyContext, JsonValue } from '@openchamber/sdk';
 import { applyHostReady } from '@openchamber/sdk/ui';
 import { applyBindingsMode, loadInitialBindings } from './bindings-mode.ts';
 import { preflightAndRepaint } from './accounts-ui.ts';
-import { parseExpectedAgent, parseProjectId, parseSpikeConfig, repositoryLabel } from './config.ts';
+import { parseProjectId } from './config.ts';
 import { restoreStoredConsent } from './consent.ts';
 import { restoreStoredEvidence } from './evidence.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
@@ -27,10 +30,7 @@ import { createLedger, LEDGER_STORAGE_KEY, readLedger, recordPhase } from './led
 import type { LedgerDetail } from './ledger.ts';
 import {
     appendEntryAndPersist,
-    ensureIdentity,
     persistLedger,
-    restartPolling,
-    startPolling,
     stopPolling,
 } from './panel-actions.ts';
 import { mountPrerequisiteNotice, disposePrerequisites } from './prerequisites.ts';
@@ -72,80 +72,44 @@ export interface SpikeApp {
 }
 
 /**
- * Apply operator settings from the host.
+ * Apply the host's settings snapshot.
  *
- * The project id inside the parsed config already carries the panel picker's
- * precedence over the `project-id` integration setting, because the stored
- * selection is handed to `parseSpikeConfig` here. The raw snapshot is kept on
- * the runtime so a later selection can re-run exactly this resolution instead
- * of re-implementing it.
+ * Since 002 FR-041 emptied `contributes.integration.settings`, the snapshot
+ * carries **zero** declared settings: there is no single-repo configuration
+ * to parse and no card id to read, so this function no longer resolves a
+ * config at all. What it still does is (a) record the snapshot — prerequisites
+ * reads it as the "the host is ready" marker — and (b) re-apply
+ * bindings-authoritative mode when a binding already supplies the dispatch
+ * context, so a settings event can never demote a configured panel.
  *
- * When the service reports at least one enabled repository binding, the
- * settings take a back seat entirely: the panel switches to bindings mode
- * (see {@link applyBindingsMode}), where the first enabled binding is the
- * authoritative dispatch context and the legacy single-repo demand can no
- * longer block the banner (MVP blocker 1).
+ * The legacy branch that parsed `repository` / `project-id` /
+ * `worktree-option` / `poll-interval-ms` / `expected-login` is **retired, not
+ * kept as a fallback** (002 FR-041(a)): bindings are the only configuration
+ * resolution mode, and a panel with no binding says it is waiting for one
+ * instead of naming a setting the manifest no longer declares.
  *
- * Exported so the settings flow — including the poll-timer restart when
- * `pollIntervalMs` changes while polling runs — can be exercised directly by
- * the orchestration tests; the panel itself reaches this through the
- * `onSettings` subscription registered in {@link createSpikeApp}.
+ * Exported so the settings flow can be exercised directly by the
+ * orchestration tests; the panel itself reaches this through the `onSettings`
+ * subscription registered in {@link createSpikeApp}.
  *
  * @param rt - Panel runtime.
- * @param settings - Values from `ctx.settings`.
+ * @param settings - Values from `ctx.settings` (an empty record in practice).
  */
 export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string, string>>): void {
     rt.state.settings = settings;
-    // The expected agent (M9) is read before either configuration mode
-    // diverges: bindings-authoritative mode derives `state.config` from a
-    // binding and never re-parses the settings, so this line is the one
-    // place both modes agree on the value the verification compares against.
-    rt.state.expectedAgent = parseExpectedAgent(settings);
     if (rt.state.bindingsActive > 0) {
         applyBindingsMode(rt);
         refresh(rt);
         return;
     }
 
-    const result = parseSpikeConfig(settings, rt.state.projectSelection);
-    if (!result.ok) {
-        rt.state.config = null;
-        stopPolling(rt);
-        setStatus(rt, { tone: 'error', title: 'Configuration incomplete', body: result.problems.join('; ') });
-        refresh(rt);
-        return;
-    }
-
-    const previous = rt.state.config;
-    rt.state.config = result.config;
-    const notes = result.notes.length > 0 ? ` (${result.notes.join('; ')})` : '';
-    const label = repositoryLabel(result.config.repository);
-    const body = `${label} → project ${result.config.projectId}${notes}`;
-    setStatus(rt, { tone: 'info', title: 'Configuration loaded', body });
-    if (rt.state.connected && rt.state.login === null) {
-        void ensureIdentity(rt);
-    }
-
-    if (previous !== null && previous.pollIntervalMs !== result.config.pollIntervalMs) {
-        restartPolling(rt);
-    }
-
+    rt.state.config = null;
+    setStatus(rt, {
+        tone: 'info',
+        title: 'Waiting for a binding',
+        body: 'Dispatch context comes from a binding; the integration card declares no settings.',
+    });
     refresh(rt);
-}
-
-/**
- * Re-run configuration resolution with the selection the picker holds now.
- *
- * Nothing happens until a settings snapshot has arrived: before `onReady`
- * there is nothing to re-parse, and the selection itself is already recorded,
- * so the first snapshot picks it up on its own.
- *
- * @param rt - Panel runtime.
- */
-function reapplySettings(rt: PanelRuntime): void {
-    if (rt.state.settings !== null) {
-        applySettings(rt, rt.state.settings);
-    }
 }
 
 /**
@@ -153,11 +117,11 @@ function reapplySettings(rt: PanelRuntime): void {
  *
  * The id must come from the list the host just loaded, so a stale or invented
  * value can never reach the dispatch path. It is then persisted to extension
- * storage — integration settings are read-only from the panel in SDK 1.24.2 —
- * and configuration is re-resolved through {@link applySettings} so there is
- * exactly one precedence rule for `projectId`. A refused write keeps the
- * in-memory selection for this mount and says so on the picker line; either
- * way the panel fails closed until a valid id is resolved.
+ * storage — integration settings are read-only from the panel in SDK 1.24.2,
+ * and since 002 FR-041 there are none to write anyway — and recorded on the
+ * runtime as this mount's selection. A refused write keeps the in-memory
+ * selection for this mount and says so on the picker line; either way the
+ * panel fails closed until a valid id is resolved.
  *
  * Exported for the orchestration tests, which drive the picker without a DOM.
  *
@@ -172,7 +136,6 @@ export async function selectProject(rt: PanelRuntime, id: string): Promise<void>
     }
 
     rt.state.projectSelection = candidate;
-    reapplySettings(rt);
 
     const write = await storeProjectSelection(rt.host, candidate);
     if (rt.disposed) {
@@ -193,10 +156,14 @@ export async function selectProject(rt: PanelRuntime, id: string): Promise<void>
  * unconnected, because polling and dispatch run on the *service* accounts
  * under Bindings → Poll as account. The unconnected banner therefore
  * points at that account flow instead of steering the operator to a
- * credential surface the product does not need — and it mentions the card
- * only where the card is genuinely load-bearing: the legacy single-repo
- * spike path, whose identity check is the one read that still rides
- * `host.request()`'s integration credential.
+ * credential surface the product does not need.
+ *
+ * The connected path arms nothing single-repository: since 002 FR-041 the
+ * card declares no settings, so there is no repository, project, interval, or
+ * expected login left to poll or check against — the service's poll loop and
+ * the root-owned relay are the only loops in the product, and this handler
+ * never starts either (it arms the relay only once a binding says what to
+ * relay for).
  *
  * Exported so the orchestration tests can assert the banner copy without a
  * live host subscription.
@@ -210,7 +177,7 @@ export function handleConnection(rt: PanelRuntime, connected: boolean): void {
         stopPolling(rt);
         const body =
             'Add one under Repositories → Poll as account — service accounts drive polling and dispatch. ' +
-            'The optional GitHub (token) integration card is only needed for the legacy single-repo identity check.';
+            'The optional GitHub (token) integration card declares no settings and is never required.';
         setStatus(rt, { tone: 'warning', title: 'No account connected', body });
         refresh(rt);
         return;
@@ -225,19 +192,11 @@ export function handleConnection(rt: PanelRuntime, connected: boolean): void {
         return;
     }
 
-    if (rt.state.config === null) {
-        const body = 'Waiting for repository, project, and worktree settings.';
-        setStatus(rt, { tone: 'info', title: 'Connected', body });
-        refresh(rt);
-        return;
-    }
-
-    if (rt.state.login === null) {
-        void ensureIdentity(rt);
-    } else {
-        startPolling(rt);
-    }
-
+    setStatus(rt, {
+        tone: 'info',
+        title: 'Connected',
+        body: 'Waiting for a binding; the integration card declares no settings to apply.',
+    });
     refresh(rt);
 }
 
@@ -396,7 +355,7 @@ function tornDown(rt: PanelRuntime): boolean {
 async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
     await loadLedger(rt, nowIso());
     // The stored selection must land before the first `applySettings`: it is
-    // the input config resolution uses for this mount. The restore self-guards
+    // the picker's starting point for this mount. The restore self-guards
     // after its own await, so one dispose check after both awaits is enough.
     await restoreProjectSelection(rt);
     if (rt.disposed) {

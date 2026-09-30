@@ -197,10 +197,13 @@ export function isSelectableProject(picker: ProjectPickerState, id: string): boo
 }
 
 /**
- * The project id the panel currently resolves, from either source.
+ * The project id the panel currently resolves.
+ *
+ * The picker's stored selection wins; otherwise the binding-derived dispatch
+ * context supplies one. Since 002 FR-041 there is no third source.
  *
  * @param state - Panel state.
- * @returns The panel-picker selection, else the configured id, else `null`.
+ * @returns The panel-picker selection, else the binding's id, else `null`.
  */
 export function selectedProjectId(state: PanelState): string | null {
     return state.projectSelection ?? state.config?.projectId ?? null;
@@ -210,8 +213,10 @@ export function selectedProjectId(state: PanelState): string | null {
  * Render the selected project id and where it came from.
  *
  * The id is shown verbatim so the operator can read it back into the
- * `project-id` integration setting if they configure the spike that way;
- * the source line makes the precedence rule visible instead of surprising.
+ * binding's project field; the source line makes the precedence visible
+ * instead of surprising. Since 002 FR-041 emptied the integration card there
+ * are exactly two answers: the operator's own picker selection, or the
+ * binding that already carries a project.
  *
  * @param state - Panel state.
  * @returns One line describing the effective selection.
@@ -222,7 +227,7 @@ export function describeProjectSelection(state: PanelState): string {
         return 'No project selected — dispatch stays blocked until one is.';
     }
 
-    const source = state.projectSelection !== null ? 'panel picker' : 'integration setting';
+    const source = state.projectSelection !== null ? 'panel picker' : 'binding';
     return `Selected project: ${selected} (from the ${source}).`;
 }
 

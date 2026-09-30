@@ -43,7 +43,7 @@ export const PROJECT_STORAGE_KEY = 'mecha-turk:project';
 export type StoredSelectionRead =
     /** The key was read; `projectId` is `null` when nothing is stored. */
     | { readonly ok: true; readonly projectId: string | null }
-    /** The host refused the read; the panel falls back to the integration setting. */
+    /** The host refused the read; the panel keeps the in-memory selection and reports why. */
     | { readonly ok: false; readonly problem: string };
 
 /** Outcome of writing the project selection to extension storage. */
@@ -58,8 +58,10 @@ export type StoredSelectionWrite =
  *
  * Anything the host cannot confirm — a refusal, a non-string value, an id
  * that fails {@link parseProjectId} — reads as "no selection", which keeps
- * configuration resolution falling back to the `project-id` setting instead of
- * trusting an unreadable value.
+ * configuration resolution honest instead of trusting an unreadable value.
+ * The card's `project-id` setting is gone (002 FR-041), so a null here is
+ * genuinely "no project chosen" and the panel says so rather than falling
+ * back to a setting that no longer exists.
  *
  * @param host - Host client, restricted to the storage surface.
  * @returns The stored id, `null` when none is stored, or the read problem.

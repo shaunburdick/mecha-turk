@@ -29,6 +29,7 @@
  */
 
 import type { SessionSnapshot } from '@openchamber/sdk';
+import { DEFAULT_EXPECTED_AGENT } from './config.ts';
 import { nowIso } from './ids.ts';
 import { appendEntryAndPersist } from './panel-actions.ts';
 import { refresh } from './panel-ui.ts';
@@ -61,7 +62,7 @@ export interface VerifyAgentInputs {
     readonly host: Pick<SpikeHost, 'onSession' | 'openSession'>;
     /** Session the dispatch just created. */
     readonly sessionId: string;
-    /** Agent the run is expected to report (the `expected-agent` setting). */
+    /** Agent the run is expected to report (002 FR-029's comparison baseline). */
     readonly expected: string;
     /** Optional wait budget; defaults to {@link AGENT_VERIFY_TIMEOUT_MS}. */
     readonly timeoutMs?: number;
@@ -363,7 +364,10 @@ export async function verifyAgentAfterDispatch(inputs: {
 }): Promise<void> {
     const { rt, correlationId, attempt, sessionId } = inputs;
     try {
-        const expected = rt.state.expectedAgent;
+        // 002 FR-041 removed the `expected-agent` card setting and the
+        // `PanelState.expectedAgent` mirror it fed, so the documented default
+        // is the baseline a missing value falls back to (002 FR-029 case ii).
+        const expected = DEFAULT_EXPECTED_AGENT;
         const result = await verifySessionAgent({ host: rt.host, sessionId, expected });
         if (rt.disposed) {
             return;

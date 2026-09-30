@@ -35,32 +35,7 @@
                     },
                     "scheme": "bearer"
                 },
-                "settings": [
-                    {
-                        "id": "repository",
-                        "label": "Repository (owner/name)"
-                    },
-                    {
-                        "id": "expected-login",
-                        "label": "Expected GitHub login (validation only, optional)"
-                    },
-                    {
-                        "id": "expected-agent",
-                        "label": "Expected session agent (default: project-manager)"
-                    },
-                    {
-                        "id": "project-id",
-                        "label": "OpenChamber project ID"
-                    },
-                    {
-                        "id": "worktree-option",
-                        "label": "Worktree option (none | generated | new:branch-name)"
-                    },
-                    {
-                        "id": "poll-interval-ms",
-                        "label": "Poll interval in milliseconds (15000-300000)"
-                    }
-                ]
+                "settings": []
             },
             "service": {
                 "entry": "service/main.js",

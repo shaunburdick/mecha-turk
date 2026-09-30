@@ -287,7 +287,7 @@ function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
     ui.projectSelect.update({
         options: pickerOptions(picker),
         // The picker's own value, not the effective one: a project that only
-        // the integration setting supplies has not been picked yet, and the
+        // a binding supplies has not been picked yet, and the
         // SDK select skips `onChange` when a click matches the current value —
         // so showing it here would silently block the operator from storing it.
         value: state.projectSelection,

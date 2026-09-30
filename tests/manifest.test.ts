@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { hostMeetsOpenChamberEngine, requestedGuestCapabilities } from '@openchamber/sdk';
@@ -39,6 +39,8 @@ interface OpenChamberBlock {
 /** The declared integration block. */
 interface IntegrationBlock {
     readonly name?: string;
+    readonly description?: string;
+    readonly settings?: readonly { readonly id?: string; readonly label?: string }[];
     readonly token?: {
         readonly apiOrigin?: string;
         readonly scheme?: string;
@@ -60,6 +62,9 @@ const SUPPORTED_BUILD = '1.24.0';
 
 /** OpenChamber build below the declared engine floor. */
 const UNSUPPORTED_BUILD = '1.23.0';
+
+/** Service entry the manifest declares; also the file that must ship beside it. */
+const SERVICE_ENTRY = 'service/main.js';
 
 /**
  * Read the `openchamber` block, failing the test when it is absent.
@@ -150,7 +155,7 @@ describe('service contribution', () => {
         const manifest = JSON.parse(manifestText) as PackageJson;
         const service = manifest.openchamber?.contributes?.service;
 
-        expect(service).toEqual({ entry: 'service/main.js', runtime: 'host' });
+        expect(service).toEqual({ entry: SERVICE_ENTRY, runtime: 'host' });
         expect(service).not.toHaveProperty('permissions');
     });
 
@@ -163,7 +168,7 @@ describe('service contribution', () => {
         }
 
         const entry = parsed.manifest.contributes.service?.entry;
-        expect(entry).toBe('service/main.js');
+        expect(entry).toBe(SERVICE_ENTRY);
         expect(existsSync(resolve(ROOT, entry ?? ''))).toBe(true);
         expect(existsSync(resolve(ROOT, 'service/main.ts'))).toBe(true);
     });
@@ -225,5 +230,116 @@ describe('panel entry', () => {
         const sessionSource = readFileSync(resolve(ROOT, 'src/session.ts'), 'utf8');
         expect(panelId).toBe('mecha-turk');
         expect(sessionSource).toContain("providerId: 'mecha-turk'");
+    });
+});
+
+/** Setting ids the manifest once declared; none may reappear (002 FR-041). */
+const CARD_SETTING_IDS = [
+    'expected-login',
+    'project-id',
+    'worktree-option',
+    'poll-interval-ms',
+    'expected-agent',
+] as const;
+
+/** Identifiers 002 FR-041(a) retires from the panel source. */
+const RETIRED_IDENTIFIERS = [
+    'SpikeSettings',
+    'readSetting',
+    'parseSpikeConfig',
+    'resolveProjectId',
+    'parseExpectedAgent',
+];
+
+/**
+ * Every panel source file, as text.
+ *
+ * `src/**` holds the panel's logic and `panel/*.ts` its entry, which is what
+ * 002 AC-021 means by "the panel source".
+ *
+ * @returns The path → source text of every panel TypeScript file.
+ */
+function panelSources(): ReadonlyMap<string, string> {
+    const found = new Map<string, string>();
+    for (const dir of ['src', 'panel']) {
+        const root = resolve(ROOT, dir);
+        for (const name of readdirSync(root, { recursive: true })) {
+            if (typeof name !== 'string' || !name.endsWith('.ts')) {
+                continue;
+            }
+
+            const path = resolve(root, name);
+            found.set(path, readFileSync(path, 'utf8'));
+        }
+    }
+
+    return found;
+}
+
+describe('002 FR-041 — the integration card declares zero settings', () => {
+    const integration = openchamberBlock(EXTENSION_MANIFEST).contributes?.integration;
+
+    it('declares an empty settings array and none of the six former ids', () => {
+        expect(integration?.settings).toEqual([]);
+
+        const declared: string[] = [];
+        for (const setting of integration?.settings ?? []) {
+            if (typeof setting.id === 'string') {
+                declared.push(setting.id);
+            }
+        }
+
+        expect(declared).toEqual([]);
+        for (const id of CARD_SETTING_IDS) {
+            expect(declared).not.toContain(id);
+        }
+
+        expect(declared).not.toContain('repository');
+    });
+
+    it('leaves capabilities, the token block, the service, and the panel id untouched', () => {
+        expect(openchamberBlock(EXTENSION_MANIFEST).contributes?.capabilities).toEqual(['sessions', 'prompt']);
+        expect(integration?.token).toEqual({
+            apiOrigin: 'https://api.github.com',
+            scheme: 'bearer',
+            account: { path: '/user', name: 'login' },
+        });
+        expect(integration?.name).toBe('GitHub (token)');
+        expect(openchamberBlock(EXTENSION_MANIFEST).contributes?.service).toEqual({
+            entry: SERVICE_ENTRY,
+            runtime: 'host',
+        });
+        expect(openchamberBlock(EXTENSION_MANIFEST).contributes?.panel?.id).toBe('mecha-turk');
+    });
+});
+
+describe('002 AC-021 — no reader takes a card id from ctx.settings', () => {
+    it('keeps every retired settings identifier out of the panel source', () => {
+        for (const [path, source] of panelSources()) {
+            for (const identifier of RETIRED_IDENTIFIERS) {
+                expect(source, `${path} still names ${identifier}`).not.toContain(identifier);
+            }
+        }
+    });
+
+    it('never quotes one of the card’s kebab-case ids as a value', () => {
+        // `repository` is excluded deliberately: it is also an ordinary DTO
+        // field name on the wire, so its card reading is covered by the
+        // "nothing indexes a settings record" assertion below instead.
+        for (const [path, source] of panelSources()) {
+            for (const id of CARD_SETTING_IDS) {
+                const single = `'${id}'`;
+                const double = `"${id}"`;
+                const quoted = source.includes(single) || source.includes(double);
+                expect(quoted, `${path} reads the card id ${id}`).toBe(false);
+            }
+        }
+    });
+
+    it('indexes no settings record anywhere in the panel source', () => {
+        const indexed = /\bsettings\s*\[/;
+        for (const [path, source] of panelSources()) {
+            expect(indexed.test(source), `${path} indexes a settings record`).toBe(false);
+        }
     });
 });

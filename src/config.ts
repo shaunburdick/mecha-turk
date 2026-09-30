@@ -1,23 +1,22 @@
 /**
- * Spike configuration parsed from the extension's declared integration
- * settings.
+ * Shared configuration primitives for repository, worktree, and project
+ * references.
  *
- * OpenChamber delivers `integration.settings` values to the panel as plain
- * strings on the ready snapshot. Nothing in the spike reads files or
- * environment variables at runtime, so this module is the single place where
- * operator input is turned into a validated {@link SpikeConfig}. Validation is
- * fail-closed: a missing or malformed repository, project reference, or
- * worktree option stops the spike before it can poll or dispatch.
+ * This module once parsed the integration card's `integration.settings`
+ * values into a single-repo configuration. That path is **retired**: 002
+ * FR-041 empties `contributes.integration.settings` to zero settings, so no
+ * reader here — and none anywhere else in `src/` — takes `repository`,
+ * `expected-login`, `project-id`, `worktree-option`, `poll-interval-ms`, or
+ * `expected-agent` from `ctx.settings`. Bindings are
+ * the only configuration resolution mode (`bindings-mode.ts`), the project id
+ * comes from the panel picker's `mecha-turk:project` selection alone
+ * ({@link parseProjectId}), and the agent-verification baseline is read from
+ * `GET /v1/config` per verification (`agent-verify.ts`, 002 FR-029).
  *
- * The project id has two operator-facing sources — the panel's project picker
- * (written to extension storage) and the `project-id` integration setting —
- * resolved by {@link resolveProjectId}, which prefers the panel selection.
- *
- * MVP-DEBT (blocker fix 2026-09-27): when the service reports enabled
- * repository bindings, the panel resolves its configuration from the first
- * enabled binding instead (see `bindings-mode.ts`) and the legacy
- * single-repo settings parsed here are ignored. The full settings/bindings
- * merge and precedence rules land post-MVP.
+ * What survives are the value parsers: the service and the binding editor
+ * still hand this module an `owner/name` string, a worktree option, and a
+ * project id, and each is still validated fail-closed here — a malformed
+ * value is refused rather than forwarded to `host.startSession()`.
  */
 
 /** GitHub repository coordinates as shown in the `owner/name` form. */
@@ -37,9 +36,15 @@ export type WorktreeSelection =
     /** Ask OpenChamber for a named new worktree/branch. */
     | { readonly kind: 'new'; readonly name: string };
 
-/** Validated spike configuration. */
+/**
+ * Dispatch context for one repository.
+ *
+ * Since the card settings retired, the only producer of this shape is
+ * `bindings-mode.ts`, which derives it from the first enabled binding; it is
+ * no longer parsed out of `ctx.settings`.
+ */
 export interface SpikeConfig {
-    /** Repository polled by the spike. */
+    /** Repository polled under this context. */
     readonly repository: RepositoryRef;
     /** Optional expected login; when set it must equal the PAT identity. */
     readonly expectedLogin: string | null;
@@ -51,33 +56,18 @@ export interface SpikeConfig {
     readonly pollIntervalMs: number;
 }
 
-/** Result of parsing operator settings: either a config or the blocking problems. */
-export type ConfigResult =
-    | { readonly ok: true; readonly config: SpikeConfig; readonly notes: readonly string[] }
-    | { readonly ok: false; readonly problems: readonly string[] };
-
-/** Shape of `ctx.settings` as delivered by the documented host snapshot. */
-export type SpikeSettings = Readonly<Record<string, string>>;
-
-/** Default poll cadence, matching the deferred daemon's documented 60-second poll. */
+/** Default poll cadence, matching the service's documented 60-second poll. */
 export const DEFAULT_POLL_INTERVAL_MS = 60_000;
 
-/** Lower bound the spike accepts for polling, in milliseconds. */
-export const MIN_POLL_INTERVAL_MS = 15_000;
-
-/** Upper bound the spike accepts for polling, in milliseconds. */
-export const MAX_POLL_INTERVAL_MS = 300_000;
-
 /**
- * Agent a dispatched session is expected to run on (M9, research §R3).
+ * Documented default for the agent-verification baseline (002 FR-029).
  *
- * The panel cannot read OpenChamber's Settings → Sessions → Session Defaults
- * (there is no settings writer at SDK 1.24.2), so the expected agent is the
- * `expected-agent` integration setting, defaulting to the agent the operator
- * is told to pin there. The resolved value lives on the panel state
- * (`PanelState.expectedAgent`) because both configuration modes — legacy
- * single-repo settings and bindings-authoritative mode — must see the same
- * answer; `applySettings` writes it before either mode diverges.
+ * OpenChamber's Settings → Sessions → Session Defaults → Default Agent is
+ * the documented setup step, and `project-manager` is the agent it names.
+ * The panel cannot read that host setting, so this constant is the value a
+ * missing or unreadable `expectedAgent` on `GET /v1/config` falls back to —
+ * with `provenance: 'defaulted'` recorded next to the verification outcome,
+ * never silently.
  */
 export const DEFAULT_EXPECTED_AGENT = 'project-manager';
 
@@ -85,7 +75,7 @@ export const DEFAULT_EXPECTED_AGENT = 'project-manager';
 const REPOSITORY_PART_PATTERN = /^[A-Za-z0-9_.-]+$/;
 
 /**
- * Characters the spike accepts in a new worktree/branch name.
+ * Characters the panel accepts in a new worktree/branch name.
  *
  * Path separators are excluded on purpose: OpenChamber turns the name into a
  * worktree directory under the project, so a name shaped like a path could
@@ -97,30 +87,23 @@ const BRANCH_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 const PARENT_PATH_REFERENCE = '..';
 
 /**
- * Project ids the spike accepts, from either source.
+ * Project ids the panel accepts.
  *
  * A project id is host-generated and operator-visible, and it also reaches the
- * ledger (`projectId` details), so the spike only accepts printable ASCII with
- * no surrounding whitespace. Anything else is treated as absent, which keeps
- * the fail-closed behaviour instead of forwarding a malformed id to
+ * ledger (`projectId` details), so only printable ASCII with no surrounding
+ * whitespace is accepted. Anything else is treated as absent, which keeps the
+ * fail-closed behaviour instead of forwarding a malformed id to
  * `host.startSession()`.
  */
 const PROJECT_ID_PATTERN = /^[\x20-\x7E]+$/;
 
-/** Longest project id the spike accepts; the host's own ids are far shorter. */
+/** Longest project id the panel accepts; the host's own ids are far shorter. */
 const PROJECT_ID_MAX = 128;
-
-/** Blocking problems reported when a setting is missing or malformed. */
-const PROBLEMS = {
-    repository: 'repository must be "owner/name" using GitHub-safe characters',
-    projectId: 'projectId is required; pick a project in the panel or set the "project-id" integration setting',
-    worktree: 'worktreeOption must be "none", "generated", or "new:<branch-name>"',
-} as const;
 
 /**
  * Parse an `owner/name` repository string.
  *
- * @param value - Raw setting value.
+ * @param value - Raw repository string.
  * @returns The repository reference, or `null` when the value is not `owner/name`.
  */
 export function parseRepository(value: string): RepositoryRef | null {
@@ -143,13 +126,13 @@ export function parseRepository(value: string): RepositoryRef | null {
 }
 
 /**
- * Parse the worktree option setting.
+ * Parse a worktree option value.
  *
  * Accepted values are `none` (and the empty string), `generated`, and
  * `new:<branch-name>`. A new-branch name must be a plain branch name: no path
  * separators and no `..`, because the host derives a directory from it.
  *
- * @param value - Raw setting value.
+ * @param value - Raw worktree option.
  * @returns The worktree selection, or `null` when the value is not understood.
  */
 export function parseWorktreeOption(value: string): WorktreeSelection | null {
@@ -175,43 +158,16 @@ export function parseWorktreeOption(value: string): WorktreeSelection | null {
 }
 
 /**
- * Read one setting value, treating a missing key as an empty string.
- *
- * @param settings - Values delivered through `ctx.settings`.
- * @param key - Setting id declared in the manifest.
- * @returns The trimmed value, or `''` when the operator left it unset.
- */
-function readSetting(settings: SpikeSettings, key: string): string {
-    return (settings[key] ?? '').trim();
-}
-
-/**
- * Read the expected session agent for post-dispatch verification (M9).
- *
- * Behaves like the other integration settings: the raw value is trimmed, and
- * an unset (or blank) setting falls back to
- * {@link DEFAULT_EXPECTED_AGENT} instead of failing — the expected agent is
- * a *comparison* input for the verification warning, never a gate, so a
- * missing value must not block configuration the way a missing repository or
- * project does.
- *
- * @param settings - Values delivered through `ctx.settings`.
- * @returns The agent the dispatched session should report.
- */
-export function parseExpectedAgent(settings: SpikeSettings): string {
-    const configured = readSetting(settings, 'expected-agent');
-
-    return configured === '' ? DEFAULT_EXPECTED_AGENT : configured;
-}
-
-/**
  * Validate one candidate project id.
  *
- * Shared by configuration resolution and the panel's project picker, so the
- * stored selection, the `project-id` setting, and a freshly picked id are all
- * held to the same rule.
+ * Shared by the panel's project picker and by the selection restore, so a
+ * stored selection and a freshly picked id are held to the same rule. The
+ * integration card no longer supplies a `project-id` value (002 FR-041): the
+ * stored `mecha-turk:project` selection and the host's own project list are
+ * the only sources, and a source that holds no valid id leaves the resolution
+ * `null` rather than inventing a project (002 FR-004).
  *
- * @param raw - Candidate id from a stored selection, a setting, or a picker pick.
+ * @param raw - Candidate id from a stored selection or a picker pick.
  * @returns The trimmed id, or `null` when the candidate is absent or malformed.
  */
 export function parseProjectId(raw: string | null): string | null {
@@ -228,159 +184,7 @@ export function parseProjectId(raw: string | null): string | null {
 }
 
 /**
- * Where a resolved project id came from.
- *
- * `panel-picker` is the selection the panel stored; `integration-setting` is
- * the `project-id` manifest field. Both are operator configuration, never a
- * secret, so the source is safe to show in the banner.
- */
-export type ProjectIdSource = 'panel-picker' | 'integration-setting';
-
-/** A resolved project id paired with the source that supplied it. */
-export interface ProjectIdResolution {
-    /** Chosen id, or `null` when no source holds a valid one. */
-    readonly projectId: string | null;
-    /** Source of the chosen id, or `null` when none was found. */
-    readonly source: ProjectIdSource | null;
-}
-
-/**
- * Choose the project id configuration resolution uses.
- *
- * Two sources can supply it: the selection the panel picker wrote to
- * extension storage, and the `project-id` integration setting. The stored
- * selection wins whenever it holds a valid id, because the panel is where an
- * operator who has no settings UI actually picks a project; the integration
- * setting is the fallback for a fresh install or a headless configuration.
- * Neither source ever creates a project — a source that holds no valid id
- * leaves the spike blocked (FR-020).
- *
- * @param storedProjectId - Selection restored from extension storage, or `null`.
- * @param settingProjectId - Raw `project-id` integration setting value.
- * @returns The chosen id and the source that supplied it.
- */
-export function resolveProjectId(storedProjectId: string | null, settingProjectId: string): ProjectIdResolution {
-    const stored = parseProjectId(storedProjectId);
-    if (stored !== null) {
-        return { projectId: stored, source: 'panel-picker' };
-    }
-
-    const configured = parseProjectId(settingProjectId);
-    return { projectId: configured, source: configured === null ? null : 'integration-setting' };
-}
-
-/**
- * Read the poll interval, clamping out-of-range values and noting any change.
- *
- * @param raw - Raw setting value; empty means "use the default".
- * @param notes - Collector for operator-visible notes about adjustments.
- * @returns The interval the spike will use, in milliseconds.
- */
-function readInterval(raw: string, notes: string[]): number {
-    const trimmed = raw.trim();
-    if (trimmed === '') {
-        return DEFAULT_POLL_INTERVAL_MS;
-    }
-
-    const parsed = Number.parseInt(trimmed, 10);
-    if (Number.isNaN(parsed)) {
-        notes.push(`pollIntervalMs "${trimmed}" is not a number; using ${DEFAULT_POLL_INTERVAL_MS}`);
-        return DEFAULT_POLL_INTERVAL_MS;
-    }
-
-    const clamped = Math.min(Math.max(parsed, MIN_POLL_INTERVAL_MS), MAX_POLL_INTERVAL_MS);
-    if (clamped !== parsed) {
-        notes.push(`pollIntervalMs ${parsed} clamped to ${clamped}`);
-    }
-
-    return clamped;
-}
-
-/**
- * Resolve the configured project id and record what the resolution means.
- *
- * Extracted from {@link parseSpikeConfig} so the precedence rule reads as one
- * decision: the panel selection wins, the setting is the fallback, and a
- * source that holds nothing is a blocking problem rather than an implicit
- * project.
- *
- * @param input - Settings, the stored selection, and the two collectors.
- * @returns The chosen project id, or `null` when no source holds one.
- */
-function resolveConfiguredProject(input: {
-    /** Values from `ctx.settings`. */
-    readonly settings: SpikeSettings;
-    /** Panel-picker selection restored from storage. */
-    readonly storedProjectId: string | null;
-    /** Collector for blocking problems. */
-    readonly problems: string[];
-    /** Collector for operator-visible notes. */
-    readonly notes: string[];
-}): string | null {
-    const { settings, storedProjectId, problems, notes } = input;
-    const resolved = resolveProjectId(storedProjectId, readSetting(settings, 'project-id'));
-    if (resolved.projectId === null) {
-        problems.push(PROBLEMS.projectId);
-        return null;
-    }
-
-    if (resolved.source === 'panel-picker') {
-        notes.push('projectId from the panel picker');
-    }
-
-    return resolved.projectId;
-}
-
-/**
- * Parse and validate the operator settings declared in the manifest.
- *
- * @param settings - Values from `ctx.settings`; missing keys arrive as `''`.
- * @param storedProjectId - Panel-picker selection restored from extension
- * storage, or `null`; it takes precedence over the `project-id` setting (see
- * {@link resolveProjectId}).
- * @returns A validated config with notes, or the list of blocking problems.
- */
-export function parseSpikeConfig(settings: SpikeSettings, storedProjectId: string | null = null): ConfigResult {
-    const problems: string[] = [];
-    const notes: string[] = [];
-
-    const repository = parseRepository(readSetting(settings, 'repository'));
-    if (repository === null) {
-        problems.push(PROBLEMS.repository);
-    }
-
-    const projectId = resolveConfiguredProject({ settings, storedProjectId, problems, notes });
-
-    const worktree = parseWorktreeOption(readSetting(settings, 'worktree-option'));
-    if (worktree === null) {
-        problems.push(PROBLEMS.worktree);
-    }
-
-    const pollIntervalMs = readInterval(readSetting(settings, 'poll-interval-ms'), notes);
-    const expectedLogin = readSetting(settings, 'expected-login');
-
-    // A null resolution has already been pushed as a blocking problem, so the
-    // trailing clause is redundant for control flow and load-bearing for the
-    // narrowing that types `config.projectId` as a string.
-    if (problems.length > 0 || repository === null || worktree === null || projectId === null) {
-        return { ok: false, problems };
-    }
-
-    return {
-        ok: true,
-        notes,
-        config: {
-            repository,
-            expectedLogin: expectedLogin === '' ? null : expectedLogin,
-            projectId,
-            worktree,
-            pollIntervalMs,
-        },
-    };
-}
-
-/**
- * Render a worktree selection in the setting's own syntax.
+ * Render a worktree selection in the option's own syntax.
  *
  * @param selection - Selection to render.
  * @returns The `none` / `generated` / `new:<name>` string.

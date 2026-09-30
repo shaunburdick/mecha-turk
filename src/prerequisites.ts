@@ -33,6 +33,7 @@
 
 import { mountBanner, mountText } from '@openchamber/sdk/ui';
 import type { BannerHandle, TextHandle } from '@openchamber/sdk/ui';
+import { DEFAULT_EXPECTED_AGENT } from './config.ts';
 import { PROJECT_REGISTRATION_ROUTES } from './project-picker.ts';
 import type { PanelRuntime, PanelState } from './panel-state.ts';
 import type { HandoffState } from './handoff.ts';
@@ -130,12 +131,17 @@ export function prerequisiteStateLabel(state: PrerequisiteState): string {
 /**
  * The Default Agent pin: checkable only after a dispatch (FR-072).
  *
- * @param expectedAgent - The baseline the dispatch verification compares to.
+ * The name in the remediation is {@link DEFAULT_EXPECTED_AGENT}, the
+ * documented default 002 FR-029 falls back to when `GET /v1/config` carries
+ * no `expectedAgent`: the prerequisite describes the documented setup step,
+ * which is exactly that default, so the line cannot go stale when the
+ * baseline itself is read per verification.
+ *
  * @returns The prerequisite, always `not-checkable` and never `met`.
  */
-function defaultAgentPin(expectedAgent: string): Prerequisite {
+function defaultAgentPin(): Prerequisite {
     const remediation =
-        `Set Settings → Sessions → Session Defaults → Default Agent to ${expectedAgent}; ` +
+        `Set Settings → Sessions → Session Defaults → Default Agent to ${DEFAULT_EXPECTED_AGENT}; ` +
         'every dispatch reads the session back afterwards and warns when the session reports another agent.';
 
     return {
@@ -366,7 +372,7 @@ function serviceCapability(handoff: HandoffState): Prerequisite {
  */
 export function derivePrerequisites(state: PanelState): readonly Prerequisite[] {
     return [
-        defaultAgentPin(state.expectedAgent),
+        defaultAgentPin(),
         openChamberRunning(state.settings !== null),
         desktopOrWebSurface(),
         tokenScopes(state.bindings.accounts),
