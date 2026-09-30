@@ -10,13 +10,20 @@
  * makes "no token material in audit" executable rather than promised
  * (contract §4 rule 2).
  *
- * Retention trimming and the correlation-indexed read API belong to task
- * T-027; this module ships the write path Wave 2 needs (consent occurrences,
- * `account.verified`/`rejected`/`error`/`rotated`). Sequence numbers and the
- * recorded-consent set are seeded from the file **once per store handle** and
- * then counted in memory, and appends run through a per-store chain — a write
- * never re-reads the trail it is extending (review M6, mandatory before the
- * Wave 4 poller appends rows on every tick).
+ * Sequence numbers and the recorded-consent set are seeded from the file
+ * **once per store handle** and then counted in memory, and appends run
+ * through a per-store chain — a write never re-reads the trail it is
+ * extending (review M6, mandatory before the Wave 4 poller appends rows on
+ * every tick).
+ *
+ * The **correlation-indexed read API** still belongs to task T-027 and is not
+ * here; this module ships the write path — consent occurrences,
+ * `account.verified`/`rejected`/`error`/`rotated`, and every row the run and
+ * dispatch layers append. Retention trimming, added by 006, lives in
+ * `audit-trim.ts` and does **not** rewrite this module: it joins this module's
+ * chain through {@link serializeAudit} and composes its row through
+ * {@link composeAudit}, so `redactDeep` and `seq` assignment keep exactly one
+ * implementation.
  */
 
 import { newCorrelationId, nowIso } from '../src/ids.ts';
@@ -390,6 +397,75 @@ export async function releaseConsentVersion(store: ServiceStore, version: number
     // the next claim re-seeds from disk.
     const cache = await auditCacheFor(store).catch(() => null);
     cache?.consentVersions.delete(version);
+}
+
+/**
+ * Run one audit-side task after every append queued before it (006 FR-055).
+ *
+ * The retention passes join the **same** chain `appendAudit` writes on, which
+ * is what makes "a pass can never remove a row appended while it was computing"
+ * true by construction rather than by timing: the trail read, the removal
+ * decision, and the one atomic rewrite all happen inside a slot no append can
+ * interleave with (plan D5). The join carries the previous write's outcome the
+ * same way {@link inWriteChain} does, so a failed append is consumed here
+ * (it can never wedge the chain) while still reaching this task's caller.
+ *
+ * @param store - Open store whose audit chain this task joins.
+ * @param task - Work to run once the chain reaches it; it should hold its
+ *   whole read-decide-write sequence, because anything it awaits outside the
+ *   task would run after later appends have already landed.
+ * @returns This task's result or rejection, exactly as the task produced it.
+ * @throws {StorageUnavailableError} When seeding the chain's `seq` counter
+ *   fails — the trail cannot be read, so nothing can be composed against it.
+ */
+export function serializeAudit<T>(store: ServiceStore, task: () => Promise<T>): Promise<T> {
+    return auditCacheFor(store).then((cache) => inWriteChain(cache, task));
+}
+
+/**
+ * Compose an entry exactly the way {@link appendAudit} builds one, **without
+ * writing it** (006 T-011).
+ *
+ * Redaction, `seq`, `timestamp`, and the generated correlation id all come from
+ * the one implementation the writer uses, so a row a pass embeds in its own
+ * atomic rewrite is indistinguishable from an appended one — the trim row is
+ * composed here and written by the pass in the same rename as the removals it
+ * describes (plan D4: no crash can leave a removal without its record, and a
+ * restart cannot re-seed `nextSeq` below a number already used).
+ *
+ * **Precondition**: call it while holding the chain via {@link serializeAudit}.
+ * The reservation reads and advances the shared `seq` counter, and every other
+ * writer mutates that counter inside its own chain task; a composer called
+ * outside the chain could therefore reserve the same number an in-flight
+ * append is writing. A number reserved by a pass whose rewrite then fails is
+ * simply never used — the gap a trim leaves is already an expected, readable
+ * fact (FR-055).
+ *
+ * @param store - Open store holding the trail this entry will join.
+ * @param input - Caller-supplied entry (token-free by construction).
+ * @returns The composed entry, with `seq` and `timestamp` assigned.
+ * @throws {StorageUnavailableError} When the trail cannot be read to seed the
+ *   sequence counter.
+ */
+export async function composeAudit(store: ServiceStore, input: AuditInput): Promise<AuditEntry> {
+    const cache = await auditCacheFor(store);
+    const { details, reason, redaction } = redactInput(input);
+
+    const entry: AuditEntry = {
+        seq: cache.nextSeq,
+        timestamp: nowIso(),
+        correlationId: input.correlationId ?? newCorrelationId(),
+        eventType: input.eventType,
+        actorSource: input.actorSource,
+        entity: input.entity,
+        decision: input.decision ?? null,
+        reason,
+        redaction,
+        details,
+    };
+    cache.nextSeq += 1;
+
+    return entry;
 }
 
 /**

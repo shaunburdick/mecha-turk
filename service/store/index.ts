@@ -18,7 +18,7 @@ import { isRecord } from '../json.ts';
 import { ensureDir } from './dir.ts';
 import { StorageUnavailableError } from './errors.ts';
 import { readJsonFile, sweepTempDebris, writeJsonAtomic } from './json.ts';
-import { appendJsonLine, readJsonLines } from './ndjson.ts';
+import { appendJsonLine, readJsonLines, writeJsonLinesAtomic } from './ndjson.ts';
 import type { JsonReadResult } from './json.ts';
 import type { NdjsonReadResult } from './ndjson.ts';
 
@@ -69,6 +69,18 @@ export interface ServiceStore {
      * @param entry - Any JSON-serialisable entry.
      */
     appendLine(relativePath: string, entry: unknown): Promise<void>;
+    /**
+     * Replace a whole NDJSON file atomically (temp `0600` → fsync → rename).
+     *
+     * The line-file sibling of {@link writeJson}, for the rewriting passes
+     * (006's retention trim): the file becomes the new set of entries in one
+     * rename, so a crash leaves either the old file or the new one and never a
+     * torn half-write.
+     *
+     * @param relativePath - Path inside the data directory.
+     * @param entries - JSON-serialisable entries, written one per line in order.
+     */
+    writeLines(relativePath: string, entries: readonly unknown[]): Promise<void>;
     /**
      * Read every usable line of an NDJSON file.
      *
@@ -207,6 +219,7 @@ function createStore(dataDir: string, schemaVersion: number): ServiceStore {
         readJson: async (relativePath, validate) => await readJsonFile(locate(relativePath), validate),
         writeJson: async (relativePath, value) => await writeJsonAtomic(locate(relativePath), value),
         appendLine: async (relativePath, entry) => await appendJsonLine(locate(relativePath), entry),
+        writeLines: async (relativePath, entries) => await writeJsonLinesAtomic(locate(relativePath), entries),
         readLines: async (relativePath, parse) => await readJsonLines(locate(relativePath), parse),
         listDir: async (relativePath) => await listStoreDir(dataDir, relativePath),
         removeFile: async (relativePath) => await removeStoreFile(dataDir, relativePath),

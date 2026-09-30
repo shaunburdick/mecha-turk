@@ -23,8 +23,15 @@ import { readTextFile, removeIfPresent } from './files.ts';
 /** Marks a file that was set aside because it could not be understood. */
 const QUARANTINE_MARKER = '.corrupt-';
 
-/** Suffix distinguishing an in-flight write from its committed target. */
-const TEMP_SUFFIX = '.tmp';
+/**
+ * Suffix distinguishing an in-flight write from its committed target.
+ *
+ * Exported so the line-file writer in `ndjson.ts` builds the *same* temp name
+ * this writer does — one spelling, one debris pattern for the startup sweep
+ * (`isTempDebris`), and no second guess about the shape an interrupted write
+ * leaves behind.
+ */
+export const TEMP_SUFFIX = '.tmp';
 
 /** Indentation used so store files stay readable for the operator. */
 const JSON_INDENT = 2;

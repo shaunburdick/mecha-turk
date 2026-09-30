@@ -1306,6 +1306,7 @@ async function readJsonFile(filePath, validate) {
 }
 
 // service/store/ndjson.ts
+import { randomUUID as randomUUID2 } from "node:crypto";
 import { promises as fs4 } from "node:fs";
 import { dirname as dirname2 } from "node:path";
 async function appendJsonLine(filePath, entry) {
@@ -1325,6 +1326,19 @@ async function appendJsonLine(filePath, entry) {
       throw error;
     }
     throw new StorageUnavailableError(`log line cannot be appended: ${filePath}`, error);
+  }
+}
+async function writeJsonLinesAtomic(filePath, entries) {
+  const text = entries.map((entry) => `${JSON.stringify(entry)}
+`).join("");
+  const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID2()}`;
+  await ensureDir(dirname2(filePath));
+  try {
+    await writeSyncedTempFile(tempPath, text);
+    await fs4.rename(tempPath, filePath);
+  } catch (error) {
+    await removeIfPresent(tempPath);
+    throw new StorageUnavailableError(`store file cannot be written: ${filePath}`, error);
   }
 }
 async function readJsonLines(filePath, parse) {
@@ -1408,6 +1422,7 @@ function createStore(dataDir, schemaVersion) {
     readJson: async (relativePath, validate) => await readJsonFile(locate(relativePath), validate),
     writeJson: async (relativePath, value) => await writeJsonAtomic(locate(relativePath), value),
     appendLine: async (relativePath, entry) => await appendJsonLine(locate(relativePath), entry),
+    writeLines: async (relativePath, entries) => await writeJsonLinesAtomic(locate(relativePath), entries),
     readLines: async (relativePath, parse) => await readJsonLines(locate(relativePath), parse),
     listDir: async (relativePath) => await listStoreDir(dataDir, relativePath),
     removeFile: async (relativePath) => await removeStoreFile(dataDir, relativePath)

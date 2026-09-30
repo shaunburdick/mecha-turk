@@ -15,10 +15,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CONSENT_VERSION } from '../src/consent.ts';
-import { appendAudit, readAuditEntries } from '../service/audit.ts';
+import { appendAudit, composeAudit, readAuditEntries, serializeAudit } from '../service/audit.ts';
 import { recordConsentOccurrence } from '../service/consent.ts';
 import { openStore } from '../service/store/index.ts';
-import type { AuditInput } from '../service/audit.ts';
+import type { AuditEntry, AuditInput } from '../service/audit.ts';
 import type { NdjsonReadResult } from '../service/store/ndjson.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 
@@ -185,5 +185,98 @@ describe('audit sequence and consent caching (M6, W2-2)', () => {
         expect(written.map((entry) => entry.seq)).toEqual([1, 2, 3]);
         const stored = await readAuditEntries(store);
         expect(stored.map((entry) => entry.seq)).toEqual([1, 2, 3]);
+    });
+});
+
+/** Let every pending microtask plus one macrotask turn run; never sleeps. */
+async function flush(): Promise<void> {
+    await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+    });
+}
+
+/** Order markers the serialisation case asserts on; one spelling each. */
+const FIRST_START = 'first:start';
+const FIRST_END = 'first:end';
+const SECOND_RUN = 'second:run';
+
+/**
+ * Compare two entries without the wall-clock stamp each one records.
+ *
+ * @param entry - Entry to normalise.
+ * @returns The entry with its timestamp replaced by a fixed marker.
+ */
+function stampless(entry: AuditEntry): AuditEntry {
+    return { ...entry, timestamp: 'STAMP' };
+}
+
+describe('chain join and entry composer (006 T-011)', () => {
+    it('serialises chained tasks so the second starts only after the first settles', async () => {
+        const store = await openStore({ dataDir });
+        const order: string[] = [];
+        let release: (() => void) | undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let markStarted: (() => void) | undefined;
+        const started = new Promise<void>((resolve) => {
+            markStarted = resolve;
+        });
+
+        const first = serializeAudit(store, async () => {
+            order.push(FIRST_START);
+            markStarted?.();
+            await gate;
+            order.push(FIRST_END);
+
+            return 'first';
+        });
+        const second = serializeAudit(store, async () => {
+            order.push(SECOND_RUN);
+
+            return 'second';
+        });
+
+        await started;
+        await flush();
+        // The first task is parked on the gate and the second has not run: it
+        // is queued behind the first on the one chain `appendAudit` uses.
+        expect(order).toEqual([FIRST_START]);
+        release?.();
+
+        expect(await Promise.all([first, second])).toEqual(['first', 'second']);
+        expect(order).toEqual([FIRST_START, FIRST_END, SECOND_RUN]);
+    });
+
+    it('composes the entry appendAudit would write, without writing a line', async () => {
+        const composing = await openStore({ dataDir });
+        const appending = await openStore({ dataDir: join(tempRoot, 'appended-store') });
+        const input: AuditInput = { ...sampleRow(STARTED_EVENT), correlationId: 'compose-1' };
+
+        const composed = await serializeAudit(composing, async () => await composeAudit(composing, input));
+        const appended = await appendAudit(appending, input);
+
+        expect(stampless(composed)).toEqual(stampless(appended));
+        expect(composed.seq).toBe(1);
+        // The composer wrote nothing — the trail it composed for is still empty.
+        expect(await readAuditEntries(composing)).toEqual([]);
+        // …and its number is reserved, so the next append cannot reuse it.
+        const next = await appendAudit(composing, input);
+        expect(next.seq).toBe(2);
+    });
+
+    it('runs the writer’s redaction pass over a composed entry', async () => {
+        const store = await openStore({ dataDir });
+        const input: AuditInput = {
+            ...sampleRow(STARTED_EVENT),
+            correlationId: 'compose-redacted',
+            details: { note: 'credential ghp_1234567890123456789012345678901234' },
+        };
+
+        const composed = await serializeAudit(store, async () => await composeAudit(store, input));
+
+        expect(composed.redaction.redacted).toBe(true);
+        expect(JSON.stringify(composed)).not.toContain('ghp_');
+        expect(JSON.stringify(composed)).toContain('[redacted:github-token-classic]');
     });
 });

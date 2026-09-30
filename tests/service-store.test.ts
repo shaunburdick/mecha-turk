@@ -8,10 +8,11 @@
  * directory cannot be used at all (FR-039, data-model.md storage tier 1).
  */
 
+import { promises as fs } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isRecord } from '../service/json.ts';
 import { DATA_DIR_MODE, DATA_FILE_MODE } from '../service/store/dir.ts';
 import { isTempDebris, readJsonFile, writeJsonAtomic, writeSyncedTempFile } from '../service/store/json.ts';
@@ -222,6 +223,54 @@ describe('ndjson audit lines', () => {
         const result = await readJsonLines(join(dataDir, AUDIT_FILE), () => null);
 
         expect(result).toEqual({ entries: [], malformed: 0 });
+    });
+});
+
+describe('atomic line-file rewrites (006 T-011)', () => {
+    it('replaces a trail with lines a reader parses back, owner-only', async () => {
+        const store = await openStore({ dataDir });
+        await store.appendLine(AUDIT_FILE, { seq: 1, eventType: 'service.started' });
+
+        await store.writeLines(AUDIT_FILE, [
+            { seq: 2, eventType: 'config.changed' },
+            { seq: 3, eventType: 'audit.trimmed' },
+        ]);
+
+        const result = await store.readLines(AUDIT_FILE, (raw) => (isRecord(raw) ? raw : null));
+        expect(result.malformed).toBe(0);
+        expect(result.entries.map((entry) => entry.seq)).toEqual([2, 3]);
+        expect(await modeOf(join(dataDir, AUDIT_FILE))).toBe(DATA_FILE_MODE);
+        const files = await readdir(dataDir);
+        expect(files.filter((name) => isTempDebris(name))).toEqual([]);
+    });
+
+    it('keeps the previous bytes when the rename fails, and leaves no debris', async () => {
+        const store = await openStore({ dataDir });
+        await store.writeLines(AUDIT_FILE, [{ seq: 1 }, { seq: 2 }]);
+        const before = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
+        const rename = vi.spyOn(fs, 'rename').mockRejectedValue(Object.assign(new Error('rename failed'), {
+            code: 'EIO',
+        }));
+
+        try {
+            await expect(store.writeLines(AUDIT_FILE, [{ seq: 9 }])).rejects.toThrow(StorageUnavailableError);
+        } finally {
+            rename.mockRestore();
+        }
+
+        expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(before);
+        const files = await readdir(dataDir);
+        expect(files.filter((name) => isTempDebris(name))).toEqual([]);
+    });
+
+    it('creates a missing trail outright', async () => {
+        const store = await openStore({ dataDir });
+
+        await store.writeLines(AUDIT_FILE, [{ seq: 1 }]);
+
+        const result = await store.readLines(AUDIT_FILE, (raw) => (isRecord(raw) ? raw : null));
+        expect(result.entries).toEqual([{ seq: 1 }]);
+        expect(await modeOf(join(dataDir, AUDIT_FILE))).toBe(DATA_FILE_MODE);
     });
 });
 
