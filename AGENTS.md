@@ -139,7 +139,10 @@ network — those checks are operator-gated and recorded in the spec (see
 | `settings-rows.ts` | The Settings tab's row builder: one row per projected descriptor plus one per undocumented member — name, unit-or-*none*, bounds-or-format, value, and class words, every one of them from the wire (005's bounds stand-in retired by 006 T-018) |
 | `settings-schema.ts` | Fail-closed reader for `GET /v1/config`'s envelope: the closed descriptor union, plus the `unreadable` and `undisplayed` flags (006 T-017; FR-021, FR-027, FR-028) |
 | `settings-edit.ts` | The Settings draft/save state machine, pure: baseline ∪ projection defaults ∪ edits, the no-baseline and busy gates, and the pending markers only a read retires (006 T-019; FR-038, FR-041, FR-046) |
-| `settings-tab.ts` | The Settings body: the one `GET /v1/config` read, its fail-closed read state, and the projection-driven rows (005 FR-070–FR-073, FR-078; 006 T-018) |
+| `settings-state.ts` | The Settings read state in FR-019's three shapes, plus the tab's copy — the banner that states last-writer-wins, the per-source sentence, and the save-state words (006 T-020) |
+| `settings-actions.ts` | The Settings effects: the read, the whole-document write, discard, and staged defaults — each taking the repaint it triggers so the two modules never import each other (006 T-019, T-020) |
+| `settings-mount.ts` | The Settings regions outside the rows: the read row, the failure notice, the source/rows region, the save bar with its two hidden-until-needed boxes, and the view's single dispose path (006 T-020; 005 FR-017) |
+| `settings-tab.ts` | The Settings body: the one `GET /v1/config` read, the save flow, and the projection-driven rows (005 FR-078, FR-039; 006 FR-010–FR-015, T-018, T-020) |
 | `about-tab.ts` | The About body: the single version read from the service health answer (no panel-side literal), the static identity and posture copy, and the read-only Diagnostics section (005 FR-074–FR-077) |
 | `audit-view.ts` | One run's audit history under its correlation id, rendered as text (never markup) |
 | `agent-verify.ts` | Post-dispatch `openSession()` agent read-back, reported to the service (warn-only) |

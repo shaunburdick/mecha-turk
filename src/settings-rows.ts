@@ -29,6 +29,8 @@
  * nothing about any particular row, which is exactly the line AC-106 draws.
  */
 
+import { mountSelect, mountText, mountTextField } from '@openchamber/sdk/ui';
+import type { SelectHandle, TextHandle, TextFieldHandle } from '@openchamber/sdk/ui';
 import type { ConfigEnvelope, FieldDescriptor, TakeEffectClass } from './settings-schema.ts';
 
 /** One rendered row: the member it belongs to and the line the tab paints. */
@@ -37,6 +39,12 @@ export interface SettingsRow {
     readonly field: string;
     /** The painted line: value, unit-or-none, bounds-or-format, and class (FR-014). */
     readonly text: string;
+    /** The control's accessible name: name, unit, and the boundary (FR-018, FR-039). */
+    readonly label: string;
+    /** The presentation affordance: bounds or format, plus the default (FR-023). */
+    readonly helper: string;
+    /** Whether this member gets a control; an undocumented member does not (FR-027). */
+    readonly editable: boolean;
 }
 
 /**
@@ -52,7 +60,7 @@ export interface SettingsRow {
  * @param takesEffect - The class the descriptor carried.
  * @returns The words to print beside the field.
  */
-function takeEffectWords(takesEffect: TakeEffectClass): string {
+export function takeEffectWords(takesEffect: TakeEffectClass): string {
     if (takesEffect === 'immediate') {
         return 'takes effect immediately, with no restart';
     }
@@ -117,43 +125,89 @@ function shapeRemediation(descriptor: FieldDescriptor): string {
 }
 
 /**
+ * The control's accessible name: the documented name, its unit (or its
+ * absence), and the boundary in the product's words (FR-018, FR-030, FR-039).
+ *
+ * @param descriptor - The field's descriptor.
+ * @returns The label the control is mounted with.
+ */
+function labelOf(descriptor: FieldDescriptor): string {
+    const unit = descriptor.kind === 'integer' ? descriptor.unit : 'unit none';
+
+    return `${descriptor.name} (${unit}) — ${takeEffectWords(descriptor.takesEffect)}`;
+}
+
+/**
+ * The presentation affordance: what the service declares about the shape of
+ * the value, plus its default (FR-023 — these shape the control and the hint
+ * and nothing else; the service remains the only validator).
+ *
+ * @param descriptor - The field's descriptor.
+ * @returns The helper text the control carries.
+ */
+function helperOf(descriptor: FieldDescriptor): string {
+    if (descriptor.kind === 'integer') {
+        return `bounds ${descriptor.min}–${descriptor.max} · default ${descriptor.default}`;
+    }
+
+    if (descriptor.kind === 'enum') {
+        return `accepted: ${descriptor.values.join(', ')} · default ${descriptor.default}`;
+    }
+
+    return `format: ${descriptor.format}, max ${descriptor.maxLength} characters · default ${descriptor.default}`;
+}
+
+/**
  * Build the row for a member the service declared.
  *
  * @param envelope - The parsed document.
  * @param descriptor - The member's descriptor.
- * @returns The painted line, or the unreadable line when its value did not fit.
+ * @returns The row: its painted line, its control's name, and its affordance.
  */
 function descriptorRow(envelope: ConfigEnvelope, descriptor: FieldDescriptor): SettingsRow {
     const filled = envelope.defaultsApplied.includes(descriptor.name);
     const suffix = filled ? ' · reads as default' : '';
     const words = takeEffectWords(descriptor.takesEffect);
     const value = envelope.config[descriptor.name];
+    const label = labelOf(descriptor);
+    const helper = `${helperOf(descriptor)}${suffix}`;
     if (value === undefined) {
         return {
             field: descriptor.name,
             text: `${descriptor.name}: unreadable — ${shapeRemediation(descriptor)} · ${words}`,
+            label,
+            helper,
+            editable: true,
         };
     }
 
     const marked = `${descriptor.name}: ${valuePart(descriptor, value)} · default ${descriptor.default}` +
         `${suffix} · ${words}`;
 
-    return { field: descriptor.name, text: marked };
+    return { field: descriptor.name, text: marked, label, helper, editable: true };
 }
 
 /**
  * Build the row for a member the service sent no descriptor for (AC-115).
  *
  * It borrows no bound and promises no effect: this build has nothing to say
- * about a field it does not know beyond naming it and showing what arrived.
+ * about a field it does not know beyond naming it and showing what arrived —
+ * and it gets **no affordance**, because a control here could not be wired to
+ * a declaration the service never made (FR-027).
  *
  * @param envelope - The parsed document.
  * @param name - The member's name.
- * @returns The painted line.
+ * @returns The row, which is never editable.
  */
 function undisplayedRow(envelope: ConfigEnvelope, name: string): SettingsRow {
     if (envelope.unreadable.includes(name)) {
-        return { field: name, text: `${name}: unreadable — this version cannot read its value` };
+        return {
+            field: name,
+            text: `${name}: unreadable — this version cannot read its value`,
+            label: name,
+            helper: '',
+            editable: false,
+        };
     }
 
     const value = envelope.config[name];
@@ -161,6 +215,9 @@ function undisplayedRow(envelope: ConfigEnvelope, name: string): SettingsRow {
     return {
         field: name,
         text: `${name}: ${String(value)} · field this version does not show`,
+        label: name,
+        helper: '',
+        editable: false,
     };
 }
 
@@ -182,4 +239,174 @@ export function settingsRows(envelope: ConfigEnvelope): readonly SettingsRow[] {
     }
 
     return rows;
+}
+
+/** One mounted row: a control for a declared member, or a line for the rest. */
+export type SettingsRowHandle =
+    /** A member this build declares no control for (AC-115: no affordance). */
+    | { readonly field: string; readonly kind: 'text'; readonly handle: TextHandle }
+    /** A declared enum member, edited through the accepted set. */
+    | { readonly field: string; readonly kind: 'enum'; readonly handle: SelectHandle }
+    /** A declared numeric or text member, edited as text — never gated here. */
+    | { readonly field: string; readonly kind: 'value'; readonly handle: TextFieldHandle };
+
+/** The mounted rows, plus the field list they were built from. */
+export interface SettingsRowsUi {
+    /** Handles, in paint order. */
+    readonly handles: readonly SettingsRowHandle[];
+    /** The members the handles were built for; a different list means rebuild. */
+    readonly fields: readonly string[];
+    /** Remove every node and handle this mount created. */
+    readonly dispose: () => void;
+}
+
+/** Everything one mount or update of the rows needs from the tab. */
+export interface RowsContext {
+    /** Rows, in paint order. */
+    readonly rows: readonly SettingsRow[];
+    /** Descriptors, so a control can be shaped from its own. */
+    readonly descriptors: readonly FieldDescriptor[];
+    /** What each input should show: the draft, keyed by field. */
+    readonly values: Readonly<Record<string, string>>;
+    /** The service's remediation per field, for the field's own error slot. */
+    readonly issues: Readonly<Record<string, string>>;
+    /** Extra helper text per field, such as the pending marker (FR-038). */
+    readonly notes: Readonly<Record<string, string>>;
+    /** Whether every control is currently disabled (no save, or a write in flight). */
+    readonly disabled: boolean;
+    /** What an input change does: it edits the draft, and nothing else. */
+    readonly onChange: (field: string, value: string) => void;
+}
+
+/**
+ * The enum control's options, taken from the descriptor's accepted values.
+ *
+ * @param descriptor - The enum descriptor.
+ * @returns The options, verbatim (an unknown value renders as itself).
+ */
+function optionsFor(descriptor: FieldDescriptor): readonly { readonly id: string; readonly label: string }[] {
+    return descriptor.kind === 'enum' ? descriptor.values.map((value) => ({ id: value, label: value })) : [];
+}
+
+/**
+ * Mount one row's control (or its line) into the rows region.
+ *
+ * @param input - The container, the row, and everything the control reads.
+ * @returns The handle, tagged with what kind it is.
+ */
+function mountRow(input: {
+    /** Container the row mounts into. */
+    readonly box: HTMLElement;
+    /** The row to mount. */
+    readonly row: SettingsRow;
+    /** Everything the control reads. */
+    readonly context: RowsContext;
+}): SettingsRowHandle {
+    const { box, row, context } = input;
+    if (!row.editable) {
+        return { field: row.field, kind: 'text', handle: mountText(box, { text: row.text }) };
+    }
+
+    const descriptor = context.descriptors.find((candidate) => candidate.name === row.field);
+    if (descriptor === undefined) {
+        // Unreachable: an editable row exists only because a descriptor does.
+        // Falling back to the line means a future mismatch fails loudly in a
+        // test rather than mounting a control with no declaration behind it.
+        return { field: row.field, kind: 'text', handle: mountText(box, { text: row.text }) };
+    }
+
+    const helper = `${row.helper}${context.notes[row.field] === undefined ? '' : ` · ${context.notes[row.field]}`}`;
+    const error = context.issues[row.field];
+    const shared = {
+        label: row.label,
+        disabled: context.disabled,
+        onChange: (value: string): void => context.onChange(row.field, value),
+    };
+    if (descriptor.kind === 'enum') {
+        return {
+            field: row.field,
+            kind: 'enum',
+            handle: mountSelect(box, {
+                ...shared,
+                value: context.values[row.field] ?? null,
+                options: [...optionsFor(descriptor)],
+            }),
+        };
+    }
+
+    return {
+        field: row.field,
+        kind: 'value',
+        handle: mountTextField(box, {
+            ...shared,
+            value: context.values[row.field] ?? '',
+            helper,
+            ...(error === undefined ? {} : { error }),
+        }),
+    };
+}
+
+/**
+ * Mount the whole rows region.
+ *
+ * @param input - The container, and everything the controls read.
+ * @returns The mounted rows, plus the field list they were built from.
+ */
+export function mountSettingsRows(input: {
+    /** Container the rows mount into. */
+    readonly box: HTMLElement;
+    /** Everything the controls read. */
+    readonly context: RowsContext;
+}): SettingsRowsUi {
+    const handles = input.context.rows.map((row) => mountRow({ box: input.box, row, context: input.context }));
+
+    return {
+        handles,
+        fields: input.context.rows.map((row) => row.field),
+        dispose: (): void => {
+            for (const handle of handles) {
+                handle.handle.dispose();
+            }
+        },
+    };
+}
+
+/**
+ * Patch the mounted rows for a repaint — no rebuild, so an input keeps its
+ * focus and the operator's typing survives every state change.
+ *
+ * @param ui - The mounted rows.
+ * @param context - Everything the controls read.
+ */
+export function updateSettingsRows(ui: SettingsRowsUi, context: RowsContext): void {
+    for (const handle of ui.handles) {
+        const row = context.rows.find((candidate) => candidate.field === handle.field);
+        if (row === undefined) {
+            continue;
+        }
+
+        if (handle.kind === 'text') {
+            handle.handle.update({ text: row.text });
+            continue;
+        }
+
+        if (handle.kind === 'enum') {
+            handle.handle.update({
+                value: context.values[handle.field] ?? null,
+                disabled: context.disabled,
+            });
+            continue;
+        }
+
+        const helper = `${row.helper}${context.notes[handle.field] === undefined
+            ? ''
+            : ` · ${context.notes[handle.field]}`}`;
+        const error = context.issues[handle.field];
+        handle.handle.update({
+            value: context.values[handle.field] ?? '',
+            helper,
+            disabled: context.disabled,
+            ...(error === undefined ? {} : { error }),
+        });
+    }
 }

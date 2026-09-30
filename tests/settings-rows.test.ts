@@ -28,10 +28,11 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
-import { DEFAULT_CONFIG, NUMERIC_BOUNDS } from '../service/config.ts';
+import { DEFAULT_CONFIG, LOG_LEVEL_VALUES, NUMERIC_BOUNDS } from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
 import { DEFAULT_EXPECTED_AGENT } from '../src/config.ts';
 import { settingsRows } from '../src/settings-rows.ts';
+import { emptyEdit } from '../src/settings-edit.ts';
 import { parseConfigEnvelope } from '../src/settings-schema.ts';
 import type { ConfigEnvelope, FieldDescriptor, TakeEffectClass } from '../src/settings-schema.ts';
 import type { SettingsRow } from '../src/settings-rows.ts';
@@ -88,15 +89,6 @@ const inertHandlers: PanelHandlers = {
     copyProjectId: (): void => undefined,
 };
 
-/** SDK primitives that are input controls; the tab may mount none (FR-070). */
-const INPUT_MOUNTS: readonly string[] = [
-    'mountTextField',
-    'mountSelect',
-    'mountCheckbox',
-    'mountSwitch',
-    'mountSearchField',
-    'mountMenu',
-];
 
 /** The eleven fields 006 itself declares (FR-084, AC-101). */
 const SPECS_006_FIELDS: readonly string[] = [
@@ -447,7 +439,7 @@ function configAnswer(body: string): (request: GuestRequest) => GuestRequestResu
  * @returns A complete Settings read state.
  */
 function settingsSlice(overrides: Partial<SettingsTabState> = {}): SettingsTabState {
-    return { phase: 'idle', at: null, problem: null, stale: false, doc: null, ...overrides };
+    return { phase: 'idle', at: null, problem: null, stale: false, doc: null, edit: emptyEdit(), ...overrides };
 }
 
 describe('the panel source carries no configuration literal (006 AC-106)', () => {
@@ -587,44 +579,75 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
     });
 });
 
-describe('the Settings body mounts read-only (005 FR-070, FR-073, FR-078)', () => {
-    it('renders rows with value, unit, and bounds and no input control', async () => {
+describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)', () => {
+    it('mounts one control per declared field, named with its unit and boundary', async () => {
         const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
-        const rows = renderedRows(view.strings);
+        const controls = mounts.log.filter(
+            (entry) => entry.key === 'mountTextField' || entry.key === 'mountSelect',
+        );
 
-        expect(rows).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
-        expect(rows.join('\n')).toContain(`bounds ${NUMERIC_BOUNDS.intervalMs.min}–${NUMERIC_BOUNDS.intervalMs.max}`);
+        expect(controls).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
+        const interval = controls.find((entry) => {
+            const { label } = entry.props as { readonly label?: string };
 
-        const inputMounts = mounts.log
-            .map((entry) => entry.key)
-            .filter((key) => INPUT_MOUNTS.includes(key));
-        expect(inputMounts).toEqual([]);
-        const tags = view.created.map((element) => element.tagName);
-        expect(tags).not.toContain('input');
-        expect(tags).not.toContain('select');
-        expect(tags).not.toContain('textarea');
+            return label === undefined ? false : label.startsWith('intervalMs');
+        });
+        expect(interval).toBeDefined();
+        const { label } = (interval?.props as { readonly label: string });
+        // The accessible name carries the unit and the boundary (FR-018, FR-039).
+        expect(label).toContain(NUMERIC_BOUNDS.intervalMs.unit);
+        expect(label).toContain('in effect from the next poll');
+        // The affordance carries bounds and the default — and gates nothing
+        // (FR-023: these shape the control and the hint and nothing else).
+        const { helper } = (interval?.props as { readonly helper: string });
+        expect(helper).toContain(`bounds ${NUMERIC_BOUNDS.intervalMs.min}–${NUMERIC_BOUNDS.intervalMs.max}`);
+        expect(helper).toContain(`default ${DEFAULT_CONFIG.intervalMs}`);
+        expect((interval?.props as { readonly value: string }).value).toBe(String(DEFAULT_CONFIG.intervalMs));
+        const level = controls.find((entry) => entry.key === 'mountSelect');
+        expect((level?.props as { readonly label: string }).label).toContain('unit none');
+        expect((level?.props as { readonly options: readonly { readonly id: string }[] }).options.map(
+            (option) => option.id,
+        )).toEqual([...LOG_LEVEL_VALUES]);
+        view.dispose();
+    });
 
+    it('gives an undocumented member a line, and no affordance at all (AC-115)', async () => {
+        const view = await mountSettings({
+            answer: configAnswer(envelopeBody({ config: { ...DEFAULT_CONFIG, surprise: 1 } })),
+        });
+        const controls = mounts.log.filter(
+            (entry) => entry.key === 'mountTextField' || entry.key === 'mountSelect',
+        );
+
+        expect(controls).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
+        expect(renderedRows(view.strings).some((row) => row.includes('field this version does not show'))).toBe(true);
+        view.dispose();
+    });
+
+    it('says what a save will do while one is possible (FR-045)', async () => {
+        const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
         const text = view.strings.join('\n');
-        expect(text).toContain('Read-only in this release');
-        expect(text).toContain('feature 006');
-        // FR-073: names the feature, never a version number for it.
-        expect(text).not.toMatch(/\d+\.\d+\.\d+/);
-        // The source member reaches the operator: `stored` says the values are
-        // the configuration the service holds (006 contract §3).
-        expect(text).toContain('the configuration the service holds');
 
-        // FR-070: the tab's only request is a read of the document.
+        expect(text).toContain('Editing the whole configuration');
+        expect(text).toContain('replaces the entire configuration');
+        // One write, and the read control beside it.
+        expect(mounts.log.filter((entry) => entry.key === 'mountButton')).toHaveLength(4);
         expect(view.requests.map((request) => `${request.method} ${request.path}`)).toEqual(['GET /v1/config']);
         view.dispose();
     });
 
-    it('says so in the operator\'s words when the service set a document aside', async () => {
-        const view = await mountSettings({ answer: configAnswer(envelopeBody({ source: 'quarantined' })) });
+    it('hides the save bar and names the reason when no document has been read (AC-124, FR-042)', async () => {
+        const view = await mountSettings({
+            answer: () => {
+                throw new Error('connection refused');
+            },
+        });
         const text = view.strings.join('\n');
 
-        expect(text).toContain('unusable and set aside');
-        expect(text).toContain('documented defaults');
-        expect(view.rt.state.settingsTab.doc?.source).toBe('quarantined');
+        expect(text).toContain('Read-only for now');
+        expect(text).toContain('no configuration has been read yet');
+        // The bar is hidden, not shown-and-disabled: no save is *offered*.
+        expect(text).toContain('No unsaved changes.');
         view.dispose();
     });
 
@@ -637,7 +660,6 @@ describe('the Settings body mounts read-only (005 FR-070, FR-073, FR-078)', () =
         const text = view.strings.join('\n');
 
         expect(text).toContain('Settings');
-        expect(text).toContain('Read-only in this release');
         expect(text).toContain('No configuration has been read yet');
         expect(text).toContain('Settings could not be read: service unreachable');
         expect(text).toContain('GET /v1/config did not answer');
@@ -645,17 +667,7 @@ describe('the Settings body mounts read-only (005 FR-070, FR-073, FR-078)', () =
         view.dispose();
     });
 
-    it('reports a document it cannot read instead of rendering half of it', async () => {
-        const view = await mountSettings({ answer: configAnswer('{"config":{}') });
-        const text = view.strings.join('\n');
-
-        expect(view.rt.state.settingsTab.phase).toBe('failed');
-        expect(text).toContain('a configuration document the panel could not read');
-        expect(renderedRows(view.strings)).toEqual([]);
-        view.dispose();
-    });
-
-    it('offers exactly one control: the re-read (FR-014, FR-078)', async () => {
+    it('reads twice and never writes: the re-read is a read (FR-014, NFR-104)', async () => {
         const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
         expect(view.requests).toHaveLength(1);
 

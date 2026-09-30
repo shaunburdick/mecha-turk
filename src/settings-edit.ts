@@ -70,6 +70,10 @@ export const NO_BASELINE_REASON =
 export const UNDISPLAYED_REASON =
     'the document carries a field this version does not show; sending it would drop that field';
 
+/** Why a save is not offered when the latest read failed (FR-042's third case). */
+export const READ_FAILED_REASON =
+    'the latest read did not land, so there is no current document to send';
+
 /** Why a second save activation is refused rather than queued (AC-126). */
 export const BUSY_REASON = 'a save is already in flight';
 
@@ -174,7 +178,7 @@ export function loadEdit(edit: SettingsEdit, envelope: ConfigEnvelope | null): S
     if (envelope === null) {
         return {
             ...edit,
-            blocked: blockedReason(null),
+            blocked: READ_FAILED_REASON,
             issues: [],
             saveState: edit.saveState === 'saving' ? 'saving' : 'idle',
         };

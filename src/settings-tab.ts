@@ -1,116 +1,74 @@
 /**
- * The Settings tab: one read-only row per field `GET /v1/config` carries
- * (005 T-027; FR-070, FR-071, FR-072, FR-073, FR-078, FR-039).
+ * The Settings tab: one editable row per field `GET /v1/config` carries
+ * (006 FR-010 – FR-015, FR-019, FR-038 – FR-046; 005 FR-078, FR-039).
  *
- * The tab is **read-only by design**: it renders the service's configuration
- * document and offers exactly one control — an explicit re-read, which is a
- * read and therefore allowed (FR-014). No input, no save, no confirmation:
- * editing, live-apply, and destructive-knob confirmation are feature 006's,
- * and 005 must not even imply them with a disabled-looking control
- * (FR-070). The read-only statement says so in words, naming the feature but
- * deliberately naming **no version** for it (FR-073).
+ * The tab reads the **projection** envelope — `{ config, fields, source,
+ * defaultsApplied }` — and renders what it finds: one control per descriptor,
+ * shaped by it but never gated by it (FR-023), and one line for any member the
+ * service declared nothing for (FR-027). What each row *says* lives in
+ * [`settings-rows.ts`](./settings-rows.ts); the draft, the busy gate, and the
+ * pending markers live in [`settings-edit.ts`](./settings-edit.ts); this
+ * module owns the read, the write, the read state, and the painting.
  *
- * What each row *says* lives in [`settings-rows.ts`](./settings-rows.ts);
- * this module owns the read, the read state, and the painting. Since 006
- * T-018 the read is the **projection** envelope — `{ config, fields, source,
- * defaultsApplied }` — and the rows are built from its descriptors, so no
- * bound, unit, default, or class is a panel-side copy any more (FR-022,
- * AC-106). Two rules shape the rendering:
+ * Four rules shape everything here:
  *
- * - **Static content survives an unreachable service** (FR-078): heading,
- *   read-only statement, source note, and read-state line all stay on screen
- *   while the rows area says plainly that nothing has been read — never an
- *   empty configuration dressed as one.
- * - **A failed read keeps the last document, marked stale** (FR-019), or
- *   states that there is none.
- *
- * The tab reads its *configured* values here and nothing else: Status keeps
- * owning the *effective* interval (FR-039), so the two can never disagree
- * about which value each of them is showing.
+ * - **The transition is two-way and explicit** (FR-011): with no current
+ *   document the save bar is hidden, the inputs are disabled, and the reason
+ *   is named; with one, the same rows are editable and the banner says what a
+ *   save will do — including that it replaces the **whole** configuration
+ *   (FR-045), because last-writer-wins is the documented concurrency rule.
+ * - **Static content survives an unreachable service** (FR-060, 005 FR-078):
+ *   heading, banner, source note, and read state stay on screen while the rows
+ *   area says plainly that nothing has been read.
+ * - **A refusal renders the service's issues in the service's order and
+ *   wording**, and the fields go back to the last reported configuration
+ *   (FR-024, FR-025) — no submitted value appears anywhere (FR-024, AC-108).
+ * - **Nothing is written by looking** (FR-049): a read, a re-read, and a tab
+ *   switch issue no write; one save activation issues exactly one, and a
+ *   second is refused by the busy gate rather than queued (FR-046).
  */
 
-import { mountBanner, mountButton, mountText } from '@openchamber/sdk/ui';
+import { mountBanner, mountText } from '@openchamber/sdk/ui';
 import type { BannerHandle, ButtonHandle, TextHandle } from '@openchamber/sdk/ui';
-import { nowIso } from './ids.ts';
-import { redact } from './redaction.ts';
-import { CONFIG_PATH, serviceGet } from './service-calls.ts';
-import { settingsRows } from './settings-rows.ts';
-import { parseConfigEnvelope } from './settings-schema.ts';
-import type { SettingsRow } from './settings-rows.ts';
-import type { ConfigEnvelope, ConfigSource } from './settings-schema.ts';
+import {
+    applyConfigRead,
+    applyDiscard,
+    applyFieldEdit,
+    applySave,
+    applyStageDefaults,
+} from './settings-actions.ts';
+import { mountSettingsRows, settingsRows, takeEffectWords, updateSettingsRows } from './settings-rows.ts';
+import {
+    CONFIG_SOURCE,
+    EDITABLE_BODY,
+    EDITABLE_TITLE,
+    FAILURE_TITLE,
+    NO_DOCUMENT,
+    READ_ONLY_BODY,
+    READ_ONLY_TITLE,
+    SAVE_LINES,
+    SETTINGS_HEADING,
+    SOURCE_LINES,
+    SOURCE_NOTE,
+    initialSettingsTab,
+    readStateLine,
+} from './settings-state.ts';
+import {
+    buildTabUi,
+    mountControlRegion,
+    mountFailureNotice,
+    mountReadControls,
+    mountRowRegion,
+} from './settings-mount.ts';
 import type { PanelRuntime } from './panel-state.ts';
+import type { SettingsRow, SettingsRowsUi, RowsContext } from './settings-rows.ts';
+import type { ConfigEnvelope } from './settings-schema.ts';
+import type { SettingsEdit } from './settings-edit.ts';
+import type { SettingsTabState } from './settings-state.ts';
 
-/** Heading above the read-only statement. */
-const SETTINGS_HEADING = 'Settings';
-
-/** The one document the tab reads, named for the operator as well as the call. */
-const CONFIG_SOURCE = `GET ${CONFIG_PATH}`;
-
-/** Title of the read-only statement (FR-073). */
-const READ_ONLY_TITLE = 'Read-only in this release';
-
-/** Body of the read-only statement; names the feature, never a version. */
-const READ_ONLY_BODY =
-    'Editing, saving, live-apply, and destructive-knob confirmation arrive with feature 006. ' +
-    'Nothing on this tab can be changed today.';
-
-/** Where the rows come from, stated so a failure has somewhere to point. */
-const SOURCE_NOTE = `Rows are read from the service configuration document (${CONFIG_SOURCE}).`;
-
-/** What the re-read control is called; also the failure notice's retry. */
-const REFRESH_LABEL = 'Refresh configuration';
-
-/** Title of the failure notice, whatever the failure was. */
-const FAILURE_TITLE = 'Settings could not be read';
-
-/** What the rows area says while no document has ever been read (FR-078). */
-const NO_DOCUMENT =
-    `No configuration has been read yet. The rows appear once the service answers ${CONFIG_SOURCE}.`;
-
-/** Accessible name of the row region, so the rows are findable (FR-081). */
-const ROWS_LABEL = 'Service configuration';
-
-/**
- * Where the Settings tab's read stands, and what it last rendered (FR-019).
- *
- * Same shape as the Status tab's slice on purpose: a failed read behaves the
- * same way on every tab, so an operator learns one rule instead of six.
- */
-export interface SettingsTabState {
-    /** Read phase: nothing yet, in flight, landed, or refused. */
-    phase: 'idle' | 'loading' | 'loaded' | 'failed';
-    /** RFC 3339 stamp of the read that last landed, or `null`. */
-    at: string | null;
-    /** Why the last read failed; `null` while there is nothing to report. */
-    problem: string | null;
-    /** Whether `doc` is from an earlier read than the one that just failed. */
-    stale: boolean;
-    /** The last envelope this tab could read, or `null` when there is none. */
-    doc: ConfigEnvelope | null;
-}
-
-/**
- * What each documented `source` means, in the contract's own words (§3).
- *
- * The quarantine sentence is a promise the panel makes when — and only when —
- * the service said `quarantined`: an operator must never read defaults as
- * their own values, which is why this is a per-source line rather than a
- * footnote (005 FR-003, 006 contract §3).
- */
-const SOURCE_LINES: Readonly<Record<ConfigSource, string>> = {
-    stored: 'Values below are the configuration the service holds.',
-    default: 'No stored configuration yet — the values below are the documented defaults.',
-    quarantined: 'The stored configuration was unusable and set aside — the values below are the documented defaults.',
-};
-
-/**
- * Build the empty Settings tab state.
- *
- * @returns The state before the first read.
- */
-export function initialSettingsTab(): SettingsTabState {
-    return { phase: 'idle', at: null, problem: null, stale: false, doc: null };
-}
+/** Re-exported so the state keeps one import path for the shell and the suites. */
+export { initialSettingsTab, readStateLine };
+export type { SettingsTabState };
 
 /** The mounted Settings tab: the handles a repaint updates, plus disposal. */
 export interface SettingsTabUi {
@@ -118,11 +76,11 @@ export interface SettingsTabUi {
     readonly pane: HTMLElement;
     /** Tab heading. */
     readonly heading: TextHandle;
-    /** The read-only statement (FR-073). */
-    readonly readOnly: BannerHandle;
+    /** The banner: editable copy, or the read-only statement (FR-011). */
+    readonly banner: BannerHandle;
     /** One line of read state: idle, loading, landed, failed with a cause. */
     readonly readLine: TextHandle;
-    /** The tab's only control: an explicit re-read (FR-014, FR-078). */
+    /** The tab's re-read control (FR-014, FR-078). */
     readonly refresh: ButtonHandle;
     /** Wrapper around the failure notice, hidden while nothing failed. */
     readonly failureBox: HTMLElement;
@@ -134,80 +92,147 @@ export interface SettingsTabUi {
     readonly emptyText: TextHandle;
     /** Container the per-field rows live in. */
     readonly rowsBox: HTMLElement;
-    /** One handle per row, rebuilt whenever the row count changes. */
-    rows: readonly TextHandle[];
+    /** The mounted rows, rebuilt when the field list changes. */
+    rowsUi: SettingsRowsUi | null;
+    /** Wrapper around the save bar, hidden while no save is possible. */
+    readonly saveBox: HTMLElement;
+    /** The one write the tab offers. */
+    readonly save: ButtonHandle;
+    /** The discard control (FR-015). */
+    readonly discard: ButtonHandle;
+    /** The non-primary restore-defaults control (FR-016). */
+    readonly restore: ButtonHandle;
+    /** One line of save state plus the pending markers (FR-013, FR-038). */
+    readonly saveLine: TextHandle;
+    /** Wrapper around the "no save is possible" reason, hidden while one is. */
+    readonly blockedBox: HTMLElement;
+    /** The named reason a save is not offered (FR-042). */
+    readonly blockedLine: TextHandle;
+    /** Wrapper around the refusal/failure region, hidden while there is none. */
+    readonly issuesBox: HTMLElement;
+    /** The service's issues in the service's order, or the write's cause. */
+    readonly issues: TextHandle;
     /** Remove every node and handle this view mounted (FR-017). */
     readonly dispose: () => void;
 }
 
 /**
- * The tab's own read state, in FR-019's three shapes.
+ * The issues the service named, as text in the service's order (FR-024).
  *
- * @param slice - The Settings tab's read state.
- * @returns The read-state line the tab paints.
+ * Rendered as one line each and never rewritten: the remediation is the
+ * service's own sentence about a value the operator submitted, which is the
+ * one string on this tab that is not a fixed label (FR-029, NFR-101).
+ *
+ * @param slice - The Settings tab's state.
+ * @returns The lines, empty when nothing is being reported.
  */
-export function readStateLine(slice: SettingsTabState): string {
-    if (slice.phase === 'idle') {
-        return 'Settings: not read yet.';
+function issueLines(slice: SettingsTabState): readonly string[] {
+    if (slice.edit.saveState === 'refused') {
+        return slice.edit.issues.map((issue) => `${issue.field}: ${issue.remediation}`);
     }
 
-    if (slice.phase === 'loading') {
-        return 'Settings: reading…';
+    if (slice.edit.saveState === 'failed' && slice.edit.problem !== null) {
+        return [slice.edit.problem];
     }
 
-    if (slice.phase === 'loaded') {
-        return `Settings: read at ${slice.at ?? 'an unknown time'}.`;
-    }
-
-    const cause = slice.problem ?? 'the service did not answer';
-    if (!slice.stale) {
-        return `Settings could not be read: ${cause}. Nothing has been read yet.`;
-    }
-
-    return `Settings could not be re-read: ${cause}. Showing the read from ${slice.at}, which may be stale.`;
+    return [];
 }
 
 /**
- * Paint the per-field rows, rebuilding them when the count changed.
+ * The notes each row's helper carries: the pending marker, in the words of the
+ * class that governs it (FR-038, AC-105).
  *
- * Rebuilding rather than pooling keeps exactly one handle per visible row: a
- * handle left over from a twelve-field read would keep painting a row the
- * document no longer carries.
+ * @param edit - The editable state.
+ * @returns The note per pending field.
+ */
+function pendingNotes(edit: SettingsEdit): Readonly<Record<string, string>> {
+    const notes: Record<string, string> = {};
+    for (const entry of edit.pending) {
+        notes[entry.field] = `saved, not yet in effect — ${takeEffectWords(entry.boundary)}`;
+    }
+
+    return notes;
+}
+
+/**
+ * The field each issue belongs to, so the service's remediation can appear on
+ * the control it is about. An issue naming no documented field (a foreign key,
+ * or the withheld marker) reaches the list only — it is information about the
+ * submission, never an editable surface (FR-026).
+ *
+ * @param slice - The Settings tab's state.
+ * @returns The remediation per documented field.
+ */
+function issueByField(slice: SettingsTabState): Readonly<Record<string, string>> {
+    const byField: Record<string, string> = {};
+    if (slice.edit.saveState !== 'refused' || slice.doc === null) {
+        return byField;
+    }
+
+    const documented = new Set(slice.doc.fields.map((descriptor) => descriptor.name));
+    for (const issue of slice.edit.issues) {
+        if (documented.has(issue.field)) {
+            byField[issue.field] = issue.remediation;
+        }
+    }
+
+    return byField;
+}
+
+/**
+ * What the rows region holds, and everything its controls read.
+ *
+ * @param slice - The Settings tab's state.
+ * @param onChange - What an input change does.
+ * @returns The rows context, or `null` when nothing has been read.
+ */
+function rowsContext(
+    slice: SettingsTabState,
+    onChange: (field: string, value: string) => void,
+): RowsContext | null {
+    if (slice.doc === null) {
+        return null;
+    }
+
+    const baseline: ConfigEnvelope = slice.doc;
+    const rows: readonly SettingsRow[] = settingsRows(baseline);
+
+    return {
+        rows,
+        descriptors: baseline.fields,
+        values: slice.edit.draft,
+        issues: issueByField(slice),
+        notes: pendingNotes(slice.edit),
+        disabled: slice.edit.blocked !== null || slice.edit.saveState === 'saving',
+        onChange,
+    };
+}
+
+/**
+ * Repaint the banner: what a save will do, or why none is possible (FR-011,
+ * FR-045).
  *
  * @param ui - The mounted view.
- * @param rows - The rows to show, in document order.
+ * @param slice - The Settings tab's state.
  */
-function paintRows(ui: SettingsTabUi, rows: readonly SettingsRow[]): void {
-    if (ui.rows.length !== rows.length) {
-        for (const row of ui.rows) {
-            row.dispose();
-        }
-
-        ui.rows = rows.map(() => mountText(ui.rowsBox, { text: '' }));
-    }
-
-    for (const [index, row] of rows.entries()) {
-        ui.rows[index]?.update({ text: row.text });
-    }
+function repaintBanner(ui: SettingsTabUi, slice: SettingsTabState): void {
+    const savable = slice.doc !== null && slice.edit.blocked === null;
+    ui.banner.update(
+        savable
+            ? { tone: 'info', title: EDITABLE_TITLE, body: EDITABLE_BODY }
+            : { tone: 'info', title: READ_ONLY_TITLE, body: READ_ONLY_BODY },
+    );
 }
 
 /**
- * Repaint the Settings tab from its read state (FR-071, FR-078).
+ * Repaint the read state, the failure notice, and the source lines (FR-019,
+ * FR-078, contract §3).
  *
- * Nothing runs when the tab has never been activated: the state still
- * updates, and the first activation repaints from it (FR-013).
- *
- * @param rt - Panel runtime.
+ * @param ui - The mounted view.
+ * @param slice - The Settings tab's state.
  */
-export function repaintSettingsTab(rt: PanelRuntime): void {
-    const ui = rt.settingsUi;
-    if (ui === null) {
-        return;
-    }
-
-    const slice = rt.state.settingsTab;
+function repaintReadState(ui: SettingsTabUi, slice: SettingsTabState): void {
     const loading = slice.phase === 'loading';
-
     ui.readLine.update({ text: readStateLine(slice) });
     ui.refresh.update({ disabled: loading, loading });
     ui.failureBox.hidden = slice.phase !== 'failed';
@@ -221,157 +246,153 @@ export function repaintSettingsTab(rt: PanelRuntime): void {
         });
     }
 
-    const rows = slice.doc === null ? [] : settingsRows(slice.doc);
-    ui.emptyText.update({ text: rows.length === 0 ? NO_DOCUMENT : '' });
+    ui.emptyText.update({ text: slice.doc === null ? NO_DOCUMENT : '' });
     ui.sourceNote.update({
         text: slice.doc === null ? SOURCE_NOTE : `${SOURCE_NOTE} ${SOURCE_LINES[slice.doc.source]}`,
     });
-    paintRows(ui, rows);
 }
 
 /**
- * Whether the runtime has been torn down while a read was in flight.
+ * Mount the rows when the field list changed, patch them when it did not
+ * (FR-014, FR-027) — patching rather than rebuilding is what keeps an input's
+ * focus while the operator types.
  *
- * A function call rather than a bare `rt.disposed` read: the analyzer narrows
- * that property across the first `await` and then reports a later direct
- * check as unreachable, while the frame really can go away between two awaits
- * (the same shape the Status tab's read has).
- *
- * @param rt - Panel runtime.
- * @returns `true` once the mount has been torn down.
+ * @param input - The runtime, the mounted view, and the state.
  */
-function tornDown(rt: PanelRuntime): boolean {
-    return rt.disposed;
-}
-
-/**
- * Read `GET /v1/config` once and record what it answered (FR-014, FR-078).
- *
- * The read is this tab's own: a failure leaves the last document in place,
- * marked stale, and says what could not be read rather than blanking rows
- * that were true a moment ago (FR-019).
- *
- * @param rt - Panel runtime.
- */
-export async function loadSettings(rt: PanelRuntime): Promise<void> {
-    const slice = rt.state.settingsTab;
-    if (rt.disposed || slice.phase === 'loading') {
-        return;
-    }
-
-    slice.phase = 'loading';
-    repaintSettingsTab(rt);
-
-    const answer = await serviceGet({ serviceRequest: rt.host.serviceRequest, path: CONFIG_PATH });
-    if (tornDown(rt)) {
-        return;
-    }
-
-    const doc = answer.ok ? parseConfigEnvelope(answer.body) : null;
-    if (doc === null) {
-        slice.phase = 'failed';
-        slice.problem = redact(
-            answer.ok ? 'the service answered a configuration document the panel could not read' : answer.problem,
-        );
-        slice.stale = slice.doc !== null;
-        repaintSettingsTab(rt);
+function repaintRows(input: {
+    /** The mounted view. */
+    readonly ui: SettingsTabUi;
+    /** The Settings tab's state. */
+    readonly slice: SettingsTabState;
+    /** What an input change does. */
+    readonly onChange: (field: string, value: string) => void;
+}): void {
+    const { ui, slice, onChange } = input;
+    const context = rowsContext(slice, onChange);
+    if (context === null) {
+        ui.rowsUi?.dispose();
+        ui.rowsUi = null;
 
         return;
     }
 
-    slice.doc = doc;
-    slice.phase = 'loaded';
-    slice.problem = null;
-    slice.stale = false;
-    slice.at = nowIso();
-    rt.shell?.noteRead('settings', slice.at);
-    repaintSettingsTab(rt);
+    const fields = context.rows.map((row) => row.field).join('|');
+    const mounted = ui.rowsUi;
+    if (mounted !== null && mounted.fields.join('|') === fields) {
+        updateSettingsRows(mounted, context);
+
+        return;
+    }
+
+    mounted?.dispose();
+    ui.rowsUi = mountSettingsRows({ box: ui.rowsBox, context });
 }
 
 /**
- * Mount the re-read row: the tab's one control and its read-state line
- * (FR-014, FR-078).
+ * Repaint the save bar, the named reason, the save state, and the issues
+ * (FR-013, FR-024, FR-042).
  *
- * @param input - Runtime whose read the control starts, and the pane to
- *   mount into.
- * @returns The two handles.
+ * @param ui - The mounted view.
+ * @param slice - The Settings tab's state.
  */
-function mountReadControls(input: {
-    /** Runtime whose read state the control re-reads. */
-    readonly rt: PanelRuntime;
-    /** Pane the row mounts into. */
-    readonly pane: HTMLElement;
-}): { readonly refresh: ButtonHandle; readonly readLine: TextHandle } {
-    const row = input.pane.ownerDocument.createElement('div');
-    row.style.display = 'flex';
-    row.style.alignItems = 'center';
-    row.style.gap = '8px';
-    input.pane.append(row);
+function repaintControls(ui: SettingsTabUi, slice: SettingsTabState): void {
+    const savable = slice.edit.blocked === null;
+    ui.saveBox.hidden = !savable;
+    ui.blockedBox.hidden = savable;
+    if (!savable) {
+        ui.blockedLine.update({ text: slice.edit.blocked ?? '' });
+    }
 
-    const refresh = mountButton(row, {
-        label: REFRESH_LABEL,
-        variant: 'secondary',
-        onClick: (): void => {
-            void loadSettings(input.rt);
-        },
+    const saving = slice.edit.saveState === 'saving';
+    ui.save.update({ disabled: saving || slice.edit.dirty.length === 0, loading: saving });
+    ui.discard.update({ disabled: slice.edit.dirty.length === 0 });
+    ui.restore.update({ disabled: slice.doc === null });
+    const pending = slice.edit.pending.map((entry) => `${entry.field}: ${takeEffectWords(entry.boundary)}`);
+    ui.saveLine.update({
+        text: pending.length === 0
+            ? SAVE_LINES[slice.edit.saveState]
+            : `${SAVE_LINES[slice.edit.saveState]} Pending — ${pending.join('; ')}`,
     });
 
-    return { refresh, readLine: mountText(row, { text: readStateLine(input.rt.state.settingsTab) }) };
+    const lines = issueLines(slice);
+    ui.issuesBox.hidden = lines.length === 0;
+    if (lines.length > 0) {
+        ui.issues.update({ text: lines.join('\n') });
+    }
 }
 
 /**
- * Mount the failure notice, hidden until a read fails (FR-078).
+ * Repaint the Settings tab from its state (FR-013, FR-078).
  *
- * @param pane - Pane the notice mounts into.
- * @returns The wrapper, which the repaint shows, and the banner inside it.
- */
-function mountFailureNotice(pane: HTMLElement): {
-    /** Wrapper whose `hidden` flag is "there is nothing to report here". */
-    readonly box: HTMLElement;
-    /** The banner that names what could not be read. */
-    readonly failure: BannerHandle;
-} {
-    const box = pane.ownerDocument.createElement('div');
-    box.hidden = true;
-    pane.append(box);
-
-    return {
-        box,
-        failure: mountBanner(box, {
-            tone: 'warning',
-            title: FAILURE_TITLE,
-            body: `${CONFIG_SOURCE} did not answer.`,
-        }),
-    };
-}
-
-/**
- * Mount the source note, the empty message, and the row region (FR-071).
+ * Nothing runs when the tab has never been activated: the state still
+ * updates, and the first activation repaints from it (005 FR-013).
  *
- * @param pane - Pane the three mount into.
- * @returns The handles and the region element rows are painted into.
+ * @param rt - Panel runtime.
  */
-function mountRowRegion(pane: HTMLElement): {
-    /** Where the rows come from. */
-    readonly sourceNote: TextHandle;
-    /** Message shown while no document has ever been read. */
-    readonly emptyText: TextHandle;
-    /** Container the per-field rows live in. */
-    readonly rowsBox: HTMLElement;
-} {
-    const sourceNote = mountText(pane, { text: SOURCE_NOTE });
-    const emptyText = mountText(pane, { text: NO_DOCUMENT });
-    const rowsBox = pane.ownerDocument.createElement('div');
-    rowsBox.setAttribute('role', 'region');
-    rowsBox.setAttribute('aria-label', ROWS_LABEL);
-    pane.append(rowsBox);
+export function repaintSettingsTab(rt: PanelRuntime): void {
+    const ui = rt.settingsUi;
+    if (ui === null) {
+        return;
+    }
 
-    return { sourceNote, emptyText, rowsBox };
+    const slice = rt.state.settingsTab;
+    repaintBanner(ui, slice);
+    repaintReadState(ui, slice);
+    repaintRows({
+        ui,
+        slice,
+        onChange: (field, value) => applyFieldEdit({ rt, repaint: repaintSettingsTab, field, value }),
+    });
+    repaintControls(ui, slice);
 }
 
 /**
- * Mount the Settings tab: heading, read-only statement, read state, the one
- * re-read control, the failure notice, and the row region (FR-070, FR-071).
+ * Read `GET /v1/config` once and record what it answered (FR-014, FR-049).
+ *
+ * The read is this tab's own: a failure leaves the last document in place,
+ * marked stale, names what could not be read, and blocks any save — because a
+ * save with no current baseline sends a document the panel cannot stand behind
+ * (FR-019, FR-042).
+ *
+ * @param rt - Panel runtime.
+ * @returns Resolves once the answer has been applied.
+ */
+export async function loadSettings(rt: PanelRuntime): Promise<void> {
+    await applyConfigRead(rt, repaintSettingsTab);
+}
+
+/**
+ * Save the draft: one activation, one whole-document write (FR-040, FR-046).
+ *
+ * @param rt - Panel runtime.
+ * @returns Resolves once the answer has been applied.
+ */
+export async function saveSettings(rt: PanelRuntime): Promise<void> {
+    await applySave(rt, repaintSettingsTab);
+}
+
+/**
+ * Discard the unsaved edits, naming what reverted (FR-015, AC-122).
+ *
+ * @param rt - Panel runtime.
+ */
+export function discardSettings(rt: PanelRuntime): void {
+    applyDiscard(rt, repaintSettingsTab);
+}
+
+/**
+ * Stage the service's declared defaults in the draft; never a write here
+ * (FR-016 — the two-step confirmation arrives with 006 T-022).
+ *
+ * @param rt - Panel runtime.
+ */
+export function stageDefaults(rt: PanelRuntime): void {
+    applyStageDefaults(rt, repaintSettingsTab);
+}
+
+/**
+ * Mount the Settings tab: heading, banner, read state, the re-read control,
+ * the failure notice, the rows, the save bar, and the two regions (FR-010).
  *
  * @param input - Runtime and the body container the shell created.
  * @returns The mounted view.
@@ -387,43 +408,31 @@ export function mountSettingsTab(input: {
     body.append(pane);
 
     const heading = mountText(pane, { text: SETTINGS_HEADING });
-    const readOnly = mountBanner(pane, { tone: 'info', title: READ_ONLY_TITLE, body: READ_ONLY_BODY });
-    const controls = mountReadControls({ rt, pane });
+    const banner = mountBanner(pane, { tone: 'info', title: READ_ONLY_TITLE, body: READ_ONLY_BODY });
+    const controls = mountReadControls({
+        pane,
+        onRefresh: (): void => {
+            void loadSettings(rt);
+        },
+        readLineText: readStateLine(rt.state.settingsTab),
+    });
     const notice = mountFailureNotice(pane);
     const region = mountRowRegion(pane);
-
-    const ui: SettingsTabUi = {
+    const controlsRegion = mountControlRegion({
         pane,
-        heading,
-        readOnly,
-        ...controls,
-        failureBox: notice.box,
-        failure: notice.failure,
-        ...region,
-        rows: [],
-        dispose: (): void => {
-            for (const row of ui.rows) {
-                row.dispose();
-            }
-
-            ui.rows = [];
-            heading.dispose();
-            readOnly.dispose();
-            controls.refresh.dispose();
-            controls.readLine.dispose();
-            notice.failure.dispose();
-            region.sourceNote.dispose();
-            region.emptyText.dispose();
-            region.rowsBox.remove();
-            notice.box.remove();
-            pane.remove();
+        onSave: (): void => {
+            void saveSettings(rt);
         },
-    };
+        onDiscard: (): void => discardSettings(rt),
+        onRestore: (): void => stageDefaults(rt),
+    });
+
+    const ui = buildTabUi({ pane, heading, banner, controls, notice, region, controlsRegion });
 
     rt.settingsUi = ui;
     repaintSettingsTab(rt);
-    // The tab has never read anything at mount (FR-013: bodies read on their
-    // first activation, and this is that activation's one read).
+    // The tab has never read anything at mount (005 FR-013: bodies read on
+    // their first activation, and this is that activation's one read).
     if (rt.state.settingsTab.phase === 'idle') {
         void loadSettings(rt);
     }
@@ -432,7 +441,7 @@ export function mountSettingsTab(input: {
 }
 
 /**
- * Dispose the Settings tab's handles and clear its slot (FR-017).
+ * Dispose the Settings tab's handles and clear its slot (005 FR-017).
  *
  * @param rt - Panel runtime being torn down.
  */
