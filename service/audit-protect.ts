@@ -8,11 +8,12 @@
  * rule, which is what lets `audit-trim.ts` stay the read → decide → write pass
  * it documents itself as. Three properties the rule is built to hold:
  *
- * - **Categories, not tables.** "Run-scoped" is a `run` entity or a
- *   `run.`/`dispatch.`/`agent.` event prefix, and "records a state transition"
- *   is 003 data-model §4.3's transition vocabulary read the same way, so a
- *   vocabulary row either feature adds later is classified without a change
- *   here.
+ * - **A category, and a table.** "Run-scoped" is a `run` entity or a
+ *   `run.`/`dispatch.`/`agent.` event prefix — a category, so a run-scoped row
+ *   either feature adds later is classified without a change here. "Records a
+ *   state transition" is the exception: 003 data-model §4.3's vocabulary as a
+ *   **closed set of names**, so a state-recording event type added later is
+ *   classified only once it joins that set.
  * - **Both ends of a chain, always.** An opener is only protected together
  *   with an outcome, so "an outcome with no opener" (or the reverse) is
  *   structurally impossible rather than merely unobserved.
@@ -59,9 +60,11 @@ const RUN_CREATED_EVENT = 'run.created';
  * unconditionally by rule (ii) in {@link chainAndDecisionSeqs}, because the
  * latest-hop rule alone would drop it the moment any later hop exists.
  *
- * Read as "rows that move a run", not as a transcription of today's table: a
- * transition row 003 adds later is protected without a change here, the same
- * way the run-scoped prefixes above work.
+ * Read as "rows that move a run", but this axis is a **closed set of names**,
+ * not the prefix test the run-scoped axis above it applies: a state-recording
+ * event type 003 adds later is unprotected here until it joins this set, so a
+ * trim can take the row that left the run in its final state. Extend the table
+ * when the vocabulary grows — the prefixes above will not pick the name up.
  */
 const STATE_TRANSITION_EVENTS: ReadonlySet<string> = new Set([
     RUN_CREATED_EVENT,
@@ -106,8 +109,8 @@ function isDecisionEvent(entry: AuditEntry): boolean {
  * Decide whether a row records a hop to a new run state (003 data-model §4.3).
  *
  * @param entry - Trail row.
- * @returns `true` for the transition vocabulary
- *   {@link STATE_TRANSITION_EVENTS} reads as a category.
+ * @returns `true` for a name in the closed set
+ *   {@link STATE_TRANSITION_EVENTS}; nothing outside it counts.
  */
 function isStateTransition(entry: AuditEntry): boolean {
     return STATE_TRANSITION_EVENTS.has(entry.eventType);

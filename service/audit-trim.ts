@@ -12,19 +12,28 @@
  *   run-scoped row, when it records the hop that left the run in its final
  *   state, when it created the run, when it names an account or binding the
  *   store can still account for, or when it records a policy/configuration
- *   decision. A vocabulary row 003 adds later is protected without a change
- *   here, because run-scoped means `entity.kind === 'run'` **or** a
- *   `run.`/`dispatch.`/`agent.` event type — categories, not a transcription of
- *   the table. The chain half of that rule — openers, outcomes, the hop that
- *   recorded the run's final state, and the creation row — lives in
- *   `audit-protect.ts`, where 003 data-model §4.3's transition table is read
- *   the same way: *rows that move a run*, so a later hop lands in it.
+ *   decision. A vocabulary row 003 adds later is *classified* without a change
+ *   here when it is run-scoped, because run-scoped means `entity.kind === 'run'`
+ *   **or** a `run.`/`dispatch.`/`agent.` event type — a category, never a
+ *   transcription of the table. The chain half of that rule — openers, outcomes,
+ *   the hop that recorded the run's final state, and the creation row — lives in
+ *   `audit-protect.ts`, where the run-scoped axis reads the same way but 003
+ *   data-model §4.3's transition table does not: that table is a **closed set
+ *   of names**, so a later hop does *not* land in it by prefix. A new
+ *   state-recording event type must join that set — a name outside it is
+ *   unprotected, so a trim can take the row that left the run in its final
+ *   state.
  * - **Both limits are honoured, whichever trips first**: the day window and the
  *   entry cap, and the pass counts the `audit.trimmed` row it is about to write
  *   *before* it decides, so a cap of N lands the trail at or below N instead of
- *   oscillating around it one row per cycle (data-model §4.1). The one thing
- *   the **cap** never takes is a previous `audit.trimmed` row: once the
- *   protected set sits at N that record is the only row left to delete, and
+ *   oscillating around it one row per cycle (data-model §4.1) — at or below N
+ *   once the rows the cap never takes are discounted: FR-056's protected floor
+ *   and a previous `audit.trimmed` row, which the day window ages out but the
+ *   cap never takes. Counted in, the trail lands at or below N when those
+ *   exempt rows are fewer than N, and at N + 1 or above when they are not —
+ *   the floor holding, not the cap failing. The one thing the **cap** never
+ *   takes among the unprotected rows is that previous `audit.trimmed` row: once
+ *   the protected set sits at N that record is the only row left to delete, and
  *   deleting it would rewrite the file every cycle forever while erasing the
  *   only explanation the trail has for its own `seq` gaps. Such a row still
  *   ages out under the day window — cap-exempt is not age-exempt — so the
