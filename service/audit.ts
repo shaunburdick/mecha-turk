@@ -34,6 +34,17 @@ import type { ServiceStore } from './store/index.ts';
 /** Store-relative path of the append-only audit log. */
 export const AUDIT_FILE = 'audit.ndjson';
 
+/**
+ * Entity id every configuration-wide audit row names (006 FR-070, FR-073).
+ *
+ * The two rows 006 fills — `config.changed` and `audit.trimmed` — both carry
+ * `entity: { kind: 'service', id: <this> }`, so a reader can group them under
+ * one identity without either being forced onto a run's correlation id (003
+ * FR-052, 006 FR-074). Exported beside the trail's own path constant so the
+ * trim pass and the configuration route cannot spell it differently.
+ */
+export const CONFIGURATION_ENTITY_ID = 'configuration';
+
 /** Entity kinds the audit trail can reference; `service` covers process-wide events. */
 export type AuditEntityKind = 'service' | 'account' | 'binding' | 'run' | 'delivery';
 

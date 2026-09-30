@@ -1,0 +1,459 @@
+/**
+ * The audit retention pass over `audit.ndjson` (006 FR-055, FR-056; 002
+ * FR-035's "minimal references kept until the account/binding is deleted").
+ *
+ * The trail used to grow without bound — `service/audit.ts` recorded trimming
+ * as a deferral and nobody discharged it. This module is that consumer, and it
+ * is deliberately shaped as **read → decide → one atomic rewrite** rather than
+ * as a series of deletions:
+ *
+ * - **The protected set is computed by rule, never by list** (FR-056). A row is
+ *   protected when it opens or closes a correlation chain that contains a
+ *   run-scoped row, when it names an account or binding the store can still
+ *   account for, or when it records a policy/configuration decision. A
+ *   vocabulary row 003 adds later is protected without a change here, because
+ *   run-scoped means `entity.kind === 'run'` **or** a `run.`/`dispatch.`/
+ *   `agent.` event type — categories, not a transcription of the table.
+ * - **Both limits are honoured, whichever trips first**: the day window and the
+ *   entry cap, and the pass counts the `audit.trimmed` row it is about to write
+ *   *before* it decides, so a cap of N lands the trail at or below N instead of
+ *   oscillating around it one row per cycle (data-model §4.1).
+ * - **A trim never renumbers `seq`.** Survivors keep their numbers, the row
+ *   takes the next one from the writer's own counter through
+ *   {@link composeAudit}, and the gap the removal leaves is the trail's visible
+ *   signature (FR-055, FR-073).
+ * - **The row and the removals land in the same rename** (plan D4): one
+ *   {@link serializeAudit} slot holds the read, the decision, and
+ *   `writeLines(AUDIT_FILE, [...survivors, trimRow])`, so a crash leaves either
+ *   the pre-trim trail or the post-trim one — never a removal without its
+ *   record, and never a `seq` a restart could re-seed below an used number.
+ *   The same slot is what keeps a pass from removing a row `appendAudit` wrote
+ *   while the pass was computing (FR-055's serialization clause).
+ *
+ * A pass that removes nothing writes nothing (FR-053): no file is touched and
+ * no row is appended, so an idle cycle costs one read and no write at all.
+ */
+
+import { BINDINGS_FILE, listAccounts } from './accounts/store.ts';
+import { AUDIT_FILE, CONFIGURATION_ENTITY_ID, composeAudit, readAuditEntries, serializeAudit } from './audit.ts';
+import { isRecord } from './json.ts';
+import type { AuditEntry } from './audit.ts';
+import type { ServiceConfig } from './config.ts';
+import type { ServiceLogger } from './log.ts';
+import type { JsonReadResult, ServiceStore } from './store/index.ts';
+
+/** Milliseconds in one day — the unit `auditRetentionDays` is counted in. */
+const DAY_MS = 86_400_000;
+
+/** Event types that record a policy or configuration decision (FR-056(d)). */
+const DECISION_EVENTS: ReadonlySet<string> = new Set(['policy.decision', 'config.changed']);
+
+/** Prefixes that make a row run-scoped; read as categories, never as a list. */
+const RUN_SCOPED_PREFIXES: readonly string[] = ['run.', 'dispatch.', 'agent.'];
+
+/** One retention limit, named the way the trim row's `limitReached` records it. */
+export type AuditLimit = 'day-window' | 'entry-cap';
+
+/** What one pass did, for the caller's log line and its tests. */
+export interface TrimAuditOutcome {
+    /** Rows removed by this pass; `0` means the file was not touched. */
+    readonly removed: number;
+    /** Which limit tripped first, or `null` when nothing was removed. */
+    readonly limitReached: AuditLimit | null;
+    /** Protected rows this pass deliberately kept (FR-056's floor). */
+    readonly minimalReferencesPreserved: number;
+}
+
+/** Inputs one pass reads; the configuration is the caller's single cycle read. */
+export interface TrimAuditInput {
+    /** Open store holding the trail. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+    /** The effective configuration, read once by the boundary that runs this. */
+    readonly config: ServiceConfig;
+    /**
+     * Service clock in epoch milliseconds; `Date.now()` when omitted.
+     *
+     * Injected so a test can age a seeded trail against a fixed instant with no
+     * real waiting (006's offline-determinism bar: injected clock, no sleeps).
+     */
+    readonly now?: number;
+}
+
+/** The trail ordered, plus what a pass decided about each row. */
+interface RemovalPlan {
+    /** Rows that stay, in `seq` order. */
+    readonly survivors: readonly AuditEntry[];
+    /** Rows this pass takes, oldest first. */
+    readonly removed: readonly AuditEntry[];
+    /** Which limit tripped first, or `null` when nothing was removed. */
+    readonly limitReached: AuditLimit | null;
+}
+
+/**
+ * Decide whether a row is run-scoped (data-model §4.2's reading of FR-056).
+ *
+ * @param entry - Trail row.
+ * @returns `true` for a `run` entity or a `run.`/`dispatch.`/`agent.` event.
+ */
+function isRunScoped(entry: AuditEntry): boolean {
+    if (entry.entity.kind === 'run') {
+        return true;
+    }
+
+    return RUN_SCOPED_PREFIXES.some((prefix) => entry.eventType.startsWith(prefix));
+}
+
+/**
+ * Read the stored bindings document's identity list, without the store's own
+ * reader collapsing two different answers into one.
+ *
+ * The bindings reader answers `[]` both when the file is *absent* (no bindings
+ * exist — their rows are trimmable) and when it is *unreadable* (unknown —
+ * their rows must stay), so this pass probes the document itself to tell those
+ * apart: fail-closed parsing applied to a destructive decision (invariant 8).
+ * An unparseable document still quarantines, exactly as the real reader
+ * quarantines it moments later in the same cycle.
+ *
+ * @param probe - Outcome of reading the bindings document.
+ * @returns The binding ids, `[]` when there is no document, or `null` when the
+ *   document exists but cannot be understood.
+ */
+function bindingIdsOf(probe: JsonReadResult<unknown>): ReadonlySet<string> | null {
+    if (probe.status === 'absent') {
+        return new Set<string>();
+    }
+
+    if (probe.status === 'quarantined' || !Array.isArray(probe.value)) {
+        return null;
+    }
+
+    const ids = new Set<string>();
+    for (const entry of probe.value) {
+        if (isRecord(entry) && typeof entry.bindingId === 'string') {
+            ids.add(entry.bindingId);
+        }
+    }
+
+    return ids;
+}
+
+/**
+ * List the accounts FR-056(c) protects while they still exist.
+ *
+ * @param input - Open store and logger.
+ * @returns Their numeric ids, or `null` when the custody directory cannot be
+ *   listed — unknown keeps the rows, because a reference is only removable
+ *   once the subject is provably gone.
+ */
+async function existingAccountIds(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+}): Promise<ReadonlySet<string> | null> {
+    try {
+        const accounts = await listAccounts(input.store, input.log);
+
+        return new Set(accounts.map((account) => account.numericUserId));
+    } catch (cause) {
+        input.log.warn('audit trim could not list accounts', {
+            errorKind: cause instanceof Error ? cause.name : typeof cause,
+        });
+
+        return null;
+    }
+}
+
+/**
+ * List the bindings FR-056(c) protects while they still exist.
+ *
+ * @param input - Open store and logger.
+ * @returns Their ids, `[]` when there is no document, or `null` when the
+ *   document could not be read.
+ */
+async function existingBindingIds(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+}): Promise<ReadonlySet<string> | null> {
+    let probe: JsonReadResult<unknown>;
+    try {
+        probe = await input.store.readJson(BINDINGS_FILE, (raw) => raw);
+    } catch (cause) {
+        input.log.warn('audit trim could not read the bindings document', {
+            errorKind: cause instanceof Error ? cause.name : typeof cause,
+        });
+
+        return null;
+    }
+
+    return bindingIdsOf(probe);
+}
+
+/**
+ * The `seq` numbers FR-056(a), (b), and (d) protect: chain openers, chain
+ * outcomes, and decision rows.
+ *
+ * @param entries - Trail rows, in any order.
+ * @returns The protected `seq` numbers this half of the rule contributes.
+ */
+function chainAndDecisionSeqs(entries: readonly AuditEntry[]): readonly number[] {
+    const protectedSeqs: number[] = [];
+    const openers = new Map<string, AuditEntry>();
+    const outcomes = new Map<string, AuditEntry>();
+    for (const entry of entries) {
+        if (DECISION_EVENTS.has(entry.eventType)) {
+            protectedSeqs.push(entry.seq);
+        }
+
+        const opener = openers.get(entry.correlationId);
+        if (opener === undefined || entry.seq < opener.seq) {
+            openers.set(entry.correlationId, entry);
+        }
+
+        if (!isRunScoped(entry)) {
+            continue;
+        }
+
+        const outcome = outcomes.get(entry.correlationId);
+        if (outcome === undefined || entry.seq > outcome.seq) {
+            outcomes.set(entry.correlationId, entry);
+        }
+    }
+
+    // A chain is only protected when it *contains* a run-scoped row, and it
+    // keeps both ends: protecting the opener and the outcome together is what
+    // makes "an outcome with no opener" structurally impossible (FR-056).
+    for (const [correlationId, outcome] of outcomes) {
+        const opener = openers.get(correlationId);
+        if (opener !== undefined) {
+            protectedSeqs.push(opener.seq);
+        }
+
+        protectedSeqs.push(outcome.seq);
+    }
+
+    return protectedSeqs;
+}
+
+/**
+ * The `seq` numbers FR-056(c) protects: rows naming a subject that exists.
+ *
+ * @param input - Trail rows, the store, and the logger.
+ * @returns The protected `seq` numbers this half of the rule contributes.
+ */
+async function subjectSeqs(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+    /** Trail rows, in any order. */
+    readonly entries: readonly AuditEntry[];
+}): Promise<readonly number[]> {
+    const accounts = await existingAccountIds(input);
+    const bindings = await existingBindingIds(input);
+    const protectedSeqs: number[] = [];
+    for (const entry of input.entries) {
+        const { kind, id } = entry.entity;
+        if (kind === 'account' && (accounts === null || accounts.has(id))) {
+            protectedSeqs.push(entry.seq);
+        }
+
+        if (kind === 'binding' && (bindings === null || bindings.has(id))) {
+            protectedSeqs.push(entry.seq);
+        }
+    }
+
+    return protectedSeqs;
+}
+
+/**
+ * Compute FR-056's protected set — by rule, before anything is chosen.
+ *
+ * (a) the earliest row of every correlation chain that contains a run-scoped
+ * row, (b) that chain's latest run-scoped row, (c) `account`/`binding` entity
+ * rows whose subject still exists, and (d) every `policy.decision` /
+ * `config.changed` row.
+ *
+ * @param input - Open store, logger, and the trail rows.
+ * @returns The `seq` numbers a trim must never remove.
+ */
+async function protectedSeqsOf(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+    /** Trail rows, as the reader produced them. */
+    readonly entries: readonly AuditEntry[];
+}): Promise<ReadonlySet<number>> {
+    const protectedSeqs = new Set<number>(chainAndDecisionSeqs(input.entries));
+    for (const seq of await subjectSeqs(input)) {
+        protectedSeqs.add(seq);
+    }
+
+    return protectedSeqs;
+}
+
+/**
+ * Choose what one pass removes: unprotected rows that fall outside the day
+ * window, plus enough of the oldest of them to bring an over-cap trail down.
+ *
+ * The walk is oldest-first and skips every protected row, so removals always
+ * take the oldest trimmable rows first and a protected row is never chosen at
+ * any age or any cap. A timestamp that will not parse never marks a row too
+ * old — an undatable row is kept, never guessed out of the file.
+ *
+ * @param input - The ordered trail, the protected set, and the two limits.
+ * @returns The survivors and removals, with the limit that tripped first.
+ */
+function planRemoval(input: {
+    /** Trail rows in `seq` order. */
+    readonly ordered: readonly AuditEntry[];
+    /** `seq` numbers FR-056 protects. */
+    readonly protectedSeqs: ReadonlySet<number>;
+    /** Epoch milliseconds at which a row leaves the day window. */
+    readonly cutoff: number;
+    /** Entry cap; the trim row this plan implies is counted against it. */
+    readonly maxEntries: number;
+}): RemovalPlan {
+    const { ordered, protectedSeqs, cutoff, maxEntries } = input;
+    // The cap counts the row this pass is about to append — but only when the
+    // trail is *over* the cap, because a pass inside the limit writes no row
+    // and must not reserve a slot for one. That distinction is what keeps a
+    // trail sitting exactly at the cap stable instead of deleting one row per
+    // cycle to make room for the row that would record the deletion
+    // (FR-055's no-oscillation clause).
+    const overCap = ordered.length > maxEntries;
+    const neededForCap = overCap ? ordered.length + 1 - maxEntries : 0;
+    const survivors: AuditEntry[] = [];
+    const removed: AuditEntry[] = [];
+    let limitReached: AuditLimit | null = null;
+
+    for (const entry of ordered) {
+        if (protectedSeqs.has(entry.seq)) {
+            survivors.push(entry);
+            continue;
+        }
+
+        const stamped = Date.parse(entry.timestamp);
+        const tooOld = Number.isFinite(stamped) && stamped < cutoff;
+        const forCap = removed.length < neededForCap;
+        if (!tooOld && !forCap) {
+            survivors.push(entry);
+            continue;
+        }
+
+        // Whichever limit trips first names the row (FR-073): the walk is
+        // oldest-first, so the first removal is the binding one.
+        limitReached ??= tooOld ? 'day-window' : 'entry-cap';
+        removed.push(entry);
+    }
+
+    return { survivors, removed, limitReached };
+}
+
+/**
+ * Build the `audit.trimmed` row for a plan that removed something.
+ *
+ * @param input - The plan, the protected count, and the open store.
+ * @returns The composed row, ready to be written beside its removals.
+ */
+async function composeTrimRow(input: {
+    /** The plan that produced the removals. */
+    readonly plan: RemovalPlan;
+    /** The limit that tripped first; the row names it (FR-073). */
+    readonly limitReached: AuditLimit;
+    /** Protected rows deliberately kept (FR-056's floor). */
+    readonly minimalReferencesPreserved: number;
+    /** Open store the writer's `seq` counter lives on. */
+    readonly store: ServiceStore;
+}): Promise<AuditEntry> {
+    const { plan, limitReached, minimalReferencesPreserved, store } = input;
+    const oldestSeq = Math.min(...plan.removed.map((entry) => entry.seq));
+    const newestSeq = Math.max(...plan.removed.map((entry) => entry.seq));
+
+    return await composeAudit(store, {
+        eventType: 'audit.trimmed',
+        actorSource: 'service',
+        entity: { kind: 'service', id: CONFIGURATION_ENTITY_ID },
+        decision: 'trimmed',
+        reason: `audit trail trimmed; limit reached: ${limitReached}`,
+        details: {
+            entriesRemoved: plan.removed.length,
+            oldestSeq,
+            newestSeq,
+            limitReached,
+            minimalReferencesPreserved,
+        },
+    });
+}
+
+/**
+ * Read the trail oldest-first, as the sequence a reader walks it in.
+ *
+ * @param store - Open store holding the trail.
+ * @returns The usable rows, ordered by `seq`.
+ */
+async function readOrderedTrail(store: ServiceStore): Promise<readonly AuditEntry[]> {
+    const entries = await readAuditEntries(store);
+
+    return [...entries].sort((left, right) => left.seq - right.seq);
+}
+
+/**
+ * One pass: read the trail, decide, and write survivors **plus** their row in a
+ * single atomic replace — or write nothing at all.
+ *
+ * @param input - Store, logger, the effective configuration, and the clock.
+ * @returns What the pass removed; `removed: 0` means nothing was touched.
+ * @throws {StorageUnavailableError} When the trail cannot be read or rewritten;
+ *   the caller (store open, cycle boundary) logs the failure and moves on, and
+ *   the file still holds its pre-trim bytes.
+ */
+export async function trimAudit(input: TrimAuditInput): Promise<TrimAuditOutcome> {
+    const now = input.now ?? Date.now();
+    const cutoff = now - input.config.auditRetentionDays * DAY_MS;
+
+    return await serializeAudit(input.store, async () => {
+        const ordered = await readOrderedTrail(input.store);
+        const protectedSeqs = await protectedSeqsOf({
+            store: input.store,
+            log: input.log,
+            entries: ordered,
+        });
+        const plan = planRemoval({
+            ordered,
+            protectedSeqs,
+            cutoff,
+            maxEntries: input.config.auditMaxEntries,
+        });
+        const minimalReferencesPreserved = protectedSeqs.size;
+        const outcome: TrimAuditOutcome = {
+            removed: plan.removed.length,
+            limitReached: plan.limitReached,
+            minimalReferencesPreserved,
+        };
+        if (plan.removed.length === 0 || plan.limitReached === null) {
+            return outcome;
+        }
+
+        const trimRow = await composeTrimRow({
+            plan,
+            limitReached: plan.limitReached,
+            minimalReferencesPreserved,
+            store: input.store,
+        });
+        await input.store.writeLines(AUDIT_FILE, [...plan.survivors, trimRow]);
+        input.log.info('audit trail trimmed', {
+            entriesRemoved: plan.removed.length,
+            limitReached: plan.limitReached,
+            minimalReferencesPreserved,
+            entriesAfter: plan.survivors.length + 1,
+        });
+
+        return outcome;
+    });
+}
