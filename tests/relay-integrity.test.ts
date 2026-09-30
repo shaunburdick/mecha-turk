@@ -43,7 +43,7 @@ import { createEvent } from '../service/poll/events.ts';
 import { MAX_LISTED_EVENTS } from '../service/routes/events.ts';
 import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
 import type { DispatchAttempt, Run } from '../service/poll/runs-types.ts';
-import type { PanelBinding } from '../src/repos-service.ts';
+import type { PanelBinding } from '../src/bindings-service.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import {
     DEFAULT_STATUS,
@@ -307,7 +307,7 @@ function harness(
         },
     });
     const rt = createTestRuntime(host);
-    rt.state.repos.bindings = [activeBinding()];
+    rt.state.bindings.bindings = [activeBinding()];
 
     return {
         rt,
@@ -397,8 +397,8 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
         await dispatchClaimedRun(relay.rt, claimedRun());
 
         expect(relay.timeline).toEqual([`POST ${RUN_PATH}/reserve`]);
-        expect(relay.rt.state.repos.note).toContain('not authorized to start');
-        expect(relay.rt.state.repos.note).toContain('stale-lease');
+        expect(relay.rt.state.bindings.note).toContain('not authorized to start');
+        expect(relay.rt.state.bindings.note).toContain('stale-lease');
     });
 
     it('never reaches the host when the service answers an unreadable authorization', async () => {
@@ -410,14 +410,14 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
         await dispatchClaimedRun(relay.rt, claimedRun());
 
         expect(relay.timeline).toEqual([`POST ${RUN_PATH}/reserve`]);
-        expect(relay.rt.state.repos.note).toContain('could not be read');
+        expect(relay.rt.state.bindings.note).toContain('could not be read');
     });
 });
 
 describe('guard refusals are reported, never dispatched (FR-042)', () => {
     it('posts blocked with the lease and the declared reason, and no result', async () => {
         const relay = harness();
-        relay.rt.state.repos.bindings = [];
+        relay.rt.state.bindings.bindings = [];
 
         await dispatchClaimedRun(relay.rt, claimedRun());
 
@@ -431,12 +431,12 @@ describe('guard refusals are reported, never dispatched (FR-042)', () => {
             detail: 'binding "bnd-relay-1" is no longer in this tab',
             guidance: 're-create the repository binding, then retry',
         });
-        expect(relay.rt.state.repos.note).toContain('was not started');
+        expect(relay.rt.state.bindings.note).toContain('was not started');
     });
 
     it('reports a disabled binding rather than treating it as dispatchable', async () => {
         const relay = harness();
-        relay.rt.state.repos.bindings = [{ ...activeBinding(), state: 'disabled' }];
+        relay.rt.state.bindings.bindings = [{ ...activeBinding(), state: 'disabled' }];
 
         await dispatchClaimedRun(relay.rt, claimedRun());
 
@@ -498,8 +498,8 @@ describe('the handled list is keyed correlationId#attempt (FR-034)', () => {
         await dispatchClaimedRun(relay.rt, claimedRun());
 
         expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
-        expect(relay.rt.state.repos.note).toContain('report was refused');
-        expect(relay.rt.state.repos.note).toContain('reconciled on the next mount');
+        expect(relay.rt.state.bindings.note).toContain('report was refused');
+        expect(relay.rt.state.bindings.note).toContain('reconciled on the next mount');
     });
 });
 
@@ -518,7 +518,7 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
 
         expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
         expect(relay.timeline.filter((entry) => entry === `POST ${RUN_PATH}/reserve`)).toHaveLength(0);
-        expect(relay.rt.state.repos.note).toContain('could not read');
+        expect(relay.rt.state.bindings.note).toContain('could not read');
     });
 
     it('dispatches nothing when an offered run is not in the state it was offered in', async () => {
@@ -534,7 +534,7 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
         await pollRelay(relay.rt);
 
         expect(relay.timeline).toEqual([PENDING_GET]);
-        expect(relay.rt.state.repos.note).toContain('could not read');
+        expect(relay.rt.state.bindings.note).toContain('could not read');
     });
 
     it('dispatches an empty offer without touching the host', async () => {
@@ -554,7 +554,7 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
 
         await pollRelay(relay.rt);
 
-        expect(relay.rt.state.repos.note).toContain('could not record every claim row');
+        expect(relay.rt.state.bindings.note).toContain('could not record every claim row');
         expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
     });
 
@@ -820,7 +820,7 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
         // And no other surface the panel owns receives it (FR-011, AC-144).
         expect(JSON.stringify(relay.storage)).not.toContain(PROMPT_TEXT);
         expect(JSON.stringify(relay.rt.state.ledger)).not.toContain(PROMPT_TEXT);
-        expect(JSON.stringify(relay.rt.state.repos)).not.toContain(PROMPT_TEXT);
+        expect(JSON.stringify(relay.rt.state.bindings)).not.toContain(PROMPT_TEXT);
     });
 
     it('composes a prompt-less dispatch byte-identically to the pre-004 frame (SC-121)', async () => {

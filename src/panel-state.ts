@@ -27,8 +27,8 @@ import { initialHandoffState } from './handoff.ts';
 import type { LifecyclePhase, SpikeLedger } from './ledger.ts';
 import type { HandoffState } from './handoff.ts';
 import type { HandoffView } from './accounts-ui.ts';
-import type { ReposPane } from './repos-ui.ts';
-import type { PanelAccount, PanelBinding, BindingStatusRow } from './repos-service.ts';
+import type { BindingsPane } from './bindings-ui.ts';
+import type { PanelAccount, PanelBinding, BindingStatusRow } from './bindings-service.ts';
 import type { RunRow } from './runs-service.ts';
 import type { SpikeHost } from './session.ts';
 
@@ -83,11 +83,11 @@ export function initialRuns(): RunsState {
 }
 
 /**
- * Build the empty Repos tab state.
+ * Build the empty Bindings tab state.
  *
  * @returns The state before the first load.
  */
-export function initialRepos(): Repositories {
+export function initialBindings(): Repositories {
     return {
         activeTab: 'spike',
         bindings: [],
@@ -162,8 +162,8 @@ export interface PanelState {
     busy: boolean;
     /** One-shot handoff state: consent, storage pre-flight, and outcome. */
     handoff: HandoffState;
-    /** Repository bindings as the Repos tab reads and edits them (M3). */
-    repos: Repositories;
+    /** Repository bindings as the Bindings tab reads and edits them (M3). */
+    bindings: Repositories;
     /** Event-relay loop state (M4). */
     relay: Relay;
     /**
@@ -175,8 +175,8 @@ export interface PanelState {
     expectedAgent: string;
 }
 
-/** Lifecycle of the Repos tab's data. */
-export type RepositoriesStatus =
+/** Lifecycle of the Bindings tab's data. */
+export type BindingsStatus =
     /** Nothing fetched yet. */
     | 'idle'
     /** A GET /v1/bindings or /v1/accounts is in flight. */
@@ -212,16 +212,16 @@ export interface Relay {
     lastError: string | null;
 }
 
-/** The Repos tab's working state (M3). */
+/** The Bindings tab's working state (M3). */
 export interface Repositories {
-    /** Tab visibility; the Repositories pane shows when `repos`. */
+    /** Tab visibility; the Bindings pane shows when `activeTab` reads `repos`. */
     activeTab: 'spike' | 'repos';
     /** Bindings as GET /v1/bindings answered. */
     bindings: readonly PanelBinding[];
     /** Accounts offered to the binding form. */
     accounts: readonly PanelAccount[];
     /** Where the data stands. */
-    status: RepositoriesStatus;
+    status: BindingsStatus;
     /** Operator-facing note; never credential material. */
     note: string;
     /** Draft repository input (`owner/name`). */
@@ -256,14 +256,14 @@ export interface Repositories {
 /**
  * The two tab bodies the shared strip switches between.
  *
- * The Repositories pane (mount order first, so the strip lands on top) and
+ * The Bindings pane (mount order first, so the strip lands on top) and
  * the spike body the legacy UI and handoff group mount into; the repaint step
- * in `panel-ui.ts` hides exactly one of them from `repos.activeTab`.
+ * in `panel-ui.ts` hides exactly one of them from `bindings.activeTab`.
  */
-export interface ReposSection {
-    /** The mounted Repositories pane (strip, rows, and add form). */
-    readonly repos: ReposPane;
-    /** Spike-tab body; hidden while the Repositories tab shows. */
+export interface BindingsSection {
+    /** The mounted Bindings pane (strip, rows, and add form). */
+    readonly bindings: BindingsPane;
+    /** Spike-tab body; hidden while the Bindings tab shows. */
     readonly spike: HTMLElement;
 }
 
@@ -311,8 +311,8 @@ export interface PanelRuntime {
     ui: PanelUi | null;
     /** Mounted handoff group, when this surface shows one. */
     handoffView: HandoffView | null;
-    /** Mounted Repositories tab and spike body, when this surface shows them. */
-    reposSection: ReposSection | null;
+    /** Mounted Bindings tab and spike body, when this surface shows them. */
+    bindingsSection: BindingsSection | null;
     /** `true` once the panel has been torn down. */
     disposed: boolean;
     /** `true` once the first `onReady` snapshot has been handled. */
@@ -351,7 +351,7 @@ export interface PanelRuntime {
 }
 
 /** Per-binding event counts from the last relay poll. */
-export type { BindingStatusRow } from './repos-service.ts';
+export type { BindingStatusRow } from './bindings-service.ts';
 
 /** Lifecycle of the runs list the Runs section renders (M8). */
 export type RunsStatus =
@@ -453,14 +453,14 @@ export function createPanelRuntime(
             connected: false,
             busy: false,
             handoff: initialHandoffState(),
-            repos: initialRepos(),
+            bindings: initialBindings(),
             relay: initialRelay(),
             expectedAgent: DEFAULT_EXPECTED_AGENT,
         },
         unsubscribes: [],
         ui: null,
         handoffView: null,
-        reposSection: null,
+        bindingsSection: null,
         disposed: false,
         started: false,
         pollTimer: null,

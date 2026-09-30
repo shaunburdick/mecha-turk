@@ -18,7 +18,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CONSENT_VERSION } from '../src/consent.ts';
-import { parseBindingsBody } from '../src/repos-service.ts';
+import { parseBindingsBody } from '../src/bindings-service.ts';
 import { BINDINGS_FILE } from '../service/bindings.ts';
 import { promptFingerprint } from '../service/prompt.ts';
 import { SCAN_STATE_FILE } from '../service/poll/scan.ts';
@@ -169,7 +169,7 @@ describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
         expect(parsed).not.toBeNull();
         expect(parsed?.bindings.map((binding) => binding.bindingId)).toEqual([BINDING_ID]);
         // The row shape is exactly what `readStatusRows`/`BindingStatusRow`
-        // in repos-service.ts expects: nothing invented, nothing dropped.
+        // in bindings-service.ts expects: nothing invented, nothing dropped.
         expect(parsed?.status).toEqual([
             {
                 bindingId: BINDING_ID,

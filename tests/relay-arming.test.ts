@@ -17,10 +17,10 @@
 import { describe, expect, it } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { loadInitialBindings } from '../src/bindings-mode.ts';
-import { bindRepository, loadRepositories } from '../src/repos.ts';
+import { bindRepository, loadBindings } from '../src/bindings.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import { ACCOUNTS_PATH, BINDINGS_PATH, EVENTS_PENDING_PATH } from '../src/service-calls.ts';
-import type { PanelBinding } from '../src/repos-service.ts';
+import type { PanelBinding } from '../src/bindings-service.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import {
     DEFAULT_STATUS,
@@ -145,9 +145,9 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
         // a repository: the grant must arm what the mount could not see.
         const service = mutableService({ status: 200, body: bindingsBody([]) });
         const rt = createTestRuntime(service.host);
-        rt.state.repos.repoInput = REPOSITORY;
-        rt.state.repos.accountSelection = ACCOUNT_ID;
-        rt.state.repos.repoProjectSelection = PROJECT_ID;
+        rt.state.bindings.repoInput = REPOSITORY;
+        rt.state.bindings.accountSelection = ACCOUNT_ID;
+        rt.state.bindings.repoProjectSelection = PROJECT_ID;
 
         await withRelay(rt, async () => {
             await loadInitialBindings(rt);
@@ -156,7 +156,7 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
 
             await bindRepository(rt);
 
-            expect(rt.state.repos.bindings.map((binding) => binding.repository)).toEqual([REPOSITORY]);
+            expect(rt.state.bindings.bindings.map((binding) => binding.repository)).toEqual([REPOSITORY]);
             expect(rt.state.bindingsActive).toBe(1);
             expect(rt.relayArmed).toBe(true);
 
@@ -179,13 +179,13 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
         await withRelay(rt, async () => {
             await loadInitialBindings(rt);
             expect(rt.relayArmed).toBe(false);
-            expect(rt.state.repos.status).toBe('error');
-            expect(rt.state.repos.note).toBe('One of the reads failed — refresh to retry.');
+            expect(rt.state.bindings.status).toBe('error');
+            expect(rt.state.bindings.note).toBe('One of the reads failed — refresh to retry.');
 
             service.setBindingsAnswer({ status: 200, body: bindingsBody([activeBinding()]) });
-            await loadRepositories(rt);
+            await loadBindings(rt);
 
-            expect(rt.state.repos.status).toBe('ready');
+            expect(rt.state.bindings.status).toBe('ready');
             expect(rt.state.bindingsActive).toBe(1);
             expect(rt.relayArmed).toBe(true);
         });
@@ -196,12 +196,12 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
         // empty list keeps the relay out of the loop.
         const service = mutableService({ status: 200, body: bindingsBody([]) });
         const rt = createTestRuntime(service.host);
-        rt.state.repos.status = 'error';
+        rt.state.bindings.status = 'error';
 
         await withRelay(rt, async () => {
-            await loadRepositories(rt);
+            await loadBindings(rt);
 
-            expect(rt.state.repos.status).toBe('ready');
+            expect(rt.state.bindings.status).toBe('ready');
             expect(rt.state.bindingsActive).toBe(0);
             expect(rt.relayArmed).toBe(false);
             expect(service.requests).not.toContain(`GET ${EVENTS_PENDING_PATH}`);
@@ -213,9 +213,9 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
         // stack a second interval on the same runtime.
         const service = mutableService({ status: 200, body: bindingsBody([]) });
         const rt = createTestRuntime(service.host);
-        rt.state.repos.repoInput = REPOSITORY;
-        rt.state.repos.accountSelection = ACCOUNT_ID;
-        rt.state.repos.repoProjectSelection = PROJECT_ID;
+        rt.state.bindings.repoInput = REPOSITORY;
+        rt.state.bindings.accountSelection = ACCOUNT_ID;
+        rt.state.bindings.repoProjectSelection = PROJECT_ID;
 
         await withRelay(rt, async () => {
             await loadInitialBindings(rt);
@@ -223,7 +223,7 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
             const firstTimer = rt.state.relay.timer;
             expect(firstTimer).not.toBeNull();
 
-            await loadRepositories(rt);
+            await loadBindings(rt);
 
             expect(rt.relayArmed).toBe(true);
             expect(rt.state.relay.timer).toBe(firstTimer);

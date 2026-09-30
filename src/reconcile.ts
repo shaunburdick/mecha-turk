@@ -168,7 +168,7 @@ function publishWarning(rt: PanelRuntime, input: {
     const warning = warningBody(input);
     setStatus(rt, { tone: 'warning', title: 'Dispatch reconciliation incomplete', body: warning });
     if (input.refusals.length > 0) {
-        rt.state.repos.note = `The service refused a reconciliation report: ${input.refusals.join(' | ')}`;
+        rt.state.bindings.note = `The service refused a reconciliation report: ${input.refusals.join(' | ')}`;
     }
 
     refresh(rt);

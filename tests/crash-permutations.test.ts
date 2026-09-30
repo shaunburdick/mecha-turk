@@ -333,7 +333,7 @@ describe('lost and duplicated reports (NFR-102, AC-111)', () => {
         await tick(rt);
 
         expect(loop.sessions).toHaveLength(1);
-        expect(rt.state.repos.note).toContain('report was refused');
+        expect(rt.state.bindings.note).toContain('report was refused');
         const stranded = await runOf(ISSUE);
         expect(stranded.state).toBe('starting');
         expect(stranded.session).toBeNull();
@@ -447,7 +447,7 @@ describe('stale and slow panels (NFR-102, AC-109)', () => {
         // stale, and it reaches no host call (FR-022, AC-109).
         await dispatchClaimedRun(slow, staleOffer);
         expect(loop.sessions).toHaveLength(1);
-        expect(slow.state.repos.note).toContain('not authorized to start');
+        expect(slow.state.bindings.note).toContain('not authorized to start');
         expect(await stateOf(ISSUE)).toBe('dispatched');
         expectAtMostOneSessionPerRun();
     });

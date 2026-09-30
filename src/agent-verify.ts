@@ -277,7 +277,7 @@ function recordReadBack(input: {
             agentVerified: result.status === 'match',
         },
     });
-    rt.state.repos.runs.agentNotice = verificationNotice(result);
+    rt.state.bindings.runs.agentNotice = verificationNotice(result);
     refresh(rt);
 }
 
@@ -324,7 +324,7 @@ async function postReadBack(input: {
         return;
     }
 
-    rt.state.repos.runs.note = redact(
+    rt.state.bindings.runs.note = redact(
         `The service could not record the agent read-back for ${correlationId}: `
         + `${posted.message ?? posted.problem}.`,
     );
@@ -376,7 +376,7 @@ export async function verifyAgentAfterDispatch(inputs: {
             return;
         }
 
-        rt.state.repos.runs.agentNotice = {
+        rt.state.bindings.runs.agentNotice = {
             tone: 'warning',
             title: 'Session agent not verified',
             body: `The read-back could not be recorded: ${redact(describeError(cause))}. `

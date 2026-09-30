@@ -1,5 +1,5 @@
 /**
- * The Repositories pane (M3 re-cut): list, add, and enable/disable bindings.
+ * The Bindings pane (M3 re-cut): list, add, and enable/disable bindings.
  *
  * Every control is a documented SDK primitive repainted from runtime state,
  * so the pane never diverges from what the runtime knows. The add form
@@ -10,7 +10,7 @@
  * through the SDK primitives' `textContent` writes — no HTML sink is
  * touched (panel-service contract §3 invariant 11). The binding list rows
  * themselves — the scan stamp, skip reason, and pending count the operator
- * reads per row — live in `repos-rows.ts`, and the runs section's row copy
+ * reads per row — live in `bindings-rows.ts`, and the runs section's row copy
  * lives beside it in `runs-rows.ts` (M8).
  */
 
@@ -35,12 +35,12 @@ import type {
 } from '@openchamber/sdk/ui';
 import type { PanelRuntime, Repositories } from './panel-state.ts';
 import { notListedGuidance } from './project-picker.ts';
-import { bindingRows } from './repos-rows.ts';
+import { bindingRows } from './bindings-rows.ts';
 import { mountRunsBoard, repaintRunsBoard } from './runs-ui.ts';
 import type { RunsBoard } from './runs-ui.ts';
 
 /** The pane handle: tab strip, pane element, and every repaint handle. */
-export interface ReposPane {
+export interface BindingsPane {
     /** Tab strip the two panes share. */
     readonly tabs: TabsHandle;
     /** The pane root this view mounted. */
@@ -81,8 +81,8 @@ export interface ReposPane {
     readonly dispose: () => void;
 }
 
-/** Callbacks the mounted Repositories pane invokes. */
-export interface ReposPaneHandlers {
+/** Callbacks the mounted Bindings pane invokes. */
+export interface BindingsPaneHandlers {
     /** Operators toggled the tab strip. */
     readonly switchTab: (id: 'spike' | 'repos') => void;
     /** Operators re-read the bindings and accounts. */
@@ -154,18 +154,18 @@ export const REMOVE_ACCOUNT_CONFIRM_LABEL = 'Confirm remove';
 /**
  * Compose the pane's one status line.
  *
- * @param repos - The Repos tab's state.
+ * @param bindings - The Bindings tab's state.
  * @returns The summary text the status line shows.
  */
-function composeStatus(repos: Repositories): string {
-    const bindings = `${repos.bindings.length} bindings`;
-    const accounts = `${repos.accounts.length} accounts`;
+function composeStatus(bindings: Repositories): string {
+    const bindingSummary = `${bindings.bindings.length} bindings`;
+    const accountSummary = `${bindings.accounts.length} accounts`;
 
-    return `Repositories: ${bindings} · ${accounts}`;
+    return `Repositories: ${bindingSummary} · ${accountSummary}`;
 }
 
-/** What `mountRepositoriesPane` builds; exactly {@link ReposPane} plus tabs. */
-type MountedPane = ReposPane & { readonly pane: HTMLElement };
+/** What `mountBindingsPane` builds; exactly {@link BindingsPane} plus tabs. */
+type MountedPane = BindingsPane & { readonly pane: HTMLElement };
 
 /** Inputs the add-form mounts share (runtime, pane root, handlers). */
 interface MountInputs {
@@ -174,7 +174,7 @@ interface MountInputs {
     /** The pane root the control mounts into. */
     readonly pane: HTMLElement;
     /** Handlers the control invokes. */
-    readonly handlers: ReposPaneHandlers;
+    readonly handlers: BindingsPaneHandlers;
 }
 
 /** The bindings list half of the pane. */
@@ -222,7 +222,7 @@ interface Form {
  * @returns The board handles.
  */
 function mountBindingsBoard(input: MountInputs): Board {
-    const status = mountText(input.pane, { text: composeStatus(input.rt.state.repos) });
+    const status = mountText(input.pane, { text: composeStatus(input.rt.state.bindings) });
     const list = mountList(input.pane, {
         items: [],
         ariaLabel: 'Repository bindings',
@@ -239,7 +239,7 @@ function mountBindingsBoard(input: MountInputs): Board {
 function mountRepoField(input: MountInputs): TextFieldHandle {
     return mountTextField(input.pane, {
         label: 'Repository (owner/name)',
-        value: input.rt.state.repos.repoInput,
+        value: input.rt.state.bindings.repoInput,
         placeholder: 'acme/widget',
         mono: true,
         onChange: (value) => input.handlers.setRepoInput(value),
@@ -248,7 +248,7 @@ function mountRepoField(input: MountInputs): TextFieldHandle {
 function mountAccountSelect(input: MountInputs): SelectHandle {
     return mountSelect(input.pane, {
         label: 'Poll as account',
-        value: input.rt.state.repos.accountSelection,
+        value: input.rt.state.bindings.accountSelection,
         options: [],
         searchable: true,
         placeholder: 'Select a verified account',
@@ -259,7 +259,7 @@ function mountAccountSelect(input: MountInputs): SelectHandle {
 function mountProjectSelect(input: MountInputs): SelectHandle {
     const options = {
         label: 'Dispatch project',
-        value: input.rt.state.repos.repoProjectSelection,
+        value: input.rt.state.bindings.repoProjectSelection,
         options: [],
         searchable: true,
         searchPlaceholder: 'Search projects by name or id',
@@ -277,25 +277,25 @@ function mountTriggerChecks(input: MountInputs): {
 } {
     const assignment = mountCheckbox(input.pane, {
         label: 'Assignment',
-        checked: input.rt.state.repos.triggerAssignment,
+        checked: input.rt.state.bindings.triggerAssignment,
         onChange: (checked) => input.handlers.setAssignment(checked),
     });
     const mention = mountCheckbox(input.pane, {
         label: 'Mention',
         description: MENTION_SCAN_NOTE,
-        checked: input.rt.state.repos.triggerMention,
+        checked: input.rt.state.bindings.triggerMention,
         onChange: (checked) => input.handlers.setMention(checked),
     });
     const reviewRequest = mountCheckbox(input.pane, {
         label: 'Review request',
         description: REVIEW_SCAN_NOTE,
-        checked: input.rt.state.repos.triggerReviewRequest,
+        checked: input.rt.state.bindings.triggerReviewRequest,
         onChange: (checked) => input.handlers.setReviewRequest(checked),
     });
 
     return { assignment, mention, reviewRequest };
 }
-function worktreeOptions(repos: Repositories, handlers: ReposPaneHandlers): {
+function worktreeOptions(bindings: Repositories, handlers: BindingsPaneHandlers): {
     readonly label: string;
     readonly value: 'none' | 'generated';
     readonly options: { readonly id: string; readonly label: string }[];
@@ -303,7 +303,7 @@ function worktreeOptions(repos: Repositories, handlers: ReposPaneHandlers): {
 } {
     return {
         label: 'Worktree option',
-        value: repos.worktreeSelection,
+        value: bindings.worktreeSelection,
         options: WORKTREE_OPTIONS.map((option) => ({ id: option.id, label: option.label })),
         onChange: (id: string) => handlers.setWorktree(id === 'generated' ? 'generated' : 'none'),
     };
@@ -324,7 +324,7 @@ function mountAddForm(input: MountInputs): Form {
     const checks = mountTriggerChecks(input);
     const worktree = mountSelect(
         input.pane,
-        worktreeOptions(input.rt.state.repos, input.handlers),
+        worktreeOptions(input.rt.state.bindings, input.handlers),
     );
     const add = mountButton(
         input.pane,
@@ -360,14 +360,14 @@ function mountAddForm(input: MountInputs): Form {
         toggle,
         removeSelected,
         removeAccount,
-        note: mountText(input.pane, { text: input.rt.state.repos.note }),
+        note: mountText(input.pane, { text: input.rt.state.bindings.note }),
     };
 }
 
 /**
  * The worktree select's documented options.
  *
- * @param repos - Repos state.
+ * @param bindings - Bindings state.
  * @returns The mount parameters for the SDK select.
  */
 
@@ -400,18 +400,18 @@ function mountAddForm(input: MountInputs): Form {
  */
 
 /**
- * Mount the Repositories pane.
+ * Mount the Bindings pane.
  *
  * @param input - Panel root, runtime, and the handlers the controls invoke.
  * @returns The mounted pane, tab strip, and repaint handles.
  */
-export function mountRepositoriesPane(input: {
+export function mountBindingsPane(input: {
     /** Panel root element. */
     readonly root: HTMLElement;
     /** Runtime whose state the pane repaints from. */
     readonly rt: PanelRuntime;
     /** Handlers the controls invoke. */
-    readonly handlers: ReposPaneHandlers;
+    readonly handlers: BindingsPaneHandlers;
 }): MountedPane {
     const { root, rt, handlers } = input;
     const tabs = mountTabs(root, {
@@ -419,7 +419,7 @@ export function mountRepositoriesPane(input: {
             { id: 'spike', label: 'Spike' },
             { id: 'repos', label: 'Repositories' },
         ],
-        activeId: rt.state.repos.activeTab,
+        activeId: rt.state.bindings.activeTab,
         trackBackground: true,
         onChange: (id) => handlers.switchTab(id === 'repos' ? 'repos' : 'spike'),
     });
@@ -481,37 +481,37 @@ function pickerOptionsFor(rt: PanelRuntime): SelectOption[] {
  * @param rt - Panel runtime.
  * @param view - The mounted pane.
  */
-export function repaintReposPane(rt: PanelRuntime, view: ReposPane): void {
-    const { repos } = rt.state;
-    const accounts = repos.accounts.filter((account) => account.usable);
+export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void {
+    const { bindings } = rt.state;
+    const accounts = bindings.accounts.filter((account) => account.usable);
 
-    view.tabs.update({ activeId: repos.activeTab });
-    view.status.update({ text: composeStatus(repos) });
-    view.bindingsList.update({ items: bindingRows(repos) });
-    view.refreshBindings.update({ disabled: repos.status === 'loading' });
-    view.repoField.update({ value: repos.repoInput });
+    view.tabs.update({ activeId: bindings.activeTab });
+    view.status.update({ text: composeStatus(bindings) });
+    view.bindingsList.update({ items: bindingRows(bindings) });
+    view.refreshBindings.update({ disabled: bindings.status === 'loading' });
+    view.repoField.update({ value: bindings.repoInput });
     view.accountSelect.update({
         options: accounts.map((account) => ({ id: account.numericUserId, label: account.login })),
-        value: repos.accountSelection,
-        disabled: repos.status !== 'ready' || accounts.length === 0,
+        value: bindings.accountSelection,
+        disabled: bindings.status !== 'ready' || accounts.length === 0,
     });
     view.projectSelect.update({
         options: pickerOptionsFor(rt),
-        value: repos.repoProjectSelection,
-        disabled: repos.status !== 'ready',
+        value: bindings.repoProjectSelection,
+        disabled: bindings.status !== 'ready',
     });
-    view.assignmentCheck.update({ checked: repos.triggerAssignment });
-    view.mentionCheck.update({ checked: repos.triggerMention });
-    view.reviewRequestCheck.update({ checked: repos.triggerReviewRequest });
-    view.worktreeSelect.update({ value: repos.worktreeSelection });
-    view.addBinding.update({ disabled: repos.status !== 'ready' });
-    view.toggleSelected.update({ disabled: repos.selectedBinding === null });
-    view.removeSelected.update({ disabled: repos.selectedBinding === null });
+    view.assignmentCheck.update({ checked: bindings.triggerAssignment });
+    view.mentionCheck.update({ checked: bindings.triggerMention });
+    view.reviewRequestCheck.update({ checked: bindings.triggerReviewRequest });
+    view.worktreeSelect.update({ value: bindings.worktreeSelection });
+    view.addBinding.update({ disabled: bindings.status !== 'ready' });
+    view.toggleSelected.update({ disabled: bindings.selectedBinding === null });
+    view.removeSelected.update({ disabled: bindings.selectedBinding === null });
     view.removeAccount.update({
-        label: repos.removeAccountArmed ? REMOVE_ACCOUNT_CONFIRM_LABEL : REMOVE_ACCOUNT_IDLE_LABEL,
-        disabled: repos.status !== 'ready' && !repos.removeAccountArmed,
+        label: bindings.removeAccountArmed ? REMOVE_ACCOUNT_CONFIRM_LABEL : REMOVE_ACCOUNT_IDLE_LABEL,
+        disabled: bindings.status !== 'ready' && !bindings.removeAccountArmed,
     });
-    view.note.update({ text: repos.note });
+    view.note.update({ text: bindings.note });
 
     // Runs section (M8 + 003 T-025): its own repaint, because its affordance
     // table decides which control group exists at all.

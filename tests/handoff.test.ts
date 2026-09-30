@@ -75,7 +75,7 @@ describe('consent gate (AC-002, contract §1)', () => {
 
         await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
 
-        // After the verify, the success re-reads the Repos tab's two lists so
+        // After the verify, the success re-reads the Bindings tab's two lists so
         // the accounts dropdown offers the account the service just registered
         // (MVP fix 3) — no credential rides on those reads.
         expect(host.requests.map((request) => request.path)).toEqual([
@@ -121,7 +121,7 @@ describe('successful handoff (contract §2 steps ⑧⑨)', () => {
     });
 });
 
-describe('post-connect Repos reload (MVP fix 3, accounts dropdown)', () => {
+describe('post-connect Bindings reload (MVP fix 3, accounts dropdown)', () => {
     /** Bindings answer for the reload read: a fresh install has none. */
     const EMPTY_BINDINGS = JSON.stringify({ bindings: [], status: [] });
 
@@ -155,10 +155,10 @@ describe('post-connect Repos reload (MVP fix 3, accounts dropdown)', () => {
         await tick();
 
         // The connected line the handoff renders is untouched by the reload,
-        // and the Repos tab now holds the account the service just registered.
+        // and the Bindings tab now holds the account the service just registered.
         expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
-        expect(host.rt.state.repos.status).toBe('ready');
-        expect(host.rt.state.repos.accounts).toEqual([
+        expect(host.rt.state.bindings.status).toBe('ready');
+        expect(host.rt.state.bindings.accounts).toEqual([
             { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, usable: true },
         ]);
         expect(host.requests.map((request) => request.path)).toEqual([
@@ -350,7 +350,7 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
         expectNoCredential(host);
     });
 
-    it('re-reads the Repos tab lists so the dropdown offers the adopted account', async () => {
+    it('re-reads the Bindings tab lists so the dropdown offers the adopted account', async () => {
         const host = await scriptedRuntime((request) => {
             if (request.path === STATUS_PATH) {
                 return { status: 200, body: STATUS_BODY };
@@ -374,7 +374,7 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
         // The adoption connects the account AND the tab re-reads it, so the
         // operator's dropdown shows it without a manual Refresh.
         expect(host.rt.state.handoff.connected).toEqual({ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN });
-        expect(host.rt.state.repos.accounts).toEqual([
+        expect(host.rt.state.bindings.accounts).toEqual([
             { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, usable: true },
         ]);
         expectNoCredential(host);

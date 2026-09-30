@@ -1,5 +1,5 @@
 /**
- * Repos-tab data-purge affordance tests (MVP fix 2, 2026-09-27).
+ * Bindings-tab data-purge affordance tests (MVP fix 2, 2026-09-27).
  *
  * The data purge gives the operator manual control over service-side data:
  * per-binding removal (whole-list PUT minus that binding; accounts untouched)
@@ -12,12 +12,12 @@
 
 import type { GuestRequest, GuestRequestResult, JsonValue } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
-import { removeAccount, removeBinding } from '../src/repos.ts';
+import { removeAccount, removeBinding } from '../src/bindings.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import { BINDINGS_PATH, accountDeletePath } from '../src/service-calls.ts';
 import { ACCOUNTS_STORAGE_KEY } from '../src/account-mirror.ts';
-import { createRepositoriesHandlers } from '../src/repos-mount.ts';
-import type { PanelBinding } from '../src/repos-service.ts';
+import { createBindingsHandlers } from '../src/bindings-mount.ts';
+import type { PanelBinding } from '../src/bindings-service.ts';
 import { createStorageDouble, createTestRuntime, fakeHost, tick } from './support/panel.ts';
 import type { StorageDouble } from './support/panel.ts';
 
@@ -106,8 +106,8 @@ describe('removeBinding (per-binding purge control)', () => {
             return { status: 404, body: UNROUTED_BODY };
         });
         const rt = createTestRuntime(host);
-        rt.state.repos.bindings = [kept, removed];
-        rt.state.repos.selectedBinding = 'bnd-gone';
+        rt.state.bindings.bindings = [kept, removed];
+        rt.state.bindings.selectedBinding = 'bnd-gone';
 
         await removeBinding(rt);
         // The granted list still holds an enabled binding, so the relay arms
@@ -127,9 +127,9 @@ describe('removeBinding (per-binding purge control)', () => {
         expect(body.bindings.map((binding) => binding.bindingId)).toEqual(['bnd-keep']);
 
         // The state follows the service's stored answer; accounts untouched.
-        expect(rt.state.repos.bindings.map((binding) => binding.bindingId)).toEqual(['bnd-keep']);
-        expect(rt.state.repos.note).toBe('Removed the binding for acme/other.');
-        expect(rt.state.repos.selectedBinding).toBeNull();
+        expect(rt.state.bindings.bindings.map((binding) => binding.bindingId)).toEqual(['bnd-keep']);
+        expect(rt.state.bindings.note).toBe('Removed the binding for acme/other.');
+        expect(rt.state.bindings.selectedBinding).toBeNull();
         expect(rt.state.bindingsActive).toBe(1);
     });
 
@@ -139,7 +139,7 @@ describe('removeBinding (per-binding purge control)', () => {
 
         await removeBinding(rt);
 
-        expect(rt.state.repos.note).toBe('Select a binding to remove.');
+        expect(rt.state.bindings.note).toBe('Select a binding to remove.');
     });
 });
 
@@ -169,8 +169,8 @@ describe('removeAccount (two-step delete affordance)', () => {
             return { status: 200, body: JSON.stringify({ accounts: [] }) };
         });
         const rt = createTestRuntime({ ...host, storage: storage.storage });
-        rt.state.repos.status = 'ready';
-        rt.state.repos.accounts = [{ numericUserId: ACCOUNT_ID, login: LOGIN, usable: true }];
+        rt.state.bindings.status = 'ready';
+        rt.state.bindings.accounts = [{ numericUserId: ACCOUNT_ID, login: LOGIN, usable: true }];
         rt.state.handoff.connected = { numericUserId: ACCOUNT_ID, login: LOGIN };
 
         return { rt, requests };
@@ -179,13 +179,13 @@ describe('removeAccount (two-step delete affordance)', () => {
     it('arms on the first click and deletes on the confirmation', async () => {
         const storage = createStorageDouble({ [ACCOUNTS_STORAGE_KEY]: [MIRROR_ENTRY] });
         const { rt, requests } = await removalRuntime(storage);
-        const handlers = createRepositoriesHandlers(rt);
+        const handlers = createBindingsHandlers(rt);
 
         // First click: arm only — nothing reaches the service yet.
         handlers.removeAccount();
         await tick();
         expect(requests).toHaveLength(0);
-        expect(rt.state.repos.removeAccountArmed).toBe(true);
+        expect(rt.state.bindings.removeAccountArmed).toBe(true);
 
         // Second click: the confirmed delete runs.
         handlers.removeAccount();
@@ -204,7 +204,7 @@ describe('removeAccount (two-step delete affordance)', () => {
         ]);
         // The connected identity pointed at the removed account.
         expect(rt.state.handoff.connected).toBeNull();
-        expect(rt.state.repos.removeAccountArmed).toBe(false);
+        expect(rt.state.bindings.removeAccountArmed).toBe(false);
     });
 
     it('clears the account mirror from host.storage after the delete', async () => {
@@ -233,17 +233,17 @@ describe('removeAccount (two-step delete affordance)', () => {
             return { status: 404, body: UNROUTED_BODY };
         });
         const rt = createTestRuntime(host);
-        rt.state.repos.status = 'ready';
-        rt.state.repos.accounts = [{ numericUserId: ACCOUNT_ID, login: LOGIN, usable: true }];
+        rt.state.bindings.status = 'ready';
+        rt.state.bindings.accounts = [{ numericUserId: ACCOUNT_ID, login: LOGIN, usable: true }];
         rt.state.handoff.connected = { numericUserId: ACCOUNT_ID, login: LOGIN };
 
         await removeAccount(rt);
         await removeAccount(rt);
 
-        expect(rt.state.repos.note).toContain('remove them first');
+        expect(rt.state.bindings.note).toContain('remove them first');
         // Nothing was deleted: the identity and the state stay as they were.
         expect(rt.state.handoff.connected).toEqual({ numericUserId: ACCOUNT_ID, login: LOGIN });
-        expect(rt.state.repos.accounts).toEqual([{ numericUserId: ACCOUNT_ID, login: LOGIN, usable: true }]);
+        expect(rt.state.bindings.accounts).toEqual([{ numericUserId: ACCOUNT_ID, login: LOGIN, usable: true }]);
     });
 
     it('builds the delete path from the numeric id', () => {

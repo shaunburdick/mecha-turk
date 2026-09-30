@@ -1,16 +1,16 @@
 /**
  * Recording handle stubs for headless UI-repaint tests.
  *
- * The repos-tab tests must prove `refresh()` drives both tab bodies without a
+ * The bindings-tab tests must prove `refresh()` drives both tab bodies without a
  * real browser, but the SDK mounts need a live `document`, so these stubs
  * model only the `Handle` contract: `update` counted, `dispose` silent. They
- * live here so the repos-section suite and the panel suites share one stub
+ * live here so the bindings-section suite and the panel suites share one stub
  * instead of each growing their own.
  */
 
 import type { Handle } from '@openchamber/sdk/ui';
 import type { PanelUi } from '../../src/panel-state.ts';
-import type { ReposPane } from '../../src/repos-ui.ts';
+import type { BindingsPane } from '../../src/bindings-ui.ts';
 
 /**
  * Read the recorded paint count of a stubbed handle.
@@ -19,7 +19,7 @@ import type { ReposPane } from '../../src/repos-ui.ts';
  * handle type the pane stores it as; this is the typed read the tests use so
  * no test-side casts appear.
  *
- * @param handle - A handle mounted by {@link stubReposPane} or
+ * @param handle - A handle mounted by {@link stubBindingsPane} or
  *   {@link stubPanelUi}.
  * @returns How often `update` ran on it so far.
  */
@@ -53,8 +53,8 @@ export function stubHandle<P>(): Handle<P> & { readonly paints: () => number } {
  * Build a `PanelUi` whose handles are recording stubs (see {@link stubHandle}).
  *
  * Headless orchestration tests leave `ui` null because `refresh` is a no-op
- * without it; the repos-tab tests need the opposite — a UI that lets `refresh`
- * run all the way to the Repositories section without a real DOM.
+ * without it; the bindings-tab tests need the opposite — a UI that lets `refresh`
+ * run all the way to the Bindings section without a real DOM.
  *
  * @returns A complete stub UI.
  */
@@ -77,7 +77,7 @@ export function stubPanelUi(): PanelUi {
 }
 
 /**
- * Build a `ReposPane` whose handles are recording stubs.
+ * Build a `BindingsPane` whose handles are recording stubs.
  *
  * The repaint step only calls `update` on these handles and reads `pane` for
  * the tab-visibility `hidden` writes, so the stub pairs recording handles with
@@ -87,7 +87,7 @@ export function stubPanelUi(): PanelUi {
  * @param paneBody - Element the stub reports as the pane's body.
  * @returns A stub pane backed by `paneBody`.
  */
-export function stubReposPane(paneBody: HTMLElement): ReposPane {
+export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
     return {
         tabs: stubHandle(),
         status: stubHandle(),

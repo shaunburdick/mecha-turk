@@ -155,14 +155,15 @@ async function claimRuns(rt: PanelRuntime): Promise<ClaimAnswer | null> {
 
     const parsed = parsePendingBody(fetched.body);
     if (parsed === null) {
-        rt.state.repos.note = 'The service answered a claim the panel could not read — nothing was dispatched.';
+        rt.state.bindings.note = 'The service answered a claim the panel could not read — nothing was dispatched.';
 
         return null;
     }
 
-    rt.state.repos.statusRows = parsed.status;
+    rt.state.bindings.statusRows = parsed.status;
     if (!parsed.auditWritten && parsed.runs.length > 0) {
-        rt.state.repos.note = `The service leased ${parsed.runs.length} run(s) but could not record every claim row —`
+        const leased = parsed.runs.length;
+        rt.state.bindings.note = `The service leased ${leased} run(s) but could not record every claim row —`
             + ' the audit trail is short one row per run it named.';
     }
 

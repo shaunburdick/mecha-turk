@@ -150,7 +150,7 @@ function harness(routes: RouteTable = okRoutes(), options: { readonly failAcknow
         },
     });
     const rt = createTestRuntime(host);
-    rt.state.repos.bindings = [
+    rt.state.bindings.bindings = [
         {
             bindingId: 'bnd-recon-1',
             accountNumericUserId: '77331',
@@ -276,7 +276,7 @@ describe('reconciliation is never silent (FR-025)', () => {
         expect(relay.rt.state.status.tone).toBe('warning');
         expect(relay.rt.state.status.title).toBe('Dispatch reconciliation incomplete');
         expect(relay.rt.state.status.body).toContain(RUN_A);
-        expect(relay.rt.state.repos.note).toContain('store starting');
+        expect(relay.rt.state.bindings.note).toContain('store starting');
 
         // Reconciliation failure must not wedge the panel: it still claims.
         startRelayPolling(relay.rt);
@@ -304,8 +304,8 @@ describe('reconciliation is never silent (FR-025)', () => {
         const outcome = await reconcileDispatchAttempts(relay.rt);
 
         expect(outcome.outstanding).toEqual([RUN_A]);
-        expect(relay.rt.state.repos.note).toContain('already dispatched');
-        expect(relay.rt.state.repos.note).toContain(RUN_A);
+        expect(relay.rt.state.bindings.note).toContain('already dispatched');
+        expect(relay.rt.state.bindings.note).toContain(RUN_A);
         expect(relay.rt.state.status.body).toContain(RUN_A);
     });
 

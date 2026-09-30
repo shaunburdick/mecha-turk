@@ -1,5 +1,5 @@
 /**
- * The Repositories tab's binding rows (split from `repos-ui.ts`, MVP fix 2).
+ * The Bindings tab's binding rows (split from `bindings-ui.ts`, MVP fix 2).
  *
  * A row is where the operator finds out *why* a bound repository is or is not
  * producing work: which account polls it, which project it dispatches to, how
@@ -46,12 +46,12 @@ export interface BindingView {
 /**
  * Find the status row for one binding.
  *
- * @param repos - Repos state.
+ * @param bindings - Bindings state.
  * @param bindingId - Row key.
  * @returns The row, or `null` before the first poll.
  */
-function statusRowOf(repos: Repositories, bindingId: string): StatusRowView | null {
-    return repos.statusRows.find((candidate) => candidate.bindingId === bindingId) ?? null;
+function statusRowOf(bindings: Repositories, bindingId: string): StatusRowView | null {
+    return bindings.statusRows.find((candidate) => candidate.bindingId === bindingId) ?? null;
 }
 
 /**
@@ -106,12 +106,12 @@ function scanPhrase(row: StatusRowView): string {
 /**
  * Compose one binding row.
  *
- * @param repos - Repos state.
+ * @param bindings - Bindings state.
  * @param binding - The binding to render.
  * @returns The list row.
  */
-export function bindingRow(repos: Repositories, binding: BindingView): ListItem {
-    const row = statusRowOf(repos, binding.bindingId);
+export function bindingRow(bindings: Repositories, binding: BindingView): ListItem {
+    const row = statusRowOf(bindings, binding.bindingId);
     const scan = row === null ? 'not scanned yet' : scanPhrase(row);
     const subtitle = `polled as ${binding.accountLogin} · ${binding.projectId} · ${scan}`;
 
@@ -127,9 +127,9 @@ export function bindingRow(repos: Repositories, binding: BindingView): ListItem 
 /**
  * Build the bindings list rows from state.
  *
- * @param repos - The Repos tab's state.
+ * @param bindings - The Bindings tab's state.
  * @returns The list rows, in stored order.
  */
-export function bindingRows(repos: Repositories): ListItem[] {
-    return repos.bindings.map((binding) => bindingRow(repos, binding));
+export function bindingRows(bindings: Repositories): ListItem[] {
+    return bindings.bindings.map((binding) => bindingRow(bindings, binding));
 }

@@ -1,6 +1,6 @@
 /**
  * The Runs section's mount and repaint (M8, widened by 003 T-025) — split
- * from `repos-ui.ts`, which the pane's bindings board and add form already
+ * from `bindings-ui.ts`, which the pane's bindings board and add form already
  * fill to the file-length limit.
  *
  * One heading, one status line, one list of recent events (newest first), the
@@ -40,7 +40,7 @@ import {
     runsStatusText,
     selectedRun,
 } from './runs-rows.ts';
-import type { ReposPaneHandlers } from './repos-ui.ts';
+import type { BindingsPaneHandlers } from './bindings-ui.ts';
 
 /** Inputs the runs section's mounts share (runtime, pane root, handlers). */
 interface MountInputs {
@@ -49,7 +49,7 @@ interface MountInputs {
     /** Pane root the controls mount into. */
     readonly pane: HTMLElement;
     /** Handlers the controls invoke. */
-    readonly handlers: ReposPaneHandlers;
+    readonly handlers: BindingsPaneHandlers;
 }
 
 /** The runs half of the pane: heading, list, actions, and notes. */
@@ -122,7 +122,7 @@ function createControlGroup(pane: HTMLElement): HTMLElement {
  */
 function mountRunList(input: MountInputs): Pick<RunsBoard, 'runsHeading' | 'runsStatus' | 'runsList'> {
     const { pane, rt, handlers } = input;
-    const { runs } = rt.state.repos;
+    const { runs } = rt.state.bindings;
 
     return {
         runsHeading: mountText(pane, { text: RUNS_HEADING }),
@@ -222,7 +222,7 @@ function mountResolutions(input: MountInputs): Pick<
     });
     const sessionField = mountTextField(resolveBox, {
         label: 'Session id to record',
-        value: rt.state.repos.runs.sessionInput,
+        value: rt.state.bindings.runs.sessionInput,
         placeholder: 'ses_…',
         mono: true,
         disabled: true,
@@ -248,7 +248,7 @@ function mountAuditView(input: MountInputs): Pick<
     'auditButton' | 'auditStatus' | 'auditBox' | 'auditList'
 > {
     const { pane, rt, handlers } = input;
-    const { audit } = rt.state.repos.runs;
+    const { audit } = rt.state.bindings.runs;
     const controls = createControlGroup(pane);
     const auditButton = mountButton(controls, {
         label: AUDIT_BUTTON_LABEL,
@@ -308,7 +308,7 @@ function mountAgentNotice(
  */
 export function mountRunsBoard(input: MountInputs): RunsBoard {
     const { pane, rt } = input;
-    const { runs } = rt.state.repos;
+    const { runs } = rt.state.bindings;
 
     return {
         ...mountRunList(input),
@@ -355,7 +355,7 @@ function repaintResolutions(runs: RunsState, board: RunsBoard): void {
  * @param board - The mounted runs half.
  */
 export function repaintRunsBoard(rt: PanelRuntime, board: RunsBoard): void {
-    const { runs } = rt.state.repos;
+    const { runs } = rt.state.bindings;
     const selected = selectedRun(runs);
     const affordance = selected === null ? null : runAffordance(selected);
 

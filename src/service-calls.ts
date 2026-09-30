@@ -1,5 +1,5 @@
 /**
- * Service read/write side the Repos tab and the relay share (re-cut).
+ * Service read/write side the Bindings tab and the relay share (re-cut).
  *
  * One small client for the HTTP calls the panel makes over the documented
  * `host.serviceRequest()` bridge: bindings GET/PUT, event relay GET/POST,

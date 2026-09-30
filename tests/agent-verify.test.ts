@@ -348,7 +348,7 @@ describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
         expect(entry?.detail.agentVerified).toBe(true);
         expect(entry?.detail.observedAgent).toBe(EXPECTED_AGENT);
         expect(entry?.detail.verification).toBe('match');
-        expect(rt.state.repos.runs.agentNotice?.tone).toBe('success');
+        expect(rt.state.bindings.runs.agentNotice?.tone).toBe('success');
     });
 
     it('records a failed verification and warns without blocking on a mismatch', async () => {
@@ -358,10 +358,10 @@ describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
         expect(entry?.detail.agentVerified).toBe(false);
         expect(entry?.detail.observedAgent).toBe('executor');
         expect(entry?.detail.verification).toBe('mismatch');
-        expect(rt.state.repos.runs.agentNotice?.tone).toBe('warning');
-        expect(rt.state.repos.runs.agentNotice?.body).toContain("session agent was 'executor'");
+        expect(rt.state.bindings.runs.agentNotice?.tone).toBe('warning');
+        expect(rt.state.bindings.runs.agentNotice?.body).toContain("session agent was 'executor'");
         // M9 is warn-only: the copy must say the session keeps running.
-        expect(rt.state.repos.runs.agentNotice?.body).toContain('Warning only');
+        expect(rt.state.bindings.runs.agentNotice?.body).toContain('Warning only');
     });
 });
 
@@ -451,7 +451,7 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
             },
         });
         const rt = createTestRuntime(host);
-        rt.state.repos.bindings = [
+        rt.state.bindings.bindings = [
             {
                 bindingId: CLAIM.bindingId,
                 accountNumericUserId: '77331',
@@ -482,9 +482,9 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
         const entry = rt.state.ledger.entries.at(-1);
         expect(entry?.detail.agentVerified).toBe(false);
         expect(entry?.detail.observedAgent).toBe('executor');
-        expect(rt.state.repos.runs.agentNotice?.tone).toBe('warning');
-        expect(rt.state.repos.runs.rows).toHaveLength(1);
-        expect(rt.state.repos.runs.rows[0]?.state).toBe('dispatched');
+        expect(rt.state.bindings.runs.agentNotice?.tone).toBe('warning');
+        expect(rt.state.bindings.runs.rows).toHaveLength(1);
+        expect(rt.state.bindings.runs.rows[0]?.state).toBe('dispatched');
     });
 });
 
@@ -548,7 +548,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             ok: true,
             note: null,
         });
-        expect(report.rt.state.repos.runs.agentNotice?.tone).toBe('success');
+        expect(report.rt.state.bindings.runs.agentNotice?.tone).toBe('success');
     });
 
     it('posts a mismatch as warn-only evidence and changes no run state', async () => {
@@ -558,12 +558,12 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
         expect(body.ok).toBe(false);
         expect(body.observedAgent).toBe('executor');
         expect(String(body.note)).toContain('differs from the baseline');
-        expect(report.rt.state.repos.runs.agentNotice?.tone).toBe('warning');
-        expect(report.rt.state.repos.runs.agentNotice?.body).toContain('Warning only');
+        expect(report.rt.state.bindings.runs.agentNotice?.tone).toBe('warning');
+        expect(report.rt.state.bindings.runs.agentNotice?.body).toContain('Warning only');
         // Warn-only (FR-043): the verification moved no run and armed nothing.
-        expect(report.rt.state.repos.runs.rows).toEqual([]);
-        expect(report.rt.state.repos.runs.pendingAction).toBeNull();
-        expect(report.rt.state.repos.runs.busy).toBe(false);
+        expect(report.rt.state.bindings.runs.rows).toEqual([]);
+        expect(report.rt.state.bindings.runs.pendingAction).toBeNull();
+        expect(report.rt.state.bindings.runs.busy).toBe(false);
     });
 
     it('posts an unreadable agent as no observation, with the note that says so', async () => {
@@ -629,7 +629,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             },
         });
         const rt = createTestRuntime(host);
-        rt.state.repos.bindings = [
+        rt.state.bindings.bindings = [
             {
                 bindingId: CLAIM.bindingId,
                 accountNumericUserId: '77331',
@@ -650,13 +650,13 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
         // is free while the host has not answered (AC-125, FR-043).
         expect(rt.pendingVerifications).toHaveLength(1);
         expect(calls).toContain(`openSession:${SESSION}`);
-        expect(rt.state.repos.runs.rows).toHaveLength(0);
+        expect(rt.state.bindings.runs.rows).toHaveLength(0);
 
         held.deliver('executor');
         await drainVerifications(rt);
 
         expect(rt.pendingVerifications).toHaveLength(0);
         expect(rt.state.ledger.entries.at(-1)?.detail.agentVerified).toBe(false);
-        expect(rt.state.repos.runs.agentNotice?.tone).toBe('warning');
+        expect(rt.state.bindings.runs.agentNotice?.tone).toBe('warning');
     });
 });

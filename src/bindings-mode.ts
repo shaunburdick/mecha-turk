@@ -24,9 +24,9 @@ import { stopPolling } from './panel-actions.ts';
 import { refresh } from './panel-ui.ts';
 import { setStatus } from './panel-state.ts';
 import type { PanelRuntime, PanelStatus } from './panel-state.ts';
-import { loadRepositories } from './repos.ts';
+import { loadBindings } from './bindings.ts';
 import { startRelayPolling } from './relay.ts';
-import type { PanelBinding } from './repos-service.ts';
+import type { PanelBinding } from './bindings-service.ts';
 
 /**
  * Find the first enabled binding in the list.
@@ -93,7 +93,7 @@ export function bindingsActiveStatus(count: number): PanelStatus {
  * @param rt - Panel runtime.
  */
 export function applyBindingsMode(rt: PanelRuntime): void {
-    const binding = firstEnabledBinding(rt.state.repos.bindings);
+    const binding = firstEnabledBinding(rt.state.bindings.bindings);
     rt.state.config = binding === null ? null : bindingContext(binding);
     stopPolling(rt);
     setStatus(rt, bindingsActiveStatus(rt.state.bindingsActive));
@@ -109,7 +109,7 @@ export function applyBindingsMode(rt: PanelRuntime): void {
  * bindings actually landed, because a relay dispatching against an empty
  * binding table would drain queued events as `binding-missing` before it
  * ever saw the binding they belong to. This mount-time arm is deliberately
- * duplicated: `repos.loadRepositories` arms on every later read or grant
+ * duplicated: `bindings.loadBindings` arms on every later read or grant
  * that lands an enabled binding, which covers the mount-time 503 and the
  * first binding added in-session (both arm idempotently through
  * `startRelayPolling`).
@@ -117,14 +117,14 @@ export function applyBindingsMode(rt: PanelRuntime): void {
  * @param rt - Panel runtime.
  */
 export async function loadInitialBindings(rt: PanelRuntime): Promise<void> {
-    await loadRepositories(rt);
+    await loadBindings(rt);
     if (rt.disposed) {
         return;
     }
 
     // A disabled-only binding list still arms the relay: pending events can
     // outlive the binding that produced them, and the loop must drain them.
-    if (rt.state.repos.bindings.length > 0) {
+    if (rt.state.bindings.bindings.length > 0) {
         startRelayPolling(rt);
     }
     if (rt.state.bindingsActive > 0) {

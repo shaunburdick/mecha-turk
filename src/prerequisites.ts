@@ -36,7 +36,7 @@ import type { BannerHandle, TextHandle } from '@openchamber/sdk/ui';
 import { PROJECT_REGISTRATION_ROUTES } from './project-picker.ts';
 import type { PanelRuntime, PanelState } from './panel-state.ts';
 import type { HandoffState } from './handoff.ts';
-import type { PanelAccount, PanelBinding } from './repos-service.ts';
+import type { PanelAccount, PanelBinding } from './bindings-service.ts';
 
 /** The three states FR-072 allows, and nothing else. */
 export type PrerequisiteState = 'met' | 'not-met' | 'not-checkable';
@@ -369,8 +369,8 @@ export function derivePrerequisites(state: PanelState): readonly Prerequisite[] 
         defaultAgentPin(state.expectedAgent),
         openChamberRunning(state.settings !== null),
         desktopOrWebSurface(),
-        tokenScopes(state.repos.accounts),
-        registeredProjectPerBinding(state.repos.bindings),
+        tokenScopes(state.bindings.accounts),
+        registeredProjectPerBinding(state.bindings.bindings),
         serviceCapability(state.handoff),
     ];
 }

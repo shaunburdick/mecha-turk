@@ -15,7 +15,7 @@ import { startPolling, stopPolling } from '../src/panel-actions.ts';
 import { createPanelRuntime } from '../src/panel-state.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { PROJECT_STORAGE_KEY } from '../src/project-actions.ts';
-import type { PanelBinding } from '../src/repos-service.ts';
+import type { PanelBinding } from '../src/bindings-service.ts';
 import {
     FIXTURE_TIMESTAMP,
     INTERVAL_MS,
@@ -200,7 +200,7 @@ describe('applySettings', () => {
 
     it('does not block on a missing repository setting while a binding is active', () => {
         const runtime = createTestRuntime(fakeHost());
-        runtime.state.repos.bindings = [activeBinding()];
+        runtime.state.bindings.bindings = [activeBinding()];
         runtime.state.bindingsActive = 1;
 
         // No `repository` setting at all: the legacy parse would refuse with

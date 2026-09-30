@@ -1,5 +1,5 @@
 /**
- * The Repos tab's service surface: bindings, accounts, and the per-binding
+ * The Bindings tab's service surface: bindings, accounts, and the per-binding
  * status rows they answer with.
  *
  * Every call here goes through the documented `host.serviceRequest()` bridge

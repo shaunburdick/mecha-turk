@@ -40,7 +40,7 @@ import { promptSnapshotOf } from '../../service/prompt.ts';
 import type { EventSnapshot } from '../../service/poll/events.ts';
 import type { ClaimedRun } from '../../src/claim-service.ts';
 import type { PanelRuntime } from '../../src/panel-state.ts';
-import type { PanelBinding } from '../../src/repos-service.ts';
+import type { PanelBinding } from '../../src/bindings-service.ts';
 import type { SpikeHost } from '../../src/session.ts';
 import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceStore } from '../../service/store/index.ts';
@@ -456,7 +456,7 @@ function mountPanel(input: {
     readonly mounts: PanelRuntime[];
 }): PanelRuntime {
     const rt = createTestRuntime(buildHost({ ...input, lost: { value: false } }));
-    rt.state.repos.bindings = [loopBinding()];
+    rt.state.bindings.bindings = [loopBinding()];
     input.mounts.push(rt);
 
     return rt;

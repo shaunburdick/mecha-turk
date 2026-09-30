@@ -119,7 +119,7 @@ export function boundedText(text: string): string {
  * @returns The verdict, carrying the confirmed project when it passes.
  */
 export async function guardRun(rt: PanelRuntime, run: ClaimedRun): Promise<GuardVerdict> {
-    const binding = rt.state.repos.bindings.find((candidate) => candidate.bindingId === run.bindingId) ?? null;
+    const binding = rt.state.bindings.bindings.find((candidate) => candidate.bindingId === run.bindingId) ?? null;
     if (binding === null) {
         return {
             kind: 'refused',
@@ -210,7 +210,7 @@ export async function refuseWithBlocked(input: {
         return;
     }
 
-    rt.state.repos.note = answer.ok
+    rt.state.bindings.note = answer.ok
         ? redact(`Run ${run.correlationId} was not started: ${failure.detail}`)
         : redact(`Run ${run.correlationId} was refused by a guard, and the service could not record it: `
             + `${answer.problem}.`);
@@ -244,7 +244,7 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
     }
 
     if (!answer.ok) {
-        rt.state.repos.note = redact(`Run ${run.correlationId} was not authorized to start: ${answer.problem}`
+        rt.state.bindings.note = redact(`Run ${run.correlationId} was not authorized to start: ${answer.problem}`
             + `${answer.code === null ? '' : ` (${answer.code})`}.`);
 
         return null;
@@ -254,19 +254,19 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
         + ' was started.';
     const reserved = parseReserveBody(answer.body);
     if (reserved === null) {
-        rt.state.repos.note = unreadable;
+        rt.state.bindings.note = unreadable;
 
         return null;
     }
 
     if (reserved.correlationId !== run.correlationId || reserved.attempt !== run.attempt) {
-        rt.state.repos.note = unreadable;
+        rt.state.bindings.note = unreadable;
 
         return null;
     }
 
     if (!reserved.auditWritten) {
-        rt.state.repos.note = `Run ${run.correlationId} was authorized, but its reservation could not be added to`
+        rt.state.bindings.note = `Run ${run.correlationId} was authorized, but its reservation could not be added to`
             + ' the audit trail — the run is live and the trail is short one row.';
     }
 

@@ -32,7 +32,7 @@
 
 import type { ListItem, Tone } from '@openchamber/sdk/ui';
 import { redact } from './redaction.ts';
-import { elapsedSince } from './repos-rows.ts';
+import { elapsedSince } from './bindings-rows.ts';
 import { BLOCKED_PREFIX } from './runs-service.ts';
 import type { RunsState } from './panel-state.ts';
 import type { PlainRunState, RunReference, RunRow, RunState, RunVerification } from './runs-service.ts';

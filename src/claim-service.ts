@@ -1,8 +1,8 @@
 /**
  * The claim and reserve answers the event relay reads (003 T-021, T-023).
  *
- * This surface used to live in `repos-service.ts`, which is where it stopped
- * fitting: the binding and account readers are the Repos tab's, and the claim
+ * This surface used to live in `bindings-service.ts`, which is where it stopped
+ * fitting: the binding and account readers are the Bindings tab's, and the claim
  * answer is the relay's — a run-shaped document with a lease, a bounded list of
  * source references, and its own counting members. Splitting them is the
  * module map AGENTS.md asks for (one responsibility per module) rather than a
@@ -24,8 +24,8 @@
 
 import { readClaimPrompt } from './prompt-wire.ts';
 import { asRecord, fieldsHoldText, parseJsonObject, textOrEmpty, textOrNull } from './json.ts';
-import type { BindingStatusRow, EventKind } from './repos-service.ts';
-import { eventKindOf, readStatusRows } from './repos-service.ts';
+import type { BindingStatusRow, EventKind } from './bindings-service.ts';
+import { eventKindOf, readStatusRows } from './bindings-service.ts';
 
 /** Whether the subject is an issue or a pull request (run key component, FR-010). */
 export type SubjectType = 'issue' | 'pull_request';

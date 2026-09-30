@@ -217,15 +217,15 @@ export function rejectProjectSelection(rt: PanelRuntime, id: string): void {
  * @param id - Project id the select reported.
  */
 export function selectBindingProject(rt: PanelRuntime, id: string): void {
-    const { repos, projects } = rt.state;
+    const { bindings, projects } = rt.state;
     const candidate = parseProjectId(id);
     if (candidate === null || !isSelectableProject(projects, candidate)) {
-        repos.note = redact(projectRefusalReason(projects, id));
+        bindings.note = redact(projectRefusalReason(projects, id));
         refresh(rt);
         return;
     }
 
-    repos.repoProjectSelection = candidate;
-    repos.note = '';
+    bindings.repoProjectSelection = candidate;
+    bindings.note = '';
     refresh(rt);
 }

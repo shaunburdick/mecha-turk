@@ -283,7 +283,7 @@ export async function reportAndAcknowledge(input: {
     }
 
     if (!answer.ok) {
-        rt.state.repos.note = redact(`Run ${run.correlationId} was dispatched but its report was refused: `
+        rt.state.bindings.note = redact(`Run ${run.correlationId} was dispatched but its report was refused: `
             + `${answer.problem}${answer.code === null ? '' : ` (${answer.code})`}. `
             + 'It is reconciled on the next mount.');
 
@@ -332,7 +332,7 @@ export async function closeAttempt(input: {
         outcome: started.outcome,
     });
     if (!recorded && stillRunning(rt)) {
-        rt.state.repos.note = redact(`Run ${run.correlationId}: the dispatch record could not be written, so a lost`
+        rt.state.bindings.note = redact(`Run ${run.correlationId}: the dispatch record could not be written, so a lost`
             + ' report would not be recoverable from this panel.');
     }
 

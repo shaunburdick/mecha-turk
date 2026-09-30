@@ -4,7 +4,7 @@
  * `GET /v1/events` answers with the service's credential-free projection of
  * every **run** — all eight dispatch states, newest detected first, capped at
  * 100 — so this module owns that DTO and its parser, kept beside the runs
- * actions rather than inside `repos-service.ts` (the bindings/claim surface),
+ * actions rather than inside `bindings-service.ts` (the bindings/claim surface),
  * which the file-length limit would otherwise push past its own responsibility.
  *
  * Two rules shape the parser:
@@ -24,13 +24,13 @@
  *   free of service-tier modules.
  *
  * The two readers shared with the claim parser — {@link issueNumberFrom} and
- * {@link eventKindOf} — come from `repos-service.ts` so the two parsers hold
+ * {@link eventKindOf} — come from `bindings-service.ts` so the two parsers hold
  * one opinion about what an event row is.
  */
 
 import { asRecord, fieldsHoldText, parseJsonObject, textOrNull } from './json.ts';
 import { readPromptReference } from './prompt-wire.ts';
-import { eventKindOf, issueNumberFrom } from './repos-service.ts';
+import { eventKindOf, issueNumberFrom } from './bindings-service.ts';
 import { runStateOf } from './run-state.ts';
 import type { PromptReference } from './prompt.ts';
 import type { RunState } from './run-state.ts';

@@ -1,5 +1,5 @@
 /**
- * Repos-tab actions for the event bindings (M3 re-cut).
+ * Bindings-tab actions for the event bindings (M3 re-cut).
  *
  * The service owns the durable bindings file; this tab reads, edits, and
  * re-grants it whole. One add flow (repository, account, project, triggers,
@@ -27,8 +27,14 @@ import {
     servicePut,
 } from './service-calls.ts';
 import { startRelayPolling } from './relay.ts';
-import { countEnabledBindings, parseAccountsBody, parseBindingsBody } from './repos-service.ts';
-import type { BindingStatusRow, BindingsSnapshot, PanelAccount, PanelBinding, PanelTriggers } from './repos-service.ts';
+import { countEnabledBindings, parseAccountsBody, parseBindingsBody } from './bindings-service.ts';
+import type {
+    BindingStatusRow,
+    BindingsSnapshot,
+    PanelAccount,
+    PanelBinding,
+    PanelTriggers,
+} from './bindings-service.ts';
 import type { PanelRuntime, Repositories } from './panel-state.ts';
 
 /** One per-binding status row the tab renders (scan state + pending count). */
@@ -40,40 +46,40 @@ export type RepoRow = BindingStatusRow;
  * @param rt - Panel runtime.
  * @param patch - The fields to update.
  */
-export function editRepos(rt: PanelRuntime, patch: Partial<Repositories>): void {
+export function editBindings(rt: PanelRuntime, patch: Partial<Repositories>): void {
     if (rt.disposed) {
         return;
     }
 
-    Object.assign(rt.state.repos, patch);
+    Object.assign(rt.state.bindings, patch);
     refresh(rt);
 }
 
-function resetDraft(repos: Repositories): void {
-    repos.repoInput = '';
-    repos.accountSelection = null;
-    repos.repoProjectSelection = null;
-    repos.triggerAssignment = true;
-    repos.triggerMention = false;
-    repos.triggerReviewRequest = true;
-    repos.worktreeSelection = 'none';
+function resetDraft(bindings: Repositories): void {
+    bindings.repoInput = '';
+    bindings.accountSelection = null;
+    bindings.repoProjectSelection = null;
+    bindings.triggerAssignment = true;
+    bindings.triggerMention = false;
+    bindings.triggerReviewRequest = true;
+    bindings.worktreeSelection = 'none';
 }
-function resetCoveredDraft(repos: Repositories, repository: string): void {
-    const draft = repos.repoInput.trim().toLowerCase();
+function resetCoveredDraft(bindings: Repositories, repository: string): void {
+    const draft = bindings.repoInput.trim().toLowerCase();
     if (draft === '' || draft !== repository.toLowerCase()) {
         return;
     }
 
-    resetDraft(repos);
+    resetDraft(bindings);
 }
-function clearDraftIfCovered(repos: Repositories, bindings: readonly PanelBinding[]): void {
-    const draft = repos.repoInput.trim().toLowerCase();
-    const covered = draft !== '' && bindings.some((binding) => binding.repository.toLowerCase() === draft);
+function clearDraftIfCovered(bindings: Repositories, stored: readonly PanelBinding[]): void {
+    const draft = bindings.repoInput.trim().toLowerCase();
+    const covered = draft !== '' && stored.some((binding) => binding.repository.toLowerCase() === draft);
     if (!covered) {
         return;
     }
 
-    resetDraft(repos);
+    resetDraft(bindings);
 }
 /**
  * Whether the mount still runs; a function call the analyzer never narrows.
@@ -103,12 +109,12 @@ async function fetchBindings(rt: PanelRuntime): Promise<BindingsSnapshot | null>
 
     const parsed = parseBindingsBody(result.body);
     if (parsed === null) {
-        rt.state.repos.note = redact('The bindings list the service answered was unreadable — refresh to retry.');
+        rt.state.bindings.note = redact('The bindings list the service answered was unreadable — refresh to retry.');
 
         return null;
     }
 
-    clearDraftIfCovered(rt.state.repos, parsed.bindings);
+    clearDraftIfCovered(rt.state.bindings, parsed.bindings);
 
     return parsed;
 }
@@ -150,34 +156,35 @@ export interface PreparedBinding {
 /**
  * Read one add-form draft, answered as a ready binding or the problems.
  *
- * @param repos - Panel state to read the draft from.
+ * @param bindings - Panel state to read the draft from.
  * @returns The binding, or `null` (the note then says why).
  */
-export function readDraft(repos: Repositories): PreparedBinding | null {
-    const repository = parseRepository(repos.repoInput);
+export function readDraft(bindings: Repositories): PreparedBinding | null {
+    const repository = parseRepository(bindings.repoInput);
     if (repository === null) {
-        repos.note = 'repository must be `owner/name`';
+        bindings.note = 'repository must be `owner/name`';
 
         return null;
     }
 
     const label = repositoryLabel(repository);
-    const account = repos.accounts.find((candidate) => candidate.numericUserId === repos.accountSelection) ?? null;
+    const account =
+        bindings.accounts.find((candidate) => candidate.numericUserId === bindings.accountSelection) ?? null;
     if (account === null) {
-        repos.note = 'Pick the account this repository polls under.';
+        bindings.note = 'Pick the account this repository polls under.';
 
         return null;
     }
 
-    if (repos.repoProjectSelection === null) {
-        repos.note = 'Pick the OpenChamber project the dispatch opens in.';
+    if (bindings.repoProjectSelection === null) {
+        bindings.note = 'Pick the OpenChamber project the dispatch opens in.';
 
         return null;
     }
 
-    const duplicate = repos.bindings.some((candidate) => candidate.repository.toLowerCase() === label.toLowerCase());
+    const duplicate = bindings.bindings.some((candidate) => candidate.repository.toLowerCase() === label.toLowerCase());
     if (duplicate) {
-        repos.note = 'That repository is already bound.';
+        bindings.note = 'That repository is already bound.';
 
         return null;
     }
@@ -189,12 +196,12 @@ export function readDraft(repos: Repositories): PreparedBinding | null {
         accountNumericUserId: account.numericUserId,
         accountLogin: account.login,
         repository: label,
-        projectId: repos.repoProjectSelection,
-        worktreeOption: repos.worktreeSelection,
+        projectId: bindings.repoProjectSelection,
+        worktreeOption: bindings.worktreeSelection,
         triggers: {
-            assignment: repos.triggerAssignment,
-            mention: repos.triggerMention,
-            reviewRequest: repos.triggerReviewRequest,
+            assignment: bindings.triggerAssignment,
+            mention: bindings.triggerMention,
+            reviewRequest: bindings.triggerReviewRequest,
         },
         state: 'active',
         createdAt: stamp,
@@ -260,7 +267,7 @@ async function grantBindings(input: {
     }
 
     if (!result.ok) {
-        rt.state.repos.note = `${result.problem} — the failure note is local to this tab.`;
+        rt.state.bindings.note = `${result.problem} — the failure note is local to this tab.`;
         refresh(rt);
 
         return;
@@ -268,23 +275,23 @@ async function grantBindings(input: {
 
     const parsed = parseBindingsBody(result.body);
     if (parsed === null) {
-        rt.state.repos.note = 'The service answered a list the panel could not read — refresh to see what stuck.';
+        rt.state.bindings.note = 'The service answered a list the panel could not read — refresh to see what stuck.';
         refresh(rt);
 
         return;
     }
 
-    rt.state.repos.bindings = parsed.bindings;
-    rt.state.repos.statusRows = parsed.status;
+    rt.state.bindings.bindings = parsed.bindings;
+    rt.state.bindings.statusRows = parsed.status;
     rt.state.bindingsActive = countEnabledBindings(parsed.bindings);
     armRelayForBindings(rt, parsed.bindings);
-    rt.state.repos.note = note;
+    rt.state.bindings.note = note;
     refresh(rt);
 }
 
 /**
  * Load the bindings, their scan status, and the registered accounts the
- * Repos tab renders.
+ * Bindings tab renders.
  *
  * The success path arms the relay when the read landed at least one enabled
  * binding: this is the read the manual **Refresh** runs, and the one that
@@ -293,12 +300,12 @@ async function grantBindings(input: {
  *
  * @param rt - Panel runtime.
  */
-export async function loadRepositories(rt: PanelRuntime): Promise<void> {
-    if (rt.disposed || rt.state.repos.status === 'loading') {
+export async function loadBindings(rt: PanelRuntime): Promise<void> {
+    if (rt.disposed || rt.state.bindings.status === 'loading') {
         return;
     }
 
-    rt.state.repos.status = 'loading';
+    rt.state.bindings.status = 'loading';
     refresh(rt);
 
     const [snapshot, accounts] = await Promise.all([
@@ -307,8 +314,8 @@ export async function loadRepositories(rt: PanelRuntime): Promise<void> {
     ]);
     if (stillMounted(rt)) {
         if (snapshot !== null) {
-            rt.state.repos.bindings = snapshot.bindings;
-            rt.state.repos.statusRows = snapshot.status;
+            rt.state.bindings.bindings = snapshot.bindings;
+            rt.state.bindings.statusRows = snapshot.status;
             rt.state.bindingsActive = countEnabledBindings(snapshot.bindings);
             armRelayForBindings(rt, snapshot.bindings);
         }
@@ -316,12 +323,12 @@ export async function loadRepositories(rt: PanelRuntime): Promise<void> {
         // Assign only a read that produced a list: a failed read must not
         // wipe the accounts the picker already offers.
         if (accounts !== null) {
-            rt.state.repos.accounts = accounts;
+            rt.state.bindings.accounts = accounts;
         }
 
-        rt.state.repos.status = snapshot !== null && accounts !== null ? 'ready' : 'error';
+        rt.state.bindings.status = snapshot !== null && accounts !== null ? 'ready' : 'error';
         if (snapshot === null || accounts === null) {
-            rt.state.repos.note = 'One of the reads failed — refresh to retry.';
+            rt.state.bindings.note = 'One of the reads failed — refresh to retry.';
         }
     }
 
@@ -340,12 +347,12 @@ export async function loadRepositories(rt: PanelRuntime): Promise<void> {
  *
  * @param rt - Panel runtime.
  */
-export function reloadReposAfterConnect(rt: PanelRuntime): void {
+export function reloadBindingsAfterConnect(rt: PanelRuntime): void {
     if (!stillMounted(rt)) {
         return;
     }
 
-    void loadRepositories(rt);
+    void loadBindings(rt);
 }
 
 /**
@@ -354,8 +361,8 @@ export function reloadReposAfterConnect(rt: PanelRuntime): void {
  * @param rt - Panel runtime.
  */
 export async function bindRepository(rt: PanelRuntime): Promise<void> {
-    const { repos } = rt.state;
-    const draft = readDraft(repos);
+    const { bindings } = rt.state;
+    const draft = readDraft(bindings);
     if (draft === null) {
         // The note already says why; repaint to show it.
         refresh(rt);
@@ -365,10 +372,10 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
 
     await grantBindings({
         rt,
-        bindings: [...repos.bindings, draft],
+        bindings: [...bindings.bindings, draft],
         note: `Bound ${draft.repository} to ${draft.accountLogin}.`,
     });
-    resetCoveredDraft(repos, draft.repository);
+    resetCoveredDraft(bindings, draft.repository);
     refresh(rt);
 }
 
@@ -378,10 +385,10 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
  * @param rt - Panel runtime.
  */
 export async function toggleBinding(rt: PanelRuntime): Promise<void> {
-    const { repos } = rt.state;
-    const binding = repos.bindings.find((candidate) => candidate.bindingId === repos.selectedBinding) ?? null;
+    const { bindings } = rt.state;
+    const binding = bindings.bindings.find((candidate) => candidate.bindingId === bindings.selectedBinding) ?? null;
     if (binding === null) {
-        repos.note = 'Select a binding to toggle.';
+        bindings.note = 'Select a binding to toggle.';
         refresh(rt);
 
         return;
@@ -392,7 +399,9 @@ export async function toggleBinding(rt: PanelRuntime): Promise<void> {
         state: binding.state === 'active' ? 'disabled' : 'active',
         updatedAt: nowIso(),
     };
-    const updated = repos.bindings.map((candidate) => (candidate.bindingId === binding.bindingId ? next : candidate));
+    const updated = bindings.bindings.map(
+        (candidate) => (candidate.bindingId === binding.bindingId ? next : candidate),
+    );
 
     await grantBindings({ rt, bindings: updated, note: `${binding.repository} is now ${next.state}.` });
     refresh(rt);
@@ -414,7 +423,7 @@ function removalTarget(rt: PanelRuntime): RemovalTarget | null {
         return { numericUserId: connected.numericUserId, login: connected.login };
     }
 
-    const first = rt.state.repos.accounts.find((candidate) => candidate.usable) ?? null;
+    const first = rt.state.bindings.accounts.find((candidate) => candidate.usable) ?? null;
 
     return first === null ? null : { numericUserId: first.numericUserId, login: first.login };
 }
@@ -438,17 +447,17 @@ export interface RemovalTarget {
  * @param rt - Panel runtime.
  */
 export async function removeBinding(rt: PanelRuntime): Promise<void> {
-    const { repos } = rt.state;
-    const binding = repos.bindings.find((candidate) => candidate.bindingId === repos.selectedBinding) ?? null;
+    const { bindings } = rt.state;
+    const binding = bindings.bindings.find((candidate) => candidate.bindingId === bindings.selectedBinding) ?? null;
     if (binding === null) {
-        repos.note = 'Select a binding to remove.';
+        bindings.note = 'Select a binding to remove.';
         refresh(rt);
 
         return;
     }
 
-    const remaining = repos.bindings.filter((candidate) => candidate.bindingId !== binding.bindingId);
-    repos.selectedBinding = null;
+    const remaining = bindings.bindings.filter((candidate) => candidate.bindingId !== binding.bindingId);
+    bindings.selectedBinding = null;
 
     await grantBindings({ rt, bindings: remaining, note: `Removed the binding for ${binding.repository}.` });
     refresh(rt);
@@ -468,7 +477,7 @@ export function armAccountRemoval(rt: PanelRuntime): void {
         return;
     }
 
-    rt.state.repos.removeAccountArmed = true;
+    rt.state.bindings.removeAccountArmed = true;
     refresh(rt);
 }
 
@@ -487,11 +496,11 @@ export function armAccountRemoval(rt: PanelRuntime): void {
  * @param rt - Panel runtime.
  */
 export async function removeAccount(rt: PanelRuntime): Promise<void> {
-    const { repos } = rt.state;
-    repos.removeAccountArmed = false;
+    const { bindings } = rt.state;
+    bindings.removeAccountArmed = false;
     const target = removalTarget(rt);
     if (target === null) {
-        repos.note = 'No account is connected to remove.';
+        bindings.note = 'No account is connected to remove.';
         refresh(rt);
 
         return;
@@ -506,7 +515,7 @@ export async function removeAccount(rt: PanelRuntime): Promise<void> {
     }
 
     if (!result.ok) {
-        repos.note =
+        bindings.note =
             result.code === 'invalid-transition'
                 ? 'The service refused: bindings still reference this account — remove them first.'
                 : redact(`The service refused the account removal: ${result.problem}`);
@@ -523,9 +532,9 @@ export async function removeAccount(rt: PanelRuntime): Promise<void> {
     if (rt.state.handoff.connected?.numericUserId === target.numericUserId) {
         rt.state.handoff.connected = null;
     }
-    repos.note = `Removed the account ${target.login} from the service.`;
+    bindings.note = `Removed the account ${target.login} from the service.`;
     refresh(rt);
     // Re-read both sources so the accounts picker loses the removed row and
     // the note is not clobbered by a stale repaint elsewhere.
-    await loadRepositories(rt);
+    await loadBindings(rt);
 }

@@ -25,7 +25,7 @@ import {
 } from './project-picker.ts';
 import { redact } from './redaction.ts';
 import { mountPrerequisitesSection, repaintPrerequisites } from './prerequisites.ts';
-import { repaintReposPane } from './repos-ui.ts';
+import { repaintBindingsPane } from './bindings-ui.ts';
 import type { PanelRuntime, PanelState, PanelUi } from './panel-state.ts';
 
 /** Number of ledger rows shown, newest first. */
@@ -208,7 +208,7 @@ export function mountPanelUi(rt: PanelRuntime, input: { root: HTMLElement; handl
     // FR-071's section sits directly under the summary: a first-run operator
     // meets the checklist before the controls it unlocks, and the notice
     // above the tab strip (mounted by the app) is what carries it when the
-    // Repositories tab is the one on screen.
+    // Bindings tab is the one on screen.
     mountPrerequisitesSection({ rt, parent: root });
     const picker = mountProjectPicker({ rt, root, handlers });
     const controls = createControlsRow(root);
@@ -313,26 +313,26 @@ function buildListItems(state: PanelState): ListItem[] {
 }
 
 /**
- * Repaint the tab bodies from `repos.activeTab`.
+ * Repaint the tab bodies from `bindings.activeTab`.
  *
  * The shared tab strip's active state and each body's `hidden` flag are all
- * decided from `rt.state.repos.activeTab` — the switch handler only writes
- * state, and every repaint (including the first, which `mountReposSection`
+ * decided from `rt.state.bindings.activeTab` — the switch handler only writes
+ * state, and every repaint (including the first, which `mountBindingsSection`
  * runs before returning) applies visibility here. A runtime without the
  * mounted section (headless orchestration tests) has nothing to show.
  *
  * @param rt - Panel runtime.
  */
-export function repaintReposSection(rt: PanelRuntime): void {
-    const section = rt.reposSection;
+export function repaintBindingsSection(rt: PanelRuntime): void {
+    const section = rt.bindingsSection;
     if (section === null) {
         return;
     }
 
-    const reposShows = rt.state.repos.activeTab === 'repos';
-    section.spike.hidden = reposShows;
-    section.repos.pane.hidden = !reposShows;
-    repaintReposPane(rt, section.repos);
+    const bindingsShow = rt.state.bindings.activeTab === 'repos';
+    section.spike.hidden = bindingsShow;
+    section.bindings.pane.hidden = !bindingsShow;
+    repaintBindingsPane(rt, section.bindings);
 }
 
 /**
@@ -365,7 +365,7 @@ function refreshProjectPicker(state: PanelState, ui: PanelUi): void {
  *
  * Nothing runs on a disposed runtime; each surface repaints only when it is
  * mounted, so a runtime without the spike UI (headless tests) can still
- * repaint the Repositories tab it actually holds.
+ * repaint the Bindings tab it actually holds.
  *
  * @param rt - Panel runtime.
  */
@@ -390,7 +390,7 @@ export function refresh(rt: PanelRuntime): void {
         refreshProjectPicker(state, ui);
     }
 
-    repaintReposSection(rt);
+    repaintBindingsSection(rt);
     refreshHandoff(rt);
     repaintPrerequisites(rt);
 }

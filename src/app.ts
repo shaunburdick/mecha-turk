@@ -58,7 +58,7 @@ import {
     storeProjectSelection,
 } from './project-actions.ts';
 import { redact } from './redaction.ts';
-import { mountReposSection } from './repos-mount.ts';
+import { mountBindingsSection } from './bindings-mount.ts';
 import { reconcileDispatchAttempts } from './reconcile.ts';
 import { settleReconciliation, startRelayPolling } from './relay.ts';
 import { loadRuns } from './runs.ts';
@@ -201,7 +201,7 @@ export async function selectProject(rt: PanelRuntime, id: string): Promise<void>
  * The declared GitHub (token) integration card is optional and
  * non-authoritative (FR-011): the panel is fully functional with it
  * unconnected, because polling and dispatch run on the *service* accounts
- * under Repositories → Poll as account. The unconnected banner therefore
+ * under Bindings → Poll as account. The unconnected banner therefore
  * points at that account flow instead of steering the operator to a
  * credential surface the product does not need — and it mentions the card
  * only where the card is genuinely load-bearing: the legacy single-repo
@@ -347,12 +347,12 @@ export function teardown(rt: PanelRuntime): void {
         rt.handoffView = null;
     }
 
-    if (rt.reposSection !== null) {
+    if (rt.bindingsSection !== null) {
         // The pane handle removes its body; the shared tab strip removes its
         // own node and listeners through `tabs.dispose`.
-        rt.reposSection.repos.tabs.dispose();
-        rt.reposSection.repos.dispose();
-        rt.reposSection = null;
+        rt.bindingsSection.bindings.tabs.dispose();
+        rt.bindingsSection.bindings.dispose();
+        rt.bindingsSection = null;
     }
 
     rt.host.dispose();
@@ -532,10 +532,10 @@ export function createSpikeApp(options: SpikeAppOptions): SpikeApp {
 
     // Above the tab strip on purpose: FR-073's notice has to show on every tab.
     mountPrerequisiteNotice({ rt, parent: root });
-    rt.reposSection = mountReposSection(rt, root);
-    rt.ui = mountPanelUi(rt, { root: rt.reposSection.spike, handlers });
+    rt.bindingsSection = mountBindingsSection(rt, root);
+    rt.ui = mountPanelUi(rt, { root: rt.bindingsSection.spike, handlers });
     rt.handoffView = mountHandoffDom({
-        root: rt.reposSection.spike,
+        root: rt.bindingsSection.spike,
         handlers: {
             accept: () => {
                 void acceptConsentAndRepaint(rt);

@@ -22,7 +22,7 @@
  *
  * MVP-DEBT: with a usable account connected, the paste form stays hidden for
  * the whole mount — handing off a genuinely second account needs a panel
- * reload, or the repos pane's "Remove account" affordance to clear the path.
+ * reload, or the bindings pane's "Remove account" affordance to clear the path.
  * Multi-account adoption renders the first usable account.
  */
 
@@ -31,7 +31,7 @@ import { readScopeMirror, readStoredAccounts, writeAccountMirror } from './accou
 import { SERVICE_COPY, UNKNOWN_FAILURE, duplicateAdoptedLine } from './handoff-copy.ts';
 import { asRecord, parseJsonObject } from './json.ts';
 import type { PanelRuntime } from './panel-state.ts';
-import { reloadReposAfterConnect } from './repos.ts';
+import { reloadBindingsAfterConnect } from './bindings.ts';
 import { ACCOUNTS_PATH, serviceGet } from './service-calls.ts';
 
 /** Service error code that says the pasted token belongs to a held account. */
@@ -245,8 +245,8 @@ export async function adoptOnDuplicate(rt: PanelRuntime): Promise<AdoptedIdentit
 
     rt.state.handoff.note = duplicateAdoptedLine(adopted.login);
     // The adoption connected an account the panel mirror had lost, so the
-    // Repos tab's accounts dropdown re-reads before the operator looks at it.
-    reloadReposAfterConnect(rt);
+    // Bindings tab's accounts dropdown re-reads before the operator looks at it.
+    reloadBindingsAfterConnect(rt);
 
     return adopted;
 }

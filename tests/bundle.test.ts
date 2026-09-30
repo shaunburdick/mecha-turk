@@ -68,13 +68,13 @@ describe('built panel bundle', () => {
         }
     });
 
-    it('ships the Repositories pane and its tab (MVP blocker, 2026-09-27)', () => {
+    it('ships the Bindings pane and its tab (MVP blocker, 2026-09-27)', () => {
         const bundle = readFileSync(BUNDLE, UTF8);
 
         // The mount-time gate greps the bundle for the pane's marker; the
         // minifier renames identifiers and strips comments, so the marker
-        // rides a runtime attribute instead: `data-mount="mountRepositoriesPane"`.
-        expect(bundle).toContain('mountRepositoriesPane');
+        // rides a runtime attribute instead: `data-mount="mountBindingsPane"`.
+        expect(bundle).toContain('mountBindingsPane');
         // And a semantic proof that is only true when the pane's code is
         // actually bundled: the empty-list copy the pane itself renders.
         expect(bundle).toContain('No repository bound yet — add one below or refresh.');
@@ -603,7 +603,7 @@ describe('004 full-cycle containment (AC-133, AC-143, NFR-121)', () => {
                 ['the panel ledger', JSON.stringify(rt.state.ledger)],
                 ['host.storage', JSON.stringify([...loop.panelStorage])],
                 ['captured service logs', JSON.stringify(loop.service.logLines)],
-                ['status copy', JSON.stringify(rt.state.repos)],
+                ['status copy', JSON.stringify(rt.state.bindings)],
                 ['panel bundle', readFileSync(BUNDLE, UTF8)],
                 ['service bundle', readFileSync(SERVICE_BUNDLE, UTF8)],
             ];

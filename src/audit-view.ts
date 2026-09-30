@@ -270,7 +270,7 @@ export function auditStatusText(state: AuditViewState): string {
  * @param rt - Panel runtime.
  */
 export async function loadAuditHistory(rt: PanelRuntime): Promise<void> {
-    const { runs } = rt.state.repos;
+    const { runs } = rt.state.bindings;
     const row = selectedRun(runs);
     if (row === null || runs.audit.status === 'loading') {
         return;

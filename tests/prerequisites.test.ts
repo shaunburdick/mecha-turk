@@ -19,8 +19,8 @@ import {
     prerequisiteStateLabel,
     repaintPrerequisites,
 } from '../src/prerequisites.ts';
-import { parseAccountsBody } from '../src/repos-service.ts';
-import type { PanelBinding } from '../src/repos-service.ts';
+import { parseAccountsBody } from '../src/bindings-service.ts';
+import type { PanelBinding } from '../src/bindings-service.ts';
 import type { PanelState } from '../src/panel-state.ts';
 import type { Prerequisite, PrerequisiteId } from '../src/prerequisites.ts';
 import { createTestRuntime, fakeHost } from './support/panel.ts';
@@ -132,8 +132,8 @@ function bindingWith(projectId: string): PanelBinding {
 function configuredState(): PanelState {
     const state = freshState();
     state.settings = {};
-    state.repos.accounts = [{ numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, usable: true, scope: VERDICT_OK }];
-    state.repos.bindings = [bindingWith('prj_42')];
+    state.bindings.accounts = [{ numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, usable: true, scope: VERDICT_OK }];
+    state.bindings.bindings = [bindingWith('prj_42')];
     state.handoff.consentGiven = true;
     state.handoff.preflighted = true;
     state.handoff.storageWritable = true;
@@ -216,7 +216,7 @@ describe('first-run prerequisites (FR-071, AC-122)', () => {
 
     it('sees an unregistered project on a binding as unmet', () => {
         const state = configuredState();
-        state.repos.bindings = [bindingWith('')];
+        state.bindings.bindings = [bindingWith('')];
 
         const project = prerequisiteOf(state, IDS.registeredProject);
         expect(project.state).toBe(NOT_MET);
@@ -256,7 +256,7 @@ describe('first-run prerequisites (FR-071, AC-122)', () => {
 describe('the unmet notice outside the section (FR-073)', () => {
     it('raises a notice naming the unmet scopes', () => {
         const state = freshState();
-        state.repos.accounts = [
+        state.bindings.accounts = [
             { numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, usable: true, scope: VERDICT_MISSING },
         ];
 
@@ -329,7 +329,7 @@ describe('account scope evidence (FR-071, fail-closed parsing)', () => {
 
     it('treats an unusable account as no evidence at all', () => {
         const state = freshState();
-        state.repos.accounts = [{ numericUserId: PARSED_ID, login: PARSED_LOGIN, usable: false, scope: VERDICT_OK }];
+        state.bindings.accounts = [{ numericUserId: PARSED_ID, login: PARSED_LOGIN, usable: false, scope: VERDICT_OK }];
 
         expect(prerequisiteOf(state, IDS.tokenScopes).state).toBe(NOT_MET);
     });

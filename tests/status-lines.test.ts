@@ -6,14 +6,14 @@
  * nothing happens"), and the spike summary claimed `identity: not
  * authenticated` while bindings polled under a service-owned account. Both
  * fixes are pure functions of panel state, so they are asserted here without
- * a live DOM: the row copy the Repositories pane renders, and the summary
+ * a live DOM: the row copy the Bindings pane renders, and the summary
  * line the Spike tab renders.
  */
 
 import { describe, expect, it } from 'vitest';
 import { summarizeState } from '../src/panel-ui.ts';
-import { bindingRows } from '../src/repos-rows.ts';
-import type { PanelBinding, BindingStatusRow } from '../src/repos-service.ts';
+import { bindingRows } from '../src/bindings-rows.ts';
+import type { PanelBinding, BindingStatusRow } from '../src/bindings-service.ts';
 import { LOGIN, createTestRuntime, fakeHost } from './support/panel.ts';
 
 /** Fixture account the binding polls under. */
@@ -78,10 +78,10 @@ function statusFixture(slot: {
 describe('bindingRows (scan status on the binding rows, FIX 2b)', () => {
     it('names the skip reason when the binding has never completed a scan', () => {
         const rt = createTestRuntime(fakeHost());
-        rt.state.repos.bindings = [bindingFixture()];
-        rt.state.repos.statusRows = [statusFixture({ lastScanAt: null, lastError: 'auth-failed' })];
+        rt.state.bindings.bindings = [bindingFixture()];
+        rt.state.bindings.statusRows = [statusFixture({ lastScanAt: null, lastError: 'auth-failed' })];
 
-        const [row] = bindingRows(rt.state.repos);
+        const [row] = bindingRows(rt.state.bindings);
 
         expect(row?.subtitle).toContain('scan: never · auth-failed');
         expect(row?.subtitle).toContain(`polled as ${ACCOUNT_LOGIN}`);
@@ -91,29 +91,29 @@ describe('bindingRows (scan status on the binding rows, FIX 2b)', () => {
 
     it('shows how long ago the last scan ran, and that it was clean', () => {
         const rt = createTestRuntime(fakeHost());
-        rt.state.repos.bindings = [bindingFixture()];
-        rt.state.repos.statusRows = [statusFixture({ lastScanAt: minutesAgo(2), lastError: null })];
+        rt.state.bindings.bindings = [bindingFixture()];
+        rt.state.bindings.statusRows = [statusFixture({ lastScanAt: minutesAgo(2), lastError: null })];
 
-        const [row] = bindingRows(rt.state.repos);
+        const [row] = bindingRows(rt.state.bindings);
 
         expect(row?.subtitle).toContain('scan: 2m ago · ok');
     });
 
     it('carries the reason next to the stamp when a scan skipped after a success', () => {
         const rt = createTestRuntime(fakeHost());
-        rt.state.repos.bindings = [bindingFixture()];
-        rt.state.repos.statusRows = [statusFixture({ lastScanAt: minutesAgo(30), lastError: 'auth-failed' })];
+        rt.state.bindings.bindings = [bindingFixture()];
+        rt.state.bindings.statusRows = [statusFixture({ lastScanAt: minutesAgo(30), lastError: 'auth-failed' })];
 
-        const [row] = bindingRows(rt.state.repos);
+        const [row] = bindingRows(rt.state.bindings);
 
         expect(row?.subtitle).toContain('scan: 30m ago · auth-failed');
     });
 
     it('says the binding has not been scanned while no status row exists', () => {
         const rt = createTestRuntime(fakeHost());
-        rt.state.repos.bindings = [bindingFixture()];
+        rt.state.bindings.bindings = [bindingFixture()];
 
-        const [row] = bindingRows(rt.state.repos);
+        const [row] = bindingRows(rt.state.bindings);
 
         expect(row?.subtitle).toContain('not scanned yet');
         expect(row?.meta).toBe('0');

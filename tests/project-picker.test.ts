@@ -27,7 +27,7 @@ import {
     selectBindingProject,
     storeProjectSelection,
 } from '../src/project-actions.ts';
-import { readDraft } from '../src/repos.ts';
+import { readDraft } from '../src/bindings.ts';
 import {
     PROJECTS,
     PROJECT_ID,
@@ -465,7 +465,7 @@ describe('"Not listed?" guidance (FR-070, AC-121)', () => {
     });
 
     it('is painted by both pickers, so the routes need no navigation away', () => {
-        const bindingPicker = readFileSync(resolve(ROOT, 'src/repos-ui.ts'), 'utf8');
+        const bindingPicker = readFileSync(resolve(ROOT, 'src/bindings-ui.ts'), 'utf8');
         const spikePicker = readFileSync(resolve(ROOT, 'src/panel-ui.ts'), 'utf8');
 
         expect(bindingPicker).toContain('notListedGuidance()');
@@ -483,9 +483,9 @@ function loadedBindingDraft(): PanelRuntime {
     const rt = createTestRuntime(fakeHost());
     rt.state.projects.status = 'ready';
     rt.state.projects.projects = PROJECTS.projects;
-    rt.state.repos.repoInput = 'acme/widget';
-    rt.state.repos.accounts = [{ numericUserId: '77331', login: 'acme-bot', usable: true }];
-    rt.state.repos.accountSelection = '77331';
+    rt.state.bindings.repoInput = 'acme/widget';
+    rt.state.bindings.accounts = [{ numericUserId: '77331', login: 'acme-bot', usable: true }];
+    rt.state.bindings.accountSelection = '77331';
 
     return rt;
 }
@@ -496,12 +496,12 @@ describe('binding picker selection guard (FR-070)', () => {
 
         selectBindingProject(rt, 'prj_not_registered');
 
-        expect(rt.state.repos.repoProjectSelection).toBeNull();
-        expect(rt.state.repos.note).toMatch(/not in the loaded list/);
+        expect(rt.state.bindings.repoProjectSelection).toBeNull();
+        expect(rt.state.bindings.note).toMatch(/not in the loaded list/);
         // No draft becomes a binding, so the service's own `project_missing`
         // path is untouched until a registered project is chosen.
-        expect(readDraft(rt.state.repos)).toBeNull();
-        expect(rt.state.repos.note).toMatch(/Pick the OpenChamber project/);
+        expect(readDraft(rt.state.bindings)).toBeNull();
+        expect(rt.state.bindings.note).toMatch(/Pick the OpenChamber project/);
     });
 
     it('refuses before the list is loaded instead of trusting the value', () => {
@@ -509,9 +509,9 @@ describe('binding picker selection guard (FR-070)', () => {
 
         selectBindingProject(rt, PROJECT_ID);
 
-        expect(rt.state.repos.repoProjectSelection).toBeNull();
-        expect(rt.state.repos.note).toMatch(/No project list is loaded/);
-        expect(readDraft(rt.state.repos)).toBeNull();
+        expect(rt.state.bindings.repoProjectSelection).toBeNull();
+        expect(rt.state.bindings.note).toMatch(/No project list is loaded/);
+        expect(readDraft(rt.state.bindings)).toBeNull();
     });
 
     it('adopts an id the loaded list contains, and only one it contains', () => {
@@ -519,9 +519,9 @@ describe('binding picker selection guard (FR-070)', () => {
 
         selectBindingProject(rt, PROJECT_ID);
 
-        expect(rt.state.repos.repoProjectSelection).toBe(PROJECT_ID);
-        expect(rt.state.repos.note).toBe('');
-        expect(readDraft(rt.state.repos)?.projectId).toBe(PROJECT_ID);
+        expect(rt.state.bindings.repoProjectSelection).toBe(PROJECT_ID);
+        expect(rt.state.bindings.note).toBe('');
+        expect(readDraft(rt.state.bindings)?.projectId).toBe(PROJECT_ID);
     });
 
     it('keeps the registered selection a later refusal did not replace', () => {
@@ -530,7 +530,7 @@ describe('binding picker selection guard (FR-070)', () => {
 
         selectBindingProject(rt, 'prj_not_registered');
 
-        expect(rt.state.repos.repoProjectSelection).toBe(PROJECT_ID);
+        expect(rt.state.bindings.repoProjectSelection).toBe(PROJECT_ID);
     });
 });
 
