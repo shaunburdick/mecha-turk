@@ -211,9 +211,13 @@ function parseAuditEntry(raw) {
     details: raw.details
   };
 }
-async function readAuditEntries(store) {
+async function readAuditTrail(store) {
   const result = await store.readLines(AUDIT_FILE, parseAuditEntry);
-  return result.entries;
+  return { entries: result.entries, malformed: result.malformed };
+}
+async function readAuditEntries(store) {
+  const trail = await readAuditTrail(store);
+  return trail.entries;
 }
 var auditCaches = new WeakMap;
 async function seedAuditCache(store) {
@@ -1203,6 +1207,7 @@ function chainAndDecisionSeqs(entries) {
 
 // service/audit-trim.ts
 var DAY_MS = 86400000;
+var TRIM_EVENT = "audit.trimmed";
 function bindingIdsOf(probe) {
   if (probe.status === "absent") {
     return new Set;
@@ -1277,7 +1282,7 @@ function planRemoval(input) {
     }
     const stamped = Date.parse(entry.timestamp);
     const tooOld = Number.isFinite(stamped) && stamped < cutoff;
-    const forCap = removed.length < neededForCap;
+    const forCap = removed.length < neededForCap && entry.eventType !== TRIM_EVENT;
     if (!tooOld && !forCap) {
       survivors.push(entry);
       continue;
@@ -1288,11 +1293,11 @@ function planRemoval(input) {
   return { survivors, removed, limitReached };
 }
 async function composeTrimRow(input) {
-  const { plan, limitReached, minimalReferencesPreserved, store } = input;
+  const { plan, limitReached, minimalReferencesPreserved, malformedLinesDropped, store } = input;
   const oldestSeq = Math.min(...plan.removed.map((entry) => entry.seq));
   const newestSeq = Math.max(...plan.removed.map((entry) => entry.seq));
   return await composeAudit(store, {
-    eventType: "audit.trimmed",
+    eventType: TRIM_EVENT,
     actorSource: "service",
     entity: { kind: "service", id: CONFIGURATION_ENTITY_ID },
     decision: "trimmed",
@@ -1302,19 +1307,30 @@ async function composeTrimRow(input) {
       oldestSeq,
       newestSeq,
       limitReached,
-      minimalReferencesPreserved
+      minimalReferencesPreserved,
+      malformedLinesDropped
     }
   });
 }
 async function readOrderedTrail(store) {
-  const entries = await readAuditEntries(store);
-  return [...entries].sort((left, right) => left.seq - right.seq);
+  const trail = await readAuditTrail(store);
+  return { entries: [...trail.entries].sort((left, right) => left.seq - right.seq), malformed: trail.malformed };
+}
+async function readForPass(input) {
+  const trail = await readOrderedTrail(input.store);
+  if (trail.malformed > 0) {
+    input.log.warn("audit trail holds unreadable lines; a rewrite this pass makes erases them", {
+      malformedLinesDropped: trail.malformed
+    });
+  }
+  return trail;
 }
 async function trimAudit(input) {
   const now = input.now ?? Date.now();
   const cutoff = now - input.config.auditRetentionDays * DAY_MS;
   return await serializeAudit(input.store, async () => {
-    const ordered = await readOrderedTrail(input.store);
+    const trail = await readForPass(input);
+    const ordered = trail.entries;
     const protectedSeqs = await protectedSeqsOf({
       store: input.store,
       log: input.log,
@@ -1339,6 +1355,7 @@ async function trimAudit(input) {
       plan,
       limitReached: plan.limitReached,
       minimalReferencesPreserved,
+      malformedLinesDropped: trail.malformed,
       store: input.store
     });
     await input.store.writeLines(AUDIT_FILE, [...plan.survivors, trimRow]);

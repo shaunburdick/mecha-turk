@@ -22,7 +22,13 @@
  * - **Both limits are honoured, whichever trips first**: the day window and the
  *   entry cap, and the pass counts the `audit.trimmed` row it is about to write
  *   *before* it decides, so a cap of N lands the trail at or below N instead of
- *   oscillating around it one row per cycle (data-model §4.1).
+ *   oscillating around it one row per cycle (data-model §4.1). The one thing
+ *   the **cap** never takes is a previous `audit.trimmed` row: once the
+ *   protected set sits at N that record is the only row left to delete, and
+ *   deleting it would rewrite the file every cycle forever while erasing the
+ *   only explanation the trail has for its own `seq` gaps. Such a row still
+ *   ages out under the day window — cap-exempt is not age-exempt — so the
+ *   protected-at-cap state settles at `removed === 0` and no write at all.
  * - **A trim never renumbers `seq`.** Survivors keep their numbers, the row
  *   takes the next one from the writer's own counter through
  *   {@link composeAudit}, and the gap the removal leaves is the trail's visible
@@ -34,22 +40,47 @@
  *   record, and never a `seq` a restart could re-seed below an used number.
  *   The same slot is what keeps a pass from removing a row `appendAudit` wrote
  *   while the pass was computing (FR-055's serialization clause).
+ * - **An erasure nobody counted is still an erasure.** The reader refuses lines
+ *   it cannot parse, and a rewrite drops every refused line with it — so this
+ *   pass warns on the read and carries the count onto the `audit.trimmed` row
+ *   as `details.malformedLinesDropped`, making the loss an auditable fact
+ *   rather than a silent one (006 FR-053). A pass that removes nothing
+ *   rewrites nothing, and the unreadable lines stay exactly where they are.
  *
  * A pass that removes nothing writes nothing (FR-053): no file is touched and
  * no row is appended, so an idle cycle costs one read and no write at all.
  */
 
 import { BINDINGS_FILE, listAccounts } from './accounts/store.ts';
-import { AUDIT_FILE, CONFIGURATION_ENTITY_ID, composeAudit, readAuditEntries, serializeAudit } from './audit.ts';
+import {
+    AUDIT_FILE,
+    CONFIGURATION_ENTITY_ID,
+    composeAudit,
+    readAuditTrail,
+    serializeAudit,
+} from './audit.ts';
 import { chainAndDecisionSeqs } from './audit-protect.ts';
 import { isRecord } from './json.ts';
-import type { AuditEntry } from './audit.ts';
+import type { AuditEntry, AuditTrailRead } from './audit.ts';
 import type { ServiceConfig } from './config.ts';
 import type { ServiceLogger } from './log.ts';
 import type { JsonReadResult, ServiceStore } from './store/index.ts';
 
 /** Milliseconds in one day — the unit `auditRetentionDays` is counted in. */
 const DAY_MS = 86_400_000;
+
+/**
+ * The trim row's own vocabulary (002's reserved name), which a **cap**-driven
+ * removal never takes.
+ *
+ * The record of a removal explains every `seq` gap that removal left, so
+ * deleting the previous record to satisfy the entry cap would both destroy the
+ * explanation and guarantee the next pass had something to delete again — a
+ * file rewrite every cycle, forever, and a trail whose historical gaps nobody
+ * can account for. Such a row still ages out under the day window like any
+ * other unprotected row: cap-exempt is not age-exempt.
+ */
+const TRIM_EVENT = 'audit.trimmed';
 
 /** One retention limit, named the way the trim row's `limitReached` records it. */
 export type AuditLimit = 'day-window' | 'entry-cap';
@@ -244,8 +275,14 @@ async function protectedSeqsOf(input: {
  *
  * The walk is oldest-first and skips every protected row, so removals always
  * take the oldest trimmable rows first and a protected row is never chosen at
- * any age or any cap. A timestamp that will not parse never marks a row too
- * old — an undatable row is kept, never guessed out of the file.
+ * any age or any cap. It also skips the **cap** for a previous `audit.trimmed`
+ * row: at the protected-at-cap state that row is the only row left to take, and
+ * taking it would rewrite the file every cycle forever while destroying the
+ * record that explains the trail's own `seq` gaps (see {@link TRIM_EVENT}) — so
+ * the state yields `removed === 0` and no write, exactly like an all-protected
+ * trail. The day window still applies to it. A timestamp that will not parse
+ * never marks a row too old — an undatable row is kept, never guessed out of
+ * the file.
  *
  * @param input - The ordered trail, the protected set, and the two limits.
  * @returns The survivors and removals, with the limit that tripped first.
@@ -281,7 +318,9 @@ function planRemoval(input: {
 
         const stamped = Date.parse(entry.timestamp);
         const tooOld = Number.isFinite(stamped) && stamped < cutoff;
-        const forCap = removed.length < neededForCap;
+        // Cap-exempt, not age-exempt: a trim row is only ever taken here when
+        // the day window took it.
+        const forCap = removed.length < neededForCap && entry.eventType !== TRIM_EVENT;
         if (!tooOld && !forCap) {
             survivors.push(entry);
             continue;
@@ -299,7 +338,8 @@ function planRemoval(input: {
 /**
  * Build the `audit.trimmed` row for a plan that removed something.
  *
- * @param input - The plan, the protected count, and the open store.
+ * @param input - The plan, the limit that tripped, the protected count, the
+ *   unreadable-line count this rewrite is erasing, and the open store.
  * @returns The composed row, ready to be written beside its removals.
  */
 async function composeTrimRow(input: {
@@ -309,15 +349,17 @@ async function composeTrimRow(input: {
     readonly limitReached: AuditLimit;
     /** Protected rows deliberately kept (FR-056's floor). */
     readonly minimalReferencesPreserved: number;
+    /** Lines the reader could not use and this rewrite is therefore erasing. */
+    readonly malformedLinesDropped: number;
     /** Open store the writer's `seq` counter lives on. */
     readonly store: ServiceStore;
 }): Promise<AuditEntry> {
-    const { plan, limitReached, minimalReferencesPreserved, store } = input;
+    const { plan, limitReached, minimalReferencesPreserved, malformedLinesDropped, store } = input;
     const oldestSeq = Math.min(...plan.removed.map((entry) => entry.seq));
     const newestSeq = Math.max(...plan.removed.map((entry) => entry.seq));
 
     return await composeAudit(store, {
-        eventType: 'audit.trimmed',
+        eventType: TRIM_EVENT,
         actorSource: 'service',
         entity: { kind: 'service', id: CONFIGURATION_ENTITY_ID },
         decision: 'trimmed',
@@ -328,20 +370,53 @@ async function composeTrimRow(input: {
             newestSeq,
             limitReached,
             minimalReferencesPreserved,
+            // The loss this rewrite performs that no removal accounts for. It
+            // rides on *this* row because this row is the only thing written
+            // for a rewrite: recording it here is what turns an invisible
+            // erasure into an auditable one (006 FR-053).
+            malformedLinesDropped,
         },
     });
 }
 
 /**
- * Read the trail oldest-first, as the sequence a reader walks it in.
+ * Read the trail oldest-first, as the sequence a reader walks it in, keeping
+ * the unreadable-line count beside it.
  *
  * @param store - Open store holding the trail.
- * @returns The usable rows, ordered by `seq`.
+ * @returns The usable rows ordered by `seq`, plus the lines that were refused.
  */
-async function readOrderedTrail(store: ServiceStore): Promise<readonly AuditEntry[]> {
-    const entries = await readAuditEntries(store);
+async function readOrderedTrail(store: ServiceStore): Promise<AuditTrailRead> {
+    const trail = await readAuditTrail(store);
 
-    return [...entries].sort((left, right) => left.seq - right.seq);
+    return { entries: [...trail.entries].sort((left, right) => left.seq - right.seq), malformed: trail.malformed };
+}
+
+/**
+ * Read the trail for one pass, reporting any line the reader had to refuse.
+ *
+ * The warn lands here, on the read whose result is destructive: this is the
+ * pass that erases those lines if it goes on to rewrite, and it says so before
+ * it does. The count then travels onto the trim row itself, so the loss is
+ * recorded rather than performed invisibly (006 FR-053).
+ *
+ * @param input - Open store and the logger to report the count through.
+ * @returns The ordered rows plus the unreadable-line count.
+ */
+async function readForPass(input: {
+    /** Open store holding the trail. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+}): Promise<AuditTrailRead> {
+    const trail = await readOrderedTrail(input.store);
+    if (trail.malformed > 0) {
+        input.log.warn('audit trail holds unreadable lines; a rewrite this pass makes erases them', {
+            malformedLinesDropped: trail.malformed,
+        });
+    }
+
+    return trail;
 }
 
 /**
@@ -359,7 +434,8 @@ export async function trimAudit(input: TrimAuditInput): Promise<TrimAuditOutcome
     const cutoff = now - input.config.auditRetentionDays * DAY_MS;
 
     return await serializeAudit(input.store, async () => {
-        const ordered = await readOrderedTrail(input.store);
+        const trail = await readForPass(input);
+        const ordered = trail.entries;
         const protectedSeqs = await protectedSeqsOf({
             store: input.store,
             log: input.log,
@@ -385,6 +461,7 @@ export async function trimAudit(input: TrimAuditInput): Promise<TrimAuditOutcome
             plan,
             limitReached: plan.limitReached,
             minimalReferencesPreserved,
+            malformedLinesDropped: trail.malformed,
             store: input.store,
         });
         await input.store.writeLines(AUDIT_FILE, [...plan.survivors, trimRow]);

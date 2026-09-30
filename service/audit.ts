@@ -258,16 +258,47 @@ export function parseAuditEntry(raw: unknown): AuditEntry | null {
     };
 }
 
+/** One read of the trail: the usable rows, plus the lines the reader refused. */
+export interface AuditTrailRead {
+    /** The entries, in file order. */
+    readonly entries: readonly AuditEntry[];
+    /**
+     * Lines that did not parse as an {@link AuditEntry}.
+     *
+     * Propagated rather than discarded: a reader that only *inspects* the
+     * trail can ignore them, but a reader that **rewrites** it is about to
+     * erase them, and erasing a line nobody counted is the invisible loss the
+     * trim pass records instead (`audit-trim.ts`, 006 FR-053's "any removal
+     * retention causes MUST be audited").
+     */
+    readonly malformed: number;
+}
+
+/**
+ * Read every usable audit entry **and** the count of lines that could not be
+ * used, in file order.
+ *
+ * @param store - Open store.
+ * @returns The entries plus the unreadable-line count.
+ */
+export async function readAuditTrail(store: ServiceStore): Promise<AuditTrailRead> {
+    const result = await store.readLines(AUDIT_FILE, parseAuditEntry);
+
+    return { entries: result.entries, malformed: result.malformed };
+}
+
 /**
  * Read every usable audit entry, in file order.
  *
  * @param store - Open store.
- * @returns The entries; malformed lines are skipped by the reader.
+ * @returns The entries; unreadable lines are skipped. A reader that goes on to
+ *   **rewrite** the trail must use {@link readAuditTrail} instead, so the skip
+ *   can be counted before the rewrite erases it.
  */
 export async function readAuditEntries(store: ServiceStore): Promise<readonly AuditEntry[]> {
-    const result = await store.readLines(AUDIT_FILE, parseAuditEntry);
+    const trail = await readAuditTrail(store);
 
-    return result.entries;
+    return trail.entries;
 }
 
 /** Process-local audit state for one open store (review M6/W2-2). */

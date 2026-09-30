@@ -23,7 +23,7 @@
  * in which the final-state row is *not* the chain's last row (003 FR-065).
  */
 
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -346,6 +346,7 @@ describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', (
             newestSeq: 27,
             limitReached: DAY_WINDOW,
             minimalReferencesPreserved: 9,
+            malformedLinesDropped: 0,
         });
         expect(trimmed?.decision).toBe('trimmed');
         expect(trimmed?.actorSource).toBe('service');
@@ -399,6 +400,7 @@ describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', (
             newestSeq: 4,
             limitReached: DAY_WINDOW,
             minimalReferencesPreserved: 4,
+            malformedLinesDropped: 0,
         });
     });
 
@@ -573,6 +575,77 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
         expect(trimmed?.details.limitReached).toBe('entry-cap');
     });
 
+    it('does not oscillate when the protected set sits exactly at the cap', async () => {
+        // Six protected rows for a cap of six: after the first pass the trail
+        // is those six plus the record of the removal, so the previous
+        // `audit.trimmed` row is the *only* row a cap-driven walk can still
+        // reach. Taking it to make room for the row that would record the
+        // taking is a rewrite every cycle forever, and it destroys the one
+        // thing that explains the trail's own seq gaps.
+        const protectedRows = Array.from({ length: 6 }, (_, index) =>
+            trailRow({
+                seq: index + 1,
+                eventType: CONFIG_CHANGED,
+                correlationId: `chain-at-cap-${index}`,
+                timestamp: LONG_AGO,
+            }),);
+        const trimmable = Array.from({ length: 5 }, (_, index) =>
+            trailRow({
+                seq: index + 7,
+                eventType: SERVICE_STARTED,
+                correlationId: `chain-at-cap-ordinary-${index}`,
+                timestamp: RECENT,
+            }),);
+        await plantTrail([...protectedRows, ...trimmable]);
+        const { log } = capturingLogger();
+        const config = configWith({ auditMaxEntries: 6 });
+
+        const first = await trimAudit({ store, log, config, now: NOW });
+
+        expect(first.removed).toBe(5);
+        expect(first.limitReached).toBe('entry-cap');
+        expect(first.minimalReferencesPreserved).toBe(6);
+        const afterFirst = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
+
+        const second = await trimAudit({ store, log, config, now: NOW });
+
+        // Protected-at-cap settles: no removal, no row, byte-identical file.
+        expect(second.removed).toBe(0);
+        expect(second.limitReached).toBeNull();
+        expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(afterFirst);
+        expect(await trimRows()).toHaveLength(1);
+    });
+
+    it('ages a previous trim row out under the day window while the cap leaves it alone', async () => {
+        const protectedRows = Array.from({ length: 4 }, (_, index) =>
+            trailRow({
+                seq: index + 1,
+                eventType: CONFIG_CHANGED,
+                correlationId: `chain-window-${index}`,
+                timestamp: LONG_AGO,
+            }),);
+        const staleTrim = trailRow({
+            seq: 5,
+            eventType: TRIM_EVENT,
+            correlationId: 'chain-window-trim',
+            timestamp: LONG_AGO,
+        });
+        await plantTrail([...protectedRows, staleTrim]);
+
+        // The cap never trips, so the only limit that can take the old record
+        // is the day window — and it does. Cap-exempt is not age-exempt.
+        const outcome = await trimAudit({ store, log: capturingLogger().log, config: configWith(), now: NOW });
+
+        expect(outcome.removed).toBe(1);
+        expect(outcome.limitReached).toBe(DAY_WINDOW);
+        expect(outcome.minimalReferencesPreserved).toBe(4);
+        const trail = await storedTrail();
+        expect(trail.map((entry) => entry.seq)).toEqual([1, 2, 3, 4, 6]);
+        const rows = await trimRows();
+        expect(rows.map((entry) => entry.seq)).toEqual([6]);
+        expect(rows[0]?.details).toMatchObject({ entriesRemoved: 1, limitReached: DAY_WINDOW });
+    });
+
     it('writes nothing at all when every row is protected, however far over the cap', async () => {
         const rows = Array.from({ length: 6 }, (_, index) =>
             trailRow({
@@ -679,5 +752,43 @@ describe('audit trim: durability (006 T-012, FR-053, FR-055)', () => {
         expect(trail.some((entry) => entry.eventType === TRIM_EVENT)).toBe(true);
         const seqs = trail.map((entry) => entry.seq);
         expect(new Set(seqs).size).toBe(seqs.length);
+    });
+
+    it('records unreadable lines it erases, and leaves them alone when it does not trim', async () => {
+        const rows = [
+            trailRow({ seq: 1, eventType: SERVICE_STARTED, correlationId: 'chain-torn-a', timestamp: LONG_AGO }),
+            trailRow({ seq: 2, eventType: SERVICE_STARTED, correlationId: 'chain-torn-b', timestamp: LONG_AGO }),
+        ];
+        // A torn write: valid JSON up to the cut, nothing after it. The reader
+        // counts the line and skips it; a rewrite would take it for good.
+        const torn = '{"seq":9,"timestamp":"2026-0';
+        await writeFile(
+            join(dataDir, AUDIT_FILE),
+            `${rows.map((row) => JSON.stringify(row)).join('\n')}\n${torn}\n`,
+            'utf8',
+        );
+        const { log, lines } = capturingLogger();
+
+        // A pass that removes nothing rewrites nothing, so the torn line is
+        // still on disk — and the read that skipped it already warned.
+        const idle = await trimAudit({ store, log, config: configWith({ auditRetentionDays: 3650 }), now: NOW });
+        expect(idle.removed).toBe(0);
+        expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toContain(torn);
+        expect(lines.some((line) => line.includes('unreadable lines'))).toBe(true);
+
+        // The pass that *does* rewrite carries the count onto the row that
+        // describes it, so the drop is auditable instead of silent.
+        const outcome = await trimAudit({ store, log, config: configWith(), now: NOW });
+        expect(outcome.removed).toBe(2);
+        const [trimmed] = await trimRows();
+        expect(trimmed?.details).toEqual({
+            entriesRemoved: 2,
+            oldestSeq: 1,
+            newestSeq: 2,
+            limitReached: DAY_WINDOW,
+            minimalReferencesPreserved: 0,
+            malformedLinesDropped: 1,
+        });
+        expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).not.toContain(torn);
     });
 });
