@@ -91,6 +91,12 @@ export type ServiceConfigPutResult =
         readonly code: string | null;
         /** The issues in the order the service returned them (006 AC-107). */
         readonly issues: readonly ConfigIssueView[];
+        /**
+         * The envelope's own correlation identifier, when it sent one — the
+         * only identifier an unexpected failure can be traced by, and the one
+         * FR-064 requires to be rendered as copyable text.
+         */
+        readonly correlationId: string | null;
     };
 
 /**
@@ -281,5 +287,6 @@ export function configResultOf(answer: GuestRequestResult): ServiceConfigPutResu
         problem: httpProblem(answer.status, 'configuration'),
         code: inEnvelope ? envelopeFieldOf(answer.body, 'code') : null,
         issues: inEnvelope ? envelopeIssuesOf(answer.body) : [],
+        correlationId: inEnvelope ? envelopeFieldOf(answer.body, 'correlationId') : null,
     };
 }

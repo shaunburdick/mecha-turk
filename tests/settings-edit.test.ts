@@ -48,6 +48,9 @@ import { parseConfigEnvelope } from '../src/settings-schema.ts';
 import type { ConfigEnvelope } from '../src/settings-schema.ts';
 import type { SettingsEdit } from '../src/settings-edit.ts';
 
+/** The transport problem one failure fixture reports, named once for its three uses. */
+const TRANSPORT_PROBLEM = 'service unreachable: ECONNREFUSED';
+
 /** One `GET /v1/config` body, assembled the way the service sends it. */
 function envelopeBody(overrides: {
     /** Members to merge into the document. */
@@ -243,7 +246,7 @@ describe('the answers arrive as facts, never as optimism (006 T-019, FR-025, FR-
         let edit = loaded(envelope);
         edit = editField({ edit, envelope, field: 'intervalMs', value: '120000' });
 
-        const saved = recordSaved({ edit, returned, changed: ['intervalMs'] });
+        const saved = recordSaved({ edit, returned, changed: ['intervalMs'], auditWritten: true });
 
         expect(saved.saveState).toBe('saved');
         expect(saved.draft.intervalMs).toBe('45000');
@@ -281,12 +284,33 @@ describe('the answers arrive as facts, never as optimism (006 T-019, FR-025, FR-
         let edit = loaded(envelope);
         edit = editField({ edit, envelope, field: 'intervalMs', value: '120000' });
 
-        const failed = recordFailed(edit, 'service unreachable: ECONNREFUSED');
+        const failed = recordFailed(edit, {
+            cause: 'transport',
+            problem: TRANSPORT_PROBLEM,
+            correlationId: null,
+        });
 
         expect(failed.saveState).toBe('failed');
-        expect(failed.problem).toBe('service unreachable: ECONNREFUSED');
+        expect(failed.problem).toBe(TRANSPORT_PROBLEM);
+        expect(failed.failure).toEqual({
+            cause: 'transport',
+            problem: TRANSPORT_PROBLEM,
+            correlationId: null,
+        });
         expect(failed.draft.intervalMs).toBe('120000');
         expect(failed.dirty).toEqual(['intervalMs']);
+    });
+
+    it('reports a successful write whose audit row never landed (006 AC-139)', () => {
+        const envelope = baseline();
+        const returned = read(envelopeBody({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000 } }));
+        const edit = loaded(envelope);
+
+        const saved = recordSaved({ edit, returned, changed: ['intervalMs'], auditWritten: false });
+
+        expect(saved.saveState).toBe('saved');
+        expect(saved.auditWritten).toBe(false);
+        expect(saved.failure).toBeNull();
     });
 });
 
@@ -300,7 +324,7 @@ describe('pending markers name the boundary and are retired by a read (006 T-019
         edit = editField({ edit, envelope, field: 'intervalMs', value: '45000' });
         edit = editField({ edit, envelope, field: 'logLevel', value: 'debug' });
 
-        const saved = recordSaved({ edit, returned, changed: ['intervalMs', 'logLevel'] });
+        const saved = recordSaved({ edit, returned, changed: ['intervalMs', 'logLevel'], auditWritten: true });
 
         expect(saved.pending).toEqual([{ field: 'intervalMs', boundary: 'next-cycle' }]);
         expect(saved.pending.some((entry) => entry.field === 'logLevel')).toBe(false);
@@ -311,7 +335,7 @@ describe('pending markers name the boundary and are retired by a read (006 T-019
         const returned = read(envelopeBody({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000 } }));
         let edit = loaded(envelope);
         edit = editField({ edit, envelope, field: 'intervalMs', value: '45000' });
-        const saved = recordSaved({ edit, returned, changed: ['intervalMs'] });
+        const saved = recordSaved({ edit, returned, changed: ['intervalMs'], auditWritten: true });
 
         expect(saved.pending).toHaveLength(1);
         // The configured value alone never retires it: the halves have to be

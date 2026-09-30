@@ -217,8 +217,27 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             problem: 'service unreachable: ECONNREFUSED',
             code: null,
             issues: [],
+            correlationId: null,
         });
         expect(landed).toEqual({ ok: true, body: '{}' });
+    });
+
+    it('keeps the envelope correlation id an unexpected failure carried (006 FR-064)', async () => {
+        const body = JSON.stringify({
+            error: { code: 'internal', message: 'route failed', correlationId: 'mt-cfg-1' },
+        });
+        const { serviceRequest } = scriptedRequester({ status: 500, body });
+
+        const failed = await servicePutConfig({ serviceRequest, body: '{}' });
+
+        expect(failed.ok).toBe(false);
+        if (failed.ok) {
+            return;
+        }
+
+        expect(failed.code).toBe('internal');
+        expect(failed.correlationId).toBe('mt-cfg-1');
+        expect(failed.problem).not.toContain('mt-cfg-1');
     });
 
     it('still says *bindings list* on the bindings path (nothing regresses)', async () => {

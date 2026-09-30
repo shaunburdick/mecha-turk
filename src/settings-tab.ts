@@ -40,7 +40,7 @@ import {
 } from './settings-actions.ts';
 import { mountSettingsRows, settingsRows, takeEffectWords, updateSettingsRows } from './settings-rows.ts';
 import {
-    CONFIG_SOURCE,
+    AUDIT_MISSING_LINE,
     EDITABLE_BODY,
     EDITABLE_TITLE,
     FAILURE_TITLE,
@@ -52,7 +52,9 @@ import {
     SOURCE_LINES,
     SOURCE_NOTE,
     initialSettingsTab,
+    readFailureBody,
     readStateLine,
+    writeFailureLines,
 } from './settings-state.ts';
 import {
     buildTabUi,
@@ -125,7 +127,10 @@ export interface SettingsTabUi {
 }
 
 /**
- * The issues the service named, as text in the service's order (FR-024).
+ * The issues the service named, as text in the service's order (FR-024) — and
+ * the two other things this region is owed: a failed write's own cause with
+ * its correlation id (FR-061 – FR-064), and the warning that names the audit
+ * row a save did not get (FR-070, AC-139).
  *
  * Rendered as one line each and never rewritten: the remediation is the
  * service's own sentence about a value the operator submitted, which is the
@@ -139,8 +144,12 @@ function issueLines(slice: SettingsTabState): readonly string[] {
         return slice.edit.issues.map((issue) => `${issue.field}: ${issue.remediation}`);
     }
 
-    if (slice.edit.saveState === 'failed' && slice.edit.problem !== null) {
-        return [slice.edit.problem];
+    if (slice.edit.saveState === 'failed' && slice.edit.failure !== null) {
+        return writeFailureLines(slice.edit.failure);
+    }
+
+    if (slice.edit.saveState === 'saved' && slice.edit.auditWritten === false) {
+        return [AUDIT_MISSING_LINE];
     }
 
     return [];
@@ -247,12 +256,16 @@ function repaintReadState(ui: SettingsTabUi, slice: SettingsTabState): void {
     ui.refresh.update({ disabled: loading, loading });
     ui.failureBox.hidden = slice.phase !== 'failed';
     if (slice.phase === 'failed') {
+        // AC-134: a failed *re*-read keeps the last document on screen, so the
+        // notice says when those values were read as well as why the current
+        // read failed — a stale value that is not marked stale is a lie.
+        const stale = slice.stale
+            ? ` The values on screen were read at ${slice.at ?? 'an unknown time'} and may be stale.`
+            : '';
         ui.failure.update({
             tone: 'warning',
             title: FAILURE_TITLE,
-            body:
-                `${slice.problem ?? 'the service did not answer'} — nothing on this tab is a value ` +
-                `until ${CONFIG_SOURCE} answers. Refresh to try again.`,
+            body: `${readFailureBody(slice.problem ?? 'the service did not answer')}${stale}`,
         });
     }
 

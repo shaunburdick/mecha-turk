@@ -16,7 +16,7 @@
  */
 
 import type { ConfigEnvelope, ConfigSource } from './settings-schema.ts';
-import type { SettingsEdit } from './settings-edit.ts';
+import type { SettingsEdit, SettingsFailure, SettingsFailureCause } from './settings-edit.ts';
 import { emptyEdit } from './settings-edit.ts';
 
 /** Path of the one document the tab reads, named for the operator too. */
@@ -92,6 +92,135 @@ export const SAVE_LINES: Readonly<Record<SettingsEdit['saveState'], string>> = {
     refused: 'The service refused these values.',
     failed: 'The write could not be completed.',
 };
+
+/** What each write-failure cause says, in the tab's own words (FR-061 – FR-064). */
+export const FAILURE_LINES: Readonly<Record<SettingsFailureCause, string>> = {
+    store:
+        'The service could not reach its configuration store. This is a setup prerequisite, not a refusal ' +
+        'of these values: nothing was written, the edit is not reported as saved, and nothing is retried ' +
+        'automatically.',
+    unauthorised:
+        'Not authorised: the panel holds no grant to write the configuration. Authorization belongs to the ' +
+        'host, and the panel does not retry it in a loop.',
+    transport:
+        'The write could not be sent: the service could not be reached. This is a transport failure, not a ' +
+        'refusal of these values, and no value the panel has not read is shown.',
+    unexpected:
+        'The write failed for a reason the service did not document. It was not a refusal of these values, ' +
+        'and the panel does not retry it automatically.',
+};
+
+/** The warning a save earns when its audit row never reached the trail (FR-070, AC-139). */
+export const AUDIT_MISSING_LINE =
+    'Saved — but the audit row for this change did not reach the trail: the configuration is in force, ' +
+    'this save has no config.changed record, and the change is therefore not traceable from the audit ' +
+    'history. The service logged the failure and rolled nothing back.';
+
+/**
+ * Classify one service answer into the four causes the tab renders (FR-061 – FR-064).
+ *
+ * The panel reads no new vocabulary here: `storage-unavailable` and
+ * `unauthorized` are the service's own error codes, the status sentences are
+ * the wrapper's, and the transport prefix is the wrapper's description of a
+ * call that never reached the service. Anything else is *undocumented* rather
+ * than guessed at.
+ *
+ * @param input - The envelope's machine code, and the wrapper's problem.
+ * @returns The cause whose copy the tab shows.
+ */
+export function causeOf(input: {
+    /** The envelope's `error.code`, when one came. */
+    readonly code: string | null;
+    /** The wrapper's problem string. */
+    readonly problem: string;
+}): SettingsFailureCause {
+    const { code, problem } = input;
+    if (code === 'storage-unavailable' || problem === 'service answered 503') {
+        return 'store';
+    }
+
+    if (code === 'unauthorized' || problem === 'service answered 401') {
+        return 'unauthorised';
+    }
+
+    if (problem.startsWith('service unreachable')) {
+        return 'transport';
+    }
+
+    return 'unexpected';
+}
+
+/**
+ * Build the failure a failed write records (FR-061 – FR-064).
+ *
+ * @param input - The envelope's code, the wrapper's problem, and the
+ *   envelope's correlation identifier, if it sent one.
+ * @returns The failure the tab will render.
+ */
+export function writeFailure(input: {
+    /** The envelope's `error.code`, when one came. */
+    readonly code: string | null;
+    /** The wrapper's problem string. */
+    readonly problem: string;
+    /** The envelope's correlation identifier, when one came (FR-064). */
+    readonly correlationId: string | null;
+}): SettingsFailure {
+    return { cause: causeOf(input), problem: input.problem, correlationId: input.correlationId };
+}
+
+/**
+ * What the issues region shows for a failed write: the cause's copy, the
+ * service's own problem beside it, and — when the envelope carried one — the
+ * correlation identifier as its own line of copyable text (FR-064, AC-133).
+ *
+ * @param failure - The recorded failure.
+ * @returns The lines, in render order.
+ */
+export function writeFailureLines(failure: SettingsFailure): readonly string[] {
+    const lines = [`${FAILURE_LINES[failure.cause]} (${failure.problem})`];
+    if (failure.correlationId !== null) {
+        lines.push(`Correlation id: ${failure.correlationId}`);
+    }
+
+    return lines;
+}
+
+/**
+ * What the failure notice says for a **read** that failed (FR-060 – FR-063).
+ *
+ * The same four causes, in the read's words: the transport case is the state
+ * AC-129 names exactly, the store case is 002 FR-039's setup prerequisite,
+ * and the unauthorised case is the grant the panel will not work around
+ * (constitution II).
+ *
+ * @param problem - The wrapper's problem string for the failed read.
+ * @returns The notice body.
+ */
+export function readFailureBody(problem: string): string {
+    const cause = causeOf({ code: null, problem });
+    if (cause === 'transport') {
+        return (
+            `service not running — settings read-only. ${problem}: the configuration could not be read, ` +
+            'so nothing on this tab is a value until the service answers. Refresh once it is running.'
+        );
+    }
+
+    if (cause === 'store') {
+        return (
+            `${problem}: the service could not open its configuration store. This is a setup prerequisite ` +
+            'rather than a refusal — nothing was read, no value is shown, and nothing is retried automatically.'
+        );
+    }
+
+    if (cause === 'unauthorised') {
+        return `${problem}: not authorised. The panel holds no grant to read the configuration and does not retry.`;
+    }
+
+    return (
+        `${problem}: the configuration read failed for a reason the service did not document. ` +
+        'No value is shown that was not read.'
+    );
+}
 
 /**
  * Where the Settings tab stands, and what it last rendered (FR-013, FR-019).

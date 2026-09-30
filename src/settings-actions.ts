@@ -28,8 +28,10 @@
 import { nowIso } from './ids.ts';
 import { redact } from './redaction.ts';
 import { CONFIG_PATH, serviceGet, servicePutConfig } from './service-calls.ts';
-import { parseConfigEnvelope } from './settings-schema.ts';
+import type { ServiceConfigPutResult } from './service-calls.ts';
+import { parseConfigEnvelope, parseConfigWriteAnswer } from './settings-schema.ts';
 import { restoreConfirmation, saveConfirmation } from './settings-confirm.ts';
+import { writeFailure } from './settings-state.ts';
 import {
     beginSave,
     discard,
@@ -44,6 +46,12 @@ import type { PanelRuntime } from './panel-state.ts';
 
 /** What an action calls when its state has changed. */
 export type Repaint = (rt: PanelRuntime) => void;
+
+/** What an answer the panel cannot read as a document is reported as. */
+const UNREADABLE_ANSWER = 'the service answered a document the panel could not read';
+
+/** What a refusal whose baseline is gone is reported as. */
+const UNREADABLE_REREAD = 'the configuration could not be re-read after the refusal';
 
 /**
  * Whether the runtime has been torn down while a request was in flight.
@@ -159,6 +167,103 @@ export function applyFieldEdit(input: {
 }
 
 /**
+ * Record an accepted write: the document the service returned, and the audit
+ * outcome it reported with it (FR-044, FR-070; AC-125, AC-139).
+ *
+ * @param input - The runtime, the repaint, the answer body, and the fields
+ *   the write changed.
+ */
+function recordAcceptedWrite(input: {
+    /** Panel runtime whose state moves. */
+    readonly rt: PanelRuntime;
+    /** What repaints the tab after the state moves. */
+    readonly repaint: Repaint;
+    /** The answer body. */
+    readonly body: string;
+    /** The fields the write changed, as the tab knew them going in. */
+    readonly changed: readonly string[];
+}): void {
+    const { rt, repaint, body, changed } = input;
+    const slice = rt.state.settingsTab;
+    const parsed = slice.doc === null ? null : parseConfigWriteAnswer({ body, previous: slice.doc });
+    if (parsed === null) {
+        slice.edit = recordFailed(slice.edit, writeFailure({
+            code: null,
+            problem: UNREADABLE_ANSWER,
+            correlationId: null,
+        }));
+        repaint(rt);
+
+        return;
+    }
+
+    slice.doc = parsed.returned;
+    slice.edit = recordSaved({
+        edit: slice.edit,
+        returned: parsed.returned,
+        changed,
+        auditWritten: parsed.auditWritten,
+    });
+    repaint(rt);
+}
+
+/**
+ * Apply one write's answer to the state: the document it returned, the
+ * refusal it issued, or the cause it failed with (FR-044, FR-061 – FR-064).
+ *
+ * Split out of {@link performWrite} so each answer path stays small enough to
+ * read on its own — the three are genuinely different kinds of fact, and
+ * conflating the last two is exactly how a `503` comes to look like a refusal
+ * of the operator's values.
+ *
+ * @param input - The runtime, the repaint, the answer, and the changed fields.
+ */
+function applyWriteAnswer(input: {
+    /** Panel runtime whose state moves. */
+    readonly rt: PanelRuntime;
+    /** What repaints the tab after the state moves. */
+    readonly repaint: Repaint;
+    /** The answer the wrapper produced. */
+    readonly answer: ServiceConfigPutResult;
+    /** The fields the write changed, as the tab knew them going in. */
+    readonly changed: readonly string[];
+}): void {
+    const { rt, repaint, answer, changed } = input;
+    const slice = rt.state.settingsTab;
+
+    if (answer.ok) {
+        recordAcceptedWrite({ rt, repaint, body: answer.body, changed });
+
+        return;
+    }
+
+    if (answer.code === 'validation') {
+        const current = slice.doc;
+        slice.edit = current === null
+            ? recordFailed(slice.edit, writeFailure({
+                code: null,
+                problem: UNREADABLE_REREAD,
+                correlationId: null,
+            }))
+            : recordRefused({ edit: slice.edit, envelope: current, issues: answer.issues });
+        repaint(rt);
+
+        return;
+    }
+
+    // Not a refusal of these values: a store the service cannot write, a
+    // missing grant, a transport failure, or something it did not document —
+    // each reaches the operator as its own cause, never as "the service
+    // refused your values" (FR-061, FR-063).
+    slice.edit = recordFailed(slice.edit, writeFailure({
+        code: answer.code,
+        problem: redact(answer.problem),
+        correlationId: answer.correlationId,
+    }));
+    repaint(rt);
+}
+
+/**
  * Send the one write a save activation authorises: one `PUT`, the whole
  * document (FR-040), issued only after every gate has passed.
  *
@@ -182,7 +287,15 @@ async function performWrite(rt: PanelRuntime, repaint: Repaint): Promise<void> {
     }
 
     const changed = [...slice.edit.dirty];
-    slice.edit = { ...slice.edit, saveState: 'saving', issues: [], problem: null, confirm: null };
+    slice.edit = {
+        ...slice.edit,
+        saveState: 'saving',
+        issues: [],
+        problem: null,
+        confirm: null,
+        failure: null,
+        auditWritten: null,
+    };
     repaint(rt);
 
     const answer = await servicePutConfig({
@@ -193,32 +306,7 @@ async function performWrite(rt: PanelRuntime, repaint: Repaint): Promise<void> {
         return;
     }
 
-    if (answer.ok) {
-        const returned = parseConfigEnvelope(answer.body);
-        slice.doc = returned;
-        slice.edit = returned === null
-            ? recordFailed(slice.edit, 'the service answered a document the panel could not read')
-            : recordSaved({ edit: slice.edit, returned, changed });
-        repaint(rt);
-
-        return;
-    }
-
-    if (answer.code === 'validation') {
-        const current = slice.doc;
-        slice.edit = current === null
-            ? recordFailed(slice.edit, 'the configuration could not be re-read after the refusal')
-            : recordRefused({ edit: slice.edit, envelope: current, issues: answer.issues });
-        repaint(rt);
-
-        return;
-    }
-
-    // Not a refusal of these values: a store the service cannot write, a
-    // missing grant, or a transport failure — each reaches the operator as
-    // itself, never as "the service refused your values" (FR-061, FR-063).
-    slice.edit = recordFailed(slice.edit, answer.problem);
-    repaint(rt);
+    applyWriteAnswer({ rt, repaint, answer, changed });
 }
 
 /**

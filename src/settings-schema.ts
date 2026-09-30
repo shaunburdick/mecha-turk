@@ -410,3 +410,77 @@ export function parseConfigEnvelope(body: string): ConfigEnvelope | null {
 export function descriptorFor(envelope: ConfigEnvelope, name: string): FieldDescriptor | null {
     return envelope.fields.find((descriptor) => descriptor.name === name) ?? null;
 }
+
+/** One `PUT /v1/config` answer: the document now in force, and its audit outcome. */
+export interface ConfigWriteAnswer {
+    /** The configuration the service says it stored, as a full envelope. */
+    readonly returned: ConfigEnvelope;
+    /**
+     * Whether the `config.changed` row reached disk (FR-070, AC-139), or
+     * `null` when the answer carried no such member — which is *not* a claim
+     * that it did: the panel never implies traceability it does not have.
+     */
+    readonly auditWritten: boolean | null;
+}
+
+/**
+ * Read a `PUT /v1/config` answer fail closed (006 T-024; FR-044, FR-070).
+ *
+ * The contract's write answer is `{ config, auditWritten }` (§4) — **not** the
+ * read envelope, because a write has no `source` or `defaultsApplied` to
+ * report: the declaration it does not carry is the one this tab read before it
+ * wrote. So the reader takes the two shapes it can meet, in this order:
+ *
+ * 1. a **full envelope** (the shape the read answers with) is adopted as it
+ *    stands, which is what the co-ship assumption in §1 relies on;
+ * 2. otherwise a `config` member is judged against **the declaration the last
+ *    read supplied** and rebuilt into a full envelope whose `source` is
+ *    `stored` — the service has just said it wrote the document, and the
+ *    members it did not send (the descriptor list) are immutable by
+ *    construction: `GET /v1/config` projects them from `service/config.ts`.
+ *
+ * Anything else — no `config` member, an unparseable body — refuses rather
+ * than half-applying, and the caller reports a document the panel could not
+ * read (invariant 8).
+ *
+ * @param input - The response body, and the last document this tab read.
+ * @returns The answer, or `null` when neither shape can be trusted.
+ */
+export function parseConfigWriteAnswer(input: {
+    /** Response body text. */
+    readonly body: string;
+    /** The last document this tab read, which supplies the declaration. */
+    readonly previous: ConfigEnvelope;
+}): ConfigWriteAnswer | null {
+    const root = parseJsonObject(input.body);
+    if (root === null) {
+        return null;
+    }
+
+    const auditWritten = typeof root.auditWritten === 'boolean' ? root.auditWritten : null;
+    const full = parseConfigEnvelope(input.body);
+    if (full !== null) {
+        return { returned: full, auditWritten };
+    }
+
+    const config = asRecord(root.config);
+    if (config === null) {
+        return null;
+    }
+
+    const { readable, unreadable } = partitionConfig(config, input.previous.fields);
+    const described = new Set(input.previous.fields.map((descriptor) => descriptor.name));
+    const undisplayed = Object.keys(config).filter((name) => !described.has(name));
+
+    return {
+        returned: {
+            config: readable,
+            fields: input.previous.fields,
+            source: 'stored',
+            defaultsApplied: [],
+            undisplayed,
+            unreadable,
+        },
+        auditWritten,
+    };
+}

@@ -35,6 +35,26 @@ import type { ConfigEnvelope, ConfigValue, FieldDescriptor, TakeEffectClass } fr
 /** Where one save stands (006 FR-013). */
 export type SaveState = 'idle' | 'editing' | 'saving' | 'saved' | 'refused' | 'failed';
 
+/**
+ * The four causes a configuration write can fail with (006 FR-061 – FR-064).
+ *
+ * The panel never guesses which one it met: each member names a documented
+ * answer (`503 storage-unavailable`, `401`, a transport failure, and anything
+ * the service did not document), so the copy each one gets is the copy that
+ * cause owes rather than one generic sentence for all four.
+ */
+export type SettingsFailureCause = 'store' | 'unauthorised' | 'transport' | 'unexpected';
+
+/** One failed write: its cause, the service's own words, and its identifier. */
+export interface SettingsFailure {
+    /** Which of the four documented causes this is. */
+    readonly cause: SettingsFailureCause;
+    /** The wrapper's problem string, verbatim and value-free. */
+    readonly problem: string;
+    /** The envelope's correlation identifier, when the service sent one (FR-064). */
+    readonly correlationId: string | null;
+}
+
 /** One field saved but not yet observed as effective (006 FR-038). */
 export interface PendingField {
     /** Document member the marker belongs to. */
@@ -68,6 +88,20 @@ export interface SettingsEdit {
      * because an arm describes **one** document and that document just moved.
      */
     readonly confirm: SettingsConfirmation | null;
+    /**
+     * The failed write's cause, its problem, and its correlation id (FR-061 –
+     * FR-064), or `null` when the last write did not fail. `problem` stays on
+     * its own because that is the string the failure line has always named.
+     */
+    readonly failure: SettingsFailure | null;
+    /**
+     * The audit outcome of the last **accepted** write: `false` is the
+     * service saying the configuration changed but its `config.changed` row
+     * did not reach the trail (FR-070, AC-139). `null` means no accepted
+     * write has answered since the last read, which is *not* a claim either
+     * way — the panel never implies traceability it does not have.
+     */
+    readonly auditWritten: boolean | null;
 }
 
 /** Why a save is not offered when nothing has ever been read (AC-124). */
@@ -98,9 +132,11 @@ export function emptyEdit(): SettingsEdit {
         blocked: NO_BASELINE_REASON,
         issues: [],
         problem: null,
+        failure: null,
         pending: [],
         reverted: [],
         confirm: null,
+        auditWritten: null,
     };
 }
 
@@ -191,6 +227,11 @@ export function loadEdit(edit: SettingsEdit, envelope: ConfigEnvelope | null): S
             issues: [],
             saveState: edit.saveState === 'saving' ? 'saving' : 'idle',
             confirm: null,
+            // A read retires both answers: the failure was about a write this
+            // baseline has now superseded, and the audit outcome belongs to a
+            // document the panel is no longer showing.
+            failure: null,
+            auditWritten: null,
         };
     }
 
@@ -204,8 +245,10 @@ export function loadEdit(edit: SettingsEdit, envelope: ConfigEnvelope | null): S
         blocked: blockedReason(envelope),
         issues: [],
         problem: null,
+        failure: null,
         reverted: [],
         confirm: null,
+        auditWritten: null,
     };
 }
 
@@ -238,6 +281,7 @@ export function editField(input: {
         saveState: dirty.length === 0 ? 'idle' : 'editing',
         issues: [],
         problem: null,
+        failure: null,
         reverted: [],
         // An arm describes the document as it stood when it was raised; an
         // edit moves that document, so the confirmation it authorised is
@@ -264,6 +308,7 @@ export function discard(edit: SettingsEdit, envelope: ConfigEnvelope): SettingsE
         saveState: 'idle',
         issues: [],
         problem: null,
+        failure: null,
         reverted,
         // Discard and cancel are the same retreat: the fields go back to the
         // last-read values, so the arm they were armed for goes with them
@@ -343,7 +388,8 @@ export function beginSave(edit: SettingsEdit, envelope: ConfigEnvelope | null): 
  * Record an accepted write, from the configuration the **service** returned
  * (FR-044, AC-125), and mark what it changed as pending (FR-038).
  *
- * @param input - The state, the returned configuration, and the changed fields.
+ * @param input - The state, the returned configuration, the changed fields,
+ *   and the audit outcome the answer reported (FR-070, AC-139).
  * @returns The state after the answer.
  */
 export function recordSaved(input: {
@@ -353,8 +399,10 @@ export function recordSaved(input: {
     readonly returned: ConfigEnvelope;
     /** The fields the write changed, as the service reported them. */
     readonly changed: readonly string[];
+    /** Whether the `config.changed` row reached disk; `null` when unreported. */
+    readonly auditWritten: boolean | null;
 }): SettingsEdit {
-    const { edit, returned, changed } = input;
+    const { edit, returned, changed, auditWritten } = input;
     const draft = draftOf(returned);
     const pending = [...edit.pending];
     for (const name of changed) {
@@ -376,9 +424,11 @@ export function recordSaved(input: {
         blocked: blockedReason(returned),
         issues: [],
         problem: null,
+        failure: null,
         pending,
         reverted: [],
         confirm: null,
+        auditWritten,
     };
 }
 
@@ -409,20 +459,36 @@ export function recordRefused(input: {
         saveState: 'refused',
         issues,
         problem: null,
+        failure: null,
         reverted: [],
         confirm: null,
+        auditWritten: null,
     };
 }
 
 /**
- * Record a write that could not be completed (FR-063).
+ * Record a write that could not be completed (FR-061 – FR-064).
+ *
+ * The failure carries its **cause** as well as the service's own words, so the
+ * tab can say which of the four documented reasons it met instead of showing
+ * one generic sentence for all of them — and it keeps the envelope's
+ * correlation identifier when one came, which is the only identifier an
+ * unexpected failure can be traced by.
  *
  * @param edit - Current state.
- * @param problem - The transport or store cause, as the wrapper reported it.
+ * @param failure - The cause, the wrapper's problem, and the correlation id.
  * @returns The state after the failure.
  */
-export function recordFailed(edit: SettingsEdit, problem: string): SettingsEdit {
-    return { ...edit, saveState: 'failed', issues: [], problem, confirm: null };
+export function recordFailed(edit: SettingsEdit, failure: SettingsFailure): SettingsEdit {
+    return {
+        ...edit,
+        saveState: 'failed',
+        issues: [],
+        problem: failure.problem,
+        failure,
+        confirm: null,
+        auditWritten: null,
+    };
 }
 
 /**

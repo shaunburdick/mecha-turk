@@ -176,7 +176,8 @@ export async function servicePut(input: {
  * FR-063).
  *
  * @param input - The host surface and the complete document to write.
- * @returns The body on success; the problem, code, and issues on a refusal.
+ * @returns The body on success; the problem, code, issues, and correlation id
+ *   on a refusal.
  */
 export async function servicePutConfig(input: {
     /** Host surface. */
@@ -189,7 +190,7 @@ export async function servicePutConfig(input: {
 
         return configResultOf(answer);
     } catch (cause) {
-        return { ok: false, problem: describeTransport(cause), code: null, issues: [] };
+        return { ok: false, problem: describeTransport(cause), code: null, issues: [], correlationId: null };
     }
 }
 
