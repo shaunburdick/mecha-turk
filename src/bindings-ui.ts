@@ -71,8 +71,6 @@ export interface BindingsPane {
     readonly toggleSelected: ButtonHandle;
     /** Removal button for the selected row. */
     readonly removeSelected: ButtonHandle;
-    /** Two-step Remove-account control (arm, then confirm). */
-    readonly removeAccount: ButtonHandle;
     /** Note under the form. */
     readonly note: TextHandle;
     /** Wrapper around the selected binding's own line (005 FR-053). */
@@ -95,8 +93,6 @@ export interface BindingsPaneHandlers extends DispatchControlsHandlers, BindingP
     readonly toggle: () => void;
     /** Operators removed the selected binding from the granted list. */
     readonly removeBinding: () => void;
-    /** Operators clicked the Remove-account control (arm, then confirm). */
-    readonly removeAccount: () => void;
     /** Operators changed the repository input. */
     readonly setRepoInput: (value: string) => void;
     /** Operators picked an account. */
@@ -140,12 +136,6 @@ export const MENTION_SCAN_NOTE = 'Issue bodies and comments that @mention the bo
 
 /** Note under the review-request checkbox (M7). */
 export const REVIEW_SCAN_NOTE = 'Pull requests that ask the account to review open a dispatch.';
-
-/** Idle label of the two-step Remove-account control. */
-export const REMOVE_ACCOUNT_IDLE_LABEL = 'Remove account';
-
-/** Confirm-step label after the first click (no `confirm()` in the frame). */
-export const REMOVE_ACCOUNT_CONFIRM_LABEL = 'Confirm remove';
 
 /**
  * Compose the pane's one status line.
@@ -206,8 +196,6 @@ interface Form {
     readonly toggle: ButtonHandle;
     /** Removal button for the selected row. */
     readonly removeSelected: ButtonHandle;
-    /** Two-step Remove-account control. */
-    readonly removeAccount: ButtonHandle;
     /** Note under the form. */
     readonly note: TextHandle;
 }
@@ -325,15 +313,6 @@ function mountAddForm(input: MountInputs): Form {
         input.pane,
         { label: 'Remove', variant: 'outline', disabled: true, onClick: input.handlers.removeBinding },
     );
-    const removeAccount = mountButton(
-        input.pane,
-        {
-            label: REMOVE_ACCOUNT_IDLE_LABEL,
-            variant: 'outline',
-            disabled: true,
-            onClick: input.handlers.removeAccount,
-        },
-    );
 
     return {
         repoField,
@@ -347,7 +326,6 @@ function mountAddForm(input: MountInputs): Form {
         add,
         toggle,
         removeSelected,
-        removeAccount,
         note: mountText(input.pane, { text: input.rt.state.bindings.note }),
     };
 }
@@ -390,7 +368,6 @@ function disposeBindingsBody(input: {
         form.add,
         form.toggle,
         form.removeSelected,
-        form.removeAccount,
         form.note,
     ];
 
@@ -455,7 +432,6 @@ export function mountBindingsBody(input: {
         addBinding: form.add,
         toggleSelected: form.toggle,
         removeSelected: form.removeSelected,
-        removeAccount: form.removeAccount,
         note: form.note,
         detailBox,
         selectedDetail,
@@ -514,10 +490,6 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
     view.addBinding.update({ disabled: bindings.status !== 'ready' });
     view.toggleSelected.update({ disabled: bindings.selectedBinding === null });
     view.removeSelected.update({ disabled: bindings.selectedBinding === null });
-    view.removeAccount.update({
-        label: bindings.removeAccountArmed ? REMOVE_ACCOUNT_CONFIRM_LABEL : REMOVE_ACCOUNT_IDLE_LABEL,
-        disabled: bindings.status !== 'ready' && !bindings.removeAccountArmed,
-    });
     view.note.update({ text: bindings.note });
     const detail = selectedBindingDetail(bindings);
     view.detailBox.hidden = detail === null;

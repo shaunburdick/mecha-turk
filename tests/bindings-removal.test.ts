@@ -14,12 +14,14 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { GuestRequest, GuestRequestResult, JsonValue } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
-import { bindRepository, removeAccount, removeBinding, toggleBinding } from '../src/bindings.ts';
+import { bindRepository, removeBinding, toggleBinding } from '../src/bindings.ts';
+import { armAccountRemoval, removeAccount } from '../src/accounts-actions.ts';
+import { createAccountsHandlers } from '../src/accounts-tab.ts';
+import { removalStatement } from '../src/accounts-rows.ts';
 import { bindingRows } from '../src/bindings-rows.ts';
 import { stopRelayPolling } from '../src/relay.ts';
-import { BINDINGS_PATH, accountDeletePath } from '../src/service-calls.ts';
+import { BINDINGS_PATH, accountRemovePath } from '../src/service-calls.ts';
 import { ACCOUNTS_STORAGE_KEY } from '../src/account-mirror.ts';
-import { createBindingsHandlers } from '../src/bindings-mount.ts';
 import { initialBindings } from '../src/panel-state.ts';
 import type { BindingsTabState } from '../src/panel-state.ts';
 import type { PanelAccount, PanelBinding } from '../src/bindings-service.ts';
@@ -35,6 +37,9 @@ const ACCOUNT_ID = '77331';
 /** Fixture repository the grants and the row copy share. */
 const WIDGET_REPO = 'acme/widget';
 
+/** A second fixture repository, so two rows can be told apart. */
+const OTHER_REPO = 'acme/other';
+
 /** RFC 3339 stamp the fixture rows carry. */
 const STAMP = '2026-09-27T00:00:00.000Z';
 
@@ -49,6 +54,8 @@ function bindingFixture(input: {
     readonly bindingId: string;
     /** `owner/name`. */
     readonly repository: string;
+    /** Stored state; defaults to the enabled one. */
+    readonly state?: 'active' | 'disabled';
 }): PanelBinding {
     return {
         bindingId: input.bindingId,
@@ -58,7 +65,7 @@ function bindingFixture(input: {
         projectId: 'prj_42',
         worktreeOption: 'none',
         triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
+        state: input.state ?? 'active',
         createdAt: STAMP,
         updatedAt: STAMP,
     };
@@ -105,7 +112,7 @@ function recordingService(answer: (request: GuestRequest) => GuestRequestResult)
 describe('removeBinding (per-binding purge control)', () => {
     it('grants the stored bindings without the selected row', async () => {
         const kept = bindingFixture({ bindingId: 'bnd-keep', repository: WIDGET_REPO });
-        const removed = bindingFixture({ bindingId: 'bnd-gone', repository: 'acme/other' });
+        const removed = bindingFixture({ bindingId: 'bnd-gone', repository: OTHER_REPO });
         const { host, requests } = recordingService((request) => {
             if (request.method === 'PUT' && request.path === BINDINGS_PATH) {
                 return { status: 200, body: bindingsBody([kept]) };
@@ -136,7 +143,7 @@ describe('removeBinding (per-binding purge control)', () => {
 
         // The state follows the service's stored answer; accounts untouched.
         expect(rt.state.bindings.bindings.map((binding) => binding.bindingId)).toEqual(['bnd-keep']);
-        expect(rt.state.bindings.note).toBe('Removed the binding for acme/other.');
+        expect(rt.state.bindings.note).toBe(`Removed the binding for ${OTHER_REPO}.`);
         expect(rt.state.bindings.selectedBinding).toBeNull();
         expect(rt.state.bindingsActive).toBe(1);
     });
@@ -151,13 +158,14 @@ describe('removeBinding (per-binding purge control)', () => {
     });
 });
 
-describe('removeAccount (two-step delete affordance)', () => {
+describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', () => {
     /** Fixture mirror the reinstall+wipe scenario leaves in storage. */
     const MIRROR_ENTRY: JsonValue = { numericUserId: ACCOUNT_ID, login: LOGIN, state: 'active', scopeCheck: null };
 
     /**
      * A runtime whose service answers the delete affirmatively and the reads
-     * with the pickers' fresh lists (the deleted account is gone).
+     * with the lists the hardened guard leaves behind: the account is gone
+     * and the binding it backed came back **disabled** (FR-065).
      */
     async function removalRuntime(storage: StorageDouble): Promise<{
         readonly rt: ReturnType<typeof createTestRuntime>;
@@ -169,7 +177,11 @@ describe('removeAccount (two-step delete affordance)', () => {
             }
 
             if (request.method === 'GET' && request.path === BINDINGS_PATH) {
-                const kept = bindingFixture({ bindingId: 'bnd-1', repository: WIDGET_REPO });
+                const kept = bindingFixture({
+                    bindingId: 'bnd-1',
+                    repository: WIDGET_REPO,
+                    state: 'disabled',
+                });
 
                 return { status: 200, body: bindingsBody([kept]) };
             }
@@ -180,49 +192,76 @@ describe('removeAccount (two-step delete affordance)', () => {
         rt.state.bindings.status = 'ready';
         rt.state.bindings.accounts = [{ numericUserId: ACCOUNT_ID, login: LOGIN, displayName: null, usable: true }];
         rt.state.handoff.connected = { numericUserId: ACCOUNT_ID, login: LOGIN };
+        rt.state.accounts.selected = ACCOUNT_ID;
 
         return { rt, requests };
     }
 
-    it('arms on the first click and deletes on the confirmation', async () => {
+    it('arms on the first click, names the cascade, and sends nothing (AC-126)', async () => {
         const storage = createStorageDouble({ [ACCOUNTS_STORAGE_KEY]: [MIRROR_ENTRY] });
         const { rt, requests } = await removalRuntime(storage);
-        const handlers = createBindingsHandlers(rt);
+        rt.state.bindings.bindings = [
+            bindingFixture({ bindingId: 'bnd-1', repository: WIDGET_REPO }),
+            bindingFixture({ bindingId: 'bnd-2', repository: OTHER_REPO }),
+        ];
+        const handlers = createAccountsHandlers(rt);
 
-        // First click: arm only — nothing reaches the service yet.
         handlers.removeAccount();
         await tick();
+
+        // The arm is a statement, not an action: nothing reached the service.
         expect(requests).toHaveLength(0);
-        expect(rt.state.bindings.removeAccountArmed).toBe(true);
+        expect(rt.state.accounts.removeArmed).toBe(ACCOUNT_ID);
+        const [account] = rt.state.bindings.accounts;
+        expect(account).toBeDefined();
+        if (account === undefined) {
+            return;
+        }
 
-        // Second click: the confirmed delete runs.
+        const statement = removalStatement(rt.state.bindings, account);
+        expect(statement).toContain('2 bindings will be disabled');
+        expect(statement).toContain('nothing is deleted');
+
+        // An account bound to nothing says zero rather than warning vaguely.
+        rt.state.bindings.bindings = [];
+        expect(removalStatement(rt.state.bindings, account)).toContain('0 bindings will be disabled');
+        // And the arm is reversible before it ever becomes a delete.
+        armAccountRemoval(rt, ACCOUNT_ID);
+        expect(rt.state.accounts.removeArmed).toBe(ACCOUNT_ID);
+    });
+
+    it('deletes on the confirmation and renders its bindings disabled (AC-127)', async () => {
+        const storage = createStorageDouble({ [ACCOUNTS_STORAGE_KEY]: [MIRROR_ENTRY] });
+        const { rt, requests } = await removalRuntime(storage);
+        const handlers = createAccountsHandlers(rt);
+
+        handlers.removeAccount();
+        await tick();
         handlers.removeAccount();
         await tick();
 
-        // The delete leads; the panel reloads both lists afterwards so the
-        // pickers lose the removed row. The reload lands an enabled binding,
-        // which arms the relay's immediate claim (pre-PR arming fix) — stop
-        // that loop so its interval cannot outlive the test.
-        stopRelayPolling(rt);
+        // `force=1` is the cascade the arm step stated: the service's guard
+        // disables the bindings (one audit row each) instead of refusing.
         expect(requests.map((request) => `${request.method} ${request.path}`)).toEqual([
-            `DELETE /v1/accounts/${ACCOUNT_ID}`,
+            `DELETE /v1/accounts/${ACCOUNT_ID}?force=1`,
             'GET /v1/bindings',
             'GET /v1/accounts',
-            'GET /v1/events/pending',
         ]);
+        expect(rt.state.accounts.removeArmed).toBeNull();
+        expect(rt.state.accounts.selected).toBeNull();
         // The connected identity pointed at the removed account.
         expect(rt.state.handoff.connected).toBeNull();
-        expect(rt.state.bindings.removeAccountArmed).toBe(false);
+
+        // The binding is present, disabled, and says why — never deleted.
+        expect(rt.state.bindings.bindings).toHaveLength(1);
+        expect(bindingRows(rt.state.bindings)[0]?.subtitle).toContain('disabled — account removed');
     });
 
     it('clears the account mirror from host.storage after the delete', async () => {
         const storage = createStorageDouble({ [ACCOUNTS_STORAGE_KEY]: [MIRROR_ENTRY] });
         const { rt } = await removalRuntime(storage);
 
-        await removeAccount(rt);
-        // The post-delete reload lands an enabled binding and arms the relay;
-        // stop it so the interval cannot outlive this test.
-        stopRelayPolling(rt);
+        await removeAccount(rt, ACCOUNT_ID);
 
         const mirrored = storage.values.get(ACCOUNTS_STORAGE_KEY);
         expect(mirrored).toEqual([]);
@@ -245,10 +284,10 @@ describe('removeAccount (two-step delete affordance)', () => {
         rt.state.bindings.accounts = [{ numericUserId: ACCOUNT_ID, login: LOGIN, displayName: null, usable: true }];
         rt.state.handoff.connected = { numericUserId: ACCOUNT_ID, login: LOGIN };
 
-        await removeAccount(rt);
-        await removeAccount(rt);
+        await removeAccount(rt, ACCOUNT_ID);
+        await removeAccount(rt, ACCOUNT_ID);
 
-        expect(rt.state.bindings.note).toContain('remove them first');
+        expect(rt.state.accounts.note).toContain('remove them first');
         // Nothing was deleted: the identity and the state stay as they were.
         expect(rt.state.handoff.connected).toEqual({ numericUserId: ACCOUNT_ID, login: LOGIN });
         expect(rt.state.bindings.accounts).toEqual([
@@ -256,8 +295,8 @@ describe('removeAccount (two-step delete affordance)', () => {
         ]);
     });
 
-    it('builds the delete path from the numeric id', () => {
-        expect(accountDeletePath(ACCOUNT_ID)).toBe(`/v1/accounts/${ACCOUNT_ID}`);
+    it('builds the forced delete path from the numeric id', () => {
+        expect(accountRemovePath(ACCOUNT_ID)).toBe(`/v1/accounts/${ACCOUNT_ID}?force=1`);
     });
 });
 
@@ -365,7 +404,7 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
 
     it('leaves every other binding byte-identical when the submission is refused (AC-125)', async () => {
         const kept = bindingFixture({ bindingId: 'bnd-keep', repository: WIDGET_REPO });
-        const other = bindingFixture({ bindingId: 'bnd-other', repository: 'acme/other' });
+        const other = bindingFixture({ bindingId: 'bnd-other', repository: OTHER_REPO });
         const { host, requests } = recordingService((request) => {
             if (request.method === 'PUT' && request.path === BINDINGS_PATH) {
                 return { status: 422, body: VALIDATION_REFUSAL };

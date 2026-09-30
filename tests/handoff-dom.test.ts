@@ -16,13 +16,15 @@
 import type { GuestRequest, GuestRequestResult, HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
 import { mountHandoffDom, refreshHandoff, submitHandoffAndRepaint } from '../src/accounts-ui.ts';
-import { CONSENT_STORAGE_KEY } from '../src/consent.ts';
+import { CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../src/consent.ts';
 import { VERIFY_PATH, currentHandoffToken } from '../src/handoff.ts';
 import type { HandoffHandlers } from '../src/accounts-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 import {
+    CONNECTED_ID,
+    CONNECTED_LOGIN,
     CURRENT_CONSENT,
     PANEL_TOKEN,
     VERIFY_BODY,
@@ -316,5 +318,45 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
         expect(mounted.renderedText()).toContain('The token belongs to a different account');
         expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
         expect(currentHandoffToken()).toBeUndefined();
+    });
+
+    it('routes the same paste to the token-replacement path once a row arms it (FR-064)', async () => {
+        const rotated = JSON.stringify({
+            numericUserId: CONNECTED_ID,
+            login: CONNECTED_LOGIN,
+            verifiedAt: '2026-09-27T00:00:00.000Z',
+        });
+        const mounted = await mountHandoff({
+            name: 'a rotation',
+            verify: { status: 200, body: rotated },
+        });
+        // A rotation is armed from a loaded row, so the account is there.
+        mounted.rt.state.bindings.accounts = [
+            {
+                numericUserId: CONNECTED_ID,
+                login: CONNECTED_LOGIN,
+                displayName: null,
+                usable: true,
+                state: 'active',
+            },
+        ];
+
+        mounted.rt.state.accounts.rotateArmed = CONNECTED_ID;
+        mounted.input.value = PANEL_TOKEN;
+        mounted.submit.click();
+        await mounted.submitted();
+
+        const request = mounted.requests.find(
+            (candidate) => candidate.path === `/v1/accounts/${CONNECTED_ID}/token`,
+        );
+        expect(request).toBeDefined();
+        // The constraint never travels on a rotation: the route replaces a
+        // credential for an account that is already identified.
+        expect(String(request?.body)).not.toContain('expectedLogin');
+        expect(String(request?.body)).toContain(CONSENT_VERSION);
+        // The arm clears and the retention promise is what the note reports.
+        expect(mounted.rt.state.accounts.rotateArmed).toBeNull();
+        expect(mounted.rt.state.accounts.note).toContain('retained');
+        expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
     });
 });

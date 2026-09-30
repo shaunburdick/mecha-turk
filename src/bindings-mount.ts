@@ -30,11 +30,9 @@ import type { PanelRuntime } from './panel-state.ts';
 import { grantBindings } from './bindings-grant.ts';
 import { storedPromptFor } from './bindings-prompt.ts';
 import {
-    armAccountRemoval,
     bindRepository,
     editBindings,
     loadBindings,
-    removeAccount,
     removeBinding,
     toggleBinding,
 } from './bindings.ts';
@@ -188,15 +186,6 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
         submit: () => void bindRepository(rt),
         toggle: () => void toggleBinding(rt),
         removeBinding: () => void removeBinding(rt),
-        removeAccount: () => {
-            if (rt.state.bindings.removeAccountArmed) {
-                void removeAccount(rt);
-
-                return;
-            }
-
-            armAccountRemoval(rt);
-        },
         setRepoInput: (value) => editBindings(rt, { repoInput: value }),
         selectAccount: (id) => editBindings(rt, { accountSelection: id }),
         selectProject: (id) => selectBindingProject(rt, id),

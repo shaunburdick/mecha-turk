@@ -54,6 +54,26 @@ const RUN_SCOPE_PATTERN = '/v1/events/:correlationId';
 /** Path pattern for one account resource (the delete route). */
 const ACCOUNT_DELETE_PATTERN = '/v1/accounts/:numericUserId';
 
+/** Path pattern of one account's token-replacement route (002 FR-012). */
+const ACCOUNT_TOKEN_PATTERN = '/v1/accounts/:numericUserId/token';
+
+/** Path pattern of one account's display-name route (005 FR-066). */
+const ACCOUNT_DISPLAY_NAME_PATTERN = '/v1/accounts/:numericUserId/display-name';
+
+/**
+ * Query flag the hardened delete needs before it disables an account's
+ * bindings instead of refusing (005 FR-065).
+ *
+ * The panel only ever sends it **after** the arm step has named the cascade,
+ * which is what makes the flag the confirmation rather than a bypass: the
+ * service's own guard writes `state: 'disabled'` on those bindings and audits
+ * each one, and the panel renders exactly that outcome.
+ */
+const FORCE_DISABLE_QUERY = '?force=1';
+
+/** The path segment every account route substitutes the numeric id into. */
+const ACCOUNT_ID_SEGMENT = ':numericUserId';
+
 /** Lowest HTTP status code a service answer counts as success. */
 const STATUS_OK_MIN = 200;
 
@@ -311,7 +331,41 @@ export async function serviceDelete(input: {
  * @returns The path segment to DELETE.
  */
 export function accountDeletePath(numericUserId: string): string {
-    return ACCOUNT_DELETE_PATTERN.replace(':numericUserId', numericUserId);
+    return ACCOUNT_DELETE_PATTERN.replace(ACCOUNT_ID_SEGMENT, numericUserId);
+}
+
+/**
+ * Build the delete path for one account **with** the cascade the arm step
+ * already stated (005 FR-055, FR-065).
+ *
+ * @param numericUserId - GitHub numeric user id of the account to delete.
+ * @returns The path segment that disables the account's bindings, then it.
+ */
+export function accountRemovePath(numericUserId: string): string {
+    return `${accountDeletePath(numericUserId)}${FORCE_DISABLE_QUERY}`;
+}
+
+/**
+ * Build the token-replacement path for one account (002 FR-012, FR-064).
+ *
+ * @param numericUserId - GitHub numeric user id of the account being rotated.
+ * @returns The path segment that replaces the stored credential.
+ */
+export function accountTokenPath(numericUserId: string): string {
+    return ACCOUNT_TOKEN_PATTERN.replace(ACCOUNT_ID_SEGMENT, numericUserId);
+}
+
+/**
+ * Build the display-name path for one account (005 FR-066, Gate Question 4).
+ *
+ * A narrow operation on purpose: it can change nothing but `displayName` and
+ * `updatedAt`, so a mistyped body can never reach custody.
+ *
+ * @param numericUserId - GitHub numeric user id of the account being labelled.
+ * @returns The path segment that sets the operator's display label.
+ */
+export function accountDisplayNamePath(numericUserId: string): string {
+    return ACCOUNT_DISPLAY_NAME_PATTERN.replace(ACCOUNT_ID_SEGMENT, numericUserId);
 }
 
 /**

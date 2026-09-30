@@ -411,6 +411,19 @@ describe('T-023 the Bindings tab speaks the product vocabulary (FR-020)', () => 
         expect(modules.length).toBeGreaterThan(0);
         expect(offenders).toEqual([]);
     });
+
+    it('offers no account-removal or rotation control on this tab (FR-059, T-026)', () => {
+        const { dispose } = mountBindingsTab();
+        const strings = renderedStrings();
+        dispose();
+
+        // The account-removal affordance lives on the Accounts tab, where its
+        // cascade statement is (FR-065); this tab shows only the accounts a
+        // binding refers to.
+        expect(strings.some((line) => line.includes('Remove account'))).toBe(false);
+        expect(strings.some((line) => line.includes('Confirm remove'))).toBe(false);
+        expect(strings.some((line) => line.includes('Rotate token'))).toBe(false);
+    });
 });
 
 /**

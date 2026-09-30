@@ -14,8 +14,10 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { adoptServiceAccounts } from '../src/account-adoption.ts';
+import { saveDisplayName } from '../src/accounts-actions.ts';
 import {
     HANDOFF_REMEDIATION,
     accountDetail,
@@ -23,6 +25,7 @@ import {
     accountTitle,
     connectionPhrase,
     lifecycleCopy,
+    rotationStatement,
 } from '../src/accounts-rows.ts';
 import { bindingRows } from '../src/bindings-rows.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
@@ -396,6 +399,12 @@ const LIFECYCLE_LABELS = new Map<string, string>([
 /** A payload that must reach the DOM as bytes, never as markup (FR-080). */
 const HOSTILE_TITLE = '<img src=x onerror="alert(1)">';
 
+/** The label the display-name round trip writes (FR-066). */
+const NEW_LABEL = 'Mecha Turk Ops';
+
+/** The login an upstream rename produces (AC-128). */
+const RENAMED_LOGIN = 'octocat-renamed';
+
 /** Every FR-010 capability, in the order the contract's matrix reports them. */
 const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] as const;
 
@@ -721,6 +730,156 @@ describe('T-025 opening the Accounts tab does not re-request consent (002 FR-008
 
         expect(consentCardVisible(created)).toBe(true);
         expect(rt.state.handoff.consentGiven).toBe(false);
+    });
+});
+
+/** The service's answer to one display-name write, plus what a re-read holds. */
+interface DisplaySpec {
+    /** What `PUT …/display-name` answers. */
+    readonly answer: GuestRequestResult;
+    /** The label the follow-up read reports, when the write was accepted. */
+    readonly stored?: string | null;
+}
+
+/**
+ * Mount the runtime the display-name write runs against, over a recording host.
+ *
+ * @param spec - The write's answer and the label a re-read reports.
+ * @returns The runtime and every request it made.
+ */
+async function displayRuntime(spec: DisplaySpec): Promise<{
+    /** The runtime under test. */
+    readonly rt: PanelRuntime;
+    /** Every request the write and its re-read made, in order. */
+    readonly requests: GuestRequest[];
+}> {
+    const requests: GuestRequest[] = [];
+    const listed = [
+        {
+            numericUserId: CONNECTED_ID,
+            login: CONNECTED_LOGIN,
+            displayName: spec.stored ?? 'Ops label',
+            state: 'active',
+            connectionState: 'connected',
+            verifiedAt: GIVEN_AT,
+            errorReason: null,
+            scopeCheck: { checkedAt: GIVEN_AT, results: scopeResults('ok') },
+        },
+    ];
+    const host = fakeHost({
+        serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
+            requests.push(request);
+            if (request.method === 'PUT') {
+                return spec.answer;
+            }
+
+            if (request.path === '/v1/accounts') {
+                return { status: 200, body: JSON.stringify({ accounts: listed }) };
+            }
+
+            if (request.path === '/v1/bindings') {
+                return { status: 200, body: JSON.stringify({ bindings: [], status: [] }) };
+            }
+
+            return { status: 404, body: '{"error":{"code":"not-found","message":"unrouted"}}' };
+        },
+    });
+    const rt = createTestRuntime(host);
+    rt.state.bindings.status = 'ready';
+    rt.state.bindings.accounts = [
+        {
+            numericUserId: CONNECTED_ID,
+            login: CONNECTED_LOGIN,
+            displayName: 'Ops label',
+            usable: true,
+            state: 'active',
+        },
+    ];
+    rt.state.accounts.selected = CONNECTED_ID;
+    rt.state.accounts.displayNameRow = CONNECTED_ID;
+    rt.state.accounts.displayNameDraft = 'Ops label';
+
+    return { rt, requests };
+}
+
+describe('T-026 the display name is written by the service, never by the panel (FR-066)', () => {
+    it('round-trips a label through the narrow route and shows what came back', async () => {
+        const { rt, requests } = await displayRuntime({
+            answer: { status: 200, body: JSON.stringify({ account: {} }) },
+            stored: NEW_LABEL,
+        });
+
+        await saveDisplayName(rt, { numericUserId: CONNECTED_ID, value: NEW_LABEL });
+
+        const put = requests.find((request) => request.method === 'PUT');
+        expect(put?.path).toBe(`/v1/accounts/${CONNECTED_ID}/display-name`);
+        expect(JSON.parse(String(put?.body))).toEqual({ displayName: NEW_LABEL });
+        // The value on screen is the one the authoritative re-read reported.
+        expect(rt.state.bindings.accounts[0]?.displayName).toBe(NEW_LABEL);
+        expect(rt.state.accounts.displayNameError).toBeNull();
+        expect(rt.state.accounts.note).toContain('Display name saved');
+    });
+
+    it('renders the refusal at the field and keeps the stored label (AC-130)', async () => {
+        const refusal = JSON.stringify({
+            error: {
+                code: 'validation',
+                message: 'displayName must not contain credential-shaped material (matched shape: PAT)',
+            },
+        });
+        const { rt, requests } = await displayRuntime({ answer: { status: 422, body: refusal } });
+        const submitted = 'ghp_looks_like_a_token';
+        // What the field holds at the click: the operator's own text.
+        rt.state.accounts.displayNameDraft = submitted;
+
+        await saveDisplayName(rt, { numericUserId: CONNECTED_ID, value: submitted });
+
+        expect(requests.some((request) => request.method === 'PUT')).toBe(true);
+        // The service's copy names the field and the shape, never the value.
+        expect(rt.state.accounts.displayNameError).toContain('credential-shaped material');
+        expect(rt.state.accounts.displayNameError).not.toContain(submitted);
+        // Nothing was applied, so the list still shows the stored label, and
+        // the draft keeps what was typed so the operator can correct it.
+        expect(rt.state.bindings.accounts[0]?.displayName).toBe('Ops label');
+        expect(rt.state.accounts.displayNameDraft).toBe(submitted);
+    });
+
+    it('keeps the display name when the login is renamed upstream (AC-128)', () => {
+        const renamed = accountFixture({ login: RENAMED_LOGIN, displayName: 'Ops label' });
+        const [row] = accountRows(accountsState({ accounts: [renamed] }));
+
+        // The label is the operator's; the login is GitHub's. A rename
+        // updates one and must never clobber the other.
+        expect(row?.title).toBe('Ops label');
+        expect(row?.subtitle).toContain('@octocat-renamed');
+        expect(accountTitle(renamed)).toBe('Ops label');
+        expect(accountTitle(accountFixture({ login: RENAMED_LOGIN }))).toBe(RENAMED_LOGIN);
+    });
+
+    it('states what a rotation keeps, before anything is pasted (FR-064)', () => {
+        const statement = rotationStatement(CONNECTED_LOGIN);
+
+        expect(statement).toContain('every checkpoint, delivery, dispatch, and audit');
+        expect(statement).toContain(CONNECTED_LOGIN);
+        expect(statement).toContain('above');
+    });
+
+    it('offers no confirm() dialog anywhere in the panel (FR-084)', () => {
+        const modules = readdirSync(SRC_DIR, { recursive: true }).map(String).filter((name) => name.endsWith('.ts'));
+        const offenders = modules.filter((name) => {
+            const code = readFileSync(join(SRC_DIR, name), 'utf8')
+                .split('\n')
+                .filter((line) => {
+                    const trimmed = line.trim();
+
+                    return !trimmed.startsWith('*') && !trimmed.startsWith('//') && !trimmed.startsWith('/*');
+                })
+                .join('\n');
+
+            return /(^|[^.\w])confirm\s*\(/m.test(code);
+        });
+
+        expect(offenders).toEqual([]);
     });
 });
 

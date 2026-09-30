@@ -30,6 +30,7 @@
 import type { ListItem } from '@openchamber/sdk/ui';
 import { elapsedSince } from './bindings-rows.ts';
 import type { BindingsTabState } from './panel-state.ts';
+import type { AccountsTabState } from './accounts-state.ts';
 import type { PanelAccount } from './bindings-service.ts';
 
 /**
@@ -260,4 +261,81 @@ export function accountDetail(bindings: BindingsTabState, account: PanelAccount)
     }
 
     return parts.join(' · ');
+}
+
+/**
+ * What a rotation keeps, stated before it happens (005 FR-064).
+ *
+ * It is the operator's first question about rotation and never the one they
+ * fear, so the confirmation answers it rather than asking for faith: every
+ * checkpoint, delivery, dispatch, and audit record stays where it is, and the
+ * only thing that changes is the credential.
+ *
+ * @param login - The account being rotated.
+ * @returns The retention statement the armed row shows.
+ */
+export function rotationStatement(login: string): string {
+    return (
+        `Rotating the token for ${login} keeps every checkpoint, delivery, dispatch, and audit `
+        + 'record for this account. Paste the replacement token above and choose Connect account.'
+    );
+}
+
+/**
+ * What a removal does, stated before it happens (005 FR-055, FR-065).
+ *
+ * The count is the whole point of the arm step: the service's hardened guard
+ * disables exactly these bindings when the delete lands, and an operator who
+ * is told *zero* is told zero rather than shown a vague warning.
+ *
+ * @param bindings - The Bindings tab's state, for the count.
+ * @param account - The account about to be removed.
+ * @returns The cascade statement the armed row shows.
+ */
+export function removalStatement(bindings: BindingsTabState, account: PanelAccount): string {
+    const count = bindingsBacked(bindings, account);
+    const bindingsWord = count === 1 ? 'binding' : 'bindings';
+
+    return (
+        `Remove ${account.login}? ${count} ${bindingsWord} will be disabled — they stay in the `
+        + 'list with that reason, and nothing is deleted.'
+    );
+}
+
+/** What the note says once a rotation landed (005 FR-064). */
+export function rotationRetained(login: string): string {
+    return (
+        `Token rotated for ${login} — every checkpoint, delivery, dispatch, and audit record `
+        + 'for this account is retained.'
+    );
+}
+
+/**
+ * The confirmation the selected row owes the operator right now (FR-055, FR-064).
+ *
+ * Derived at render time from which control is armed, so the statement can
+ * never be staler than the arm it describes and never needs clearing.
+ *
+ * @param input - The tab's working state, the stored data, and the open row.
+ * @returns The statement to append to the detail line, or `null` when nothing
+ *   on this row is armed.
+ */
+export function armStatement(input: {
+    /** The Accounts tab's working state. */
+    readonly accounts: AccountsTabState;
+    /** The Bindings tab's state, for the count. */
+    readonly bindings: BindingsTabState;
+    /** The row being described. */
+    readonly account: PanelAccount;
+}): string | null {
+    const id = input.account.numericUserId;
+    if (input.accounts.removeArmed === id) {
+        return removalStatement(input.bindings, input.account);
+    }
+
+    if (input.accounts.rotateArmed === id) {
+        return rotationStatement(input.account.login);
+    }
+
+    return null;
 }

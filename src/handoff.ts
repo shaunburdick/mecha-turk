@@ -27,6 +27,7 @@
 import type { GuestRequestResult } from '@openchamber/sdk';
 import { adoptOnDuplicate, isDuplicateRefusal } from './account-adoption.ts';
 import { readScopeMirror, writeAccountMirror } from './account-mirror.ts';
+import { rotationRetained } from './accounts-rows.ts';
 import { CONSENT_STORAGE_KEY, CONSENT_VERSION, consentCurrent, readConsentMirror } from './consent.ts';
 import {
     CONSENT_REFUSAL,
@@ -40,6 +41,7 @@ import {
 import { hostErrorCode, preflightHandoff, rereadStatusAfterTimeout } from './handoff-status.ts';
 import { parseJsonObject } from './json.ts';
 import { reloadBindingsAfterConnect } from './bindings.ts';
+import { accountTokenPath } from './service-calls.ts';
 import { writeStorage } from './storage-write.ts';
 import type { ConsentMirror } from './consent.ts';
 import type { PanelRuntime } from './panel-state.ts';
@@ -49,6 +51,9 @@ export const VERIFY_PATH = '/v1/accounts/verify';
 
 /** Success status of `POST /v1/accounts/verify` (contract §2.2). */
 const HTTP_CREATED = 201;
+
+/** Success status of the token-replacement route (005 FR-064). */
+const HTTP_OK = 200;
 
 /** Status a store-backed route answers with when storage is unusable (F14). */
 const HTTP_STORAGE_UNAVAILABLE = 503;
@@ -315,7 +320,12 @@ async function applyServiceFailure(rt: PanelRuntime, result: GuestRequestResult)
         return;
     }
 
-    rt.state.handoff.connected = null;
+    // A refused *rotation* leaves a credential that still stands, so the
+    // connected line survives it; only a refused new handoff disconnects.
+    if (rt.state.accounts.rotateArmed === null) {
+        rt.state.handoff.connected = null;
+    }
+
     rt.state.handoff.note = serviceFailureCopy(result);
     if (result.status === HTTP_STORAGE_UNAVAILABLE) {
         rt.state.handoff.storageWritable = false;
@@ -331,19 +341,52 @@ async function applyServiceFailure(rt: PanelRuntime, result: GuestRequestResult)
 }
 
 /**
- * Send the one-shot verification request (contract §2 step ④).
+ * Send the one-shot credential request (contract §2 step ④).
  *
- * @param rt - Panel runtime.
+ * When a row has armed the Rotate-token control, the same paste goes to the
+ * existing token-replacement route for that account instead (002 FR-012,
+ * 005 FR-064): the gate, the consent version, and the one-shot clearing are
+ * identical — only the path differs, and `expectedLogin` never travels on a
+ * rotation, because the route replaces a credential for an account that is
+ * already identified (it accepts no constraint).
+ *
+ * @param rt - Panel runtime, whose armed row picks the route.
  * @param input - Credential and optional expected login.
  * @returns The service's answer.
  */
 async function requestVerification(rt: PanelRuntime, input: HandoffInput): Promise<GuestRequestResult> {
+    const rotating = rt.state.accounts.rotateArmed;
     const body: Record<string, unknown> = { token: input.token, consentVersion: CONSENT_VERSION };
-    if (input.expectedLogin !== undefined) {
+    if (rotating === null && input.expectedLogin !== undefined) {
         body.expectedLogin = input.expectedLogin;
     }
 
-    return await rt.host.serviceRequest({ method: 'POST', path: VERIFY_PATH, body: JSON.stringify(body) });
+    return await rt.host.serviceRequest({
+        method: 'POST',
+        path: rotating === null ? VERIFY_PATH : accountTokenPath(rotating),
+        body: JSON.stringify(body),
+    });
+}
+
+/**
+ * Settle a rotation the service accepted (005 FR-064).
+ *
+ * The account's identity does not change when its credential does, so
+ * nothing in the panel's mirror or its connected line is rewritten — only
+ * the armed row clears, and the note states the retention the confirmation
+ * promised. The service's own record (and its audit row) is untouched by
+ * this side of the wire.
+ *
+ * @param rt - Panel runtime.
+ * @param numericUserId - Account whose token the service replaced.
+ */
+function finishRotation(rt: PanelRuntime, numericUserId: string): void {
+    const account = rt.state.bindings.accounts.find(
+        (candidate) => candidate.numericUserId === numericUserId,
+    );
+    rt.state.accounts.rotateArmed = null;
+    rt.state.accounts.note =
+        account === undefined ? 'Token rotated.' : rotationRetained(account.login);
 }
 
 /**
@@ -363,8 +406,11 @@ export async function runHandoff(rt: PanelRuntime, input: HandoffInput): Promise
             return;
         }
 
+        const rotating = rt.state.accounts.rotateArmed;
         const result = await requestVerification(rt, input);
-        if (result.status === HTTP_CREATED) {
+        if (rotating !== null && result.status === HTTP_OK) {
+            finishRotation(rt, rotating);
+        } else if (result.status === HTTP_CREATED) {
             await completeHandoff(rt, result);
         } else {
             await applyServiceFailure(rt, result);
