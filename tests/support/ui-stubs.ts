@@ -9,7 +9,7 @@
  */
 
 import type { Handle } from '@openchamber/sdk/ui';
-import type { PanelUi } from '../../src/panel-state.ts';
+import type { PanelUi, ProjectPickerUi } from '../../src/panel-state.ts';
 import type { BindingsPane } from '../../src/bindings-ui.ts';
 
 /**
@@ -53,26 +53,30 @@ export function stubHandle<P>(): Handle<P> & { readonly paints: () => number } {
  * Build a `PanelUi` whose handles are recording stubs (see {@link stubHandle}).
  *
  * Headless orchestration tests leave `ui` null because `refresh` is a no-op
- * without it; the bindings-tab tests need the opposite — a UI that lets `refresh`
- * run all the way to the Bindings section without a real DOM.
+ * without it; the framing tests need the opposite — a UI that lets `refresh`
+ * run all the way to the banner without a real DOM.
  *
- * @returns A complete stub UI.
+ * @returns The root framing stub: banner and summary.
  */
 export function stubPanelUi(): PanelUi {
     return {
         banner: stubHandle(),
         summary: stubHandle(),
+    };
+}
+
+/**
+ * Build a `ProjectPickerUi` whose handles are recording stubs.
+ *
+ * @returns A complete stub picker, as the Bindings body would mount it.
+ */
+export function stubProjectPickerUi(): ProjectPickerUi {
+    return {
         projectSelect: stubHandle(),
         projectStatus: stubHandle(),
         projectDetail: stubHandle(),
         projectRefresh: stubHandle(),
         projectCopy: stubHandle(),
-        poll: stubHandle(),
-        dispatch: stubHandle(),
-        verify: stubHandle(),
-        phaseSelect: stubHandle(),
-        mark: stubHandle(),
-        list: stubHandle(),
     };
 }
 
@@ -89,7 +93,6 @@ export function stubPanelUi(): PanelUi {
  */
 export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
     return {
-        tabs: stubHandle(),
         status: stubHandle(),
         bindingsList: stubHandle(),
         refreshBindings: stubHandle(),
@@ -105,31 +108,6 @@ export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
         removeSelected: stubHandle(),
         removeAccount: stubHandle(),
         note: stubHandle(),
-        runs: {
-            dispatchesHeading: stubHandle(),
-            dispatchesStatus: stubHandle(),
-            dispatchesList: stubHandle(),
-            refreshDispatches: stubHandle(),
-            openDispatch: stubHandle(),
-            retryRunBox: paneBody.ownerDocument.createElement('div'),
-            retryRun: stubHandle(),
-            requeueRunBox: paneBody.ownerDocument.createElement('div'),
-            requeueRun: stubHandle(),
-            resolveBox: paneBody.ownerDocument.createElement('div'),
-            resolveHeading: stubHandle(),
-            resolveSession: stubHandle(),
-            resolveNoSession: stubHandle(),
-            sessionField: stubHandle(),
-            dispatchesNote: stubHandle(),
-            auditButton: stubHandle(),
-            auditStatus: stubHandle(),
-            auditBox: paneBody.ownerDocument.createElement('div'),
-            auditList: stubHandle(),
-            // A node of its own: the repaint hides the banner through this
-            // wrapper, and reusing the pane body would hide the whole tab.
-            agentNoticeBox: paneBody.ownerDocument.createElement('div'),
-            agentNotice: stubHandle(),
-        },
         pane: paneBody,
         dispose: (): void => undefined,
     };

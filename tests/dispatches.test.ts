@@ -239,7 +239,7 @@ function serviceDouble(table: RouteTable): ServiceDouble {
 function retryRuntime(row: RunRow, table: RouteTable): { readonly rt: PanelRuntime; readonly service: ServiceDouble } {
     const service = serviceDouble(table);
     const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
-    rt.state.bindings.runs = runsState({ rows: [row], status: 'ready', selectedRun: row.id });
+    rt.state.dispatches = runsState({ rows: [row], status: 'ready', selectedRun: row.id });
 
     return { rt, service };
 }
@@ -662,9 +662,9 @@ describe('loadDispatches (read the history without lying about failures)', () =>
 
         await loadDispatches(rt);
 
-        expect(rt.state.bindings.runs.status).toBe('ready');
-        expect(rt.state.bindings.runs.rows).toHaveLength(1);
-        expect(rt.state.bindings.runs.note).toBe('');
+        expect(rt.state.dispatches.status).toBe('ready');
+        expect(rt.state.dispatches.rows).toHaveLength(1);
+        expect(rt.state.dispatches.note).toBe('');
     });
 
     it('keeps the rows it holds and explains a refused refresh', async () => {
@@ -677,10 +677,10 @@ describe('loadDispatches (read the history without lying about failures)', () =>
         });
         await loadDispatches(rt);
 
-        expect(rt.state.bindings.runs.status).toBe('error');
-        expect(rt.state.bindings.runs.note).toContain('service answered 503');
+        expect(rt.state.dispatches.status).toBe('error');
+        expect(rt.state.dispatches.note).toContain('service answered 503');
         // The rows the operator was reading survive a failed refresh.
-        expect(rt.state.bindings.runs.rows).toHaveLength(1);
+        expect(rt.state.dispatches.rows).toHaveLength(1);
     });
 
     it('reports an unreadable body as unreadable instead of half-trusting it', async () => {
@@ -689,9 +689,9 @@ describe('loadDispatches (read the history without lying about failures)', () =>
 
         await loadDispatches(rt);
 
-        expect(rt.state.bindings.runs.status).toBe('error');
-        expect(rt.state.bindings.runs.note).toContain('could not read');
-        expect(rt.state.bindings.runs.rows).toEqual([]);
+        expect(rt.state.dispatches.status).toBe('error');
+        expect(rt.state.dispatches.note).toContain('could not read');
+        expect(rt.state.dispatches.rows).toEqual([]);
     });
 
     it('shows the empty state when the service has no events at all', async () => {
@@ -700,20 +700,20 @@ describe('loadDispatches (read the history without lying about failures)', () =>
 
         await loadDispatches(rt);
 
-        expect(rt.state.bindings.runs.status).toBe('ready');
-        expect(rt.state.bindings.runs.rows).toEqual([]);
-        expect(dispatchesStatusText(rt.state.bindings.runs)).toBe(DISPATCHES_EMPTY_STATUS);
-        expect(dispatchRows(rt.state.bindings.runs)).toEqual([]);
+        expect(rt.state.dispatches.status).toBe('ready');
+        expect(rt.state.dispatches.rows).toEqual([]);
+        expect(dispatchesStatusText(rt.state.dispatches)).toBe(DISPATCHES_EMPTY_STATUS);
+        expect(dispatchRows(rt.state.dispatches)).toEqual([]);
     });
 
     it('drops a selection whose row disappeared', async () => {
         const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([]) } });
         const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
-        rt.state.bindings.runs.selectedRun = RUN_ID;
+        rt.state.dispatches.selectedRun = RUN_ID;
 
         await loadDispatches(rt);
 
-        expect(rt.state.bindings.runs.selectedRun).toBeNull();
+        expect(rt.state.dispatches.selectedRun).toBeNull();
     });
 });
 
@@ -730,9 +730,9 @@ describe('retryRun (POST, refresh, honest copy)', () => {
         await retryRun(rt);
 
         expect(service.calls).toEqual([`POST ${retryPath(RUN_ID)}`, RUNS_GET]);
-        expect(rt.state.bindings.runs.note).toContain('Requeued #7');
-        expect(rt.state.bindings.runs.note).toContain('next relay poll');
-        expect(rt.state.bindings.runs.rows[0]?.state).toBe('pending');
+        expect(rt.state.dispatches.note).toContain('Requeued #7');
+        expect(rt.state.dispatches.note).toContain('next relay poll');
+        expect(rt.state.dispatches.rows[0]?.state).toBe('pending');
     });
 
     it('explains a 409 invalid-transition from the service envelope', async () => {
@@ -753,10 +753,10 @@ describe('retryRun (POST, refresh, honest copy)', () => {
         await retryRun(rt);
 
         expect(service.calls).toEqual([`POST ${retryPath(RUN_ID)}`, RUNS_GET]);
-        expect(rt.state.bindings.runs.note).toContain('already dispatched');
-        expect(rt.state.bindings.runs.note).toContain('cannot be retried');
+        expect(rt.state.dispatches.note).toContain('already dispatched');
+        expect(rt.state.dispatches.note).toContain('cannot be retried');
         // The refresh after the refusal shows the state the service actually holds.
-        expect(rt.state.bindings.runs.rows[0]?.state).toBe('dispatched');
+        expect(rt.state.dispatches.rows[0]?.state).toBe('dispatched');
     });
 
     it('refuses locally — without a POST — when the selected run already dispatched', async () => {
@@ -768,18 +768,18 @@ describe('retryRun (POST, refresh, honest copy)', () => {
         await retryRun(rt);
 
         expect(service.calls).toEqual([]);
-        expect(rt.state.bindings.runs.note).toContain('already dispatched');
+        expect(rt.state.dispatches.note).toContain('already dispatched');
     });
 
     it('does nothing when nothing is selected', async () => {
         const service = serviceDouble({});
         const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
-        rt.state.bindings.runs = runsState({ rows: [runFixture()], status: 'ready' });
+        rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready' });
 
         await retryRun(rt);
 
         expect(service.calls).toEqual([]);
-        expect(rt.state.bindings.runs.note).toBe('');
+        expect(rt.state.dispatches.note).toBe('');
     });
 });
 
@@ -810,15 +810,15 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
         await requeueRun(rt);
 
         expect(service.calls).toEqual([]);
-        expect(rt.state.bindings.runs.pendingAction).toBe('requeue');
-        expect(rt.state.bindings.runs.note).toContain('attempt count resets to 1');
-        expect(rt.state.bindings.runs.note).toContain('requeue budget to 0');
+        expect(rt.state.dispatches.pendingAction).toBe('requeue');
+        expect(rt.state.dispatches.note).toContain('attempt count resets to 1');
+        expect(rt.state.dispatches.note).toContain('requeue budget to 0');
 
         await requeueRun(rt);
 
         expect(service.calls).toEqual([REQUEUE_POST, RUNS_GET]);
         expect(JSON.parse(String(service.bodies[0]))).toEqual({ correlationId: RUN_ID, confirm: true });
-        expect(rt.state.bindings.runs.pendingAction).toBeNull();
+        expect(rt.state.dispatches.pendingAction).toBeNull();
     });
 
     it('reaches the two resolutions only from unconfirmed (FR-027)', async () => {
@@ -829,8 +829,8 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
         await resolveSessionCreated(rt);
 
         expect(service.calls).toEqual([]);
-        expect(rt.state.bindings.runs.pendingAction).toBeNull();
-        expect(rt.state.bindings.runs.note).toContain(WAITING_REASON);
+        expect(rt.state.dispatches.pendingAction).toBeNull();
+        expect(rt.state.dispatches.note).toContain(WAITING_REASON);
     });
 
     it('states what to verify, warns, and shows the coordinates before resolving', async () => {
@@ -840,7 +840,7 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
         await resolveSessionCreated(rt);
 
         expect(service.calls).toEqual([]);
-        const copy = rt.state.bindings.runs.note;
+        const copy = rt.state.dispatches.note;
         expect(copy).toContain('Verify first: does a session exist');
         expect(copy).toContain('project prj_42');
         expect(copy).toContain('worktree generated');
@@ -851,7 +851,7 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
         // The second click is the confirmation, and it refuses to guess the id.
         await resolveSessionCreated(rt);
         expect(service.calls).toEqual([]);
-        expect(rt.state.bindings.runs.note).toContain('Name the session id');
+        expect(rt.state.dispatches.note).toContain('Name the session id');
 
         setSessionInput(rt, 'ses_operator_found');
         await resolveSessionCreated(rt);
@@ -872,8 +872,8 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
 
         await resolveNoSession(rt);
 
-        expect(rt.state.bindings.runs.note).toContain('Verify first: does no session exist');
-        expect(rt.state.bindings.runs.note).toContain('may be dispatched again');
+        expect(rt.state.dispatches.note).toContain('Verify first: does no session exist');
+        expect(rt.state.dispatches.note).toContain('may be dispatched again');
 
         await resolveNoSession(rt);
 
@@ -931,7 +931,7 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
         await requeueRun(rt);
 
         expect(service.calls).toEqual([REQUEUE_POST, RUNS_GET]);
-        expect(rt.state.bindings.runs.note).toBe(verdict);
+        expect(rt.state.dispatches.note).toBe(verdict);
     });
 
     it('gates every run operation behind one busy flag (T-025)', async () => {
@@ -954,7 +954,7 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
                 return { status: 200, body: runsBody([runFixture()]) };
             },
         }));
-        rt.state.bindings.runs = runsState({
+        rt.state.dispatches = runsState({
             rows: [runFixture({ state: FAILED_STATE })],
             status: 'ready',
             selectedRun: RUN_ID,
@@ -962,7 +962,7 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
 
         const first = retryRun(rt);
         await tick();
-        expect(rt.state.bindings.runs.busy).toBe(true);
+        expect(rt.state.dispatches.busy).toBe(true);
 
         // A second click while the first is in flight sends nothing.
         await retryRun(rt);
@@ -971,8 +971,8 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
         held.release();
         await first;
 
-        expect(rt.state.bindings.runs.busy).toBe(false);
-        expect(rt.state.bindings.runs.note).toContain('Requeued #7');
+        expect(rt.state.dispatches.busy).toBe(false);
+        expect(rt.state.dispatches.note).toContain('Requeued #7');
     });
 });
 
@@ -1020,18 +1020,18 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             },
         });
         const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
-        rt.state.bindings.runs = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+        rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
 
         await loadAuditHistory(rt);
 
         expect(service.calls).toEqual([AUDIT_GET]);
-        expect(rt.state.bindings.runs.audit.status).toBe('ready');
-        expect(rt.state.bindings.runs.audit.correlationId).toBe(RUN_ID);
-        expect(rt.state.bindings.runs.audit.rows.map((row) => row.seq)).toEqual([1, 2]);
-        expect(auditStatusText(rt.state.bindings.runs.audit)).toContain('2 rows');
-        expect(auditStatusText(rt.state.bindings.runs.audit)).toContain(RUN_ID);
+        expect(rt.state.dispatches.audit.status).toBe('ready');
+        expect(rt.state.dispatches.audit.correlationId).toBe(RUN_ID);
+        expect(rt.state.dispatches.audit.rows.map((row) => row.seq)).toEqual([1, 2]);
+        expect(auditStatusText(rt.state.dispatches.audit)).toContain('2 rows');
+        expect(auditStatusText(rt.state.dispatches.audit)).toContain(RUN_ID);
 
-        const items = auditItems(rt.state.bindings.runs.audit);
+        const items = auditItems(rt.state.dispatches.audit);
         expect(items[0]).toEqual({
             id: '1',
             leading: '1',
@@ -1053,15 +1053,15 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             id: 'mt-run-bbbbccccddddeeeeffff00',
             correlationId: 'mt-run-bbbbccccddddeeeeffff00',
         });
-        rt.state.bindings.runs = runsState({ rows: [runFixture(), other], status: 'ready', selectedRun: RUN_ID });
+        rt.state.dispatches = runsState({ rows: [runFixture(), other], status: 'ready', selectedRun: RUN_ID });
 
         await loadAuditHistory(rt);
-        expect(rt.state.bindings.runs.audit.status).toBe('ready');
+        expect(rt.state.dispatches.audit.status).toBe('ready');
 
         selectDispatch(rt, other.id);
 
-        expect(rt.state.bindings.runs.audit.status).toBe('idle');
-        expect(rt.state.bindings.runs.audit.rows).toEqual([]);
+        expect(rt.state.dispatches.audit.status).toBe('idle');
+        expect(rt.state.dispatches.audit.rows).toEqual([]);
     });
 
     it('refuses an unreadable body instead of half-showing it (fail closed)', async () => {
@@ -1069,13 +1069,13 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             [AUDIT_GET]: { status: 200, body: '{"entries":[{"seq":"one"}]}' },
         });
         const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
-        rt.state.bindings.runs = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+        rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
 
         await loadAuditHistory(rt);
 
-        expect(rt.state.bindings.runs.audit.status).toBe('error');
-        expect(rt.state.bindings.runs.audit.rows).toEqual([]);
-        expect(rt.state.bindings.runs.audit.note).toContain('could not read');
+        expect(rt.state.dispatches.audit.status).toBe('error');
+        expect(rt.state.dispatches.audit.rows).toEqual([]);
+        expect(rt.state.dispatches.audit.note).toContain('could not read');
         expect(parseAuditBody('{"entries":[]}')).toEqual([]);
         expect(parseAuditBody('{"nope":[]}')).toBeNull();
     });
@@ -1114,29 +1114,29 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
                 throw new Error('ECONNREFUSED');
             },
         }));
-        rt.state.bindings.runs = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+        rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
 
         await loadAuditHistory(rt);
 
-        expect(rt.state.bindings.runs.audit.status).toBe('error');
-        expect(rt.state.bindings.runs.audit.rows).toEqual([]);
-        expect(rt.state.bindings.runs.audit.note).toContain('Audit history not loaded');
-        expect(rt.state.bindings.runs.audit.note).toContain('unreachable');
-        expect(auditStatusText(rt.state.bindings.runs.audit)).toContain('not loaded');
+        expect(rt.state.dispatches.audit.status).toBe('error');
+        expect(rt.state.dispatches.audit.rows).toEqual([]);
+        expect(rt.state.dispatches.audit.note).toContain('Audit history not loaded');
+        expect(rt.state.dispatches.audit.note).toContain('unreachable');
+        expect(auditStatusText(rt.state.dispatches.audit)).toContain('not loaded');
     });
 });
 
 describe('selection, open, and the pane handler table', () => {
     it('selects a known row and ignores an unknown id', () => {
         const rt = createTestRuntime(fakeHost());
-        rt.state.bindings.runs = runsState({ rows: [runFixture()], status: 'ready' });
+        rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready' });
 
         selectDispatch(rt, 'evt-from-the-future');
-        expect(rt.state.bindings.runs.selectedRun).toBeNull();
+        expect(rt.state.dispatches.selectedRun).toBeNull();
 
         selectDispatch(rt, RUN_ID);
-        expect(rt.state.bindings.runs.selectedRun).toBe(RUN_ID);
-        expect(selectedRun(rt.state.bindings.runs)?.issueUrl).toBe(ISSUE_URL);
+        expect(rt.state.dispatches.selectedRun).toBe(RUN_ID);
+        expect(selectedRun(rt.state.dispatches)?.issueUrl).toBe(ISSUE_URL);
     });
 
     it('opens the selected run’s issue through the documented host call', async () => {
@@ -1147,23 +1147,23 @@ describe('selection, open, and the pane handler table', () => {
             },
         });
         const rt = createTestRuntime(host);
-        rt.state.bindings.runs = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+        rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
 
         await openDispatch(rt);
 
         expect(opened).toEqual([ISSUE_URL]);
-        expect(rt.state.bindings.runs.note).toBe('');
+        expect(rt.state.dispatches.note).toBe('');
     });
 
     it('lands an openUrl failure on the note instead of throwing', async () => {
         const host = fakeHost({ openUrl: () => Promise.reject(new Error('HOST_REJECTED')) });
         const rt = createTestRuntime(host);
-        rt.state.bindings.runs = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+        rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
 
         await openDispatch(rt);
 
-        expect(rt.state.bindings.runs.note).toContain('could not be opened');
-        expect(rt.state.bindings.runs.note).toContain('HOST_REJECTED');
+        expect(rt.state.dispatches.note).toContain('could not be opened');
+        expect(rt.state.dispatches.note).toContain('HOST_REJECTED');
     });
 
     it('wires Refresh runs through the pane handler table to a real read', async () => {
@@ -1174,7 +1174,7 @@ describe('selection, open, and the pane handler table', () => {
         handlers.refreshDispatches();
         await tick();
 
-        expect(rt.state.bindings.runs.status).toBe('ready');
-        expect(rt.state.bindings.runs.rows).toHaveLength(1);
+        expect(rt.state.dispatches.status).toBe('ready');
+        expect(rt.state.dispatches.rows).toHaveLength(1);
     });
 });

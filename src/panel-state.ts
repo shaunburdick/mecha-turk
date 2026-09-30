@@ -6,14 +6,7 @@
  * lifecycle flags that keep a single poll loop and a single dispatch honest.
  */
 
-import type {
-    BannerHandle,
-    BannerTone,
-    ButtonHandle,
-    ListHandle,
-    SelectHandle,
-    TextHandle,
-} from '@openchamber/sdk/ui';
+import type { BannerTone } from '@openchamber/sdk/ui';
 import type { GuestProject } from '@openchamber/sdk';
 import type { SpikeConfig } from './config.ts';
 import { DEFAULT_EXPECTED_AGENT } from './config.ts';
@@ -24,13 +17,31 @@ import { newCorrelationId, nowIso } from './ids.ts';
 import type { GitHubIssue } from './github.ts';
 import { createLedger } from './ledger.ts';
 import { initialHandoffState } from './handoff.ts';
-import type { LifecyclePhase, SpikeLedger } from './ledger.ts';
+import type { SpikeLedger } from './ledger.ts';
 import type { HandoffState } from './handoff.ts';
 import type { HandoffView } from './accounts-ui.ts';
 import type { BindingsPane } from './bindings-ui.ts';
+import type { DispatchesBoard } from './dispatches-ui.ts';
+import type { TabShell } from './tabs.ts';
+import type { DiagnosticsUi, PanelUi, ProjectPickerUi } from './panel-ui.ts';
+
+export type { DiagnosticsUi, PanelUi, ProjectPickerUi } from './panel-ui.ts';
 import type { PanelAccount, PanelBinding, BindingStatusRow } from './bindings-service.ts';
 import type { RunRow } from './dispatches-service.ts';
 import type { SpikeHost } from './session.ts';
+import { initialDispatchFilters, initialDispatchListPage } from './dispatch-page.ts';
+import type { DispatchFilters, DispatchListPage } from './dispatch-page.ts';
+
+/**
+ * The six top-level surfaces, in strip order (005 FR-010).
+ *
+ * A closed union: the shell constructs every value that reaches it, so an
+ * unknown id can never arrive and there is no passthrough branch.
+ */
+export type TabId = 'status' | 'dispatches' | 'bindings' | 'accounts' | 'settings' | 'about';
+
+/** Every {@link TabId}, in strip order — the strip's declaration (FR-010). */
+export const TAB_IDS: readonly TabId[] = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'];
 
 /** Banner content shown at the top of the panel. */
 export interface PanelStatus {
@@ -79,6 +90,8 @@ export function initialDispatches(): DispatchesState {
         sessionInput: '',
         busy: false,
         audit: initialAuditHistory(),
+        filters: initialDispatchFilters(),
+        page: initialDispatchListPage(),
     };
 }
 
@@ -87,9 +100,8 @@ export function initialDispatches(): DispatchesState {
  *
  * @returns The state before the first load.
  */
-export function initialBindings(): Repositories {
+export function initialBindings(): BindingsTabState {
     return {
-        activeTab: 'spike',
         bindings: [],
         accounts: [],
         status: 'idle',
@@ -104,7 +116,6 @@ export function initialBindings(): Repositories {
         selectedBinding: null,
         removeAccountArmed: false,
         statusRows: [],
-        runs: initialDispatches(),
     };
 }
 
@@ -163,7 +174,9 @@ export interface PanelState {
     /** One-shot handoff state: consent, storage pre-flight, and outcome. */
     handoff: HandoffState;
     /** Repository bindings as the Bindings tab reads and edits them (M3). */
-    bindings: Repositories;
+    bindings: BindingsTabState;
+    /** Dispatches list, selection, and M9 notice, as its own tab slice (FR-012). */
+    dispatches: DispatchesState;
     /** Event-relay loop state (M4). */
     relay: Relay;
     /**
@@ -213,9 +226,7 @@ export interface Relay {
 }
 
 /** The Bindings tab's working state (M3). */
-export interface Repositories {
-    /** Tab visibility; the Bindings pane shows when `activeTab` reads `repos`. */
-    activeTab: 'spike' | 'repos';
+export interface BindingsTabState {
     /** Bindings as GET /v1/bindings answered. */
     bindings: readonly PanelBinding[];
     /** Accounts offered to the binding form. */
@@ -249,52 +260,6 @@ export interface Repositories {
     removeAccountArmed: boolean;
     /** Last relay status rows rendered per binding. */
     statusRows: readonly BindingStatusRow[];
-    /** Dispatches list, selection, and M9 notice (M8/M9). */
-    runs: DispatchesState;
-}
-
-/**
- * The two tab bodies the shared strip switches between.
- *
- * The Bindings pane (mount order first, so the strip lands on top) and
- * the spike body the legacy UI and handoff group mount into; the repaint step
- * in `panel-ui.ts` hides exactly one of them from `bindings.activeTab`.
- */
-export interface BindingsSection {
-    /** The mounted Bindings pane (strip, rows, and add form). */
-    readonly bindings: BindingsPane;
-    /** Spike-tab body; hidden while the Bindings tab shows. */
-    readonly spike: HTMLElement;
-}
-
-/** UI handles, assigned once when the panel mounts. */
-export interface PanelUi {
-    /** Status banner. */
-    banner: BannerHandle;
-    /** Context summary line. */
-    summary: TextHandle;
-    /** Project picker select. */
-    projectSelect: SelectHandle;
-    /** Project picker status line (loading / error / empty / note). */
-    projectStatus: TextHandle;
-    /** Selected project id, shown with its source. */
-    projectDetail: TextHandle;
-    /** Reload-projects button. */
-    projectRefresh: ButtonHandle;
-    /** Copy-the-selected-id button. */
-    projectCopy: ButtonHandle;
-    /** Poll-now button. */
-    poll: ButtonHandle;
-    /** Start-session button. */
-    dispatch: ButtonHandle;
-    /** Verify-host button. */
-    verify: ButtonHandle;
-    /** Lifecycle phase picker. */
-    phaseSelect: SelectHandle;
-    /** Record-phase button. */
-    mark: ButtonHandle;
-    /** Ledger list. */
-    list: ListHandle;
 }
 
 /** Everything the panel's functions share. */
@@ -311,8 +276,21 @@ export interface PanelRuntime {
     ui: PanelUi | null;
     /** Mounted handoff group, when this surface shows one. */
     handoffView: HandoffView | null;
-    /** Mounted Bindings tab and spike body, when this surface shows them. */
-    bindingsSection: BindingsSection | null;
+    /**
+     * The six-tab shell the panel root owns (005 FR-010).
+     *
+     * `null` before `mountTabShell` runs and after teardown, so a headless
+     * runtime (orchestration tests) never has to know about tabs.
+     */
+    shell: TabShell | null;
+    /** Bindings body's mounted view, `null` until that tab first activates. */
+    bindingsUi: BindingsPane | null;
+    /** Dispatches body's mounted board, `null` until that tab first activates. */
+    dispatchesUi: DispatchesBoard | null;
+    /** Project picker handles, which live inside the Bindings body. */
+    pickerUi: ProjectPickerUi | null;
+    /** About body's diagnostics list, `null` until that tab first activates. */
+    aboutUi: DiagnosticsUi | null;
     /** `true` once the panel has been torn down. */
     disposed: boolean;
     /** `true` once the first `onReady` snapshot has been handled. */
@@ -321,8 +299,17 @@ export interface PanelRuntime {
     pollTimer: ReturnType<typeof setInterval> | null;
     /** `true` while a poll request is in flight. */
     pollInFlight: boolean;
-    /** Lifecycle phase the operator will mark next. */
-    pendingPhase: LifecyclePhase;
+    /**
+     * Which tab is showing — the shell's single activation field (FR-012).
+     *
+     * Deliberately *not* persisted: the operator opens this panel because
+     * something happened, so a reopen always starts on Status (FR-015).
+     */
+    activeTab: TabId;
+    /** Tabs whose bodies have mounted; each mounts once, on first activation. */
+    tabMounted: Set<TabId>;
+    /** When each tab last landed a read; `null` until one does (FR-014). */
+    tabLastRead: Map<TabId, string | null>;
     /** Registered unload listener, so teardown can remove exactly what it added. */
     pagehideListener: (() => void) | null;
     /** Whether the event relay loop is armed on this runtime. */
@@ -404,6 +391,10 @@ export interface DispatchesState {
     busy: boolean;
     /** The selected run's audit trail, read on demand (003 T-026). */
     audit: AuditViewState;
+    /** Server-side filters the list applies; both off means the whole set (FR-043). */
+    filters: DispatchFilters;
+    /** Paging position inside the set the filters describe (FR-042). */
+    page: DispatchListPage;
 }
 
 /** The run controls that ask for a confirmation step before they act (T-025). */
@@ -416,6 +407,43 @@ export type RunPendingAction = 'requeue' | 'resolve-session' | 'resolve-no-sessi
  */
 export function initialProjectPicker(): ProjectPickerState {
     return { status: 'idle', projects: [], note: '' };
+}
+
+/**
+ * Build the mutable state one mount starts with.
+ *
+ * Split out of {@link createPanelRuntime} so the constructor reads as a list of
+ * runtime slots rather than as one long literal: the state is what every other
+ * module shares, and it deserves to be readable in one pass.
+ *
+ * @param createdAt - RFC 3339 stamp pinned at construction.
+ * @returns The state object the runtime carries.
+ */
+function initialState(createdAt: string): PanelState {
+    return {
+        ledger: createLedger({
+            correlationId: newCorrelationId(),
+            panelGeneration: 1,
+            storagePresentBeforeMount: false,
+            createdAt,
+        }),
+        config: null,
+        settings: null,
+        bindingsActive: 0,
+        projectSelection: null,
+        projects: initialProjectPicker(),
+        login: null,
+        match: null,
+        evidence: null,
+        status: { tone: 'info', title: 'Mecha Turk', body: 'Waiting for the host.' },
+        connected: false,
+        busy: false,
+        handoff: initialHandoffState(),
+        bindings: initialBindings(),
+        dispatches: initialDispatches(),
+        relay: initialRelay(),
+        expectedAgent: DEFAULT_EXPECTED_AGENT,
+    };
 }
 
 /**
@@ -434,38 +462,22 @@ export function createPanelRuntime(
     return {
         host,
         panelWindow,
-        state: {
-            ledger: createLedger({
-                correlationId: newCorrelationId(),
-                panelGeneration: 1,
-                storagePresentBeforeMount: false,
-                createdAt,
-            }),
-            config: null,
-            settings: null,
-            bindingsActive: 0,
-            projectSelection: null,
-            projects: initialProjectPicker(),
-            login: null,
-            match: null,
-            evidence: null,
-            status: { tone: 'info', title: 'Mecha Turk', body: 'Waiting for the host.' },
-            connected: false,
-            busy: false,
-            handoff: initialHandoffState(),
-            bindings: initialBindings(),
-            relay: initialRelay(),
-            expectedAgent: DEFAULT_EXPECTED_AGENT,
-        },
+        state: initialState(createdAt),
         unsubscribes: [],
         ui: null,
         handoffView: null,
-        bindingsSection: null,
+        shell: null,
+        bindingsUi: null,
+        dispatchesUi: null,
+        pickerUi: null,
+        aboutUi: null,
         disposed: false,
         started: false,
         pollTimer: null,
         pollInFlight: false,
-        pendingPhase: 'paused',
+        activeTab: 'status',
+        tabMounted: new Set<TabId>(),
+        tabLastRead: new Map<TabId, string | null>(),
         pagehideListener: null,
         relayArmed: false,
         reconcileSettled: true,

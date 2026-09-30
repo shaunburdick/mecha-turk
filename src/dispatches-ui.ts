@@ -125,7 +125,7 @@ type DispatchesListKeys = 'dispatchesHeading' | 'dispatchesStatus' | 'dispatches
  */
 function mountDispatchesList(input: MountInputs): Pick<DispatchesBoard, DispatchesListKeys> {
     const { pane, rt, handlers } = input;
-    const { runs } = rt.state.bindings;
+    const { dispatches: runs } = rt.state;
 
     return {
         dispatchesHeading: mountText(pane, { text: DISPATCHES_HEADING }),
@@ -228,7 +228,7 @@ function mountResolutions(input: MountInputs): Pick<
     });
     const sessionField = mountTextField(resolveBox, {
         label: 'Session id to record',
-        value: rt.state.bindings.runs.sessionInput,
+        value: rt.state.dispatches.sessionInput,
         placeholder: 'ses_…',
         mono: true,
         disabled: true,
@@ -254,7 +254,7 @@ function mountAuditView(input: MountInputs): Pick<
     'auditButton' | 'auditStatus' | 'auditBox' | 'auditList'
 > {
     const { pane, rt, handlers } = input;
-    const { audit } = rt.state.bindings.runs;
+    const { audit } = rt.state.dispatches;
     const controls = createControlGroup(pane);
     const auditButton = mountButton(controls, {
         label: AUDIT_BUTTON_LABEL,
@@ -314,7 +314,7 @@ function mountAgentNotice(
  */
 export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
     const { pane, rt } = input;
-    const { runs } = rt.state.bindings;
+    const { dispatches: runs } = rt.state;
 
     return {
         ...mountDispatchesList(input),
@@ -325,6 +325,39 @@ export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
         ...mountAuditView(input),
         ...mountAgentNotice(pane, runs),
     };
+}
+
+/**
+ * Dispose every SDK handle a mounted dispatches board owns (FR-017).
+ *
+ * The wrapper elements go with their body's node; the handles themselves carry
+ * listeners the host would otherwise outlive the teardown with.
+ *
+ * @param board - The board the Dispatches body mounted.
+ */
+export function disposeDispatchesBoard(board: DispatchesBoard): void {
+    const handles = [
+        board.dispatchesHeading,
+        board.dispatchesStatus,
+        board.dispatchesList,
+        board.refreshDispatches,
+        board.openDispatch,
+        board.retryRun,
+        board.requeueRun,
+        board.resolveHeading,
+        board.resolveSession,
+        board.resolveNoSession,
+        board.sessionField,
+        board.dispatchesNote,
+        board.auditButton,
+        board.auditStatus,
+        board.auditList,
+        board.agentNotice,
+    ];
+
+    for (const handle of handles) {
+        handle.dispose();
+    }
 }
 
 /**
@@ -361,7 +394,7 @@ function repaintResolutions(runs: DispatchesState, board: DispatchesBoard): void
  * @param board - The mounted runs half.
  */
 export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard): void {
-    const { runs } = rt.state.bindings;
+    const { dispatches: runs } = rt.state;
     const selected = selectedRun(runs);
     const affordance = selected === null ? null : runAffordance(selected);
 

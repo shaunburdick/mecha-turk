@@ -10,11 +10,11 @@
  */
 
 import { mountBanner, mountButton, mountList, mountSelect, mountText } from '@openchamber/sdk/ui';
-import type { ListItem, SelectOption } from '@openchamber/sdk/ui';
+import type { BannerHandle, ButtonHandle, ListHandle, ListItem, SelectHandle, TextHandle } from '@openchamber/sdk/ui';
 import { refreshHandoff } from './accounts-ui.ts';
 import { repositoryLabel } from './config.ts';
-import { isLifecyclePhase, ledgerTail } from './ledger.ts';
-import type { LifecyclePhase } from './ledger.ts';
+import { repaintDispatchesBoard } from './dispatches-ui.ts';
+import { ledgerTail } from './ledger.ts';
 import {
     describeProjectSelection,
     notListedGuidance,
@@ -24,9 +24,9 @@ import {
     selectedProjectId,
 } from './project-picker.ts';
 import { redact } from './redaction.ts';
-import { mountPrerequisitesSection, repaintPrerequisites } from './prerequisites.ts';
+import { repaintPrerequisites } from './prerequisites.ts';
 import { repaintBindingsPane } from './bindings-ui.ts';
-import type { PanelRuntime, PanelState, PanelUi } from './panel-state.ts';
+import type { PanelRuntime, PanelState } from './panel-state.ts';
 
 /** Number of ledger rows shown, newest first. */
 const VISIBLE_ENTRIES = 25;
@@ -37,25 +37,42 @@ const TIME_START = 11;
 /** End offset of the time part inside an RFC 3339 timestamp. */
 const TIME_END = 19;
 
-/** Lifecycle phases the operator marks by hand because the frame cannot see them. */
-const MARKER_PHASES: readonly LifecyclePhase[] = ['paused', 'removed', 'server-switch'];
-
 /** Callbacks the mounted controls invoke. */
 export interface PanelHandlers {
-    /** Run one poll immediately. */
-    readonly poll: () => void;
-    /** Dispatch the matched issue as one session. */
-    readonly dispatch: () => void;
-    /** Verify host-owned project/worktree/session state. */
-    readonly verify: () => void;
-    /** Record the selected lifecycle phase marker. */
-    readonly mark: () => void;
     /** Reload the project list behind the picker. */
     readonly refreshProjects: () => void;
     /** Adopt the project the operator picked in the picker. */
     readonly selectProject: (id: string) => void;
     /** Copy the effective project id to the host clipboard. */
     readonly copyProjectId: () => void;
+}
+
+/** The root framing: the banner and the one-line summary. */
+export interface PanelUi {
+    /** Status banner. */
+    banner: BannerHandle;
+    /** Context summary line. */
+    summary: TextHandle;
+}
+
+/** The project picker's handles; they live inside the Bindings tab body. */
+export interface ProjectPickerUi {
+    /** Project picker select. */
+    projectSelect: SelectHandle;
+    /** Project picker status line (loading / error / empty / note). */
+    projectStatus: TextHandle;
+    /** Selected project id, shown with its source. */
+    projectDetail: TextHandle;
+    /** Reload-projects button. */
+    projectRefresh: ButtonHandle;
+    /** Copy-the-selected-id button. */
+    projectCopy: ButtonHandle;
+}
+
+/** The About tab's read-only ledger list (FR-075). */
+export interface DiagnosticsUi {
+    /** Ledger list. */
+    list: ListHandle;
 }
 
 /**
@@ -73,54 +90,13 @@ async function openEntry(rt: PanelRuntime, id: string): Promise<void> {
 }
 
 /**
- * Record the phase the operator selected in the picker.
- *
- * @param rt - Panel runtime.
- * @param id - Selected option id.
- */
-function selectPhase(rt: PanelRuntime, id: string): void {
-    if (!isLifecyclePhase(id)) {
-        return;
-    }
-
-    rt.pendingPhase = id;
-    rt.ui?.phaseSelect.update({ value: id });
-}
-
-/**
- * Build the options for the lifecycle phase picker.
- *
- * @returns One option per operator-markable phase.
- */
-function markerOptions(): SelectOption[] {
-    return MARKER_PHASES.map((phase) => ({ id: phase, label: phase }));
-}
-
-/**
- * Create the horizontal row that holds the action controls.
- *
- * @param root - Panel root element.
- * @returns The row element the controls mount into.
- */
-function createControlsRow(root: HTMLElement): HTMLElement {
-    const controls = root.ownerDocument.createElement('div');
-    controls.style.display = 'flex';
-    controls.style.flexWrap = 'wrap';
-    controls.style.gap = '8px';
-    controls.style.alignItems = 'flex-end';
-    root.appendChild(controls);
-
-    return controls;
-}
-
-/**
  * Create the container that groups the project picker's controls.
  *
- * The picker sits above the action row because it is configuration, not an
+ * The picker sits above the form because it is configuration, not an
  * action: a control row for the select and its buttons, with the status and
  * selection lines underneath.
  *
- * @param root - Panel root element.
+ * @param root - Body element the picker mounts into.
  * @returns The group element and the control row inside it.
  */
 function createProjectGroup(root: HTMLElement): { readonly group: HTMLElement; readonly row: HTMLElement } {
@@ -140,23 +116,19 @@ function createProjectGroup(root: HTMLElement): { readonly group: HTMLElement; r
     return { group, row };
 }
 
-/** Picker handles returned by {@link mountProjectPicker}. */
-type ProjectPickerUi = Pick<
-    PanelUi,
-    'projectSelect' | 'projectStatus' | 'projectDetail' | 'projectRefresh' | 'projectCopy'
->;
-
 /**
  * Mount the project picker: list select, reload, copy, and its two lines.
  *
  * The select starts empty and disabled; `refresh` fills it in from the picker
  * state, so the loading, error, and empty states are painted from state rather
- * than from whatever the mount happened to see.
+ * than from whatever the mount happened to see. It mounts inside the Bindings
+ * body, because that is where the operator is when a project is what is
+ * missing (FR-038).
  *
- * @param input - Runtime, panel root, and the callbacks the picker invokes.
+ * @param input - Runtime, body element, and the callbacks the picker invokes.
  * @returns The picker handles used for later repaints.
  */
-function mountProjectPicker(input: {
+export function mountProjectPicker(input: {
     readonly rt: PanelRuntime;
     readonly root: HTMLElement;
     readonly handlers: PanelHandlers;
@@ -195,53 +167,43 @@ function mountProjectPicker(input: {
 }
 
 /**
- * Mount every panel control once.
+ * Mount the panel's root framing: the banner and the one-line summary.
  *
- * @param rt - Panel runtime.
- * @param input - Panel root element and the callbacks wired to the actions.
- * @returns The handles used for later repaints.
+ * These two are what the panel root keeps that is *not* a tab (plan §The
+ * shell): the banner is the read-state framing every tab shares, so it mounts
+ * once above the strip and never moves.
+ *
+ * @param root - Panel root element from `panel/index.html`.
+ * @returns The two handles the repaint path updates.
  */
-export function mountPanelUi(rt: PanelRuntime, input: { root: HTMLElement; handlers: PanelHandlers }): PanelUi {
-    const { root, handlers } = input;
+export function mountPanelFraming(root: HTMLElement): PanelUi {
     const banner = mountBanner(root, { tone: 'info', title: 'Mecha Turk', body: 'Waiting for the host.' });
     const summary = mountText(root, { text: 'Starting…' });
-    // FR-071's section sits directly under the summary: a first-run operator
-    // meets the checklist before the controls it unlocks, and the notice
-    // above the tab strip (mounted by the app) is what carries it when the
-    // Bindings tab is the one on screen.
-    mountPrerequisitesSection({ rt, parent: root });
-    const picker = mountProjectPicker({ rt, root, handlers });
-    const controls = createControlsRow(root);
 
-    const poll = mountButton(controls, {
-        label: 'Poll now',
-        variant: 'secondary',
-        disabled: true,
-        onClick: handlers.poll,
-    });
-    const dispatch = mountButton(controls, { label: 'Start session', disabled: true, onClick: handlers.dispatch });
-    const verify = mountButton(controls, {
-        label: 'Verify host state',
-        variant: 'outline',
-        disabled: true,
-        onClick: handlers.verify,
-    });
-    const phaseSelect = mountSelect(controls, {
-        label: 'Observed phase',
-        value: rt.pendingPhase,
-        options: markerOptions(),
-        onChange: (id) => selectPhase(rt, id),
-    });
-    const mark = mountButton(controls, { label: 'Record phase', variant: 'ghost', onClick: handlers.mark });
+    return { banner, summary };
+}
 
+/**
+ * Mount the About tab's read-only diagnostics list (FR-075).
+ *
+ * The ledger is a compatibility surface: it is what would notice an
+ * `extension-spike-1` evidence-schema change, so it survives the spike's
+ * retirement as a read-only section rather than being deleted with the
+ * controls that wrote it (Gate Question 2).
+ *
+ * @param rt - Panel runtime whose ledger the list renders.
+ * @param root - The About body container the shell created.
+ * @returns The list handle.
+ */
+export function mountDiagnostics(rt: PanelRuntime, root: HTMLElement): DiagnosticsUi {
     const list = mountList(root, {
         items: [],
-        ariaLabel: 'Spike ledger',
+        ariaLabel: 'Diagnostics ledger',
         emptyText: 'No ledger entries yet.',
         onSelect: (id) => void openEntry(rt, id),
     });
 
-    return { banner, summary, ...picker, poll, dispatch, verify, phaseSelect, mark, list };
+    return { list };
 }
 
 /**
@@ -313,35 +275,12 @@ function buildListItems(state: PanelState): ListItem[] {
 }
 
 /**
- * Repaint the tab bodies from `bindings.activeTab`.
- *
- * The shared tab strip's active state and each body's `hidden` flag are all
- * decided from `rt.state.bindings.activeTab` — the switch handler only writes
- * state, and every repaint (including the first, which `mountBindingsSection`
- * runs before returning) applies visibility here. A runtime without the
- * mounted section (headless orchestration tests) has nothing to show.
- *
- * @param rt - Panel runtime.
- */
-export function repaintBindingsSection(rt: PanelRuntime): void {
-    const section = rt.bindingsSection;
-    if (section === null) {
-        return;
-    }
-
-    const bindingsShow = rt.state.bindings.activeTab === 'repos';
-    section.spike.hidden = bindingsShow;
-    section.bindings.pane.hidden = !bindingsShow;
-    repaintBindingsPane(rt, section.bindings);
-}
-
-/**
  * Repaint the project picker from the picker state.
  *
  * @param state - Panel state.
- * @param ui - Mounted UI handles.
+ * @param ui - Mounted picker handles inside the Bindings body.
  */
-function refreshProjectPicker(state: PanelState, ui: PanelUi): void {
+function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
     const picker = state.projects;
     const selected = selectedProjectId(state);
 
@@ -363,9 +302,9 @@ function refreshProjectPicker(state: PanelState, ui: PanelUi): void {
 /**
  * Repaint every mounted control from the current state.
  *
- * Nothing runs on a disposed runtime; each surface repaints only when it is
- * mounted, so a runtime without the spike UI (headless tests) can still
- * repaint the Bindings tab it actually holds.
+ * Nothing runs on a disposed runtime, and each body repaints only while it is
+ * mounted: a tab the operator has never opened owns no handles yet, and the
+ * registry on `rt` is what says so (FR-013, FR-019).
  *
  * @param rt - Panel runtime.
  */
@@ -379,18 +318,25 @@ export function refresh(rt: PanelRuntime): void {
         const { state } = rt;
         ui.banner.update({ tone: state.status.tone, title: state.status.title, body: state.status.body });
         ui.summary.update({ text: summarizeState(state) });
-        ui.list.update({ items: buildListItems(state) });
-        // Bindings mode leaves this legacy control alone deliberately: the
-        // "Bindings active" banner already says the service owns polling, so
-        // the button keeps driving only the legacy single-repo loop it always
-        // did (MVP fix 4 chose the smaller change over a disabled note).
-        ui.poll.update({ disabled: !state.connected || state.config === null || rt.pollInFlight });
-        ui.dispatch.update({ disabled: state.evidence === null || state.busy, loading: state.busy });
-        ui.verify.update({ disabled: state.config === null || state.busy });
-        refreshProjectPicker(state, ui);
     }
 
-    repaintBindingsSection(rt);
+    const { bindingsUi, dispatchesUi, pickerUi, aboutUi } = rt;
+    if (bindingsUi !== null) {
+        repaintBindingsPane(rt, bindingsUi);
+    }
+
+    if (dispatchesUi !== null) {
+        repaintDispatchesBoard(rt, dispatchesUi);
+    }
+
+    if (pickerUi !== null) {
+        refreshProjectPicker(rt.state, pickerUi);
+    }
+
+    if (aboutUi !== null) {
+        aboutUi.list.update({ items: buildListItems(rt.state) });
+    }
+
     refreshHandoff(rt);
     repaintPrerequisites(rt);
 }

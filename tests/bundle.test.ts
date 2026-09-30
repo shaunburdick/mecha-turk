@@ -68,17 +68,31 @@ describe('built panel bundle', () => {
         }
     });
 
-    it('ships the Bindings pane and its tab (MVP blocker, 2026-09-27)', () => {
+    it('ships the Bindings body (MVP blocker, 2026-09-27; re-cut by 005 T-009)', () => {
         const bundle = readFileSync(BUNDLE, UTF8);
 
         // The mount-time gate greps the bundle for the pane's marker; the
         // minifier renames identifiers and strips comments, so the marker
-        // rides a runtime attribute instead: `data-mount="mountBindingsPane"`.
-        expect(bundle).toContain('mountBindingsPane');
+        // rides a runtime attribute instead: `data-mount="mountBindingsBody"`.
+        expect(bundle).toContain('mountBindingsBody');
         // And a semantic proof that is only true when the pane's code is
         // actually bundled: the empty-list copy the pane itself renders.
         expect(bundle).toContain('No repository bound yet — add one below or refresh.');
         expect(bundle).toContain('Repository bindings');
+    });
+
+    it('ships the six-tab shell and none of the spike controls it retired (005 T-010)', () => {
+        const bundle = readFileSync(BUNDLE, UTF8);
+
+        // FR-011: the spike surface is deleted, not hidden — so what ships
+        // carries none of its controls, and the six labels FR-010 names do.
+        for (const retired of ['Start session', 'Record phase', 'Observed phase', 'Verify host state']) {
+            expect(bundle).not.toContain(retired);
+        }
+
+        for (const label of ['Status', 'Dispatches', 'Bindings', 'Accounts', 'Settings', 'About']) {
+            expect(bundle).toContain(`"${label}"`);
+        }
     });
 });
 

@@ -18,8 +18,7 @@
  */
 
 import { loadProjects, selectBindingProject } from './project-actions.ts';
-import { repaintBindingsSection } from './panel-ui.ts';
-import type { PanelRuntime, BindingsSection } from './panel-state.ts';
+import type { PanelRuntime } from './panel-state.ts';
 import {
     armAccountRemoval,
     bindRepository,
@@ -29,7 +28,7 @@ import {
     removeBinding,
     toggleBinding,
 } from './bindings.ts';
-import { mountBindingsPane } from './bindings-ui.ts';
+import { mountBindingsBody } from './bindings-ui.ts';
 import type { BindingsPaneHandlers } from './bindings-ui.ts';
 import { loadAuditHistory } from './audit-view.ts';
 import {
@@ -55,7 +54,6 @@ import {
  */
 export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
     return {
-        switchTab: (id) => editBindings(rt, { activeTab: id }),
         refresh: () => void loadBindings(rt),
         submit: () => void bindRepository(rt),
         toggle: () => void toggleBinding(rt),
@@ -91,36 +89,21 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
 }
 
 /**
- * Mount the Bindings tab and create the spike tab's body container.
+ * Mount the Bindings tab body into the container the shell created (FR-013).
  *
- * The pane's shared tab strip lands as the panel's first element, the pane
- * body second, and the spike body third (hidden while the pane shows). Both
- * bodies' visibility is decided in one place — {@link repaintBindingsSection} —
- * which this call runs once so the first paint already agrees with state.
- * The section is registered on the runtime here, before `createSpikeApp`
- * mounts the spike UI and the handoff group into its body.
+ * The six-tab shell owns the strip and decides when this body first appears;
+ * everything here is the body itself — the status line, the list, and the add
+ * form — and the runtime handle the repaint path reads.
  *
  * @param rt - Panel runtime.
- * @param root - Panel root element from `panel/index.html`.
- * @returns The mounted section (also stored on `rt.bindingsSection`).
+ * @param root - The body container `mountTabShell` created for `bindings`.
  */
-export function mountBindingsSection(rt: PanelRuntime, root: HTMLElement): BindingsSection {
-    const bindings = mountBindingsPane({ root, rt, handlers: createBindingsHandlers(rt) });
+export function mountBindingsTabBody(rt: PanelRuntime, root: HTMLElement): void {
+    const view = mountBindingsBody({ root, rt, handlers: createBindingsHandlers(rt) });
     // The bundle gate greps the built panel for this attribute: a string
     // literal that only ships when this pane is wired (identifier names are
     // minified away, so a marker must ride live code). It also names the pane
     // for the operator's DOM inspector.
-    bindings.pane.setAttribute('data-mount', 'mountBindingsPane');
-    const spike = root.ownerDocument.createElement('div');
-    // The spike body mirrors the panel root's own column layout, so the
-    // legacy controls keep their 12px rhythm inside the tab container.
-    spike.style.display = 'flex';
-    spike.style.flexDirection = 'column';
-    spike.style.gap = '12px';
-    root.append(spike);
-
-    const section: BindingsSection = { bindings, spike };
-    rt.bindingsSection = section;
-    repaintBindingsSection(rt);
-    return section;
+    view.pane.setAttribute('data-mount', 'mountBindingsBody');
+    rt.bindingsUi = view;
 }

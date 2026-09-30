@@ -19,7 +19,7 @@ import type { HostVerification } from './host-verify.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { parseJsonValue } from './json.ts';
 import { repairLedger } from './ledger-repair.ts';
-import { appendEntry, LEDGER_STORAGE_KEY, recordPhase, serializeLedger } from './ledger.ts';
+import { appendEntry, LEDGER_STORAGE_KEY, serializeLedger } from './ledger.ts';
 import type { LedgerDetail, LedgerEntryInput, LedgerEntryKind } from './ledger.ts';
 import { checkMachineIdentity, sweepIssues } from './matching.ts';
 import { refresh } from './panel-ui.ts';
@@ -477,21 +477,4 @@ export async function verifyHost(rt: PanelRuntime): Promise<void> {
         rt.state.busy = false;
         refresh(rt);
     }
-}
-
-/**
- * Record the operator-selected lifecycle phase marker.
- *
- * @param rt - Panel runtime.
- */
-export async function markPhase(rt: PanelRuntime): Promise<void> {
-    const note = 'operator-marked while the panel was re-opened';
-    rt.state.ledger = recordPhase(rt.state.ledger, { phase: rt.pendingPhase, at: nowIso(), note });
-    setStatus(rt, {
-        tone: 'info',
-        title: 'Phase recorded',
-        body: `Marked "${rt.pendingPhase}" on generation ${rt.state.ledger.panelGeneration}.`,
-    });
-    await persistLedger(rt);
-    refresh(rt);
 }

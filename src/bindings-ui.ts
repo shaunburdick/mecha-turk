@@ -21,28 +21,22 @@ import {
     mountSelect,
     mountText,
     mountTextField,
-    mountTabs,
 } from '@openchamber/sdk/ui';
 import type {
     ButtonHandle,
     CheckboxHandle,
     ListHandle,
     SelectHandle,
-    TabsHandle,
     SelectOption,
     TextHandle,
     TextFieldHandle,
 } from '@openchamber/sdk/ui';
-import type { PanelRuntime, Repositories } from './panel-state.ts';
+import type { PanelRuntime, BindingsTabState } from './panel-state.ts';
 import { notListedGuidance } from './project-picker.ts';
 import { bindingRows } from './bindings-rows.ts';
-import { mountDispatchesBoard, repaintDispatchesBoard } from './dispatches-ui.ts';
-import type { DispatchesBoard } from './dispatches-ui.ts';
 
-/** The pane handle: tab strip, pane element, and every repaint handle. */
+/** The pane handle: the mounted element and every repaint handle it needs. */
 export interface BindingsPane {
-    /** Tab strip the two panes share. */
-    readonly tabs: TabsHandle;
     /** The pane root this view mounted. */
     readonly pane: HTMLElement;
     /** Status line at the top. */
@@ -75,16 +69,12 @@ export interface BindingsPane {
     readonly removeAccount: ButtonHandle;
     /** Note under the form. */
     readonly note: TextHandle;
-    /** The runs half of the pane: heading, list, actions, and notes. */
-    readonly runs: DispatchesBoard;
     /** Remove every node this pane mounted. */
     readonly dispose: () => void;
 }
 
 /** Callbacks the mounted Bindings pane invokes. */
 export interface BindingsPaneHandlers {
-    /** Operators toggled the tab strip. */
-    readonly switchTab: (id: 'spike' | 'repos') => void;
     /** Operators re-read the bindings and accounts. */
     readonly refresh: () => void;
     /** Operators submitted the add form. */
@@ -157,7 +147,7 @@ export const REMOVE_ACCOUNT_CONFIRM_LABEL = 'Confirm remove';
  * @param bindings - The Bindings tab's state.
  * @returns The summary text the status line shows.
  */
-function composeStatus(bindings: Repositories): string {
+function composeStatus(bindings: BindingsTabState): string {
     const bindingSummary = `${bindings.bindings.length} bindings`;
     const accountSummary = `${bindings.accounts.length} accounts`;
 
@@ -295,7 +285,7 @@ function mountTriggerChecks(input: MountInputs): {
 
     return { assignment, mention, reviewRequest };
 }
-function worktreeOptions(bindings: Repositories, handlers: BindingsPaneHandlers): {
+function worktreeOptions(bindings: BindingsTabState, handlers: BindingsPaneHandlers): {
     readonly label: string;
     readonly value: 'none' | 'generated';
     readonly options: { readonly id: string; readonly label: string }[];
@@ -405,35 +395,74 @@ function mountAddForm(input: MountInputs): Form {
  * @param input - Panel root, runtime, and the handlers the controls invoke.
  * @returns The mounted pane, tab strip, and repaint handles.
  */
-export function mountBindingsPane(input: {
-    /** Panel root element. */
+/**
+ * Dispose every handle a mounted Bindings body owns, then its own node.
+ *
+ * FR-017 asks teardown to release what a tab mounted, not merely to hide it —
+ * the SDK handles carry listeners that would otherwise outlive the panel.
+ *
+ * @param input - The body's element and the two halves mounted into it.
+ */
+function disposeBindingsBody(input: {
+    /** Element the board and the form mounted into. */
+    readonly pane: HTMLElement;
+    /** Status, list, and refresh half. */
+    readonly board: Board;
+    /** Add-form half. */
+    readonly form: Form;
+}): void {
+    const { pane, board, form } = input;
+    const handles = [
+        board.status,
+        board.bindingsList,
+        board.refreshBindings,
+        form.repoField,
+        form.accountSelect,
+        form.projectSelect,
+        form.assignment,
+        form.mention,
+        form.reviewRequest,
+        form.worktree,
+        form.add,
+        form.toggle,
+        form.removeSelected,
+        form.removeAccount,
+        form.note,
+    ];
+
+    for (const handle of handles) {
+        handle.dispose();
+    }
+
+    pane.remove();
+}
+
+/**
+ * Mount the Bindings tab body: status, list, and the add form.
+ *
+ * The six-tab shell owns the strip (005 FR-010), so this mounts no tabs of its
+ * own and no dispatches board — those live in their own bodies, which is what
+ * makes each capability reachable through exactly one tab.
+ *
+ * @param input - Panel root, runtime, and the handlers the controls invoke.
+ * @returns The mounted body's handles.
+ */
+export function mountBindingsBody(input: {
+    /** Container the shell created for the Bindings tab. */
     readonly root: HTMLElement;
-    /** Runtime whose state the pane repaints from. */
+    /** Runtime whose state the body repaints from. */
     readonly rt: PanelRuntime;
     /** Handlers the controls invoke. */
     readonly handlers: BindingsPaneHandlers;
 }): MountedPane {
     const { root, rt, handlers } = input;
-    const tabs = mountTabs(root, {
-        items: [
-            { id: 'spike', label: 'Spike' },
-            { id: 'repos', label: 'Repositories' },
-        ],
-        activeId: rt.state.bindings.activeTab,
-        trackBackground: true,
-        onChange: (id) => handlers.switchTab(id === 'repos' ? 'repos' : 'spike'),
-    });
-
     const pane = root.ownerDocument.createElement('div');
-    pane.style.marginTop = '8px';
     root.append(pane);
 
     const board = mountBindingsBoard({ rt, pane, handlers });
-    const runs = mountDispatchesBoard({ rt, pane, handlers });
     const form = mountAddForm({ rt, pane, handlers });
 
     return {
-        tabs,
         pane,
         status: board.status,
         bindingsList: board.bindingsList,
@@ -450,10 +479,7 @@ export function mountBindingsPane(input: {
         removeSelected: form.removeSelected,
         removeAccount: form.removeAccount,
         note: form.note,
-        runs,
-        dispose: () => {
-            pane.remove();
-        },
+        dispose: () => disposeBindingsBody({ pane, board, form }),
     };
 }
 
@@ -485,7 +511,6 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
     const { bindings } = rt.state;
     const accounts = bindings.accounts.filter((account) => account.usable);
 
-    view.tabs.update({ activeId: bindings.activeTab });
     view.status.update({ text: composeStatus(bindings) });
     view.bindingsList.update({ items: bindingRows(bindings) });
     view.refreshBindings.update({ disabled: bindings.status === 'loading' });
@@ -512,8 +537,4 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
         disabled: bindings.status !== 'ready' && !bindings.removeAccountArmed,
     });
     view.note.update({ text: bindings.note });
-
-    // Dispatches section (M8 + 003 T-025): its own repaint, because its affordance
-    // table decides which control group exists at all.
-    repaintDispatchesBoard(rt, view.runs);
 }

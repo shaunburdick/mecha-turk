@@ -115,6 +115,9 @@ network — those checks are operator-gated and recorded in the spec (see
 | `panel-actions.ts` / `panel-dispatch.ts` | Poll/identity/verify actions; the spike dispatch path |
 | `project-picker.ts` / `project-actions.ts` | Pure picker state; `listProjects()` + stored selection |
 | `app.ts` | Wiring: mount, subscribe, teardown |
+| `tabs.ts` | The six-tab shell: strip, body registry, first-activation mount, tab↔body association, one dispose path |
+| `tab-bodies.ts` | The six tab bodies in FR-010's order: what each container mounts on first activation |
+| `dispatch-page.ts` | The Dispatches list's paging state: cursor stack, page size, filters, and the reset rule |
 | `redaction.ts` / `json.ts` | Secret-shape detection; typed bridge to the host's `JsonValue` |
 | `service-calls.ts` | Shared `host.serviceRequest()` GET/PUT/POST/DELETE wrappers + the run-scoped paths (reserve, result, abandon, blocked, retry, requeue, resolve, verification, audit read) |
 | `bindings-mode.ts` | Bindings-authoritative mode: first enabled binding is dispatch context |

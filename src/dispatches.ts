@@ -47,7 +47,7 @@ function stillMounted(rt: PanelRuntime): boolean {
  * @param rt - Panel runtime.
  */
 export async function loadDispatches(rt: PanelRuntime): Promise<void> {
-    const { runs } = rt.state.bindings;
+    const { dispatches: runs } = rt.state;
     if (rt.disposed || runs.status === 'loading') {
         return;
     }
@@ -103,7 +103,7 @@ export async function loadDispatches(rt: PanelRuntime): Promise<void> {
  * @param id - Row id the list reported.
  */
 export function selectDispatch(rt: PanelRuntime, id: string): void {
-    const { runs } = rt.state.bindings;
+    const { dispatches: runs } = rt.state;
     if (rt.disposed) {
         return;
     }
@@ -131,7 +131,7 @@ export function selectDispatch(rt: PanelRuntime, id: string): void {
  * @param rt - Panel runtime.
  */
 export async function openDispatch(rt: PanelRuntime): Promise<void> {
-    const row = selectedRun(rt.state.bindings.runs);
+    const row = selectedRun(rt.state.dispatches);
     if (row === null) {
         return;
     }
@@ -139,7 +139,7 @@ export async function openDispatch(rt: PanelRuntime): Promise<void> {
     try {
         await rt.host.openUrl(row.issueUrl);
     } catch (cause) {
-        rt.state.bindings.runs.note = redact(`The issue could not be opened: ${describeError(cause)}.`);
+        rt.state.dispatches.note = redact(`The issue could not be opened: ${describeError(cause)}.`);
         refresh(rt);
     }
 }
@@ -285,7 +285,7 @@ function armControl(input: {
     /** The confirmation copy for this control. */
     readonly copy: string;
 }): boolean {
-    const { runs } = input.rt.state.bindings;
+    const { dispatches: runs } = input.rt.state;
     if (runs.pendingAction === input.action) {
         return true;
     }
@@ -317,7 +317,7 @@ async function postRunOperation(input: {
     /** Note for a 200 answer. */
     readonly success: string;
 }): Promise<void> {
-    const { runs } = input.rt.state.bindings;
+    const { dispatches: runs } = input.rt.state;
     runs.busy = true;
     runs.pendingAction = null;
     refresh(input.rt);
@@ -352,7 +352,7 @@ async function postRunOperation(input: {
  * @param rt - Panel runtime.
  */
 export async function retryRun(rt: PanelRuntime): Promise<void> {
-    const { runs } = rt.state.bindings;
+    const { dispatches: runs } = rt.state;
     const row = selectedRun(runs);
     if (row === null || runs.busy) {
         return;
@@ -384,7 +384,7 @@ export async function retryRun(rt: PanelRuntime): Promise<void> {
  * @param rt - Panel runtime.
  */
 export async function requeueRun(rt: PanelRuntime): Promise<void> {
-    const { runs } = rt.state.bindings;
+    const { dispatches: runs } = rt.state;
     const row = selectedRun(runs);
     if (row === null || runs.busy) {
         return;
@@ -421,7 +421,7 @@ export async function requeueRun(rt: PanelRuntime): Promise<void> {
  * @param decision - Which resolution the operator confirmed.
  */
 async function resolveRun(rt: PanelRuntime, decision: ResolveDecision): Promise<void> {
-    const { runs } = rt.state.bindings;
+    const { dispatches: runs } = rt.state;
     const row = selectedRun(runs);
     if (row === null || runs.busy) {
         return;
@@ -492,5 +492,5 @@ export function setSessionInput(rt: PanelRuntime, value: string): void {
         return;
     }
 
-    rt.state.bindings.runs.sessionInput = value;
+    rt.state.dispatches.sessionInput = value;
 }

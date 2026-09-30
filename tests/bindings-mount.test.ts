@@ -1,18 +1,22 @@
 /**
- * Wiring tests for the Bindings tab mount (MVP blocker, 2026-09-27).
+ * Wiring tests for the Bindings tab mount (MVP blocker, 2026-09-27; re-cut
+ * for the six-tab shell by 005 T-009).
  *
- * The blocker was that nothing called `mountBindingsPane`: the handlers
- * and the tab-body repaint existed with no call site. These tests drive the
- * call site's two halves headlessly — the handler table mapped onto the real
- * actions (patch → state → note lines → service reads), and the section
- * repaint that switches tab-body visibility from `bindings.activeTab` through
- * `refresh()`. The SDK mounts themselves need a live `document`, so the pane
+ * The blocker was that nothing called the pane's mount: the handlers and the
+ * repaint existed with no call site. These tests drive the handler table
+ * mapped onto the real actions (patch → state → note lines → service reads)
+ * and the repaint path `refresh()` takes when the shell has mounted the
+ * Bindings body. The SDK mounts themselves need a live `document`, so the pane
  * stands in as a recording stub while the wiring's logic runs for real.
+ *
+ * Tab-body *visibility* is no longer asserted here: the two-container switch
+ * was deleted with the spike era (FR-011), and `tests/tabs.test.ts` is what
+ * now owns activation, mounting, and the tab↔body association.
  */
 
 import { describe, expect, it } from 'vitest';
-import { repaintBindingsSection } from '../src/panel-ui.ts';
-import type { PanelRuntime, BindingsSection } from '../src/panel-state.ts';
+import { refresh } from '../src/panel-ui.ts';
+import type { PanelRuntime } from '../src/panel-state.ts';
 import type { BindingsPane } from '../src/bindings-ui.ts';
 import { createBindingsHandlers } from '../src/bindings-mount.ts';
 import { BINDINGS_PATH } from '../src/service-calls.ts';
@@ -26,7 +30,7 @@ import {
     tick,
 } from './support/panel.ts';
 import { fakeDom } from './support/dom.ts';
-import { stubPaints, stubPanelUi, stubBindingsPane } from './support/ui-stubs.ts';
+import { stubPaints, stubPanelUi, stubProjectPickerUi, stubBindingsPane } from './support/ui-stubs.ts';
 
 /**
  * Read a stubbed handle's paint count.
@@ -42,28 +46,24 @@ function paintsOf(handle: Parameters<typeof stubPaints>[0]): number {
 }
 
 /**
- * Register a stub Bindings section on a runtime.
+ * Register the Bindings body's stubbed views on a runtime.
  *
- * The section pairs the recording pane stub with a fake spike body, so
- * `repaintBindingsSection` and `refresh` run their real visibility logic against
- * something the test can read. The bodies are distinct elements: the
- * visibility writes mean different things for the two of them.
+ * The shell owns visibility now, so what a test needs from the mount is the
+ * pair of views `refresh()` repaints: the pane and the picker.
  *
- * @param rt - Runtime to attach the stub section to.
- * @returns The fake bodies and the pane, keyed instead of positional.
+ * @param rt - Runtime to attach the stub views to.
+ * @returns The pane stub and its body element.
  */
-function attachStubSection(rt: PanelRuntime): {
+function attachStubBody(rt: PanelRuntime): {
     readonly bindings: BindingsPane;
     readonly paneBody: HTMLElement;
-    readonly spike: HTMLElement;
 } {
     const paneBody = fakeDom().root;
-    const spike = fakeDom().root;
-    const bindings = stubBindingsPane(paneBody);
-    const section: BindingsSection = { bindings, spike };
-    rt.bindingsSection = section;
+    rt.ui = stubPanelUi();
+    rt.bindingsUi = stubBindingsPane(paneBody);
+    rt.pickerUi = stubProjectPickerUi();
 
-    return { bindings, paneBody, spike };
+    return { bindings: rt.bindingsUi, paneBody };
 }
 
 describe('createBindingsHandlers (handler table wired to real actions)', () => {
@@ -95,26 +95,6 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
         expect(bindings.triggerReviewRequest).toBe(false);
         expect(bindings.worktreeSelection).toBe('generated');
         expect(bindings.selectedBinding).toBe('bnd-1');
-    });
-
-    it('switches the active tab through state and repaints both tab bodies', () => {
-        const rt = createTestRuntime(fakeHost());
-        rt.ui = stubPanelUi();
-        const bodies = attachStubSection(rt);
-        const handlers = createBindingsHandlers(rt);
-
-        handlers.switchTab('repos');
-
-        expect(rt.state.bindings.activeTab).toBe('repos');
-        // The repaint switched the bodies: exactly one tab body is visible.
-        expect(bodies.spike.hidden).toBe(true);
-        expect(bodies.paneBody.hidden).toBe(false);
-
-        handlers.switchTab('spike');
-
-        expect(rt.state.bindings.activeTab).toBe('spike');
-        expect(bodies.spike.hidden).toBe(false);
-        expect(bodies.paneBody.hidden).toBe(true);
     });
 
     it('wires submit to bindRepository, which refuses an incomplete draft on the note', async () => {
@@ -194,64 +174,40 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
     });
 });
 
-/**
- * Build a runtime with a stub section whose pane records its repaints.
- *
- * @returns The runtime, the pane stub, and the fake spike body.
- */
-function stubbedRuntime(): {
-    readonly rt: PanelRuntime;
-    readonly bindings: BindingsPane;
-    readonly paneBody: HTMLElement;
-    readonly spike: HTMLElement;
-} {
-    const rt = createTestRuntime(fakeHost());
-    rt.ui = stubPanelUi();
-    // Distinct bodies: the visibility writes meaningfully differ between the
-    // pane body and the spike body, so one element cannot stand for both
-    // (that would make the assertions read one shared node twice).
-    const paneBody = fakeDom().root;
-    const spike = fakeDom().root;
-    const bindings = stubBindingsPane(paneBody);
-    const section: BindingsSection = { bindings, spike };
-    rt.bindingsSection = section;
+describe('refresh (the repaint path a mounted Bindings body takes)', () => {
+    it('repaints the pane and the picker the shell mounted', () => {
+        const rt = createTestRuntime(fakeHost());
+        const { bindings } = attachStubBody(rt);
 
-    return { rt, bindings, paneBody, spike };
-}
+        refresh(rt);
 
-describe('repaintBindingsSection (tab-body visibility from state)', () => {
-    it('hides the spike body and shows the pane body while the Bindings tab is active', () => {
-        const { rt, spike, paneBody } = stubbedRuntime();
-
-        rt.state.bindings.activeTab = 'repos';
-        repaintBindingsSection(rt);
-
-        expect(spike.hidden).toBe(true);
-        expect(paneBody.hidden).toBe(false);
+        expect(paintsOf(bindings.status)).toBe(1);
+        expect(paintsOf(bindings.bindingsList)).toBe(1);
+        expect(paintsOf(bindings.note)).toBe(1);
+        expect(rt.pickerUi).not.toBeNull();
+        const picker = rt.pickerUi;
+        expect(picker === null ? 0 : paintsOf(picker.projectStatus)).toBe(1);
     });
 
-    it('shows the spike body again on the spike tab and repaints the pane', () => {
-        const { rt, bindings, spike, paneBody } = stubbedRuntime();
-        rt.state.bindings.activeTab = 'repos';
-        repaintBindingsSection(rt);
-
-        rt.state.bindings.activeTab = 'spike';
-        repaintBindingsSection(rt);
-
-        expect(spike.hidden).toBe(false);
-        expect(paneBody.hidden).toBe(true);
-        // The pane repainted: the recording stubs prove the handles saw an
-        // `update` on each pass, not a silent skip.
-        expect(paintsOf(bindings.status)).toBe(2);
-        expect(paintsOf(bindings.bindingsList)).toBe(2);
-    });
-
-    it('leaves both bodies alone when no section is mounted (headless runtime)', () => {
+    it('leaves a headless runtime alone: no body, no repaint, no throw', () => {
         const rt = createTestRuntime(fakeHost());
 
         expect((): void => {
-            repaintBindingsSection(rt);
+            refresh(rt);
         }).not.toThrow();
-        expect(rt.bindingsSection).toBeNull();
+        expect(rt.bindingsUi).toBeNull();
+        expect(rt.dispatchesUi).toBeNull();
+        expect(rt.pickerUi).toBeNull();
+        expect(rt.aboutUi).toBeNull();
+    });
+
+    it('repaints nothing after teardown', () => {
+        const rt = createTestRuntime(fakeHost());
+        const { bindings } = attachStubBody(rt);
+        rt.disposed = true;
+
+        refresh(rt);
+
+        expect(paintsOf(bindings.status)).toBe(0);
     });
 });

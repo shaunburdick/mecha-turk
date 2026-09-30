@@ -13,7 +13,7 @@
  */
 
 import type { ListItem } from '@openchamber/sdk/ui';
-import type { Repositories } from './panel-state.ts';
+import type { BindingsTabState } from './panel-state.ts';
 
 /** Milliseconds in a second. */
 const SECOND_MS = 1_000;
@@ -50,7 +50,7 @@ export interface BindingView {
  * @param bindingId - Row key.
  * @returns The row, or `null` before the first poll.
  */
-function statusRowOf(bindings: Repositories, bindingId: string): StatusRowView | null {
+function statusRowOf(bindings: BindingsTabState, bindingId: string): StatusRowView | null {
     return bindings.statusRows.find((candidate) => candidate.bindingId === bindingId) ?? null;
 }
 
@@ -110,7 +110,7 @@ function scanPhrase(row: StatusRowView): string {
  * @param binding - The binding to render.
  * @returns The list row.
  */
-export function bindingRow(bindings: Repositories, binding: BindingView): ListItem {
+export function bindingRow(bindings: BindingsTabState, binding: BindingView): ListItem {
     const row = statusRowOf(bindings, binding.bindingId);
     const scan = row === null ? 'not scanned yet' : scanPhrase(row);
     const subtitle = `polled as ${binding.accountLogin} · ${binding.projectId} · ${scan}`;
@@ -130,6 +130,6 @@ export function bindingRow(bindings: Repositories, binding: BindingView): ListIt
  * @param bindings - The Bindings tab's state.
  * @returns The list rows, in stored order.
  */
-export function bindingRows(bindings: Repositories): ListItem[] {
+export function bindingRows(bindings: BindingsTabState): ListItem[] {
     return bindings.bindings.map((binding) => bindingRow(bindings, binding));
 }

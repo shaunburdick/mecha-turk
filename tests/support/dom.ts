@@ -52,6 +52,8 @@ export class FakeElement {
     public disabled = false;
     /** Input value — where a pasted credential lives between paste and submit. */
     public value = '';
+    /** Roving tab index, the way a `button` in a tab strip carries one. */
+    public tabIndex = -1;
     /** Inline style bag; the adapter writes `whiteSpace` on the consent copy. */
     public readonly style = { whiteSpace: '' };
     /** Element children, maintained by {@link append} and {@link remove}. */
@@ -90,6 +92,42 @@ export class FakeElement {
      */
     public attribute(name: string): string | null {
         return this.attributes.get(name) ?? null;
+    }
+
+    /**
+     * Find the first descendant matching `[role="tab"][data-id="…"]`.
+     *
+     * The only selector this double implements, because it is the only one the
+     * shell uses: a double that answered *any* selector would be a second query
+     * engine to keep in step, and one that answered none would make the
+     * association path untestable.
+     *
+     * @param selector - The two-attribute selector the shell asks for.
+     * @returns The matching descendant, or `null`.
+     * @throws {Error} When the selector is not the one shape modelled here.
+     */
+    public querySelector(selector: string): FakeElement | null {
+        const match = /^\[role="tab"\]\[data-id="([^"]+)"\]$/.exec(selector);
+        if (match === null) {
+            throw new Error(`the DOM double does not implement the selector ${selector}`);
+        }
+
+        const wanted = match[1] ?? '';
+        const queue = [...this.children];
+        while (queue.length > 0) {
+            const node = queue.shift();
+            if (node === undefined) {
+                break;
+            }
+
+            if (node.attribute('role') === 'tab' && node.attribute('data-id') === wanted) {
+                return node;
+            }
+
+            queue.push(...node.children);
+        }
+
+        return null;
     }
 
     /**

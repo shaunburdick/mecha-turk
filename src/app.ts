@@ -17,17 +17,10 @@
 import type { HostReadyContext, JsonValue } from '@openchamber/sdk';
 import { applyHostReady } from '@openchamber/sdk/ui';
 import { applyBindingsMode, loadInitialBindings } from './bindings-mode.ts';
-import {
-    acceptConsentAndRepaint,
-    mountHandoffDom,
-    preflightAndRepaint,
-    refreshHandoff,
-    submitHandoffAndRepaint,
-} from './accounts-ui.ts';
+import { preflightAndRepaint } from './accounts-ui.ts';
 import { parseExpectedAgent, parseProjectId, parseSpikeConfig, repositoryLabel } from './config.ts';
 import { restoreStoredConsent } from './consent.ts';
 import { restoreStoredEvidence } from './evidence.ts';
-import { declineHandoffConsent } from './handoff.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { analyzeLastCloseGap, buildMountContext, LIFECYCLE_EXPERIMENT_PLAN } from './lifecycle.ts';
 import { createLedger, LEDGER_STORAGE_KEY, readLedger, recordPhase } from './ledger.ts';
@@ -35,19 +28,15 @@ import type { LedgerDetail } from './ledger.ts';
 import {
     appendEntryAndPersist,
     ensureIdentity,
-    markPhase,
     persistLedger,
     restartPolling,
-    runPoll,
     startPolling,
     stopPolling,
-    verifyHost,
 } from './panel-actions.ts';
-import { startDispatch } from './panel-dispatch.ts';
 import { mountPrerequisiteNotice, disposePrerequisites } from './prerequisites.ts';
 import { createPanelRuntime, setStatus } from './panel-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
-import { mountPanelUi, refresh } from './panel-ui.ts';
+import { mountPanelFraming, refresh } from './panel-ui.ts';
 import type { PanelHandlers } from './panel-ui.ts';
 import { isSelectableProject } from './project-picker.ts';
 import {
@@ -58,10 +47,11 @@ import {
     storeProjectSelection,
 } from './project-actions.ts';
 import { redact } from './redaction.ts';
-import { mountBindingsSection } from './bindings-mount.ts';
 import { reconcileDispatchAttempts } from './reconcile.ts';
 import { settleReconciliation, startRelayPolling } from './relay.ts';
 import { loadDispatches } from './dispatches.ts';
+import { mountTabShell } from './tabs.ts';
+import { tabSpecs } from './tab-bodies.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
 
@@ -347,13 +337,16 @@ export function teardown(rt: PanelRuntime): void {
         rt.handoffView = null;
     }
 
-    if (rt.bindingsSection !== null) {
-        // The pane handle removes its body; the shared tab strip removes its
-        // own node and listeners through `tabs.dispose`.
-        rt.bindingsSection.bindings.tabs.dispose();
-        rt.bindingsSection.bindings.dispose();
-        rt.bindingsSection = null;
+    if (rt.shell !== null) {
+        // One path for all six bodies: each disposer it registered runs in
+        // strip order, then the strip itself removes (FR-017, NFR-108).
+        rt.shell.dispose();
     }
+
+    rt.bindingsUi = null;
+    rt.dispatchesUi = null;
+    rt.pickerUi = null;
+    rt.aboutUi = null;
 
     rt.host.dispose();
 }
@@ -521,35 +514,17 @@ export function createSpikeApp(options: SpikeAppOptions): SpikeApp {
     const { host, root, panelWindow } = options;
     const rt = createPanelRuntime(host, panelWindow);
     const handlers: PanelHandlers = {
-        poll: () => void runPoll(rt),
-        dispatch: () => void startDispatch(rt),
-        verify: () => void verifyHost(rt),
-        mark: () => void markPhase(rt),
         refreshProjects: () => void loadProjects(rt),
         selectProject: (id) => void selectProject(rt, id),
         copyProjectId: () => void copyProjectId(rt),
     };
 
-    // Above the tab strip on purpose: FR-073's notice has to show on every tab.
+    // Above the tab strip on purpose: FR-036 and FR-037 need the notice region
+    // outside every section, and the banner is read-state framing that belongs
+    // to the whole panel rather than to one tab.
     mountPrerequisiteNotice({ rt, parent: root });
-    rt.bindingsSection = mountBindingsSection(rt, root);
-    rt.ui = mountPanelUi(rt, { root: rt.bindingsSection.spike, handlers });
-    rt.handoffView = mountHandoffDom({
-        root: rt.bindingsSection.spike,
-        handlers: {
-            accept: () => {
-                void acceptConsentAndRepaint(rt);
-            },
-            decline: () => {
-                declineHandoffConsent(rt);
-                refreshHandoff(rt);
-            },
-            submit: (token) => {
-                void submitHandoffAndRepaint(rt, token);
-            },
-        },
-    });
-    refreshHandoff(rt);
+    rt.ui = mountPanelFraming(root);
+    mountTabShell({ rt, root, specs: tabSpecs(rt, handlers) });
     rt.pagehideListener = () => handlePagehide(rt);
     panelWindow.addEventListener('pagehide', rt.pagehideListener);
     registerHostListeners(rt, root);

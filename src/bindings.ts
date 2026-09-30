@@ -35,7 +35,7 @@ import type {
     PanelBinding,
     PanelTriggers,
 } from './bindings-service.ts';
-import type { PanelRuntime, Repositories } from './panel-state.ts';
+import type { PanelRuntime, BindingsTabState } from './panel-state.ts';
 
 /** One per-binding status row the tab renders (scan state + pending count). */
 export type RepoRow = BindingStatusRow;
@@ -46,7 +46,7 @@ export type RepoRow = BindingStatusRow;
  * @param rt - Panel runtime.
  * @param patch - The fields to update.
  */
-export function editBindings(rt: PanelRuntime, patch: Partial<Repositories>): void {
+export function editBindings(rt: PanelRuntime, patch: Partial<BindingsTabState>): void {
     if (rt.disposed) {
         return;
     }
@@ -55,7 +55,7 @@ export function editBindings(rt: PanelRuntime, patch: Partial<Repositories>): vo
     refresh(rt);
 }
 
-function resetDraft(bindings: Repositories): void {
+function resetDraft(bindings: BindingsTabState): void {
     bindings.repoInput = '';
     bindings.accountSelection = null;
     bindings.repoProjectSelection = null;
@@ -64,7 +64,7 @@ function resetDraft(bindings: Repositories): void {
     bindings.triggerReviewRequest = true;
     bindings.worktreeSelection = 'none';
 }
-function resetCoveredDraft(bindings: Repositories, repository: string): void {
+function resetCoveredDraft(bindings: BindingsTabState, repository: string): void {
     const draft = bindings.repoInput.trim().toLowerCase();
     if (draft === '' || draft !== repository.toLowerCase()) {
         return;
@@ -72,7 +72,7 @@ function resetCoveredDraft(bindings: Repositories, repository: string): void {
 
     resetDraft(bindings);
 }
-function clearDraftIfCovered(bindings: Repositories, stored: readonly PanelBinding[]): void {
+function clearDraftIfCovered(bindings: BindingsTabState, stored: readonly PanelBinding[]): void {
     const draft = bindings.repoInput.trim().toLowerCase();
     const covered = draft !== '' && stored.some((binding) => binding.repository.toLowerCase() === draft);
     if (!covered) {
@@ -159,7 +159,7 @@ export interface PreparedBinding {
  * @param bindings - Panel state to read the draft from.
  * @returns The binding, or `null` (the note then says why).
  */
-export function readDraft(bindings: Repositories): PreparedBinding | null {
+export function readDraft(bindings: BindingsTabState): PreparedBinding | null {
     const repository = parseRepository(bindings.repoInput);
     if (repository === null) {
         bindings.note = 'repository must be `owner/name`';
