@@ -326,7 +326,7 @@ function harness(
  *
  * The runs-history refresh (M8) rides along after every successful report, so
  * it is filtered out: it is a display read, not part of what the contract
- * orders, and asserting it would couple these tests to the Runs section.
+ * orders, and asserting it would couple these tests to the Dispatches section.
  *
  * @param timeline - Everything the double observed.
  * @returns The dispatch-contract entries, in order.

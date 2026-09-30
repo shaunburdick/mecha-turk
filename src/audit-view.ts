@@ -24,7 +24,7 @@ import type { ListItem } from '@openchamber/sdk/ui';
 import { asRecord, parseJsonObject } from './json.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
-import { selectedRun, utcStamp } from './runs-rows.ts';
+import { selectedRun, utcStamp } from './dispatches-rows.ts';
 import { auditPath, serviceGet } from './service-calls.ts';
 import type { PanelRuntime } from './panel-state.ts';
 

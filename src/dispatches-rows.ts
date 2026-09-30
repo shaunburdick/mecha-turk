@@ -1,5 +1,5 @@
 /**
- * The Runs section's row copy (M8) — pure functions of panel state.
+ * The Dispatches section's row copy (M8) — pure functions of panel state.
  *
  * One run is what the operator needs to judge a dispatch at a glance: which
  * trigger fired, which issue it was, why it sits where it sits now, how long
@@ -33,22 +33,22 @@
 import type { ListItem, Tone } from '@openchamber/sdk/ui';
 import { redact } from './redaction.ts';
 import { elapsedSince } from './bindings-rows.ts';
-import { BLOCKED_PREFIX } from './runs-service.ts';
-import type { RunsState } from './panel-state.ts';
-import type { PlainRunState, RunReference, RunRow, RunState, RunVerification } from './runs-service.ts';
+import { BLOCKED_PREFIX } from './dispatches-service.ts';
+import type { DispatchesState } from './panel-state.ts';
+import type { PlainRunState, RunReference, RunRow, RunState, RunVerification } from './dispatches-service.ts';
 
 /** Heading above the runs list. */
-export const RUNS_HEADING = 'Runs';
+export const DISPATCHES_HEADING = 'Runs';
 
 /** In-list placeholder while the service reports no events at all. */
-export const RUNS_EMPTY_TEXT = 'No runs yet.';
+export const DISPATCHES_EMPTY_TEXT = 'No runs yet.';
 
 /** Status line while the list is ready but empty. */
-export const RUNS_EMPTY_STATUS =
+export const DISPATCHES_EMPTY_STATUS =
     'No runs yet — a bound repository trigger appears here after the next scan.';
 
 /** Instruction appended to the ready status line when there is something to act on. */
-export const RUNS_SELECT_HINT = 'select a row to open or retry';
+export const DISPATCHES_SELECT_HINT = 'select a row to open or retry';
 
 /** Short leading labels per trigger kind (the list's fixed-width slot). */
 const KIND_LABELS: Record<RunRow['kind'], string> = {
@@ -312,7 +312,7 @@ export function canRetry(row: RunRow): boolean {
 /**
  * Describe one run's dispatch result (or the honest absence of one).
  *
- * Returned unredacted: {@link runRow} redacts the whole composed subtitle
+ * Returned unredacted: {@link dispatchRow} redacts the whole composed subtitle
  * once, so every free-text field is scanned exactly once and one secret can
  * never be split across two redaction passes.
  *
@@ -445,7 +445,7 @@ function promptPhrase(row: RunRow): string {
  * @param row - Run as the service projected it.
  * @returns The list row.
  */
-export function runRow(row: RunRow): ListItem {
+export function dispatchRow(row: RunRow): ListItem {
     const reason = row.stateReason;
     const result = resultPhrase(row);
     const verification = row.verification === null ? null : verificationPhrase(row.verification);
@@ -475,11 +475,11 @@ export function runRow(row: RunRow): ListItem {
 /**
  * Build the runs list rows in the order the service sent them.
  *
- * @param runs - The Runs section's state.
+ * @param runs - The Dispatches section's state.
  * @returns The rows, newest detected first (the service caps them at 100).
  */
-export function runRows(runs: RunsState): ListItem[] {
-    return runs.rows.map((row) => runRow(row));
+export function dispatchRows(runs: DispatchesState): ListItem[] {
+    return runs.rows.map((row) => dispatchRow(row));
 }
 
 /**
@@ -489,10 +489,10 @@ export function runRows(runs: RunsState): ListItem[] {
  * load it, a failed one points at the note below — so the operator never has
  * to infer *why* the area is blank.
  *
- * @param runs - The Runs section's state.
+ * @param runs - The Dispatches section's state.
  * @returns The status text.
  */
-export function runsStatusText(runs: RunsState): string {
+export function dispatchesStatusText(runs: DispatchesState): string {
     if (runs.status === 'idle') {
         return 'Runs have not been read yet — press Refresh runs.';
     }
@@ -506,20 +506,20 @@ export function runsStatusText(runs: RunsState): string {
     }
 
     if (runs.rows.length === 0) {
-        return RUNS_EMPTY_STATUS;
+        return DISPATCHES_EMPTY_STATUS;
     }
 
     const noun = runs.rows.length === 1 ? 'run' : 'runs';
 
-    return `${runs.rows.length} ${noun} · newest first · ${RUNS_SELECT_HINT}`;
+    return `${runs.rows.length} ${noun} · newest first · ${DISPATCHES_SELECT_HINT}`;
 }
 
 /**
  * Find the run a run row selection points at.
  *
- * @param runs - The Runs section's state.
+ * @param runs - The Dispatches section's state.
  * @returns The selected run, or `null` when nothing valid is selected.
  */
-export function selectedRun(runs: RunsState): RunRow | null {
+export function selectedRun(runs: DispatchesState): RunRow | null {
     return runs.rows.find((row) => row.id === runs.selectedRun) ?? null;
 }

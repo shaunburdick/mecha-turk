@@ -1,5 +1,5 @@
 /**
- * The Runs section's mount and repaint (M8, widened by 003 T-025) — split
+ * The Dispatches section's mount and repaint (M8, widened by 003 T-025) — split
  * from `bindings-ui.ts`, which the pane's bindings board and add form already
  * fill to the file-length limit.
  *
@@ -23,7 +23,7 @@
 import { mountBanner, mountButton, mountList, mountText, mountTextField } from '@openchamber/sdk/ui';
 import type { BannerHandle, ButtonHandle, ListHandle, TextHandle, TextFieldHandle } from '@openchamber/sdk/ui';
 import { AUDIT_BUTTON_LABEL, auditItems, auditStatusText } from './audit-view.ts';
-import type { PanelRuntime, RunsState } from './panel-state.ts';
+import type { PanelRuntime, DispatchesState } from './panel-state.ts';
 import {
     CONFIRM_NO_SESSION_LABEL,
     CONFIRM_RETURN_LABEL,
@@ -32,14 +32,14 @@ import {
     RESOLVE_LABEL,
     RETRY_LABEL,
     RETURN_LABEL,
-    RUNS_EMPTY_TEXT,
-    RUNS_HEADING,
+    DISPATCHES_EMPTY_TEXT,
+    DISPATCHES_HEADING,
     SESSION_CREATED_LABEL,
     runAffordance,
-    runRows,
-    runsStatusText,
+    dispatchRows,
+    dispatchesStatusText,
     selectedRun,
-} from './runs-rows.ts';
+} from './dispatches-rows.ts';
 import type { BindingsPaneHandlers } from './bindings-ui.ts';
 
 /** Inputs the runs section's mounts share (runtime, pane root, handlers). */
@@ -53,17 +53,17 @@ interface MountInputs {
 }
 
 /** The runs half of the pane: heading, list, actions, and notes. */
-export interface RunsBoard {
+export interface DispatchesBoard {
     /** Heading above the section. */
-    readonly runsHeading: TextHandle;
+    readonly dispatchesHeading: TextHandle;
     /** Status line: idle, loading, ready with a count, or unavailable. */
-    readonly runsStatus: TextHandle;
+    readonly dispatchesStatus: TextHandle;
     /** One row per recent event, newest first. */
-    readonly runsList: ListHandle;
+    readonly dispatchesList: ListHandle;
     /** Re-read `GET /v1/events`. */
-    readonly refreshRuns: ButtonHandle;
+    readonly refreshDispatches: ButtonHandle;
     /** Open the selected run's issue in the operator's browser. */
-    readonly openRun: ButtonHandle;
+    readonly openDispatch: ButtonHandle;
     /** Wrapper around the retry control, hidden when no state accepts one. */
     readonly retryRunBox: HTMLElement;
     /** Requeue the selected run through `POST …/retry`. */
@@ -83,7 +83,7 @@ export interface RunsBoard {
     /** Where the operator names the session the first resolution records. */
     readonly sessionField: TextFieldHandle;
     /** Note for load failures and action outcomes. */
-    readonly runsNote: TextHandle;
+    readonly dispatchesNote: TextHandle;
     /** Reads the selected run's audit trail (FR-053, contract §3). */
     readonly auditButton: ButtonHandle;
     /** Status line for the audit view: idle, loading, ready, or failed. */
@@ -114,28 +114,34 @@ function createControlGroup(pane: HTMLElement): HTMLElement {
     return group;
 }
 
+/** Board members the list half owns. */
+type DispatchesListKeys = 'dispatchesHeading' | 'dispatchesStatus' | 'dispatchesList';
+
 /**
  * Mount the heading, status line, and list of runs.
  *
  * @param input - Runtime, pane root, and handlers.
  * @returns The three handles the list half needs.
  */
-function mountRunList(input: MountInputs): Pick<RunsBoard, 'runsHeading' | 'runsStatus' | 'runsList'> {
+function mountDispatchesList(input: MountInputs): Pick<DispatchesBoard, DispatchesListKeys> {
     const { pane, rt, handlers } = input;
     const { runs } = rt.state.bindings;
 
     return {
-        runsHeading: mountText(pane, { text: RUNS_HEADING }),
-        runsStatus: mountText(pane, { text: runsStatusText(runs) }),
-        runsList: mountList(pane, {
-            items: runRows(runs),
+        dispatchesHeading: mountText(pane, { text: DISPATCHES_HEADING }),
+        dispatchesStatus: mountText(pane, { text: dispatchesStatusText(runs) }),
+        dispatchesList: mountList(pane, {
+            items: dispatchRows(runs),
             ariaLabel: 'Event runs',
-            emptyText: RUNS_EMPTY_TEXT,
+            emptyText: DISPATCHES_EMPTY_TEXT,
             selectedId: runs.selectedRun,
-            onSelect: (id) => handlers.selectRun(id),
+            onSelect: (id) => handlers.selectDispatch(id),
         }),
     };
 }
+
+/** Board members the shared action row owns. */
+type SharedActionKeys = 'refreshDispatches' | 'openDispatch';
 
 /**
  * Mount the two controls every selection offers: refresh, and open the issue.
@@ -143,20 +149,20 @@ function mountRunList(input: MountInputs): Pick<RunsBoard, 'runsHeading' | 'runs
  * @param input - Pane root and handlers.
  * @returns The two buttons.
  */
-function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<RunsBoard, 'refreshRuns' | 'openRun'> {
+function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<DispatchesBoard, SharedActionKeys> {
     const controls = createControlGroup(input.pane);
 
     return {
-        refreshRuns: mountButton(controls, {
+        refreshDispatches: mountButton(controls, {
             label: 'Refresh runs',
             variant: 'secondary',
-            onClick: input.handlers.refreshRuns,
+            onClick: input.handlers.refreshDispatches,
         }),
-        openRun: mountButton(controls, {
+        openDispatch: mountButton(controls, {
             label: 'Open issue',
             variant: 'outline',
             disabled: true,
-            onClick: input.handlers.openRun,
+            onClick: input.handlers.openDispatch,
         }),
     };
 }
@@ -171,7 +177,7 @@ function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick
  * @returns The groups and their buttons.
  */
 function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
-    RunsBoard,
+    DispatchesBoard,
     'retryRunBox' | 'retryRun' | 'requeueRunBox' | 'requeueRun'
 > {
     const retryRunBox = createControlGroup(input.pane);
@@ -201,7 +207,7 @@ function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
  * @returns The group, its heading, its two buttons, and the session field.
  */
 function mountResolutions(input: MountInputs): Pick<
-    RunsBoard,
+    DispatchesBoard,
     'resolveBox' | 'resolveHeading' | 'resolveSession' | 'resolveNoSession' | 'sessionField'
 > {
     const { pane, rt, handlers } = input;
@@ -244,7 +250,7 @@ function mountResolutions(input: MountInputs): Pick<
  * @returns The audit view's handles.
  */
 function mountAuditView(input: MountInputs): Pick<
-    RunsBoard,
+    DispatchesBoard,
     'auditButton' | 'auditStatus' | 'auditBox' | 'auditList'
 > {
     const { pane, rt, handlers } = input;
@@ -282,8 +288,8 @@ function mountAuditView(input: MountInputs): Pick<
  */
 function mountAgentNotice(
     pane: HTMLElement,
-    runs: RunsState,
-): Pick<RunsBoard, 'agentNoticeBox' | 'agentNotice'> {
+    runs: DispatchesState,
+): Pick<DispatchesBoard, 'agentNoticeBox' | 'agentNotice'> {
     const agentNoticeBox = pane.ownerDocument.createElement('div');
     agentNoticeBox.style.marginTop = '8px';
     agentNoticeBox.hidden = runs.agentNotice === null;
@@ -300,22 +306,22 @@ function mountAgentNotice(
  *
  * The list starts from whatever state the mount already holds (idle on a
  * fresh panel, rows after a restore), so the first repaint after
- * `loadRuns` completes is the one that fills it in — exactly how the
+ * `loadDispatches` completes is the one that fills it in — exactly how the
  * bindings board above behaves.
  *
  * @param input - Runtime, pane root, and handlers.
  * @returns The runs handles the pane repaints through.
  */
-export function mountRunsBoard(input: MountInputs): RunsBoard {
+export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
     const { pane, rt } = input;
     const { runs } = rt.state.bindings;
 
     return {
-        ...mountRunList(input),
+        ...mountDispatchesList(input),
         ...mountSharedActions(input),
         ...mountTransitions(input),
         ...mountResolutions(input),
-        runsNote: mountText(pane, { text: runs.note }),
+        dispatchesNote: mountText(pane, { text: runs.note }),
         ...mountAuditView(input),
         ...mountAgentNotice(pane, runs),
     };
@@ -324,13 +330,13 @@ export function mountRunsBoard(input: MountInputs): RunsBoard {
 /**
  * Repaint FR-027's two resolutions and the field that names the session.
  *
- * Split out of {@link repaintRunsBoard} because the two armed labels are the
+ * Split out of {@link repaintDispatchesBoard} because the two armed labels are the
  * two branches an operator reads as "this click will send".
  *
  * @param runs - The runs section's state.
  * @param board - The mounted runs half.
  */
-function repaintResolutions(runs: RunsState, board: RunsBoard): void {
+function repaintResolutions(runs: DispatchesState, board: DispatchesBoard): void {
     board.resolveSession.update({
         label: runs.pendingAction === 'resolve-session' ? CONFIRM_SESSION_CREATED_LABEL : SESSION_CREATED_LABEL,
         disabled: runs.busy,
@@ -354,15 +360,15 @@ function repaintResolutions(runs: RunsState, board: RunsBoard): void {
  * @param rt - Panel runtime.
  * @param board - The mounted runs half.
  */
-export function repaintRunsBoard(rt: PanelRuntime, board: RunsBoard): void {
+export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard): void {
     const { runs } = rt.state.bindings;
     const selected = selectedRun(runs);
     const affordance = selected === null ? null : runAffordance(selected);
 
-    board.runsStatus.update({ text: runsStatusText(runs) });
-    board.runsList.update({ items: runRows(runs), selectedId: runs.selectedRun });
-    board.refreshRuns.update({ disabled: runs.status === 'loading' });
-    board.openRun.update({ disabled: selected === null });
+    board.dispatchesStatus.update({ text: dispatchesStatusText(runs) });
+    board.dispatchesList.update({ items: dispatchRows(runs), selectedId: runs.selectedRun });
+    board.refreshDispatches.update({ disabled: runs.status === 'loading' });
+    board.openDispatch.update({ disabled: selected === null });
     board.retryRunBox.hidden = affordance?.action !== 'retry';
     board.retryRun.update({ disabled: runs.busy });
     board.requeueRunBox.hidden = affordance?.action !== 'requeue';
@@ -372,7 +378,7 @@ export function repaintRunsBoard(rt: PanelRuntime, board: RunsBoard): void {
     });
     board.resolveBox.hidden = selected?.state !== 'unconfirmed';
     repaintResolutions(runs, board);
-    board.runsNote.update({ text: runs.note });
+    board.dispatchesNote.update({ text: runs.note });
     board.auditButton.update({ disabled: selected === null || runs.audit.status === 'loading' });
     board.auditStatus.update({ text: auditStatusText(runs.audit) });
     board.auditBox.hidden = runs.audit.status !== 'ready' || runs.audit.rows.length === 0;

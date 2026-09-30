@@ -29,7 +29,7 @@ import type { HandoffState } from './handoff.ts';
 import type { HandoffView } from './accounts-ui.ts';
 import type { BindingsPane } from './bindings-ui.ts';
 import type { PanelAccount, PanelBinding, BindingStatusRow } from './bindings-service.ts';
-import type { RunRow } from './runs-service.ts';
+import type { RunRow } from './dispatches-service.ts';
 import type { SpikeHost } from './session.ts';
 
 /** Banner content shown at the top of the panel. */
@@ -64,11 +64,11 @@ export interface ProjectPickerState {
 }
 
 /**
- * Build the empty Runs-section state (M8).
+ * Build the empty Dispatches-section state (M8).
  *
  * @returns The state before the first read.
  */
-export function initialRuns(): RunsState {
+export function initialDispatches(): DispatchesState {
     return {
         rows: [],
         status: 'idle',
@@ -104,7 +104,7 @@ export function initialBindings(): Repositories {
         selectedBinding: null,
         removeAccountArmed: false,
         statusRows: [],
-        runs: initialRuns(),
+        runs: initialDispatches(),
     };
 }
 
@@ -249,8 +249,8 @@ export interface Repositories {
     removeAccountArmed: boolean;
     /** Last relay status rows rendered per binding. */
     statusRows: readonly BindingStatusRow[];
-    /** Runs list, selection, and M9 notice (M8/M9). */
-    runs: RunsState;
+    /** Dispatches list, selection, and M9 notice (M8/M9). */
+    runs: DispatchesState;
 }
 
 /**
@@ -353,8 +353,8 @@ export interface PanelRuntime {
 /** Per-binding event counts from the last relay poll. */
 export type { BindingStatusRow } from './bindings-service.ts';
 
-/** Lifecycle of the runs list the Runs section renders (M8). */
-export type RunsStatus =
+/** Lifecycle of the runs list the Dispatches section renders (M8). */
+export type DispatchesStatus =
     /** Nothing fetched yet. */
     | 'idle'
     /** A `GET /v1/events` is in flight. */
@@ -365,7 +365,7 @@ export type RunsStatus =
     | 'error';
 
 /**
- * The Runs section's state (M8).
+ * The Dispatches section's state (M8).
  *
  * Newest-first rows straight from `GET /v1/events` (capped at the 100 the
  * endpoint returns — no pagination in this cut), plus the selection the
@@ -373,11 +373,11 @@ export type RunsStatus =
  * lives here because the runs area is where the operator looks when a
  * dispatch's outcome matters.
  */
-export interface RunsState {
+export interface DispatchesState {
     /** Rows as the last successful read reported them (newest first). */
     rows: readonly RunRow[];
     /** Where the list read stands. */
-    status: RunsStatus;
+    status: DispatchesStatus;
     /** Operator-facing note about the list or the last retry; redacted. */
     note: string;
     /** The row the operator last clicked, for the open/retry buttons. */

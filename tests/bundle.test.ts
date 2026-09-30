@@ -200,8 +200,8 @@ const GITHUB_WRITE_METHOD = /\bmethod:\s*['"](POST|PUT|PATCH|DELETE)['"]/;
  * this list is the assertion that the newest additions are inside it (AC-128's
  * "covers every new module").
  */
-/** `src/runs-rows.ts`, named once so no list below repeats the literal. */
-const RUNS_ROWS_MODULE = 'src/runs-rows.ts';
+/** `src/dispatches-rows.ts`, named once so no list below repeats the literal. */
+const DISPATCHES_ROWS_MODULE = 'src/dispatches-rows.ts';
 
 const DISPATCH_MODULES: readonly string[] = [
     'src/relay.ts',
@@ -212,8 +212,8 @@ const DISPATCH_MODULES: readonly string[] = [
     'src/reconcile.ts',
     'src/prerequisites.ts',
     'src/audit-view.ts',
-    RUNS_ROWS_MODULE,
-    'src/runs-service.ts',
+    DISPATCHES_ROWS_MODULE,
+    'src/dispatches-service.ts',
     'src/service-calls.ts',
     'src/session.ts',
     'service/poll/run-key.ts',
@@ -252,8 +252,8 @@ const PROMPT_MODULES: readonly string[] = [
     'src/session.ts',
     'src/claim-service.ts',
     'src/relay-attempt.ts',
-    'src/runs-service.ts',
-    RUNS_ROWS_MODULE,
+    'src/dispatches-service.ts',
+    DISPATCHES_ROWS_MODULE,
     'src/run-state.ts',
     'service/prompt.ts',
     'service/prompt-audit.ts',
@@ -400,7 +400,7 @@ describe('NFR-109 no HTML sink on a shipped artifact or a new field', () => {
 
     it('keeps every module that renders a 003 field on the text-only path', () => {
         const sources = scanSources();
-        const rendered = [RUNS_ROWS_MODULE, 'src/audit-view.ts', 'src/prerequisites.ts', 'src/runs-ui.ts'];
+        const rendered = [DISPATCHES_ROWS_MODULE, 'src/audit-view.ts', 'src/prerequisites.ts', 'src/dispatches-ui.ts'];
         for (const path of rendered) {
             const file = sources.find((candidate) => candidate.path === path);
             expect(file, `${path} was not scanned`).toBeDefined();

@@ -92,8 +92,8 @@ describe('T-036 one end-to-end dispatch on this branch', () => {
         // And the trail an operator reconstructs it from, every row on the
         // run's own correlation identifier (FR-061, FR-062).
         const trail = await readTrail(loop.store);
-        const runRows = trail.filter((row) => row.entity.kind === 'run');
-        expect(runRows.map((row) => row.eventType)).toEqual(RUN_TRAIL);
+        const dispatchRows = trail.filter((row) => row.entity.kind === 'run');
+        expect(dispatchRows.map((row) => row.eventType)).toEqual(RUN_TRAIL);
         for (const row of trail) {
             expect(row.correlationId).toBe(run.correlationId);
         }

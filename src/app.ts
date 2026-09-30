@@ -61,7 +61,7 @@ import { redact } from './redaction.ts';
 import { mountBindingsSection } from './bindings-mount.ts';
 import { reconcileDispatchAttempts } from './reconcile.ts';
 import { settleReconciliation, startRelayPolling } from './relay.ts';
-import { loadRuns } from './runs.ts';
+import { loadDispatches } from './dispatches.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
 
@@ -432,7 +432,7 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
     // The runs history is read on mount too (M8), beside the bindings it
     // sits under: one GET /v1/events that fails here lands on the runs
     // note line instead of an empty area nobody can explain.
-    void loadRuns(rt);
+    void loadDispatches(rt);
     // The handoff input stays disabled until this pre-flight proves the
     // service storage is writable (F10/SEC-08); a failed pre-flight leaves
     // the reason on screen instead of a usable credential field.

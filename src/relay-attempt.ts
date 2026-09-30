@@ -32,7 +32,7 @@ import type { LedgerDetail } from './ledger.ts';
 import { appendEntryAndPersist } from './panel-actions.ts';
 import { redact } from './redaction.ts';
 import { composeFirstMessage, promptBlockChars } from './prompt.ts';
-import { loadRuns } from './runs.ts';
+import { loadDispatches } from './dispatches.ts';
 import { dispatchedPath, servicePost } from './service-calls.ts';
 import {
     buildBoundedContext,
@@ -292,7 +292,7 @@ export async function reportAndAcknowledge(input: {
 
     // The runs history follows every dispatch report (M8): whatever the
     // service stored for this attempt is what the operator sees next.
-    void loadRuns(rt);
+    void loadDispatches(rt);
 }
 
 /**

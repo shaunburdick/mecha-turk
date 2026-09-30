@@ -30,7 +30,7 @@
  *   panel simply polls again on its own clock, and `status.pendingCount` is the
  *   honest "more is waiting" signal the loop never second-guesses.
  *
- * After a report the relay also (M8) refreshes the runs history the Runs
+ * After a report the relay also (M8) refreshes the runs history the Dispatches
  * section renders and (M9) reads back the dispatched session's agent —
  * warn-only, see `agent-verify.ts`.
  */

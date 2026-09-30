@@ -1,5 +1,5 @@
 /**
- * The runs-history surface the Runs section reads (M8, widened by 003 T-023).
+ * The runs-history surface the Dispatches section reads (M8, widened by 003 T-023).
  *
  * `GET /v1/events` answers with the service's credential-free projection of
  * every **run** — all eight dispatch states, newest detected first, capped at
@@ -521,7 +521,7 @@ function parseRunEntry(value: unknown): RunRow | null {
  * @returns The rows in the order the service sent them (newest detected
  *   first), or `null` when any part of the shape is unusable.
  */
-export function parseRunsBody(text: string): RunRow[] | null {
+export function parseDispatchesBody(text: string): RunRow[] | null {
     const root = parseJsonObject(text);
     if (root === null || !Array.isArray(root.events)) {
         return null;

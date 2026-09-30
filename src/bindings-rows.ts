@@ -58,7 +58,7 @@ function statusRowOf(bindings: Repositories, bindingId: string): StatusRowView |
  * Describe a scan stamp as elapsed time, so the row reads like a status and
  * not like a log line.
  *
- * Shared with the Runs rows (M8), which describe `detectedAt` the same way.
+ * Shared with the Dispatches rows (M8), which describe `detectedAt` the same way.
  *
  * @param iso - RFC 3339 stamp of the last completed scan.
  * @returns `just now`, `2m ago`, `3h ago`, `2d ago`, or the raw stamp when

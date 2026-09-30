@@ -27,7 +27,7 @@ import { dispatchClaimedRun } from '../src/relay.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { SpikeHost } from '../src/session.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
-import type { RunRow } from '../src/runs-service.ts';
+import type { RunRow } from '../src/dispatches-service.ts';
 import {
     FIXTURE_TIMESTAMP,
     IDLE_UNSUBSCRIBE,

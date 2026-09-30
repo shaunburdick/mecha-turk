@@ -1,7 +1,7 @@
 /**
  * The eight-state dispatch vocabulary and its reader (003 data-model §1).
  *
- * Split out of [`runs-service.ts`](./runs-service.ts) so that module stays the
+ * Split out of [`dispatches-service.ts`](./dispatches-service.ts) so that module stays the
  * runs-history DTO and this one owns the state words themselves: the constant
  * list, the two type aliases the whole panel reads, and the narrowers that
  * decide whether a stored or served state is one this build may render.

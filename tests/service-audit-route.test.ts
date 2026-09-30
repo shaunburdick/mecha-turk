@@ -252,7 +252,7 @@ describe('T-017 the correlation filter is a byte-exact string equality', () => {
     it('returns every run row, includes the detection rows, and never a non-run row (FR-052, AC-118)', async () => {
         const service = await startServiceForTest();
         const correlationId = await seededRunId();
-        const runRows = await seedRows({ correlationId, count: 2 });
+        const dispatchRows = await seedRows({ correlationId, count: 2 });
         // A credential-verification row: its own identifier, and the delivery
         // identifiers it concerns, exactly as FR-052 requires of non-run rows.
         await appendAudit(store, {
@@ -273,7 +273,7 @@ describe('T-017 the correlation filter is a byte-exact string equality', () => {
         const expected = stored.filter((entry) => entry.correlationId === correlationId);
         expect(filtered.json.entries).toEqual(expected);
         expect(filtered.json.count).toBe(expected.length);
-        expect(expected.length).toBeGreaterThanOrEqual(runRows.length + 2);
+        expect(expected.length).toBeGreaterThanOrEqual(dispatchRows.length + 2);
         expect(filtered.json.entries.every((entry) => entry.correlationId === correlationId)).toBe(true);
         expect(filtered.json.entries.some((entry) => entry.eventType === 'account.verified')).toBe(false);
         expect(filtered.json.entries.some((entry) => entry.eventType === 'delivery.detected')).toBe(true);

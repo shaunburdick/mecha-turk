@@ -117,8 +117,8 @@ network — those checks are operator-gated and recorded in the spec (see
 | `redaction.ts` / `json.ts` | Secret-shape detection; typed bridge to the host's `JsonValue` |
 | `service-calls.ts` | Shared `host.serviceRequest()` GET/PUT/POST/DELETE wrappers + the run-scoped paths (reserve, result, abandon, blocked, retry, requeue, resolve, verification, audit read) |
 | `bindings-mode.ts` | Bindings-authoritative mode: first enabled binding is dispatch context |
-| `bindings*.ts` / `runs*.ts` | Repositories tab (bindings, accounts, add form) + Runs history/retry |
-| `runs-service.ts` / `runs-rows.ts` | Run DTO parsed fail-closed across the eight dispatch states; each state's label, tone, and retry validity |
+| `bindings*.ts` / `dispatches*.ts` | Repositories tab (bindings, accounts, add form) + Runs history/retry |
+| `dispatches-service.ts` / `dispatches-rows.ts` | Run DTO parsed fail-closed across the eight dispatch states; each state's label, tone, and retry validity |
 | `run-state.ts` | The eight-state dispatch vocabulary, its `blocked:<reason>` family, and the narrowers that refuse an unknown word |
 | `relay.ts` | Relay tick: claim → handled key → guards → attempt; one handoff per `correlationId#attempt` per mount |
 | `relay-gates.ts` / `relay-attempt.ts` | Binding/project guards, the `blocked` report, and the reserve step; then host call → record → report → acknowledge → read-back |

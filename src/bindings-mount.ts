@@ -33,15 +33,15 @@ import { mountBindingsPane } from './bindings-ui.ts';
 import type { BindingsPaneHandlers } from './bindings-ui.ts';
 import { loadAuditHistory } from './audit-view.ts';
 import {
-    loadRuns,
-    openRun,
+    loadDispatches,
+    openDispatch,
     requeueRun,
     resolveNoSession,
     resolveSessionCreated,
     retryRun,
-    selectRun,
+    selectDispatch,
     setSessionInput,
-} from './runs.ts';
+} from './dispatches.ts';
 
 /**
  * Map the Bindings pane's callbacks onto the existing actions.
@@ -78,9 +78,9 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
         setWorktree: (id) => editBindings(rt, { worktreeSelection: id }),
         selectBinding: (id) => editBindings(rt, { selectedBinding: id }),
         refreshProjects: () => void loadProjects(rt),
-        refreshRuns: () => void loadRuns(rt),
-        selectRun: (id) => selectRun(rt, id),
-        openRun: () => void openRun(rt),
+        refreshDispatches: () => void loadDispatches(rt),
+        selectDispatch: (id) => selectDispatch(rt, id),
+        openDispatch: () => void openDispatch(rt),
         retryRun: () => void retryRun(rt),
         requeueRun: () => void requeueRun(rt),
         resolveSessionCreated: () => void resolveSessionCreated(rt),

@@ -11,7 +11,7 @@
  * touched (panel-service contract §3 invariant 11). The binding list rows
  * themselves — the scan stamp, skip reason, and pending count the operator
  * reads per row — live in `bindings-rows.ts`, and the runs section's row copy
- * lives beside it in `runs-rows.ts` (M8).
+ * lives beside it in `dispatches-rows.ts` (M8).
  */
 
 import {
@@ -36,8 +36,8 @@ import type {
 import type { PanelRuntime, Repositories } from './panel-state.ts';
 import { notListedGuidance } from './project-picker.ts';
 import { bindingRows } from './bindings-rows.ts';
-import { mountRunsBoard, repaintRunsBoard } from './runs-ui.ts';
-import type { RunsBoard } from './runs-ui.ts';
+import { mountDispatchesBoard, repaintDispatchesBoard } from './dispatches-ui.ts';
+import type { DispatchesBoard } from './dispatches-ui.ts';
 
 /** The pane handle: tab strip, pane element, and every repaint handle. */
 export interface BindingsPane {
@@ -76,7 +76,7 @@ export interface BindingsPane {
     /** Note under the form. */
     readonly note: TextHandle;
     /** The runs half of the pane: heading, list, actions, and notes. */
-    readonly runs: RunsBoard;
+    readonly runs: DispatchesBoard;
     /** Remove every node this pane mounted. */
     readonly dispose: () => void;
 }
@@ -114,11 +114,11 @@ export interface BindingsPaneHandlers {
     /** Operators reloaded the project list behind the picker. */
     readonly refreshProjects: () => void;
     /** Operators asked for a fresh runs history (M8). */
-    readonly refreshRuns: () => void;
+    readonly refreshDispatches: () => void;
     /** Operators clicked a run row. */
-    readonly selectRun: (id: string) => void;
+    readonly selectDispatch: (id: string) => void;
     /** Operators asked to open the selected run's issue. */
-    readonly openRun: () => void;
+    readonly openDispatch: () => void;
     /** Operators asked to requeue the selected run. */
     readonly retryRun: () => void;
     /** Operators asked to return the selected parked run to waiting. */
@@ -429,7 +429,7 @@ export function mountBindingsPane(input: {
     root.append(pane);
 
     const board = mountBindingsBoard({ rt, pane, handlers });
-    const runs = mountRunsBoard({ rt, pane, handlers });
+    const runs = mountDispatchesBoard({ rt, pane, handlers });
     const form = mountAddForm({ rt, pane, handlers });
 
     return {
@@ -513,7 +513,7 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
     });
     view.note.update({ text: bindings.note });
 
-    // Runs section (M8 + 003 T-025): its own repaint, because its affordance
+    // Dispatches section (M8 + 003 T-025): its own repaint, because its affordance
     // table decides which control group exists at all.
-    repaintRunsBoard(rt, view.runs);
+    repaintDispatchesBoard(rt, view.runs);
 }

@@ -25,7 +25,7 @@
  * step is unmet. Every checkable `not-met` also raises a banner **outside**
  * the section (FR-073); a `met` item never does.
  *
- * Rendering follows the RunsBoard shape: SDK primitives mounted into a
+ * Rendering follows the DispatchesBoard shape: SDK primitives mounted into a
  * wrapper whose `hidden` flag is the banner's state, repainted through
  * {@link repaintPrerequisites}. Mounted surfaces live in a `WeakMap` keyed by
  * runtime rather than on `PanelRuntime`, so this module owns all its state.

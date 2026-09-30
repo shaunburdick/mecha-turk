@@ -1,5 +1,5 @@
 /**
- * The Runs section's actions (M8): read the history, open the issue, retry.
+ * The Dispatches section's actions (M8): read the history, open the issue, retry.
  *
  * The service owns the queue; this module reads its credential-free
  * projection (`GET /v1/events`, all states, newest detected first, capped at
@@ -18,13 +18,13 @@
 import { initialAuditHistory } from './audit-view.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
-import { canRetry, runAffordance, selectedRun } from './runs-rows.ts';
-import { BLOCKED_PREFIX, parseRunsBody } from './runs-service.ts';
+import { canRetry, runAffordance, selectedRun } from './dispatches-rows.ts';
+import { BLOCKED_PREFIX, parseDispatchesBody } from './dispatches-service.ts';
 import { EVENTS_PATH, requeuePath, resolvePath, retryPath, serviceGet, servicePost } from './service-calls.ts';
 import { describeError, resolveProject } from './session.ts';
 import type { ServiceErrorResult } from './service-calls.ts';
 import type { PanelRuntime, RunPendingAction } from './panel-state.ts';
-import type { RunRow } from './runs-service.ts';
+import type { RunRow } from './dispatches-service.ts';
 
 /**
  * Whether the mount still runs; a function call the analyzer never narrows.
@@ -46,7 +46,7 @@ function stillMounted(rt: PanelRuntime): boolean {
  *
  * @param rt - Panel runtime.
  */
-export async function loadRuns(rt: PanelRuntime): Promise<void> {
+export async function loadDispatches(rt: PanelRuntime): Promise<void> {
     const { runs } = rt.state.bindings;
     if (rt.disposed || runs.status === 'loading') {
         return;
@@ -68,7 +68,7 @@ export async function loadRuns(rt: PanelRuntime): Promise<void> {
         return;
     }
 
-    const rows = parseRunsBody(result.body);
+    const rows = parseDispatchesBody(result.body);
     if (rows === null) {
         runs.status = 'error';
         runs.note = 'The service answered a runs list the panel could not read — refresh to retry.';
@@ -102,7 +102,7 @@ export async function loadRuns(rt: PanelRuntime): Promise<void> {
  * @param rt - Panel runtime.
  * @param id - Row id the list reported.
  */
-export function selectRun(rt: PanelRuntime, id: string): void {
+export function selectDispatch(rt: PanelRuntime, id: string): void {
     const { runs } = rt.state.bindings;
     if (rt.disposed) {
         return;
@@ -130,7 +130,7 @@ export function selectRun(rt: PanelRuntime, id: string): void {
  *
  * @param rt - Panel runtime.
  */
-export async function openRun(rt: PanelRuntime): Promise<void> {
+export async function openDispatch(rt: PanelRuntime): Promise<void> {
     const row = selectedRun(rt.state.bindings.runs);
     if (row === null) {
         return;
@@ -332,7 +332,7 @@ async function postRunOperation(input: {
         return;
     }
 
-    await loadRuns(input.rt);
+    await loadDispatches(input.rt);
     if (!stillMounted(input.rt)) {
         return;
     }

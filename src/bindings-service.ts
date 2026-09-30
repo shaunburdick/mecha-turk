@@ -12,7 +12,7 @@
  * [`claim-service.ts`](./claim-service.ts); the two share exactly three
  * things, all exported from here: the {@link BindingStatusRow} row the status
  * member carries, its reader {@link readStatusRows}, and the two row readers
- * `runs-service.ts` also holds an opinion about ({@link issueNumberFrom} and
+ * `dispatches-service.ts` also holds an opinion about ({@link issueNumberFrom} and
  * {@link eventKindOf}).
  */
 
@@ -155,7 +155,7 @@ function readTriggerFlags(value: unknown): PanelTriggers | null {
 /**
  * Read one positive issue number from a stored event row.
  *
- * Shared with `runs-service.ts`, which reads the same rows through the runs
+ * Shared with `dispatches-service.ts`, which reads the same rows through the runs
  * projection — one reader, one rule, so the claim parser and the runs parser
  * can never disagree about what counts as an issue number.
  *
@@ -258,7 +258,7 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
  * Read one event kind, defaulting to the M1 trigger for anything this build
  * does not know — a stored row from a future build must not break the relay.
  *
- * Shared with `runs-service.ts` for exactly the same reason: the runs list
+ * Shared with `dispatches-service.ts` for exactly the same reason: the runs list
  * renders rows the panel's own build may not have enqueued.
  *
  * @param value - Candidate kind from a stored row.
