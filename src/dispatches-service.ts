@@ -2,10 +2,11 @@
  * The runs-history surface the Dispatches section reads (M8, widened by 003 T-023).
  *
  * `GET /v1/events` answers with the service's credential-free projection of
- * every **run** — all eight dispatch states, newest detected first, capped at
- * 100 — so this module owns that DTO and its parser, kept beside the runs
- * actions rather than inside `bindings-service.ts` (the bindings/claim surface),
- * which the file-length limit would otherwise push past its own responsibility.
+ * every **run** — all eight dispatch states, newest detected first, paged
+ * (default 25, selectable 10/25/50/100) and filterable server-side — so this
+ * module owns that DTO and its two readers, kept beside the runs actions
+ * rather than inside `bindings-service.ts` (the bindings/claim surface), which
+ * the file-length limit would otherwise push past its own responsibility.
  *
  * Two rules shape the parser:
  *
@@ -521,14 +522,24 @@ function parseRunEntry(value: unknown): RunRow | null {
  * @returns The rows in the order the service sent them (newest detected
  *   first), or `null` when any part of the shape is unusable.
  */
-export function parseDispatchesBody(text: string): RunRow[] | null {
-    const root = parseJsonObject(text);
-    if (root === null || !Array.isArray(root.events)) {
+/**
+ * Read one homogeneous element array; one unusable element refuses the answer.
+ *
+ * Exported because the paged reader in `dispatches-list.ts` builds on the same
+ * row rule: one row the panel cannot fully understand refuses the list rather
+ * than being skipped, because a list with a hole in it is a record an operator
+ * would misread.
+ *
+ * @param events - The `events` member (unchecked).
+ * @returns The rows, or `null` when the member is not an array or a row fails.
+ */
+export function parseEventRows(events: unknown): RunRow[] | null {
+    if (!Array.isArray(events)) {
         return null;
     }
 
     const rows: RunRow[] = [];
-    for (const entry of root.events) {
+    for (const entry of events) {
         const row = parseRunEntry(entry);
         if (row === null) {
             return null;
@@ -538,4 +549,20 @@ export function parseDispatchesBody(text: string): RunRow[] | null {
     }
 
     return rows;
+}
+
+/**
+ * Parse the runs-history (`GET /v1/events`) response body's rows alone.
+ *
+ * @param text - Response body text.
+ * @returns The rows in the order the service sent them (newest detected
+ *   first), or `null` when any part of the shape is unusable.
+ */
+export function parseDispatchesBody(text: string): RunRow[] | null {
+    const root = parseJsonObject(text);
+    if (root === null) {
+        return null;
+    }
+
+    return parseEventRows(root.events);
 }

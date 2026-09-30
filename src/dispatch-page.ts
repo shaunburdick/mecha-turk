@@ -49,6 +49,8 @@ export interface DispatchListPage {
     readonly cursorStack: (string | null)[];
     /** Which entry of `cursorStack` the operator is on. */
     readonly pageIndex: number;
+    /** Boundary token the last answer supplied for the page after this one. */
+    readonly nextCursor: string | null;
     /** Operator-selectable page size; one of {@link DISPATCH_PAGE_SIZES}. */
     readonly limit: number;
     /** Whether the last answer reported another page. */
@@ -77,6 +79,7 @@ export function initialDispatchListPage(): DispatchListPage {
     return {
         cursorStack: [null],
         pageIndex: 0,
+        nextCursor: null,
         limit: DEFAULT_PAGE_SIZE,
         hasMore: false,
         total: null,
@@ -96,4 +99,91 @@ export function initialDispatchListPage(): DispatchListPage {
  */
 export function resetDispatchListPage(page: DispatchListPage): DispatchListPage {
     return { ...initialDispatchListPage(), limit: page.limit };
+}
+
+/**
+ * Build a paging position at a chosen page size (FR-042's operator select).
+ *
+ * @param limit - The new page size; unknown values fall back to the default
+ *   rather than being sent to a service that would refuse them.
+ * @returns The first page of the new set, at `limit`.
+ */
+export function dispatchListPageAt(limit: number): DispatchListPage {
+    const accepted = DISPATCH_PAGE_SIZES.includes(limit as (typeof DISPATCH_PAGE_SIZES)[number]);
+
+    return { ...initialDispatchListPage(), limit: accepted ? limit : DEFAULT_PAGE_SIZE };
+}
+
+/**
+ * The cursor the next read should start from.
+ *
+ * `null` on page one; the stack entry the operator is standing on afterwards.
+ * An explicit refresh resumes here rather than restarting the set (FR-042).
+ *
+ * @param page - The position to read from.
+ * @returns The cursor for the next read.
+ */
+export function cursorFor(page: DispatchListPage): string | null {
+    return page.cursorStack[page.pageIndex] ?? null;
+}
+
+/**
+ * Step one page forward, recording the boundary that produced it.
+ *
+ * The stack is truncated at the current index first, so stepping forward from
+ * a page the operator backed up to abandons the tail they can no longer reach
+ * — a stale cursor there would silently skip rows (FR-042, SC-106). A position
+ * with no boundary to step to is left alone.
+ *
+ * @param page - The position to advance.
+ * @returns The advanced position, or `page` when there is nothing to advance to.
+ */
+export function advanceDispatchPage(page: DispatchListPage): DispatchListPage {
+    if (page.nextCursor === null) {
+        return page;
+    }
+
+    const kept = page.cursorStack.slice(0, page.pageIndex + 1);
+
+    return { ...page, cursorStack: [...kept, page.nextCursor], pageIndex: page.pageIndex + 1 };
+}
+
+/**
+ * Step one page back; a no-op on the first page.
+ *
+ * @param page - The position to retreat.
+ * @returns The previous position, or `page` when there is none.
+ */
+export function retreatDispatchPage(page: DispatchListPage): DispatchListPage {
+    if (page.pageIndex === 0) {
+        return page;
+    }
+
+    return { ...page, pageIndex: page.pageIndex - 1 };
+}
+
+/**
+ * Record what the last answer said about the set (FR-042).
+ *
+ * @param page - The position to annotate.
+ * @param meta - The boundary for the next page, whether one exists, the set's
+ *   size (or `null` when the service withheld it), and the answer's stamp.
+ * @returns The annotated position.
+ */
+export function recordDispatchPageMeta(
+    page: DispatchListPage,
+    meta: {
+        readonly nextCursor: string | null;
+        readonly hasMore: boolean;
+        readonly total: number | null;
+        readonly snapshotAt: string;
+    },
+): DispatchListPage {
+    return {
+        ...page,
+        nextCursor: meta.nextCursor,
+        hasMore: meta.hasMore,
+        total: meta.total,
+        snapshotAt: meta.snapshotAt,
+    };
 }

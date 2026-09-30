@@ -77,7 +77,12 @@ const RUN_PATH = `/v1/events/${CORRELATION}`;
 const PENDING_GET = 'GET /v1/events/pending';
 
 /** `GET /v1/events`, the runs-history read that follows every report. */
-const HISTORY_GET = 'GET /v1/events';
+const HISTORY_GET = 'GET /v1/events?limit=25';
+
+/** The `page` label the history read carries (005 contract §2). */
+const HISTORY_PAGE =
+    '{"limit":25,"nextCursor":null,"hasMore":false,"total":0,'
+    + `"snapshotAt":"${FIXTURE_TIMESTAMP}","filter":{"bindingId":null,"state":null}}`;
 
 /** Agent the fixture read-back reports; matches the panel's default expectation. */
 const EXPECTED_AGENT = 'project-manager';
@@ -157,7 +162,7 @@ function claimBody(runs: readonly ClaimedRun[], auditWritten = true): string {
 /** The routes a fully co-operative service answers with. */
 const OK_ROUTES: RouteTable = {
     [PENDING_GET]: { status: 200, body: claimBody([claimedRun()]) },
-    [HISTORY_GET]: { status: 200, body: '{"events":[]}' },
+    [HISTORY_GET]: { status: 200, body: `{"events":[],"page":${HISTORY_PAGE}}` },
     // The reserve answer echoes whatever the panel asked to authorize, so a
     // second attempt of the same run still reads as an authorization for it.
     [`POST ${RUN_PATH}/reserve`]: {

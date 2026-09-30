@@ -19,12 +19,43 @@ import { initialAuditHistory } from './audit-view.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import { canRetry, runAffordance, selectedRun } from './dispatches-rows.ts';
-import { BLOCKED_PREFIX, parseDispatchesBody } from './dispatches-service.ts';
+import { parseDispatchListBody } from './dispatches-list.ts';
+import { BLOCKED_PREFIX } from './dispatches-service.ts';
+import { cursorFor, recordDispatchPageMeta } from './dispatch-page.ts';
 import { EVENTS_PATH, requeuePath, resolvePath, retryPath, serviceGet, servicePost } from './service-calls.ts';
 import { describeError, resolveProject } from './session.ts';
 import type { ServiceErrorResult } from './service-calls.ts';
-import type { PanelRuntime, RunPendingAction } from './panel-state.ts';
+import type { PanelRuntime, DispatchesState, RunPendingAction } from './panel-state.ts';
 import type { RunRow } from './dispatches-service.ts';
+
+/**
+ * Build the query one paged read sends (005 contract §1).
+ *
+ * Every value the panel cannot stand behind is simply omitted: the cursor only
+ * travels when the operator has stepped past page one, and a filter only when
+ * it is on — so the barest call is still the closest analogue of an unfiltered
+ * first page rather than a filter nobody chose (FR-042, FR-043).
+ *
+ * @param runs - The section's filters and paging position.
+ * @returns `GET /v1/events` with this read's parameters.
+ */
+export function dispatchListPath(runs: DispatchesState): string {
+    const params: string[] = [`limit=${runs.page.limit}`];
+    const cursor = cursorFor(runs.page);
+    if (cursor !== null) {
+        params.push(`cursor=${encodeURIComponent(cursor)}`);
+    }
+
+    if (runs.filters.bindingId !== null) {
+        params.push(`bindingId=${encodeURIComponent(runs.filters.bindingId)}`);
+    }
+
+    if (runs.filters.state !== null) {
+        params.push(`state=${encodeURIComponent(runs.filters.state)}`);
+    }
+
+    return `${EVENTS_PATH}?${params.join('&')}`;
+}
 
 /**
  * Whether the mount still runs; a function call the analyzer never narrows.
@@ -37,12 +68,14 @@ function stillMounted(rt: PanelRuntime): boolean {
 }
 
 /**
- * Read the runs history from the service.
+ * Read one page of the dispatch history from the service.
  *
  * A failed or unreadable read keeps the rows the panel already holds — the
  * note explains what went wrong instead of blanking a list the operator was
- * reading — while a successful read replaces them wholesale and drops a
- * selection whose row is gone.
+ * reading — while a successful read replaces them wholesale, records where
+ * the answer sits in the set, and drops a selection whose row is gone. The
+ * page position itself is the caller's to keep or roll back: this function
+ * only ever annotates it with what the answer actually said (FR-042).
  *
  * @param rt - Panel runtime.
  */
@@ -55,30 +88,34 @@ export async function loadDispatches(rt: PanelRuntime): Promise<void> {
     runs.status = 'loading';
     refresh(rt);
 
-    const result = await serviceGet({ serviceRequest: rt.host.serviceRequest, path: EVENTS_PATH });
+    const result = await serviceGet({
+        serviceRequest: rt.host.serviceRequest,
+        path: dispatchListPath(runs),
+    });
     if (!stillMounted(rt)) {
         return;
     }
 
     if (!result.ok) {
         runs.status = 'error';
-        runs.note = redact(`Runs list not loaded: ${result.problem}.`);
+        runs.note = redact(`Dispatch list not loaded: ${result.problem}.`);
         refresh(rt);
 
         return;
     }
 
-    const rows = parseDispatchesBody(result.body);
-    if (rows === null) {
+    const answer = parseDispatchListBody(result.body);
+    if (answer === null) {
         runs.status = 'error';
-        runs.note = 'The service answered a runs list the panel could not read — refresh to retry.';
+        runs.note = 'The service answered a dispatch list the panel could not read — refresh to retry.';
         refresh(rt);
 
         return;
     }
 
-    runs.rows = rows;
-    if (runs.selectedRun !== null && !rows.some((row) => row.id === runs.selectedRun)) {
+    runs.rows = answer.rows;
+    runs.page = recordDispatchPageMeta(runs.page, answer.page);
+    if (runs.selectedRun !== null && !answer.rows.some((row) => row.id === runs.selectedRun)) {
         runs.selectedRun = null;
         runs.audit = initialAuditHistory();
     }

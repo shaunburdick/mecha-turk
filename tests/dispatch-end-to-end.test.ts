@@ -30,7 +30,7 @@ import type { DispatchLoop } from './support/dispatch-loop.ts';
 const ISSUE = 90;
 
 /** The runs-history refresh that rides along after a report: a display read. */
-const HISTORY_GET = 'GET /v1/events';
+const HISTORY_GET = 'GET /v1/events?limit=25';
 
 /** The lifecycle rows a single successful dispatch owes the trail. */
 const RUN_TRAIL: readonly string[] = [

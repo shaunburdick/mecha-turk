@@ -323,6 +323,16 @@ const CLAIM: ClaimedRun = {
     promptText: null,
 };
 
+/** The `page` label the history read carries (005 contract §2). */
+const HISTORY_PAGE = {
+    limit: 25,
+    nextCursor: null,
+    hasMore: false,
+    total: 1,
+    snapshotAt: FIXTURE_TIMESTAMP,
+    filter: { bindingId: null, state: null },
+};
+
 /**
  * Run {@link verifyAgentAfterDispatch} against a host reporting one agent.
  *
@@ -445,8 +455,8 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
                     return { status: 200, body: '{"done":true}' };
                 }
 
-                if (request.method === 'GET' && request.path === '/v1/events') {
-                    return { status: 200, body: JSON.stringify({ events: [RUN_ROW] }) };
+                if (request.method === 'GET' && request.path.startsWith('/v1/events?')) {
+                    return { status: 200, body: JSON.stringify({ events: [RUN_ROW], page: HISTORY_PAGE }) };
                 }
 
                 return { status: 404, body: '{}' };
@@ -475,7 +485,7 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
 
         const dispatched = calls.indexOf(`POST /v1/events/${CORRELATION}/dispatched`);
         const opened = calls.indexOf(`openSession:${SESSION}`);
-        const runsRead = calls.indexOf('GET /v1/events');
+        const runsRead = calls.indexOf('GET /v1/events?limit=25');
         // The service hears about the dispatch before the UI context switch.
         expect(dispatched).toBeGreaterThanOrEqual(0);
         expect(opened).toBeGreaterThan(dispatched);
@@ -703,8 +713,8 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
                     return { status: 200, body: '{"done":true}' };
                 }
 
-                if (request.method === 'GET' && request.path === '/v1/events') {
-                    return { status: 200, body: '{"events":[]}' };
+                if (request.method === 'GET' && request.path.startsWith('/v1/events?')) {
+                    return { status: 200, body: JSON.stringify({ events: [], page: HISTORY_PAGE }) };
                 }
 
                 return { status: 200, body: '{"ok":true}' };

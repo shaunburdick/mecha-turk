@@ -98,7 +98,24 @@ const WAITING_REASON = 'waiting for a panel';
 const ACCEPTED_BODY = '{"state":"pending"}';
 
 /** The default `GET /v1/events` key the service double answers. */
-const RUNS_GET = `GET ${EVENTS_PATH}`;
+const RUNS_GET = `GET ${EVENTS_PATH}?limit=25`;
+
+/**
+ * The `page` member a paged answer carries (005 contract §2).
+ *
+ * @param total - Size of the set the fixture models.
+ * @returns The member, ready to be spread into an answer body.
+ */
+function pageMember(total: number): Record<string, unknown> {
+    return {
+        limit: 25,
+        nextCursor: null,
+        hasMore: false,
+        total,
+        snapshotAt: FIXTURE_TIMESTAMP,
+        filter: { bindingId: null, state: null },
+    };
+}
 
 /** One answer in a service-double route table. */
 interface RouteAnswer {
@@ -186,7 +203,7 @@ function runsState(overrides: Partial<DispatchesState> = {}): DispatchesState {
 
 /** Body the service answers `GET /v1/events` with for the given rows. */
 function runsBody(rows: readonly RunRow[]): string {
-    return JSON.stringify({ events: rows });
+    return JSON.stringify({ events: rows, page: pageMember(rows.length) });
 }
 
 /** A service double: recorded `METHOD path` calls plus a swappable table. */
@@ -684,7 +701,9 @@ describe('loadDispatches (read the history without lying about failures)', () =>
     });
 
     it('reports an unreadable body as unreadable instead of half-trusting it', async () => {
-        const service = serviceDouble({ [RUNS_GET]: { status: 200, body: '{"events":[{"id":"half"}]}' } });
+        const service = serviceDouble({
+            [RUNS_GET]: { status: 200, body: JSON.stringify({ events: [{ id: 'half' }], page: pageMember(1) }) },
+        });
         const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
 
         await loadDispatches(rt);
