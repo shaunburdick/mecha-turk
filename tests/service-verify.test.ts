@@ -8,7 +8,7 @@
  * `tests/service-verify-limits.test.ts`.
  */
 
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CONSENT_VERSION } from '../src/consent.ts';
@@ -120,6 +120,20 @@ describe('POST /v1/accounts/verify — happy path', () => {
         const response = await postVerify(service, verifyBody(REGISTERED_TOKEN, { expectedLogin: 'OCTOCAT-MT' }));
 
         expect(response.status).toBe(201);
+    });
+
+    it('stores expectedLogin as null when the add form carried no constraint (005 AC-141)', async () => {
+        const { service } = await startWithGitHub({ user: USER_OK });
+
+        const response = await postVerify(service, verifyBody(REGISTERED_TOKEN));
+        const stored = JSON.parse(
+            await readFile(join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`), 'utf8'),
+        ) as Record<string, unknown>;
+
+        expect(response.status).toBe(201);
+        // The panel omits the member entirely when the field is left empty,
+        // so "no constraint" and "the member was never sent" are one state.
+        expect(stored.expectedLogin).toBeNull();
     });
 });
 

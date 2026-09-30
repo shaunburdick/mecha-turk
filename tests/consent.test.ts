@@ -18,13 +18,18 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { refreshHandoff } from '../src/accounts-ui.ts';
 import {
     CONSENT_COPY_PARAGRAPHS,
     CONSENT_COPY_V1,
+    CONSENT_STORAGE_KEY,
     CONSENT_VERSION,
     consentCurrent,
     readConsentMirror,
+    restoreStoredConsent,
 } from '../src/consent.ts';
+import { recordingView } from './support/handoff.ts';
+import { createStorageDouble, createTestRuntime, fakeHost } from './support/panel.ts';
 
 /** Contract file holding the canonical consent block. */
 const CONTRACT_PATH = resolve(import.meta.dirname, '../specs/002-agent-event-extension/contracts/token-handoff.md');
@@ -171,5 +176,27 @@ describe('consent mirror rules (§1.2 re-consent)', () => {
         expect(consentCurrent(stale, 1)).toBe(true);
         expect(consentCurrent(stale, 2)).toBe(false);
         expect(consentCurrent({ ...stale, version: 3 }, 2)).toBe(true);
+    });
+});
+
+describe('an accepted consent is never re-requested (002 FR-008, 005 FR-061)', () => {
+    it('renders no consent step for a panel mounted over a current mirror', async () => {
+        const mirror = { givenAt: GIVEN_AT, version: CONSENT_VERSION };
+        const storage = createStorageDouble({ [CONSENT_STORAGE_KEY]: mirror });
+        const rt = createTestRuntime(fakeHost({ storage: storage.storage }));
+
+        await restoreStoredConsent(rt);
+        const record = recordingView();
+        rt.handoffView = record.view;
+        // What mounting the Accounts body runs: one repaint, and no prompt —
+        // navigation is not a new request for consent.
+        refreshHandoff(rt);
+
+        expect(rt.state.handoff.consentGiven).toBe(true);
+        expect(record.consentShown).toBe(false);
+        // The paste row is open: consent governs the first handoff only.
+        expect(record.pasteVisible).toBe(true);
+        // Nothing rewrote the stored acceptance either.
+        expect(storage.values.get(CONSENT_STORAGE_KEY)).toEqual(mirror);
     });
 });

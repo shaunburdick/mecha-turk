@@ -57,6 +57,7 @@ import {
     scriptedRuntime,
 } from './support/handoff.ts';
 import { fakeDom } from './support/dom.ts';
+import type { FakeElement } from './support/dom.ts';
 import { createStorageDouble, createTestRuntime, fakeHost } from './support/panel.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
@@ -481,6 +482,8 @@ function mountAccountsTab(setup?: (rt: PanelRuntime) => void): {
     readonly rt: PanelRuntime;
     /** The shell's disposer for this body. */
     readonly dispose: () => void;
+    /** Every element the mount created, in creation order. */
+    readonly created: readonly FakeElement[];
     /** Every string the mount and its first repaint handed to the SDK. */
     readonly strings: readonly string[];
 } {
@@ -500,7 +503,29 @@ function mountAccountsTab(setup?: (rt: PanelRuntime) => void): {
 
     const strings = mounts.log.flatMap((entry) => stringsIn(entry.props));
 
-    return { rt, dispose, strings };
+    return { rt, dispose, created: dom.created, strings };
+}
+
+/**
+ * Whether the consent card is **showing** on a mounted group (002 FR-008).
+ *
+ * The copy is written into its node whether the card shows or not — the
+ * adapter hides the *container* — so visibility is read from the box, never
+ * from the presence of the text.
+ *
+ * @param created - Every element the mount created.
+ * @returns `true` while the operator would be asked again, `undefined` when
+ *   the card was not mounted at all.
+ */
+function consentCardVisible(created: readonly FakeElement[]): boolean | undefined {
+    const copy = created.find((node) => node.textContent === CONSENT_COPY_V1);
+    if (copy === undefined) {
+        return undefined;
+    }
+
+    const box = created.find((node) => node.children.includes(copy));
+
+    return box !== undefined && !box.hidden;
 }
 
 /**
@@ -673,6 +698,29 @@ describe('T-024 the Accounts tab copy and secret posture (FR-020, FR-067, AC-129
         });
         dispose();
         expectNoCredentialInStrings(strings);
+    });
+});
+
+describe('T-025 opening the Accounts tab does not re-request consent (002 FR-008, FR-061)', () => {
+    it('keeps the consent card hidden for an install that already accepted', () => {
+        const { rt, dispose, created } = mountAccountsTab((runtime): void => {
+            runtime.state.handoff.consentGiven = true;
+        });
+        dispose();
+
+        expect(consentCardVisible(created)).toBe(false);
+        // Consent governs the *first* handoff only: the paste row is open and
+        // the accepted flag survives the navigation untouched.
+        expect(rt.state.handoff.consentGiven).toBe(true);
+        expect(rt.handoffView).not.toBeNull();
+    });
+
+    it('still shows the card for an install that has never accepted this copy', () => {
+        const { rt, dispose, created } = mountAccountsTab();
+        dispose();
+
+        expect(consentCardVisible(created)).toBe(true);
+        expect(rt.state.handoff.consentGiven).toBe(false);
     });
 });
 

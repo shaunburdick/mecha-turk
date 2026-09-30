@@ -41,7 +41,7 @@ describe('consent gate (AC-002, contract §1)', () => {
     it('refuses the handoff before any request when no consent was given', async () => {
         const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }), {});
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(host.requests).toHaveLength(0);
         expect(host.record.note).toBe(CONSENT_REFUSAL);
@@ -54,7 +54,7 @@ describe('consent gate (AC-002, contract §1)', () => {
             [CONSENT_STORAGE_KEY]: stale,
         });
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(host.requests).toHaveLength(0);
         expect(host.record.note).toBe(CONSENT_REFUSAL);
@@ -73,7 +73,7 @@ describe('consent gate (AC-002, contract §1)', () => {
     it('sends the credential once with the current consentVersion', async () => {
         const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         // After the verify, the success re-reads the Bindings tab's two lists so
         // the accounts dropdown offers the account the service just registered
@@ -95,7 +95,7 @@ describe('successful handoff (contract §2 steps ⑧⑨)', () => {
     it('renders the connected line, mirrors the account, and clears the credential', async () => {
         const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
         expect(host.rt.state.handoff.connected).toMatchObject({ numericUserId: CONNECTED_ID });
@@ -114,7 +114,7 @@ describe('successful handoff (contract §2 steps ⑧⑨)', () => {
     it('leaves the input re-enabled for the next handoff after a success', async () => {
         const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(handoffInputEnabled(host.rt.state.handoff)).toBe(true);
         expect(host.record.consentShown).toBe(false);
@@ -151,7 +151,7 @@ describe('post-connect Bindings reload (MVP fix 3, accounts dropdown)', () => {
             return { status: 404, body: UNROUTED };
         });
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
         await tick();
 
         // The connected line the handoff renders is untouched by the reload,
@@ -188,7 +188,7 @@ describe('host transport failures (F1–F4, F16, panel-service §1)', () => {
         it(`clears the credential and surfaces copy for ${code}`, async () => {
             const host = await scriptedRuntime(serviceScript({ throws: code }));
 
-            await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+            await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
             expect(host.record.note).toContain(phrase);
             expectNoCredential(host);
@@ -211,7 +211,7 @@ describe('host transport failures (F1–F4, F16, panel-service §1)', () => {
             throw new HostRequestError('HOST_TIMEOUT', 'scripted timeout');
         });
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(statusCalls).toBe(2);
         expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
@@ -241,7 +241,7 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
             const envelope = JSON.stringify({ error: { code, message: 'contract-fixed' } });
             const host = await scriptedRuntime(serviceScript({ status, body: envelope }));
 
-            await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+            await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
             expect(host.record.note).toContain(phrase);
             expectNoCredential(host);
@@ -254,7 +254,7 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
         });
         const host = await scriptedRuntime(serviceScript({ status: 422, body: envelope }));
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(host.record.note).toContain('SSO');
         expectNoCredential(host);
@@ -272,7 +272,7 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
             });
             const host = await scriptedRuntime(serviceScript({ status: 422, body: envelope }));
 
-            await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+            await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
             expect(host.record.note).toContain(phrase);
             expectNoCredential(host);
@@ -283,7 +283,7 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
         const envelope = JSON.stringify({ error: { code: 'consent-required', message: 'fixed' } });
         const host = await scriptedRuntime(serviceScript({ status: 422, body: envelope }));
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(host.record.note).toContain('Consent needs renewing');
         expect(host.storage.values.has(CONSENT_STORAGE_KEY)).toBe(false);
@@ -318,7 +318,7 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
             return { status: 404, body: JSON.stringify({ error: { code: 'not-found', message: 'unrouted' } }) };
         });
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         // The adoption filled the identity from the service's own answer and
         // the panel shows the connected line — not the rotate-the-token copy.
@@ -342,7 +342,7 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
         // adoption read fails closed and the catalogue copy stands.
         const host = await scriptedRuntime(serviceScript({ status: 409, body: DUPLICATE_BODY }));
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(host.rt.state.handoff.connected).toBeNull();
         expect(host.record.note).toContain('already registered');
@@ -368,7 +368,7 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
             return { status: 404, body: JSON.stringify({ error: { code: 'not-found', message: 'unrouted' } }) };
         });
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
         await tick();
 
         // The adoption connects the account AND the tab re-reads it, so the
@@ -386,7 +386,7 @@ describe('storage pre-flight (F10/F14, SEC-08)', () => {
         const unwritable = JSON.stringify({ service: { storage: { writable: false } }, accounts: [] });
         const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }, unwritable));
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(host.requests.map((request) => request.path)).toEqual([STATUS_PATH]);
         expect(host.record.note).toBe(STORAGE_REFUSAL);
@@ -399,7 +399,7 @@ describe('storage pre-flight (F10/F14, SEC-08)', () => {
         const envelope = JSON.stringify({ error: { code: 'storage-unavailable', message: 'fixed' } });
         const host = await scriptedRuntime(serviceScript({ status: 503, body: envelope }));
 
-        await submitHandoffAndRepaint(host.rt, PANEL_TOKEN);
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(host.rt.state.handoff.storageWritable).toBe(false);
         expect(host.record.note).toContain('not writable');

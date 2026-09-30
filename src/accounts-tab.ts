@@ -117,8 +117,8 @@ function mountHandoffGroup(rt: PanelRuntime, pane: HTMLElement): void {
                 declineHandoffConsent(rt);
                 refreshHandoff(rt);
             },
-            submit: (token: string): void => {
-                void submitHandoffAndRepaint(rt, token);
+            submit: (token: string, expectedLogin: string): void => {
+                void submitHandoffAndRepaint(rt, { token, expectedLogin });
             },
         },
     });

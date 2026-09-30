@@ -17,7 +17,7 @@ import type { GuestRequest, GuestRequestResult, HostRequestErrorCode, JsonValue 
 import { describe, expect, it } from 'vitest';
 import { mountHandoffDom, refreshHandoff, submitHandoffAndRepaint } from '../src/accounts-ui.ts';
 import { CONSENT_STORAGE_KEY } from '../src/consent.ts';
-import { currentHandoffToken } from '../src/handoff.ts';
+import { VERIFY_PATH, currentHandoffToken } from '../src/handoff.ts';
 import type { HandoffHandlers } from '../src/accounts-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
@@ -79,10 +79,14 @@ interface MountedHandoff {
     readonly rt: PanelRuntime;
     /** The dedicated credential input. */
     readonly input: FakeElement;
+    /** The optional expected-login input (005 FR-006). */
+    readonly expected: FakeElement;
     /** The submit button. */
     readonly submit: FakeElement;
     /** Every element the adapter created, in creation order. */
     readonly created: readonly FakeElement[];
+    /** Every request the handoff made, in order. */
+    readonly requests: GuestRequest[];
     /** Element text the adapter rendered, for the credential scan. */
     renderedText(): string;
     /**
@@ -103,9 +107,14 @@ interface MountedHandoff {
 async function mountHandoff(spec: ExitSpec): Promise<MountedHandoff> {
     const handler = serviceScript(spec.verify, spec.status);
     const storage = createStorageDouble(spec.initial ?? { [CONSENT_STORAGE_KEY]: CURRENT_CONSENT });
+    const requests: GuestRequest[] = [];
     const host = fakeHost({
         storage: storage.storage,
-        serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => handler(request),
+        serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
+            requests.push(request);
+
+            return handler(request);
+        },
     });
     const rt = createTestRuntime(host);
     const dom = fakeDom();
@@ -113,24 +122,29 @@ async function mountHandoff(spec: ExitSpec): Promise<MountedHandoff> {
     const handlers: HandoffHandlers = {
         accept: (): void => undefined,
         decline: (): void => undefined,
-        submit: (token: string): void => {
-            pending = submitHandoffAndRepaint(rt, token);
+        submit: (token: string, expectedLogin: string): void => {
+            pending = submitHandoffAndRepaint(rt, { token, expectedLogin });
         },
     };
     rt.handoffView = mountHandoffDom({ root: dom.root, handlers });
     await tick();
 
     const input = dom.findByTag('input');
+    const expected = dom.created.find(
+        (node) => node.tagName === 'input' && node.attribute('aria-label') === 'Expected GitHub login',
+    );
     const submit = dom.findButton(SUBMIT_LABEL);
-    if (input === undefined || submit === undefined) {
-        throw new Error('the handoff group did not mount its credential input and submit button');
+    if (input === undefined || expected === undefined || submit === undefined) {
+        throw new Error('the handoff group did not mount its inputs and submit button');
     }
 
     return {
         rt,
         input,
+        expected,
         submit,
         created: dom.created,
+        requests,
         renderedText: (): string => dom.created.map((node) => node.textContent).join('\n'),
         submitted: (): Promise<void> => {
             if (pending === undefined) {
@@ -216,5 +230,91 @@ describe('hostile service-supplied strings (invariant 11, M5a)', () => {
         // The fake document has no HTML sink at all, so a sink would have
         // thrown before any of these assertions could run.
         expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
+    });
+});
+
+/**
+ * Read the body the group posted to the credential route.
+ *
+ * @param mounted - The group under test.
+ * @returns The parsed body, or `undefined` when no verify was sent.
+ */
+function verifyBody(mounted: MountedHandoff): Record<string, unknown> | undefined {
+    const request = mounted.requests.find((candidate) => candidate.path === VERIFY_PATH);
+    if (request === undefined) {
+        return undefined;
+    }
+
+    return JSON.parse(String(request.body)) as Record<string, unknown>;
+}
+
+describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
+    it('mounts exactly one optional non-credential input beside the token', async () => {
+        const mounted = await mountHandoff({
+            name: 'the expected-login field',
+            verify: { status: 201, body: VERIFY_BODY },
+        });
+
+        const inputs = mounted.created.filter((node) => node.tagName === 'input');
+        expect(inputs).toHaveLength(2);
+        expect(mounted.input.attribute('type')).toBe('password');
+        expect(mounted.expected.attribute('type')).toBe('text');
+        expect(mounted.expected.attribute('aria-label')).toBe('Expected GitHub login');
+        expect(mounted.renderedText()).toContain('Expected GitHub login (optional)');
+    });
+
+    it('sends no expectedLogin member when the field is left empty (AC-141)', async () => {
+        const mounted = await mountHandoff({
+            name: 'an empty expected login',
+            verify: { status: 201, body: VERIFY_BODY },
+        });
+
+        mounted.input.value = PANEL_TOKEN;
+        mounted.submit.click();
+        await mounted.submitted();
+
+        expect(verifyBody(mounted)).not.toHaveProperty('expectedLogin');
+        // Both fields are emptied at capture: a constraint left behind would
+        // silently apply to the next account the operator adds, and a paste
+        // must never outlive its handoff (contract §2 step ⑧).
+        expect(mounted.expected.value).toBe('');
+        expect(mounted.input.value).toBe('');
+        expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
+    });
+
+    it('sends the expected login the operator typed, trimmed', async () => {
+        const mounted = await mountHandoff({
+            name: 'a typed expected login',
+            verify: { status: 201, body: VERIFY_BODY },
+        });
+
+        mounted.input.value = PANEL_TOKEN;
+        mounted.expected.value = '  OctoCat-MT  ';
+        mounted.submit.click();
+        await mounted.submitted();
+
+        expect(verifyBody(mounted)?.expectedLogin).toBe('OctoCat-MT');
+        expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
+    });
+
+    it('renders the mismatch refusal with its own copy and never the token (002 FR-009)', async () => {
+        const refusal = JSON.stringify({
+            error: { code: 'account-rejected', message: 'contract-fixed' },
+        });
+        const mounted = await mountHandoff({
+            name: 'a mismatched expected login',
+            verify: { status: 422, body: refusal },
+        });
+
+        mounted.input.value = PANEL_TOKEN;
+        mounted.expected.value = 'someone-else';
+        mounted.submit.click();
+        await mounted.submitted();
+
+        expect(mounted.rt.state.handoff.note)
+            .toBe('The token belongs to a different account than the one expected.');
+        expect(mounted.renderedText()).toContain('The token belongs to a different account');
+        expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
+        expect(currentHandoffToken()).toBeUndefined();
     });
 });
