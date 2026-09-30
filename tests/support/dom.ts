@@ -54,8 +54,17 @@ export class FakeElement {
     public value = '';
     /** Roving tab index, the way a `button` in a tab strip carries one. */
     public tabIndex = -1;
-    /** Inline style bag; the adapter writes `whiteSpace` on the consent copy. */
-    public readonly style = { whiteSpace: '' };
+    /**
+     * Inline style bag.
+     *
+     * Modelled as an open bag rather than a fixed shape: production code
+     * writes these properties through the DOM's own `CSSStyleDeclaration`
+     * (grid rows, flex groups, the tab shell's scrolling region), and a
+     * double that only knew about the one property one adapter happens to
+     * write would have to be widened every time another module laid
+     * something out.
+     */
+    public readonly style: Record<string, string> = { whiteSpace: '' };
     /** Element children, maintained by {@link append} and {@link remove}. */
     public readonly children: FakeElement[] = [];
     /** Attributes written through `setAttribute`. */

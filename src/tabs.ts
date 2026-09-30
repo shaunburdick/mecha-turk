@@ -67,6 +67,16 @@ export interface TabShell {
 /**
  * Create the body region: one container per tab, in strip order.
  *
+ * The region is the panel's **only** scroller. It takes whatever height the
+ * notice, the banners, and the strip leave over, and scrolls inside that —
+ * so a tall body moves under a strip that keeps its height and stays
+ * clickable, instead of squeezing it (005 FR-082: no primary action may
+ * require horizontal scrolling, and the labels truncate rather than wrap and
+ * change the strip's height — a strip that has been squeezed to nothing
+ * cannot do either). The three inline styles are the ones `panel/index.html`
+ * deliberately leaves to this element; its `flex-shrink: 0` rule covers
+ * every other child of `#root`.
+ *
  * @param root - Panel root element the strip already appended to.
  * @param specs - The six specs, in FR-010's order.
  * @returns The region and the containers it holds, keyed by tab id.
@@ -77,10 +87,14 @@ function createBodyRegion(
 ): { readonly region: HTMLElement; readonly bodies: Map<TabId, HTMLElement> } {
     const document = root.ownerDocument;
     const region = document.createElement('div');
+    region.setAttribute('data-body-region', 'true');
     region.style.display = 'flex';
     region.style.flexDirection = 'column';
     region.style.gap = '12px';
     region.style.marginTop = '8px';
+    region.style.flex = '1 1 auto';
+    region.style.minHeight = '0';
+    region.style.overflowY = 'auto';
     root.append(region);
 
     const bodies = new Map<TabId, HTMLElement>();

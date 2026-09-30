@@ -194,6 +194,17 @@ function bodyOf(root: FakeElement, id: string): FakeElement | undefined {
     return undefined;
 }
 
+/**
+ * Read the body region the shell created — the one element carrying
+ * `data-body-region`, and the panel's only scroller (005 FR-082).
+ *
+ * @param root - The fake panel root.
+ * @returns The region, or `undefined` when the shell made none.
+ */
+function regionOf(root: FakeElement): FakeElement | undefined {
+    return root.children.find((node) => node.attribute('data-body-region') === 'true');
+}
+
 describe('mountTabShell (the six-tab shell, 005 FR-010)', () => {
     it('mounts six tabs in FR-010 order with Status active (AC-101)', () => {
         const { rt, root, counts } = mountShell();
@@ -225,6 +236,47 @@ describe('mountTabShell (the six-tab shell, 005 FR-010)', () => {
         expect(roving.filter((index) => index === 0)).toHaveLength(1);
         expect(roving[0]).toBe(0);
         expect(roving.slice(1).every((index) => index === -1)).toBe(true);
+    });
+});
+
+describe('the strip holds its layout while content scrolls (005 FR-082)', () => {
+    it('makes the body region the panel’s only scroller', () => {
+        const { root } = mountShell();
+        const region = regionOf(root);
+
+        expect(region).toBeDefined();
+        // Grow into the space the strip and banners leave, shrink before the
+        // page does, and scroll inside that box: the three properties a
+        // flex child needs to be the thing that moves instead of its siblings.
+        expect(region?.style.flex).toBe('1 1 auto');
+        expect(region?.style.minHeight).toBe('0');
+        expect(region?.style.overflowY).toBe('auto');
+    });
+
+    it('keeps the strip outside the region, so tall bodies scroll under it', () => {
+        const { root } = mountShell();
+        const region = regionOf(root);
+        const stripElement = root.children[0];
+
+        expect(stripElement?.attribute('role')).toBe('tablist');
+        expect(region).toBeDefined();
+        // The strip is a sibling *before* the scroller, never a child of it:
+        // a strip inside the scrolling box would scroll away with the content.
+        const stripIndex = root.children.indexOf(stripElement ?? root);
+        const regionIndex = root.children.indexOf(region ?? root);
+        expect(stripIndex).toBe(0);
+        expect(regionIndex).toBeGreaterThan(stripIndex);
+    });
+
+    it('lets no root child but the region give up height (panel/index.html)', () => {
+        const html = readFileSync(resolve(import.meta.dirname, '../panel/index.html'), 'utf8');
+
+        // The stylesheet half of the contract: the shell only ever styles the
+        // region, so every other child — notice, banners, strip — has to be
+        // told here not to shrink. Without it a tall body squeezes the strip.
+        expect(html).toMatch(/#root > \* \{\s*flex-shrink: 0;\s*\}/);
+        expect(html).toMatch(/#root \{[^}]*display: flex;/);
+        expect(html).toMatch(/#root \{[^}]*flex-direction: column;/);
     });
 });
 

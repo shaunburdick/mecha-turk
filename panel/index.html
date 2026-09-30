@@ -11,6 +11,23 @@
                 height: 100%;
             }
 
+            /*
+             * Layout contract (005 FR-082; product-owner review 2026-09-30).
+             *
+             * `#root` is a column flex container, and by default every child
+             * of one shrinks as content pushes back — which is exactly how a
+             * tall tab body squeezed the six-tab strip between the banner
+             * block and the content until the tabs stopped being clickable.
+             * So: no child of `#root` may give up height except the body
+             * region the shell marks (`src/tabs.ts` sets `flex: 1 1 auto`,
+             * `min-height: 0`, and `overflow-y: auto` inline, which wins over
+             * this rule). The strip, the banners, and the notice keep their
+             * natural height; the region below them is the scroller.
+             */
+            #root > * {
+                flex-shrink: 0;
+            }
+
             #root {
                 height: 100%;
                 padding: 12px;
