@@ -30,7 +30,7 @@
 import { repositoryLabel } from '../../src/config.ts';
 import { DEFAULT_CONFIG, CONFIG_FILE, configFromStore, parseStoredConfig } from '../config.ts';
 import { readAccount } from '../accounts/store.ts';
-import { readBindings } from '../bindings.ts';
+import { readBindings } from '../bindings-read.ts';
 import type { BindingRecord } from '../bindings.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';

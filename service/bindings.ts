@@ -18,8 +18,8 @@
 import { nowIso } from '../src/ids.ts';
 import { parseProjectId, parseRepository, parseWorktreeOption } from '../src/config.ts';
 import { isRecord } from './json.ts';
+import { validateStartingPrompt } from './prompt.ts';
 import { BINDINGS_FILE } from './accounts/store.ts';
-import type { ServiceLogger } from './log.ts';
 import type { ServiceStore } from './store/index.ts';
 
 /** Store file the bindings live in; shared with the hardened delete guard. */
@@ -57,6 +57,16 @@ export interface BindingRecord {
     readonly createdAt: string;
     /** RFC 3339 stamp of the last change. */
     readonly updatedAt: string;
+    /**
+     * The operator's starting prompt for sessions this binding starts (004 FR-010).
+     *
+     * **The key is absent when the prompt is unset** — never `''`, never
+     * `null` — so "unset" is a complete state that needs no sentinel (004
+     * FR-022, FR-071). It is validated on every read and every write of the
+     * file by {@link validateStartingPrompt}, which is what makes a hand-edited
+     * file and a panel save answer the same rules (004 FR-019, plan D2).
+     */
+    readonly startingPrompt?: string;
 }
 
 /** One rejected field, in the field + remediation vocabulary the config sets. */
@@ -67,8 +77,23 @@ export interface BindingIssue {
     readonly remediation: string;
 }
 
-/** Result of validating one candidate binding. */
-type BindingVerdict = { readonly binding: BindingRecord } | { readonly issue: BindingIssue };
+/** Result of validating one candidate binding: the record, or every problem found. */
+export type BindingVerdict =
+    | { readonly binding: BindingRecord }
+    | { readonly issues: readonly BindingIssue[] };
+
+/**
+ * The four field verdicts, as {@link refusalsIn} reads them.
+ *
+ * A union rather than a single weak all-optional shape: TypeScript rejects an
+ * object with "no properties in common" against every-optional types, and the
+ * success shapes here are deliberately different (`binding`, `binding`,
+ * `binding`, `prompt`).
+ */
+type FieldVerdict =
+    | { readonly issue: BindingIssue }
+    | { readonly binding: unknown }
+    | { readonly prompt: string | null };
 
 /** Result of validating a whole PUT document. */
 export type BindingValidation =
@@ -327,13 +352,91 @@ function bindingModeOf(raw: Record<string, unknown>): {
 }
 
 /**
- * Parse one candidate binding field by field.
+ * Read the optional starting prompt through the one prompt validator (004 FR-013).
+ *
+ * The same function runs on the write path and the read path, so a submitted
+ * value and a hand-edited file are judged by exactly one refusal set (plan D2).
+ *
+ * @param raw - Candidate record.
+ * @returns The normalised prompt (or `null` for unset), or the blocking issue.
+ */
+function bindingPromptOf(raw: Record<string, unknown>): {
+    readonly prompt: string | null;
+} | { readonly issue: BindingIssue } {
+    const verdict = validateStartingPrompt(raw.startingPrompt);
+
+    return verdict.ok ? { prompt: verdict.prompt } : { issue: verdict.issue };
+}
+
+/**
+ * Build the record from four already-validated parts, refusing at the first
+ * one that will not fit.
+ *
+ * The short-circuit here is **not** the reporting order: {@link parseBinding}
+ * reports every problem the record has. It exists so the assembly reads top to
+ * bottom and each part narrows without a redundant guard (004 FR-013).
+ *
+ * @param raw - Candidate record.
+ * @param accountExists - `true` when the account custody holds the id.
+ * @returns The record, or `null` when any part refused.
+ */
+function assembleBinding(raw: Record<string, unknown>, accountExists: boolean): BindingRecord | null {
+    const identity = bindingIdentityOf(raw, accountExists);
+    if ('issue' in identity) {
+        return null;
+    }
+
+    const target = bindingTargetOf(raw);
+    if ('issue' in target) {
+        return null;
+    }
+
+    const mode = bindingModeOf(raw);
+    if ('issue' in mode) {
+        return null;
+    }
+
+    const prompt = bindingPromptOf(raw);
+    if ('issue' in prompt) {
+        return null;
+    }
+
+    const login = identity.binding.accountLogin.trim();
+    const createdAt = stampOrKeep(raw.createdAt, nowIso());
+
+    return {
+        ...identity.binding,
+        accountLogin: login,
+        ...target.binding,
+        ...mode.binding,
+        ...(prompt.prompt === null ? {} : { startingPrompt: prompt.prompt }),
+        createdAt,
+        updatedAt: stampOrKeep(raw.updatedAt, createdAt),
+    };
+}
+
+/**
+ * Collect every refusal four field verdicts produced, in field order.
+ *
+ * @param verdicts - The verdicts, each either a value or a refusal.
+ * @returns every refusal found, in the order the fields were named.
+ */
+function refusalsIn(verdicts: readonly FieldVerdict[]): readonly BindingIssue[] {
+    return verdicts.flatMap((verdict) => ('issue' in verdict ? [verdict.issue] : []));
+}
+
+/**
+ * Parse one candidate binding field by field, collecting **every** problem.
  *
  * Every refusal names the field and the remediation; no submitted value is
- * ever echoed back (the same SEC-11 posture the config route fixed).
+ * ever echoed back (the same SEC-11 posture the config route fixed). Issues
+ * accumulate rather than short-circuit: 004 FR-013/FR-027 require one answer
+ * that lists every problem in the submission — a bad prompt *and* a bad
+ * repository arrive in the same 422 — and a first-issue-only reader could
+ * never satisfy that.
  *
  * @param input - The candidate record and whether the referenced account exists.
- * @returns The ready record, or the one blocking issue.
+ * @returns The ready record, or the collected issues.
  */
 export function parseBinding(input: {
     /** Candidate binding, already known to be a record. */
@@ -342,34 +445,21 @@ export function parseBinding(input: {
     readonly accountExists: boolean;
 }): BindingVerdict {
     const { raw, accountExists } = input;
-
-    const identity = bindingIdentityOf(raw, accountExists);
-    if ('issue' in identity) {
-        return identity;
+    const record = assembleBinding(raw, accountExists);
+    if (record !== null) {
+        return { binding: record };
     }
 
-    const target = bindingTargetOf(raw);
-    if ('issue' in target) {
-        return target;
-    }
-
-    const mode = bindingModeOf(raw);
-    if ('issue' in mode) {
-        return mode;
-    }
-
-    const login = identity.binding.accountLogin.trim();
-    const createdAt = stampOrKeep(raw.createdAt, nowIso());
-
+    // The build refused, so re-run the readers purely to collect *every*
+    // problem for one answer (004 FR-013/FR-027). They are pure, so the second
+    // pass can only ever disagree with the first by also refusing.
     return {
-        binding: {
-            ...identity.binding,
-            accountLogin: login,
-            ...target.binding,
-            ...mode.binding,
-            createdAt,
-            updatedAt: stampOrKeep(raw.updatedAt, createdAt),
-        },
+        issues: refusalsIn([
+            bindingIdentityOf(raw, accountExists),
+            bindingTargetOf(raw),
+            bindingModeOf(raw),
+            bindingPromptOf(raw),
+        ]),
     };
 }
 
@@ -396,8 +486,8 @@ function collectBindingIssues(
 
         const exists = typeof record.accountNumericUserId === 'string' && accountExists(record.accountNumericUserId);
         const verdict = parseBinding({ raw: record, accountExists: exists });
-        if ('issue' in verdict) {
-            issues.push(verdict.issue);
+        if ('issues' in verdict) {
+            issues.push(...verdict.issues);
             continue;
         }
 
@@ -452,67 +542,6 @@ export function validateBindings(input: {
     }
 
     return collectBindingIssues(body.bindings, input.accountExists);
-}
-
-/**
- * Validate a whole bindings file, as the store's read path wants.
- *
- * @param raw - Parsed file.
- * @returns The bindings, or `null` to quarantine the file (never fail-stuck).
- */
-function parseBindingsFile(raw: unknown): BindingRecord[] | null {
-    if (!Array.isArray(raw) || raw.some((entry) => !isRecord(entry))) {
-        return null;
-    }
-
-    const bindings: BindingRecord[] = [];
-    for (const entry of raw) {
-        const verdict = parseBinding({ raw: entry, accountExists: true });
-        if ('issue' in verdict) {
-            return null;
-        }
-
-        bindings.push(verdict.binding);
-    }
-
-    return bindings;
-}
-
-/**
- * Read the stored bindings, best-effort.
- *
- * A quarantined file is skipped rather than aborting the poll: the store
- * logs its quarantine path and the loop simply has nothing to scan this
- * cycle.
- *
- * @param input - Open store and logger.
- * @returns The bindings, or `[]` when the file is absent/unusable.
- */
-export async function readBindings(input: {
-    /** Open store. */
-    readonly store: ServiceStore;
-    /** Logger. */
-    readonly log: ServiceLogger;
-}): Promise<BindingRecord[]> {
-    const { store, log } = input;
-    try {
-        const result = await store.readJson(BINDINGS_FILE, parseBindingsFile);
-        if (result.status === 'ok') {
-            return result.value;
-        }
-
-        if (result.status === 'quarantined') {
-            log.warn('stored bindings were unusable and have been set aside', {
-                quarantinePath: result.quarantinePath,
-            });
-        }
-
-        return [];
-    } catch (cause) {
-        log.warn('bindings read failed', { errorKind: cause instanceof Error ? cause.name : typeof cause });
-
-        return [];
-    }
 }
 
 /**

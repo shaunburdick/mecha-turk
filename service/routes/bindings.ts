@@ -19,9 +19,13 @@
  */
 
 import { listAccounts } from '../accounts/store.ts';
-import { readBindings, validateBindings, writeBindings } from '../bindings.ts';
+import { readBindings, readBindingsUnobserved } from '../bindings-read.ts';
+import { validateBindings, writeBindings } from '../bindings.ts';
 import { errorResponse, STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
+import { isRecord } from '../json.ts';
+import { recordPromptChanges, runPromptChain } from '../prompt-audit.ts';
 import type { HttpResponse } from '../http.ts';
+import type { BindingRecord } from '../bindings.ts';
 import { readStatusRows } from './events.ts';
 import type { Route, RouteContext, RouteRequest } from './types.ts';
 
@@ -54,14 +58,81 @@ async function handleGetBindings(context: RouteContext): Promise<HttpResponse> {
 }
 
 /**
+ * The binding ids whose submitted row **omitted** the starting-prompt key.
+ *
+ * Omission is the only signal a whole-file surface has for "I did not change
+ * this" (004 FR-014, gate default #4): the shipped panel builds its rows
+ * field-by-field and cannot know the member exists, so a save from it must
+ * never erase an operator's typed instruction. The distinction has to be read
+ * from the **raw** submission — by the time validation has normalised a row,
+ * "omitted" and "explicitly cleared" have collapsed to the same absent key.
+ *
+ * @param submitted - The raw `bindings` array as it arrived.
+ * @returns The ids that left the field out entirely.
+ */
+function omittedPromptIds(submitted: readonly unknown[]): ReadonlySet<string> {
+    const omitted = new Set<string>();
+    for (const entry of submitted) {
+        if (!isRecord(entry)) {
+            continue;
+        }
+
+        const { bindingId } = entry;
+        if (typeof bindingId === 'string' && !Object.hasOwn(entry, 'startingPrompt')) {
+            omitted.add(bindingId);
+        }
+    }
+
+    return omitted;
+}
+
+/**
+ * Attach the stored prompt to every submitted row that left the field out.
+ *
+ * @param input - The validated rows, the ids that omitted the field, and the
+ *   stored document read fresh inside the same chain as the write.
+ * @returns The document to write: submitted values where the field was sent,
+ *   stored values where it was not.
+ */
+function mergePrompts(input: {
+    /** The validated submission, in submission order. */
+    readonly submitted: readonly BindingRecord[];
+    /** Ids whose submitted row carried no prompt key. */
+    readonly omitted: ReadonlySet<string>;
+    /** The stored document, read inside the write chain. */
+    readonly stored: readonly BindingRecord[];
+}): readonly BindingRecord[] {
+    const storedById = new Map(input.stored.map((binding) => [binding.bindingId, binding]));
+
+    return input.submitted.map((binding) => {
+        if (!input.omitted.has(binding.bindingId)) {
+            return binding;
+        }
+
+        const previous = storedById.get(binding.bindingId)?.startingPrompt;
+
+        return previous === undefined ? binding : { ...binding, startingPrompt: previous };
+    });
+}
+
+/**
  * Answer `PUT /v1/bindings` by replacing the stored bindings, validated.
  *
  * Every field the poll loop needs is validated before one byte is written:
  * the repository is a GitHub `owner/name`, the project id is parseable, the
- * worktree option is one of the documented shapes, and every referenced
- * account actually exists in the custody directory (its credential is what
- * polls). Binding ids must be unique; the list is capped. A refusal names
- * the field and the remediation, never the received value.
+ * worktree option is one of the documented shapes, every referenced account
+ * actually exists in the custody directory, and any submitted starting prompt
+ * passes the one prompt validator. Binding ids must be unique; the list is
+ * capped. A refusal names the field and the remediation, never the received
+ * value — and a refusal writes **nothing**: no file, no prompt change row
+ * (004 FR-027, AC-132/AC-133).
+ *
+ * The write itself runs as one task on the prompt-observation chain (plan C2):
+ * read the stored document fresh, record any hand edit it carries with actor
+ * `service`, merge the preserved prompts, write, then record this submission's
+ * own changes with actor `operator`. Reading, writing, and diffing inside one
+ * chain is what makes SC-125's "exactly one row per change" hold under a race
+ * rather than by luck.
  *
  * @param context - Route context carrying the open store.
  * @param request - The routed request carrying the full replacement body.
@@ -96,13 +167,24 @@ async function handlePutBindings(context: RouteContext, request: RouteRequest): 
         return validationResponse(validation.issues);
     }
 
-    await writeBindings({ store, bindings: validation.bindings });
+    const body = request.body as { readonly bindings: readonly unknown[] };
+    const omitted = omittedPromptIds(body.bindings);
+    const bindings = await runPromptChain(store, async () => {
+        const stored = await readBindingsUnobserved({ store, log: context.log });
+        await recordPromptChanges({ store, log: context.log, bindings: stored, actor: 'service' });
+        const merged = mergePrompts({ submitted: validation.bindings, omitted, stored });
+        await writeBindings({ store, bindings: merged });
+        await recordPromptChanges({ store, log: context.log, bindings: merged, actor: 'operator' });
+
+        return merged;
+    });
+
     // The answer carries status rows too: the panel repaints its binding rows
     // from whatever a grant answered, and a bare list would blank the scan
     // lines the operator was just reading.
-    const status = await readStatusRows({ store, log: context.log, bindings: validation.bindings });
+    const status = await readStatusRows({ store, log: context.log, bindings });
 
-    return { status: STATUS.ok, body: { bindings: validation.bindings, status } };
+    return { status: STATUS.ok, body: { bindings, status } };
 }
 
 /** Read the stored bindings, credential-free. */

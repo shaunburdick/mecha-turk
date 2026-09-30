@@ -2081,6 +2081,120 @@ function repositoryLabel(repository) {
   return `${repository.owner}/${repository.name}`;
 }
 
+// service/prompt.ts
+import { createHash as createHash2 } from "node:crypto";
+
+// src/prompt.ts
+var RESERVED_MARKER_PREFIXES = ["--- BEGIN ", "--- END "];
+var NEWLINE = `
+`;
+var LAST_FORBIDDEN_LOW_CODE_POINT = 8;
+var TAB_CODE_POINT = 9;
+var LINE_FEED_CODE_POINT = 10;
+var FORBIDDEN_MIDDLE_START = 11;
+var FORBIDDEN_MIDDLE_END = 31;
+var FORBIDDEN_UPPER_START = 127;
+var FORBIDDEN_UPPER_END = 159;
+function trimPrompt(text) {
+  return text.trim();
+}
+function normaliseLineEndings(text) {
+  let folded = "";
+  for (let index = 0;index < text.length; index += 1) {
+    if (text[index] !== "\r") {
+      folded += text[index] ?? "";
+      continue;
+    }
+    folded += NEWLINE;
+    if (text[index + 1] === `
+`) {
+      index += 1;
+    }
+  }
+  return folded;
+}
+function countCodePoints(text) {
+  return [...text].length;
+}
+function hasReservedMarkerLine(text) {
+  const prefixes = RESERVED_MARKER_PREFIXES;
+  return text.split(NEWLINE).some((line) => prefixes.some((prefix) => line.startsWith(prefix)));
+}
+function isForbiddenControl(codePoint) {
+  if (codePoint <= LAST_FORBIDDEN_LOW_CODE_POINT) {
+    return true;
+  }
+  if (codePoint === TAB_CODE_POINT || codePoint === LINE_FEED_CODE_POINT) {
+    return false;
+  }
+  if (codePoint >= FORBIDDEN_MIDDLE_START && codePoint <= FORBIDDEN_MIDDLE_END) {
+    return true;
+  }
+  return codePoint >= FORBIDDEN_UPPER_START && codePoint <= FORBIDDEN_UPPER_END;
+}
+function hasIllegalControlChar(text) {
+  for (const character of text) {
+    if (isForbiddenControl(character.codePointAt(0) ?? 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// service/prompt.ts
+var STARTING_PROMPT_MAX_CODE_POINTS = 2000;
+var PROMPT_FINGERPRINT_PREFIX = "mtp-";
+var FINGERPRINT_HEX_CHARS = 32;
+var REMEDIATION_TYPE = "startingPrompt must be text; send it absent or null to leave the starting prompt unset";
+var REMEDIATION_CAP = `startingPrompt must be at most ${STARTING_PROMPT_MAX_CODE_POINTS}` + " characters (Unicode code points) after trimming";
+var REMEDIATION_CONTROL = "startingPrompt must not contain null or control characters other than newline and tab";
+var REMEDIATION_MARKER = "startingPrompt must not contain a line beginning with" + ' "--- BEGIN " or "--- END " (reserved composition markers)';
+function credentialRemediation(label) {
+  return `startingPrompt must not contain credential-shaped material (matched shape: ${label})`;
+}
+function refuse(remediation) {
+  return { ok: false, issue: { field: "startingPrompt", remediation } };
+}
+function validateStartingPrompt(raw) {
+  if (raw === undefined || raw === null) {
+    return { ok: true, prompt: null };
+  }
+  if (typeof raw !== "string") {
+    return refuse(REMEDIATION_TYPE);
+  }
+  const trimmed = trimPrompt(raw);
+  if (trimmed === "") {
+    return { ok: true, prompt: null };
+  }
+  const text = normaliseLineEndings(trimmed);
+  if (countCodePoints(text) > STARTING_PROMPT_MAX_CODE_POINTS) {
+    return refuse(REMEDIATION_CAP);
+  }
+  if (hasIllegalControlChar(text)) {
+    return refuse(REMEDIATION_CONTROL);
+  }
+  if (hasReservedMarkerLine(text)) {
+    return refuse(REMEDIATION_MARKER);
+  }
+  const label = findSecretLeak(text);
+  if (label !== null) {
+    return refuse(credentialRemediation(label));
+  }
+  return { ok: true, prompt: text };
+}
+function promptFingerprint(text) {
+  const digest = createHash2("sha256").update(text, "utf8").digest("hex");
+  return `${PROMPT_FINGERPRINT_PREFIX}${digest.slice(0, FINGERPRINT_HEX_CHARS)}`;
+}
+function promptSnapshotOf(record) {
+  const verdict = validateStartingPrompt(record.startingPrompt);
+  if (!verdict.ok || verdict.prompt === null) {
+    return null;
+  }
+  const text = verdict.prompt;
+  return { text, fingerprint: promptFingerprint(text), length: countCodePoints(text) };
+}
+
 // service/bindings.ts
 var MAX_BINDINGS = 100;
 var MAX_BINDING_ID_CHARS = 128;
@@ -2204,31 +2318,55 @@ function bindingModeOf(raw) {
   }
   return { binding: { triggers, state } };
 }
-function parseBinding(input) {
-  const { raw, accountExists } = input;
+function bindingPromptOf(raw) {
+  const verdict = validateStartingPrompt(raw.startingPrompt);
+  return verdict.ok ? { prompt: verdict.prompt } : { issue: verdict.issue };
+}
+function assembleBinding(raw, accountExists) {
   const identity = bindingIdentityOf(raw, accountExists);
   if ("issue" in identity) {
-    return identity;
+    return null;
   }
   const target = bindingTargetOf(raw);
   if ("issue" in target) {
-    return target;
+    return null;
   }
   const mode = bindingModeOf(raw);
   if ("issue" in mode) {
-    return mode;
+    return null;
+  }
+  const prompt = bindingPromptOf(raw);
+  if ("issue" in prompt) {
+    return null;
   }
   const login = identity.binding.accountLogin.trim();
   const createdAt = stampOrKeep(raw.createdAt, nowIso());
   return {
-    binding: {
-      ...identity.binding,
-      accountLogin: login,
-      ...target.binding,
-      ...mode.binding,
-      createdAt,
-      updatedAt: stampOrKeep(raw.updatedAt, createdAt)
-    }
+    ...identity.binding,
+    accountLogin: login,
+    ...target.binding,
+    ...mode.binding,
+    ...prompt.prompt === null ? {} : { startingPrompt: prompt.prompt },
+    createdAt,
+    updatedAt: stampOrKeep(raw.updatedAt, createdAt)
+  };
+}
+function refusalsIn(verdicts) {
+  return verdicts.flatMap((verdict) => ("issue" in verdict) ? [verdict.issue] : []);
+}
+function parseBinding(input) {
+  const { raw, accountExists } = input;
+  const record = assembleBinding(raw, accountExists);
+  if (record !== null) {
+    return { binding: record };
+  }
+  return {
+    issues: refusalsIn([
+      bindingIdentityOf(raw, accountExists),
+      bindingTargetOf(raw),
+      bindingModeOf(raw),
+      bindingPromptOf(raw)
+    ])
   };
 }
 function collectBindingIssues(candidates, accountExists) {
@@ -2243,8 +2381,8 @@ function collectBindingIssues(candidates, accountExists) {
     }
     const exists = typeof record.accountNumericUserId === "string" && accountExists(record.accountNumericUserId);
     const verdict = parseBinding({ raw: record, accountExists: exists });
-    if ("issue" in verdict) {
-      issues.push(verdict.issue);
+    if ("issues" in verdict) {
+      issues.push(...verdict.issues);
       continue;
     }
     if (seen.has(verdict.binding.bindingId)) {
@@ -2277,30 +2415,163 @@ function validateBindings(input) {
   }
   return collectBindingIssues(body.bindings, input.accountExists);
 }
-function parseBindingsFile(raw) {
+async function writeBindings(input) {
+  await input.store.writeJson(BINDINGS_FILE, input.bindings);
+}
+
+// service/prompt-audit.ts
+var PROMPT_UPDATED_EVENT = "binding.prompt-updated";
+var observationStates = new WeakMap;
+function stateFor(store) {
+  let state = observationStates.get(store);
+  if (state === undefined) {
+    state = { baseline: new Map, seeded: false, chain: Promise.resolve() };
+    observationStates.set(store, state);
+  }
+  return state;
+}
+async function seedBaseline(store, baseline) {
+  const trail = await store.readLines(AUDIT_FILE, parseAuditEntry);
+  const highest = new Map;
+  for (const entry of trail.entries) {
+    if (entry.eventType !== PROMPT_UPDATED_EVENT) {
+      continue;
+    }
+    const { bindingId } = entry.details;
+    if (typeof bindingId !== "string") {
+      continue;
+    }
+    const recorded = entry.details.promptFingerprint;
+    const fingerprint = entry.details.promptPresent === true && typeof recorded === "string" ? recorded : null;
+    const prior = highest.get(bindingId);
+    if (prior === undefined || entry.seq > prior.seq) {
+      highest.set(bindingId, { seq: entry.seq, fingerprint });
+    }
+  }
+  for (const [bindingId, value] of highest) {
+    baseline.set(bindingId, value.fingerprint);
+  }
+}
+async function runPromptChain(store, task) {
+  const state = stateFor(store);
+  const start = async () => {
+    if (!state.seeded) {
+      await seedBaseline(store, state.baseline);
+      state.seeded = true;
+    }
+    return await task();
+  };
+  const run = state.chain.then(start, start);
+  state.chain = run;
+  return await run;
+}
+async function appendPromptChange(input) {
+  const present = input.current !== null;
+  let decision;
+  if (input.current === null) {
+    decision = "cleared";
+  } else {
+    decision = input.previousFingerprint === null ? "set" : "changed";
+  }
+  await appendAudit(input.store, {
+    eventType: PROMPT_UPDATED_EVENT,
+    actorSource: input.actor,
+    entity: { kind: "binding", id: input.bindingId },
+    correlationId: newCorrelationId(),
+    decision,
+    reason: null,
+    details: {
+      bindingId: input.bindingId,
+      promptPresent: present,
+      promptFingerprint: input.current?.fingerprint ?? null,
+      promptLength: input.current?.length ?? 0,
+      previousFingerprint: input.previousFingerprint
+    }
+  });
+}
+function dropUnobserved(state, observed) {
+  for (const bindingId of state.baseline.keys()) {
+    if (!observed.has(bindingId)) {
+      state.baseline.delete(bindingId);
+    }
+  }
+}
+async function recordOneChange(context) {
+  const { input, binding, snapshot, current, previous } = context;
+  try {
+    await appendPromptChange({
+      store: input.store,
+      bindingId: binding.bindingId,
+      current: snapshot,
+      previousFingerprint: previous,
+      actor: input.actor
+    });
+    return 1;
+  } catch (cause) {
+    input.log.warn("prompt change audit row could not be appended", {
+      bindingId: binding.bindingId,
+      promptFingerprint: current,
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return 0;
+  }
+}
+async function recordPromptChanges(input) {
+  const state = stateFor(input.store);
+  const observed = new Set;
+  let rows = 0;
+  for (const binding of input.bindings) {
+    observed.add(binding.bindingId);
+    const snapshot = promptSnapshotOf(binding);
+    const current = snapshot === null ? null : snapshot.fingerprint;
+    const previous = state.baseline.get(binding.bindingId) ?? null;
+    state.baseline.set(binding.bindingId, current);
+    if (previous === current) {
+      continue;
+    }
+    rows += await recordOneChange({ input, binding, snapshot, current, previous });
+  }
+  dropUnobserved(state, observed);
+  return rows;
+}
+async function observePromptChanges(input) {
+  return await runPromptChain(input.store, async () => await recordPromptChanges(input));
+}
+
+// service/bindings-read.ts
+function noteFirstRefusal(note, issues) {
+  const first = issues[0];
+  if (note.reason === null && first !== undefined) {
+    note.reason = `${first.field}: ${first.remediation}`;
+  }
+}
+function parseBindingsFile(raw, note) {
   if (!Array.isArray(raw) || raw.some((entry) => !isRecord(entry))) {
     return null;
   }
   const bindings = [];
   for (const entry of raw) {
     const verdict = parseBinding({ raw: entry, accountExists: true });
-    if ("issue" in verdict) {
+    if ("issues" in verdict) {
+      noteFirstRefusal(note, verdict.issues);
       return null;
     }
     bindings.push(verdict.binding);
   }
   return bindings;
 }
-async function readBindings(input) {
+async function readBindingsUnobserved(input) {
   const { store, log } = input;
+  const note = { reason: null };
   try {
-    const result = await store.readJson(BINDINGS_FILE, parseBindingsFile);
+    const result = await store.readJson(BINDINGS_FILE, (raw) => parseBindingsFile(raw, note));
     if (result.status === "ok") {
       return result.value;
     }
     if (result.status === "quarantined") {
       log.warn("stored bindings were unusable and have been set aside", {
-        quarantinePath: result.quarantinePath
+        quarantinePath: result.quarantinePath,
+        ...note.reason === null ? {} : { reason: note.reason }
       });
     }
     return [];
@@ -2309,8 +2580,15 @@ async function readBindings(input) {
     return [];
   }
 }
-async function writeBindings(input) {
-  await input.store.writeJson(BINDINGS_FILE, input.bindings);
+async function readBindings(input) {
+  const bindings = await readBindingsUnobserved(input);
+  await observePromptChanges({
+    store: input.store,
+    log: input.log,
+    bindings,
+    actor: "service"
+  });
+  return bindings;
 }
 
 // service/poll/claim-bounds.ts
@@ -2353,7 +2631,7 @@ function measureEvents(runs) {
 }
 
 // service/poll/claim.ts
-import { createHash as createHash3 } from "node:crypto";
+import { createHash as createHash4 } from "node:crypto";
 
 // service/poll/claim-project.ts
 function reviewCoordinates(delivery) {
@@ -2607,12 +2885,12 @@ async function recordEnqueueAudits(input) {
 }
 
 // service/poll/run-key.ts
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 var RUN_PROVIDER = "github";
 var ATTACHMENT_ID_MAX = 128;
 var CORRELATION_HEX_CHARS = 24;
 var TOKEN_HEX_CHARS = 32;
-var FINGERPRINT_HEX_CHARS = 16;
+var FINGERPRINT_HEX_CHARS2 = 16;
 var FINGERPRINT_PREFIX = "tokfp-";
 var KEY_SEPARATOR = "|";
 function keySegments(input) {
@@ -2642,7 +2920,7 @@ function buildSubjectKey(input) {
   return keySegments(input).slice(0, -1).join(KEY_SEPARATOR);
 }
 function digestHex(text, hexChars) {
-  return createHash2("sha256").update(text, "utf8").digest("hex").slice(0, hexChars);
+  return createHash3("sha256").update(text, "utf8").digest("hex").slice(0, hexChars);
 }
 function buildCorrelationId(runKey) {
   return `mt-run-${digestHex(runKey, CORRELATION_HEX_CHARS)}`;
@@ -2660,7 +2938,7 @@ function buildDispatchToken(runKey, attempt) {
   return `dtk-${digestHex(`${runKey}${KEY_SEPARATOR}${attempt}`, TOKEN_HEX_CHARS)}`;
 }
 function buildDispatchTokenFingerprint(dispatchToken) {
-  return `${FINGERPRINT_PREFIX}${digestHex(dispatchToken, FINGERPRINT_HEX_CHARS)}`;
+  return `${FINGERPRINT_PREFIX}${digestHex(dispatchToken, FINGERPRINT_HEX_CHARS2)}`;
 }
 
 // service/poll/runs-audit-parse.ts
@@ -4305,7 +4583,7 @@ function holderOf(raw) {
   return raw;
 }
 function buildLeaseId(input) {
-  const digest = createHash3("sha256").update(`${input.correlationId}|${input.attempt}|${input.issuedAt}`, "utf8").digest("hex").slice(0, LEASE_ID_HEX_CHARS);
+  const digest = createHash4("sha256").update(`${input.correlationId}|${input.attempt}|${input.issuedAt}`, "utf8").digest("hex").slice(0, LEASE_ID_HEX_CHARS);
   return `lse-${digest}`;
 }
 function deliveriesById(queue) {
@@ -4841,7 +5119,7 @@ function sessionRefOf(input) {
 
 // service/poll/run-refusal.ts
 var STALE_LEASE_CODE = "stale-lease";
-function refuse(code, message) {
+function refuse2(code, message) {
   return { code, message };
 }
 function staleAttemptMessage(attempt, current) {
@@ -4859,7 +5137,7 @@ function sessionIdOf(run) {
 }
 function judgeLease(input) {
   const { run, leaseId, attempt, now } = input;
-  const stale = refuse("stale-lease", STALE_MESSAGE);
+  const stale = refuse2("stale-lease", STALE_MESSAGE);
   if (run.lease?.leaseId !== leaseId) {
     return stale;
   }
@@ -4872,7 +5150,7 @@ function judgeReserve(input) {
   const { run } = input;
   if (runHistoryIndicatesSession(run)) {
     const sessionId = sessionIdOf(run);
-    return refuse("already-dispatched", sessionId === null ? "this run already produced a session" : `a session already exists: ${sessionId}`);
+    return refuse2("already-dispatched", sessionId === null ? "this run already produced a session" : `a session already exists: ${sessionId}`);
   }
   const lease = judgeLease(input);
   if (lease !== null) {
@@ -4880,9 +5158,9 @@ function judgeReserve(input) {
   }
   const { reservation } = run;
   if (reservation !== null) {
-    return refuse("already-reserved", `this run is already authorized: attempt ${reservation.attempt} must report by ` + `${reservation.resultDeadlineAt}`);
+    return refuse2("already-reserved", `this run is already authorized: attempt ${reservation.attempt} must report by ` + `${reservation.resultDeadlineAt}`);
   }
-  return run.state === "claimed" ? null : refuse(INVALID_TRANSITION, `this run is ${run.state}; only a claimed run can be authorized`);
+  return run.state === "claimed" ? null : refuse2(INVALID_TRANSITION, `this run is ${run.state}; only a claimed run can be authorized`);
 }
 function reservedRun(input) {
   const { run, dispatchToken, resultDeadlineAt, now } = input;
@@ -4967,9 +5245,9 @@ function judgeBlock(input) {
   }
   if (runHistoryIndicatesSession(run)) {
     const sessionId = sessionIdOf(run);
-    return refuse(INVALID_TRANSITION2, sessionId === null ? "this run already produced a session and cannot be blocked" : `this run already produced session ${sessionId} and cannot be blocked`);
+    return refuse2(INVALID_TRANSITION2, sessionId === null ? "this run already produced a session and cannot be blocked" : `this run already produced session ${sessionId} and cannot be blocked`);
   }
-  return run.state === "claimed" ? null : refuse(INVALID_TRANSITION2, `this run is ${run.state}; only a claimed run can be blocked`);
+  return run.state === "claimed" ? null : refuse2(INVALID_TRANSITION2, `this run is ${run.state}; only a claimed run can be blocked`);
 }
 function blockedRun(input) {
   const { run, blockedReason, detail, now } = input;
@@ -5046,7 +5324,7 @@ function repeatedOutcome(input) {
 }
 function conflict(run) {
   const sessionId = sessionIdOf(run);
-  return refuse(INVALID_TRANSITION3, sessionId === null ? "a different outcome is already recorded for this attempt and cannot be replaced" : `this attempt already reported session ${sessionId}; a different outcome cannot replace it`);
+  return refuse2(INVALID_TRANSITION3, sessionId === null ? "a different outcome is already recorded for this attempt and cannot be replaced" : `this attempt already reported session ${sessionId}; a different outcome cannot replace it`);
 }
 function tokenSpent(run, dispatchToken) {
   const live = currentAttempt(run);
@@ -5054,7 +5332,7 @@ function tokenSpent(run, dispatchToken) {
 }
 function judgeReport(input) {
   const { run, dispatchToken, attempt, outcome } = input;
-  const stale = refuse("stale-lease", STALE_TOKEN_MESSAGE);
+  const stale = refuse2("stale-lease", STALE_TOKEN_MESSAGE);
   const { reservation } = run;
   if (reservation?.dispatchToken !== dispatchToken) {
     return { refusal: stale };
@@ -5069,7 +5347,7 @@ function judgeReport(input) {
     return { refusal: stale };
   }
   return run.state === "starting" || run.state === "unconfirmed" ? { verdict: "apply" } : {
-    refusal: refuse(INVALID_TRANSITION3, `this run is ${run.state}; an authorized outcome can only be reported while it is ` + "starting or unconfirmed")
+    refusal: refuse2(INVALID_TRANSITION3, `this run is ${run.state}; an authorized outcome can only be reported while it is ` + "starting or unconfirmed")
   };
 }
 function closedAttempt(input) {
@@ -5340,7 +5618,7 @@ async function refuseRunRequest(input) {
     await operateRun({ store, log: context.log, correlationId }, async ({ run }) => await appendRefusalRow({
       store,
       log: context.log,
-      refusal: { run, operation, refusal: refuse("validation", reason), attempt: run.attempt }
+      refusal: { run, operation, refusal: refuse2("validation", reason), attempt: run.attempt }
     }));
   }
   return response;
@@ -5578,6 +5856,29 @@ async function handleGetBindings(context) {
   const status = await readStatusRows({ store, log: context.log, bindings });
   return { status: STATUS.ok, body: { bindings, status } };
 }
+function omittedPromptIds(submitted) {
+  const omitted = new Set;
+  for (const entry of submitted) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const { bindingId } = entry;
+    if (typeof bindingId === "string" && !Object.hasOwn(entry, "startingPrompt")) {
+      omitted.add(bindingId);
+    }
+  }
+  return omitted;
+}
+function mergePrompts(input) {
+  const storedById = new Map(input.stored.map((binding) => [binding.bindingId, binding]));
+  return input.submitted.map((binding) => {
+    if (!input.omitted.has(binding.bindingId)) {
+      return binding;
+    }
+    const previous = storedById.get(binding.bindingId)?.startingPrompt;
+    return previous === undefined ? binding : { ...binding, startingPrompt: previous };
+  });
+}
 async function handlePutBindings(context, request) {
   const { store } = context;
   if (store === null) {
@@ -5598,9 +5899,18 @@ async function handlePutBindings(context, request) {
   if (!validation.ok) {
     return validationResponse(validation.issues);
   }
-  await writeBindings({ store, bindings: validation.bindings });
-  const status = await readStatusRows({ store, log: context.log, bindings: validation.bindings });
-  return { status: STATUS.ok, body: { bindings: validation.bindings, status } };
+  const body = request.body;
+  const omitted = omittedPromptIds(body.bindings);
+  const bindings = await runPromptChain(store, async () => {
+    const stored = await readBindingsUnobserved({ store, log: context.log });
+    await recordPromptChanges({ store, log: context.log, bindings: stored, actor: "service" });
+    const merged = mergePrompts({ submitted: validation.bindings, omitted, stored });
+    await writeBindings({ store, bindings: merged });
+    await recordPromptChanges({ store, log: context.log, bindings: merged, actor: "operator" });
+    return merged;
+  });
+  const status = await readStatusRows({ store, log: context.log, bindings });
+  return { status: STATUS.ok, body: { bindings, status } };
 }
 var getBindingsRoute = {
   method: "GET",
@@ -5639,7 +5949,7 @@ function invalidTransition(state) {
     ["starting", "an attempt is in flight; this run is already authorized to start"],
     ["dead-lettered", "this run is dead-lettered; use return-to-waiting, which resets the attempt count"]
   ]);
-  return refuse(INVALID_TRANSITION4, messages.get(state) ?? `this run is ${state}; it cannot be retried`);
+  return refuse2(INVALID_TRANSITION4, messages.get(state) ?? `this run is ${state}; it cannot be retried`);
 }
 async function refused(input) {
   const { run, operation, refusal, store, log } = input;
@@ -5657,7 +5967,7 @@ async function refused(input) {
 function judgeRetry(input) {
   const { run, causeCleared, bindings } = input;
   if (input.attempt !== run.attempt) {
-    return refuse(STALE_LEASE_CODE, staleAttemptMessage(input.attempt, run.attempt));
+    return refuse2(STALE_LEASE_CODE, staleAttemptMessage(input.attempt, run.attempt));
   }
   if (run.state === "failed") {
     return null;
@@ -5667,9 +5977,9 @@ function judgeRetry(input) {
   }
   const blockedReason = run.state.slice("blocked:".length);
   if (blockedReason === CORROBORATED_BLOCKED_REASON) {
-    return bindings.some((binding) => binding.bindingId === run.bindingId) ? "corroborated" : refuse("cause-not-cleared", `the cause has not cleared: the binding ${run.bindingId} is still absent`);
+    return bindings.some((binding) => binding.bindingId === run.bindingId) ? "corroborated" : refuse2("cause-not-cleared", `the cause has not cleared: the binding ${run.bindingId} is still absent`);
   }
-  return causeCleared ? "reported" : refuse("cause-not-cleared", `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this row ` + "records what was checked");
+  return causeCleared ? "reported" : refuse2("cause-not-cleared", `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this row ` + "records what was checked");
 }
 function waitingRun(input) {
   const { run, now } = input;
@@ -5733,7 +6043,7 @@ async function requeueDispatch(input) {
         ...input,
         run,
         operation: "requeue",
-        refusal: refuse(INVALID_TRANSITION4, `this run is ${run.state}; only a dead-lettered run can be returned to waiting`)
+        refusal: refuse2(INVALID_TRANSITION4, `this run is ${run.state}; only a dead-lettered run can be returned to waiting`)
       });
     }
     const attemptBefore = run.attempt;
@@ -5764,9 +6074,9 @@ async function requeueDispatch(input) {
 function judgeResolve(input) {
   const { run } = input;
   if (run.state === "unconfirmed") {
-    return runHistoryIndicatesSession(run) ? refuse(INVALID_TRANSITION4, "this run already records a session and cannot be resolved") : null;
+    return runHistoryIndicatesSession(run) ? refuse2(INVALID_TRANSITION4, "this run already records a session and cannot be resolved") : null;
   }
-  return refuse(INVALID_TRANSITION4, `this run is ${run.state}; only an unconfirmed run can be resolved`);
+  return refuse2(INVALID_TRANSITION4, `this run is ${run.state}; only an unconfirmed run can be resolved`);
 }
 function resolvedRun(input) {
   const { run, sessionId, now } = input;
@@ -5829,12 +6139,12 @@ var INVALID_TRANSITION5 = "invalid-transition";
 function judgeVerification(input) {
   const { run, attempt, sessionId } = input;
   if (attempt !== run.attempt) {
-    return refuse(STALE_LEASE_CODE, staleAttemptMessage(attempt, run.attempt));
+    return refuse2(STALE_LEASE_CODE, staleAttemptMessage(attempt, run.attempt));
   }
   if (run.session === null) {
-    return refuse(INVALID_TRANSITION5, `this run is ${run.state} and records no session, so there is nothing to read back`);
+    return refuse2(INVALID_TRANSITION5, `this run is ${run.state} and records no session, so there is nothing to read back`);
   }
-  return run.session.sessionId === sessionId ? null : refuse(INVALID_TRANSITION5, "the reported session is not the session this run recorded");
+  return run.session.sessionId === sessionId ? null : refuse2(INVALID_TRANSITION5, "the reported session is not the session this run recorded");
 }
 async function recordVerification(input) {
   return await operateRun(input, async ({ run, now, persist }) => {

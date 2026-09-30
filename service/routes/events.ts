@@ -36,7 +36,7 @@
  * runs, not deliveries (T-040a).
  */
 
-import { readBindings } from '../bindings.ts';
+import { readBindings } from '../bindings-read.ts';
 import { MAX_CLAIMED_RUNS } from '../poll/claim-bounds.ts';
 import { claimPendingRuns, holderOf } from '../poll/claim.ts';
 import { readEvents } from '../poll/events.ts';

@@ -37,7 +37,7 @@
  *   was told and cannot verify it.
  */
 
-import { readBindings } from '../bindings.ts';
+import { readBindings } from '../bindings-read.ts';
 import type { BindingRecord } from '../bindings.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
