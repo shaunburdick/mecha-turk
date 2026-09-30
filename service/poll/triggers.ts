@@ -35,7 +35,7 @@ import type { RepositoryRef } from '../../src/config.ts';
 import type { BindingRecord } from '../bindings.ts';
 import { createEvent } from './events.ts';
 import type { QueuedEvent, SubjectType } from './events.ts';
-import type { GitHubIssuePoller, PollComment, PollFailure, PollIssue, PollPull } from './poller-github.ts';
+import type { GitHubIssuePoller, ListPace, PollComment, PollFailure, PollIssue, PollPull } from './poller-github.ts';
 
 /** Longest body excerpt one event carries (bounded untrusted text). */
 const BODY_EXCERPT_MAX_CHARS = 600;
@@ -459,20 +459,8 @@ function reviewEvents(input: {
     return events;
 }
 
-/**
- * List the feeds this binding's Slice-2 switches ask for and collect their
- * events.
- *
- * A binding with neither switch on is a no-op (the loop still walks it so
- * the scan state stays honest), and neither list call is ever made — the
- * rate budget only ever pays for triggers the operator turned on. The
- * issue-body mention rides the issue list the loop already fetched, so it
- * adds no request of its own.
- *
- * @param input - Poller, credential, binding, window, and the issue list.
- * @returns The events, or the first list failure's class for the loop's skip.
- */
-export async function collectTriggerEvents(input: {
+/** Everything one binding's trigger scan is given; shared by every branch. */
+interface TriggerScanInput {
     /** Poller the feeds are listed through. */
     readonly poller: GitHubIssuePoller;
     /** Account credential presented to GitHub. */
@@ -487,41 +475,99 @@ export async function collectTriggerEvents(input: {
     readonly detectedAt: string;
     /** Issues the same scan listed: the body-mention scan and title lookup. */
     readonly issues: readonly PollIssue[];
-}): Promise<TriggerEvents> {
-    const { poller, token, binding, login, windowStart, detectedAt, issues } = input;
+    /** Page size and retry ladder this cycle's list calls run under (006 FR-058/FR-059). */
+    readonly pace: ListPace;
+}
+
+/**
+ * List the comment feed the mention switch asks for and collect its events,
+ * including the issue-body mentions the issue list already covers (M6).
+ *
+ * @param input - The shared scan input.
+ * @returns The events, or the list failure that ends the scan.
+ */
+async function mentionEventsOf(input: TriggerScanInput): Promise<TriggerEvents> {
+    const { poller, token, binding, login, windowStart, detectedAt, issues, pace } = input;
     const repository = repositoryRefOf(binding);
-    const events: QueuedEvent[] = [];
-
-    if (binding.triggers.mention === true) {
-        // The issue-body path needs no feed of its own: the loop lists issues
-        // whenever the assignment *or* the mention switch is on.
-        events.push(...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }));
-
-        const listed = await poller.listIssueComments({
-            token,
-            owner: repository.owner,
-            name: repository.name,
-            since: windowStart,
-        });
-        if (listed.kind !== 'ok') {
-            return { ok: false, failure: listed };
-        }
-
-        events.push(...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt }));
+    const listed = await poller.listIssueComments({
+        token,
+        owner: repository.owner,
+        name: repository.name,
+        since: windowStart,
+        pace,
+    });
+    if (listed.kind !== 'ok') {
+        return { ok: false, failure: listed };
     }
 
-    if (binding.triggers.reviewRequest === true) {
-        const listed = await poller.listOpenPulls({
-            token,
-            owner: repository.owner,
-            name: repository.name,
-        });
-        if (listed.kind !== 'ok') {
-            return { ok: false, failure: listed };
+    const events = [
+        // The issue-body path needs no feed of its own: the loop lists issues
+        // whenever the assignment *or* the mention switch is on.
+        ...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }),
+        ...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt }),
+    ];
+
+    return { ok: true, events };
+}
+
+/**
+ * List the review-request feed and build the events it matches (M7).
+ *
+ * @param input - The shared scan input.
+ * @returns The events, or the list failure that ends the scan.
+ */
+async function reviewRequestEvents(input: TriggerScanInput): Promise<TriggerEvents> {
+    const { poller, token, binding, login, windowStart, detectedAt, pace } = input;
+    const repository = repositoryRefOf(binding);
+    const listed = await poller.listOpenPulls({
+        token,
+        owner: repository.owner,
+        name: repository.name,
+        pace,
+    });
+    if (listed.kind !== 'ok') {
+        return { ok: false, failure: listed };
+    }
+
+    const events = reviewEvents({ binding, login, pulls: listed.pulls, windowStart, detectedAt });
+
+    return { ok: true, events };
+}
+
+/**
+ * List the feeds this binding's Slice-2 switches ask for and collect their
+ * events.
+ *
+ * A binding with neither switch on is a no-op (the loop still walks it so
+ * the scan state stays honest), and neither list call is ever made — the
+ * rate budget only ever pays for triggers the operator turned on. The
+ * issue-body mention rides the issue list the loop already fetched, so it
+ * adds no request of its own.
+ *
+ * @param input - Poller, credential, binding, window, and the issue list.
+ * @returns The events, or the first list failure's class for the loop's skip.
+ */
+export async function collectTriggerEvents(input: TriggerScanInput): Promise<TriggerEvents> {
+    const events: QueuedEvent[] = [];
+
+    if (input.binding.triggers.mention === true) {
+        const branch = await mentionEventsOf(input);
+        if (!branch.ok) {
+            return branch;
         }
 
-        events.push(...reviewEvents({ binding, login, pulls: listed.pulls, windowStart, detectedAt }));
+        events.push(...branch.events);
+    }
+
+    if (input.binding.triggers.reviewRequest === true) {
+        const branch = await reviewRequestEvents(input);
+        if (!branch.ok) {
+            return branch;
+        }
+
+        events.push(...branch.events);
     }
 
     return { ok: true, events };
 }
+

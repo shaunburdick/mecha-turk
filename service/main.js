@@ -7677,35 +7677,71 @@ function reviewEvents(input) {
   }
   return events;
 }
-async function collectTriggerEvents(input) {
-  const { poller, token, binding, login, windowStart, detectedAt, issues } = input;
+async function mentionEventsOf(input) {
+  const { poller, token, binding, login, windowStart, detectedAt, issues, pace } = input;
   const repository = repositoryRefOf(binding);
-  const events = [];
-  if (binding.triggers.mention === true) {
-    events.push(...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }));
-    const listed = await poller.listIssueComments({
-      token,
-      owner: repository.owner,
-      name: repository.name,
-      since: windowStart
-    });
-    if (listed.kind !== "ok") {
-      return { ok: false, failure: listed };
-    }
-    events.push(...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt }));
+  const listed = await poller.listIssueComments({
+    token,
+    owner: repository.owner,
+    name: repository.name,
+    since: windowStart,
+    pace
+  });
+  if (listed.kind !== "ok") {
+    return { ok: false, failure: listed };
   }
-  if (binding.triggers.reviewRequest === true) {
-    const listed = await poller.listOpenPulls({
-      token,
-      owner: repository.owner,
-      name: repository.name
-    });
-    if (listed.kind !== "ok") {
-      return { ok: false, failure: listed };
+  const events = [
+    ...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }),
+    ...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt })
+  ];
+  return { ok: true, events };
+}
+async function reviewRequestEvents(input) {
+  const { poller, token, binding, login, windowStart, detectedAt, pace } = input;
+  const repository = repositoryRefOf(binding);
+  const listed = await poller.listOpenPulls({
+    token,
+    owner: repository.owner,
+    name: repository.name,
+    pace
+  });
+  if (listed.kind !== "ok") {
+    return { ok: false, failure: listed };
+  }
+  const events = reviewEvents({ binding, login, pulls: listed.pulls, windowStart, detectedAt });
+  return { ok: true, events };
+}
+async function collectTriggerEvents(input) {
+  const events = [];
+  if (input.binding.triggers.mention === true) {
+    const branch = await mentionEventsOf(input);
+    if (!branch.ok) {
+      return branch;
     }
-    events.push(...reviewEvents({ binding, login, pulls: listed.pulls, windowStart, detectedAt }));
+    events.push(...branch.events);
+  }
+  if (input.binding.triggers.reviewRequest === true) {
+    const branch = await reviewRequestEvents(input);
+    if (!branch.ok) {
+      return branch;
+    }
+    events.push(...branch.events);
   }
   return { ok: true, events };
+}
+
+// service/poll/window.ts
+function windowFor(input) {
+  const recorded = input.scanned.bindings[input.binding.bindingId];
+  const lastScanAt = recorded?.lastScanAt ?? null;
+  if (lastScanAt === null) {
+    return null;
+  }
+  const openedAt = Date.parse(lastScanAt) - input.overlapMs;
+  if (!Number.isFinite(openedAt)) {
+    return null;
+  }
+  return new Date(openedAt).toISOString();
 }
 
 // service/poll/loop.ts
@@ -7724,13 +7760,18 @@ async function currentIntervalMs(store, log) {
     return DEFAULT_CONFIG.intervalMs;
   }
 }
+async function readCycleConfig(input) {
+  try {
+    const { config } = configFromStore(await input.store.readJson(CONFIG_FILE, parseStoredConfig), input.log);
+    return config;
+  } catch (cause) {
+    input.log.warn("cycle configuration read failed", { errorKind: describeKind(cause) });
+    return DEFAULT_CONFIG;
+  }
+}
 function watchesAnything(binding) {
   const { assignment, mention, reviewRequest } = binding.triggers;
   return assignment || mention || reviewRequest;
-}
-function windowFor(binding, scanned) {
-  const recorded = scanned.bindings[binding.bindingId];
-  return recorded !== undefined && recorded.lastScanAt !== null ? recorded.lastScanAt : null;
 }
 function isIssueAssignment(issue2, bindingLogin) {
   if (issue2.state !== "open") {
@@ -7794,7 +7835,8 @@ async function collectScanEvents(input) {
     token,
     owner: repository.owner,
     name: repository.name,
-    since: windowStart
+    since: windowStart,
+    pace: deps.pace
   }) : { kind: "ok", issues: [] };
   if (issues.kind !== "ok") {
     return { ok: false, skipped: skipOf(issues) };
@@ -7806,7 +7848,8 @@ async function collectScanEvents(input) {
     login,
     windowStart,
     detectedAt,
-    issues: issues.issues
+    issues: issues.issues,
+    pace: deps.pace
   });
   if (!collected.ok) {
     return { ok: false, skipped: skipOf(collected.failure) };
@@ -7827,7 +7870,7 @@ async function scanBinding(input) {
   const listed = await collectScanEvents({
     deps,
     binding,
-    windowStart: windowFor(binding, scanned),
+    windowStart: windowFor({ binding, scanned, overlapMs: deps.config.overlapMs }),
     detectedAt,
     token: account.credential.token,
     login: account.login === "" ? binding.accountLogin : account.login
@@ -7846,24 +7889,38 @@ async function scanBinding(input) {
 async function saveBindingScanState(deps, scan) {
   await serializeScan(async () => {
     const state = await readScanState(deps);
+    const prior = state.bindings[scan.bindingId];
+    const retained = scan.windowFrom ?? (prior?.lastScanAt ?? null);
     await writeScanState({
       store: deps.store,
       state: withBindingScanState({
         state,
         bindingId: scan.bindingId,
         slot: {
-          lastScanAt: scan.windowFrom,
+          lastScanAt: retained,
           lastError: scan.skipped
         }
       })
     });
   });
 }
+async function cycleContext(input) {
+  const config = await readCycleConfig({ store: input.store, log: input.log });
+  const pace = {
+    perPage: config.perPage,
+    retry: {
+      maxAttempts: config.retryMaxAttempts,
+      baseMs: config.retryBaseMs,
+      maxMs: config.retryMaxMs
+    }
+  };
+  return { store: input.store, log: input.log, poller: input.poller, config, pace };
+}
 async function runScanCycle(deps) {
   if (deps.store === null) {
     return { bindings: [], enqueued: 0 };
   }
-  const context = { store: deps.store, log: deps.log, poller: deps.poller };
+  const context = await cycleContext({ store: deps.store, log: deps.log, poller: deps.poller });
   await readEvents({ store: context.store, log: context.log });
   const [bindings, scannedState] = await Promise.all([
     readBindings({ store: context.store, log: context.log }),
@@ -7891,6 +7948,40 @@ async function runScanCycle(deps) {
     });
   }
   return { bindings: outcomes, enqueued: total };
+}
+
+// service/poll/backoff.ts
+function unitFraction(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(1, Math.max(0, value));
+}
+var MILLISECONDS_PER_SECOND = 1000;
+function backoffDelayMs(input) {
+  const step = Math.max(input.attempt - 2, 0);
+  const uncapped = input.policy.baseMs * 2 ** step;
+  const capped = Math.min(input.policy.maxMs, uncapped);
+  const jitter = 0.5 + 0.5 * unitFraction(input.random());
+  return Math.min(input.policy.maxMs, Math.floor(capped * jitter));
+}
+function nextWait(input) {
+  const backoffMs = backoffDelayMs({
+    policy: input.policy,
+    attempt: input.attempt,
+    random: input.random
+  });
+  if (input.guidanceSeconds === null) {
+    return { attempt: input.attempt, delayMs: backoffMs, source: "backoff" };
+  }
+  const guidedMs = Math.max(0, Math.round(input.guidanceSeconds * MILLISECONDS_PER_SECOND));
+  return guidedMs > backoffMs ? { attempt: input.attempt, delayMs: guidedMs, source: "guidance" } : { attempt: input.attempt, delayMs: backoffMs, source: "backoff" };
+}
+async function waitForRetry(input) {
+  const record = nextWait(input);
+  input.onWait(record);
+  await input.sleep(record.delayMs);
+  return record;
 }
 
 // service/poll/poller-entries.ts
@@ -8014,7 +8105,6 @@ var STATUS_UNAUTHORIZED2 = 401;
 var STATUS_NOT_FOUND2 = 404;
 var STATUS_FORBIDDEN2 = 403;
 var STATUS_TOO_MANY_REQUESTS2 = 429;
-var PAGE_SIZE = 30;
 var MAX_LIST_PAGES = 2;
 var NEWEST_UPDATED_FIRST = { sort: "updated", direction: "desc" };
 function parseListPage(input) {
@@ -8037,31 +8127,82 @@ async function classifyListOutcome(response) {
   }
   return { kind: "unavailable", detail: "upstream" };
 }
-async function listPages(input) {
-  const items = [];
-  for (let page = 1;page <= MAX_LIST_PAGES; page += 1) {
-    input.url.searchParams.set("page", String(page));
+async function waitBeforeNextAttempt(context, wait) {
+  const { runtime, pace, url } = context;
+  await waitForRetry({
+    policy: pace.retry,
+    attempt: wait.attempt,
+    guidanceSeconds: wait.guidanceSeconds,
+    sleep: runtime.sleep,
+    random: runtime.random,
+    onWait: (record) => {
+      runtime.log.info("poll request waiting before its next attempt", {
+        path: url.pathname,
+        attempt: record.attempt,
+        delayMs: record.delayMs,
+        source: record.source
+      });
+    }
+  });
+}
+async function requestPage(input) {
+  const policy = input.pace.retry;
+  const attempts = Math.max(1, policy.maxAttempts);
+  let last = { kind: "unavailable", detail: "upstream" };
+  for (let attempt = 1;attempt <= attempts; attempt += 1) {
     let response;
     try {
-      response = await input.fetchImpl(input.url.toString(), {
+      response = await input.runtime.fetchImpl(input.url.toString(), {
         method: "GET",
         headers: requestHeaders(input.token),
         signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
       });
     } catch (error) {
-      return { kind: "unavailable", detail: transportDetail(error) };
+      last = { kind: "unavailable", detail: transportDetail(error) };
+      if (attempt >= attempts) {
+        return { failure: last };
+      }
+      await waitBeforeNextAttempt(input, { attempt: attempt + 1, guidanceSeconds: null });
+      continue;
     }
-    if (!response.ok) {
-      return await classifyListOutcome(response);
+    if (response.ok) {
+      return { response };
+    }
+    last = await classifyListOutcome(response);
+    if (last.kind === "auth-failed" || attempt >= attempts) {
+      return { failure: last };
+    }
+    const guidanceSeconds = last.kind === "rate-limited" ? last.retryAfterSeconds : null;
+    await waitBeforeNextAttempt(input, { attempt: attempt + 1, guidanceSeconds });
+  }
+  return { failure: last };
+}
+async function listPages(input) {
+  const items = [];
+  for (let page = 1;page <= MAX_LIST_PAGES; page += 1) {
+    input.url.searchParams.set("page", String(page));
+    input.url.searchParams.set("per_page", String(input.pace.perPage));
+    const attempt = await requestPage({
+      runtime: input.runtime,
+      token: input.token,
+      url: input.url,
+      pace: input.pace
+    });
+    if (!("response" in attempt)) {
+      return attempt.failure;
     }
     let parsed;
     try {
-      parsed = parseListPage({ text: await response.text(), message: input.message, read: input.read });
+      parsed = parseListPage({
+        text: await attempt.response.text(),
+        message: input.message,
+        read: input.read
+      });
     } catch {
       return { kind: "unavailable", detail: "upstream" };
     }
     items.push(...parsed);
-    if (parsed.length < PAGE_SIZE) {
+    if (parsed.length < input.pace.perPage) {
       break;
     }
   }
@@ -8077,9 +8218,15 @@ function listUrl(input) {
   }
   return url;
 }
-async function issuesList(fetchImpl, query) {
+var systemSleep = async (milliseconds) => {
+  await new Promise((resolve3) => {
+    setTimeout(resolve3, milliseconds);
+  });
+};
+async function issuesList(runtime, query) {
   const result = await listPages({
-    fetchImpl,
+    runtime,
+    pace: query.pace,
     token: query.token,
     url: listUrl({
       owner: query.owner,
@@ -8093,9 +8240,10 @@ async function issuesList(fetchImpl, query) {
   });
   return result.kind === "ok" ? { kind: "ok", issues: result.items } : result;
 }
-async function commentsList(fetchImpl, query) {
+async function commentsList(runtime, query) {
   const result = await listPages({
-    fetchImpl,
+    runtime,
+    pace: query.pace,
     token: query.token,
     url: listUrl({
       owner: query.owner,
@@ -8109,9 +8257,10 @@ async function commentsList(fetchImpl, query) {
   });
   return result.kind === "ok" ? { kind: "ok", comments: result.items } : result;
 }
-async function pullsList(fetchImpl, query) {
+async function pullsList(runtime, query) {
   const result = await listPages({
-    fetchImpl,
+    runtime,
+    pace: query.pace,
     token: query.token,
     url: listUrl({
       owner: query.owner,
@@ -8125,11 +8274,17 @@ async function pullsList(fetchImpl, query) {
   });
   return result.kind === "ok" ? { kind: "ok", pulls: result.items } : result;
 }
-function createGitHubIssuePoller(fetchImpl = (url, init) => globalThis.fetch(url, init)) {
+function createGitHubIssuePoller(deps, fetchImpl = (url, init) => globalThis.fetch(url, init)) {
+  const runtime = {
+    fetchImpl,
+    log: deps.log,
+    sleep: deps.sleep ?? systemSleep,
+    random: deps.random ?? (() => Math.random())
+  };
   return {
-    listOpenIssues: (query) => issuesList(fetchImpl, query),
-    listIssueComments: (query) => commentsList(fetchImpl, query),
-    listOpenPulls: (query) => pullsList(fetchImpl, query)
+    listOpenIssues: (query) => issuesList(runtime, query),
+    listIssueComments: (query) => commentsList(runtime, query),
+    listOpenPulls: (query) => pullsList(runtime, query)
   };
 }
 
@@ -8178,8 +8333,8 @@ function startPollLoop(deps) {
     state: () => ({ stopped, nextPollAtMs: nextAtMs })
   };
 }
-function createDefaultPoller() {
-  return createGitHubIssuePoller();
+function createDefaultPoller(log) {
+  return createGitHubIssuePoller({ log });
 }
 
 // service/throttle.ts
@@ -8389,7 +8544,7 @@ async function startService(options) {
   const { poll, sweep } = startSchedulers({
     store,
     log: options.log,
-    poller: options.poller ?? createDefaultPoller(),
+    poller: options.poller ?? createDefaultPoller(options.log),
     polling
   });
   return createHandle({

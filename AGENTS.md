@@ -162,6 +162,8 @@ network — those checks are operator-gated and recorded in the spec (see
 | `poll/dispatch*.ts` | Reserve / result / abandon / block family: single-use tokens, the staleness matrix, refusal rows |
 | `poll/run-chain.ts` / `poll/run-operate.ts` / `poll/run-verify.ts` / `poll/run-refusal.ts` | The shared run write chain, retry/requeue/resolve, the verification report, the refusal vocabulary |
 | `poll/run-history-project.ts` | The capped, credential-free run-history projection |
+| `poll/backoff.ts` | The poll-*request* ladder — pure delay arithmetic plus the injected-sleep driver; requests/attempts, never 003's requeue (006 FR-058) |
+| `poll/window.ts` | The scan window: `lastScanAt − overlapMs`, the replay case, and the closure of 002 FR-019's conformance gap (006 FR-059(a)) |
 | `routes/` | `/v1/status`, `/health`, `/v1/bindings`, `/v1/accounts`, `/v1/events*`, credential verify |
 | `routes/dispatch.ts` / `routes/run-ops.ts` | Reserve, result, abandon, blocked; retry, requeue, resolve, verification |
 | `routes/audit.ts` | `GET /v1/audit`, filtered by correlation identifier |
@@ -169,6 +171,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `audit.ts` / `log.ts` | `audit.ndjson` rows + structured, secret-free logs |
 | `store/` | 0700/0600 store, JSON/NDJSON IO, quarantine-and-repair reads |
 | `config.ts` / `env.ts` / `throttle.ts` | Operator-tunable polling/retry/retention, env, rate budgets |
+| `config-schema.ts` | That declaration projected onto the wire: the exhaustive `TAKE_EFFECT` table, the closed `FieldDescriptor` union, `configSchema()` (006 FR-020–FR-022) |
 
 ## Spec workflow
 

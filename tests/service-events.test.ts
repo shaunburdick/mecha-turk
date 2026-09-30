@@ -85,6 +85,9 @@ const CREATED_AT = '2026-09-27T00:00:00.000Z';
 /** Stale window stamp — advanced past the assignments, as the operator's was. */
 const SCANNED_AT = '2026-09-27T00:40:38.000Z';
 
+/** Configured overlap this suite widens windows by (006 FR-059(a)). */
+const OVERLAP_MS = 600_000;
+
 /** Stamp of a completed detection. */
 const DETECTED_AT = '2026-09-27T00:41:00.000Z';
 
@@ -481,7 +484,7 @@ describe('quarantined queue recovery', () => {
 
         // The next window opens with no `since` filter at all — the reset
         // replays every open issue, not the stale stamp that skipped them.
-        expect(windowFor(fixtureBinding(BINDING_A), state)).toBeNull();
+        expect(windowFor({ binding: fixtureBinding(BINDING_A), scanned: state, overlapMs: OVERLAP_MS })).toBeNull();
 
         const recovered = await auditRowsOf(RECOVERED_EVENT);
         expect(recovered).toHaveLength(1);
@@ -551,7 +554,7 @@ describe('quarantined queue recovery', () => {
         const state = await readScanState({ store, log });
         expect(state.bindings[BINDING_A]).toEqual({ lastScanAt: null, lastError: null });
         expect(state.bindings[BINDING_B]).toEqual({ lastScanAt: null, lastError: SKIP_REASON });
-        expect(windowFor(fixtureBinding(BINDING_A), state)).toBeNull();
+        expect(windowFor({ binding: fixtureBinding(BINDING_A), scanned: state, overlapMs: OVERLAP_MS })).toBeNull();
         expect(await auditRowsOf(RECOVERED_EVENT)).toHaveLength(1);
 
         // One loss, one recovery: a second read in this process stays quiet.

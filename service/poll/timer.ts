@@ -8,6 +8,7 @@
  * cycle still running when the next timer fires is skipped, not overlapped.
  */
 
+import type { ServiceLogger } from '../log.ts';
 import { currentIntervalMs, describeKind, runScanCycle } from './loop.ts';
 import { createGitHubIssuePoller } from './poller-github.ts';
 import type { GitHubIssuePoller } from './poller-github.ts';
@@ -81,6 +82,13 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
     };
 }
 
-export function createDefaultPoller(): GitHubIssuePoller {
-    return createGitHubIssuePoller();
+/**
+ * Build the poller production uses: the shared logger, a real timer, and the
+ * process' own jitter source.
+ *
+ * @param log - Logger every poll-request wait is reported through (FR-058).
+ * @returns The poller bound to those injectables.
+ */
+export function createDefaultPoller(log: ServiceLogger): GitHubIssuePoller {
+    return createGitHubIssuePoller({ log });
 }

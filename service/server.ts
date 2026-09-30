@@ -480,7 +480,7 @@ export async function startService(options: StartServiceOptions): Promise<Servic
     const { poll, sweep } = startSchedulers({
         store,
         log: options.log,
-        poller: options.poller ?? createDefaultPoller(),
+        poller: options.poller ?? createDefaultPoller(options.log),
         polling,
     });
 

@@ -38,6 +38,12 @@ const CREATED_AT = '2026-09-27T00:00:00.000Z';
 /** Stamp of a completed scan, for the "has scanned" contrast case. */
 const SCANNED_AT = '2026-09-27T06:00:00.000Z';
 
+/** Configured overlap this suite widens windows by (006 FR-059(a)). */
+const OVERLAP_MS = 600_000;
+
+/** The window a recorded stamp opens once the overlap is subtracted. */
+const WIDENED_AT = new Date(Date.parse(SCANNED_AT) - OVERLAP_MS).toISOString();
+
 /** The loop's skip reason for a credential the custody cannot use. */
 const SKIP_REASON = 'auth-failed';
 
@@ -186,23 +192,27 @@ describe('readScanState (real store, no more per-minute quarantine files)', () =
     });
 });
 
-describe('windowFor (never-scanned opens a replay, scanned opens incremental)', () => {
+describe('windowFor (never-scanned opens a replay, scanned opens widened)', () => {
     it('opens with no window when no scan ever completed — a full replay', () => {
         // Product decision 2026-09-28: pre-binding assignments must work, so
         // the first scan lists every open issue instead of a createdAt
         // baseline that would reject an issue assigned before the binding.
         const scanned = stateWith({ lastScanAt: null, lastError: SKIP_REASON });
 
-        expect(windowFor(fixtureBinding(), scanned)).toBeNull();
+        expect(windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS })).toBeNull();
     });
 
-    it('opens at the recorded stamp once a scan has completed', () => {
+    it('opens at the recorded stamp minus the configured overlap (006 FR-059(a))', () => {
         const scanned = stateWith({ lastScanAt: SCANNED_AT, lastError: null });
 
-        expect(windowFor(fixtureBinding(), scanned)).toBe(SCANNED_AT);
+        const widened = windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS });
+        expect(widened).toBe(WIDENED_AT);
+        expect(Date.parse(WIDENED_AT)).toBeLessThan(Date.parse(SCANNED_AT));
     });
 
     it('opens with no window for a binding the state file never mentions', () => {
-        expect(windowFor(fixtureBinding(), stateWith(null))).toBeNull();
+        const scanned = stateWith(null);
+
+        expect(windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS })).toBeNull();
     });
 });
