@@ -14,6 +14,7 @@
  * ambiguous or incomplete observation").
  */
 
+import type { PromptSnapshot } from '../prompt.ts';
 import { subjectTypeOf } from './events-parse.ts';
 import { isTerminalRun } from './runs-document.ts';
 import { buildAttachmentId, buildCorrelationId, buildRunKey, buildSubjectKey } from './run-key.ts';
@@ -186,17 +187,8 @@ export function joinReference(input: {
     };
 }
 
-/**
- * Mint the run one delivery creates, at the subject's next ordinal.
- *
- * @param delivery - The delivery that opened this run.
- * @param shape - Its resolved subject.
- * @param ordinal - The ordinal the counter yielded.
- * @param reference - The delivery's own reference (its first).
- * @param now - Creation stamp.
- * @returns A fresh `pending` run with the FR-050 identity derived.
- */
-function runForDelivery(input: {
+/** Everything one run creation needs, in one named shape (004 FR-015 adds the last). */
+interface RunCreationInput {
     /** The delivery that opened this run. */
     readonly delivery: QueuedEvent;
     /** Its resolved subject. */
@@ -207,8 +199,19 @@ function runForDelivery(input: {
     readonly reference: SourceReference;
     /** Creation stamp. */
     readonly now: string;
-}): Run {
-    const { delivery, shape, ordinal, reference, now } = input;
+    /** The binding's prompt snapshot at detection, or `null` when unset. */
+    readonly prompt: PromptSnapshot | null;
+}
+
+/**
+ * Mint the run one delivery creates, at the subject's next ordinal.
+ *
+ * @param input - The delivery, its subject, ordinal, reference, stamp, and the
+ *   binding's prompt snapshot (004 FR-015).
+ * @returns A fresh `pending` run with the FR-050 identity derived.
+ */
+function runForDelivery(input: RunCreationInput): Run {
+    const { delivery, shape, ordinal, reference, now, prompt } = input;
     const runKey = buildRunKey({
         accountNumericUserId: delivery.accountNumericUserId,
         repository: delivery.repository,
@@ -230,6 +233,7 @@ function runForDelivery(input: {
         bindingId: delivery.bindingId,
         projectId: delivery.projectId,
         worktreeOption: delivery.worktreeOption,
+        prompt,
         state: 'pending',
         stateReason: null,
         attempt: 1,
@@ -293,22 +297,35 @@ export interface EnqueueOutcome {
     readonly joins: readonly EnqueueJoin[];
 }
 
-/**
- * Fold fresh deliveries into runs: join the subject's open run, else create
- * the next ordinal (FR-011). Pure — the caller owns the chain, the two
- * writes, and the audit rows, in that order.
- *
- * @param input - The stored document, the deduped deliveries, and the stamp.
- * @returns The document to persist plus the effects to audit and link.
- */
-export function applyEnqueue(input: {
+/** Everything one enqueue pass needs, in one named shape. */
+export interface EnqueueInput {
     /** Document as stored, before this pass. */
     readonly document: RunsDocument;
     /** Deliveries this scan actually enqueued. */
     readonly deliveries: readonly QueuedEvent[];
     /** Service-clock stamp for every run this pass touches. */
     readonly now: string;
-}): EnqueueOutcome {
+    /**
+     * The scanning binding's prompt snapshot, snapshotted with the same
+     * binding object that produced `projectId`/`worktreeOption` (004 FR-015).
+     *
+     * Absent reads as `null`: a run opened with no prompt, which is also how
+     * every caller outside the poll loop behaves.
+     */
+    readonly prompt?: PromptSnapshot | null;
+}
+
+/**
+ * Fold fresh deliveries into runs: join the subject's open run, else create
+ * the next ordinal (FR-011). Pure — the caller owns the chain, the two
+ * writes, and the audit rows, in that order.
+ *
+ * @param input - The stored document, the deduped deliveries, the stamp, and
+ *   the binding's prompt snapshot.
+ * @returns The document to persist plus the effects to audit and link.
+ */
+export function applyEnqueue(input: EnqueueInput): EnqueueOutcome {
+    const prompt = input.prompt ?? null;
     const runs = [...input.document.runs];
     const subjects = { ...input.document.subjects };
     const links = new Map<string, string>();
@@ -335,7 +352,7 @@ export function applyEnqueue(input: {
 
         const ordinal = subjects[shape.subjectKey] ?? 0;
         subjects[shape.subjectKey] = ordinal + 1;
-        const run = runForDelivery({ delivery, shape, ordinal, reference, now: input.now });
+        const run = runForDelivery({ delivery, shape, ordinal, reference, now: input.now, prompt });
         runs.push(run);
         created.push(run);
         links.set(delivery.id, run.correlationId);

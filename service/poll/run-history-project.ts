@@ -147,6 +147,17 @@ export interface RunHistoryRow {
     readonly claimedAt: string | null;
     /** RFC 3339 dispatch stamp once a session exists, else `null` (shipped member). */
     readonly dispatchedAt: string | null;
+    /**
+     * Whether a starting prompt was set when this run was queued (004 FR-052).
+     *
+     * `false` for a run written before this feature — a true statement about
+     * that run rather than a hole in the record.
+     */
+    readonly promptPresent: boolean;
+    /** The prompt's `mtp-…` fingerprint, or `null` when none (004 FR-052). */
+    readonly promptFingerprint: string | null;
+    /** Code points of the normalised prompt, or `null` when none. */
+    readonly promptLength: number | null;
     /** Head SHA of a review-origin pull request; absent on every other kind. */
     readonly headSha?: string;
     /** Base ref of that pull request; absent on every other kind. */
@@ -334,6 +345,32 @@ function verificationViewOf(run: Run): HistoryVerification | null {
 }
 
 /**
+ * The prompt reference the run history carries — presence, fingerprint,
+ * length, and never the text (004 FR-052, FR-053).
+ *
+ * @param run - The run being projected.
+ * @returns The three reference scalars.
+ */
+function promptViewOf(run: Run): {
+    /** Whether a starting prompt was set when this run was queued. */
+    readonly promptPresent: boolean;
+    /** The fingerprint, or `null` when none. */
+    readonly promptFingerprint: string | null;
+    /** The length, or `null` when none. */
+    readonly promptLength: number | null;
+} {
+    if (run.prompt === null) {
+        return { promptPresent: false, promptFingerprint: null, promptLength: null };
+    }
+
+    return {
+        promptPresent: true,
+        promptFingerprint: run.prompt.fingerprint,
+        promptLength: run.prompt.length,
+    };
+}
+
+/**
  * Project one stored run into its history row.
  *
  * @param input - The run, the delivery rows keyed by id, and the reference that
@@ -382,6 +419,7 @@ function historyRowOf(input: {
         dispatchResult: dispatchResultOf(run),
         claimedAt: lease.claimedAt,
         dispatchedAt: dispatchStamp,
+        ...promptViewOf(run),
     }, delivery);
 }
 

@@ -114,13 +114,32 @@ const VOCABULARY: readonly VocabularyEntry[] = [
         eventType: RESERVED_ROW,
         actor: 'panel',
         decision: null,
-        details: ['leaseId', 'attempt', 'dispatchTokenFingerprint', 'attachmentId'],
+        details: [
+            'leaseId',
+            'attempt',
+            'dispatchTokenFingerprint',
+            'attachmentId',
+            // 004 adds four credential-free scalars to the two rows that
+            // record what was sent (004 `### Audit Vocabulary Delta`).
+            'bindingId',
+            'promptPresent',
+            'promptFingerprint',
+            'promptLength',
+        ],
     },
     {
         eventType: RESULT_ROW,
         actor: 'panel',
         decision: 'dispatched',
-        details: ['attempt', 'dispatchTokenFingerprint', 'sessionId'],
+        details: [
+            'attempt',
+            'dispatchTokenFingerprint',
+            'sessionId',
+            'bindingId',
+            'promptPresent',
+            'promptFingerprint',
+            'promptLength',
+        ],
     },
     {
         eventType: DUPLICATE_ROW,
@@ -381,6 +400,31 @@ describe('FR-062 every lifecycle row carries the run correlation id', () => {
         expect(rowsOf(trail, CREATED_ROW)).toHaveLength(1);
         expect(firstRowOf(trail, CREATED_ROW).correlationId).toBe(createdRunId);
         expect(rowsOf(trail, MIGRATED_ROW)).toHaveLength(1);
+    });
+});
+
+describe('004 the two rows that record what was sent carry the prompt reference (AC-139)', () => {
+    it('names the binding and a well-shaped reference, never the text', () => {
+        const { trail } = driven();
+        const fingerprint = /^mtp-[0-9a-f]{32}$/;
+        const sent = trail.filter((row) =>
+            row.eventType === RESERVED_ROW || row.eventType === RESULT_ROW);
+        expect(sent.length).toBeGreaterThan(0);
+
+        for (const row of sent) {
+            const { details } = row;
+            expect(typeof details.bindingId, `${row.eventType} bindingId`).toBe('string');
+            expect(String(details.bindingId).length).toBeGreaterThan(0);
+            expect(typeof details.promptPresent, `${row.eventType} promptPresent`).toBe('boolean');
+            expect(details.promptFingerprint === null
+                || fingerprint.test(String(details.promptFingerprint))).toBe(true);
+            expect(details.promptLength === null || typeof details.promptLength === 'number').toBe(true);
+            expect(row.correlationId, `${row.eventType} correlation id`).toMatch(RUN_ID_PATTERN);
+        }
+
+        // The reference is the whole of what a row records about the prompt.
+        expect(JSON.stringify(trail)).not.toContain('OPERATOR STARTING PROMPT');
+        expect(findSecretLeak(JSON.stringify(trail))).toBeNull();
     });
 });
 

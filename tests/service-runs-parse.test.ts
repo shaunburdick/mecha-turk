@@ -127,6 +127,7 @@ function fixtureRun(overrides: Partial<Run> = {}): Run {
         bindingId: 'bnd-runs',
         projectId: 'prj_42',
         worktreeOption: 'none',
+        prompt: null,
         state: 'pending',
         stateReason: null,
         attempt: 1,

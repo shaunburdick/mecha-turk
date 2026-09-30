@@ -24,6 +24,8 @@
  */
 
 import { isRecord, readCount } from '../json.ts';
+import { parseStoredPromptSnapshot } from '../prompt.ts';
+import type { PromptSnapshot } from '../prompt.ts';
 import { buildCorrelationId, buildRunKey, buildSubjectKey } from './run-key.ts';
 import { parseRunAuditIntents } from './runs-audit-parse.ts';
 import {
@@ -199,6 +201,8 @@ interface ParsedRunParts {
     readonly references: readonly SourceReference[];
     /** Bounded attempt history. */
     readonly attempts: readonly DispatchAttempt[];
+    /** The prompt snapshot, or `null` when the run queued with none (004 FR-015). */
+    readonly prompt: PromptSnapshot | null;
 }
 
 /** Require attempt and session pointers to tell one consistent story. */
@@ -261,12 +265,20 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
     const objects = parseRunObjects(raw);
     const references = parseList(raw.sourceReferences, { parse: parseReference, cap: MAX_SOURCE_REFERENCES });
     const attempts = parseList(raw.attempts, { parse: parseAttempt, cap: MAX_ATTEMPT_RECORDS });
+    // The `prompt` member is read through the prompt domain's own stored-shape
+    // validator (004 FR-019 by analogy, plan D11): absent or `null` is a run
+    // queued with no prompt — the plain reading every pre-004 row keeps —
+    // while a **present** value that is over-cap, wrongly fingerprinted, or
+    // credential-shaped refuses the row, and therefore the document (004
+    // FR-028, NFR-121).
+    const prompt = parseStoredPromptSnapshot(raw.prompt);
     if (
         scalars === null
         || !runIdentityMatches(raw, scalars)
         || objects === null
         || references === null
         || attempts === null
+        || prompt === null
     ) {
         return null;
     }
@@ -275,12 +287,24 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
         return null;
     }
 
-    return { scalars, objects, references, attempts };
+    return {
+        scalars,
+        objects,
+        references,
+        attempts,
+        prompt: prompt.status === 'set' ? prompt.snapshot : null,
+    };
 }
 
-/** Project validated storage fields into the run model. */
+/**
+ * Project validated storage fields into the run model.
+ *
+ * @param raw - The stored row, already known to carry its identity members.
+ * @param parts - The independently validated parts, prompt included.
+ * @returns The run.
+ */
 function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run {
-    const { scalars, objects, references, attempts } = parts;
+    const { scalars, objects, references, attempts, prompt } = parts;
     return {
         runKey: raw.runKey as string,
         correlationId: raw.correlationId as string,
@@ -293,6 +317,7 @@ function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run 
         bindingId: raw.bindingId as string,
         projectId: raw.projectId as string,
         worktreeOption: raw.worktreeOption as string,
+        prompt,
         state: scalars.state,
         stateReason: scalars.stateReason,
         attempt: scalars.attempt,
@@ -313,6 +338,9 @@ function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run 
 
 /**
  * Parse one stored run row, answering `null` for anything unusable.
+ *
+ * The `prompt` member is validated with the rest of the row's parts, through
+ * the prompt domain's own stored-shape reader (data-model §3).
  *
  * @param raw - One element from `runs.json`'s `runs` array.
  * @returns The run, or `null` when the row cannot be trusted.

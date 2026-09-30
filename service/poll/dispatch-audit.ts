@@ -82,6 +82,37 @@ function runRow(run: Run): Pick<AuditInput, 'entity' | 'correlationId'> {
 }
 
 /**
+ * The four credential-free scalars `dispatch.reserved` and `dispatch.result`
+ * gain from 004 (FR-050; data-model §4.2).
+ *
+ * Written **by the service from the run's snapshot**, never from a request
+ * body: the panel can report what it did, but what prompt a run used is a
+ * fact the stored run owns. The fingerprint is derived from the text rather
+ * than minted per row, so every row of one prompt carries the identical value
+ * (003 FR-062 reaffirmed).
+ *
+ * @param run - The run whose snapshot these name.
+ * @returns The binding id plus the prompt's presence, fingerprint, and length.
+ */
+function promptDetails(run: Run): {
+    /** Binding the run dispatched through. */
+    readonly bindingId: string;
+    /** Whether a starting prompt was set when the run was queued. */
+    readonly promptPresent: boolean;
+    /** Its fingerprint, or `null` when none. */
+    readonly promptFingerprint: string | null;
+    /** Its length, or `null` when none. */
+    readonly promptLength: number | null;
+} {
+    return {
+        bindingId: run.bindingId,
+        promptPresent: run.prompt !== null,
+        promptFingerprint: run.prompt === null ? null : run.prompt.fingerprint,
+        promptLength: run.prompt === null ? null : run.prompt.length,
+    };
+}
+
+/**
  * `dispatch.reserved` — the panel declared intent to start a session.
  *
  * @param input - The authorized run, the lease it was made under, and its token.
@@ -104,6 +135,7 @@ export function reservedRow(input: {
             attempt: input.run.attempt,
             dispatchTokenFingerprint: buildDispatchTokenFingerprint(input.dispatchToken),
             attachmentId: input.run.attachmentId,
+            ...promptDetails(input.run),
         },
     };
 }
@@ -134,6 +166,7 @@ export function resultRow(input: {
             attempt: input.run.attempt,
             dispatchTokenFingerprint: buildDispatchTokenFingerprint(input.dispatchToken),
             ...(input.sessionId === null ? { failureReason: rowText(input.problem) } : { sessionId: input.sessionId }),
+            ...promptDetails(input.run),
         },
     };
 }

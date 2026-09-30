@@ -2143,6 +2143,7 @@ function hasIllegalControlChar(text) {
 
 // service/prompt.ts
 var STARTING_PROMPT_MAX_CODE_POINTS = 2000;
+var PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
 var PROMPT_FINGERPRINT_PREFIX = "mtp-";
 var FINGERPRINT_HEX_CHARS = 32;
 var REMEDIATION_TYPE = "startingPrompt must be text; send it absent or null to leave the starting prompt unset";
@@ -2193,6 +2194,43 @@ function promptSnapshotOf(record) {
   }
   const text = verdict.prompt;
   return { text, fingerprint: promptFingerprint(text), length: countCodePoints(text) };
+}
+function storedText(candidate) {
+  const { text } = candidate;
+  return typeof text === "string" && text !== "" ? text : null;
+}
+function storedFingerprint(candidate) {
+  const { fingerprint } = candidate;
+  return typeof fingerprint === "string" && PROMPT_FINGERPRINT_PATTERN.test(fingerprint) ? fingerprint : null;
+}
+function storedLength(candidate) {
+  const { length } = candidate;
+  return typeof length === "number" && Number.isInteger(length) && length > 0 ? length : null;
+}
+function readStoredSnapshot(candidate) {
+  const text = storedText(candidate);
+  const fingerprint = storedFingerprint(candidate);
+  const length = storedLength(candidate);
+  if (text === null || fingerprint === null || length === null) {
+    return null;
+  }
+  if (countCodePoints(text) !== length) {
+    return null;
+  }
+  if (length > STARTING_PROMPT_MAX_CODE_POINTS || findSecretLeak(text) !== null) {
+    return null;
+  }
+  return { text, fingerprint, length };
+}
+function parseStoredPromptSnapshot(raw) {
+  if (raw === undefined || raw === null) {
+    return { status: "unset" };
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const snapshot = readStoredSnapshot(raw);
+  return snapshot === null ? null : { status: "set", snapshot };
 }
 
 // service/bindings.ts
@@ -2649,6 +2687,17 @@ function deliveryView(input) {
     ...reviewCoordinates(delivery)
   };
 }
+function promptViewOf(run) {
+  if (run.prompt === null) {
+    return { promptPresent: false, promptFingerprint: null, promptLength: null, promptText: null };
+  }
+  return {
+    promptPresent: true,
+    promptFingerprint: run.prompt.fingerprint,
+    promptLength: run.prompt.length,
+    promptText: run.prompt.text
+  };
+}
 function projectClaimedRun(input) {
   const { run, lease, deliveries } = input;
   const primary = run.sourceReferences[0];
@@ -2677,6 +2726,7 @@ function projectClaimedRun(input) {
     referencesNotRetained: run.referencesNotRetained,
     referencesTruncated: run.referencesTruncated,
     detectedAt: primary?.detectedAt ?? run.createdAt,
+    ...promptViewOf(run),
     ...deliveryView({ delivery, primary })
   };
 }
@@ -3401,16 +3451,23 @@ function parseRunParts(raw) {
   const objects = parseRunObjects(raw);
   const references = parseList(raw.sourceReferences, { parse: parseReference, cap: MAX_SOURCE_REFERENCES });
   const attempts = parseList(raw.attempts, { parse: parseAttempt, cap: MAX_ATTEMPT_RECORDS });
-  if (scalars === null || !runIdentityMatches(raw, scalars) || objects === null || references === null || attempts === null) {
+  const prompt = parseStoredPromptSnapshot(raw.prompt);
+  if (scalars === null || !runIdentityMatches(raw, scalars) || objects === null || references === null || attempts === null || prompt === null) {
     return null;
   }
   if (!runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
     return null;
   }
-  return { scalars, objects, references, attempts };
+  return {
+    scalars,
+    objects,
+    references,
+    attempts,
+    prompt: prompt.status === "set" ? prompt.snapshot : null
+  };
 }
 function runFromParts(raw, parts) {
-  const { scalars, objects, references, attempts } = parts;
+  const { scalars, objects, references, attempts, prompt } = parts;
   return {
     runKey: raw.runKey,
     correlationId: raw.correlationId,
@@ -3423,6 +3480,7 @@ function runFromParts(raw, parts) {
     bindingId: raw.bindingId,
     projectId: raw.projectId,
     worktreeOption: raw.worktreeOption,
+    prompt,
     state: scalars.state,
     stateReason: scalars.stateReason,
     attempt: scalars.attempt,
@@ -3822,6 +3880,7 @@ function migratedRun(input) {
       bindingId: event.bindingId,
       projectId: event.projectId,
       worktreeOption: event.worktreeOption,
+      prompt: null,
       state: classification.state,
       stateReason: classification.stateReason,
       attempt: 1,
@@ -4169,7 +4228,7 @@ function joinReference(input) {
   };
 }
 function runForDelivery(input) {
-  const { delivery, shape, ordinal, reference, now } = input;
+  const { delivery, shape, ordinal, reference, now, prompt } = input;
   const runKey = buildRunKey({
     accountNumericUserId: delivery.accountNumericUserId,
     repository: delivery.repository,
@@ -4190,6 +4249,7 @@ function runForDelivery(input) {
     bindingId: delivery.bindingId,
     projectId: delivery.projectId,
     worktreeOption: delivery.worktreeOption,
+    prompt,
     state: "pending",
     stateReason: null,
     attempt: 1,
@@ -4217,6 +4277,7 @@ function subjectKeyOfRun2(run) {
   });
 }
 function applyEnqueue(input) {
+  const prompt = input.prompt ?? null;
   const runs = [...input.document.runs];
   const subjects = { ...input.document.subjects };
   const links = new Map;
@@ -4240,7 +4301,7 @@ function applyEnqueue(input) {
     }
     const ordinal = subjects[shape.subjectKey] ?? 0;
     subjects[shape.subjectKey] = ordinal + 1;
-    const run = runForDelivery({ delivery, shape, ordinal, reference, now: input.now });
+    const run = runForDelivery({ delivery, shape, ordinal, reference, now: input.now, prompt });
     runs.push(run);
     created.push(run);
     links.set(delivery.id, run.correlationId);
@@ -4482,7 +4543,12 @@ async function enqueueWithinChain(input) {
     return [];
   }
   const document = await readRunsDocument(input);
-  const outcome = applyEnqueue({ document, deliveries: fresh, now: nowIso() });
+  const outcome = applyEnqueue({
+    document,
+    deliveries: fresh,
+    now: nowIso(),
+    ...input.prompt === undefined ? {} : { prompt: input.prompt }
+  });
   const appended = fresh.map((event) => {
     const runCorrelationId = outcome.links.get(event.id);
     return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
@@ -4776,6 +4842,16 @@ function verificationViewOf(run) {
     note: run.verification.note
   };
 }
+function promptViewOf2(run) {
+  if (run.prompt === null) {
+    return { promptPresent: false, promptFingerprint: null, promptLength: null };
+  }
+  return {
+    promptPresent: true,
+    promptFingerprint: run.prompt.fingerprint,
+    promptLength: run.prompt.length
+  };
+}
 function historyRowOf(input) {
   const { run, deliveries } = input;
   const primary = run.sourceReferences[0];
@@ -4811,7 +4887,8 @@ function historyRowOf(input) {
     bindingId: run.bindingId,
     dispatchResult: dispatchResultOf(run),
     claimedAt: lease.claimedAt,
-    dispatchedAt: dispatchStamp
+    dispatchedAt: dispatchStamp,
+    ...promptViewOf2(run)
   }, delivery);
 }
 function projectRunHistory(input) {
@@ -4925,6 +5002,14 @@ function rowText(value) {
 function runRow(run) {
   return { entity: { kind: RUN_ENTITY_KIND2, id: run.correlationId }, correlationId: run.correlationId };
 }
+function promptDetails(run) {
+  return {
+    bindingId: run.bindingId,
+    promptPresent: run.prompt !== null,
+    promptFingerprint: run.prompt === null ? null : run.prompt.fingerprint,
+    promptLength: run.prompt === null ? null : run.prompt.length
+  };
+}
 function reservedRow(input) {
   return {
     eventType: "dispatch.reserved",
@@ -4934,7 +5019,8 @@ function reservedRow(input) {
       leaseId: input.leaseId,
       attempt: input.run.attempt,
       dispatchTokenFingerprint: buildDispatchTokenFingerprint(input.dispatchToken),
-      attachmentId: input.run.attachmentId
+      attachmentId: input.run.attachmentId,
+      ...promptDetails(input.run)
     }
   };
 }
@@ -4947,7 +5033,8 @@ function resultRow(input) {
     details: {
       attempt: input.run.attempt,
       dispatchTokenFingerprint: buildDispatchTokenFingerprint(input.dispatchToken),
-      ...input.sessionId === null ? { failureReason: rowText(input.problem) } : { sessionId: input.sessionId }
+      ...input.sessionId === null ? { failureReason: rowText(input.problem) } : { sessionId: input.sessionId },
+      ...promptDetails(input.run)
     }
   };
 }
@@ -7263,7 +7350,8 @@ async function scanBinding(input) {
   const appended = await enqueueEvents({
     store: deps.store,
     log: deps.log,
-    incoming: listed.events
+    incoming: listed.events,
+    prompt: promptSnapshotOf(binding)
   });
   return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
 }

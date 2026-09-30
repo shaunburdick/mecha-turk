@@ -104,6 +104,20 @@ export interface ClaimedRun {
     readonly issueBodyExcerpt: string;
     /** Earliest source reference's detection stamp (row age). */
     readonly detectedAt: string;
+    /** Whether a starting prompt was set when this run was queued (004 FR-015). */
+    readonly promptPresent: boolean;
+    /** The prompt's `mtp-…` fingerprint, or `null` when none (004 FR-037). */
+    readonly promptFingerprint: string | null;
+    /** Code points of the normalised prompt, or `null` when none. */
+    readonly promptLength: number | null;
+    /**
+     * The text the composition fences — **claim transport only**.
+     *
+     * Exactly like `sourceReferences[].excerpt`: carried so the panel can
+     * build the message, never re-stored by it, never projected onto a row,
+     * and never written to an audit trail (004 FR-053, data-model §3.1).
+     */
+    readonly promptText: string | null;
 }
 
 /** One run the claim leased, with the lease and the answer row it produced. */
@@ -173,6 +187,38 @@ function deliveryView(input: {
 }
 
 /**
+ * The prompt members of a claim entry, read off the run's own snapshot.
+ *
+ * An unset run answers all four **explicitly** (`false`, `null`, `null`,
+ * `null`): the co-ship build parses them, and an explicit `null` is a truer
+ * answer than an absent key for a boolean the panel has to act on.
+ *
+ * @param run - The run being offered.
+ * @returns The four members, credential-free by construction.
+ */
+function promptViewOf(run: Run): {
+    /** Whether a starting prompt was set when this run was queued. */
+    readonly promptPresent: boolean;
+    /** The fingerprint, or `null` when none. */
+    readonly promptFingerprint: string | null;
+    /** The length, or `null` when none. */
+    readonly promptLength: number | null;
+    /** The text, or `null` when none (claim transport only). */
+    readonly promptText: string | null;
+} {
+    if (run.prompt === null) {
+        return { promptPresent: false, promptFingerprint: null, promptLength: null, promptText: null };
+    }
+
+    return {
+        promptPresent: true,
+        promptFingerprint: run.prompt.fingerprint,
+        promptLength: run.prompt.length,
+        promptText: run.prompt.text,
+    };
+}
+
+/**
  * Project one claimed run for the wire.
  *
  * The run is the record; the delivery rows supply only the things the run
@@ -220,6 +266,7 @@ export function projectClaimedRun(input: {
         referencesNotRetained: run.referencesNotRetained,
         referencesTruncated: run.referencesTruncated,
         detectedAt: primary?.detectedAt ?? run.createdAt,
+        ...promptViewOf(run),
         ...deliveryView({ delivery, primary }),
     };
 }

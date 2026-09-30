@@ -13,6 +13,7 @@
  * properly.
  */
 
+import type { PromptSnapshot } from '../prompt.ts';
 import type { EventKind } from './events-parse.ts';
 import type { RunSubjectType } from './run-key.ts';
 
@@ -167,6 +168,17 @@ export interface Run {
     readonly projectId: string;
     /** Worktree option snapshotted at enqueue. */
     readonly worktreeOption: string;
+    /**
+     * The binding's starting prompt as it stood when this run was enqueued
+     * (004 FR-015; data-model §3).
+     *
+     * `null` for a run queued with no prompt — which includes every run
+     * written before this field existed, so absence keeps its plain reading.
+     * It is never re-read from the binding: an edit, a clear, or a delete
+     * changes nothing about a stored run, and a retry (003 FR-041) reuses it
+     * and therefore composes a byte-identical message (004 AC-138).
+     */
+    readonly prompt: PromptSnapshot | null;
     /** Current state: one of the eight model states, or `blocked:<reason>`. */
     readonly state: RunState;
     /** Why the run sits where it does; required off `pending` (FR-074). */

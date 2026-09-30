@@ -90,6 +90,9 @@ const PROJECTED_FIELDS = [
     'dispatchResult',
     'claimedAt',
     'dispatchedAt',
+    'promptPresent',
+    'promptFingerprint',
+    'promptLength',
 ] as const;
 
 /** Build a header map without writing HTTP header names as object keys. */

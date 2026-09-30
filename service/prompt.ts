@@ -275,7 +275,14 @@ function readStoredSnapshot(candidate: Record<string, unknown>): PromptSnapshot 
         return null;
     }
 
-    if (countCodePoints(text) !== length || findSecretLeak(text) !== null) {
+    if (countCodePoints(text) !== length) {
+        return null;
+    }
+
+    // The cap and the secret rule the save boundary applied: a hand-edited
+    // run row must not smuggle an oversized or credential-shaped instruction
+    // onto the claim answer (004 FR-019 by analogy, FR-020, NFR-121).
+    if (length > STARTING_PROMPT_MAX_CODE_POINTS || findSecretLeak(text) !== null) {
         return null;
     }
 

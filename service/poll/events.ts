@@ -46,6 +46,7 @@ import { basename, join } from 'node:path';
 import { newCorrelationId, nowIso } from '../../src/ids.ts';
 import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
+import type { PromptSnapshot } from '../prompt.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { EVENTS_FILE, parseStoredEvent, parseStoredEvents } from './events-parse.ts';
 import { recordEnqueueAudits } from './events-enqueue-audit.ts';
@@ -330,6 +331,7 @@ async function enqueueWithinChain(input: {
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
     readonly incoming: readonly QueuedEvent[];
+    readonly prompt?: PromptSnapshot | null;
 }): Promise<readonly QueuedEvent[]> {
     const existing = await readQueue(input);
     const known = new Set(existing.map((event) => event.id));
@@ -346,7 +348,12 @@ async function enqueueWithinChain(input: {
     }
 
     const document = await readRunsDocument(input);
-    const outcome = applyEnqueue({ document, deliveries: fresh, now: nowIso() });
+    const outcome = applyEnqueue({
+        document,
+        deliveries: fresh,
+        now: nowIso(),
+        ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+    });
     const appended = fresh.map((event) => {
         const runCorrelationId = outcome.links.get(event.id);
         return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
@@ -378,6 +385,15 @@ export async function enqueueEvents(input: {
     readonly log: ServiceLogger;
     /** Fresh events this scan produced. */
     readonly incoming: readonly QueuedEvent[];
+    /**
+     * The scanning binding's prompt snapshot (004 FR-015), carried beside the
+     * events the same binding produced `projectId`/`worktreeOption` for.
+     *
+     * **No field is added to the delivery rows** — the text persists in
+     * exactly two places, the binding and this run snapshot (004 FR-053) — so
+     * `buildEventId`, dedupe, and the NDJSON event contract are untouched.
+     */
+    readonly prompt?: PromptSnapshot | null;
 }): Promise<readonly QueuedEvent[]> {
     return await inQueueChain(async () => await enqueueWithinChain(input));
 }

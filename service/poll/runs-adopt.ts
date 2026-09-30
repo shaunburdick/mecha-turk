@@ -357,6 +357,8 @@ function migratedRun(input: {
             bindingId: event.bindingId,
             projectId: event.projectId,
             worktreeOption: event.worktreeOption,
+            // A legacy delivery predates this feature: it queued with no prompt (004 FR-017).
+            prompt: null,
             state: classification.state,
             stateReason: classification.stateReason,
             attempt: 1,
