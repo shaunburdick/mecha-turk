@@ -204,7 +204,12 @@ describe('service contribution', () => {
         if (parsed.ok) {
             const requested = requestedGuestCapabilities(parsed.manifest.contributes);
 
-            expect([...requested].sort()).toEqual(['network', 'prompt', 'service', 'sessions']);
+            // No integration card means no implied `network`: the panel has
+            // no GitHub traffic of its own (the card and its `/user`
+            // diagnostic went with the install-time credential), so the only
+            // implied capability left is the one `contributes.service`
+            // carries (AGENTS invariant 3).
+            expect([...requested].sort()).toEqual(['prompt', 'service', 'sessions']);
         }
     });
 
@@ -216,20 +221,25 @@ describe('service contribution', () => {
     });
 });
 
-describe('GitHub integration', () => {
+describe('GitHub integration card (retired 2026-09-30)', () => {
     const integration = openchamberBlock(EXTENSION_MANIFEST).contributes?.integration;
 
-    it('declares the GitHub API origin', () => {
-        expect(integration?.token?.apiOrigin).toBe('https://api.github.com');
+    it('declares no integration card at all', () => {
+        // 002 FR-011's card was the install-time credential: its `token`
+        // block asked the host to hold a GitHub token for the panel, and its
+        // only two products (a connected-login badge and a `/user`
+        // diagnostic) are gone with it. A card left behind with an empty
+        // shell in it would be a second path to a capability the service
+        // accounts own.
+        expect(integration).toBeUndefined();
     });
 
-    it('sends the token as a bearer credential', () => {
-        expect(integration?.token?.scheme).toBe('bearer');
-    });
+    it('keeps the panel GitHub-free: no api origin, no bearer scheme, no /user', () => {
+        const serialized = JSON.stringify(openchamberBlock(EXTENSION_MANIFEST));
 
-    it('discovers the account through GET /user', () => {
-        expect(integration?.token?.account?.path).toBe('/user');
-        expect(integration?.token?.account?.name).toBe('login');
+        expect(serialized).not.toContain('api.github.com');
+        expect(serialized).not.toContain('/user');
+        expect(serialized).not.toContain('bearer');
     });
 });
 
@@ -291,40 +301,26 @@ function panelSources(): ReadonlyMap<string, string> {
     return found;
 }
 
-describe('002 FR-041 — the integration card declares zero settings', () => {
-    const integration = openchamberBlock(EXTENSION_MANIFEST).contributes?.integration;
+describe('002 FR-041 / FR-011 re-cut — the integration card is gone entirely', () => {
+    const { contributes } = openchamberBlock(EXTENSION_MANIFEST);
 
-    it('declares an empty settings array and none of the six former ids', () => {
-        expect(integration?.settings).toEqual([]);
+    it('declares no integration card, so none of the six former ids has a home', () => {
+        expect(contributes?.integration).toBeUndefined();
 
-        const declared: string[] = [];
-        for (const setting of integration?.settings ?? []) {
-            if (typeof setting.id === 'string') {
-                declared.push(setting.id);
-            }
-        }
-
-        expect(declared).toEqual([]);
+        const serialized = JSON.stringify(contributes ?? {});
         for (const id of CARD_SETTING_IDS) {
-            expect(declared).not.toContain(id);
+            expect(serialized).not.toContain(id);
         }
-
-        expect(declared).not.toContain('repository');
+        expect(serialized).not.toContain('repository');
     });
 
-    it('leaves capabilities, the token block, the service, and the panel id untouched', () => {
-        expect(openchamberBlock(EXTENSION_MANIFEST).contributes?.capabilities).toEqual(['sessions', 'prompt']);
-        expect(integration?.token).toEqual({
-            apiOrigin: 'https://api.github.com',
-            scheme: 'bearer',
-            account: { path: '/user', name: 'login' },
-        });
-        expect(integration?.name).toBe('GitHub (token)');
-        expect(openchamberBlock(EXTENSION_MANIFEST).contributes?.service).toEqual({
+    it('leaves capabilities, the service, and the panel id untouched', () => {
+        expect(contributes?.capabilities).toEqual(['sessions', 'prompt']);
+        expect(contributes?.service).toEqual({
             entry: SERVICE_ENTRY,
             runtime: 'host',
         });
-        expect(openchamberBlock(EXTENSION_MANIFEST).contributes?.panel?.id).toBe('mecha-turk');
+        expect(contributes?.panel?.id).toBe('mecha-turk');
     });
 });
 

@@ -133,7 +133,12 @@ describe('002 FR-042 / AC-022 the two operator documents describe the shipped pa
             // 006 FR-100): named, sourced from the service, defaulted.
             expect(prose, `${doc} does not name the baseline field`).toContain('expectedAgent');
             expect(prose, `${doc} does not name the documented default`).toContain('project-manager');
-            expect(prose, `${doc} does not say the card carries no settings`).toMatch(/carries \*\*no settings\*\*/);
+            // The manifest carries no configuration either way it is said:
+            // the card declaring nothing, or (since the owner's 2026-09-30
+            // sweep) no card existing at all.
+            expect(prose, `${doc} does not say the card carries no settings or is gone`).toMatch(
+                /carries \*\*no settings\*\*|no integration card/,
+            );
             // 006's own surface claims: the take-effect line each row carries,
             // the two-step confirmation before anything is deleted, and where
             // the document lives (operator-backable, not an environment file).

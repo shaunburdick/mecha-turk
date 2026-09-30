@@ -12,7 +12,6 @@ import type { SpikeEvidence } from './evidence.ts';
 import type { AuditViewState } from './audit-view.ts';
 import { initialAuditHistory } from './audit-view.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
-import type { GitHubIssue } from './github.ts';
 import { createLedger } from './ledger.ts';
 import { initialHandoffState } from './handoff.ts';
 import type { SpikeLedger } from './ledger.ts';
@@ -166,16 +165,10 @@ export interface PanelState {
     projectSelection: string | null;
     /** Project list backing the picker. */
     projects: ProjectPickerState;
-    /** Login discovered from `GET /user`, or `null` before authentication. */
-    login: string | null;
-    /** Current single matching issue. */
-    match: GitHubIssue | null;
     /** Evidence record for the current match. */
     evidence: SpikeEvidence | null;
     /** Banner content. */
     status: PanelStatus;
-    /** Whether the host reports a connected integration. */
-    connected: boolean;
     /** Whether an action is running; blocks concurrent dispatches. */
     busy: boolean;
     /** One-shot handoff state: consent, storage pre-flight, and outcome. */
@@ -324,10 +317,6 @@ export interface PanelRuntime {
     disposed: boolean;
     /** `true` once the first `onReady` snapshot has been handled. */
     started: boolean;
-    /** Handle for the running poll interval, when one exists. */
-    pollTimer: ReturnType<typeof setInterval> | null;
-    /** `true` while a poll request is in flight. */
-    pollInFlight: boolean;
     /**
      * Which tab is showing — the shell's single activation field (FR-012).
      *
@@ -454,11 +443,8 @@ function initialState(createdAt: string): PanelState {
         bindingsActive: 0,
         projectSelection: null,
         projects: initialProjectPicker(),
-        login: null,
-        match: null,
         evidence: null,
         status: { tone: 'info', title: 'Mecha Turk', body: 'Waiting for the host.' },
-        connected: false,
         busy: false,
         handoff: initialHandoffState(),
         bindings: initialBindings(),
@@ -501,8 +487,6 @@ export function createPanelRuntime(
         aboutUi: null,
         disposed: false,
         started: false,
-        pollTimer: null,
-        pollInFlight: false,
         activeTab: 'status',
         tabMounted: new Set<TabId>(),
         tabLastRead: new Map<TabId, string | null>(),

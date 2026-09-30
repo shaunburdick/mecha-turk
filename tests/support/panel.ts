@@ -12,8 +12,6 @@
 
 import type {
     GuestProjectsSnapshot,
-    GuestRequest,
-    GuestRequestResult,
     GuestSessionsSnapshot,
     GuestWorktreesSnapshot,
     JsonValue,
@@ -111,115 +109,6 @@ export const SESSIONS: GuestSessionsSnapshot = {
     coverage: [],
     sessions: [],
 };
-
-/** Documented `GET /user` path used to discover the machine identity. */
-export const USER_PATH = '/user';
-
-/** Documented issue-list path for the fixture repository. */
-export const ISSUE_LIST_PATH = '/repos/acme/widget/issues';
-
-/** Documented issue-detail path for the fixture issue. */
-export const ISSUE_DETAIL_PATH = '/repos/acme/widget/issues/7';
-
-/** Response body for `GET /user`, built from the fixture login. */
-export const USER_RESPONSE = JSON.stringify({ login: LOGIN });
-
-/** HTTP status the fixture endpoints answer with on success. */
-const HTTP_OK = 200;
-
-/** Inputs for {@link githubIssuePayload}. */
-export interface IssuePayloadInput {
-    /** Issue number; defaults to the fixture issue. */
-    readonly issueNumber?: number;
-    /** Logins the issue is assigned to; empty means "unassigned". */
-    readonly assignees: readonly string[];
-    /** Repository state of the issue. */
-    readonly state?: string;
-}
-
-/** Default issue number used by {@link githubIssuePayload}. */
-const DEFAULT_ISSUE_NUMBER = 7;
-
-/** Repository state of the fixture issue. */
-const OPEN_STATE = 'open';
-
-/**
- * Serialize a GitHub issue the way the REST API returns it.
- *
- * The payload is deliberately minimal but complete: the normalisation layer
- * fails closed on missing fields, so a fixture that omits one would only test
- * the normaliser, not the panel. It is written as a JSON document rather than
- * an object literal because the provider's own field names (`number`,
- * `html_url`) are not this codebase's naming conventions — the same reason
- * `src/github.ts` reads them through string keys.
- *
- * @param input - Issue number, assignees, and repository state.
- * @returns The response body for a `host.request` double.
- */
-export function githubIssuePayload(input: IssuePayloadInput): string {
-    const issueNumber = input.issueNumber ?? DEFAULT_ISSUE_NUMBER;
-    const url = `https://github.com/acme/widget/issues/${issueNumber}`;
-    const state = input.state ?? OPEN_STATE;
-    const assignees = JSON.stringify(input.assignees.map((login) => ({ login })));
-
-    return [
-        `{"number":${issueNumber},"title":"Fix the flaky test","html_url":"${url}",`,
-        `"state":"${state}","body":"It fails once in ten runs.","assignees":${assignees}}`,
-    ].join('');
-}
-
-/**
- * Build a `host.request` double over a path-to-body table.
- *
- * The table is read on every call, so a test can change a payload between two
- * polls without rebuilding the host. Paths without an answer get the neutral
- * 404 default, which is exactly how an unconfigured host behaves.
- *
- * @param answers - Response body per documented path.
- * @returns The request double for {@link fakeHost}.
- */
-export function requestDouble(
-    answers: Readonly<Record<string, string>>,
-): (request: GuestRequest) => Promise<GuestRequestResult> {
-    return async (request) => {
-        const body = answers[request.path];
-        if (body === undefined) {
-            return { status: DEFAULT_STATUS, body: DEFAULT_BODY };
-        }
-
-        return { status: HTTP_OK, body };
-    };
-}
-
-/** Empty issue window: no issue matches the configured rule. */
-export const NO_ISSUES = '[]';
-
-/** A request double plus a reader for how often it was called. */
-export interface CountingRequest {
-    /** The `host.request` member for {@link fakeHost}. */
-    readonly request: (request: GuestRequest) => Promise<GuestRequestResult>;
-    /** Number of requests observed so far. */
-    readonly calls: () => number;
-}
-
-/**
- * Count the requests a host answers.
- *
- * @param answers - Path-to-body table handed to the request double.
- * @returns The request double plus its call counter.
- */
-export function countingRequest(answers: Readonly<Record<string, string>>): CountingRequest {
-    let calls = 0;
-    const answer = requestDouble(answers);
-
-    return {
-        request: (request) => {
-            calls += 1;
-            return answer(request);
-        },
-        calls: () => calls,
-    };
-}
 
 /**
  * Build a host double; only the members a test exercises need overriding.
@@ -332,7 +221,7 @@ export function testEvidence(overrides: Partial<SpikeEvidence> = {}): SpikeEvide
 }
 
 /**
- * Build a runtime that is configured, authenticated, and ready to act.
+ * Build a runtime that is configured and ready to act.
  *
  * The UI is left unmounted (`ui === null`): these tests exercise the
  * orchestration layer, and every action repaints through `refresh`, which is a
@@ -341,30 +230,11 @@ export function testEvidence(overrides: Partial<SpikeEvidence> = {}): SpikeEvide
  *
  * @param host - Host double for the runtime.
  * @param panelWindow - Frame window; defaults to {@link fakeWindow}.
- * @returns A runtime with fixture configuration and identity.
+ * @returns A runtime with the fixture dispatch context.
  */
 export function createTestRuntime(host: SpikeHost, panelWindow = fakeWindow().window): PanelRuntime {
     const runtime = createPanelRuntime(host, panelWindow);
     runtime.state.config = testConfig();
-    runtime.state.connected = true;
-    runtime.state.login = LOGIN;
-
-    return runtime;
-}
-
-/**
- * Build a runtime that is configured, authenticated, and already matched.
- *
- * A dispatch reads the evidence record an earlier poll persisted, so these
- * runtimes start with the fixture evidence in place.
- *
- * @param host - Host double for the runtime.
- * @param panelWindow - Frame window; defaults to {@link fakeWindow}.
- * @returns A runtime ready to dispatch the fixture issue.
- */
-export function createDispatchRuntime(host: SpikeHost, panelWindow = fakeWindow().window): PanelRuntime {
-    const runtime = createTestRuntime(host, panelWindow);
-    runtime.state.evidence = testEvidence();
 
     return runtime;
 }

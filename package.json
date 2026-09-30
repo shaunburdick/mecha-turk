@@ -24,19 +24,6 @@
                 "sessions",
                 "prompt"
             ],
-            "integration": {
-                "name": "GitHub (token)",
-                "description": "Optional, non-authoritative GitHub token card (FR-011): shows a connected-login badge and backs one read-only identity diagnostic. Never used for polling, discovery, or dispatch — service accounts are the credential path. The token stays with OpenChamber and never reaches the panel.",
-                "token": {
-                    "apiOrigin": "https://api.github.com",
-                    "account": {
-                        "path": "/user",
-                        "name": "login"
-                    },
-                    "scheme": "bearer"
-                },
-                "settings": []
-            },
             "service": {
                 "entry": "service/main.js",
                 "runtime": "host"

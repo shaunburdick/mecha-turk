@@ -57,10 +57,13 @@ npm run format    # eslint --fix
    **Release policy: stay pre-1.0.0 until the public 1.0.0 release** —
    current version `0.0.1`, increment per release; jumping to `1.0.0` is a
    product-owner call, never incidental.
-3. **Capabilities: `sessions` and `prompt` only.** `service` and `network`
-   are implied by `contributes.service` and the integration card — listing
-   them in `capabilities[]` fails install with `invalid-capabilities`.
-   `contributes.service` must not gain a `permissions` key.
+3. **Capabilities: `sessions` and `prompt` only.** `service` is implied by
+   `contributes.service` — listing an implied capability in `capabilities[]`
+   fails install with `invalid-capabilities`. The integration card that also
+   implied `network` was removed by product-owner order (2026-09-30); the
+   panel makes no GitHub request of its own (`host.request()` has no caller),
+   so `network` is no longer requested at all. `contributes.service` must not
+   gain a `permissions` key.
 4. **Kebab-case identity.** Manifest ids must match `^[a-z][a-z0-9-]*$`;
    the panel id is `mecha-turk`, and `host.storage` keys are prefixed
    `mecha-turk:` (`:project`, `:evidence`, `:ledger`). Renaming either is a
@@ -102,8 +105,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | Module | Responsibility |
 | --- | --- |
 | `config.ts` | Parse and validate operator settings (fail closed) |
-| `github.ts` | GitHub REST access through `host.request()` only (legacy single-repo path) |
-| `matching.ts` | The single configured-match rule |
+| `github.ts` | The normalised `GitHubIssue` shape the message composer and the relay read (the REST fetchers and the `/user` diagnostic went with the install-time card) |
 | `prompt.ts` / `prompt-wire.ts` | The operator fence, the reserved marker prefixes, trim/normalise/code-point rules, and `composeFirstMessage`; the wire readers for the prompt's reference members (fail closed: `promptText` non-null iff `promptPresent`) |
 | `context-blocks.ts` | The bounded excerpt renderer: untrusted delimiters, defusing, the per-source budget, and the roll-up line |
 | `evidence.ts` | Normalized, redacted evidence record |
@@ -112,7 +114,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `session.ts` / `host-verify.ts` | `startSession()` framing (attachment id = the run's correlation id, multi-reference bounded excerpt) + host-owned project/worktree/session read-back |
 | `lifecycle.ts` | Lifecycle experiment plan and mount bookkeeping |
 | `panel-state.ts` / `panel-ui.ts` | Shared runtime state; rendering with `@openchamber/sdk/ui` |
-| `panel-actions.ts` / `panel-dispatch.ts` | Poll/identity/verify actions; the spike dispatch path |
+| `panel-actions.ts` | The durable ledger write: append, guarded persist, repair-on-refusal (the poll loop, card diagnostic, and spike dispatch path were deleted 2026-09-30) |
 | `project-picker.ts` / `project-actions.ts` | Pure picker state; `listProjects()` + stored selection |
 | `app.ts` | Wiring: mount, subscribe, teardown |
 | `tabs.ts` | The six-tab shell: strip, body registry, first-activation mount, tab↔body association, one dispose path |

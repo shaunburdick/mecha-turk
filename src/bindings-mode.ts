@@ -2,25 +2,23 @@
  * Bindings-authoritative panel mode (MVP blocker 1 fix, 2026-09-27).
  *
  * When the service reports at least one enabled repository binding, the
- * panel's configuration comes from that binding, not from the legacy
- * Settings→Integrations single-repo settings — a banner demanding
- * `repository` is simply wrong with the MVP bindings flow in place. The
- * event relay already dispatches from binding data (the claimed event
- * carries repository, project, and worktree option), so this module only
- * has to keep the banner and the spike surfaces honest: the first enabled
- * binding becomes the authoritative dispatch context for `rt.state.config`,
- * and the legacy single-repo poll loop is stopped so it cannot duplicate
- * the relay's dispatches.
+ * panel's configuration comes from that binding, not from legacy Settings
+ * single-repo settings — a banner demanding `repository` is simply wrong
+ * with the MVP bindings flow in place. The event relay already dispatches
+ * from binding data (the claimed event carries repository, project, and
+ * worktree option), so this module only has to keep the banner honest: the
+ * first enabled binding becomes the authoritative dispatch context for
+ * `rt.state.config`, which the project picker and the message framing read.
  *
- * MVP-DEBT: the spike tab's manual poll/dispatch buttons still work against
- * the derived context, so a manual "Start session" click could double-start
- * a session the relay also dispatches automatically. Unifying the two
- * dispatch paths is post-MVP work.
+ * There is no legacy poll loop left to stop — the spike's loop and its
+ * manual dispatch path were deleted with the install-time GitHub credential
+ * (product-owner order, 2026-09-30). The service's poll loop and the
+ * root-owned relay are the only loops in the product, and neither is armed
+ * from here.
  */
 
 import { DEFAULT_POLL_INTERVAL_MS, parseRepository, parseWorktreeOption } from './config.ts';
 import type { SpikeConfig } from './config.ts';
-import { stopPolling } from './panel-actions.ts';
 import { refresh } from './panel-ui.ts';
 import { setStatus } from './panel-state.ts';
 import type { PanelRuntime, PanelStatus } from './panel-state.ts';
@@ -86,16 +84,14 @@ export function bindingsActiveStatus(count: number): PanelStatus {
 /**
  * Put the panel into bindings-authoritative mode.
  *
- * Derives the dispatch context from the first enabled binding, stops the
- * legacy single-repo poll loop (the relay owns the loop in this mode), and
- * shows the bindings banner instead of any legacy configuration verdict.
+ * Derives the dispatch context from the first enabled binding and shows the
+ * bindings banner instead of any legacy configuration verdict.
  *
  * @param rt - Panel runtime.
  */
 export function applyBindingsMode(rt: PanelRuntime): void {
     const binding = firstEnabledBinding(rt.state.bindings.bindings);
     rt.state.config = binding === null ? null : bindingContext(binding);
-    stopPolling(rt);
     setStatus(rt, bindingsActiveStatus(rt.state.bindingsActive));
 }
 

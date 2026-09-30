@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GuestProjectsSnapshot, JsonValue } from '@openchamber/sdk';
 import {
     applySettings,
-    handleConnection,
     handlePagehide,
     loadLedger,
     selectProject,
@@ -19,7 +18,6 @@ import { ACCOUNTS_PATH, BINDINGS_PATH } from '../src/service-calls.ts';
 import { EVIDENCE_STORAGE_KEY, serializeEvidence } from '../src/evidence.ts';
 import { parseJsonValue } from '../src/json.ts';
 import { LEDGER_STORAGE_KEY, readLedger } from '../src/ledger.ts';
-import { startPolling } from '../src/panel-actions.ts';
 import { createPanelRuntime } from '../src/panel-state.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { PROJECT_STORAGE_KEY } from '../src/project-actions.ts';
@@ -30,6 +28,7 @@ import type { PanelHandlers } from '../src/panel-ui.ts';
 import { fakeDom } from './support/dom.ts';
 import {
     FIXTURE_TIMESTAMP,
+    IDLE_UNSUBSCRIBE,
     ISSUE_URL,
     LOGIN,
     PROJECT_DIR,
@@ -37,13 +36,10 @@ import {
     REPOSITORY,
     SESSION_CREATED,
     SESSION_ID,
-    USER_PATH,
-    USER_RESPONSE,
     createStorageDouble,
     createTestRuntime,
     fakeHost,
     fakeWindow,
-    requestDouble,
     testConfig,
     testEvidence,
     tick,
@@ -118,26 +114,24 @@ const OTHER_ID = 'prj_7';
 const WAITING_FOR_BINDING = 'Waiting for a binding';
 
 /**
- * Collect every panel-source line that *calls* a retired single-repo poll starter.
- *
- * `startPolling` and `restartPolling` stay exported machinery that the tests
- * drive, but no production line may call one: `ensureIdentity` was their only
- * caller, and 005 T-035 restored the card's identity diagnostic **without**
- * its poll start (005 T-011, 002 FR-011(b)). The declaration line itself does
- * not count — a definition is not a call site.
+ * Collect every panel-source line that still *calls* machinery the
+ * product-owner sweep retired (2026-09-30): the single-repo poll starters,
+ * the poll itself, the integration card's `/user` identity diagnostic, and
+ * the connection handler that drove them. The card, its badge, and its
+ * diagnostic are gone, so any call site here is a regression rather than a
+ * dormant path — the identifiers no longer even exist to be called.
  *
  * @returns One `file: line` entry per call site found under `src/`.
  */
-function legacyPollCallers(): readonly string[] {
+function retiredSpikeCallers(): readonly string[] {
     const root = resolvePath(import.meta.dirname, '..');
-    const callSite = /(^|\s)(?:startPolling|restartPolling)\s*\(/;
-    const declaration = /export function (?:startPolling|restartPolling)\s*\(/;
+    const callSite = /\b(?:startPolling|restartPolling|runPoll|ensureIdentity|handleConnection|onConnection)\s*\(/;
     const modules = readdirSync(resolvePath(root, 'src'), { recursive: true }).map(String);
     const callers: string[] = [];
     for (const name of modules.filter((entry) => entry.endsWith('.ts'))) {
         const lines = readFileSync(resolvePath(root, 'src', name), 'utf8').split('\n');
         for (const line of lines) {
-            if (callSite.test(line) && !declaration.test(line)) {
+            if (callSite.test(line)) {
                 callers.push(`${name}: ${line.trim()}`);
             }
         }
@@ -192,7 +186,10 @@ describe('teardown', () => {
         });
         const runtime = createPanelRuntime(host, frame.window);
         runtime.state.config = testConfig();
-        runtime.state.login = LOGIN;
+        // The one loop the panel owns at teardown is the relay's (FR-018);
+        // arm it by hand so "no timer survives teardown" is about the loop
+        // that actually exists rather than a retired one.
+        runtime.state.relay.timer = setInterval(IDLE_UNSUBSCRIBE, 60_000);
         const fired: string[] = [];
         runtime.pagehideListener = () => {
             fired.push('pagehide');
@@ -202,8 +199,6 @@ describe('teardown', () => {
             () => released.push('projects'),
             () => released.push('sessions'),
         );
-        startPolling(runtime);
-        expect(runtime.pollTimer).not.toBeNull();
 
         teardown(runtime);
         teardown(runtime);
@@ -211,7 +206,7 @@ describe('teardown', () => {
         expect(released).toEqual(['projects', 'sessions']);
         expect(fired).toHaveLength(0);
         expect(runtime.unsubscribes).toHaveLength(0);
-        expect(runtime.pollTimer).toBeNull();
+        expect(runtime.state.relay.timer).toBeNull();
         expect(runtime.pagehideListener).toBeNull();
         expect(runtime.disposed).toBe(true);
         expect(frame.removed).toEqual(['remove:pagehide']);
@@ -305,78 +300,33 @@ describe('applySettings', () => {
     });
 });
 
-describe('handleConnection (FR-011 optional integration card)', () => {
-    it('steers the unconnected banner to the service-account flow, not the integration card', () => {
-        const runtime = createTestRuntime(fakeHost());
+describe('the install-time GitHub card is retired, not dormant (owner order 2026-09-30)', () => {
+    it('declares no integration card at all in the manifest', () => {
+        const manifest = JSON.parse(
+            readFileSync(resolvePath(import.meta.dirname, '..', 'package.json'), 'utf8'),
+        ) as { readonly openchamber?: { readonly contributes?: { readonly integration?: unknown } } };
 
-        handleConnection(runtime, false);
-
-        // The card is optional, non-authoritative, and (since 002 FR-041)
-        // declares no settings at all: the banner stops any lingering poll
-        // timer, points at the account flow the product actually polls under,
-        // and does not steer the operator toward a credential surface.
-        expect(runtime.state.connected).toBe(false);
-        expect(runtime.pollTimer).toBeNull();
-        expect(runtime.state.status.tone).toBe('warning');
-        expect(runtime.state.status.title).toBe('No account connected');
-        expect(runtime.state.status.body).toContain('Accounts');
-        expect(runtime.state.status.body).toContain('Bindings → Poll as account');
-        expect(runtime.state.status.body).toContain('optional GitHub (token) integration card');
-        expect(runtime.state.status.body).not.toContain('Settings → Integrations');
+        // 002 FR-011's card carried the token, the identity badge, and the
+        // `/user` diagnostic. The token was the install-time credential the
+        // owner ordered removed; a card with nothing left in it would be a
+        // second, empty path to a capability the service accounts own.
+        expect(manifest.openchamber?.contributes?.integration).toBeUndefined();
     });
 
-    it('arms no single-repo poll when a card is connected but no binding exists', () => {
-        const runtime = createTestRuntime(fakeHost());
-        // Mount state: no binding has answered yet, so no dispatch context.
-        runtime.state.config = null;
-
-        handleConnection(runtime, true);
-
-        expect(runtime.state.connected).toBe(true);
-        expect(runtime.state.config).toBeNull();
-        expect(runtime.pollTimer).toBeNull();
-        expect(runtime.state.status.tone).toBe('info');
-        expect(runtime.state.status.title).toBe('Connected');
-        expect(runtime.state.status.body).toContain(WAITING_FOR_BINDING);
+    it('keeps the retired card, poll, and connection machinery unreachable from panel source', () => {
+        expect(retiredSpikeCallers()).toEqual([]);
     });
 
-    it('runs the card’s read-only identity diagnostic on connect and reports its outcome', async () => {
-        const runtime = createTestRuntime(fakeHost({ request: requestDouble({ [USER_PATH]: USER_RESPONSE }) }));
-        runtime.state.config = null;
-        runtime.state.login = null;
+    it('arms the relay from the bindings read, which needs no connection event', async () => {
+        const runtime = createTestRuntime(fakeHost());
+        runtime.state.bindings.bindings = [activeBinding()];
+        runtime.state.bindings.status = 'ready';
 
-        handleConnection(runtime, true);
+        await loadInitialBindings(runtime);
         await tick();
 
-        expect(runtime.state.login).toBe(LOGIN);
-        expect(runtime.state.status.tone).toBe('info');
-        expect(runtime.state.status.title).toBe('Authenticated');
-        expect(runtime.state.status.body).toBe(`Machine account: ${LOGIN}`);
-        expect(runtime.state.ledger.entries.at(-1)?.kind).toBe('identity');
-        // 002 FR-011(b) makes the diagnostic *read-only*: restoring it (005
-        // T-035) must leave the retired single-repo arming path unreachable.
-        expect(runtime.pollTimer).toBeNull();
-        expect(runtime.state.config).toBeNull();
-    });
-
-    it('lands a refused identity read on the banner without arming a poll', async () => {
-        // The default host double answers every path 404, which is what an
-        // unconfigured integration card looks like to `/user`.
-        const runtime = createTestRuntime(fakeHost());
-        runtime.state.config = null;
-        runtime.state.login = null;
-
-        handleConnection(runtime, true);
-        await tick();
-
-        expect(runtime.state.login).toBeNull();
-        expect(runtime.state.status.tone).toBe('error');
-        expect(runtime.state.status.title).toBe('Request failed');
-        expect(runtime.pollTimer).toBeNull();
-    });
-
-    it('keeps the retired poll starters unreachable from panel source (T-011 stands)', () => {
-        expect(legacyPollCallers()).toEqual([]);
+        expect(runtime.relayArmed).toBe(true);
+        expect(runtime.state.relay.timer).not.toBeNull();
     });
 });
 

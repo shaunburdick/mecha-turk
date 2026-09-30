@@ -28,12 +28,7 @@ import { newCorrelationId, nowIso } from './ids.ts';
 import { analyzeLastCloseGap, buildMountContext, LIFECYCLE_EXPERIMENT_PLAN } from './lifecycle.ts';
 import { createLedger, LEDGER_STORAGE_KEY, readLedger, recordPhase } from './ledger.ts';
 import type { LedgerDetail } from './ledger.ts';
-import {
-    appendEntryAndPersist,
-    ensureIdentity,
-    persistLedger,
-    stopPolling,
-} from './panel-actions.ts';
+import { appendEntryAndPersist, persistLedger } from './panel-actions.ts';
 import { mountPrerequisiteNotice, disposePrerequisites } from './prerequisites.ts';
 import { createPanelRuntime, setStatus } from './panel-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
@@ -49,7 +44,7 @@ import {
 } from './project-actions.ts';
 import { redact } from './redaction.ts';
 import { reconcileDispatchAttempts } from './reconcile.ts';
-import { settleReconciliation, startRelayPolling, stopRelayPolling } from './relay.ts';
+import { settleReconciliation, stopRelayPolling } from './relay.ts';
 import { loadDispatches } from './dispatches.ts';
 import { loadStatus } from './status-tab.ts';
 import { mountTabShell } from './tabs.ts';
@@ -151,71 +146,6 @@ export async function selectProject(rt: PanelRuntime, id: string): Promise<void>
 }
 
 /**
- * React to integration connection changes.
- *
- * The declared GitHub (token) integration card is optional and
- * non-authoritative (FR-011): the panel is fully functional with it
- * unconnected, because polling and dispatch run on the *service* accounts
- * added under Accounts and chosen under Bindings → Poll as account. The
- * unconnected banner therefore
- * points at that account flow instead of steering the operator to a
- * credential surface the product does not need.
- *
- * The connected path delivers the card's **two** products (002 FR-011):
- * the identity badge the summary already renders, and one read-only
- * connectivity/identity diagnostic — `ensureIdentity`'s `/user` read, fired
- * once per mount so its outcome lands on the banner. It arms nothing else:
- * since 002 FR-041 the card declares no settings, and the service's poll
- * loop and the root-owned relay are the only loops in the product (it arms
- * the relay only once a binding says what to relay for).
- *
- * Exported so the orchestration tests can assert the banner copy without a
- * live host subscription.
- *
- * @param rt - Panel runtime.
- * @param connected - Whether the host reports a connected token.
- */
-export function handleConnection(rt: PanelRuntime, connected: boolean): void {
-    rt.state.connected = connected;
-    if (!connected) {
-        stopPolling(rt);
-        const body =
-            'Add one under Accounts, then pick it under Bindings → Poll as account — service accounts '
-                + 'drive polling and dispatch. ' +
-            'The optional GitHub (token) integration card declares no settings and is never required.';
-        setStatus(rt, { tone: 'warning', title: 'No account connected', body });
-        refresh(rt);
-        return;
-    }
-
-    // 002 FR-011(b): the card's read-only diagnostic runs on connect, before
-    // either configuration mode below, so it fires whether or not a binding
-    // has landed. It is fire-and-forget: the mode banners are written
-    // synchronously here, and the diagnostic's own verdict follows its `/user`
-    // read. It never starts a poll (see `ensureIdentity`).
-    if (rt.state.login === null) {
-        void ensureIdentity(rt);
-    }
-
-    if (rt.state.bindingsActive > 0) {
-        // Bindings mode: the relay is the loop. The legacy single-repo poll
-        // loop has no arming site since 005 T-011, so nothing here competes
-        // with it.
-        applyBindingsMode(rt);
-        startRelayPolling(rt);
-        refresh(rt);
-        return;
-    }
-
-    setStatus(rt, {
-        tone: 'info',
-        title: 'Connected',
-        body: 'Waiting for a binding; the integration card declares no settings to apply.',
-    });
-    refresh(rt);
-}
-
-/**
  * Read whatever ledger storage holds, restore the evidence record, and record
  * this mount.
  *
@@ -283,7 +213,6 @@ export function teardown(rt: PanelRuntime): void {
     }
 
     rt.disposed = true;
-    stopPolling(rt);
     // The relay is root-owned (plan D2), so this is where its loop stops: a
     // torn-down panel must leave no surviving timer behind (FR-017, SC-108),
     // and nothing else in the teardown path knows the loop exists.
@@ -387,7 +316,6 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
     await restoreStoredConsent(rt);
 
     applySettings(rt, context.settings);
-    handleConnection(rt, context.connection.connected);
     void loadProjects(rt);
     // Bindings land before the handoff pre-flight so the banner reflects
     // them and the relay is armed for the operator's loop test. Awaited
@@ -465,11 +393,6 @@ function registerHostListeners(rt: PanelRuntime, root: HTMLElement): void {
         host.onSettings((settings) => {
             if (!rt.disposed) {
                 applySettings(rt, settings);
-            }
-        }),
-        host.onConnection((connection) => {
-            if (!rt.disposed) {
-                handleConnection(rt, connection.connected);
             }
         }),
         host.onSessionLifecycle((event) => {

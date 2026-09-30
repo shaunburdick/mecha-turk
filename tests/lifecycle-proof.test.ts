@@ -162,7 +162,6 @@ describe('AC-137 a teardown returns the panel to its pre-mount counts', () => {
         expect(root.children.length).toBeGreaterThan(0);
         expect(rt.state.relay.timer).toBeNull();
         expect(rt.relayArmed).toBe(false);
-        expect(rt.pollTimer).toBeNull();
 
         rt.shell?.dispose();
 

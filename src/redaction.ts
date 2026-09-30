@@ -1,11 +1,14 @@
 /**
- * Secret-detection helpers for the spike evidence trail.
+ * Secret-detection helpers guarding every panel-side write.
  *
- * OpenChamber attaches the GitHub token to `host.request()` and never exposes
- * it to the page, so the panel should never hold secret material. Because the
- * ledger and the evidence record are built from strings the panel composes,
- * "no secrets in storage" is enforced here as an executable assertion instead
- * of a promise: every value written to `host.storage` passes through
+ * The panel is not supposed to hold secret material at all: OpenChamber
+ * attaches a provider token to outbound requests itself (and the panel makes
+ * no GitHub request of its own since the install-time card went), while the
+ * one credential that does reach the panel — a pasted PAT for the one-shot
+ * handoff — is read and cleared in the same tick. Because the ledger and the
+ * evidence record are built from strings the panel composes, "no secrets in
+ * storage" is enforced here as an executable assertion instead of a promise:
+ * every value written to `host.storage` passes through
  * {@link assertRedacted} first.
  */
 

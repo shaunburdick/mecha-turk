@@ -39,8 +39,8 @@ GitHub (read-only) ──poll──> local service ──durable event queue─�
 - **Nothing runs while OpenChamber is off.** Polling and dispatch stop when
   OpenChamber stops, when the extension is disabled, or when its service is
   down — and the panel says so rather than pretending to be running.
-- The only GitHub traffic is the service's outbound polling (plus one
-  optional, read-only identity check). No inbound connections, no webhooks.
+- The only GitHub traffic is the service's outbound polling. No inbound
+  connections, no webhooks, and no GitHub request from the panel itself.
 - Mecha Turk has **no GitHub write access**. It can read issues and pull
   requests; it cannot comment, label, assign, or merge.
 
@@ -80,13 +80,15 @@ The configuration lives in `config.json` in the service store (`0600`, under
 the data directory **About** names), so it is operator-backable; a hand-edited
 document that fails validation is set aside and the documented defaults take
 over, and the tab says exactly that. Nothing is configured through an
-environment file, an environment variable, or an integration-card setting:
+environment file, an environment variable, or a manifest setting:
 `GET`/`PUT /v1/config` and this tab are the whole surface.
 
-The integration card carries **no settings**. The agent-verification baseline
-(`expectedAgent`, default `project-manager`) is service configuration, not a
-card field: verification reads it through `GET /v1/config` and falls back to
-the documented default when the document does not carry it.
+There is no integration card any more (product-owner order, 2026-09-30):
+GitHub credentials are service accounts under **Accounts**, and the
+agent-verification baseline (`expectedAgent`, default `project-manager`) is
+service configuration, not a card field — verification reads it through
+`GET /v1/config` and falls back to the documented default when the document
+does not carry it.
 
 ## Vocabulary mapping
 
@@ -152,7 +154,7 @@ and the run domain keep their own names. This is the full mapping (005
    | `sessions` | Start agent sessions on your behalf when work is detected |
    | `prompt` | Use the host prompt surface when launching those sessions |
    | `service` | Launch a separate local program with your user access — the poller that watches GitHub |
-   | `network` | Outbound HTTPS to `api.github.com` (polling, plus the optional identity card) |
+   | `network` | Outbound HTTPS to `api.github.com`, made by the local poller service |
 
 5. Click the **Mecha Turk** icon on the rail.
 
@@ -181,11 +183,7 @@ settings carry over, and you re-approve only if the new version asks for more.
    - **Triggers**: assignment, review request, and/or mention
      (mentions default to `@<your login>`, case-insensitive)
    - Save. Polling starts within one interval.
-4. **Optional identity card** — Settings → Integrations → **GitHub (token)**
-   is a *non-authoritative* convenience: it shows a connected-login badge and
-   backs one read-only identity diagnostic. It is never used for polling,
-   discovery, or dispatch, and Mecha Turk works fully without it.
-5. **Read the panel's setup prerequisites** — the **Status** tab shows a
+4. **Read the panel's setup prerequisites** — the **Status** tab shows a
    **Setup prerequisites** section covering the six things a first dispatch
    needs:
    the Default Agent pin, OpenChamber running, the desktop-or-web surface,

@@ -484,7 +484,11 @@ describe('FR-087 / AC-139 the shipped artifacts and manifest are unchanged', () 
         const { contributes } = manifest.openchamber;
 
         expect(contributes.capabilities).toEqual(['sessions', 'prompt']);
-        expect(contributes.integration.settings).toEqual([]);
+        // The integration card is gone (owner order 2026-09-30): what the
+        // card used to declare is now *nothing*, which is the containment
+        // claim this assertion makes — a card that reappeared would carry a
+        // setting or a credential with it.
+        expect(contributes.integration).toBeUndefined();
         expect(contributes.panel.id).toBe('mecha-turk');
         expect(contributes.panel.name).toBe('Mecha Turk');
         expect(contributes.service.entry).toBe(SERVICE_BUNDLE);

@@ -9,8 +9,9 @@
  *    the host-provided pair only, validated fail-closed and never echoed.
  * 2. **`config.json`**, authoritative for every documented field once the
  *    store opens.
- * 3. **The manifest integration card**, which carries **no** service
- *    configuration at all.
+ * 3. **The manifest**, which carries **no** service configuration at all —
+ *    its integration card is gone entirely (product-owner order,
+ *    2026-09-30), so there is no second input surface to arbitrate.
  *
  * What is asserted here is the *absence* half of that statement, which is the
  * half that rots: no `.env` of any kind ships, no dotenv-style loader exists,
@@ -177,8 +178,8 @@ interface ManifestShape {
         readonly contributes: {
             /** The capability list the install gate checks (FR-004). */
             readonly capabilities: readonly string[];
-            /** The integration card. */
-            readonly integration: { readonly settings: readonly unknown[] };
+            /** The integration card, which no longer exists (owner order 2026-09-30). */
+            readonly integration?: Record<string, unknown>;
             /** The service entry. */
             readonly service: Record<string, unknown>;
         };
@@ -327,10 +328,11 @@ describe('FR-090 / AC-152: the bootstrap pair is the only configuration environm
 });
 
 describe('FR-092 / AC-153: exactly one operator input per field, the interval being the example', () => {
-    it('the manifest declares no integration settings at all (002 FR-041)', () => {
-        const card = manifest().openchamber.contributes.integration;
-
-        expect(card.settings).toEqual([]);
+    it('the manifest declares no integration card and no integration setting (002 FR-041)', () => {
+        // The card that used to carry `poll-interval-ms` is gone entirely
+        // (owner order 2026-09-30), so the setting has no home in the
+        // manifest at all — not an empty array, no manifest entry.
+        expect(manifest().openchamber.contributes.integration).toBeUndefined();
         expect(trackedText(MANIFEST)).not.toContain(INTERVAL_SETTING);
     });
 
