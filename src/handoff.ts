@@ -67,8 +67,18 @@ export interface HandoffState {
     consentGiven: boolean;
     /** Whether `GET /v1/status` reported `service.storage.writable`. */
     storageWritable: boolean;
-    /** Whether the pre-flight has completed at least once. */
-    preflighted: boolean;
+    /**
+     * Whether the panel has ever held a **usable answer** from the local
+     * service's status read.
+     *
+     * Deliberately not "the pre-flight ran": an attempt that produced no
+     * readable body leaves this `false`, which is what lets the
+     * service-capability prerequisite report *not checkable by the panel*
+     * rather than the false "the service answered, but its store is not
+     * writable" it used to show for a service that never answered at all
+     * (005 FR-073, NFR-112).
+     */
+    serviceAnswered: boolean;
     /** Account ids seen in the pre-flight, so F4 can detect a new one. */
     knownAccountIds: readonly string[];
     /** Identity rendered as `Connected as <login>` after a success. */
@@ -96,7 +106,7 @@ export function initialHandoffState(): HandoffState {
     return {
         consentGiven: false,
         storageWritable: false,
-        preflighted: false,
+        serviceAnswered: false,
         knownAccountIds: [],
         connected: null,
         note: '',

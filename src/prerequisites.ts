@@ -306,11 +306,16 @@ function registeredProjectPerBinding(bindings: readonly PanelBinding[]): Prerequ
 }
 
 /**
- * Service-capability approval, observed through the two facts the panel can
- * actually see: the in-panel consent step (FR-008) and whether the local
- * service has ever answered a status read with a writable store.
+ * Service-capability approval, observed through the three facts the panel can
+ * actually see: the in-panel consent step (FR-008), whether the local service
+ * has ever answered a status read at all, and whether that answer reported a
+ * writable store. The order is 005 FR-073's fail-closed order: an unaccepted
+ * consent step is *not met* (the panel holds the mirror and can prove its
+ * absence), while anything the panel could not observe is *not checkable* —
+ * a service that never answered is not a service whose store was found
+ * unwritable (NFR-112).
  *
- * @param handoff - The one-shot handoff's state, which carries both signals.
+ * @param handoff - The one-shot handoff's state, which carries all three signals.
  * @returns The prerequisite for the service half of the setup.
  */
 function serviceCapability(handoff: HandoffState): Prerequisite {
@@ -328,7 +333,7 @@ function serviceCapability(handoff: HandoffState): Prerequisite {
         };
     }
 
-    if (!handoff.preflighted) {
+    if (!handoff.serviceAnswered) {
         return {
             id: IDS.serviceCapability,
             title,

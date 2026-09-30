@@ -27,6 +27,7 @@ import { CONSENT_COPY_V1 } from './consent.ts';
 import { connectedLine } from './handoff-copy.ts';
 import { acceptHandoffConsent, runHandoff } from './handoff.ts';
 import { preflightHandoff } from './handoff-status.ts';
+import { repaintPrerequisites } from './prerequisites.ts';
 import type { HandoffState } from './handoff.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
@@ -88,9 +89,17 @@ export function handoffInputEnabled(state: HandoffState): boolean {
  * Apply the handoff state to a view.
  *
  * A connected account — adopted from the service or handed off one-shot —
- * hides both the consent step and the paste row: consent governs NEW token
- * handoff only, and the paste field must not offer a credential the service
- * already holds (MVP blocker 2).
+ * hides the paste row: consent governs NEW token handoff only, and the paste
+ * field must not offer a credential the service already holds (MVP blocker 2).
+ *
+ * The **consent step itself is hidden by acceptance alone**, not by
+ * connection. Hiding it once an account is connected made the one acceptance
+ * the service-capability prerequisite reads unreachable — an install whose
+ * account was adopted after a reinstall could never clear the notice that
+ * told the operator to accept, which is the defect 005 FR-073's "an unmet
+ * item the panel *can* determine" exists to prevent. The step is therefore
+ * shown whenever the current copy has not been accepted, and gone the moment
+ * it has.
  *
  * @param state - Current handoff state.
  * @param view - Surface to write to; the consent copy is passed verbatim.
@@ -98,7 +107,7 @@ export function handoffInputEnabled(state: HandoffState): boolean {
 export function renderHandoff(state: HandoffState, view: HandoffView): void {
     view.setConsentText(CONSENT_COPY_V1);
     const connected = state.connected !== null;
-    view.showConsent(!state.consentGiven && !connected);
+    view.showConsent(!state.consentGiven);
     view.setPasteVisible(!connected);
     const enabled = handoffInputEnabled(state);
     view.setTokenEnabled(enabled);
@@ -122,6 +131,24 @@ export function refreshHandoff(rt: PanelRuntime): void {
 }
 
 /**
+ * Repaint every surface the handoff state drives, not just the group.
+ *
+ * The service-capability prerequisite is derived from the very same
+ * `HandoffState` (consent, service answer, store writability), and its
+ * notice lives above the tab strip where nothing on the Accounts tab would
+ * repaint it. Every path that changes one of those three signals therefore
+ * ends here: without this call the operator could accept the consent step
+ * and read a banner that still said they had not — the recurring complaint
+ * this helper exists to close (005 FR-037, FR-073).
+ *
+ * @param rt - Panel runtime whose group and prerequisites repaint.
+ */
+function repaintHandoffSurfaces(rt: PanelRuntime): void {
+    refreshHandoff(rt);
+    repaintPrerequisites(rt);
+}
+
+/**
  * Run the handoff pre-flight after mount and repaint the group.
  *
  * The pre-flight is preceded by the silent account adoption: a service-side
@@ -129,24 +156,36 @@ export function refreshHandoff(rt: PanelRuntime): void {
  * `GET /v1/accounts` before the operator is shown a paste form that could
  * only end in the service's duplicate refusal (MVP blocker 2).
  *
+ * The pre-flight's own outcome is part of the prerequisite read, so this
+ * repaints the notice too: the mount's last synchronous `refresh` can run
+ * before this async read lands, and a notice derived from a pre-flight that
+ * has not reported yet is a notice built on the wrong facts.
+ *
  * @param rt - Panel runtime whose handoff group may be mounted.
  */
 export async function preflightAndRepaint(rt: PanelRuntime): Promise<void> {
     await adoptServiceAccounts(rt);
     await preflightHandoff(rt);
     if (!rt.disposed) {
-        refreshHandoff(rt);
+        repaintHandoffSurfaces(rt);
     }
 }
 
 /**
- * Accept the handoff consent, then repaint the group.
+ * Accept the handoff consent, then repaint the group **and** the
+ * prerequisites the acceptance just changed.
+ *
+ * The state flag follows the write outcome (see
+ * {@link acceptHandoffConsent}), and the notice above the tab strip reads
+ * that same flag — so the repaint has to reach both surfaces, or the
+ * operator accepts the step and keeps reading a banner that says they did
+ * not. This is the whole of the "consent nag never clears" fix.
  *
  * @param rt - Panel runtime.
  */
 export async function acceptConsentAndRepaint(rt: PanelRuntime): Promise<void> {
     await acceptHandoffConsent(rt);
-    refreshHandoff(rt);
+    repaintHandoffSurfaces(rt);
 }
 
 /**
@@ -198,7 +237,9 @@ export async function submitHandoffAndRepaint(
         await inFlight;
     } finally {
         rt.handoffView?.setTokenValue('');
-        refreshHandoff(rt);
+        // A handoff the service refused on consent grounds drops the mirror
+        // again (§1.2), so the prerequisite it backs must repaint with it.
+        repaintHandoffSurfaces(rt);
     }
 }
 

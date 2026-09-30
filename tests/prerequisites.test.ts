@@ -10,20 +10,90 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     PREREQUISITES_HEADING,
     derivePrerequisites,
+    mountPrerequisiteNotice,
     prerequisiteLine,
     prerequisiteNotice,
     prerequisiteStateLabel,
     repaintPrerequisites,
 } from '../src/prerequisites.ts';
+import { acceptConsentAndRepaint } from '../src/accounts-ui.ts';
+import { preflightHandoff } from '../src/handoff-status.ts';
 import { parseAccountsBody } from '../src/bindings-service.ts';
 import type { PanelBinding } from '../src/bindings-service.ts';
 import type { PanelState } from '../src/panel-state.ts';
 import type { Prerequisite, PrerequisiteId } from '../src/prerequisites.ts';
-import { createTestRuntime, fakeHost } from './support/panel.ts';
+import { createStorageDouble, createTestRuntime, fakeHost } from './support/panel.ts';
+import { fakeDom } from './support/dom.ts';
+import type { FakeElement } from './support/dom.ts';
+
+/**
+ * The SDK's two mounts, replaced through `vi.mock` rather than through a seam
+ * in the production API (the same trade `tests/tabs.test.ts` makes for
+ * `mountTabs`): the real primitives call the global `document`, which the
+ * Node suite does not have, and the notice's `hidden` flag is exactly what the
+ * consent-nag regression has to observe. These doubles model only the
+ * `Handle` contract — `update` repaints one text node, `dispose` removes it.
+ */
+vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
+    const actual: Record<string, unknown> = await importOriginal();
+
+    /** Structural view of the fake root the mounts append into. */
+    interface MountRoot {
+        readonly ownerDocument: { createElement(tagName: string): FakeElement };
+        append(...nodes: FakeElement[]): void;
+    }
+
+    return {
+        ...actual,
+        mountBanner: (
+            root: MountRoot,
+            initial: { readonly title: string; readonly body?: string },
+        ): { update: (next: { readonly title?: string; readonly body?: string }) => void; dispose: () => void } => {
+            const node = root.ownerDocument.createElement('div');
+            let { title } = initial;
+            let body = initial.body ?? '';
+            const paint = (): void => {
+                node.textContent = `${title} — ${body}`;
+            };
+            paint();
+            root.append(node);
+
+            return {
+                update: (next) => {
+                    title = next.title ?? title;
+                    body = next.body ?? body;
+                    paint();
+                },
+                dispose: () => {
+                    node.remove();
+                },
+            };
+        },
+        mountText: (
+            root: MountRoot,
+            initial: { readonly text: string },
+        ): { update: (next: { readonly text?: string }) => void; dispose: () => void } => {
+            const node = root.ownerDocument.createElement('p');
+            let { text } = initial;
+            node.textContent = text;
+            root.append(node);
+
+            return {
+                update: (next) => {
+                    text = next.text ?? text;
+                    node.textContent = text;
+                },
+                dispose: () => {
+                    node.remove();
+                },
+            };
+        },
+    };
+});
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
@@ -137,7 +207,7 @@ function configuredState(): PanelState {
     ];
     state.bindings.bindings = [bindingWith('prj_42')];
     state.handoff.consentGiven = true;
-    state.handoff.preflighted = true;
+    state.handoff.serviceAnswered = true;
     state.handoff.storageWritable = true;
 
     return state;
@@ -237,11 +307,26 @@ describe('first-run prerequisites (FR-071, AC-122)', () => {
         expect(prerequisiteOf(state, IDS.serviceCapability).state).toBe(NOT_MET);
 
         state.handoff.consentGiven = true;
-        state.handoff.preflighted = false;
+        state.handoff.serviceAnswered = false;
         expect(prerequisiteOf(state, IDS.serviceCapability).state).toBe(NOT_CHECKABLE);
 
-        state.handoff.preflighted = true;
+        state.handoff.serviceAnswered = true;
         expect(prerequisiteOf(state, IDS.serviceCapability).state).toBe(MET);
+    });
+
+    it('says not checkable — never not met — when the service has never answered (FR-073)', () => {
+        // Consent accepted, pre-flight attempted, no usable answer: the panel
+        // cannot observe the capability, so it must not report the store as
+        // unwritable (it never saw the store) and must not raise the notice.
+        const state = configuredState();
+        state.handoff.serviceAnswered = false;
+        state.handoff.storageWritable = false;
+
+        const item = prerequisiteOf(state, IDS.serviceCapability);
+        expect(item.state).toBe(NOT_CHECKABLE);
+        expect(item.detail).toContain('not had an answer');
+        expect(item.remediation).toContain('Settings → Extensions');
+        expect(prerequisiteNotice(derivePrerequisites(state))).toBeNull();
     });
 
     it('checks OpenChamber running only once the host has answered', () => {
@@ -297,6 +382,96 @@ describe('the unmet notice outside the section (FR-073)', () => {
         const runtime = createTestRuntime(fakeHost());
 
         expect(() => repaintPrerequisites(runtime)).not.toThrow();
+    });
+});
+
+/** Status body the pre-flight reads as a healthy service with a writable store. */
+const ANSWERED_STATUS_BODY = '{"service":{"storage":{"writable":true}},"accounts":[]}';
+
+/** Status body an unreachable or still-spawning service never produces. */
+const UNANSWERED_STATUS_BODY = '{"error":{"code":"unavailable"}}';
+
+/**
+ * Bring a runtime's state to the point where the *only* thing left to
+ * satisfy is the service-capability line: host answered, one usable account
+ * with an all-ok matrix, one bound repository with a project.
+ *
+ * @param rt - Runtime whose bindings state is configured.
+ */
+function configureForConsent(rt: ReturnType<typeof createTestRuntime>): void {
+    rt.state.settings = {};
+    rt.state.bindings.accounts = [
+        { numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, displayName: null, usable: true, scope: VERDICT_OK },
+    ];
+    rt.state.bindings.bindings = [bindingWith('prj_42')];
+}
+
+/**
+ * Mount the FR-073 notice over a configured runtime.
+ *
+ * @param host - Host double the runtime runs against.
+ * @returns The runtime and the notice wrapper the mount appended.
+ */
+function mountedNotice(host: ReturnType<typeof fakeHost>): {
+    readonly rt: ReturnType<typeof createTestRuntime>;
+    readonly box: FakeElement;
+} {
+    const rt = createTestRuntime(host);
+    configureForConsent(rt);
+    const dom = fakeDom();
+    mountPrerequisiteNotice({ rt, parent: dom.root });
+    const box = (dom.root as unknown as FakeElement).children[0];
+    if (box === undefined) {
+        throw new Error('the notice wrapper did not mount');
+    }
+
+    return { rt, box };
+}
+
+describe('the consent nag clears on a correct acceptance (owner review 2026-09-30)', () => {
+    it('accept → the prerequisite turns met and the banner hides', async () => {
+        const storage = createStorageDouble({});
+        const host = fakeHost({
+            storage: storage.storage,
+            serviceRequest: async (request) =>
+                request.path === '/v1/status'
+                    ? { status: 200, body: ANSWERED_STATUS_BODY }
+                    : { status: 200, body: '{"accounts":[]}' },
+        });
+        const { rt, box } = mountedNotice(host);
+        await preflightHandoff(rt);
+
+        // The unaccepted consent step is what is raising the banner today.
+        expect(prerequisiteOf(rt.state, IDS.serviceCapability).state).toBe(NOT_MET);
+        expect(box.hidden).toBe(false);
+
+        await acceptConsentAndRepaint(rt);
+
+        // The whole point: the acceptance is observed, not just stored.
+        expect(prerequisiteOf(rt.state, IDS.serviceCapability).state).toBe(MET);
+        expect(prerequisiteNotice(derivePrerequisites(rt.state))).toBeNull();
+        expect(box.hidden).toBe(true);
+    });
+
+    it('accept → an unobservable service reads not checkable and the banner still hides', async () => {
+        const storage = createStorageDouble({});
+        const host = fakeHost({
+            storage: storage.storage,
+            serviceRequest: async () => ({ status: 503, body: UNANSWERED_STATUS_BODY }),
+        });
+        const { rt, box } = mountedNotice(host);
+        await preflightHandoff(rt);
+        expect(box.hidden).toBe(false);
+
+        await acceptConsentAndRepaint(rt);
+
+        // The panel cannot see the capability, so it must not claim it is
+        // unmet — and a not-checkable item never raises the notice (FR-073).
+        const item = prerequisiteOf(rt.state, IDS.serviceCapability);
+        expect(item.state).toBe(NOT_CHECKABLE);
+        expect(item.remediation.trim()).not.toBe('');
+        expect(prerequisiteNotice(derivePrerequisites(rt.state))).toBeNull();
+        expect(box.hidden).toBe(true);
     });
 });
 

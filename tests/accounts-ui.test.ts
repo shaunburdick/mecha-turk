@@ -214,7 +214,11 @@ describe('silent account adoption (MVP blocker 2)', () => {
         expect(host.rt.state.handoff.connected).toEqual({ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN });
         expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
         expect(host.record.pasteVisible).toBe(false);
-        expect(host.record.consentShown).toBe(false);
+        // The paste row stays hidden (the service already holds the
+        // account), but the consent step is **not** hidden by connection —
+        // it is the step the service-capability prerequisite reads, and an
+        // install that can never accept it could never clear that notice.
+        expect(host.record.consentShown).toBe(true);
         // The adoption rewrote the mirror the reinstall deleted, so the
         // next mount adopts from storage without touching the service.
         const mirrored = host.storage.values.get(ACCOUNTS_STORAGE_KEY);

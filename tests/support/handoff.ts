@@ -247,7 +247,7 @@ export function initialState(): HandoffState {
     return {
         consentGiven: false,
         storageWritable: false,
-        preflighted: false,
+        serviceAnswered: false,
         knownAccountIds: [],
         connected: null,
         note: '',
