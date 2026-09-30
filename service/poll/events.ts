@@ -59,6 +59,13 @@ import type { BindingScanState } from './scan.ts';
 /** Store file holding the event queue (declared beside the row schema). */
 export { EVENTS_FILE, subjectTypeOf } from './events-parse.ts';
 
+/**
+ * Re-exported: the chain every queue mutation serializes on has exactly one
+ * import path, so a rewriting pass (006's excerpt trim) joins the *same* slot
+ * an enqueue does instead of keeping a second chain that could race it.
+ */
+export { inQueueChain };
+
 /** How many dispatched events stay in the file for dedupe and history. */
 export const MAX_DISPATCHED_EVENTS = 500;
 
@@ -80,6 +87,28 @@ export type {
 } from './events-write.ts';
 
 /**
+ * The one rule for "this row is finished" — used by the dispatched-tail cap
+ * **and** by the excerpt retention pass (006 FR-057, plan D6).
+ *
+ * A row is terminal exactly when it carries the shipped `dispatched` state:
+ * such a row answers `409` to a retry and can never re-enter the queue, so
+ * neither its tail position nor its payload text is reachable again. Extracting
+ * the predicate rather than restating `state === 'dispatched'` in a second
+ * module is what keeps the two retention rules from ever disagreeing — and
+ * what lets a future move of terminality onto the run layer land in one place.
+ *
+ * A row with no `state` at all (everything 003 enqueues) is **not** terminal by
+ * this rule: its truth lives on the run, and this pass has no business reading
+ * it. Such a row is left byte-for-byte alone.
+ *
+ * @param event - One stored queue row.
+ * @returns `true` only for a row in the terminal `dispatched` state.
+ */
+export function isDispatchedTerminal(event: QueuedEvent): boolean {
+    return event.state === 'dispatched';
+}
+
+/**
  * Serialize the queue into the file's canonical array form.
  *
  * The pending and in-flight events always come forward; the dispatched tail
@@ -94,8 +123,8 @@ function serializedQueue(events: readonly QueuedEvent[], retainedRunIds?: Readon
         : events.filter((event) => event.state !== undefined
             || event.runCorrelationId === undefined
             || retainedRunIds.has(event.runCorrelationId));
-    const live = retained.filter((event) => event.state !== 'dispatched');
-    const dispatched = retained.filter((event) => event.state === 'dispatched').slice(-MAX_DISPATCHED_EVENTS);
+    const live = retained.filter((event) => !isDispatchedTerminal(event));
+    const dispatched = retained.filter((event) => isDispatchedTerminal(event)).slice(-MAX_DISPATCHED_EVENTS);
 
     return [...live, ...dispatched];
 }

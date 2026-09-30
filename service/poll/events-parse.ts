@@ -100,6 +100,18 @@ export interface QueuedEvent {
     readonly dispatchedAt?: string | null;
     /** Session id or failure text the panel reported; absent on a post-003 row. */
     readonly dispatchResult?: string | null;
+    /**
+     * RFC 3339 stamp the retention pass cleared `issueBodyExcerpt` at (006
+     * FR-057), absent on every row that pass has not touched.
+     *
+     * This is the distinction FR-057 requires a reader to be able to make: a
+     * cleared row (`issueBodyExcerpt: ''` **with** this stamp) is not a row that
+     * never carried a body (`issueBodyExcerpt: ''` without it). Absentable and
+     * additive — rows written before 006 parse identically, and the marker
+     * survives a store round trip because it is parsed back with the rest of
+     * the row.
+     */
+    readonly excerptTrimmedAt?: string;
 }
 
 /**
@@ -251,6 +263,28 @@ function readRunLinkField(record: Record<string, unknown>): string | undefined |
 }
 
 /**
+ * Read the retention marker the excerpt pass writes (006 FR-057).
+ *
+ * @param record - Parsed candidate row.
+ * @returns `undefined` when the row carries no marker (a literal `null`
+ *   counts as absent), the stamp when it parses as a date, or `null` when the
+ *   value cannot be trusted — which refuses the row rather than guessing at
+ *   what it meant (invariant 8).
+ */
+function readTrimMarkerField(record: Record<string, unknown>): string | undefined | null {
+    const value = record.excerptTrimmedAt;
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+
+    if (typeof value !== 'string') {
+        return null;
+    }
+
+    return Number.isNaN(Date.parse(value)) ? null : value;
+}
+
+/**
  * Validate every text, lifecycle, and run-link field of one stored row.
  *
  * @param record - Parsed candidate row.
@@ -265,6 +299,7 @@ function fieldsHold(record: Record<string, unknown>): boolean {
         && readStateField(record) !== null
         && readSubjectTypeField(record) !== null
         && readRunLinkField(record) !== null
+        && readTrimMarkerField(record) !== null
     );
 }
 
@@ -338,6 +373,26 @@ function runLinkOf(record: Record<string, unknown>, subjectType: SubjectType | u
     };
 }
 
+/** The retention marker one row carries, when the pass has touched it. */
+interface TrimMarkerFields {
+    /** Stamp the excerpt was cleared at (006 FR-057); omitted when untouched. */
+    readonly excerptTrimmedAt?: string;
+}
+
+/**
+ * Read the retention marker a row carries, omitting it when it carries none.
+ *
+ * @param record - Parsed candidate row, already validated by `fieldsHold`,
+ *   which refuses a marker it cannot read — hence `null` is typed out here
+ *   rather than asserted away.
+ * @returns The marker's fields, or `{}` for a row the pass never touched.
+ */
+function trimMarkerOf(record: Record<string, unknown>): TrimMarkerFields {
+    const marker = readTrimMarkerField(record);
+
+    return marker === undefined || marker === null ? {} : { excerptTrimmedAt: marker };
+}
+
 /**
  * Read the Slice-2 pull-request coordinates, which older rows omit outright.
  *
@@ -405,6 +460,7 @@ export function parseStoredEvent(raw: unknown): QueuedEvent | null {
         detectedAt,
         ...lifecycleOf(record, state),
         ...runLinkOf(record, subjectType),
+        ...trimMarkerOf(record),
     };
 }
 

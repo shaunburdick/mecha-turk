@@ -3014,8 +3014,18 @@ function readRunLinkField(record) {
   }
   return typeof value === "string" && RUN_CORRELATION_ID.test(value) ? value : null;
 }
+function readTrimMarkerField(record) {
+  const value = record.excerptTrimmedAt;
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  return Number.isNaN(Date.parse(value)) ? null : value;
+}
 function fieldsHold(record) {
-  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS) && typeof record.kind === "string" && KNOWN_KINDS.has(record.kind) && readStateField(record) !== null && readSubjectTypeField(record) !== null && readRunLinkField(record) !== null;
+  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS) && typeof record.kind === "string" && KNOWN_KINDS.has(record.kind) && readStateField(record) !== null && readSubjectTypeField(record) !== null && readRunLinkField(record) !== null && readTrimMarkerField(record) !== null;
 }
 function lifecycleOf(record, state) {
   const fields = {};
@@ -3039,6 +3049,10 @@ function runLinkOf(record, subjectType) {
     ...runCorrelationId === undefined || runCorrelationId === null ? {} : { runCorrelationId },
     ...subjectType === undefined ? {} : { subjectType }
   };
+}
+function trimMarkerOf(record) {
+  const marker = readTrimMarkerField(record);
+  return marker === undefined || marker === null ? {} : { excerptTrimmedAt: marker };
 }
 function coordinatesOf(record) {
   return {
@@ -3078,7 +3092,8 @@ function parseStoredEvent(raw) {
     triggerNote: record.triggerNote,
     detectedAt,
     ...lifecycleOf(record, state),
-    ...runLinkOf(record, subjectType)
+    ...runLinkOf(record, subjectType),
+    ...trimMarkerOf(record)
   };
 }
 function subjectTypeOf(delivery) {
@@ -4655,13 +4670,15 @@ function createEvent(snapshot) {
     })
   };
 }
-
 // service/poll/events.ts
 var MAX_DISPATCHED_EVENTS = 500;
+function isDispatchedTerminal(event) {
+  return event.state === "dispatched";
+}
 function serializedQueue(events, retainedRunIds) {
   const retained = retainedRunIds === undefined ? events : events.filter((event) => event.state !== undefined || event.runCorrelationId === undefined || retainedRunIds.has(event.runCorrelationId));
-  const live = retained.filter((event) => event.state !== "dispatched");
-  const dispatched = retained.filter((event) => event.state === "dispatched").slice(-MAX_DISPATCHED_EVENTS);
+  const live = retained.filter((event) => !isDispatchedTerminal(event));
+  const dispatched = retained.filter((event) => isDispatchedTerminal(event)).slice(-MAX_DISPATCHED_EVENTS);
   return [...live, ...dispatched];
 }
 var recoveredQuarantines = new WeakMap;
