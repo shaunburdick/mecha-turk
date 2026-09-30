@@ -10,14 +10,19 @@
  * state transitions rather than the transport.
  */
 
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { GuestRequest, GuestRequestResult, JsonValue } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
-import { removeAccount, removeBinding } from '../src/bindings.ts';
+import { bindRepository, removeAccount, removeBinding, toggleBinding } from '../src/bindings.ts';
+import { bindingRows } from '../src/bindings-rows.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import { BINDINGS_PATH, accountDeletePath } from '../src/service-calls.ts';
 import { ACCOUNTS_STORAGE_KEY } from '../src/account-mirror.ts';
 import { createBindingsHandlers } from '../src/bindings-mount.ts';
-import type { PanelBinding } from '../src/bindings-service.ts';
+import { initialBindings } from '../src/panel-state.ts';
+import type { BindingsTabState } from '../src/panel-state.ts';
+import type { PanelAccount, PanelBinding } from '../src/bindings-service.ts';
 import { createStorageDouble, createTestRuntime, fakeHost, tick } from './support/panel.ts';
 import type { StorageDouble } from './support/panel.ts';
 
@@ -26,6 +31,9 @@ const LOGIN = 'octocat-mt';
 
 /** Fixture numeric account id. */
 const ACCOUNT_ID = '77331';
+
+/** Fixture repository the grants and the row copy share. */
+const WIDGET_REPO = 'acme/widget';
 
 /** RFC 3339 stamp the fixture rows carry. */
 const STAMP = '2026-09-27T00:00:00.000Z';
@@ -96,7 +104,7 @@ function recordingService(answer: (request: GuestRequest) => GuestRequestResult)
 
 describe('removeBinding (per-binding purge control)', () => {
     it('grants the stored bindings without the selected row', async () => {
-        const kept = bindingFixture({ bindingId: 'bnd-keep', repository: 'acme/widget' });
+        const kept = bindingFixture({ bindingId: 'bnd-keep', repository: WIDGET_REPO });
         const removed = bindingFixture({ bindingId: 'bnd-gone', repository: 'acme/other' });
         const { host, requests } = recordingService((request) => {
             if (request.method === 'PUT' && request.path === BINDINGS_PATH) {
@@ -161,7 +169,7 @@ describe('removeAccount (two-step delete affordance)', () => {
             }
 
             if (request.method === 'GET' && request.path === BINDINGS_PATH) {
-                const kept = bindingFixture({ bindingId: 'bnd-1', repository: 'acme/widget' });
+                const kept = bindingFixture({ bindingId: 'bnd-1', repository: WIDGET_REPO });
 
                 return { status: 200, body: bindingsBody([kept]) };
             }
@@ -250,5 +258,178 @@ describe('removeAccount (two-step delete affordance)', () => {
 
     it('builds the delete path from the numeric id', () => {
         expect(accountDeletePath(ACCOUNT_ID)).toBe(`/v1/accounts/${ACCOUNT_ID}`);
+    });
+});
+
+/** The service's refusal body for an invalid whole-file submission. */
+const VALIDATION_REFUSAL = JSON.stringify({
+    error: { code: 'validation', message: 'repository must be `owner/name`' },
+});
+
+/** The service's refusal body for a store it cannot write. */
+const STORE_REFUSAL = JSON.stringify({
+    error: { code: 'storage-unavailable', message: 'the bindings file could not be written' },
+});
+
+/** The one registered account the add form's picker offers. */
+const REGISTERED: PanelAccount = {
+    numericUserId: ACCOUNT_ID,
+    login: LOGIN,
+    displayName: null,
+    usable: true,
+};
+
+/**
+ * A binding the account cascade switched off (005 FR-054).
+ *
+ * @returns One complete, disabled binding row.
+ */
+function disabledBinding(): PanelBinding {
+    return { ...bindingFixture({ bindingId: 'bnd-off', repository: WIDGET_REPO }), state: 'disabled' };
+}
+
+/**
+ * Build a bindings state around one row, so the row copy can be asserted.
+ *
+ * @param input - The row, the accounts the service holds, and how the last
+ *   read ended.
+ * @returns A complete bindings state.
+ */
+function bindingsState(input: {
+    /** The one binding to render. */
+    readonly binding: PanelBinding;
+    /** Accounts the service's last successful read reported. */
+    readonly accounts: readonly PanelAccount[];
+    /** How the last read ended; defaults to a completed one. */
+    readonly status?: BindingsTabState['status'];
+}): BindingsTabState {
+    return {
+        ...initialBindings(),
+        status: input.status ?? 'ready',
+        bindings: [input.binding],
+        accounts: input.accounts,
+    };
+}
+
+describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
+    it('sends every binding in one PUT and takes the answer back (FR-050)', async () => {
+        const kept = bindingFixture({ bindingId: 'bnd-keep', repository: WIDGET_REPO });
+        const { host, requests } = recordingService((request) => {
+            if (request.method === 'PUT' && request.path === BINDINGS_PATH) {
+                const sent = JSON.parse(request.body ?? '{}') as { readonly bindings?: readonly PanelBinding[] };
+
+                return { status: 200, body: bindingsBody(sent.bindings ?? []) };
+            }
+
+            return { status: 404, body: UNROUTED_BODY };
+        });
+        const rt = createTestRuntime(host);
+        rt.state.bindings.status = 'ready';
+        rt.state.bindings.bindings = [kept];
+        rt.state.bindings.accounts = [REGISTERED];
+        rt.state.bindings.repoInput = 'acme/new';
+        rt.state.bindings.accountSelection = ACCOUNT_ID;
+        rt.state.bindings.repoProjectSelection = 'prj_42';
+
+        await bindRepository(rt);
+        stopRelayPolling(rt);
+
+        const put = requests.find((request) => request.method === 'PUT' && request.path === BINDINGS_PATH);
+        expect(put).toBeDefined();
+        const body = JSON.parse(put?.body ?? '{}') as { readonly bindings: readonly PanelBinding[] };
+        expect(body.bindings.map((binding) => binding.repository)).toEqual([WIDGET_REPO, 'acme/new']);
+        expect(rt.state.bindings.bindings.map((binding) => binding.repository)).toEqual([WIDGET_REPO, 'acme/new']);
+        expect(rt.state.bindings.note).toContain('Bound acme/new');
+    });
+
+    it('keeps the stored state when the service refuses a toggle (FR-054)', async () => {
+        const { host, requests } = recordingService((request) => {
+            if (request.method === 'PUT' && request.path === BINDINGS_PATH) {
+                return { status: 503, body: STORE_REFUSAL };
+            }
+
+            return { status: 404, body: UNROUTED_BODY };
+        });
+        const rt = createTestRuntime(host);
+        rt.state.bindings.status = 'ready';
+        rt.state.bindings.bindings = [disabledBinding()];
+        rt.state.bindings.selectedBinding = 'bnd-off';
+        const before = JSON.stringify(rt.state.bindings.bindings);
+
+        await toggleBinding(rt);
+
+        expect(requests.some((request) => request.method === 'PUT')).toBe(true);
+        expect(JSON.stringify(rt.state.bindings.bindings)).toBe(before);
+        expect(rt.state.bindings.note).toContain('no binding changed');
+    });
+
+    it('leaves every other binding byte-identical when the submission is refused (AC-125)', async () => {
+        const kept = bindingFixture({ bindingId: 'bnd-keep', repository: WIDGET_REPO });
+        const other = bindingFixture({ bindingId: 'bnd-other', repository: 'acme/other' });
+        const { host, requests } = recordingService((request) => {
+            if (request.method === 'PUT' && request.path === BINDINGS_PATH) {
+                return { status: 422, body: VALIDATION_REFUSAL };
+            }
+
+            return { status: 404, body: UNROUTED_BODY };
+        });
+        const rt = createTestRuntime(host);
+        rt.state.bindings.status = 'ready';
+        rt.state.bindings.bindings = [kept, other];
+        rt.state.bindings.accounts = [REGISTERED];
+        rt.state.bindings.repoInput = 'acme/new';
+        rt.state.bindings.accountSelection = ACCOUNT_ID;
+        rt.state.bindings.repoProjectSelection = 'prj_42';
+        const before = JSON.stringify(rt.state.bindings.bindings);
+
+        await bindRepository(rt);
+
+        expect(requests.some((request) => request.method === 'PUT')).toBe(true);
+        expect(JSON.stringify(rt.state.bindings.bindings)).toBe(before);
+        expect(rt.state.bindings.note).toContain('no binding changed');
+        // The refusal names the field, never the value the operator typed.
+        expect(rt.state.bindings.note).not.toContain('acme/new');
+    });
+
+    it('never issues a per-binding PATCH anywhere in the panel source (FR-050)', () => {
+        const root = resolve(import.meta.dirname, '..', 'src');
+        const method = /\bPATCH\b/;
+        const modules = readdirSync(root, { recursive: true }).map(String);
+        const offenders: string[] = [];
+
+        for (const name of modules.filter((entry) => entry.endsWith('.ts'))) {
+            const lines = readFileSync(resolve(root, name), 'utf8').split('\n');
+            for (const line of lines) {
+                if (method.test(line)) {
+                    offenders.push(`${name}: ${line.trim()}`);
+                }
+            }
+        }
+
+        expect(offenders).toEqual([]);
+    });
+});
+
+describe('a binding disabled because its account was removed (FR-054)', () => {
+    it('names the removal on the row instead of showing an inert one', () => {
+        const row = bindingRows(bindingsState({ binding: disabledBinding(), accounts: [] }))[0];
+
+        expect(row?.leading).toBe('off');
+        expect(row?.subtitle).toContain('disabled — account removed');
+    });
+
+    it('says only "disabled" when the operator turned the binding off', () => {
+        const row = bindingRows(bindingsState({ binding: disabledBinding(), accounts: [REGISTERED] }))[0];
+
+        expect(row?.subtitle).toContain('disabled');
+        expect(row?.subtitle).not.toContain('account removed');
+    });
+
+    it('claims no removal while the accounts list was never read (FR-003)', () => {
+        const state = bindingsState({ binding: disabledBinding(), accounts: [], status: 'error' });
+        const row = bindingRows(state)[0];
+
+        expect(row?.subtitle).toContain('disabled');
+        expect(row?.subtitle).not.toContain('account removed');
     });
 });

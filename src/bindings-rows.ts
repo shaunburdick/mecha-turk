@@ -39,6 +39,8 @@ export interface BindingView {
     readonly bindingId: string;
     readonly repository: string;
     readonly accountLogin: string;
+    /** Account the binding still names, so a removed one can be told apart. */
+    readonly accountNumericUserId: string;
     readonly projectId: string;
     readonly state: 'active' | 'disabled';
 }
@@ -104,6 +106,56 @@ function scanPhrase(row: StatusRowView): string {
 }
 
 /**
+ * Why a disabled binding is not polling, when the panel can prove it (FR-054).
+ *
+ * The service stores `state: 'disabled'` for both the operator's own toggle
+ * and the cascade that follows an account removal, and it writes no reason
+ * with it — so the panel checks the one fact it can establish itself: is the
+ * account this binding still names in the list the service currently holds?
+ * An absent account is the removal; a present one means the operator turned
+ * the binding off.
+ *
+ * The claim is gated on a **completed** read: an accounts list the panel
+ * never loaded is not evidence of a removal, and saying "account removed"
+ * because a read failed would be exactly the invented value FR-003 forbids.
+ *
+ * @param bindings - Bindings state.
+ * @param binding - The binding being judged.
+ * @returns The reason, or `null` when the binding is enabled or the panel
+ *   cannot tell.
+ */
+export function disabledReason(bindings: BindingsTabState, binding: BindingView): string | null {
+    if (binding.state !== 'disabled' || bindings.status !== 'ready') {
+        return null;
+    }
+
+    const account = bindings.accounts.find(
+        (candidate) => candidate.numericUserId === binding.accountNumericUserId,
+    );
+
+    return account === undefined ? 'account removed' : null;
+}
+
+/**
+ * The row's state words, including why it is off when the panel can prove it.
+ *
+ * Written as its own step rather than a nested conditional so the two facts —
+ * *is it on*, and *if not, why* — read as one sentence instead of as
+ * punctuation (FR-083: state carried by text).
+ *
+ * @param state - The binding's own state.
+ * @param reason - The reason {@link disabledReason} proved, if any.
+ * @returns `null` while the binding is enabled, else the words to render.
+ */
+function statePhrase(state: BindingView['state'], reason: string | null): string | null {
+    if (state === 'active') {
+        return null;
+    }
+
+    return reason === null ? 'disabled' : `disabled — ${reason}`;
+}
+
+/**
  * Compose one binding row.
  *
  * @param bindings - Bindings state.
@@ -113,7 +165,10 @@ function scanPhrase(row: StatusRowView): string {
 export function bindingRow(bindings: BindingsTabState, binding: BindingView): ListItem {
     const row = statusRowOf(bindings, binding.bindingId);
     const scan = row === null ? 'not scanned yet' : scanPhrase(row);
-    const subtitle = `polled as ${binding.accountLogin} · ${binding.projectId} · ${scan}`;
+    const reason = disabledReason(bindings, binding);
+    const state = statePhrase(binding.state, reason);
+    const parts = [state, `polled as ${binding.accountLogin}`, binding.projectId, scan];
+    const subtitle = parts.filter((part): part is string => part !== null).join(' · ');
 
     return {
         id: binding.bindingId,

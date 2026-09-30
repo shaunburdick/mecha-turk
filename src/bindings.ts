@@ -267,7 +267,15 @@ async function grantBindings(input: {
     }
 
     if (!result.ok) {
-        rt.state.bindings.note = `${result.problem} — the failure note is local to this tab.`;
+        // The whole-file grant is all-or-nothing after validation (FR-058), so
+        // a refusal changed nothing — and the panel says so rather than
+        // looking as though it half-saved. The list on screen is still the
+        // last one the service confirmed, which is what makes AC-125's
+        // byte-identical guarantee true rather than merely intended.
+        rt.state.bindings.note = redact(
+            `${result.problem} — the service refused the whole-file write, so no binding changed; `
+                + 'this list is still exactly what the service holds.',
+        );
         refresh(rt);
 
         return;
