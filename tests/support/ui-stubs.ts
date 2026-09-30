@@ -98,6 +98,7 @@ export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
         refreshBindings: stubHandle(),
         repoField: stubHandle(),
         accountSelect: stubHandle(),
+        mentionToken: stubHandle(),
         projectSelect: stubHandle(),
         assignmentCheck: stubHandle(),
         mentionCheck: stubHandle(),

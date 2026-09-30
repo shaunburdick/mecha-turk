@@ -35,6 +35,7 @@ import type { PanelRuntime, BindingsTabState } from './panel-state.ts';
 import type { DispatchControlsHandlers } from './dispatches-controls.ts';
 import { disposeBindingPrompt, mountBindingPrompt, repaintBindingPrompt } from './bindings-prompt.ts';
 import type { BindingPromptControls, BindingPromptHandlers } from './bindings-prompt.ts';
+import { accountFieldView, mountBindingMention, repaintBindingMention, worktreeFieldView } from './bindings-editor.ts';
 import { notListedGuidance } from './project-picker.ts';
 import { bindingRows, selectedBindingDetail } from './bindings-rows.ts';
 
@@ -50,8 +51,10 @@ export interface BindingsPane {
     readonly refreshBindings: ButtonHandle;
     /** Repository owner/name input. */
     readonly repoField: TextFieldHandle;
-    /** Account select (from `GET /v1/accounts`). */
+    /** Account select: fixed to the binding in edit mode, a picker in add mode. */
     readonly accountSelect: SelectHandle;
+    /** The mention token in force, marked when it differs (005 FR-057). */
+    readonly mentionToken: TextHandle;
     /** Project select (from the host's project list). */
     readonly projectSelect: SelectHandle;
     /** Assignment trigger checkbox. */
@@ -132,12 +135,6 @@ export interface BindingsPaneHandlers extends DispatchControlsHandlers, BindingP
     readonly loadAudit: () => void;
 }
 
-/** Worktree options the add form offers (MVP: `new:` comes later). */
-const WORKTREE_OPTIONS = [
-    { id: 'none', label: 'none — project default directory' },
-    { id: 'generated', label: 'generated — OpenChamber creates a worktree' },
-] as const;
-
 /** Note under the mention checkbox (M6's comment *and* issue-body scan). */
 export const MENTION_SCAN_NOTE = 'Issue bodies and comments that @mention the bound account open a dispatch.';
 
@@ -191,6 +188,8 @@ interface Form {
     readonly repoField: TextFieldHandle;
     /** Account select. */
     readonly accountSelect: SelectHandle;
+    /** Mention-token line under the account field. */
+    readonly mentionToken: TextHandle;
     /** Project select. */
     readonly projectSelect: SelectHandle;
     /** Assignment checkbox. */
@@ -244,13 +243,15 @@ function mountRepoField(input: MountInputs): TextFieldHandle {
     });
 }
 function mountAccountSelect(input: MountInputs): SelectHandle {
+    const view = accountFieldView(input.rt.state.bindings);
+
     return mountSelect(input.pane, {
         label: 'Poll as account',
-        value: input.rt.state.bindings.accountSelection,
-        options: [],
+        value: view.value,
+        options: view.options,
         searchable: true,
         placeholder: 'Select a verified account',
-        disabled: true,
+        disabled: view.disabled,
         onChange: (id) => input.handlers.selectAccount(id),
     });
 }
@@ -293,19 +294,6 @@ function mountTriggerChecks(input: MountInputs): {
 
     return { assignment, mention, reviewRequest };
 }
-function worktreeOptions(bindings: BindingsTabState, handlers: BindingsPaneHandlers): {
-    readonly label: string;
-    readonly value: 'none' | 'generated';
-    readonly options: { readonly id: string; readonly label: string }[];
-    readonly onChange: (id: string) => void;
-} {
-    return {
-        label: 'Worktree option',
-        value: bindings.worktreeSelection,
-        options: WORKTREE_OPTIONS.map((option) => ({ id: option.id, label: option.label })),
-        onChange: (id: string) => handlers.setWorktree(id === 'generated' ? 'generated' : 'none'),
-    };
-}
 /**
  * Mount the add form's controls.
  *
@@ -315,14 +303,15 @@ function worktreeOptions(bindings: BindingsTabState, handlers: BindingsPaneHandl
 function mountAddForm(input: MountInputs): Form {
     const repoField = mountRepoField(input);
     const accountSelect = mountAccountSelect(input);
+    // FR-057: the token in force, derived in `bindings-editor.ts`, under the account it belongs to.
+    const mentionToken = mountBindingMention(input);
     const projectSelect = mountProjectSelect(input);
-    // FR-070's "Not listed?" affordance: constant copy, painted once, and
-    // removed with the pane element `dispose` takes away — no handle to keep.
+    // FR-070's "Not listed?" affordance: constant copy, no handle to keep.
     mountText(input.pane, { text: notListedGuidance() });
     const checks = mountTriggerChecks(input);
     const worktree = mountSelect(
         input.pane,
-        worktreeOptions(input.rt.state.bindings, input.handlers),
+        worktreeFieldView(input.rt.state.bindings, input.handlers.setWorktree),
     );
     const add = mountButton(
         input.pane,
@@ -349,6 +338,7 @@ function mountAddForm(input: MountInputs): Form {
     return {
         repoField,
         accountSelect,
+        mentionToken,
         projectSelect,
         assignment: checks.assignment,
         mention: checks.mention,
@@ -391,6 +381,7 @@ function disposeBindingsBody(input: {
         board.refreshBindings,
         form.repoField,
         form.accountSelect,
+        form.mentionToken,
         form.projectSelect,
         form.assignment,
         form.mention,
@@ -455,6 +446,7 @@ export function mountBindingsBody(input: {
         refreshBindings: board.refreshBindings,
         repoField: form.repoField,
         accountSelect: form.accountSelect,
+        mentionToken: form.mentionToken,
         projectSelect: form.projectSelect,
         assignmentCheck: form.assignment,
         mentionCheck: form.mention,
@@ -498,17 +490,18 @@ function pickerOptionsFor(rt: PanelRuntime): SelectOption[] {
  */
 export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void {
     const { bindings } = rt.state;
-    const accounts = bindings.accounts.filter((account) => account.usable);
 
     view.status.update({ text: composeStatus(bindings) });
     view.bindingsList.update({ items: bindingRows(bindings) });
     view.refreshBindings.update({ disabled: bindings.status === 'loading' });
     view.repoField.update({ value: bindings.repoInput });
+    const account = accountFieldView(bindings);
     view.accountSelect.update({
-        options: accounts.map((account) => ({ id: account.numericUserId, label: account.login })),
-        value: bindings.accountSelection,
-        disabled: bindings.status !== 'ready' || accounts.length === 0,
+        options: account.options,
+        value: account.value,
+        disabled: account.disabled,
     });
+    repaintBindingMention(rt, view.mentionToken);
     view.projectSelect.update({
         options: pickerOptionsFor(rt),
         value: bindings.repoProjectSelection,
