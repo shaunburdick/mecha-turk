@@ -138,6 +138,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `status-document.ts` / `status-lines.ts` / `status-tab.ts` | The `GET /v1/status` document parsed fail closed and the read state that holds it; the Status tab's operator-facing copy as pure functions; and the tab's mount, repaint, and single read |
 | `settings-rows.ts` | The Settings tab's row builder: one row per projected descriptor plus one per undocumented member — name, unit-or-*none*, bounds-or-format, value, and class words, every one of them from the wire (005's bounds stand-in retired by 006 T-018) |
 | `settings-schema.ts` | Fail-closed reader for `GET /v1/config`'s envelope: the closed descriptor union, plus the `unreadable` and `undisplayed` flags (006 T-017; FR-021, FR-027, FR-028) |
+| `settings-edit.ts` | The Settings draft/save state machine, pure: baseline ∪ projection defaults ∪ edits, the no-baseline and busy gates, and the pending markers only a read retires (006 T-019; FR-038, FR-041, FR-046) |
 | `settings-tab.ts` | The Settings body: the one `GET /v1/config` read, its fail-closed read state, and the projection-driven rows (005 FR-070–FR-073, FR-078; 006 T-018) |
 | `about-tab.ts` | The About body: the single version read from the service health answer (no panel-side literal), the static identity and posture copy, and the read-only Diagnostics section (005 FR-074–FR-077) |
 | `audit-view.ts` | One run's audit history under its correlation id, rendered as text (never markup) |
