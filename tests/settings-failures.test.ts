@@ -90,6 +90,9 @@ const inertHandlers: PanelHandlers = {
 /** The notice wording the transport case must show verbatim (AC-129). */
 const NOT_RUNNING = 'service not running — settings read-only';
 
+/** The phrase the absent-grant cause renders (AC-131). */
+const NOT_AUTHORISED = 'not authorised';
+
 /** The route both configuration methods use. */
 const CONFIG_ROUTE = '/v1/config';
 
@@ -306,6 +309,18 @@ describe('a read the service could not answer keeps the tab readable (AC-129, AC
         view.dispose();
     });
 
+    it('AC-131: an unauthorised read renders *not authorised*, with no retry loop', async () => {
+        const view = await mountSettings(grantRead);
+
+        expect(notice()).toContain(NOT_AUTHORISED);
+        expect(view.rt.settingsUi?.saveBox.hidden).toBe(true);
+        expect(inputCount()).toBe(0);
+        // One read, and no second: the grant is the host's to give, and the
+        // panel does not retry its way around it (constitution II).
+        expect(view.requests).toHaveLength(1);
+        view.dispose();
+    });
+
     it('SC-111: three read states, three distinct causes, no input control in any of them', async () => {
         const answers: readonly Answer[] = [unreachableRead, storeRead, grantRead];
         const painted: string[] = [];
@@ -320,7 +335,7 @@ describe('a read the service could not answer keeps the tab readable (AC-129, AC
         expect(new Set(painted).size).toBe(3);
         expect(painted[0]).toContain(NOT_RUNNING);
         expect(painted[1]).toContain(PREREQUISITE);
-        expect(painted[2]).toContain('not authorised');
+        expect(painted[2]).toContain(NOT_AUTHORISED);
     });
 });
 
@@ -483,7 +498,7 @@ describe('the copy each cause gets is its own (006 SC-111, FR-061 – FR-063)', 
         expect(new Set(bodies).size).toBe(3);
         expect(bodies[0]).toContain(NOT_RUNNING);
         expect(bodies[1]).toContain(PREREQUISITE);
-        expect(bodies[2]).toContain('not authorised');
+        expect(bodies[2]).toContain(NOT_AUTHORISED);
     });
 
     it('adds the correlation id only when the answer carried one', () => {

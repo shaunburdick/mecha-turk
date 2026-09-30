@@ -84,6 +84,36 @@ interface TabRender {
     readonly labels: readonly string[];
     /** Every prop the tab's controls were mounted with. */
     readonly props: readonly Record<string, unknown>[];
+    /** Every string the tab painted, mounts **and** the updates that followed. */
+    readonly strings: readonly string[];
+}
+
+/**
+ * Every string inside one mount's props, however deeply nested.
+ *
+ * @param value - Whatever the primitive was handed.
+ * @param found - Accumulator the caller owns.
+ */
+function collectStrings(value: unknown, found: string[]): void {
+    if (typeof value === 'string') {
+        found.push(value);
+
+        return;
+    }
+
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            collectStrings(item, found);
+        }
+
+        return;
+    }
+
+    if (typeof value === 'object' && value !== null) {
+        for (const item of Object.values(value)) {
+            collectStrings(item, found);
+        }
+    }
 }
 
 /**
@@ -108,7 +138,13 @@ async function renderAllTabs(rt: PanelRuntime): Promise<readonly TabRender[]> {
         // Each body reads on first activation, so let *its* read land before
         // the window closes: a row painted by that read belongs to this tab.
         await tick();
-        const mounted = mounts.log.slice(before).filter((entry) => !entry.key.includes(':'));
+        const slice = mounts.log.slice(before);
+        const mounted = slice.filter((entry) => !entry.key.includes(':'));
+        const strings: string[] = [];
+        for (const entry of slice) {
+            collectStrings(entry.props, strings);
+        }
+
         renders.push({
             id,
             labels: mounted
@@ -117,6 +153,7 @@ async function renderAllTabs(rt: PanelRuntime): Promise<readonly TabRender[]> {
             props: mounted
                 .map((entry) => entry.props)
                 .filter((props): props is Record<string, unknown> => typeof props === 'object' && props !== null),
+            strings,
         });
     }
 
@@ -170,6 +207,22 @@ describe('the configuration is editable in exactly one tab (006 AC-141, SC-113, 
         // Counted, not listed: this fails at zero (the surface disappeared)
         // as surely as at two (a second rendering appeared).
         expect(configurationLabels(settings as TabRender)).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
+    });
+
+    it('AC-141: the poll interval is rendered on Settings, and on no other tab but Status', async () => {
+        const renders = await renderAllTabs(runtime());
+
+        // Status owns the *effective* value and Settings the *configured* one
+        // (005 FR-039) — its own line is asserted in tests/status-tab.test.ts;
+        // what is asserted here is the half this suite can see: Settings says
+        // it and the four tabs that own neither value say nothing about it.
+        const settings = renders.find((render) => render.id === 'settings');
+        expect(settings?.strings.join('\n')).toContain('intervalMs');
+
+        for (const id of ['bindings', 'dispatches', 'accounts', 'about']) {
+            const render = renders.find((entry) => entry.id === id);
+            expect(render?.strings.join('\n'), `${id} renders the poll interval`).not.toContain('intervalMs');
+        }
     });
 });
 

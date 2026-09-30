@@ -300,6 +300,25 @@ describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC
         expect(recordedStrings().join('\n')).toContain('Pending — intervalMs: in effect from the next poll');
         view.dispose();
     });
+
+    it('AC-102: the new interval is announced for the next poll, and nothing is restarted', async () => {
+        const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 120_000 });
+        const view = await mountSettings({
+            answer: scriptedAnswer({ put: { status: 200, body: returned } }),
+        });
+        typeInto('intervalMs', '120000');
+
+        await activateSave(view);
+
+        // The row says which boundary governs — never *immediately* — and the
+        // panel itself restarts nothing: one read, one write, no further call
+        // (FR-032: the service's own timer re-reads the interval per cycle).
+        expect(recordedStrings().join('\n')).toContain('intervalMs: in effect from the next poll');
+        expect(view.rt.state.settingsTab.edit.saveState).toBe('saved');
+        expect(view.requests).toHaveLength(2);
+        expect(view.requests.every((request) => request.method === 'GET' || request.method === 'PUT')).toBe(true);
+        view.dispose();
+    });
 });
 
 describe('a refusal renders the service in the service\'s words (006 T-020, AC-107 – AC-112)', () => {
