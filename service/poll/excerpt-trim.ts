@@ -6,12 +6,23 @@
  * This pass ages it out under `excerptRetentionDays`, and it is deliberately
  * narrower than the dispatched-tail cap beside it:
  *
- * - **Terminal rows only.** {@link isDispatchedTerminal} is the *same*
- *   predicate the tail cap partitions on (plan D6), so the two rules cannot
- *   drift apart; a `pending` or `in-flight` row keeps its excerpt at any age,
- *   because that text is context for a dispatch that has not been sent, and a
- *   row with no `state` at all (everything 003 enqueues) is left alone — its
- *   truth lives on the run, not here.
+ * - **Eligible rows only, decided on the run's authority.** A pre-003 legacy
+ *   row is terminal exactly when it carries the shipped `dispatched` state —
+ *   the *same* predicate the tail cap partitions on (plan D6) — and such a row
+ *   answers `409` to a retry, so its text can never be reached again. 003
+ *   froze that field, though: nothing this build enqueues writes `state`, so
+ *   `state === 'dispatched'` alone matches only rows an earlier build wrote
+ *   and the pass would clear **nothing, ever** on a store this build creates —
+ *   while the destructive-confirmation copy promises it will (FR-052, and
+ *   FR-084's "no setting is inert"). A post-003 row therefore takes its
+ *   eligibility from its linked run: `dispatched` clears, and `pending`,
+ *   `claimed`, `starting`, `blocked:*`, `unconfirmed`, `failed`, and
+ *   `dead-lettered` are **ineligible at any age**, because the relay still
+ *   reads this excerpt to dispatch, retry, or return that run to waiting
+ *   (`src/relay.ts`) and clearing it would silently degrade live work. A row
+ *   with no usable link is left alone — its run was evicted and it was pruned
+ *   with it, or it never had one — and so is every post-003 row when the run
+ *   document itself cannot be read: unknown keeps its text (invariant 8).
  * - **Only the text goes.** id, state, claim and dispatch stamps, repository
  *   and issue identity, and the correlation identifier are copied through
  *   untouched, so dedupe, history, and correlation are unaffected.
@@ -26,9 +37,11 @@
  * The rewrite runs on the queue's own chain (`inQueueChain`), so it cannot
  * interleave with an enqueue or a claim, and it writes the rows it read in the
  * order it read them — no tail cap, no pruning, no field is dropped or added
- * beyond the marker above. Every deterministic input (the clock, the
- * configuration) is supplied by the caller, so the whole pass is testable on
- * seeded fixtures with no waiting of its own.
+ * beyond the marker above. The run document is **read** inside that same slot
+ * and never written: this pass opens no runs file, joins no chain of its own,
+ * and adopts nothing. Every deterministic input (the clock, the configuration)
+ * is supplied by the caller, so the whole pass is testable on seeded fixtures
+ * with no waiting of its own.
  */
 
 import { appendAudit, CONFIGURATION_ENTITY_ID } from '../audit.ts';
@@ -37,9 +50,14 @@ import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import type { QueuedEvent } from './events.ts';
 import { EVENTS_FILE, isDispatchedTerminal, inQueueChain, readEvents } from './events.ts';
+import { RUNS_FILE } from './runs-document.ts';
+import { parseRunsDocument } from './runs-parse.ts';
 
 /** Milliseconds in one day — the unit `excerptRetentionDays` is counted in. */
 const DAY_MS = 86_400_000;
+
+/** The one run state this pass clears against; everything else keeps text. */
+const RUN_DISPATCHED = 'dispatched';
 
 /** What one excerpt pass did, for the caller's log line and its tests. */
 export interface TrimExcerptsOutcome {
@@ -65,15 +83,81 @@ export interface TrimExcerptsInput {
 }
 
 /**
- * Decide whether one row's payload text is this pass's to clear.
+ * Read `runs.json` for the run-layer half of the eligibility rule.
+ *
+ * Read only, and read without the run layer's own readers on purpose: those
+ * adopt the legacy queue and flush the audit-intent outbox, and a retention
+ * pass must not become a second writer of a document it has no business
+ * changing. Fail closed on the two shapes that are not an answer:
+ *
+ * - **absent** — a store that has never enqueued a run has no post-003 rows
+ *   either, so the empty map is the truth rather than a guess;
+ * - **quarantined or unparseable** — unknown, so *no* post-003 row is
+ *   eligible; the legacy `state === 'dispatched'` rows keep their own answer
+ *   from their own field, which needs no run document at all.
+ *
+ * @param input - Open store and logger.
+ * @returns correlation id → run state, or an empty map when unknown.
+ */
+async function readRunStates(input: {
+    /** Open store holding the run document. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+}): Promise<ReadonlyMap<string, string>> {
+    const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);
+    if (stored.status === 'quarantined') {
+        input.log.warn('stored run document is unreadable; post-003 excerpts stay put', {
+            quarantinePath: stored.quarantinePath,
+        });
+    }
+
+    if (stored.status !== 'ok') {
+        return new Map<string, string>();
+    }
+
+    return new Map(stored.value.runs.map((run) => [run.correlationId, run.state]));
+}
+
+/**
+ * Decide whether one row's dispatch is finished, on the authority its schema
+ * gives it.
  *
  * @param event - One stored queue row.
- * @param cutoff - Epoch milliseconds at which a detection leaves the window.
- * @returns `true` for an untouched, terminal row older than the window that
+ * @param runStates - correlation id → run state, as {@link readRunStates}
+ *   read them (empty when unknown).
+ * @returns `true` for a legacy row in the terminal `dispatched` state, or a
+ *   post-003 row whose linked run is `dispatched`.
+ */
+function dispatchFinished(event: QueuedEvent, runStates: ReadonlyMap<string, string>): boolean {
+    if (isDispatchedTerminal(event)) {
+        return true;
+    }
+
+    if (event.state !== undefined || event.runCorrelationId === undefined) {
+        return false;
+    }
+
+    return runStates.get(event.runCorrelationId) === RUN_DISPATCHED;
+}
+
+/**
+ * Decide whether one row's payload text is this pass's to clear.
+ *
+ * @param input - The row, the run states, and the window's cutoff.
+ * @returns `true` for an untouched, eligible row older than the window that
  *   still carries text to clear.
  */
-function clearable(event: QueuedEvent, cutoff: number): boolean {
-    if (!isDispatchedTerminal(event) || event.excerptTrimmedAt !== undefined || event.issueBodyExcerpt === '') {
+function clearable(input: {
+    /** One stored queue row. */
+    readonly event: QueuedEvent;
+    /** correlation id → run state, as {@link readRunStates} read them. */
+    readonly runStates: ReadonlyMap<string, string>;
+    /** Epoch milliseconds at which a detection leaves the window. */
+    readonly cutoff: number;
+}): boolean {
+    const { event, runStates, cutoff } = input;
+    if (!dispatchFinished(event, runStates) || event.excerptTrimmedAt !== undefined || event.issueBodyExcerpt === '') {
         return false;
     }
 
@@ -97,7 +181,10 @@ export async function trimExcerpts(input: TrimExcerptsInput): Promise<TrimExcerp
     return await inQueueChain(async () => {
         const events = await readEvents({ store: input.store, log: input.log });
         const cutoff = now - input.config.excerptRetentionDays * DAY_MS;
-        const eligible = events.filter((event) => clearable(event, cutoff));
+        const runStates = events.length === 0
+            ? new Map<string, string>()
+            : await readRunStates({ store: input.store, log: input.log });
+        const eligible = events.filter((event) => clearable({ event, runStates, cutoff }));
         if (eligible.length === 0) {
             return { cleared: 0 };
         }

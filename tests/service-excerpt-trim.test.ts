@@ -7,12 +7,16 @@
  * host (006 FR-086). What is asserted is the pass's refusal as much as its
  * action:
  *
- * - a terminal row older than `excerptRetentionDays` is cleared **and marked**,
+ * - a terminal row older than `excerptRetentionDays` is cleared **and** marked**,
  *   and the marker survives a store round trip as something distinct from a
  *   row that never carried a body;
  * - a `pending` or `in-flight` row of the same age is untouched at any age, a
- *   fresh terminal row is untouched, and a row with no lifecycle state at all
- *   (everything 003 enqueues) is left byte-for-byte alone;
+ *   fresh terminal row is untouched, and a row with no lifecycle state and no
+ *   usable run link is left byte-for-byte alone;
+ * - **the run-layer eligibility (T-032)**: a post-003 row whose linked run is
+ *   `dispatched` clears after the window, while `failed`, `dead-lettered`,
+ *   `unconfirmed`, and `pending` runs keep their excerpt at any age, and the
+ *   legacy `state === 'dispatched'` path still works beside it;
  * - id, state, stamps, and correlation identifier survive the clearing;
  * - exactly one `audit.trimmed` row records the clearing, **after** it, and a
  *   pass that clears nothing appends nothing — twice over, so the pass is
@@ -26,10 +30,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { DEFAULT_CONFIG } from '../service/config.ts';
 import { createLogger } from '../service/log.ts';
-import { EVENTS_FILE, readEvents } from '../service/poll/events.ts';
+import { EVENTS_FILE, createEvent, readEvents } from '../service/poll/events.ts';
 import { trimExcerpts } from '../service/poll/excerpt-trim.ts';
+import { applyEnqueue } from '../service/poll/runs-join.ts';
+import { RUNS_FILE, emptyRunsDocument } from '../service/poll/runs.ts';
 import { openStore } from '../service/store/index.ts';
 import type { EventState, QueuedEvent } from '../service/poll/events.ts';
+import type { RunState } from '../service/poll/runs-types.ts';
 import type { ServiceConfig } from '../service/config.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
@@ -111,6 +118,8 @@ interface QueueSeed {
     readonly excerpt?: string;
     /** Run link the clearing must preserve. */
     readonly runCorrelationId?: string;
+    /** Issue number; `7` when the fixture does not care. */
+    readonly issueNumber?: number;
 }
 
 /**
@@ -129,7 +138,7 @@ function queuedRow(seed: QueueSeed): Record<string, unknown> {
         accountLogin: 'octocat-mt',
         projectId: 'prj_42',
         worktreeOption: 'none',
-        issueNumber: 7,
+        issueNumber: seed.issueNumber ?? 7,
         issueTitle: 'Ticket #7',
         issueUrl: 'https://github.com/acme/widget/issues/7',
         issueBodyExcerpt: seed.excerpt ?? DISPATCHED_BODY,
@@ -181,6 +190,95 @@ function config(): ServiceConfig {
     return { ...DEFAULT_CONFIG };
 }
 
+/** A run link the stored run document never answers. */
+const ORPHAN_RUN_CORRELATION = 'mt-run-aaaaaaaaaaaaaaaaaaaaaaaa';
+
+/** One run-linked queue row the run-layer fixtures seed. */
+interface LinkedSeed {
+    /** Issue number; each seed is its own subject, so each gets its own run. */
+    readonly issueNumber: number;
+    /** Detection stamp the window judges. */
+    readonly detectedAt: string;
+    /** The run's state word; detection alone can only ever produce `pending`. */
+    readonly runState: RunState;
+    /** Payload excerpt; `DISPATCHED_BODY` when omitted. */
+    readonly excerpt?: string;
+}
+
+/**
+ * Plant a post-003 queue together with the run document its rows link to.
+ *
+ * Rows come from the same pure writer production uses (`createEvent`) and runs
+ * from the same pure join (`applyEnqueue`), so both parse as stored; only the
+ * run's `state` word is replaced, because detection can never produce
+ * `failed`, `dead-lettered`, or `unconfirmed`. The run document's audit outbox
+ * is emptied: this fixture records no lifecycle rows, and a pending intent
+ * would be a second fixture hiding inside the first.
+ *
+ * @param seeds - One per run, in creation order.
+ * @param extra - Queue rows stored beside them (an orphan link, say).
+ * @returns The stored queue, in file order.
+ */
+async function plantLinkedQueue(
+    seeds: readonly LinkedSeed[],
+    extra: readonly Record<string, unknown>[] = [],
+): Promise<readonly QueuedEvent[]> {
+    const rows = seeds.map((seed) =>
+        createEvent({
+            kind: 'assignment',
+            bindingId: 'bnd-excerpt-fixture',
+            repository: 'acme/widget',
+            accountNumericUserId: '77331',
+            accountLogin: 'octocat-mt',
+            projectId: 'prj_42',
+            worktreeOption: 'none',
+            issue: {
+                issueNumber: seed.issueNumber,
+                issueTitle: `Issue #${seed.issueNumber}`,
+                issueUrl: `https://github.com/acme/widget/issues/${seed.issueNumber}`,
+                issueBodyExcerpt: seed.excerpt ?? DISPATCHED_BODY,
+            },
+            triggerNote: 'Issue assigned to the bound account',
+            detectedAt: seed.detectedAt,
+        }),);
+    const outcome = applyEnqueue({
+        document: emptyRunsDocument(),
+        deliveries: rows,
+        now: seeds[0]?.detectedAt ?? OLD_DETECTED,
+    });
+    const runs = outcome.created.map((run, index) => {
+        const seed = seeds[index];
+        if (seed === undefined) {
+            throw new Error('the fixture joined more runs than it seeded');
+        }
+
+        return { ...run, state: seed.runState, stateReason: 'seeded by the excerpt fixture' };
+    });
+    const linked = rows.map((row) => {
+        const correlationId = outcome.links.get(row.id);
+        if (correlationId === undefined) {
+            throw new Error('the fixture produced a row that joined no run');
+        }
+
+        return { ...row, runCorrelationId: correlationId };
+    });
+    await store.writeJson(RUNS_FILE, { ...outcome.document, runs, auditIntents: [] });
+    await store.writeJson(EVENTS_FILE, [...linked, ...extra]);
+
+    return linked;
+}
+
+/**
+ * Read one stored queue row by issue number.
+ *
+ * @param queue - The stored queue.
+ * @param issueNumber - The fixture issue to find.
+ * @returns The row, or `undefined` when the queue holds no such issue.
+ */
+function rowFor(queue: readonly QueuedEvent[], issueNumber: number): QueuedEvent | undefined {
+    return queue.find((row) => row.issueNumber === issueNumber);
+}
+
 describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
     it('clears and marks an old terminal row while leaving every other row alone', async () => {
         await plantQueue([
@@ -211,7 +309,10 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
         expect(cleared?.detectedAt).toBe(OLD_DETECTED);
         expect(cleared?.id).toBe(OLD_DISPATCHED);
         // Untouched: pending and in-flight at any age, a fresh terminal row, a
-        // row that never had a body, and a row with no lifecycle state at all.
+        // row that never had a body, and a row with neither a lifecycle state
+        // nor a run the document can answer — the last is left alone because
+        // its link is unusable, not because it is stateless (T-032: a linked
+        // post-003 row *does* clear, and is exercised below).
         const pending = await storedRow(OLD_PENDING);
         expect(pending?.issueBodyExcerpt).toBe(PENDING_BODY);
         expect(pending?.excerptTrimmedAt).toBeUndefined();
@@ -329,5 +430,110 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
         const untouched = await storedRow(OLD_DISPATCHED);
         expect(untouched?.excerptTrimmedAt).toBeUndefined();
         expect(await readAuditEntries(store)).toEqual([]);
+    });
+});
+
+describe('excerpt trim: the run-layer eligibility (006 T-032, FR-057, FR-052, FR-084)', () => {
+    it('clears an aged dispatched run, and refuses every other run state beside it', async () => {
+        const planted = await plantLinkedQueue(
+            [
+                { issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' },
+                { issueNumber: 2, detectedAt: OLD_DETECTED, runState: 'failed' },
+                { issueNumber: 3, detectedAt: OLD_DETECTED, runState: 'dead-lettered' },
+                { issueNumber: 4, detectedAt: OLD_DETECTED, runState: 'unconfirmed' },
+                { issueNumber: 5, detectedAt: OLD_DETECTED, runState: 'pending' },
+                { issueNumber: 6, detectedAt: FRESH_DETECTED, runState: 'dispatched' },
+            ],
+            [
+                // The legacy path beside it: a pre-003 row answers from its own
+                // frozen `state`, so it clears even though no run document has
+                // ever heard of its link.
+                queuedRow({
+                    id: 'evt-legacy-dispatched',
+                    detectedAt: OLD_DETECTED,
+                    state: 'dispatched',
+                    runCorrelationId: RUN_CORRELATION,
+                }),
+                // A post-003 row whose link no run answers: no usable link, so
+                // it is left alone rather than guessed at.
+                queuedRow({
+                    id: 'evt-orphan-link',
+                    issueNumber: 8,
+                    detectedAt: OLD_DETECTED,
+                    excerpt: PENDING_BODY,
+                    runCorrelationId: ORPHAN_RUN_CORRELATION,
+                }),
+            ],
+        );
+        const { log, lines } = capturingLogger();
+
+        const outcome = await trimExcerpts({ store, log, config: config(), now: NOW });
+
+        // Exactly two cleared: the aged run that really reached `dispatched`,
+        // and the legacy row. The relay still reads the other four to dispatch,
+        // retry, or return them to waiting, so their text stays **at any age**.
+        expect(outcome.cleared).toBe(2);
+        const stored = await storedQueue();
+        const cleared = rowFor(stored, 1);
+        expect(cleared?.issueBodyExcerpt).toBe('');
+        expect(cleared?.excerptTrimmedAt).toBe(CLEARED_AT);
+        expect(cleared?.state).toBeUndefined();
+        expect(cleared?.runCorrelationId).toBe(planted[0]?.runCorrelationId);
+        expect(cleared?.detectedAt).toBe(OLD_DETECTED);
+        expect(cleared?.id).toBe(planted[0]?.id);
+        const legacy = stored.find((row) => row.id === 'evt-legacy-dispatched');
+        expect(legacy?.issueBodyExcerpt).toBe('');
+        expect(legacy?.excerptTrimmedAt).toBe(CLEARED_AT);
+        for (const issueNumber of [2, 3, 4]) {
+            expect(rowFor(stored, issueNumber)?.issueBodyExcerpt).toBe(DISPATCHED_BODY);
+            expect(rowFor(stored, issueNumber)?.excerptTrimmedAt).toBeUndefined();
+        }
+        // The pending row is byte-identical: every field it was planted with.
+        expect(rowFor(stored, 5)).toEqual(planted[4]);
+        // Inside the window, and with no usable link, are left alone too.
+        expect(rowFor(stored, 6)?.issueBodyExcerpt).toBe(DISPATCHED_BODY);
+        expect(rowFor(stored, 6)?.excerptTrimmedAt).toBeUndefined();
+        expect(rowFor(stored, 8)?.issueBodyExcerpt).toBe(PENDING_BODY);
+        expect(rowFor(stored, 8)?.excerptTrimmedAt).toBeUndefined();
+        // One row records the clearing, after it, naming the excerpt window.
+        const trail = await readAuditEntries(store);
+        expect(trail).toHaveLength(1);
+        expect(trail[0]?.eventType).toBe('audit.trimmed');
+        expect(trail[0]?.details).toEqual({
+            entriesRemoved: 2,
+            limitReached: 'excerpt-days',
+            minimalReferencesPreserved: 0,
+        });
+        expect(lines.some((line) => line.includes('stored payload excerpts trimmed'))).toBe(true);
+    });
+
+    it('keeps a run-linked row\'s marker across a store round trip', async () => {
+        await plantLinkedQueue([{ issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' }]);
+
+        await trimExcerpts({ store, log: capturingLogger().log, config: config(), now: NOW });
+
+        const reopened = await openStore({ dataDir });
+        const queue = await readEvents({ store: reopened, log: capturingLogger().log });
+
+        expect(queue).toHaveLength(1);
+        expect(queue[0]?.issueBodyExcerpt).toBe('');
+        expect(queue[0]?.excerptTrimmedAt).toBe(CLEARED_AT);
+        expect(Number.isNaN(Date.parse(queue[0]?.excerptTrimmedAt ?? ''))).toBe(false);
+    });
+
+    it('leaves every post-003 row alone while the run document is unreadable', async () => {
+        await plantLinkedQueue([{ issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' }]);
+        // Fail closed: a run document the store cannot parse answers "unknown",
+        // and unknown never clears a post-003 row (invariant 8).
+        await store.writeJson(RUNS_FILE, { schemaVersion: 'not-a-run-document' });
+        const before = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
+        const { log, lines } = capturingLogger();
+
+        const outcome = await trimExcerpts({ store, log, config: config(), now: NOW });
+
+        expect(outcome.cleared).toBe(0);
+        expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(before);
+        expect(await readAuditEntries(store)).toEqual([]);
+        expect(lines.some((line) => line.includes('post-003 excerpts stay put'))).toBe(true);
     });
 });

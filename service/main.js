@@ -3366,8 +3366,31 @@ async function enqueueEvents(input) {
 
 // service/poll/excerpt-trim.ts
 var DAY_MS2 = 86400000;
-function clearable(event, cutoff) {
-  if (!isDispatchedTerminal(event) || event.excerptTrimmedAt !== undefined || event.issueBodyExcerpt === "") {
+var RUN_DISPATCHED = "dispatched";
+async function readRunStates(input) {
+  const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);
+  if (stored.status === "quarantined") {
+    input.log.warn("stored run document is unreadable; post-003 excerpts stay put", {
+      quarantinePath: stored.quarantinePath
+    });
+  }
+  if (stored.status !== "ok") {
+    return new Map;
+  }
+  return new Map(stored.value.runs.map((run) => [run.correlationId, run.state]));
+}
+function dispatchFinished(event, runStates) {
+  if (isDispatchedTerminal(event)) {
+    return true;
+  }
+  if (event.state !== undefined || event.runCorrelationId === undefined) {
+    return false;
+  }
+  return runStates.get(event.runCorrelationId) === RUN_DISPATCHED;
+}
+function clearable(input) {
+  const { event, runStates, cutoff } = input;
+  if (!dispatchFinished(event, runStates) || event.excerptTrimmedAt !== undefined || event.issueBodyExcerpt === "") {
     return false;
   }
   const stamped = Date.parse(event.detectedAt);
@@ -3378,7 +3401,8 @@ async function trimExcerpts(input) {
   return await inQueueChain(async () => {
     const events = await readEvents({ store: input.store, log: input.log });
     const cutoff = now - input.config.excerptRetentionDays * DAY_MS2;
-    const eligible = events.filter((event) => clearable(event, cutoff));
+    const runStates = events.length === 0 ? new Map : await readRunStates({ store: input.store, log: input.log });
+    const eligible = events.filter((event) => clearable({ event, runStates, cutoff }));
     if (eligible.length === 0) {
       return { cleared: 0 };
     }

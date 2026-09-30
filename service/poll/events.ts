@@ -87,19 +87,23 @@ export type {
 } from './events-write.ts';
 
 /**
- * The one rule for "this row is finished" — used by the dispatched-tail cap
- * **and** by the excerpt retention pass (006 FR-057, plan D6).
+ * The one rule for "this **legacy** row is finished" — used by the
+ * dispatched-tail cap, and by 006's excerpt retention pass as the first half
+ * of its eligibility rule (006 FR-057, plan D6).
  *
  * A row is terminal exactly when it carries the shipped `dispatched` state:
  * such a row answers `409` to a retry and can never re-enter the queue, so
  * neither its tail position nor its payload text is reachable again. Extracting
  * the predicate rather than restating `state === 'dispatched'` in a second
- * module is what keeps the two retention rules from ever disagreeing — and
- * what lets a future move of terminality onto the run layer land in one place.
+ * module is what keeps the tail cap and the excerpt pass from ever disagreeing
+ * about a legacy row.
  *
  * A row with no `state` at all (everything 003 enqueues) is **not** terminal by
- * this rule: its truth lives on the run, and this pass has no business reading
- * it. Such a row is left byte-for-byte alone.
+ * this rule: its truth lives on the run, and this predicate has no business
+ * reading it. 003 froze the field, so the tail cap leaves those rows to the
+ * run-eviction prune beside it, and the excerpt pass reads the linked run's
+ * state itself (`poll/excerpt-trim.ts`) rather than asking this function to
+ * guess.
  *
  * @param event - One stored queue row.
  * @returns `true` only for a row in the terminal `dispatched` state.
