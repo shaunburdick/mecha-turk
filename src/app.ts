@@ -50,6 +50,7 @@ import { redact } from './redaction.ts';
 import { reconcileDispatchAttempts } from './reconcile.ts';
 import { settleReconciliation, startRelayPolling } from './relay.ts';
 import { loadDispatches } from './dispatches.ts';
+import { loadStatus } from './status-tab.ts';
 import { mountTabShell } from './tabs.ts';
 import { tabSpecs } from './tab-bodies.ts';
 import { describeError } from './session.ts';
@@ -385,6 +386,10 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
     // sits under: one GET /v1/events that fails here lands on the runs
     // note line instead of an empty area nobody can explain.
     void loadDispatches(rt);
+    // The Status tab's projection is read at mount as well, so the tab the
+    // panel opens on answers its one question immediately; its own refresh
+    // control is the explicit re-read (FR-014, FR-019).
+    void loadStatus(rt);
     // The handoff input stays disabled until this pre-flight proves the
     // service storage is writable (F10/SEC-08); a failed pre-flight leaves
     // the reason on screen instead of a usable credential field.

@@ -21,6 +21,9 @@ import type { HandoffState } from './handoff.ts';
 import type { HandoffView } from './accounts-ui.ts';
 import type { BindingsPane } from './bindings-ui.ts';
 import type { DispatchesBoard } from './dispatches-ui.ts';
+import type { StatusTabUi } from './status-tab.ts';
+import { initialStatusTab } from './status-document.ts';
+import type { StatusTabState } from './status-document.ts';
 import type { TabShell } from './tabs.ts';
 import type { DiagnosticsUi, PanelUi, ProjectPickerUi } from './panel-ui.ts';
 
@@ -187,6 +190,8 @@ export interface PanelState {
     bindings: BindingsTabState;
     /** Dispatches list, selection, and M9 notice, as its own tab slice (FR-012). */
     dispatches: DispatchesState;
+    /** The Status tab's projection, read state, and staleness (FR-019, FR-030). */
+    statusTab: StatusTabState;
     /** Event-relay loop state (M4). */
     relay: Relay;
 }
@@ -290,6 +295,8 @@ export interface PanelRuntime {
     bindingsUi: BindingsPane | null;
     /** Dispatches body's mounted board, `null` until that tab first activates. */
     dispatchesUi: DispatchesBoard | null;
+    /** Status body's mounted view, `null` until that tab first activates. */
+    statusUi: StatusTabUi | null;
     /** Project picker handles, which live inside the Bindings body. */
     pickerUi: ProjectPickerUi | null;
     /** About body's diagnostics list, `null` until that tab first activates. */
@@ -444,6 +451,7 @@ function initialState(createdAt: string): PanelState {
         handoff: initialHandoffState(),
         bindings: initialBindings(),
         dispatches: initialDispatches(),
+        statusTab: initialStatusTab(),
         relay: initialRelay(),
     };
 }
@@ -471,6 +479,7 @@ export function createPanelRuntime(
         shell: null,
         bindingsUi: null,
         dispatchesUi: null,
+        statusUi: null,
         pickerUi: null,
         aboutUi: null,
         disposed: false,

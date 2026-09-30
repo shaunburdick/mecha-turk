@@ -142,7 +142,8 @@ export function prerequisiteStateLabel(state: PrerequisiteState): string {
 function defaultAgentPin(): Prerequisite {
     const remediation =
         `Set Settings → Sessions → Session Defaults → Default Agent to ${DEFAULT_EXPECTED_AGENT}; ` +
-        'every dispatch reads the session back afterwards and warns when the session reports another agent.';
+        'the first dispatch is what checks it — every dispatch reads the session back afterwards and ' +
+        'warns when the session reports another agent.';
 
     return {
         id: IDS.defaultAgent,

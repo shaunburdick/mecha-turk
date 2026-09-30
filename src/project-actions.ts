@@ -28,6 +28,7 @@ import {
 import { refresh } from './panel-ui.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import { redact } from './redaction.ts';
+import { repaintStatusTab } from './status-tab.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
 
@@ -156,13 +157,17 @@ export async function loadProjects(rt: PanelRuntime): Promise<void> {
     }
 
     refresh(rt);
+    // FR-038's Status guidance reads this list, and the Status tab repaints
+    // only on its own reads — so a list that lands after the status document
+    // refreshes that one line as well.
+    repaintStatusTab(rt);
 }
 
 /**
  * Copy the effective project id to the host clipboard.
  *
- * The panel has no settings write API, so this is how an operator takes the id
- * to Settings → Integrations when they would rather configure it there.
+ * The panel has no settings write API, so this is how an operator takes the
+ * id over to a binding's project field when they would rather paste it.
  *
  * @param rt - Panel runtime.
  */

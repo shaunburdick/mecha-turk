@@ -130,6 +130,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `claim-service.ts` | Claim and run-history body parsers (strict: an unknown state refuses the body) |
 | `reconcile.ts` | Mount-time re-report of every unacknowledged attempt, before the first claim (bounded, warns visibly) |
 | `prerequisites.ts` | The six first-run prerequisites, each `met` / `not-met` / `not-checkable`, with its remediation line |
+| `status-document.ts` / `status-lines.ts` / `status-tab.ts` | The `GET /v1/status` document parsed fail closed and the read state that holds it; the Status tab's operator-facing copy as pure functions; and the tab's mount, repaint, and single read |
 | `audit-view.ts` | One run's audit history under its correlation id, rendered as text (never markup) |
 | `agent-verify.ts` | Post-dispatch `openSession()` agent read-back, reported to the service (warn-only) |
 | `handoff*.ts` / `account*.ts` / `consent*.ts` | One-shot token handoff, consent gate, credential-free account mirror |

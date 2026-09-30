@@ -12,7 +12,6 @@
 import { mountBanner, mountButton, mountList, mountSelect, mountText } from '@openchamber/sdk/ui';
 import type { BannerHandle, ButtonHandle, ListHandle, ListItem, SelectHandle, TextHandle } from '@openchamber/sdk/ui';
 import { refreshHandoff } from './accounts-ui.ts';
-import { repositoryLabel } from './config.ts';
 import { repaintDispatchesBoard } from './dispatches-ui.ts';
 import { ledgerTail } from './ledger.ts';
 import {
@@ -209,43 +208,70 @@ export function mountDiagnostics(rt: PanelRuntime, root: HTMLElement): Diagnosti
 /**
  * Build the identity segment of the one-line context summary.
  *
- * Bindings mode polls under the service-side account bound to the
- * repository, so the legacy `state.login` — the host integration token — is
- * not the identity any scan runs as, and reporting it as "not authenticated"
- * while bindings poll is simply false. The line therefore names the connected
- * service login (`identity: <login> (service)`), falling back to the plain
- * `identity: service account` while nothing is connected yet. With no active
- * bindings the legacy single-repo wording is kept unchanged.
+ * Only the **service** account identifies a scan: it is the credential the
+ * poll loop and the relay act under, so the line names it and nothing else.
+ * The legacy host-integration login and the spike's configured-match verdict
+ * are gone with the card settings and the single-repo path (002 FR-041), so
+ * there is no second identity to report and no wording left that could call
+ * an operating panel "not authenticated".
  *
  * @param state - Panel state.
  * @returns The `identity: …` segment of the summary.
  */
 function identityLine(state: PanelState): string {
-    if (state.bindingsActive > 0) {
-        const { connected } = state.handoff;
+    const { connected } = state.handoff;
 
-        return connected === null ? 'identity: service account' : `identity: ${connected.login} (service)`;
+    return connected === null ? 'identity: no service account yet' : `identity: ${connected.login} (service)`;
+}
+
+/**
+ * Build the bindings segment of the summary (FR-020: the panel says
+ * *bindings*, never *repositories*).
+ *
+ * @param state - Panel state.
+ * @returns The `bindings: …` segment of the summary.
+ */
+function bindingsLine(state: PanelState): string {
+    const rows = state.bindings.bindings;
+    if (rows.length === 0) {
+        return 'bindings: none yet';
     }
 
-    return state.login === null ? 'identity: not authenticated' : `identity: ${state.login}`;
+    const enabled = rows.filter((row) => row.state === 'active').length;
+
+    return `bindings: ${rows.length} (${enabled} enabled)`;
+}
+
+/**
+ * Build the accounts segment of the summary (FR-030).
+ *
+ * @param state - Panel state.
+ * @returns The `accounts: …` segment of the summary.
+ */
+function accountsLine(state: PanelState): string {
+    const rows = state.bindings.accounts;
+
+    return rows.length === 0 ? 'accounts: none yet' : `accounts: ${rows.length}`;
 }
 
 /**
  * Build the one-line context summary.
  *
- * Exported so the truthfulness of each segment (identity in bindings mode
- * above all) can be asserted without a live DOM.
+ * Four segments, each a fact the panel actually holds: what is bound, how
+ * many accounts back it, which service account acts, and how much ledger the
+ * mount has written. The spike-era `repository:` and `match:` segments are
+ * gone with the single-repo path (002 FR-041), so nothing here can describe a
+ * configuration the product no longer has.
+ *
+ * Exported so each segment's truthfulness can be asserted without a live DOM.
  *
  * @param state - Panel state.
- * @returns Plain text describing configuration, identity, and match state.
+ * @returns Plain text describing bindings, accounts, identity, and the ledger.
  */
 export function summarizeState(state: PanelState): string {
-    const configured = state.config === null ? null : repositoryLabel(state.config.repository);
-    const repository = configured === null ? 'repository: not configured' : `repository: ${configured}`;
-    const match = state.match === null ? 'match: none' : `match: issue #${state.match.issueNumber}`;
     const storage = `ledger: generation ${state.ledger.panelGeneration}, ${state.ledger.entries.length} entries`;
 
-    return [repository, identityLine(state), match, storage].join(' · ');
+    return [bindingsLine(state), accountsLine(state), identityLine(state), storage].join(' · ');
 }
 
 /**

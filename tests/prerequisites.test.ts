@@ -201,9 +201,12 @@ describe('first-run prerequisites (FR-071, AC-122)', () => {
             expect(pin.state).not.toBe(MET);
             expect(prerequisiteStateLabel(pin.state)).toBe('not checkable by the panel');
             expect(prerequisiteLine(pin)).toContain('not checkable by the panel');
-            // It says how to satisfy it even though it cannot check it.
+            // It says how to satisfy it even though it cannot check it, and
+            // names the first dispatch as the thing that actually checks it
+            // (003 FR-072; 005 FR-037).
             expect(pin.remediation).toContain('project-manager');
             expect(pin.remediation).toMatch(/Session Defaults/);
+            expect(pin.remediation).toContain('first dispatch');
             expect(pin.detail).toMatch(/cannot read/);
         }
     });

@@ -6,10 +6,10 @@
  * surface onto a container — the spike era's two hidden bodies become six
  * bodies that each mount once and stay mounted (FR-013).
  *
- * Two bodies carry no reads yet: Status and Settings render what their tabs
- * fill in later (005 waves 5 and 9). Mounting an empty container is honest in
- * a way a placeholder promise would not be, and it keeps "no second path to a
- * capability" true while the tabs are still being filled (FR-010).
+ * One body still carries no read: Settings renders what wave 9 fills in.
+ * Mounting an empty container is honest in a way a placeholder promise would
+ * not be, and it keeps "no second path to a capability" true while the tabs
+ * are still being filled (FR-010).
  */
 
 import {
@@ -25,6 +25,7 @@ import type { PanelRuntime } from './panel-state.ts';
 import { mountDiagnostics, mountProjectPicker } from './panel-ui.ts';
 import type { PanelHandlers } from './panel-ui.ts';
 import { mountPrerequisitesSection } from './prerequisites.ts';
+import { disposeStatusTab, mountStatusTab } from './status-tab.ts';
 import type { TabSpec } from './tabs.ts';
 
 /**
@@ -60,16 +61,23 @@ function mountAccountsBody(rt: PanelRuntime, body: HTMLElement): null {
 }
 
 /**
- * The Status body: the first-run prerequisites section (FR-037).
+ * The Status body: the honest projection, then the first-run prerequisites
+ * (FR-030, FR-037).
  *
- * @param rt - Panel runtime the section reads.
+ * The projection leads because it is the answer to "is it working"; the
+ * checklist follows with its own remediation per line, and the unmet notice
+ * it raises lives in the root region where switching tabs cannot hide it.
+ *
+ * @param rt - Panel runtime the body reads.
  * @param body - The Status body container the shell created.
- * @returns `null`: teardown disposes the section through its own registry.
+ * @returns A disposer that releases the projection's handles; the section
+ *   disposes through its own registry at teardown.
  */
-function statusSpec(rt: PanelRuntime, body: HTMLElement): null {
+function statusSpec(rt: PanelRuntime, body: HTMLElement): () => void {
+    mountStatusTab({ rt, parent: body });
     mountPrerequisitesSection({ rt, parent: body });
 
-    return null;
+    return () => disposeStatusTab(rt);
 }
 
 /**

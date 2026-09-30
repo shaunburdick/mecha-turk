@@ -120,44 +120,49 @@ describe('bindingRows (scan status on the binding rows, FIX 2b)', () => {
     });
 });
 
-describe('summarizeState (identity line in bindings mode, FIX 4)', () => {
-    it('names the connected service login instead of the legacy integration token', () => {
+describe('summarizeState (the panel context line, 005 FR-020)', () => {
+    it('names the connected service login as the identity', () => {
         const rt = createTestRuntime(fakeHost());
-        rt.state.bindingsActive = 2;
         rt.state.handoff.connected = { numericUserId: '77331', login: ACCOUNT_LOGIN };
 
         const summary = summarizeState(rt.state);
 
         expect(summary).toContain(`identity: ${ACCOUNT_LOGIN} (service)`);
         expect(summary).not.toContain(LEGACY_IDENTITY);
-        // The legacy token is still on the panel, but it is not what polls.
-        expect(summary).not.toContain(`identity: ${rt.state.login}`);
+        // The host integration token is not what polls, so it is never named.
+        expect(summary).not.toContain(`identity: ${LOGIN}`);
     });
 
-    it('says the service account is the identity while nothing is connected yet', () => {
+    it('says there is no service account yet while nothing is connected', () => {
         const rt = createTestRuntime(fakeHost());
-        rt.state.bindingsActive = 1;
         rt.state.handoff.connected = null;
 
+        expect(summarizeState(rt.state)).toContain('identity: no service account yet');
+        expect(summarizeState(rt.state)).not.toContain(LEGACY_IDENTITY);
+    });
+
+    it('reports bindings and accounts as counts, and as none yet when empty', () => {
+        const rt = createTestRuntime(fakeHost());
+        expect(summarizeState(rt.state)).toContain('bindings: none yet');
+        expect(summarizeState(rt.state)).toContain('accounts: none yet');
+
+        rt.state.bindings.bindings = [bindingFixture(), { ...bindingFixture(), state: 'disabled' }];
+        rt.state.bindings.accounts = [
+            { numericUserId: '77331', login: ACCOUNT_LOGIN, displayName: null, usable: true },
+        ];
+
+        const summary = summarizeState(rt.state);
+        expect(summary).toContain('bindings: 2 (1 enabled)');
+        expect(summary).toContain('accounts: 1');
+    });
+
+    it('carries none of the retired single-repo or spike vocabulary', () => {
+        const rt = createTestRuntime(fakeHost());
         const summary = summarizeState(rt.state);
 
-        expect(summary).toContain('identity: service account');
-        expect(summary).not.toContain(LEGACY_IDENTITY);
-    });
-
-    it('keeps the legacy identity wording when no binding is active', () => {
-        const rt = createTestRuntime(fakeHost());
-        rt.state.bindingsActive = 0;
-        rt.state.handoff.connected = { numericUserId: '77331', login: ACCOUNT_LOGIN };
-
-        expect(summarizeState(rt.state)).toContain(`identity: ${LOGIN}`);
-    });
-
-    it('keeps the legacy not-authenticated wording when nothing is configured', () => {
-        const rt = createTestRuntime(fakeHost());
-        rt.state.bindingsActive = 0;
-        rt.state.login = null;
-
-        expect(summarizeState(rt.state)).toContain(LEGACY_IDENTITY);
+        expect(summary).not.toContain('repository:');
+        expect(summary).not.toContain('match:');
+        expect(summary).not.toContain('not authenticated');
+        expect(summary).toContain('ledger: generation 1, 0 entries');
     });
 });
