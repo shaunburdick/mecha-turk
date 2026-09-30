@@ -29,27 +29,16 @@
  */
 
 import { asRecord, fieldsHoldText, parseJsonObject, textOrNull } from './json.ts';
+import { readPromptReference } from './prompt-wire.ts';
 import { eventKindOf, issueNumberFrom } from './repos-service.ts';
+import { runStateOf } from './run-state.ts';
+import type { PromptReference } from './prompt.ts';
+import type { RunState } from './run-state.ts';
 
-/** The seven states stored as a plain word; the eighth is `blocked:<reason>`. */
-const PLAIN_RUN_STATES = [
-    'pending',
-    'claimed',
-    'starting',
-    'dispatched',
-    'failed',
-    'unconfirmed',
-    'dead-lettered',
-] as const;
+/** Re-exported: the runs row stays the one import path for the state vocabulary. */
+export { BLOCKED_PREFIX } from './run-state.ts';
+export type { PlainRunState, RunState } from './run-state.ts';
 
-/** One of the seven plain run states. */
-export type PlainRunState = (typeof PLAIN_RUN_STATES)[number];
-
-/** One of the eight dispatch states, `blocked:<reason>` carrying a non-empty kebab reason. */
-export type RunState = PlainRunState | `blocked:${string}`;
-
-/** Prefix of the `blocked:<reason>` family (data-model §1). */
-export const BLOCKED_PREFIX = 'blocked:';
 
 /** Trigger kinds the runs row can carry; anything else reads as `assignment`. */
 type RunKind = 'assignment' | 'mention' | 'review';
@@ -92,8 +81,9 @@ export interface RunVerification {
     readonly note: string | null;
 }
 
-/** One run, as `GET /v1/events` projects it — credential-free by construction. */
-export interface RunRow {
+/** One run, as `GET /v1/events` projects it: credential-free, and carrying the
+ * prompt's {@link PromptReference} — presence, fingerprint, length, never text. */
+export interface RunRow extends PromptReference {
     /** **The run's correlation id**: row key and every run-operation path segment. */
     readonly id: string;
     /** Same value as {@link RunRow.id}; what run-operation paths are addressed by. */
@@ -218,46 +208,6 @@ const RUN_STRING_FIELDS = [
     'detectedAt',
 ] as const;
 
-/**
- * Check the reason half of a `blocked:<reason>` state: a non-empty kebab
- * token, never a fixed enum (data-model §1), and never an empty suffix.
- *
- * @param reason - Whatever follows the `blocked:` prefix.
- * @returns `true` when every hyphen-separated part is lowercase alphanumeric.
- */
-function isBlockedReason(reason: string): boolean {
-    if (reason === '') {
-        return false;
-    }
-
-    return reason.split('-').every((part) => part !== '' && /^[a-z0-9]+$/.test(part));
-}
-
-/**
- * Narrow one raw state to the eight the service can answer with.
- *
- * An unknown state — a retired vocabulary word, a typo, a row from a future
- * build — refuses the row, which refuses the body: the list must never render
- * a state it would then have to guess the tone and affordances for (FR-074).
- *
- * @param value - Candidate state from a stored row.
- * @returns The state, or `null` when the row is unusable.
- */
-function runStateOf(value: unknown): RunState | null {
-    if (typeof value !== 'string') {
-        return null;
-    }
-
-    if ((PLAIN_RUN_STATES as readonly string[]).includes(value)) {
-        return value as PlainRunState;
-    }
-
-    if (!value.startsWith(BLOCKED_PREFIX) || !isBlockedReason(value.slice(BLOCKED_PREFIX.length))) {
-        return null;
-    }
-
-    return value as RunState;
-}
 
 /**
  * Read a required non-empty string member.
@@ -546,7 +496,14 @@ function parseRunEntry(value: unknown): RunRow | null {
     const detail = readRunDetail(record);
     const state = runStateOf(record.state);
     const issueNumber = issueNumberFrom(record);
-    if (scalars === null || counts === null || detail === null || state === null || issueNumber === 0) {
+    // Read fail-closed like every other member: an unusable prompt reference
+    // refuses the row, so a half-read answer never renders a prompt line (004 FR-052).
+    const prompt = readPromptReference(record);
+    if (scalars === null || counts === null || detail === null || state === null) {
+        return null;
+    }
+
+    if (issueNumber === 0 || prompt === null) {
         return null;
     }
 
@@ -554,7 +511,7 @@ function parseRunEntry(value: unknown): RunRow | null {
         return null;
     }
 
-    return { ...scalars, ...counts, ...detail, state, issueNumber };
+    return { ...scalars, ...counts, ...detail, state, issueNumber, ...prompt };
 }
 
 /**

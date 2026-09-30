@@ -149,6 +149,9 @@ function runFixture(overrides: Partial<RunRow> = {}): RunRow {
         bindingId: 'bnd-1',
         headSha: null,
         baseRef: null,
+        promptPresent: false,
+        promptFingerprint: null,
+        promptLength: null,
         ...overrides,
     };
 }
@@ -355,7 +358,7 @@ describe('runRows / runsStatusText (the copy the list renders)', () => {
             id: RUN_ID,
             leading: 'assign',
             title: '#7 Fix the flaky test',
-            subtitle: 'acme/widget · waiting for a panel · not dispatched yet',
+            subtitle: 'acme/widget · waiting for a panel · not dispatched yet · prompt not set',
             meta: '2m ago',
             badge: { label: 'waiting', tone: 'neutral' },
         });
@@ -469,7 +472,7 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
         // The list primitive writes the subtitle through `textContent`, so the
         // text arrives verbatim and inert: no escaping that would hide the
         // reason from the operator, and no path that could evaluate it.
-        expect(rows[0]?.subtitle).toBe(`acme/widget · ${hostile} · not dispatched yet`);
+        expect(rows[0]?.subtitle).toBe(`acme/widget · ${hostile} · not dispatched yet · prompt not set`);
     });
 
     it('shows one reference alone, with no "+N more" affordance (FR-015)', () => {
@@ -479,8 +482,42 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
         }));
 
         expect(rows[0]?.subtitle).toBe(
-            'acme/widget · assignment 2026-09-28 09:00 · waiting for a panel · not dispatched yet',
+            'acme/widget · assignment 2026-09-28 09:00 · waiting for a panel · not dispatched yet'
+                + ' · prompt not set',
         );
+    });
+
+    it('shows prompt presence, fingerprint, and length — and never the text (004 FR-052, AC-139)', () => {
+        const fingerprint = 'mtp-0123456789abcdef0123456789abcdef';
+        const set = runRows(runsState({
+            rows: [runFixture({ promptPresent: true, promptFingerprint: fingerprint, promptLength: 340 })],
+            status: 'ready',
+        }));
+        expect(set[0]?.subtitle).toContain(`prompt set · ${fingerprint} · 340 chars`);
+
+        // A row written before this feature, or one whose binding never had a
+        // prompt, renders the honest absence rather than an empty slot (FR-064).
+        const unset = runRows(runsState({ rows: [runFixture()], status: 'ready' }));
+        expect(unset[0]?.subtitle).toContain('prompt not set');
+
+        // The row never holds the instruction: there is no member for it to
+        // hold, so `host.storage` can only ever receive the reference.
+        const row = runFixture();
+        expect('promptText' in row).toBe(false);
+        expect(JSON.stringify(set)).not.toContain('promptText');
+    });
+
+    it('renders a hostile fingerprint as plain text through the non-HTML path (NFR-127)', () => {
+        // The parser refuses a fingerprint outside the `mtp-` format, so this
+        // is the renderer's own posture with a value it was handed anyway.
+        const hostile = '<img src=x onerror="steal()">';
+        const rows = runRows(runsState({
+            rows: [runFixture({ promptPresent: true, promptFingerprint: hostile, promptLength: 1 })],
+            status: 'ready',
+        }));
+
+        expect(rows[0]?.subtitle).toContain(hostile);
+        expect(rows[0]?.subtitle).toContain('prompt set');
     });
 
     it('lists every reference with kind, origin, and detection time, marking late ones (AC-101)', () => {

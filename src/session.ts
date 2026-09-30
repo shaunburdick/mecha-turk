@@ -19,7 +19,9 @@ import type {
     StartSessionResult,
 } from '@openchamber/sdk';
 import type { SpikeConfig, WorktreeSelection } from './config.ts';
-import type { SpikeEvidence } from './evidence.ts';
+import { BEGIN_UNTRUSTED, END_UNTRUSTED, defuseDelimiters, renderBlocks } from './context-blocks.ts';
+import type { ContextBlock } from './context-blocks.ts';
+import type { PromptReference } from './prompt.ts';import type { SpikeEvidence } from './evidence.ts';
 import type { GitHubIssue } from './github.ts';
 import type { LedgerDetail, SpikeLedger } from './ledger.ts';
 
@@ -55,39 +57,11 @@ export type SpikeHost = Pick<
 /** Maximum characters of bounded context sent as the session's first message (FR-014: ≤12,000 per dispatch). */
 export const CONTEXT_MAX_CHARS = 12_000;
 
-/**
- * Maximum characters one source's excerpt may occupy in the context.
- *
- * Two limits have to hold at once (FR-014): a per-source ceiling of 4,000
- * characters and the 12,000-character dispatch total. The per-item bound this
- * module applies is {@link SOURCE_EXCERPT_MAX_CHARS} — the 600-character bound
- * the trigger layer already writes and the claim transport already carries —
- * which is inside the 4,000 ceiling by construction, so the *budget* rather
- * than the ceiling is what decides how much of a source is shown. Each source
- * actually receives `min(600, its fair share of what is left)`, so 200
- * retained references (200 × 600 = 120,000 characters) can never crowd past
- * the dispatch total, and every source that is cut says so (FR-014's explicit
- * truncation marker — never a silent drop).
- */
-export const SOURCE_EXCERPT_MAX_CHARS = 600;
-
 /** Line separator used by the bounded context. */
 const NEWLINE = '\n';
 
-/** Appended to excerpt text this module cut (FR-014's explicit truncation marker). */
-const EXCERPT_TRUNCATION_MARKER = '… [truncated]';
-
-/** Stands in for excerpt text this context had no room for; never silent (FR-014). */
-const EXCERPT_OMITTED_MARKER = '[excerpt omitted: no room in this dispatch context]';
-
-/** Opening delimiter of the untrusted source text (FR-026). */
-const BEGIN_UNTRUSTED = '--- BEGIN UNTRUSTED ISSUE TEXT (truncated) ---';
-
-/** Closing delimiter of the untrusted source text (FR-026). */
-const END_UNTRUSTED = '--- END UNTRUSTED ISSUE TEXT ---';
-
-/** Hyphen used to elide a delimiter that hostile source text tried to forge. */
-const DEFUSED_HYPHEN = '‐';
+/** Re-exported: the context builder stays the one import path for these. */
+export { SOURCE_EXCERPT_MAX_CHARS } from './context-blocks.ts';
 
 /**
  * One source reference the dispatch context quotes (FR-014).
@@ -107,138 +81,6 @@ export interface ContextSource {
     readonly url: string;
     /** Bounded untrusted excerpt. */
     readonly excerpt: string;
-}
-
-/**
- * Elide one block delimiter out of untrusted text.
- *
- * @param marker - The literal marker to neutralize.
- * @returns The marker with its hyphens substituted, so it can no longer match.
- */
-function elideMarker(marker: string): string {
-    return marker.replaceAll('-', DEFUSED_HYPHEN);
-}
-
-/**
- * Elide any attempt by untrusted text to forge one of the block's delimiters.
- *
- * A source that quoted `--- END UNTRUSTED ISSUE TEXT ---` verbatim would close
- * the block early and let everything after it read as trusted framing — which
- * is exactly what FR-014's "delimiters that prevent source text from altering
- * policy" forbids. The substitution is byte-for-byte length preserving, happens
- * **before** any truncation (so a cut can never reassemble a marker), and only
- * ever touches the two literal markers.
- *
- * @param text - Untrusted source text.
- * @returns The text with every forged delimiter neutralized.
- */
-function defuseDelimiters(text: string): string {
-    return text
-        .replaceAll(BEGIN_UNTRUSTED, elideMarker(BEGIN_UNTRUSTED))
-        .replaceAll(END_UNTRUSTED, elideMarker(END_UNTRUSTED));
-}
-
-/**
- * Fit one source's excerpt into its share of the budget, marking the cut.
- *
- * @param excerpt - Untrusted excerpt, delimiters already neutralized.
- * @param bound - Characters this source may spend on its excerpt.
- * @returns The excerpt, a truncation-marked prefix of it, or the omission
- *   marker when not even the marker's own length fits.
- */
-function fitExcerpt(excerpt: string, bound: number): string {
-    if (excerpt.length <= bound) {
-        return excerpt;
-    }
-
-    if (bound <= EXCERPT_TRUNCATION_MARKER.length) {
-        return EXCERPT_OMITTED_MARKER;
-    }
-
-    return `${excerpt.slice(0, bound - EXCERPT_TRUNCATION_MARKER.length)}${EXCERPT_TRUNCATION_MARKER}`;
-}
-
-/** One line of untrusted context: its heading, and the excerpt under it. */
-interface ContextBlock {
-    /** `null` for the legacy single-source shape, which carries no heading. */
-    readonly head: string | null;
-    /** The source's excerpt. */
-    readonly excerpt: string;
-}
-
-/**
- * Compose the explicit roll-up line that names the sources the budget excluded.
- *
- * @param skipped - How many sources were not listed.
- * @returns The line; plain text, never a delimiter.
- */
-function rollUpLine(skipped: number): string {
-    const noun = skipped === 1 ? 'source' : 'sources';
-
-    return `[+${skipped} ${noun} not listed: dispatch context budget exhausted]`;
-}
-
-/**
- * Render every block the budget still affords, in order.
- *
- * Each source takes `min(SOURCE_EXCERPT_MAX_CHARS, its fair share of what is
- * left)`, so the answer is deterministic, every listed source is fully
- * accounted for, and a source the budget cannot list is counted rather than
- * silently dropped. The roll-up line's length is reserved before the first
- * block is rendered, which is what makes "never silent" a guarantee instead of
- * a hope: the reserved space cannot be spent by the blocks in front of it.
- *
- * @param input - The blocks and the character budget their lines may occupy.
- * @returns The lines to place between the delimiters, in order.
- */
-function renderBlocks(input: { readonly blocks: readonly ContextBlock[]; readonly available: number }): string[] {
-    const { blocks, available } = input;
-    // Two extra characters cover the blank line that would precede the roll-up.
-    // Reserving only for a multi-source run keeps a single-source context whole:
-    // there the block's own truncation/omission marker is the visible cut, and
-    // spending sixty characters on a roll-up that cannot happen would only
-    // shrink the quotation.
-    const reserve = blocks.length > 1 ? rollUpLine(blocks.length).length + NEWLINE.length * 2 : 0;
-    const budget = Math.max(available - reserve, 0);
-    const rendered: string[] = [];
-    let used = 0;
-    let skipped = 0;
-
-    for (const [index, block] of blocks.entries()) {
-        const separator = rendered.length > 0 ? NEWLINE.length * 2 : 0;
-        const remaining = budget - used - separator;
-        const sourcesLeft = blocks.length - index;
-        if (remaining <= 0) {
-            skipped = sourcesLeft;
-            break;
-        }
-
-        const head = block.head === null ? '' : `${defuseDelimiters(block.head)}${NEWLINE}`;
-        // FR-014's per-item bound: the smallest of the excerpt ceiling, this
-        // source's fair share of what is left, and what is left after its own
-        // heading is paid for. All three hold at once, and the hard length
-        // check below keeps the total honest whatever the three disagree about.
-        const share = Math.floor(remaining / sourcesLeft);
-        const bound = Math.max(Math.min(SOURCE_EXCERPT_MAX_CHARS, share, remaining - head.length), 0);
-        const text = `${head}${fitExcerpt(defuseDelimiters(block.excerpt), bound)}`;
-        if (text.length > remaining) {
-            skipped = sourcesLeft;
-            break;
-        }
-
-        rendered.push(text);
-        used += separator + text.length;
-    }
-
-    if (skipped > 0) {
-        const rollUp = rollUpLine(skipped);
-        const separator = rendered.length > 0 ? NEWLINE.length * 2 : 0;
-        if (used + separator + rollUp.length <= available) {
-            rendered.push(rollUp);
-        }
-    }
-
-    return rendered;
 }
 
 /**
@@ -297,38 +139,33 @@ export async function resolveProject(
 /**
  * Build the bounded first-message context for a dispatched session.
  *
- * Source text is untrusted material (FR-026), so every source is quoted inside
- * one explicit delimited block and bounded before it can dominate the prompt.
- * Three guarantees hold simultaneously, which is the whole point of the shape:
+ * Source text is untrusted (FR-026), so every source is quoted inside one
+ * explicit delimited block and bounded before it can dominate the prompt.
+ * Three guarantees hold at once, which is the whole point of the shape:
  *
- * - **Both limits, at once (FR-014).** Every source's excerpt is at most
- *   {@link SOURCE_EXCERPT_MAX_CHARS} characters — inside FR-014's 4,000
- *   per-source ceiling — and the whole context is at most `maxChars`
- *   ({@link CONTEXT_MAX_CHARS} = 12,000 by default) including the frame, the
- *   separators, and the closing delimiter. Both are true for any mix of
- *   sources, because every character the renderer emits is subtracted from the
- *   same running budget.
- * - **Nothing is dropped silently.** A source that is cut carries
- *   `… [truncated]`; a source whose text did not fit carries the explicit
- *   omission marker; and sources the budget could not list at all are named in
- *   a roll-up line whose length is reserved before the first source is
- *   rendered, so the reserved space cannot be spent in front of it. The frame
- *   additionally states how many references the run has, so the count of what
- *   was quoted is always checkable against the total.
- * - **Source text cannot reach past the delimiters.** The opening and closing
- *   markers are elided out of every untrusted string before it is quoted, and
- *   before any truncation, so a source quoting the closing marker verbatim
- *   cannot end the block early — and a cut can never reassemble one.
+ * - **Both limits, at once (FR-014).** Each excerpt is capped by
+ *   {@link SOURCE_EXCERPT_MAX_CHARS} and the whole context by `maxChars`
+ *   ({@link CONTEXT_MAX_CHARS} = 12,000 by default), frame and closing
+ *   delimiter included — true for any mix, because every character the
+ *   renderer emits is subtracted from one running budget.
+ * - **Nothing is dropped silently.** A cut source carries `… [truncated]`, a
+ *   source that did not fit carries the omission marker, and sources the
+ *   budget could not list are named by a roll-up line whose length was
+ *   reserved before the first block ran. The frame states how many references
+ *   the run has, so the count of what was quoted checks against the total.
+ * - **Source text cannot reach past the delimiters.** Markers are elided out
+ *   of every untrusted string before quoting and before any truncation, so a
+ *   cut can never reassemble one.
  *
- * The budget is spent on the sources, never on the frame: the frame is counted
- * in full first, so truncating a source can shorten a quotation but can never
- * cut the closing delimiter. The context never contains a token or any
- * Authorization material.
+ * The budget is spent on the sources, never on the frame: the frame is
+ * counted in full first, so a shortened quotation can never cut the closing
+ * delimiter. The context never contains a token or Authorization material.
  *
  * @param input - Repository, issue, identity, correlation, and the run's sources.
  * @returns Context truncated to `maxChars` characters, markers intact.
  */
-export function buildBoundedContext(input: {
+/** Everything one bounded context is built from. */
+export interface BoundedContextInput {
     /** `owner/name` of the repository. */
     readonly repository: string;
     /** Matched issue. */
@@ -346,8 +183,18 @@ export function buildBoundedContext(input: {
     readonly sources?: readonly ContextSource[];
     /** Optional character budget; defaults to {@link CONTEXT_MAX_CHARS}. */
     readonly maxChars?: number;
-}): string {
+    /**
+     * Characters already spoken for by the operator's prompt block and its
+     * blank line, reserved **before** the excerpt budget is sized (004 FR-035)
+     * — so the excerpt is what shortens, never the prompt. See
+     * {@link promptBlockChars} in `prompt.ts`.
+     */
+    readonly reservedChars?: number;
+}
+
+export function buildBoundedContext(input: BoundedContextInput): string {
     const maxChars = input.maxChars ?? CONTEXT_MAX_CHARS;
+    const reservedChars = Math.max(input.reservedChars ?? 0, 0);
     const sources = input.sources ?? [];
     const blocks: ContextBlock[] = sources.length > 0
         ? sources.map((source) => ({
@@ -370,8 +217,12 @@ export function buildBoundedContext(input: {
     // The frame, the newline that follows it, the newline before the closing
     // delimiter, and the delimiter itself are counted before any source is
     // rendered, so the rendered block can never overrun `maxChars` by exactly
-    // the separator that was forgotten.
-    const available = Math.max(maxChars - frame.length - NEWLINE.length * 2 - END_UNTRUSTED.length, 0);
+    // the separator that was forgotten. The prompt's reservation is subtracted
+    // here too: it is part of the same budget, and it is spent first (004 FR-035).
+    const available = Math.max(
+        maxChars - reservedChars - frame.length - NEWLINE.length * 2 - END_UNTRUSTED.length,
+        0,
+    );
     const rendered = renderBlocks({ blocks, available });
     const body = rendered.length > 0 ? `${NEWLINE}${rendered.join(NEWLINE + NEWLINE)}${NEWLINE}` : '';
 
@@ -395,6 +246,9 @@ function worktreeValue(selection: WorktreeSelection): GuestSessionWorktree | und
 
     return { kind: 'new', name: selection.name };
 }
+
+/** The reference a request carries when no prompt was set (004 FR-032). */
+const NO_PROMPT: PromptReference = { promptPresent: false, promptFingerprint: null, promptLength: null };
 
 /**
  * Build the documented `host.startSession()` request for a matched issue.
@@ -420,9 +274,18 @@ export function buildStartSessionRequest(input: {
     readonly issue: GitHubIssue;
     /** Bounded first-message context. */
     readonly context: string;
+    /**
+     * The prompt reference for the machine-readable `data` (004 FR-037).
+     *
+     * Omitted by the spike path, which has no run and therefore no prompt;
+     * the unset triple is written either way, so the member set is constant
+     * across every request this panel builds.
+     */
+    readonly prompt?: PromptReference;
 }): StartSessionRequest {
     const worktree = worktreeValue(input.config.worktree);
     const attachmentId = input.evidence.correlationId;
+    const prompt = input.prompt ?? NO_PROMPT;
 
     return {
         providerId: 'mecha-turk',
@@ -439,6 +302,10 @@ export function buildStartSessionRequest(input: {
             issueId: input.evidence.issueId,
             detectedAt: input.evidence.detectedAt,
             panelGeneration: input.evidence.panelGeneration,
+            // The reference, never a second copy of the instruction (004 FR-037).
+            promptPresent: prompt.promptPresent,
+            promptFingerprint: prompt.promptFingerprint,
+            promptLength: prompt.promptLength,
         },
         ...(worktree === undefined ? {} : { worktree }),
     };

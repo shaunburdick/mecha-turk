@@ -135,6 +135,10 @@ function claimedRun(overrides: Partial<ClaimedRun> = {}): ClaimedRun {
         referencesTruncated: false,
         issueBodyExcerpt: '',
         detectedAt: FIXTURE_TIMESTAMP,
+        promptPresent: false,
+        promptFingerprint: null,
+        promptLength: null,
+        promptText: null,
         ...overrides,
     };
 }
@@ -232,6 +236,8 @@ interface Harness {
     readonly timeline: readonly string[];
     /** Body the panel sent for each `METHOD path` it called. */
     readonly sent: Readonly<Record<string, string>>;
+    /** The last `host.startSession()` request the double received, as JSON. */
+    sessionRequest: () => string;
     /** The shared `host.storage` the mount read and wrote (T-034's bounds). */
     readonly storage: StorageDouble;
     /** Replace the route table, modelling the service's answer changing. */
@@ -252,6 +258,7 @@ function harness(
     const timeline: string[] = [];
     const sent: Record<string, string> = {};
     let table = routes;
+    let capturedRequest = '';
     const storage = createStorageDouble();
 
     const host: SpikeHost = fakeHost({
@@ -271,6 +278,7 @@ function harness(
             // The attachment id is the run's correlation id (FR-029), so the
             // timeline records exactly what the host was asked to create.
             timeline.push(`startSession:${request.id}`);
+            capturedRequest = JSON.stringify(request);
 
             return SESSION_CREATED;
         },
@@ -306,6 +314,7 @@ function harness(
         timeline,
         sent,
         storage,
+        sessionRequest: () => capturedRequest,
         setRoutes: (next) => {
             table = next;
         },
@@ -750,5 +759,103 @@ describe('bounded growth is asserted, not assumed (AC-129, NFR-107)', () => {
 
         expect(rows).toHaveLength(MAX_LISTED_EVENTS);
         expect(rows.length).toBeLessThan(seeded.runs.length);
+    });
+});
+
+/** Fingerprint the prompt fixture carries; the fixed `mtp-` shape, no text. */
+const PROMPT_FINGERPRINT = `mtp-${'ab'.repeat(16)}`;
+
+/** The operator's instruction, planted on one claim answer. */
+const PROMPT_TEXT = 'Reproduce first, then patch. Do not widen the public API.';
+
+/** The claim answer this suite claims from when the run carries a prompt. */
+function promptedRoutes(): RouteTable {
+    return {
+        ...OK_ROUTES,
+        [PENDING_GET]: {
+            status: 200,
+            body: claimBody([claimedRun({
+                promptPresent: true,
+                promptFingerprint: PROMPT_FINGERPRINT,
+                promptLength: [...PROMPT_TEXT].length,
+                promptText: PROMPT_TEXT,
+            })]),
+        },
+    };
+}
+
+describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, FR-053)', () => {
+    it('adds no round trip: still claim, reserve, startSession (+0, NFR-120)', async () => {
+        const relay = harness(promptedRoutes());
+        await pollRelay(relay.rt);
+
+        const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
+        expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
+        expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+    });
+
+    it('carries the text exactly once — inside the message — and nowhere else', async () => {
+        const relay = harness(promptedRoutes());
+        await pollRelay(relay.rt);
+
+        const request = relay.sessionRequest();
+        const parsed = JSON.parse(request) as {
+            readonly text: string;
+            readonly data: Record<string, unknown>;
+        };
+
+        // Exactly once, and inside `text`: the operator's block leads, and the
+        // machine's frame follows it (004 FR-030, AC-130).
+        expect(request.split(PROMPT_TEXT).length - 1).toBe(1);
+        expect(parsed.text.indexOf(PROMPT_TEXT)).toBeLessThan(parsed.text.indexOf('Mecha Turk dispatch'));
+        expect(parsed.text).toContain('--- BEGIN OPERATOR STARTING PROMPT ---');
+        expect(parsed.text).toContain('--- END OPERATOR STARTING PROMPT ---');
+
+        // The machine-readable half carries the reference, never a copy (FR-037).
+        expect(parsed.data.promptPresent).toBe(true);
+        expect(parsed.data.promptFingerprint).toBe(PROMPT_FINGERPRINT);
+        expect(parsed.data.promptLength).toBe([...PROMPT_TEXT].length);
+        expect(JSON.stringify(parsed.data)).not.toContain(PROMPT_TEXT);
+
+        // And no other surface the panel owns receives it (FR-011, AC-144).
+        expect(JSON.stringify(relay.storage)).not.toContain(PROMPT_TEXT);
+        expect(JSON.stringify(relay.rt.state.ledger)).not.toContain(PROMPT_TEXT);
+        expect(JSON.stringify(relay.rt.state.repos)).not.toContain(PROMPT_TEXT);
+    });
+
+    it('composes a prompt-less dispatch byte-identically to the pre-004 frame (SC-121)', async () => {
+        const relay = harness();
+        await pollRelay(relay.rt);
+
+        const parsed = JSON.parse(relay.sessionRequest()) as {
+            readonly text: string;
+            readonly data: Record<string, unknown>;
+        };
+        const frame = buildBoundedContext({
+            repository: REPOSITORY,
+            issue: {
+                issueNumber: 7,
+                title: ISSUE_TITLE,
+                url: `https://github.com/${REPOSITORY}/issues/7`,
+                state: 'open',
+                body: null,
+                assignees: [LOGIN],
+                isPullRequest: false,
+            },
+            authenticatedLogin: LOGIN,
+            correlationId: CORRELATION,
+            sources: [],
+        });
+
+        // No fence, no blank line, no note about the absence — the message is
+        // what this build produced before the feature existed.
+        expect(parsed.text).not.toContain('OPERATOR STARTING PROMPT');
+        expect(parsed.text).toBe(frame);
+        expect(parsed.text.startsWith('Mecha Turk dispatch (automated')).toBe(true);
+        expect(parsed.data).toMatchObject({
+            promptPresent: false,
+            promptFingerprint: null,
+            promptLength: null,
+        });
     });
 });

@@ -29,6 +29,7 @@
 
 import { createHash } from 'node:crypto';
 import {
+    PROMPT_FINGERPRINT_PATTERN,
     countCodePoints,
     hasIllegalControlChar,
     hasReservedMarkerLine,
@@ -36,6 +37,9 @@ import {
     trimPrompt,
 } from '../src/prompt.ts';
 import { findSecretLeak } from '../src/redaction.ts';
+
+/** Re-exported so the service stays the one import path for prompt rules. */
+export { PROMPT_FINGERPRINT_PATTERN };
 
 /**
  * The stored prompt's cap, in Unicode code points after trimming (004 FR-020).
@@ -49,7 +53,6 @@ import { findSecretLeak } from '../src/redaction.ts';
 export const STARTING_PROMPT_MAX_CODE_POINTS = 2_000;
 
 /** Wire and storage shape of a prompt fingerprint (004 FR-016; data-model §2.2). */
-export const PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
 
 /** Prefix every fingerprint carries, so it reads as an identity in a log line. */
 export const PROMPT_FINGERPRINT_PREFIX = 'mtp-';

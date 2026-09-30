@@ -22,6 +22,7 @@
  * `SECRET_PATTERNS` deliberately does not cover `dtk-` (research §R3).
  */
 
+import { readClaimPrompt } from './prompt-wire.ts';
 import { asRecord, fieldsHoldText, parseJsonObject, textOrEmpty, textOrNull } from './json.ts';
 import type { BindingStatusRow, EventKind } from './repos-service.ts';
 import { eventKindOf, readStatusRows } from './repos-service.ts';
@@ -122,6 +123,20 @@ export interface ClaimedRun {
     readonly issueBodyExcerpt: string;
     /** Earliest source reference's detection stamp (row age). */
     readonly detectedAt: string;
+    /** Whether the run queued with a starting prompt (004 FR-015). */
+    readonly promptPresent: boolean;
+    /** Its `mtp-…` fingerprint, or `null` when none (004 FR-037). */
+    readonly promptFingerprint: string | null;
+    /** Code points of the normalised text, or `null` when none. */
+    readonly promptLength: number | null;
+    /**
+     * The text the composition fences — **claim transport only**.
+     *
+     * Carried exactly like `sourceReferences[].excerpt`: so the panel can
+     * build the message, never so a surface can display it. The panel never
+     * writes it anywhere (004 FR-053, AC-144).
+     */
+    readonly promptText: string | null;
 }
 
 
@@ -426,7 +441,15 @@ function parseClaimedRun(value: unknown): ClaimedRun | null {
     const subject = readClaimSubject(record);
     const lease = parseLease(record.lease);
     const references = parseClaimReferences(record.sourceReferences);
-    if (scalars === null || numbers === null || subject === null || lease === null || references === null) {
+    const prompt = readClaimPrompt(record);
+    if (
+        scalars === null
+        || numbers === null
+        || subject === null
+        || lease === null
+        || references === null
+        || prompt === null
+    ) {
         return null;
     }
 
@@ -448,6 +471,7 @@ function parseClaimedRun(value: unknown): ClaimedRun | null {
         issueUrl: textOrEmpty(record, 'issueUrl'),
         issueBodyExcerpt: textOrEmpty(record, 'issueBodyExcerpt'),
         sourceReferences: references,
+        ...prompt,
     };
 }
 

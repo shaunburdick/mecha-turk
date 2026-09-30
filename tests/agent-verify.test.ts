@@ -315,6 +315,10 @@ const CLAIM: ClaimedRun = {
     referencesTruncated: false,
     issueBodyExcerpt: '',
     detectedAt: FIXTURE_TIMESTAMP,
+    promptPresent: false,
+    promptFingerprint: null,
+    promptLength: null,
+    promptText: null,
 };
 
 /**
@@ -393,6 +397,9 @@ const RUN_ROW: RunRow = {
     bindingId: CLAIM.bindingId,
     headSha: null,
     baseRef: null,
+    promptPresent: false,
+    promptFingerprint: null,
+    promptLength: null,
 };
 
 describe('relay dispatch → verification wiring (M9 in the real path)', () => {

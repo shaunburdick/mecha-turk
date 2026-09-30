@@ -43,6 +43,15 @@ export const RESERVED_MARKER_PREFIXES: readonly string[] = ['--- BEGIN ', '--- E
 /** Line separator every composition and every rule in this module counts in. */
 const NEWLINE = '\n';
 
+/**
+ * Wire and storage shape of a prompt fingerprint (004 FR-016).
+ *
+ * Defined here rather than beside the hasher so the panel and the service read
+ * the *same* rule: the service derives the value, the panel checks the shape
+ * of the one it was handed, and neither can drift.
+ */
+export const PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
+
 /** First code point excluded from prompt text: NUL through backspace. */
 const LAST_FORBIDDEN_LOW_CODE_POINT = 0x08;
 
@@ -184,4 +193,68 @@ export function hasIllegalControlChar(text: string): boolean {
     }
 
     return false;
+}
+
+/**
+ * The prompt reference the machine-readable `data` carries (004 FR-037).
+ *
+ * Three scalars and **never the text**: the instruction travels once, in the
+ * message's `text`, so a second copy in `data` would be exactly the duplicate
+ * 004 FR-037 forbids.
+ */
+export interface PromptReference {
+    /** Whether the run carried a starting prompt. */
+    readonly promptPresent: boolean;
+    /** Its `mtp-…` fingerprint, or `null` when none. */
+    readonly promptFingerprint: string | null;
+    /** Code points of the normalised text, or `null` when none. */
+    readonly promptLength: number | null;
+}
+
+/**
+ * How many characters a prompt block and its blank line will occupy.
+ *
+ * This is the number the bounded context reserves **before** it sizes the
+ * excerpt budget, which is what makes FR-035's rule mechanical: the excerpt
+ * shortens first and the prompt never shortens at all.
+ *
+ * @param prompt - The normalised prompt text, or `null` when unset.
+ * @returns The reserved character count; `0` for an unset prompt.
+ */
+export function promptBlockChars(prompt: string | null): number {
+    if (prompt === null || prompt === '') {
+        return 0;
+    }
+
+    // begin fence, its newline, the text, its newline, the end fence, then
+    // the blank line the composition puts between the block and the frame.
+    return OPERATOR_PROMPT_FENCE_BEGIN.length + prompt.length + OPERATOR_PROMPT_FENCE_END.length + 4;
+}
+
+/**
+ * Compose the session's first message: the operator's prompt block first,
+ * then the automatic frame (004 FR-030, `## Dispatch Message Composition`).
+ *
+ * The fence is **emitted** here and never parsed out of anything (004 FR-031,
+ * FR-033): the operator's text is concatenated byte for byte between the two
+ * markers — no escaping, no reflow, no substitution — and when the prompt is
+ * unset the frame comes back untouched: no fence, no blank line, no note about
+ * the absence (004 FR-032, SC-121). This is the one function that produces the
+ * message (004 FR-036); nothing else renders it.
+ *
+ * @param input - The prompt, and the frame the bounded context built.
+ * @returns The complete first message.
+ */
+export function composeFirstMessage(input: {
+    /** The normalised prompt text, or `null` for a run with none. */
+    readonly prompt: string | null;
+    /** The automatic frame, already bounded. */
+    readonly frame: string;
+}): string {
+    if (input.prompt === null || input.prompt === '') {
+        return input.frame;
+    }
+
+    return `${OPERATOR_PROMPT_FENCE_BEGIN}${NEWLINE}${input.prompt}${NEWLINE}`
+        + `${OPERATOR_PROMPT_FENCE_END}${NEWLINE}${NEWLINE}${input.frame}`;
 }

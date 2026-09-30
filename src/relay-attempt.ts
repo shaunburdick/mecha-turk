@@ -25,11 +25,13 @@ import { parseWorktreeOption, repositoryLabel } from './config.ts';
 import type { WorktreeSelection } from './config.ts';
 import { acknowledgeDispatch, recordDispatchOutcome } from './dispatch-record.ts';
 import type { RecordedOutcome } from './dispatch-record.ts';
+import type { SpikeEvidence } from './evidence.ts';
 import type { GitHubIssue } from './github.ts';
 import { nowIso } from './ids.ts';
 import type { LedgerDetail } from './ledger.ts';
 import { appendEntryAndPersist } from './panel-actions.ts';
 import { redact } from './redaction.ts';
+import { composeFirstMessage, promptBlockChars } from './prompt.ts';
 import { loadRuns } from './runs.ts';
 import { dispatchedPath, servicePost } from './service-calls.ts';
 import {
@@ -107,7 +109,39 @@ function failureReason(summary: LedgerDetail): string {
 }
 
 /**
+ * Build the spike-shaped evidence record one offered run maps into.
+ *
+ * MVP-DEBT: the relay borrows the spike's evidence schema, so the trigger
+ * literal stays the spike's; the relay's own framing lives in the PM context
+ * line and the ledger entry. The correlation id is the run's, which is what
+ * makes the attachment id the run's too (FR-029).
+ *
+ * @param input - Runtime and the offered run.
+ * @returns The evidence record the attachment reads its identity from.
+ */
+function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRun }): SpikeEvidence {
+    const { rt, run } = input;
+
+    return {
+        schemaVersion: 'extension-spike-1',
+        repository: run.repository,
+        issueId: String(run.issueNumber),
+        issueUrl: run.issueUrl,
+        trigger: 'configured-match',
+        authenticatedLogin: run.accountLogin,
+        correlationId: run.correlationId,
+        detectedAt: run.detectedAt,
+        panelGeneration: rt.state.ledger.panelGeneration,
+    };
+}
+
+/**
  * Build the start-session request one offered run maps into.
+ *
+ * The message is composed here from the run's own snapshot: the operator's
+ * prompt block first, the automatic frame beneath it — and with no prompt the
+ * frame is exactly what this build produced before the feature existed (004
+ * FR-032, SC-121).
  *
  * @param input - Runtime, the run, and the project the host confirmed.
  * @returns The request exactly as the host will receive it.
@@ -120,16 +154,24 @@ export function runRequestOf(input: {
     /** Project the host confirmed. */
     readonly project: GuestProject;
 }): StartSessionRequest {
-    const { rt, run } = input;
+    const { run } = input;
     const worktree: WorktreeSelection = parseWorktreeOption(run.worktreeOption) ?? { kind: 'none' };
     const issue = issueOf(run);
-    const context = buildBoundedContext({
+    // The snapshot arrives on the claim answer and nowhere else; an unset run
+    // composes exactly what it composed before this feature existed — no
+    // fence, no blank line, no placeholder (004 FR-032, SC-121).
+    const prompt = run.promptPresent ? run.promptText : null;
+    const frame = buildBoundedContext({
         repository: run.repository,
         issue,
         authenticatedLogin: run.accountLogin,
         correlationId: run.correlationId,
         sources: contextSourcesOf(run),
+        // Reserved before the excerpt is sized, so the excerpt is what
+        // shortens when the two together would exceed the bound (FR-035).
+        reservedChars: promptBlockChars(prompt),
     });
+    const context = composeFirstMessage({ prompt, frame });
 
     return buildStartSessionRequest({
         config: {
@@ -139,23 +181,16 @@ export function runRequestOf(input: {
             worktree,
             pollIntervalMs: RELAY_POLL_INTERVAL_MS,
         },
-        // MVP-DEBT: the relay borrows the spike's evidence schema, so the
-        // trigger literal stays the spike's; the relay's own framing lives in
-        // the PM context line and the ledger entry. The correlation id is the
-        // run's, which is what makes the attachment id the run's too (FR-029).
-        evidence: {
-            schemaVersion: 'extension-spike-1',
-            repository: run.repository,
-            issueId: String(run.issueNumber),
-            issueUrl: run.issueUrl,
-            trigger: 'configured-match',
-            authenticatedLogin: run.accountLogin,
-            correlationId: run.correlationId,
-            detectedAt: run.detectedAt,
-            panelGeneration: rt.state.ledger.panelGeneration,
-        },
+        evidence: evidenceFor(input),
         issue,
         context,
+        // The reference only: the text is already inside `context`, and 004
+        // FR-037 forbids a second copy of it anywhere in the envelope.
+        prompt: {
+            promptPresent: run.promptPresent,
+            promptFingerprint: run.promptFingerprint,
+            promptLength: run.promptLength,
+        },
     });
 }
 

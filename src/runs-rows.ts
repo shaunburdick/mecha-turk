@@ -421,6 +421,25 @@ function verificationPhrase(verification: RunVerification): string {
 }
 
 /**
+ * Compose the prompt line: presence, fingerprint, and length — never the text.
+ *
+ * The fingerprint is what lets an operator tell two dispatches apart and
+ * recognise a pre-upgrade one (004 FR-052, AC-139); the text is the
+ * instruction, and it lives in the binding and the run's snapshot, not on a
+ * row that outlives them (004 FR-053).
+ *
+ * @param row - Run to describe.
+ * @returns `prompt set · mtp-… · N chars`, or `prompt not set`.
+ */
+function promptPhrase(row: RunRow): string {
+    if (!row.promptPresent || row.promptFingerprint === null || row.promptLength === null) {
+        return 'prompt not set';
+    }
+
+    return `prompt set · ${row.promptFingerprint} · ${row.promptLength} chars`;
+}
+
+/**
  * Compose one runs-list row.
  *
  * @param row - Run as the service projected it.
@@ -436,6 +455,7 @@ export function runRow(row: RunRow): ListItem {
         reason,
         result === reason ? null : result,
         verification,
+        promptPhrase(row),
     ].filter((part): part is string => part !== null && part !== '');
 
     return {

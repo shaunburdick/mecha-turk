@@ -2088,6 +2088,7 @@ import { createHash as createHash2 } from "node:crypto";
 var RESERVED_MARKER_PREFIXES = ["--- BEGIN ", "--- END "];
 var NEWLINE = `
 `;
+var PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
 var LAST_FORBIDDEN_LOW_CODE_POINT = 8;
 var TAB_CODE_POINT = 9;
 var LINE_FEED_CODE_POINT = 10;
@@ -2143,7 +2144,6 @@ function hasIllegalControlChar(text) {
 
 // service/prompt.ts
 var STARTING_PROMPT_MAX_CODE_POINTS = 2000;
-var PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
 var PROMPT_FINGERPRINT_PREFIX = "mtp-";
 var FINGERPRINT_HEX_CHARS = 32;
 var REMEDIATION_TYPE = "startingPrompt must be text; send it absent or null to leave the starting prompt unset";
