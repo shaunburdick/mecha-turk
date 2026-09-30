@@ -366,6 +366,7 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
             'record',
             `POST ${RUN_PATH}/dispatched`,
             'ack',
+            'GET /v1/config',
             `openSession:${SESSION_ID}`,
             `POST ${RUN_PATH}/verification`,
         ]);

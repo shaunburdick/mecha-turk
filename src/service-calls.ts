@@ -26,6 +26,15 @@ export const ACCOUNTS_PATH = '/v1/accounts';
 /** Path the panel polls for claimed runs. */
 export const EVENTS_PENDING_PATH = '/v1/events/pending';
 
+/**
+ * Path of the service configuration document (002 FR-029's baseline source).
+ *
+ * The panel reads it per verification to pick up `expectedAgent`; a build
+ * whose document does not carry the field falls back to the documented
+ * default with `provenance: 'defaulted'` rather than blocking the run.
+ */
+export const CONFIG_PATH = '/v1/config';
+
 /** Path of the runs history: every run, every state, newest first (M8). */
 export const EVENTS_PATH = '/v1/events';
 

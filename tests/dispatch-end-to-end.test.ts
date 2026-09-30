@@ -78,6 +78,7 @@ describe('T-036 one end-to-end dispatch on this branch', () => {
             'record',
             `POST /v1/events/${run.correlationId}/dispatched`,
             'ack',
+            'GET /v1/config',
             `openSession:${SESSION_ID}`,
             `POST /v1/events/${run.correlationId}/verification`,
         ]);

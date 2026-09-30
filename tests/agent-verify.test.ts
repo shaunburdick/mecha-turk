@@ -4,13 +4,15 @@
  * The read-back is the product's core PM-leads requirement and the one part
  * of the loop nobody had exercised live: the panel subscribes to
  * `onSession`, opens the dispatched session through `openSession`, and
- * judges the `agent` the snapshot reports against the `expected-agent`
- * setting. These tests drive that flow through a host double that records
+ * judges the `agent` the snapshot reports against the baseline it reads from
+ * `GET /v1/config` (002 FR-029 — the card carries no settings since 002
+ * FR-041). These tests drive that flow through a host double that records
  * the order of the two calls (the subscription must land first — the host
  * replays its current snapshot to a late subscriber, so subscribing second
  * would be a race), then covers the four outcomes: match, mismatch, absent
  * agent, and timeout, plus the "the session could not be opened at all"
- * branch. The recorder and the relay wiring are asserted end to end so the
+ * branch, plus the two-case baseline split (configured vs defaulted). The
+ * recorder and the relay wiring are asserted end to end so the
  * warning a live dispatch shows cannot silently go missing.
  */
 
@@ -43,7 +45,7 @@ import {
 /** Session id the fixture dispatch created. */
 const SESSION = SESSION_ID;
 
-/** Agent the fixture settings expect (the manifest default). */
+/** Agent the fixture baseline expects (the documented 002 FR-029 default). */
 const EXPECTED_AGENT = 'project-manager';
 
 /** Deliberately tiny wait budget so the timeout path stays fast in tests. */
@@ -502,10 +504,15 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
     /**
      * Run one read-back against a host whose service records the report.
      *
+     * The `GET /v1/config` the baseline read performs is answered from
+     * `configBody` when one is given, and with a non-2xx otherwise — which is
+     * 002 FR-029 case (ii): the field (or the document) is simply not there.
+     *
      * @param agent - Agent the session reports; omit to report none.
+     * @param configBody - Body `GET /v1/config` should answer with.
      * @returns The runtime plus the report the service received.
      */
-    async function reported(agent?: string): Promise<ReadBackReport> {
+    async function reported(agent?: string, configBody?: string): Promise<ReadBackReport> {
         const paths: string[] = [];
         const bodies: (string | undefined)[] = [];
         const double = verifyHost({ onOpen: snapshot(agent) });
@@ -515,6 +522,11 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             serviceRequest: async (request) => {
                 paths.push(`${request.method} ${request.path}`);
                 bodies.push(request.body);
+                if (request.method === 'GET' && request.path === '/v1/config') {
+                    return configBody === undefined
+                        ? { status: 404, body: '{}' }
+                        : { status: 200, body: configBody };
+                }
 
                 return { status: 200, body: '{"verification":{"ok":true}}' };
             },
@@ -525,9 +537,13 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
         return { rt, paths, bodies };
     }
 
-    /** Parse the report's first body, failing loudly when none arrived. */
+    /** The two calls one read-back makes: the baseline read, then the report. */
+    const READ_BACK_PATHS = ['GET /v1/config', `POST /v1/events/${CORRELATION}/verification`];
+
+    /** Parse the verification report's body, failing loudly when none arrived. */
     function reportBody(report: ReadBackReport): Record<string, unknown> {
-        const body = report.bodies[0];
+        const index = report.paths.findIndex((path) => path.startsWith('POST '));
+        const body = index < 0 ? undefined : report.bodies[index];
         if (body === undefined) {
             throw new Error('the verification never reported to the service');
         }
@@ -538,7 +554,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
     it('posts a match as evidence with its attempt and the baseline it used', async () => {
         const report = await reported(EXPECTED_AGENT);
 
-        expect(report.paths).toEqual([`POST /v1/events/${CORRELATION}/verification`]);
+        expect(report.paths).toEqual(READ_BACK_PATHS);
         expect(reportBody(report)).toEqual({
             correlationId: CORRELATION,
             attempt: 1,
@@ -572,6 +588,72 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
         expect(body.ok).toBe(false);
         expect(body.observedAgent).toBeNull();
         expect(body.note).toBe('the session reported no agent');
+    });
+
+    it('reads a configured baseline from GET /v1/config and records it as configured', async () => {
+        const report = await reported('planner', JSON.stringify({ config: { expectedAgent: '  planner  ' } }));
+
+        expect(report.paths).toEqual(READ_BACK_PATHS);
+        const body = reportBody(report);
+        expect(body.expectedAgent).toBe('planner');
+        expect(body.ok).toBe(true);
+
+        const entry = report.rt.state.ledger.entries.at(-1);
+        expect(entry?.kind).toBe('session');
+        expect(entry?.detail.expectedAgent).toBe('planner');
+        expect(entry?.detail.baselineProvenance).toBe('configured');
+        expect(entry?.detail.agentVerified).toBe(true);
+    });
+
+    it('falls back to the documented default when the config read does not answer', async () => {
+        // 002 FR-029 case (ii): the field is absent, the document is
+        // unreadable, or the service is unreachable — all three answer the
+        // default with `provenance: 'defaulted'` and the run proceeds.
+        const report = await reported(EXPECTED_AGENT);
+
+        expect(report.paths[0]).toBe(READ_BACK_PATHS[0]);
+        const body = reportBody(report);
+        expect(body.expectedAgent).toBe(EXPECTED_AGENT);
+        expect(body.ok).toBe(true);
+
+        const entry = report.rt.state.ledger.entries.at(-1);
+        expect(entry?.detail.expectedAgent).toBe(EXPECTED_AGENT);
+        expect(entry?.detail.baselineProvenance).toBe('defaulted');
+    });
+
+    it('defaults when the document is present but carries no usable value', async () => {
+        const unusable = [
+            '{"config":{}}',
+            '{"config":{"expectedAgent":"   "}}',
+            '{"config":{"expectedAgent":42}}',
+            '{"config":"not-an-object"}',
+            'not json at all',
+        ];
+
+        for (const document of unusable) {
+            const report = await reported(EXPECTED_AGENT, document);
+
+            expect(reportBody(report).expectedAgent).toBe(EXPECTED_AGENT);
+            expect(report.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe('defaulted');
+        }
+    });
+
+    it('never blocks for the baseline’s own absence: a matching agent verifies', async () => {
+        // AC-023: a missing baseline alone must not produce
+        // `blocked:agent-mismatch`; only an observed mismatch or an
+        // unreadable observed agent does.
+        const report = await reported(EXPECTED_AGENT);
+
+        expect(reportBody(report).ok).toBe(true);
+        expect(report.rt.state.dispatches.agentNotice?.tone).toBe('success');
+    });
+
+    it('still warns when the observed agent differs from a defaulted baseline', async () => {
+        const report = await reported('executor');
+
+        expect(reportBody(report).ok).toBe(false);
+        expect(report.rt.state.dispatches.agentNotice?.tone).toBe('warning');
+        expect(report.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe('defaulted');
     });
 
     it('never holds the relay tick while the read-back waits (AC-125)', async () => {

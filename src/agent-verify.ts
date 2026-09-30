@@ -18,7 +18,7 @@
  * never arrive between the two calls and be missed.
  *
  * Outcomes are recorded, not enforced: a match lands as evidence, anything
- * else lands as a warning banner in the runs area plus a ledger entry.
+ * else lands as a warning banner in the dispatches area plus a ledger entry.
  * Nothing here stops the session or blocks the event. Since 003 (T-027) the
  * read-back is also **posted to the service** — `POST …/verification`, contract
  * §5 — which writes `agent.verified` / `agent.mismatch` on the run and stores
@@ -26,15 +26,25 @@
  * the panel-side record and the service-side trail say the same thing, and a
  * report the service refuses surfaces as a visible warning rather than as a
  * silent gap (FR-043, FR-063).
+ *
+ * The comparison baseline is **the service's**, not the manifest's: 002
+ * FR-041 emptied the integration card, so `readVerificationBaseline` takes it
+ * from `GET /v1/config`'s `expectedAgent` per verification, with 002 FR-029's
+ * two-case split kept intact — an observed agent that differs or cannot be
+ * read blocks as before, while a missing baseline falls back to the
+ * documented default, lets the run proceed, and records its provenance as
+ * `configured` or `defaulted`.
  */
 
 import type { SessionSnapshot } from '@openchamber/sdk';
 import { DEFAULT_EXPECTED_AGENT } from './config.ts';
 import { nowIso } from './ids.ts';
+import { parseJsonObject } from './json.ts';
 import { appendEntryAndPersist } from './panel-actions.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
-import { servicePost, verificationPath } from './service-calls.ts';
+import { CONFIG_PATH, serviceGet, servicePost, verificationPath } from './service-calls.ts';
+import type { ServiceRequester } from './service-calls.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
 import type { PanelRuntime, PanelStatus } from './panel-state.ts';
@@ -44,6 +54,103 @@ export const AGENT_VERIFY_TIMEOUT_MS = 15_000;
 
 /** Milliseconds in one second; used to phrase the timeout for the operator. */
 const MS_PER_SECOND = 1_000;
+
+/**
+ * Which baseline a verification judged against (002 FR-029's two-case split).
+ *
+ * The distinction is recorded so a match or a mismatch months later is
+ * explainable: a result decided against the documented default says so, and
+ * a result decided against the operator's own configuration says that.
+ */
+export type BaselineProvenance =
+    /** `GET /v1/config` carried a parseable, non-blank `expectedAgent`. */
+    | 'configured'
+    /** The document was unreadable or carried no value; the default is in force. */
+    | 'defaulted';
+
+/** One verification's comparison baseline and where it came from. */
+export interface VerificationBaseline {
+    /** Agent the observed session is judged against. */
+    readonly agent: string;
+    /** Whether the service configured this baseline or the documented default supplied it. */
+    readonly provenance: BaselineProvenance;
+}
+
+/**
+ * The documented default, as an explicitly *defaulted* baseline.
+ *
+ * 002 FR-029 case (ii): a service that cannot be reached, a document written
+ * before the field existed, and a value that fails to parse all land here —
+ * the run **proceeds to verification** on `project-manager` rather than
+ * being blocked for the baseline's own absence.
+ */
+const DEFAULTED_BASELINE: VerificationBaseline = {
+    agent: DEFAULT_EXPECTED_AGENT,
+    provenance: 'defaulted',
+};
+
+/**
+ * Read one baseline out of a `GET /v1/config` answer, fail closed.
+ *
+ * Every shape the document could take that is not a non-blank string member
+ * reads as *defaulted*; nothing is coerced and nothing is guessed.
+ *
+ * @param body - Response body text (unchecked).
+ * @returns The configured baseline, or the documented default.
+ */
+function baselineFromConfig(body: string): VerificationBaseline {
+    const root = parseJsonObject(body);
+    const config: unknown = root === null ? undefined : root.config;
+    if (config === null || typeof config !== 'object' || Array.isArray(config)) {
+        return DEFAULTED_BASELINE;
+    }
+
+    const raw: unknown = (config as Record<string, unknown>).expectedAgent;
+    if (typeof raw !== 'string') {
+        return DEFAULTED_BASELINE;
+    }
+
+    const trimmed = raw.trim();
+    if (trimmed === '') {
+        return DEFAULTED_BASELINE;
+    }
+
+    return { agent: trimmed, provenance: 'configured' };
+}
+
+/**
+ * Read the agent-verification baseline from the service (002 FR-029).
+ *
+ * One `GET /v1/config` per verification — the baseline is read fresh each
+ * time so a value saved after a dispatch is in force for the next one, with
+ * no restart and no service-side consumer. A transport failure, a non-2xx
+ * answer, and an unparseable document all answer the documented default with
+ * `provenance: 'defaulted'`; this function never rejects.
+ *
+ * @param serviceRequest - The host's service bridge.
+ * @returns The baseline to judge this dispatch against, and its provenance.
+ */
+export async function readVerificationBaseline(serviceRequest: ServiceRequester): Promise<VerificationBaseline> {
+    const answer = await serviceGet({ serviceRequest, path: CONFIG_PATH });
+
+    return answer.ok ? baselineFromConfig(answer.body) : DEFAULTED_BASELINE;
+}
+
+/**
+ * Whether the runtime has been torn down.
+ *
+ * A function call rather than a bare `rt.disposed` read, for the same reason
+ * `src/app.ts` spells it this way: the analyzer narrows that property across
+ * the first `await` and then reports a second direct check as unreachable,
+ * while the frame really can go away between two awaits — and carrying on
+ * would subscribe to a host a disposed panel no longer owns.
+ *
+ * @param rt - Panel runtime.
+ * @returns `true` once the mount has been torn down.
+ */
+function tornDown(rt: PanelRuntime): boolean {
+    return rt.disposed;
+}
 
 /** Outcome of one post-dispatch agent read-back. */
 export type AgentVerification =
@@ -260,10 +367,12 @@ function recordReadBack(input: {
     readonly sessionId: string;
     /** Outcome the verification reached. */
     readonly result: AgentVerification;
-    /** Baseline the judgment used (FR-029's comparison agent). */
+    /** Baseline the judgment used (002 FR-029's comparison agent). */
     readonly expected: string;
+    /** Where that baseline came from: `configured`, or the documented default. */
+    readonly provenance: BaselineProvenance;
 }): void {
-    const { rt, correlationId, sessionId, result, expected } = input;
+    const { rt, correlationId, sessionId, result, expected, provenance } = input;
     const observedAgent = result.status === 'match' || result.status === 'mismatch' ? result.agent : null;
     appendEntryAndPersist(rt, {
         at: nowIso(),
@@ -273,6 +382,7 @@ function recordReadBack(input: {
             correlationId,
             sessionId,
             expectedAgent: expected,
+            baselineProvenance: provenance,
             observedAgent,
             verification: result.status,
             agentVerified: result.status === 'match',
@@ -364,16 +474,30 @@ export async function verifyAgentAfterDispatch(inputs: {
 }): Promise<void> {
     const { rt, correlationId, attempt, sessionId } = inputs;
     try {
-        // 002 FR-041 removed the `expected-agent` card setting and the
-        // `PanelState.expectedAgent` mirror it fed, so the documented default
-        // is the baseline a missing value falls back to (002 FR-029 case ii).
-        const expected = DEFAULT_EXPECTED_AGENT;
-        const result = await verifySessionAgent({ host: rt.host, sessionId, expected });
-        if (rt.disposed) {
+        // 002 FR-029: the comparison baseline comes from `GET /v1/config`'s
+        // `expectedAgent`, read fresh for this verification. A missing or
+        // unreadable field falls back to the documented default and the run
+        // still proceeds — only an observed agent that differs from the
+        // baseline, or that cannot be read, is the fail-closed condition.
+        const baseline = await readVerificationBaseline(rt.host.serviceRequest);
+        if (tornDown(rt)) {
             return;
         }
 
-        recordReadBack({ rt, correlationId, sessionId, result, expected });
+        const expected = baseline.agent;
+        const result = await verifySessionAgent({ host: rt.host, sessionId, expected });
+        if (tornDown(rt)) {
+            return;
+        }
+
+        recordReadBack({
+            rt,
+            correlationId,
+            sessionId,
+            result,
+            expected,
+            provenance: baseline.provenance,
+        });
         await postReadBack({ rt, correlationId, attempt, sessionId, result, expected });
     } catch (cause) {
         if (rt.disposed) {
