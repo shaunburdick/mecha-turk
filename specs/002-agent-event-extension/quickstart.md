@@ -91,9 +91,9 @@ dispatch's whole trail — creation, claim, authorization, result, verification
 
 ### Starting prompt (004)
 
-`bindings.json` also holds one optional per-binding **starting prompt**: a block of operator text the session opens with, above the automatic framing. Until the panel grows a field for it, the store file *is* the set path.
+`bindings.json` also holds one optional per-binding **starting prompt**: a block of operator text the session opens with, above the automatic framing. The field lives in the **Bindings editor** on the *Bindings* tab (005 T-021); the store file holds the same value and remains the low-level set path.
 
-- **Set it** by adding `"startingPrompt": "…"` to a binding record in `bindings.json` (same file, same permissions: dir `0700`, files `0600`).
+- **Set it** in the binding editor's starting-prompt field, or directly in the file by adding `"startingPrompt": "…"` to a binding record in `bindings.json` (same file, same permissions: dir `0700`, files `0600`).
 - **Clear it** by leaving the member out, or by writing `null` / `""`. A binding with no prompt dispatches byte-identically to what it dispatched before this field existed.
 - **The text is literal — no placeholders.** Nothing is substituted or expanded; `{number}` arrives as those seven characters.
 - **The session's agent is your pinned Default Agent, and the text cannot change it.** A prompt that names an agent is delivered as ordinary instruction text.

@@ -212,10 +212,12 @@ What the field guarantees:
   reserved marker, well-formedness — are the complete set. What you say to
   your own agent is your own business.
 
-### Setting it until the panel grows the field
+### Setting it
 
-There is no editor for this field yet. The supported way to set it is the
-service's own bindings store:
+The field lives in the **Bindings editor**: open the *Bindings* tab, edit the
+binding, and use its starting-prompt field — that is the set path the panel
+ships (005 T-021). The service's bindings store holds the same value and stays
+documented here as the low-level path:
 
 `~/.config/openchamber/mecha-turk/bindings.json` — directory `0700`, files
 `0600`, the same file the panel already saves through.

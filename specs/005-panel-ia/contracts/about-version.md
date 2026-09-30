@@ -1,4 +1,4 @@
-# Contract: Version Source — `GET /v1/health` → the About tab
+# Contract: Version Source — `GET /health` → the About tab
 
 **Spec**: 005 `## Wire Surface Delta` row **Health / About** · FR-074, FR-075, FR-076 · SC-109 · AC-133, AC-134
 
@@ -34,7 +34,7 @@ The About tab reads `version` from this answer and from nowhere else. Explicitly
 | service unreachable / `401` / `503` | **`unknown (service unreachable)`**, naming **the service** as the source, plus a retry affordance. **No number is shown** |
 | service answered | the exact `version` string from this answer |
 
-`GET /v1/health` is also the About tab's liveness probe for its own retry: the tab retries only on an explicit operator action, never on a loop (`SERVICE_FAILED` never auto-loops — 002 contract §1).
+`GET /health` is also the About tab's liveness probe for its own retry: the tab retries only on an explicit operator action, never on a loop (`SERVICE_FAILED` never auto-loops — 002 contract §1).
 
 ## 3. Version-pin invariants (tests)
 

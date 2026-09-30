@@ -39,12 +39,13 @@ export const CONFIG_PATH = '/v1/config';
  * Path of the readiness probe, which is also the About tab's version source
  * (005 FR-074).
  *
- * The 005 specification's prose calls this route `/v1/health`, but the route
- * the service actually registers — and the one 002's `panel-service.md` §2.1
- * and 005's own `contracts/about-version.md` §0 both pin — is `/health`, with
- * no `/v1` prefix and no alias. The panel reads the path that exists, and
- * `tests/about-tab.test.ts` pins this constant to `healthRoute.path`, so the
- * two cannot drift apart in either direction.
+ * The route the service actually registers — and the path 002's
+ * `panel-service.md` §2.1, 005 FR-074, and 005's own
+ * `contracts/about-version.md` all name once T-036's truth-repair landed —
+ * is `/health`, with no `/v1` prefix and no alias (adding one would invent a
+ * second health surface to satisfy a typo). `tests/about-tab.test.ts` pins
+ * this constant to `healthRoute.path` and pins those documents to the same
+ * string, so the two cannot drift apart in either direction.
  */
 export const HEALTH_PATH = '/health';
 

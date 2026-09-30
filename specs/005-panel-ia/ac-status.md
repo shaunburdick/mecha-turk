@@ -57,5 +57,27 @@ under the reading their own amendments prescribe rather than under the
 literal v1.0.0 wording; both notes name the amendment that superseded the
 literal text.
 
+## Notes
+
+**The four retained *the run* sentences are correct (005 T-036(c)) — a
+pre-PR review must not re-open them.** Two grounds, both normative:
+
+1. **`run` is an L4 domain term.** FR-022 retains `run`, `run key`,
+   `run ordinal`, and `attempt` verbatim, and FR-027 keeps the audit entity
+   `run` and the fourteen lifecycle row names unchanged. Domain prose that
+   says *the run* is the domain vocabulary FR-028's mapping rule protects,
+   not a retired L1 noun.
+2. **Service copy renders verbatim.** The panel renders the service's
+   refusal verdict and its stored reason lines as the service wrote them
+   (FR-046: *the panel renders the service's verdict; it does not predict
+   it*), so a sentence the service produced may carry the domain word
+   whatever the L1 rename did to the tab names.
+
+Nothing about that reading loosens the vocabulary guard:
+`tests/vocabulary.test.ts` still scans the six tabs' rendered output and
+`README.md` outside the mapping table for the retired nouns — *Runs*,
+*Repositories*, noun-shaped *Run*, and article + *run* — and still finds
+none; the exemption list is exactly one string, About's short mapping form.
+
 ---
 Generated-By: opencode (model: mimo-v2.6-flash)

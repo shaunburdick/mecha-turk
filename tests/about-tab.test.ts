@@ -13,8 +13,8 @@
  *    static identity content stays on screen (AC-132, AC-134).
  *
  * The path the panel reads is pinned to the route the service registers, so
- * the specification's `/v1/health` prose and the shipped `/health` route
- * cannot drift apart unnoticed.
+ * the shipped `/health` route and the prose that names it (005 T-036's
+ * truth-repair) cannot drift apart unnoticed — one pin, in this suite.
  *
  * Everything runs against the panel's doubles: recorded SDK mounts, the fake
  * DOM, and a scripted `host.serviceRequest`. No live host, no token, no
@@ -246,9 +246,23 @@ function phaseEntry(): LedgerEntry {
 }
 
 describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
-    it('reads the route the service registers, not the specification\'s prose name', () => {
+    it('reads the route the service registers, not a name prose invented (T-036)', () => {
         expect(HEALTH_PATH).toBe(healthRoute.path);
         expect(HEALTH_PATH).toBe('/health');
+    });
+
+    it('has the prose naming that same route in every document that claims it (T-036)', () => {
+        const claimed: readonly string[] = [
+            'specs/005-panel-ia/spec.md',
+            'specs/005-panel-ia/contracts/about-version.md',
+            'AGENTS.md',
+        ];
+
+        for (const doc of claimed) {
+            const text = readFileSync(resolve(import.meta.dirname, '..', doc), 'utf8');
+            expect(text, `${doc} still claims a route the service never registers`).not.toContain('/v1/health');
+            expect(text, `${doc} does not name the registered route`).toContain('/health');
+        }
     });
 
     it('shows exactly the version the service answered (AC-133)', async () => {

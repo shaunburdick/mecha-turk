@@ -162,7 +162,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `poll/dispatch*.ts` | Reserve / result / abandon / block family: single-use tokens, the staleness matrix, refusal rows |
 | `poll/run-chain.ts` / `poll/run-operate.ts` / `poll/run-verify.ts` / `poll/run-refusal.ts` | The shared run write chain, retry/requeue/resolve, the verification report, the refusal vocabulary |
 | `poll/run-history-project.ts` | The capped, credential-free run-history projection |
-| `routes/` | `/v1/status`, `/v1/health`, `/v1/bindings`, `/v1/accounts`, `/v1/events*`, credential verify |
+| `routes/` | `/v1/status`, `/health`, `/v1/bindings`, `/v1/accounts`, `/v1/events*`, credential verify |
 | `routes/dispatch.ts` / `routes/run-ops.ts` | Reserve, result, abandon, blocked; retry, requeue, resolve, verification |
 | `routes/audit.ts` | `GET /v1/audit`, filtered by correlation identifier |
 | `routes/run-scope.ts` / `routes/run-fields.ts` / `routes/run-answer.ts` | Shared run-scoped path/body readers and the `200` / refusal envelopes |

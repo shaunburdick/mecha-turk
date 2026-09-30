@@ -656,7 +656,7 @@ describe('004 full-cycle containment (AC-133, AC-143, NFR-121)', () => {
     });
 });
 
-describe('004 the field is documented, and no editor is promised (FR-062, FR-074)', () => {
+describe('004 the field is documented, and the editor it points at is the shipped one (FR-062, FR-074)', () => {
     /** The two operator pages that owe the field a section. */
     const pages: readonly string[] = ['README.md', 'specs/002-agent-event-extension/quickstart.md'];
 
@@ -673,12 +673,18 @@ describe('004 the field is documented, and no editor is promised (FR-062, FR-074
         }
     });
 
-    it('promises no panel editor before 005, and cites no retired spec path (FR-062)', () => {
+    it('points at the shipped Bindings editor rather than promising a future one (FR-062)', () => {
         for (const page of pages) {
             const text = readFileSync(resolve(ROOT, page), UTF8);
-            expect(text, `${page} promises an editor`).toMatch(
+
+            // 004 shipped no editor in its own window; 005 T-021 shipped the
+            // binding editor's starting-prompt field, so the cycle's promise
+            // ("no editor yet") is history and both documents must say where
+            // the field actually lives instead of forecasting it.
+            expect(text, `${page} still forecasts an editor`).not.toMatch(
                 /no editor for this field yet|Until the panel grows a field/,
             );
+            expect(text, `${page} does not name the shipped editor`).toContain('Bindings editor');
             expect(text, `${page} points at a retired spec path`).not.toContain('specs/001');
         }
     });
