@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { drainVerifications } from '../src/agent-verify.ts';
@@ -9,7 +9,12 @@ import { DISPATCH_STORAGE_KEY } from '../src/dispatch-record.ts';
 import { auditItems, parseAuditBody } from '../src/audit-view.ts';
 import { findSecretLeak } from '../src/redaction.ts';
 import { pollRelay } from '../src/relay.ts';
+import { AUDIT_FILE } from '../service/audit.ts';
+import { BINDINGS_FILE } from '../service/bindings.ts';
+import { EVENTS_FILE } from '../service/poll/events.ts';
+import { RUNS_FILE } from '../service/poll/runs.ts';
 import { AUDIT_PATH } from '../service/routes/audit.ts';
+import { BINDINGS_PATH } from '../service/routes/bindings.ts';
 import { EVENTS_PATH } from '../service/routes/events.ts';
 import { readRuns } from './support/dispatch-corpus.ts';
 import { startDispatchLoop } from './support/dispatch-loop.ts';
@@ -195,6 +200,9 @@ const GITHUB_WRITE_METHOD = /\bmethod:\s*['"](POST|PUT|PATCH|DELETE)['"]/;
  * this list is the assertion that the newest additions are inside it (AC-128's
  * "covers every new module").
  */
+/** `src/runs-rows.ts`, named once so no list below repeats the literal. */
+const RUNS_ROWS_MODULE = 'src/runs-rows.ts';
+
 const DISPATCH_MODULES: readonly string[] = [
     'src/relay.ts',
     'src/relay-gates.ts',
@@ -204,7 +212,7 @@ const DISPATCH_MODULES: readonly string[] = [
     'src/reconcile.ts',
     'src/prerequisites.ts',
     'src/audit-view.ts',
-    'src/runs-rows.ts',
+    RUNS_ROWS_MODULE,
     'src/runs-service.ts',
     'src/service-calls.ts',
     'src/session.ts',
@@ -227,6 +235,35 @@ const DISPATCH_MODULES: readonly string[] = [
     'service/routes/run-ops.ts',
     'service/routes/run-answer.ts',
     'service/routes/audit.ts',
+];
+
+/**
+ * 004's own modules, named so the static scans cannot quietly stop covering
+ * them (AC-143's "new assertions", AC-144's "the panel never touches the
+ * binding field").
+ *
+ * The walk is dynamic — every `.ts` under {@link SOURCE_DIRS} is read — so
+ * this list is the assertion that the newest additions are inside it.
+ */
+const PROMPT_MODULES: readonly string[] = [
+    'src/prompt.ts',
+    'src/prompt-wire.ts',
+    'src/context-blocks.ts',
+    'src/session.ts',
+    'src/claim-service.ts',
+    'src/relay-attempt.ts',
+    'src/runs-service.ts',
+    RUNS_ROWS_MODULE,
+    'src/run-state.ts',
+    'service/prompt.ts',
+    'service/prompt-audit.ts',
+    'service/bindings.ts',
+    'service/bindings-read.ts',
+    'service/routes/bindings.ts',
+    'service/poll/runs-parse.ts',
+    'service/poll/claim-project.ts',
+    'service/poll/run-history-project.ts',
+    'service/poll/dispatch-audit.ts',
 ];
 
 /** One file the static scans read. */
@@ -319,12 +356,12 @@ describe('003 records carry no credential (AC-120, NFR-106)', () => {
                 `${AUDIT_PATH}?correlationId=${encodeURIComponent(run.correlationId)}`,
             );
             const historyText = await answerText(loop, EVENTS_PATH);
-            const auditBytes = await readFile(resolve(loop.service.dataDir, 'audit.ndjson'), UTF8);
+            const auditBytes = await readFile(resolve(loop.service.dataDir, AUDIT_FILE), UTF8);
             const record = loop.panelStorage.get(DISPATCH_STORAGE_KEY) ?? null;
             const rows = parseAuditBody(auditText) ?? [];
             const surfaces: readonly (readonly [string, string])[] = [
-                ['runs.json', await readFile(resolve(loop.service.dataDir, 'runs.json'), UTF8)],
-                ['audit.ndjson', auditBytes],
+                [RUNS_FILE, await readFile(resolve(loop.service.dataDir, RUNS_FILE), UTF8)],
+                [AUDIT_FILE, auditBytes],
                 ['the run history projection', historyText],
                 ['the audit read', auditText],
                 ['the panel dispatch record', JSON.stringify(record)],
@@ -363,7 +400,7 @@ describe('NFR-109 no HTML sink on a shipped artifact or a new field', () => {
 
     it('keeps every module that renders a 003 field on the text-only path', () => {
         const sources = scanSources();
-        const rendered = ['src/runs-rows.ts', 'src/audit-view.ts', 'src/prerequisites.ts', 'src/runs-ui.ts'];
+        const rendered = [RUNS_ROWS_MODULE, 'src/audit-view.ts', 'src/prerequisites.ts', 'src/runs-ui.ts'];
         for (const path of rendered) {
             const file = sources.find((candidate) => candidate.path === path);
             expect(file, `${path} was not scanned`).toBeDefined();
@@ -409,6 +446,188 @@ describe('AC-128 the no-GitHub-write scan covers every module (FR-002)', () => {
     it('embeds no concrete dispatch token in either bundle', () => {
         for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
             expect(readFileSync(bundle, UTF8), `${bundle} embeds a dispatch token`).not.toMatch(CONCRETE_TOKEN);
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * 004 containment (T-014: AC-133, AC-143, AC-144, FR-002, FR-005, NFR-121)
+ *
+ * Two halves, because the feature has two ways to fail: the *static* half
+ * proves the shipped bytes and the newest modules cannot name the binding
+ * field from the panel or smuggle a write or a suppression in, and the
+ * *full-cycle* half runs save → refuse → detect → claim → dispatch → audit
+ * read against a real loopback service and then greps every surface for two
+ * planted strings — one accepted, one refused.
+ * ------------------------------------------------------------------------- */
+
+/** The instruction this cycle accepts, plants, and then hunts for. */
+const ACCEPTED_PROMPT = 'Reproduce first, then patch. Keep the public API stable.';
+
+/** The credential-shaped value this cycle refuses, and then hunts for everywhere. */
+const REFUSED_VALUE = `ghp_${'refuse'.repeat(6)}`;
+
+/** Repository and project the containment binding names, matching the loop fixture. */
+const CONTAINMENT_REPOSITORY = 'acme/loop';
+
+/** The binding this cycle saves, in the shape the shipped panel submits. */
+function containmentBinding(): Record<string, unknown> {
+    return {
+        bindingId: 'bnd-containment',
+        accountNumericUserId: SCANNED_ACCOUNT_ID,
+        accountLogin: SCANNED_LOGIN,
+        repository: CONTAINMENT_REPOSITORY,
+        projectId: 'prj_42',
+        worktreeOption: 'none',
+        triggers: { assignment: true, mention: false, reviewRequest: false },
+        state: 'disabled',
+        createdAt: SCANNED_STAMP,
+        updatedAt: SCANNED_STAMP,
+    };
+}
+
+/**
+ * Build a header map without writing HTTP header names as object keys.
+ *
+ * @param pairs - Header name/value pairs.
+ * @returns The headers as `fetch` accepts them.
+ */
+function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
+    return Object.fromEntries(pairs);
+}
+
+/** Headers for the routes that take a JSON body. */
+function jsonHeaders(): Record<string, string> {
+    return headerMap([['content-type', 'application/json']]);
+}
+
+/** One whole-file `PUT /v1/bindings` against the running service. */
+async function putBindings(loop: DispatchLoop, binding: Record<string, unknown>): Promise<Response> {
+    return await loop.service.call(BINDINGS_PATH, {
+        method: 'PUT',
+        headers: jsonHeaders(),
+        body: JSON.stringify({ bindings: [binding] }),
+    });
+}
+
+describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
+    it('reads every 004 module in the static scans', () => {
+        const paths = new Set(scanSources().map((file) => file.path));
+        for (const module of PROMPT_MODULES) {
+            expect(paths.has(module), `${module} was not scanned`).toBe(true);
+        }
+
+        // The no-GitHub-write walk covers those same files: nothing 004 adds
+        // may reach for GitHub at all, let alone write to it (FR-002).
+        const gateways = new Set(GITHUB_GATEWAYS);
+        for (const file of scanSources()) {
+            if (PROMPT_MODULES.includes(file.path)) {
+                expect(gateways.has(file.path), `${file.path} reached GitHub`).toBe(false);
+            }
+        }
+    });
+
+    it('keeps the binding field out of the shipped panel bundle (FR-011, FR-062)', () => {
+        // 004 ships no editor, preview, or display surface for this field, so
+        // the panel never even names it: nothing in the IIFE can read, write,
+        // or render `startingPrompt`. 005 replaces this assertion when it
+        // renders the one field — for 004's window, its absence is the rule.
+        expect(readFileSync(BUNDLE, UTF8)).not.toContain('startingPrompt');
+        // The save boundary is the service, which is exactly where the
+        // refusal vocabulary does live.
+        expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('startingPrompt');
+    });
+
+    it('introduces no suppression and no `any` into a 004 module (FR-005)', () => {
+        const sources = scanSources().filter((file) => PROMPT_MODULES.includes(file.path));
+        expect(sources).toHaveLength(PROMPT_MODULES.length);
+        for (const file of sources) {
+            expect(file.text, `${file.path} suppresses a rule`)
+                .not.toMatch(/eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck/);
+            expect(file.text, `${file.path} uses \`any\``).not.toMatch(/:\s*any\b/);
+        }
+    });
+});
+
+describe('004 full-cycle containment (AC-133, AC-143, NFR-121)', () => {
+    it('holds an accepted prompt in exactly two places and a refused value in none', async () => {
+        const loop = await startDispatchLoop();
+        try {
+            // SAVE — the documented set path until 005 lands: the whole-file PUT.
+            await loop.store.writeJson(`accounts/${SCANNED_ACCOUNT_ID}.json`, scannedAccount());
+            const saved = await putBindings(loop, {
+                ...containmentBinding(),
+                startingPrompt: ACCEPTED_PROMPT,
+            });
+            expect(saved.status).toBe(200);
+
+            // REFUSE — a credential-shaped value is refused at save, naming the
+            // shape and never the value, and no part of it is applied (FR-024).
+            const refused = await putBindings(loop, {
+                ...containmentBinding(),
+                startingPrompt: `push ${REFUSED_VALUE} to prod`,
+            });
+            expect(refused.status).toBe(422);
+            const refusalText = await refused.text();
+            expect(refusalText).toContain('github-token-classic');
+            expect(refusalText).not.toContain(REFUSED_VALUE);
+
+            // DETECT — the run snapshots the accepted text at enqueue.
+            await loop.enqueue({ issueNumber: 91, prompt: ACCEPTED_PROMPT });
+
+            // CLAIM + DISPATCH — the panel's own path, one host call.
+            const rt = loop.mount();
+            await pollRelay(rt);
+            await drainVerifications(rt);
+
+            // AUDIT READ — the run's whole trail, over the operator's route.
+            const runs = await readRuns(loop.store);
+            const run = runs[0];
+            if (run === undefined) {
+                throw new Error('the scan produced no run');
+            }
+
+            const audit = await loop.service.call(
+                `${AUDIT_PATH}?correlationId=${encodeURIComponent(run.correlationId)}`,
+            );
+            expect(audit.status).toBe(200);
+            const auditText = await audit.text();
+
+            const { dataDir } = loop.service;
+            const surfaces: readonly (readonly [string, string])[] = [
+                [BINDINGS_FILE, await readFile(join(dataDir, BINDINGS_FILE), UTF8)],
+                [RUNS_FILE, await readFile(join(dataDir, RUNS_FILE), UTF8)],
+                [EVENTS_FILE, await readFile(join(dataDir, EVENTS_FILE), UTF8)],
+                [AUDIT_FILE, await readFile(join(dataDir, AUDIT_FILE), UTF8)],
+                ['the audit read', auditText],
+                ['the panel ledger', JSON.stringify(rt.state.ledger)],
+                ['host.storage', JSON.stringify([...loop.panelStorage])],
+                ['captured service logs', JSON.stringify(loop.service.logLines)],
+                ['status copy', JSON.stringify(rt.state.repos)],
+                ['panel bundle', readFileSync(BUNDLE, UTF8)],
+                ['service bundle', readFileSync(SERVICE_BUNDLE, UTF8)],
+            ];
+
+            // Exactly two persisted places hold the instruction: the binding
+            // and the run's own snapshot (004 FR-053). Everywhere else the
+            // reference is a fingerprint, or nothing at all.
+            const holders = surfaces
+                .filter(([, text]) => text.includes(ACCEPTED_PROMPT))
+                .map(([name]) => name)
+                .sort();
+            expect(holders).toEqual([BINDINGS_FILE, RUNS_FILE].sort());
+
+            // The refused value appears nowhere — including in the refusal.
+            for (const [name, text] of surfaces) {
+                expect(text, `${name} carried the refused value`).not.toContain(REFUSED_VALUE);
+                expect(findSecretLeak(text), `${name} carried credential material`).toBeNull();
+            }
+            expect(refusalText.includes(REFUSED_VALUE)).toBe(false);
+
+            // And the accepted prompt left no credential-shaped trace either.
+            expect(findSecretLeak(surfaces.map(([, text]) => text).join('\n'))).toBeNull();
+        } finally {
+            await loop.shutdown();
         }
     });
 });

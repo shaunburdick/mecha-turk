@@ -22,6 +22,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { findSecretLeak } from '../src/redaction.ts';
 import { readAuditEntries } from '../service/audit.ts';
 import {
     PROMPT_UPDATED_EVENT,
@@ -220,6 +221,21 @@ describe('T-004 recordPromptChanges: one row per change, never the text (FR-051,
         expect(readded).toBe(1);
         const trail = await promptRows(store);
         expect(trail.map((row) => row.details.previousFingerprint)).toEqual([null, null]);
+    });
+    it('carries no credential-shaped string in the rows it writes (NFR-121)', async () => {
+        const store = await tempStore();
+        const log = capturingLogger();
+
+        await observePromptChanges({ store, log, bindings: bindingDocument(PROMPT), actor: 'operator' });
+        await observePromptChanges({ store, log, bindings: bindingDocument(NEXT_PROMPT), actor: 'operator' });
+        await observePromptChanges({ store, log, bindings: bindingDocument(null), actor: 'operator' });
+
+        const trail = await promptRows(store);
+        expect(trail).toHaveLength(3);
+        for (const row of trail) {
+            expect(findSecretLeak(JSON.stringify(row)), `${row.decision} row`).toBeNull();
+            expect(row.reason).toBeNull();
+        }
     });
 });
 

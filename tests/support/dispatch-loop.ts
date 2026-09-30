@@ -36,6 +36,7 @@ import { createLogger } from '../../service/log.ts';
 import { readRunsDocument } from '../../service/poll/runs.ts';
 import { writeRunsDocument } from '../../service/poll/runs-document.ts';
 import { sweepOnce } from '../../service/poll/sweep.ts';
+import { promptSnapshotOf } from '../../service/prompt.ts';
 import type { EventSnapshot } from '../../service/poll/events.ts';
 import type { ClaimedRun } from '../../src/claim-service.ts';
 import type { PanelRuntime } from '../../src/panel-state.ts';
@@ -135,6 +136,8 @@ export interface EnqueueInput {
     readonly triggers?: readonly FixtureTrigger[];
     /** Detection stamp; defaults to {@link FIXTURE_STAMP}. */
     readonly detectedAt?: string;
+    /** The binding's prompt at detection, snapshotted onto the run (004 FR-015). */
+    readonly prompt?: string;
 }
 
 /** One panel wired to one service, with the evidence a permutation asserts over. */
@@ -330,6 +333,8 @@ async function enqueueTriggers(input: {
     readonly triggers: readonly FixtureTrigger[] | undefined;
     /** Detection stamp; the fixture stamp when absent. */
     readonly detectedAt: string | undefined;
+    /** The binding's prompt at detection, or `undefined` for none. */
+    readonly prompt: string | undefined;
 }): Promise<void> {
     const triggers: readonly FixtureTrigger[] = input.triggers ?? ['assignment'];
     const incoming = triggers.map((trigger) => createEvent(detection({
@@ -337,7 +342,9 @@ async function enqueueTriggers(input: {
         trigger,
         detectedAt: input.detectedAt ?? FIXTURE_STAMP,
     })));
-    await enqueueEvents({ store: input.store, log: LOOP_LOGGER, incoming });
+    const snapshot = input.prompt === undefined ? null : promptSnapshotOf({ startingPrompt: input.prompt });
+    const queued = { store: input.store, log: LOOP_LOGGER, incoming };
+    await enqueueEvents(snapshot === null ? queued : { ...queued, prompt: snapshot });
 }
 
 /** Drain every mount (pending read-backs first) and the instance itself. */
@@ -488,6 +495,7 @@ export async function startDispatchLoop(): Promise<DispatchLoop> {
                 issueNumber: input.issueNumber,
                 triggers: input.triggers,
                 detectedAt: input.detectedAt,
+                prompt: input.prompt,
             }),
         mount: (options = {}) => mountPanel({
             service,
