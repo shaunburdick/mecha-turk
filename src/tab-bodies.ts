@@ -12,10 +12,11 @@
  */
 
 import { createAccountsHandlers, mountAccountsBody as mountAccountsTab } from './accounts-tab.ts';
+import { disposeAboutTab, mountAboutTab } from './about-tab.ts';
 import { createBindingsHandlers, mountBindingsTabBody } from './bindings-mount.ts';
 import { disposeDispatchesBoard, mountDispatchesBoard } from './dispatches-ui.ts';
 import type { PanelRuntime } from './panel-state.ts';
-import { mountDiagnostics, mountProjectPicker } from './panel-ui.ts';
+import { mountProjectPicker } from './panel-ui.ts';
 import type { PanelHandlers } from './panel-ui.ts';
 import { mountPrerequisitesSection } from './prerequisites.ts';
 import { disposeSettingsTab, mountSettingsTab } from './settings-tab.ts';
@@ -137,23 +138,17 @@ function mountBindingsBody(input: {
 }
 
 /**
- * The About body: the read-only diagnostics list (FR-075).
+ * The About body: static identity, the version, and the read-only
+ * Diagnostics section (FR-074, FR-075).
  *
- * @param rt - Panel runtime whose ledger the list renders.
- * @param body - The body container the shell created.
- * @returns A disposer that releases the list handle.
+ * @param rt - Panel runtime the body reads and repaints.
+ * @param body - The About body container the shell created.
+ * @returns A disposer that releases the body's handles.
  */
-function mountAboutBody(rt: PanelRuntime, body: HTMLElement): () => void {
-    rt.aboutUi = mountDiagnostics(rt, body);
+function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
+    mountAboutTab({ rt, body });
 
-    return () => {
-        const diagnostics = rt.aboutUi;
-        if (diagnostics !== null) {
-            diagnostics.list.dispose();
-        }
-
-        rt.aboutUi = null;
-    };
+    return () => disposeAboutTab(rt);
 }
 
 /**

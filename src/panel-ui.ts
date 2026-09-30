@@ -4,17 +4,17 @@
  * The UI is built once from `@openchamber/sdk/ui` controls and repainted from
  * state, so `onReady` refreshes never replace a control the user is
  * interacting with. The project picker renders from the picker state alone —
- * loading, error, empty, and ready are all values, not code paths — and ledger
- * rows are rendered through {@link redact} as a last line of defence: even a
- * diagnostic string cannot render secret-shaped text.
+ * loading, error, empty, and ready are all values, not code paths — and every
+ * body repaints only while it is mounted, so a tab the operator has never
+ * opened owns no handles yet (FR-013, FR-019).
  */
 
-import { mountBanner, mountButton, mountList, mountSelect, mountText } from '@openchamber/sdk/ui';
-import type { BannerHandle, ButtonHandle, ListHandle, ListItem, SelectHandle, TextHandle } from '@openchamber/sdk/ui';
+import { mountBanner, mountButton, mountSelect, mountText } from '@openchamber/sdk/ui';
+import type { BannerHandle, ButtonHandle, SelectHandle, TextHandle } from '@openchamber/sdk/ui';
 import { refreshHandoff } from './accounts-ui.ts';
 import { repaintAccountsBody } from './accounts-tab.ts';
+import { repaintAboutTab } from './about-tab.ts';
 import { repaintDispatchesBoard } from './dispatches-ui.ts';
-import { ledgerTail } from './ledger.ts';
 import {
     describeProjectSelection,
     notListedGuidance,
@@ -23,19 +23,9 @@ import {
     pickerPlaceholder,
     selectedProjectId,
 } from './project-picker.ts';
-import { redact } from './redaction.ts';
 import { repaintPrerequisites } from './prerequisites.ts';
 import { repaintBindingsPane } from './bindings-ui.ts';
 import type { PanelRuntime, PanelState } from './panel-state.ts';
-
-/** Number of ledger rows shown, newest first. */
-const VISIBLE_ENTRIES = 25;
-
-/** Start offset of the time part inside an RFC 3339 timestamp. */
-const TIME_START = 11;
-
-/** End offset of the time part inside an RFC 3339 timestamp. */
-const TIME_END = 19;
 
 /** Callbacks the mounted controls invoke. */
 export interface PanelHandlers {
@@ -67,26 +57,6 @@ export interface ProjectPickerUi {
     projectRefresh: ButtonHandle;
     /** Copy-the-selected-id button. */
     projectCopy: ButtonHandle;
-}
-
-/** The About tab's read-only ledger list (FR-075). */
-export interface DiagnosticsUi {
-    /** Ledger list. */
-    list: ListHandle;
-}
-
-/**
- * Open the source URL of a ledger row when it has one.
- *
- * @param rt - Panel runtime.
- * @param id - Row id, which is the ledger entry sequence number.
- */
-async function openEntry(rt: PanelRuntime, id: string): Promise<void> {
-    const entry = rt.state.ledger.entries.find((candidate) => String(candidate.seq) === id);
-    const url = entry?.detail.issueUrl;
-    if (typeof url === 'string') {
-        await rt.host.openUrl(url);
-    }
 }
 
 /**
@@ -184,29 +154,6 @@ export function mountPanelFraming(root: HTMLElement): PanelUi {
 }
 
 /**
- * Mount the About tab's read-only diagnostics list (FR-075).
- *
- * The ledger is a compatibility surface: it is what would notice an
- * `extension-spike-1` evidence-schema change, so it survives the spike's
- * retirement as a read-only section rather than being deleted with the
- * controls that wrote it (Gate Question 2).
- *
- * @param rt - Panel runtime whose ledger the list renders.
- * @param root - The About body container the shell created.
- * @returns The list handle.
- */
-export function mountDiagnostics(rt: PanelRuntime, root: HTMLElement): DiagnosticsUi {
-    const list = mountList(root, {
-        items: [],
-        ariaLabel: 'Diagnostics ledger',
-        emptyText: 'No ledger entries yet.',
-        onSelect: (id) => void openEntry(rt, id),
-    });
-
-    return { list };
-}
-
-/**
  * Build the identity segment of the one-line context summary.
  *
  * Only the **service** account identifies a scan: it is the credential the
@@ -276,32 +223,6 @@ export function summarizeState(state: PanelState): string {
 }
 
 /**
- * Format an RFC 3339 timestamp as `HH:MM:SS`.
- *
- * @param iso - Timestamp to format.
- * @returns The time slice, or the raw value when it is too short.
- */
-function formatTime(iso: string): string {
-    return iso.length > TIME_END ? iso.slice(TIME_START, TIME_END) : iso;
-}
-
-/**
- * Convert recent ledger entries into list rows.
- *
- * @param state - Panel state.
- * @returns Up to {@link VISIBLE_ENTRIES} rows, newest first.
- */
-function buildListItems(state: PanelState): ListItem[] {
-    return ledgerTail(state.ledger, VISIBLE_ENTRIES).map((entry) => ({
-        id: String(entry.seq),
-        leading: entry.kind,
-        title: entry.kind === 'phase' ? `phase: ${entry.phase ?? 'unknown'}` : entry.kind,
-        subtitle: redact(JSON.stringify(entry.detail)),
-        meta: formatTime(entry.at),
-    }));
-}
-
-/**
  * Repaint the project picker from the picker state.
  *
  * @param state - Panel state.
@@ -347,7 +268,7 @@ export function refresh(rt: PanelRuntime): void {
         ui.summary.update({ text: summarizeState(state) });
     }
 
-    const { bindingsUi, dispatchesUi, pickerUi, aboutUi, accountsUi } = rt;
+    const { bindingsUi, dispatchesUi, pickerUi, accountsUi } = rt;
     if (bindingsUi !== null) {
         repaintBindingsPane(rt, bindingsUi);
     }
@@ -364,9 +285,10 @@ export function refresh(rt: PanelRuntime): void {
         refreshProjectPicker(rt.state, pickerUi);
     }
 
-    if (aboutUi !== null) {
-        aboutUi.list.update({ items: buildListItems(rt.state) });
-    }
+    // The About tab paints itself from state it shares with no other body:
+    // its version line is its own read, while the data directory, phase
+    // record, and ledger come from state this repaint has just refreshed.
+    repaintAboutTab(rt);
 
     refreshHandoff(rt);
     repaintPrerequisites(rt);

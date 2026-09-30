@@ -137,6 +137,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `status-document.ts` / `status-lines.ts` / `status-tab.ts` | The `GET /v1/status` document parsed fail closed and the read state that holds it; the Status tab's operator-facing copy as pure functions; and the tab's mount, repaint, and single read |
 | `settings-rows.ts` | The Settings tab's row declaration (bounds, defaults, enum set, take-effect) pinned to `service/config.ts` by a cross-check test — a stand-in 006's T-018 deletes with that test |
 | `settings-tab.ts` | The Settings body: the one `GET /v1/config` read, its fail-closed read state, and the read-only rows (005 FR-070–FR-073, FR-078) |
+| `about-tab.ts` | The About body: the single version read from the service health answer (no panel-side literal), the static identity and posture copy, and the read-only Diagnostics section (005 FR-074–FR-077) |
 | `audit-view.ts` | One run's audit history under its correlation id, rendered as text (never markup) |
 | `agent-verify.ts` | Post-dispatch `openSession()` agent read-back, reported to the service (warn-only) |
 | `handoff*.ts` / `account*.ts` / `consent*.ts` | One-shot token handoff, consent gate, credential-free account mirror |

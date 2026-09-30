@@ -35,6 +35,19 @@ export const EVENTS_PENDING_PATH = '/v1/events/pending';
  */
 export const CONFIG_PATH = '/v1/config';
 
+/**
+ * Path of the readiness probe, which is also the About tab's version source
+ * (005 FR-074).
+ *
+ * The 005 specification's prose calls this route `/v1/health`, but the route
+ * the service actually registers — and the one 002's `panel-service.md` §2.1
+ * and 005's own `contracts/about-version.md` §0 both pin — is `/health`, with
+ * no `/v1` prefix and no alias. The panel reads the path that exists, and
+ * `tests/about-tab.test.ts` pins this constant to `healthRoute.path`, so the
+ * two cannot drift apart in either direction.
+ */
+export const HEALTH_PATH = '/health';
+
 /** Path of the runs history: every run, every state, newest first (M8). */
 export const EVENTS_PATH = '/v1/events';
 

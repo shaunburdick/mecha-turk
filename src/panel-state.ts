@@ -33,10 +33,12 @@ import { initialStatusTab } from './status-document.ts';
 import type { StatusTabState } from './status-document.ts';
 import { initialSettingsTab } from './settings-tab.ts';
 import type { SettingsTabState, SettingsTabUi } from './settings-tab.ts';
+import { initialAboutTab } from './about-tab.ts';
+import type { AboutTabState, AboutTabUi } from './about-tab.ts';
 import type { TabShell } from './tabs.ts';
-import type { DiagnosticsUi, PanelUi, ProjectPickerUi } from './panel-ui.ts';
+import type { PanelUi, ProjectPickerUi } from './panel-ui.ts';
 
-export type { DiagnosticsUi, PanelUi, ProjectPickerUi } from './panel-ui.ts';
+export type { PanelUi, ProjectPickerUi } from './panel-ui.ts';
 import type { PanelAccount, PanelBinding, BindingStatusRow } from './bindings-service.ts';
 import type { RunRow } from './dispatches-service.ts';
 import type { SpikeHost } from './session.ts';
@@ -187,6 +189,8 @@ export interface PanelState {
     statusTab: StatusTabState;
     /** The Settings tab's read state and configuration document (FR-070, FR-078). */
     settingsTab: SettingsTabState;
+    /** The About tab's version read (FR-074, FR-078). */
+    aboutTab: AboutTabState;
     /** Event-relay loop state (M4). */
     relay: Relay;
 }
@@ -304,7 +308,7 @@ export interface PanelRuntime {
     /** Project picker handles, which live inside the Bindings body. */
     pickerUi: ProjectPickerUi | null;
     /** About body's diagnostics list, `null` until that tab first activates. */
-    aboutUi: DiagnosticsUi | null;
+    aboutUi: AboutTabUi | null;
     /** `true` once the panel has been torn down. */
     disposed: boolean;
     /** `true` once the first `onReady` snapshot has been handled. */
@@ -451,6 +455,7 @@ function initialState(createdAt: string): PanelState {
         dispatches: initialDispatches(),
         statusTab: initialStatusTab(),
         settingsTab: initialSettingsTab(),
+        aboutTab: initialAboutTab(),
         relay: initialRelay(),
     };
 }
