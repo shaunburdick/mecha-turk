@@ -212,6 +212,25 @@ describe('T-010 buildStartSessionRequest: the reference, never a second copy (FR
         });
         expect(request.text).toBe(GOLDEN_FRAME);
     });
+
+    it('sends no agent, model, or variant member per call (FR-040, AC-135)', () => {
+        const request = buildStartSessionRequest({
+            config: testConfig(),
+            evidence: testEvidence(),
+            issue: goldenIssue(),
+            context: composeFirstMessage({ prompt: PROMPT, frame: GOLDEN_FRAME }),
+            prompt: { promptPresent: true, promptFingerprint: FINGERPRINT, promptLength: [...PROMPT].length },
+        });
+
+        // The prompt is text, never a selector: whatever it names, the
+        // envelope gains no member the platform would have to strip (002
+        // FR-029). The pinned agent is read back after dispatch, never asked
+        // for here.
+        for (const member of ['agent', 'model', 'variant']) {
+            expect(Object.keys(request), `request carried ${member}`).not.toContain(member);
+            expect(Object.keys(request.data ?? {}), `data carried ${member}`).not.toContain(member);
+        }
+    });
 });
 
 /** The lease every fixture claim entry carries. */
