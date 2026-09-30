@@ -329,6 +329,15 @@ async function postRunOperation(input: {
     readonly success: string;
 }): Promise<void> {
     const { dispatches: runs } = input.rt.state;
+    // The gate lives **here**, in the one dispatch path, rather than only in
+    // the callers: each of those checks `busy` before its first `await`, and a
+    // second activation that started in the same tick would have passed that
+    // check already. Two rapid clicks on one row therefore run exactly one
+    // operation (FR-049, AC-118's double-activation half).
+    if (runs.busy || !stillMounted(input.rt)) {
+        return;
+    }
+
     runs.busy = true;
     runs.pendingAction = null;
     refresh(input.rt);

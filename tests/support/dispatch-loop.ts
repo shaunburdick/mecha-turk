@@ -20,6 +20,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
+    GuestProjectsSnapshot,
     GuestRequest,
     GuestRequestResult,
     JsonValue,
@@ -126,6 +127,8 @@ export interface MountOptions {
      * service never heard it.
      */
     readonly loseFirstReport?: boolean;
+    /** Project snapshot the host answers with; defaults to the fixture projects. */
+    readonly listProjects?: () => Promise<GuestProjectsSnapshot>;
 }
 
 /** Inputs for {@link DispatchLoop.enqueue}. */
@@ -300,7 +303,7 @@ function buildHost(input: {
 
                 return SESSION_CREATED;
             }),
-        listProjects: async () => PROJECTS,
+        listProjects: options.listProjects ?? (async () => PROJECTS),
         openSession: async (sessionId) => {
             timeline.push(`openSession:${sessionId}`);
         },
