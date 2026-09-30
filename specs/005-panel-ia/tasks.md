@@ -1,6 +1,6 @@
 # Tasks: Panel IA — Six Tabs (005)
 
-**Input**: [plan.md](./plan.md), [data-model.md](./data-model.md), [research.md](./research.md), [contracts/](./contracts/) — all Phase-4 outputs; [spec.md](./spec.md) v1.3.0 is the source of truth (FR/AC numbers below are quoted as written).
+**Input**: [plan.md](./plan.md), [data-model.md](./data-model.md), [research.md](./research.md), [contracts/](./contracts/) — all Phase-4 outputs; [spec.md](./spec.md) v1.4.0 is the source of truth (FR/AC numbers below are quoted as written — v1.4.0 is the record-only FR-057 amendment and changed no requirement text).
 
 **Bar**: six tabs, every one honest, nothing that worked yesterday worse. Tests are offline and deterministic per `AGENTS.md`: fake host (`tests/support/panel.ts`), DOM helpers (`tests/support/{dom,ui-stubs}.ts`), real loopback service on temp dirs (`tests/support/service.ts`), fixture GitHub (`tests/support/github.ts`) — **no live OpenChamber, no PAT, no network** (FR-086). `[P]` = parallel-safe (different files, no dependency). **`npm run verify` runs at every wave boundary, and any wave that touches `src/`, `panel/*.ts`, or `service/*.ts` ends with `npm run build` and the rebuilt `panel/main.js` + `service/main.js` committed in the same commit (invariant 1).**
 
