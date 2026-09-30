@@ -2,9 +2,10 @@
 node_modules/
 
 # Local secrets and environment files — credentials never enter source control.
+# There is no template to except any more: 006 FR-091 removed `.env.example`,
+# the two surviving service variables are host-set, and no `.env` file ships.
 .env
 .env.*
-!.env.example
 
 # Test/coverage output. The committed guest bundles (panel/main.js, the panel
 # IIFE, and service/main.js, the service ESM) are intentionally committed:
