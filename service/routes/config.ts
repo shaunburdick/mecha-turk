@@ -18,6 +18,7 @@ import {
     validationResponse,
 } from '../config.ts';
 import { configSchema } from '../config-schema.ts';
+import { appendConfigApplied, appendConfigRefused, configChanges } from '../config-audit.ts';
 import { STATUS, storageUnavailableResponse } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
 import type { Route, RouteContext, RouteRequest } from './types.ts';
@@ -69,13 +70,26 @@ async function handleGetConfig(context: RouteContext): Promise<HttpResponse> {
  * error even while the disk is broken, and no partial document is ever
  * written (FR-039 reports every failure explicitly, not the first one).
  *
+ * The two additions 006 makes to this answer (contract §4) are both bounded by
+ * that ordering: a refusal records **one** value-free `config.changed` row and
+ * still answers `422`; an accepted write compares the candidate with the
+ * stored document field by field first, so a no-op answers *already saved*
+ * with **no** row at all (FR-048), and a change writes its row **after** the
+ * durable write — never before it, never as a reason to roll it back.
+ *
  * @param context - Route context carrying the open store.
  * @param request - The full replacement document.
- * @returns The stored configuration, or the field-level 422.
+ * @returns The stored configuration and its audit outcome, or the field-level
+ *   422.
  */
 async function handlePutConfig(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const validation = validateConfig(request.body);
     if (!validation.ok) {
+        // FR-072: one row per refusal, written before the answer and carrying
+        // no submitted value — this module never sees the submission, only the
+        // issue list the validator built from the declaration.
+        await appendConfigRefused({ store: context.store, log: context.log, issues: validation.issues });
+
         return validationResponse(validation.issues);
     }
 
@@ -83,13 +97,23 @@ async function handlePutConfig(context: RouteContext, request: RouteRequest): Pr
         return storageUnavailableResponse();
     }
 
+    const previous = configFromStore(await context.store.readJson(CONFIG_FILE, parseStoredConfig), context.log);
+    const changes = configChanges(previous.config, validation.config);
+
     await context.store.writeJson(CONFIG_FILE, validation.config);
     // FR-033: an accepted write applies its level *before* the answer is sent,
     // so the first line after the acknowledgement is judged at the new
     // threshold. A refused write never reaches here, so it moves nothing.
     context.log.setLevel(validation.config.logLevel);
+    // FR-048/FR-071: a no-op appends nothing; a change appends exactly one row,
+    // after the durable write, and reports a failed append as `auditWritten:
+    // false` rather than undoing a write that is already on disk.
+    const auditWritten =
+        changes.length === 0
+            ? true
+            : await appendConfigApplied({ store: context.store, log: context.log, changes });
 
-    return { status: STATUS.ok, body: { config: validation.config } };
+    return { status: STATUS.ok, body: { config: validation.config, auditWritten } };
 }
 
 /** Read the effective configuration. */

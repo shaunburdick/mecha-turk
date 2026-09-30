@@ -4496,6 +4496,88 @@ function configSchema() {
   return descriptors;
 }
 
+// service/config-audit.ts
+var WITHHELD = "<withheld>";
+var APPLIED_REASON = "configuration replaced";
+var REFUSED_REASON = "configuration refused";
+function configChanges(previous, next) {
+  const fields = Object.keys(DEFAULT_CONFIG).filter((field) => previous[field] !== next[field]).sort((left, right) => left.localeCompare(right));
+  return fields.map((field) => ({ field, from: previous[field], to: next[field] }));
+}
+function takeEffectOf(changes) {
+  const takesEffect = {};
+  for (const change of changes) {
+    takesEffect[change.field] = TAKE_EFFECT[change.field];
+  }
+  return takesEffect;
+}
+function refusedFields(issues) {
+  const documented = new Set(Object.keys(DEFAULT_CONFIG));
+  const fields = [];
+  for (const issue of issues) {
+    const name = documented.has(issue.field) ? issue.field : WITHHELD;
+    if (!fields.includes(name)) {
+      fields.push(name);
+    }
+  }
+  return fields;
+}
+async function appendConfigApplied(input) {
+  try {
+    await appendAudit(input.store, {
+      eventType: "config.changed",
+      actorSource: "operator",
+      entity: { kind: "service", id: CONFIGURATION_ENTITY_ID },
+      decision: "applied",
+      reason: APPLIED_REASON,
+      details: {
+        changes: input.changes.map((change) => ({
+          field: change.field,
+          from: change.from,
+          to: change.to
+        })),
+        takesEffect: takeEffectOf(input.changes)
+      }
+    });
+    return true;
+  } catch (cause) {
+    input.log.warn("configuration change could not be recorded", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause,
+      changes: input.changes.length
+    });
+    return false;
+  }
+}
+async function appendConfigRefused(input) {
+  if (input.store === null) {
+    input.log.warn("configuration refusal could not be recorded", {
+      errorKind: "storage-unavailable",
+      issueCount: input.issues.length
+    });
+    return false;
+  }
+  try {
+    await appendAudit(input.store, {
+      eventType: "config.changed",
+      actorSource: "operator",
+      entity: { kind: "service", id: CONFIGURATION_ENTITY_ID },
+      decision: "refused",
+      reason: REFUSED_REASON,
+      details: {
+        issueCount: input.issues.length,
+        fields: refusedFields(input.issues)
+      }
+    });
+    return true;
+  } catch (cause) {
+    input.log.warn("configuration refusal could not be recorded", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause,
+      issueCount: input.issues.length
+    });
+    return false;
+  }
+}
+
 // service/routes/config.ts
 var CONFIG_PATH = "/v1/config";
 async function handleGetConfig(context) {
@@ -4517,14 +4599,18 @@ async function handleGetConfig(context) {
 async function handlePutConfig(context, request) {
   const validation = validateConfig(request.body);
   if (!validation.ok) {
+    await appendConfigRefused({ store: context.store, log: context.log, issues: validation.issues });
     return validationResponse(validation.issues);
   }
   if (context.store === null) {
     return storageUnavailableResponse();
   }
+  const previous = configFromStore(await context.store.readJson(CONFIG_FILE, parseStoredConfig), context.log);
+  const changes = configChanges(previous.config, validation.config);
   await context.store.writeJson(CONFIG_FILE, validation.config);
   context.log.setLevel(validation.config.logLevel);
-  return { status: STATUS.ok, body: { config: validation.config } };
+  const auditWritten = changes.length === 0 ? true : await appendConfigApplied({ store: context.store, log: context.log, changes });
+  return { status: STATUS.ok, body: { config: validation.config, auditWritten } };
 }
 var getConfigRoute = {
   method: "GET",

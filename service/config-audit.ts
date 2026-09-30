@@ -1,0 +1,215 @@
+/**
+ * The configuration audit row (006 FR-070 – FR-072; 003 FR-052, FR-061).
+ *
+ * `config.changed` is the name 002's data model reserved for exactly this and
+ * that no shipped code had written until now — it is **filled, never invented**
+ * (006 FR-070), and there is no second spelling: not `config.updated`, not
+ * `config.update`. Both rows this module writes share one identity
+ * ({@link CONFIGURATION_ENTITY_ID}), one actor (`operator` — the only writer of
+ * `config.json` is a bearer-token holder acting for the operator, the
+ * convention `routes/accounts.ts` already uses), and **their own correlation
+ * id with no run reference** (FR-074): a configuration change belongs to no
+ * work unit, and forcing it onto a run's identifier would be the defect 003
+ * FR-062 corrected for dispatch rows.
+ *
+ * Two rows, two shapes, one hard rule between them:
+ *
+ * - **`applied`** records one `{ field, from, to }` triple per changed field,
+ *   ordered by field name, plus the take-effect class each changed field
+ *   declares, so a reader can answer *what changed, from what, and when it took
+ *   effect* from the row alone (FR-071).
+ * - **`refused`** records the issue count and the **documented** field names
+ *   the refusal named — with every name that is not a documented field reduced
+ *   to `<withheld>` — and **no submitted value of any kind**: not the value,
+ *   not an accepted value, not a length, not a hash, and no foreign key name
+ *   (FR-072). The value-free half is value-free *by construction*: this module
+ *   never receives the submission, only the issue list the validator produced
+ *   from the declaration.
+ *
+ * Both writers swallow their own failure into `false` plus a structured warn:
+ * the configuration write is the durable record, so a row that could not reach
+ * disk is surfaced as `auditWritten: false` (accepted) or a warn line (refused)
+ * rather than rolled back or swallowed (FR-070's edge case, 003 FR-063).
+ */
+
+import { appendAudit, CONFIGURATION_ENTITY_ID } from './audit.ts';
+import { DEFAULT_CONFIG } from './config.ts';
+import { TAKE_EFFECT } from './config-schema.ts';
+import type { ConfigIssue, ServiceConfig } from './config.ts';
+import type { ServiceConfigField, TakeEffect } from './config-schema.ts';
+import type { ServiceLogger } from './log.ts';
+import type { ServiceStore } from './store/index.ts';
+
+/** What an unrecognized key is recorded as in a refusal row (FR-072). */
+const WITHHELD = '<withheld>';
+
+/** Reason text the applied row carries; secret-free by construction (FR-071). */
+const APPLIED_REASON = 'configuration replaced';
+
+/** Reason text the refused row carries; secret-free by construction (FR-072). */
+const REFUSED_REASON = 'configuration refused';
+
+/** One field a whole-document write changed, with both sides of the change. */
+export interface ConfigChange {
+    /** Documented field that moved. */
+    readonly field: ServiceConfigField;
+    /** Value in force before the write (FR-071). */
+    readonly from: number | string;
+    /** Value the write put in force (FR-071). */
+    readonly to: number | string;
+}
+
+/**
+ * Compare the validated candidate with the stored document, field by field.
+ *
+ * This is also the **no-op detector** (FR-048): an empty result means the two
+ * documents are equal over every documented field, so the write changed
+ * nothing, reports *already saved*, and owes no row at all.
+ *
+ * @param previous - The document in force before the write.
+ * @param next - The validated candidate about to be written.
+ * @returns The changes, ordered by field name as FR-071 requires.
+ */
+export function configChanges(previous: ServiceConfig, next: ServiceConfig): readonly ConfigChange[] {
+    const fields = (Object.keys(DEFAULT_CONFIG) as readonly ServiceConfigField[])
+        .filter((field) => previous[field] !== next[field])
+        .sort((left, right) => left.localeCompare(right));
+
+    return fields.map((field) => ({ field, from: previous[field], to: next[field] }));
+}
+
+/**
+ * The take-effect class each changed field declares (FR-071).
+ *
+ * @param changes - The changes the row is about to record.
+ * @returns A field → class map, empty for a no-op.
+ */
+function takeEffectOf(changes: readonly ConfigChange[]): Record<string, TakeEffect> {
+    const takesEffect: Record<string, TakeEffect> = {};
+    for (const change of changes) {
+        takesEffect[change.field] = TAKE_EFFECT[change.field];
+    }
+
+    return takesEffect;
+}
+
+/**
+ * Reduce a refusal's issue fields to the documented names a row may carry.
+ *
+ * A documented field keeps its name; anything else — a foreign key, the `body`
+ * sentinel a non-object document answers with, or the validator's own
+ * `<withheld>` — collapses to the withheld marker, because a durable trail is
+ * strictly narrower than the refusal body the panel renders (FR-072, AC-114).
+ * Duplicates collapse too: `issueCount` carries the count, `fields` the set of
+ * names.
+ *
+ * @param issues - Every issue the refusal answered with.
+ * @returns The field names the row records.
+ */
+function refusedFields(issues: readonly ConfigIssue[]): readonly string[] {
+    const documented = new Set<string>(Object.keys(DEFAULT_CONFIG));
+    const fields: string[] = [];
+    for (const issue of issues) {
+        const name = documented.has(issue.field) ? issue.field : WITHHELD;
+        if (!fields.includes(name)) {
+            fields.push(name);
+        }
+    }
+
+    return fields;
+}
+
+/**
+ * Append the row for an accepted write that changed something (FR-071).
+ *
+ * @param input - The open store, its logger, and the changes that were applied.
+ * @returns `true` when the row reached disk, `false` when the append failed —
+ *   in which case the write still stands and a structured warn names the loss.
+ */
+export async function appendConfigApplied(input: {
+    /** Open store the trail lives on. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+    /** The fields the write changed, ordered by field name. */
+    readonly changes: readonly ConfigChange[];
+}): Promise<boolean> {
+    try {
+        await appendAudit(input.store, {
+            eventType: 'config.changed',
+            actorSource: 'operator',
+            entity: { kind: 'service', id: CONFIGURATION_ENTITY_ID },
+            decision: 'applied',
+            reason: APPLIED_REASON,
+            // No correlation id is supplied: the writer mints one, so the row
+            // is retrievable under its own identifier and excluded from every
+            // run-filtered read (FR-074, 003 FR-052).
+            details: {
+                changes: input.changes.map((change) => ({
+                    field: change.field,
+                    from: change.from,
+                    to: change.to,
+                })),
+                takesEffect: takeEffectOf(input.changes),
+            },
+        });
+
+        return true;
+    } catch (cause) {
+        input.log.warn('configuration change could not be recorded', {
+            errorKind: cause instanceof Error ? cause.name : typeof cause,
+            changes: input.changes.length,
+        });
+
+        return false;
+    }
+}
+
+/**
+ * Append the row for a refused write (FR-072).
+ *
+ * @param input - The open store (or `null` when it is unusable), its logger,
+ *   and the issue list the refusal answered with.
+ * @returns `true` when the row reached disk, `false` otherwise; a failure is
+ *   logged rather than echoed, because the `422` envelope is unchanged.
+ */
+export async function appendConfigRefused(input: {
+    /** Open store, or `null` when the data directory is unusable. */
+    readonly store: ServiceStore | null;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+    /** Every issue the refusal reported. */
+    readonly issues: readonly ConfigIssue[];
+}): Promise<boolean> {
+    if (input.store === null) {
+        input.log.warn('configuration refusal could not be recorded', {
+            errorKind: 'storage-unavailable',
+            issueCount: input.issues.length,
+        });
+
+        return false;
+    }
+
+    try {
+        await appendAudit(input.store, {
+            eventType: 'config.changed',
+            actorSource: 'operator',
+            entity: { kind: 'service', id: CONFIGURATION_ENTITY_ID },
+            decision: 'refused',
+            reason: REFUSED_REASON,
+            details: {
+                issueCount: input.issues.length,
+                fields: refusedFields(input.issues),
+            },
+        });
+
+        return true;
+    } catch (cause) {
+        input.log.warn('configuration refusal could not be recorded', {
+            errorKind: cause instanceof Error ? cause.name : typeof cause,
+            issueCount: input.issues.length,
+        });
+
+        return false;
+    }
+}
