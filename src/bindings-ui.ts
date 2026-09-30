@@ -36,7 +36,7 @@ import type { DispatchControlsHandlers } from './dispatches-controls.ts';
 import { disposeBindingPrompt, mountBindingPrompt, repaintBindingPrompt } from './bindings-prompt.ts';
 import type { BindingPromptControls, BindingPromptHandlers } from './bindings-prompt.ts';
 import { notListedGuidance } from './project-picker.ts';
-import { bindingRows } from './bindings-rows.ts';
+import { bindingRows, selectedBindingDetail } from './bindings-rows.ts';
 
 /** The pane handle: the mounted element and every repaint handle it needs. */
 export interface BindingsPane {
@@ -72,6 +72,10 @@ export interface BindingsPane {
     readonly removeAccount: ButtonHandle;
     /** Note under the form. */
     readonly note: TextHandle;
+    /** Wrapper around the selected binding's own line (005 FR-053). */
+    readonly detailBox: HTMLElement;
+    /** State, created/updated stamps, and scan of the selected binding. */
+    readonly selectedDetail: TextHandle;
     /** The starting-prompt field and its save control (005 FR-051). */
     readonly prompt: BindingPromptControls;
     /** Remove every node this pane mounted. */
@@ -153,10 +157,9 @@ export const REMOVE_ACCOUNT_CONFIRM_LABEL = 'Confirm remove';
  * @returns The summary text the status line shows.
  */
 function composeStatus(bindings: BindingsTabState): string {
-    const bindingSummary = `${bindings.bindings.length} bindings`;
-    const accountSummary = `${bindings.accounts.length} accounts`;
+    const enabled = bindings.bindings.filter((binding) => binding.state === 'active').length;
 
-    return `Repositories: ${bindingSummary} · ${accountSummary}`;
+    return `Bindings: ${bindings.bindings.length} (${enabled} enabled) · Accounts: ${bindings.accounts.length}`;
 }
 
 /** What `mountBindingsPane` builds; exactly {@link BindingsPane} plus tabs. */
@@ -220,8 +223,8 @@ function mountBindingsBoard(input: MountInputs): Board {
     const status = mountText(input.pane, { text: composeStatus(input.rt.state.bindings) });
     const list = mountList(input.pane, {
         items: [],
-        ariaLabel: 'Repository bindings',
-        emptyText: 'No repository bound yet — add one below or refresh.',
+        ariaLabel: 'Bindings',
+        emptyText: 'No binding yet — add one below or refresh.',
         onSelect: (id: string) => input.handlers.selectBinding(id),
     });
     const refresh = mountButton(
@@ -323,7 +326,7 @@ function mountAddForm(input: MountInputs): Form {
     );
     const add = mountButton(
         input.pane,
-        { label: 'Bind repository', disabled: true, onClick: input.handlers.submit },
+        { label: 'Add binding', disabled: true, onClick: input.handlers.submit },
     );
     const toggle = mountButton(
         input.pane,
@@ -376,8 +379,12 @@ function disposeBindingsBody(input: {
     readonly form: Form;
     /** Starting-prompt field and its save control. */
     readonly prompt: BindingPromptControls;
+    /** Wrapper around the selected binding's own line. */
+    readonly detailBox: HTMLElement;
+    /** The selected binding's state, stamps, and scan. */
+    readonly selectedDetail: TextHandle;
 }): void {
-    const { pane, board, form, prompt } = input;
+    const { pane, board, form, prompt, detailBox, selectedDetail } = input;
     const handles = [
         board.status,
         board.bindingsList,
@@ -401,6 +408,8 @@ function disposeBindingsBody(input: {
     }
 
     disposeBindingPrompt(prompt);
+    selectedDetail.dispose();
+    detailBox.remove();
     pane.remove();
 }
 
@@ -427,6 +436,13 @@ export function mountBindingsBody(input: {
     root.append(pane);
 
     const board = mountBindingsBoard({ rt, pane, handlers });
+    // The selected row's own facts sit between the list and the form: they
+    // describe *this* binding, and the form below is where it is changed
+    // (FR-053 — state, created/updated stamps, per-binding scan line).
+    const detailBox = pane.ownerDocument.createElement('div');
+    detailBox.hidden = true;
+    pane.append(detailBox);
+    const selectedDetail = mountText(detailBox, { text: '' });
     const form = mountAddForm({ rt, pane, handlers });
     // Mounted last so the field that carries the operator's instruction sits
     // at the end of the form it belongs to, with its own save control.
@@ -449,8 +465,10 @@ export function mountBindingsBody(input: {
         removeSelected: form.removeSelected,
         removeAccount: form.removeAccount,
         note: form.note,
+        detailBox,
+        selectedDetail,
         prompt,
-        dispose: () => disposeBindingsBody({ pane, board, form, prompt }),
+        dispose: () => disposeBindingsBody({ pane, board, form, prompt, detailBox, selectedDetail }),
     };
 }
 
@@ -508,5 +526,8 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
         disabled: bindings.status !== 'ready' && !bindings.removeAccountArmed,
     });
     view.note.update({ text: bindings.note });
+    const detail = selectedBindingDetail(bindings);
+    view.detailBox.hidden = detail === null;
+    view.selectedDetail.update({ text: detail ?? '' });
     repaintBindingPrompt(rt, view.prompt);
 }

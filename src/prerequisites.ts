@@ -220,7 +220,7 @@ function tokenScopes(accounts: readonly PanelAccount[]): Prerequisite {
             state: STATE_NOT_MET,
             detail: 'No connected account holds a token this panel can vouch for.',
             remediation:
-                'Add an account under Repositories → Poll as account, using a GitHub token with ' +
+                'Add an account under Accounts, using a GitHub token with ' +
                 'Metadata, Issues, and Pull requests read (Contents too when repository metadata is used) ' +
                 'and no write scopes.',
         };
@@ -323,7 +323,7 @@ function serviceCapability(handoff: HandoffState): Prerequisite {
             state: STATE_NOT_MET,
             detail: 'The in-panel consent step for the token handoff has not been accepted.',
             remediation:
-                'Open Repositories → Poll as account and accept the consent step; approve the ' +
+                'Open Accounts and accept the consent step; approve the ' +
                 'service capability in Settings → Extensions if the host asks.',
         };
     }

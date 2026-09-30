@@ -13,6 +13,7 @@
  */
 
 import type { ListItem } from '@openchamber/sdk/ui';
+import { utcStamp } from './ids.ts';
 import type { BindingsTabState } from './panel-state.ts';
 import type { PanelBinding } from './bindings-service.ts';
 
@@ -27,6 +28,9 @@ const HOUR_MS = 60 * MINUTE_MS;
 
 /** Milliseconds in a day. */
 const DAY_MS = 24 * HOUR_MS;
+
+/** What a binding no scan has ever reached reads as (005 FR-053). */
+const NOT_SCANNED = 'not scanned yet';
 
 /** The slice of one status row the binding rows read. */
 interface StatusRowView {
@@ -130,16 +134,17 @@ export function elapsedSince(iso: string): string {
  * Read one status row's scan phrase.
  *
  * The phrase is the operator's only view of *why* nothing is happening on a
- * binding, so it carries the skip reason next to when the last scan ran (or
- * that none ever did).
+ * binding, so it carries the skip reason next to when the last scan ran — and
+ * a binding no scan has ever reached reads *not scanned yet* rather than a
+ * bare `never`, which reads like a verdict instead of an absence (FR-053).
  *
  * @param row - The status row.
- * @returns `scan: <when> · <reason|ok>`, or `scan: never` before the first
- *   completed scan with no recorded reason.
+ * @returns `scan: <when> · <reason|ok>`, or `not scanned yet` before the
+ *   first completed scan with no recorded reason.
  */
 function scanPhrase(row: StatusRowView): string {
     if (row.lastScanAt === null) {
-        return row.lastError === null ? 'scan: never' : `scan: never · ${row.lastError}`;
+        return row.lastError === null ? NOT_SCANNED : `scan: never · ${row.lastError}`;
     }
 
     return `scan: ${elapsedSince(row.lastScanAt)} · ${row.lastError ?? 'ok'}`;
@@ -204,7 +209,7 @@ function statePhrase(state: BindingView['state'], reason: string | null): string
  */
 export function bindingRow(bindings: BindingsTabState, binding: BindingView): ListItem {
     const row = statusRowOf(bindings, binding.bindingId);
-    const scan = row === null ? 'not scanned yet' : scanPhrase(row);
+    const scan = row === null ? NOT_SCANNED : scanPhrase(row);
     const reason = disabledReason(bindings, binding);
     const state = statePhrase(binding.state, reason);
     const parts = [state, `polled as ${binding.accountLogin}`, binding.projectId, promptSummary(binding), scan];
@@ -227,4 +232,31 @@ export function bindingRow(bindings: BindingsTabState, binding: BindingView): Li
  */
 export function bindingRows(bindings: BindingsTabState): ListItem[] {
     return bindings.bindings.map((binding) => bindingRow(bindings, toView(binding)));
+}
+
+/**
+ * The selected binding's own line: state, stamps, and its scan (005 FR-053).
+ *
+ * These are the three facts that describe *this row* rather than the form
+ * around it: whether it polls, when it was created and last changed, and what
+ * the service's scan has done with it. A binding no scan has reached yet
+ * reads `not scanned yet` with a pending count of zero — never a blank, and
+ * never an invented "it is fine" (FR-003).
+ *
+ * @param bindings - The Bindings tab's state.
+ * @returns The detail line, or `null` when no binding is selected.
+ */
+export function selectedBindingDetail(bindings: BindingsTabState): string | null {
+    const binding = bindings.bindings.find((candidate) => candidate.bindingId === bindings.selectedBinding);
+    if (binding === undefined) {
+        return null;
+    }
+
+    const status = bindings.statusRows.find((row) => row.bindingId === binding.bindingId) ?? null;
+    const scan = status === null ? NOT_SCANNED : scanPhrase(status);
+    const pending = status === null ? 0 : status.pendingCount;
+    const state = binding.state === 'active' ? 'enabled' : 'disabled';
+
+    return `${state} · created ${utcStamp(binding.createdAt)} · updated ${utcStamp(binding.updatedAt)}`
+        + ` · ${scan} · ${pending} pending`;
 }

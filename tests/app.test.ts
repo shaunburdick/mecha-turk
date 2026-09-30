@@ -319,7 +319,8 @@ describe('handleConnection (FR-011 optional integration card)', () => {
         expect(runtime.pollTimer).toBeNull();
         expect(runtime.state.status.tone).toBe('warning');
         expect(runtime.state.status.title).toBe('No account connected');
-        expect(runtime.state.status.body).toContain('Repositories → Poll as account');
+        expect(runtime.state.status.body).toContain('Accounts');
+        expect(runtime.state.status.body).toContain('Bindings → Poll as account');
         expect(runtime.state.status.body).toContain('optional GitHub (token) integration card');
         expect(runtime.state.status.body).not.toContain('Settings → Integrations');
     });

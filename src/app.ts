@@ -156,7 +156,8 @@ export async function selectProject(rt: PanelRuntime, id: string): Promise<void>
  * The declared GitHub (token) integration card is optional and
  * non-authoritative (FR-011): the panel is fully functional with it
  * unconnected, because polling and dispatch run on the *service* accounts
- * under Repositories → Poll as account. The unconnected banner therefore
+ * added under Accounts and chosen under Bindings → Poll as account. The
+ * unconnected banner therefore
  * points at that account flow instead of steering the operator to a
  * credential surface the product does not need.
  *
@@ -179,7 +180,8 @@ export function handleConnection(rt: PanelRuntime, connected: boolean): void {
     if (!connected) {
         stopPolling(rt);
         const body =
-            'Add one under Repositories → Poll as account — service accounts drive polling and dispatch. ' +
+            'Add one under Accounts, then pick it under Bindings → Poll as account — service accounts '
+                + 'drive polling and dispatch. ' +
             'The optional GitHub (token) integration card declares no settings and is never required.';
         setStatus(rt, { tone: 'warning', title: 'No account connected', body });
         refresh(rt);

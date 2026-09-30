@@ -32,3 +32,37 @@ export function newCorrelationId(): string {
 export function nowIso(): string {
     return new Date().toISOString();
 }
+
+/**
+ * Zero-pad one `Date` getter to two characters.
+ *
+ * @param part - UTC field from a `Date`.
+ * @returns The field as two digits.
+ */
+function padTwoDigits(part: number): string {
+    return String(part).padStart(2, '0');
+}
+
+/**
+ * Render one stamp as a compact UTC minute (`2026-09-28 09:00`).
+ *
+ * Absolute rather than relative: two references detected minutes apart must
+ * not collapse into the same "2m ago" when the operator is reconstructing
+ * which reason fired first, an audit row's timestamp is the same kind of
+ * fact, and a binding's created/updated stamps are read the same way
+ * (FR-048, FR-053).
+ *
+ * @param iso - RFC 3339 stamp from a reference, an audit row, or a binding.
+ * @returns The compact stamp, or the stored text when it is not a time.
+ */
+export function utcStamp(iso: string): string {
+    const at = Date.parse(iso);
+    if (!Number.isFinite(at)) {
+        return iso;
+    }
+
+    const value = new Date(at);
+
+    return `${value.getUTCFullYear()}-${padTwoDigits(value.getUTCMonth() + 1)}-${padTwoDigits(value.getUTCDate())}`
+        + ` ${padTwoDigits(value.getUTCHours())}:${padTwoDigits(value.getUTCMinutes())}`;
+}

@@ -33,9 +33,14 @@
 import type { ListItem, Tone } from '@openchamber/sdk/ui';
 import { redact } from './redaction.ts';
 import { elapsedSince } from './bindings-rows.ts';
+import { utcStamp } from './ids.ts';
 import { BLOCKED_PREFIX } from './dispatches-service.ts';
 import type { DispatchesState } from './panel-state.ts';
 import type { PlainRunState, RunReference, RunRow, RunState, RunVerification } from './dispatches-service.ts';
+
+// The absolute-stamp reader lives with the clock helpers (`ids.ts`) so the
+// binding rows can take it without importing this module, which imports them.
+export { utcStamp };
 
 /** Heading above the dispatch list. */
 export const DISPATCHES_HEADING = 'Dispatches';
@@ -318,39 +323,6 @@ function resultPhrase(row: RunRow): string {
     }
 
     return row.state === 'dispatched' ? 'no dispatch result recorded' : 'not dispatched yet';
-}
-
-/**
- * Zero-pad one `Date` getter to two characters.
- *
- * @param part - UTC field from a `Date`.
- * @returns The field as two digits.
- */
-function padTwoDigits(part: number): string {
-    return String(part).padStart(2, '0');
-}
-
-/**
- * Render one stamp as a compact UTC minute (`2026-09-28 09:00`).
- *
- * Absolute rather than relative: two references detected minutes apart must
- * not collapse into the same "2m ago" when the operator is reconstructing
- * which reason fired first (FR-015, US4 scenario 2), and an audit row's
- * timestamp is the same kind of fact.
- *
- * @param iso - RFC 3339 stamp from a source reference or an audit row.
- * @returns The compact stamp, or the stored text when it is not a time.
- */
-export function utcStamp(iso: string): string {
-    const at = Date.parse(iso);
-    if (!Number.isFinite(at)) {
-        return iso;
-    }
-
-    const value = new Date(at);
-
-    return `${value.getUTCFullYear()}-${padTwoDigits(value.getUTCMonth() + 1)}-${padTwoDigits(value.getUTCDate())}`
-        + ` ${padTwoDigits(value.getUTCHours())}:${padTwoDigits(value.getUTCMinutes())}`;
 }
 
 /**
