@@ -35,7 +35,15 @@ import type { PanelRuntime, BindingsTabState } from './panel-state.ts';
 import type { DispatchControlsHandlers } from './dispatches-controls.ts';
 import { disposeBindingPrompt, mountBindingPrompt, repaintBindingPrompt } from './bindings-prompt.ts';
 import type { BindingPromptControls, BindingPromptHandlers } from './bindings-prompt.ts';
-import { accountFieldView, mountBindingMention, repaintBindingMention, worktreeFieldView } from './bindings-editor.ts';
+import {
+    accountFieldView,
+    mountBindingActions,
+    mountBindingMention,
+    repaintBindingActions,
+    repaintBindingMention,
+    worktreeFieldView,
+} from './bindings-editor.ts';
+import type { BindingActions } from './bindings-editor.ts';
 import { notListedGuidance } from './project-picker.ts';
 import { bindingRows, selectedBindingDetail } from './bindings-rows.ts';
 
@@ -65,12 +73,16 @@ export interface BindingsPane {
     readonly reviewRequestCheck: CheckboxHandle;
     /** Worktree option select. */
     readonly worktreeSelect: SelectHandle;
-    /** Add-binding button. */
+    /** Add-binding button (the same control saves the loaded row in edit mode). */
     readonly addBinding: ButtonHandle;
     /** Enable/disable toggle for the selected row. */
     readonly toggleSelected: ButtonHandle;
     /** Removal button for the selected row. */
     readonly removeSelected: ButtonHandle;
+    /** Loads the selected row into the editor (005 FR-050's Edit affordance). */
+    readonly editSelected: ButtonHandle;
+    /** Leaves the loaded edit without writing it. */
+    readonly cancelEdit: ButtonHandle;
     /** Note under the form. */
     readonly note: TextHandle;
     /** Wrapper around the selected binding's own line (005 FR-053). */
@@ -93,6 +105,10 @@ export interface BindingsPaneHandlers extends DispatchControlsHandlers, BindingP
     readonly toggle: () => void;
     /** Operators removed the selected binding from the granted list. */
     readonly removeBinding: () => void;
+    /** Operators asked to load the selected binding into the editor (FR-050). */
+    readonly editBinding: () => void;
+    /** Operators walked away from the loaded edit without writing it. */
+    readonly cancelEdit: () => void;
     /** Operators changed the repository input. */
     readonly setRepoInput: (value: string) => void;
     /** Operators picked an account. */
@@ -190,12 +206,8 @@ interface Form {
     readonly reviewRequest: CheckboxHandle;
     /** Worktree select. */
     readonly worktree: SelectHandle;
-    /** Bind button. */
-    readonly add: ButtonHandle;
-    /** Toggle button. */
-    readonly toggle: ButtonHandle;
-    /** Removal button for the selected row. */
-    readonly removeSelected: ButtonHandle;
+    /** The primary control, the Edit affordance, and the row controls. */
+    readonly actions: BindingActions;
     /** Note under the form. */
     readonly note: TextHandle;
 }
@@ -301,18 +313,7 @@ function mountAddForm(input: MountInputs): Form {
         input.pane,
         worktreeFieldView(input.rt.state.bindings, input.handlers.setWorktree),
     );
-    const add = mountButton(
-        input.pane,
-        { label: 'Add binding', disabled: true, onClick: input.handlers.submit },
-    );
-    const toggle = mountButton(
-        input.pane,
-        { label: 'Toggle enabled', variant: 'outline', disabled: true, onClick: input.handlers.toggle },
-    );
-    const removeSelected = mountButton(
-        input.pane,
-        { label: 'Remove', variant: 'outline', disabled: true, onClick: input.handlers.removeBinding },
-    );
+    const actions = mountBindingActions({ pane: input.pane, handlers: input.handlers });
 
     return {
         repoField,
@@ -323,9 +324,7 @@ function mountAddForm(input: MountInputs): Form {
         mention: checks.mention,
         reviewRequest: checks.reviewRequest,
         worktree,
-        add,
-        toggle,
-        removeSelected,
+        actions,
         note: mountText(input.pane, { text: input.rt.state.bindings.note }),
     };
 }
@@ -365,9 +364,7 @@ function disposeBindingsBody(input: {
         form.mention,
         form.reviewRequest,
         form.worktree,
-        form.add,
-        form.toggle,
-        form.removeSelected,
+        ...Object.values(form.actions),
         form.note,
     ];
 
@@ -429,9 +426,11 @@ export function mountBindingsBody(input: {
         mentionCheck: form.mention,
         reviewRequestCheck: form.reviewRequest,
         worktreeSelect: form.worktree,
-        addBinding: form.add,
-        toggleSelected: form.toggle,
-        removeSelected: form.removeSelected,
+        addBinding: form.actions.add,
+        toggleSelected: form.actions.toggle,
+        removeSelected: form.actions.removeSelected,
+        editSelected: form.actions.edit,
+        cancelEdit: form.actions.cancel,
         note: form.note,
         detailBox,
         selectedDetail,
@@ -487,9 +486,16 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
     view.mentionCheck.update({ checked: bindings.triggerMention });
     view.reviewRequestCheck.update({ checked: bindings.triggerReviewRequest });
     view.worktreeSelect.update({ value: bindings.worktreeSelection });
-    view.addBinding.update({ disabled: bindings.status !== 'ready' });
-    view.toggleSelected.update({ disabled: bindings.selectedBinding === null });
-    view.removeSelected.update({ disabled: bindings.selectedBinding === null });
+    repaintBindingActions({
+        bindings,
+        actions: {
+            add: view.addBinding,
+            edit: view.editSelected,
+            toggle: view.toggleSelected,
+            removeSelected: view.removeSelected,
+            cancel: view.cancelEdit,
+        },
+    });
     view.note.update({ text: bindings.note });
     const detail = selectedBindingDetail(bindings);
     view.detailBox.hidden = detail === null;

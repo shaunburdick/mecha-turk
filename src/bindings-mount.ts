@@ -28,7 +28,7 @@ import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import { grantBindings } from './bindings-grant.ts';
-import { storedPromptFor } from './bindings-prompt.ts';
+import { promptRefusal, storedPromptFor } from './bindings-prompt.ts';
 import {
     bindRepository,
     editBindings,
@@ -36,6 +36,11 @@ import {
     removeBinding,
     toggleBinding,
 } from './bindings.ts';
+import {
+    saveEditedBinding,
+    startEditingBinding,
+    stopEditingBinding,
+} from './bindings-edit.ts';
 import { mountBindingsBody } from './bindings-ui.ts';
 import type { BindingsPaneHandlers } from './bindings-ui.ts';
 import { loadAuditHistory } from './audit-view.ts';
@@ -59,26 +64,6 @@ import {
     setSessionInput,
     toggleReferences,
 } from './dispatches.ts';
-import type { ServiceErrorResult } from './service-calls.ts';
-
-/**
- * Read the service's refusal **if it belongs to the prompt field** (FR-052).
- *
- * The whole-file grant validates every binding in one pass, so a 422 can be
- * about any of them; only the one whose `field` is the prompt may be painted
- * onto the prompt, and anything else stays on the tab's note where it already
- * has a home.
- *
- * @param answer - The grant's answer.
- * @returns The field-level copy to render, or `null` when it is not the prompt's.
- */
-function promptRefusal(answer: ServiceErrorResult): string | null {
-    if (answer.ok || answer.code !== 'validation' || answer.message === null) {
-        return null;
-    }
-
-    return answer.message.includes('startingPrompt') ? answer.message : null;
-}
 
 /**
  * Write the edited starting prompt through the whole-file grant (FR-051).
@@ -152,15 +137,27 @@ function promptHandlers(rt: PanelRuntime): Pick<
     'selectBinding' | 'setStartingPrompt' | 'saveStartingPrompt'
 > {
     return {
-        selectBinding: (id) => editBindings(rt, {
-            selectedBinding: id,
-            // The editor field opens on what the service holds for this row
-            // (004 FR-012) — never on a fingerprint, and never on whichever
-            // row was selected before (005 FR-051).
-            startingPromptInput: storedPromptFor(rt.state.bindings, id),
-            startingPromptDirty: false,
-            startingPromptError: null,
-        }),
+        selectBinding: (id) => {
+            // Selecting another row closes whatever the editor had open, the
+            // way the Accounts rows do: the draft belongs to the row it was
+            // loaded from, and carrying it across would let a save write one
+            // binding's values into another (005 FR-050: what the form shows
+            // is what the grant writes). Re-selecting the row being edited
+            // keeps the edit, so a stray click does not throw work away.
+            if (rt.state.bindings.editing && rt.state.bindings.selectedBinding !== id) {
+                stopEditingBinding(rt, null);
+            }
+
+            editBindings(rt, {
+                selectedBinding: id,
+                // The editor field opens on what the service holds for this row
+                // (004 FR-012) — never on a fingerprint, and never on whichever
+                // row was selected before (005 FR-051).
+                startingPromptInput: storedPromptFor(rt.state.bindings, id),
+                startingPromptDirty: false,
+                startingPromptError: null,
+            });
+        },
         setStartingPrompt: (value) => editBindings(rt, {
             startingPromptInput: value,
             startingPromptDirty: true,
@@ -183,9 +180,22 @@ function promptHandlers(rt: PanelRuntime): Pick<
 export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
     return {
         refresh: () => void loadBindings(rt),
-        submit: () => void bindRepository(rt),
+        // One primary control, two shapes: the same button adds a row in add
+        // mode and saves the loaded one in edit mode, so there is never a
+        // second write path beside the whole-file grant (005 FR-050).
+        submit: (): void => {
+            if (rt.state.bindings.editing) {
+                void saveEditedBinding(rt);
+
+                return;
+            }
+
+            void bindRepository(rt);
+        },
         toggle: () => void toggleBinding(rt),
         removeBinding: () => void removeBinding(rt),
+        editBinding: () => startEditingBinding(rt),
+        cancelEdit: () => stopEditingBinding(rt, 'Edit cancelled; nothing was written.'),
         setRepoInput: (value) => editBindings(rt, { repoInput: value }),
         selectAccount: (id) => editBindings(rt, { accountSelection: id }),
         selectProject: (id) => selectBindingProject(rt, id),

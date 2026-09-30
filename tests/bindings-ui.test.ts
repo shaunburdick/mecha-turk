@@ -24,7 +24,14 @@ import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { utcStamp } from '../src/ids.ts';
-import { accountFieldView, mentionTokenView, MENTION_IDLE } from '../src/bindings-editor.ts';
+import {
+    ADD_BINDING_LABEL,
+    accountFieldView,
+    mentionTokenView,
+    MENTION_IDLE,
+    SAVE_CHANGES_LABEL,
+} from '../src/bindings-editor.ts';
+import { startEditingBinding, stopEditingBinding } from '../src/bindings-edit.ts';
 import { toggleBinding } from '../src/bindings.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import { selectedBindingDetail } from '../src/bindings-rows.ts';
@@ -618,5 +625,58 @@ describe('T-022 a displayed bound account and a saved one can never disagree (PM
             .toBe('77331');
         expect(savedRow?.accountNumericUserId).toBe('77331');
         expect(savedRow?.accountLogin).toBe(LOGIN);
+    });
+});
+
+/**
+ * Read the props of the primary control — the one whose label states what
+ * its own click writes — as the last repaint left them.
+ *
+ * @returns Those props, or `undefined` when no primary control mounted.
+ */
+function primaryControl(): Record<string, unknown> | undefined {
+    return lastPropsOf(
+        'mountButton',
+        (props) => props.label === ADD_BINDING_LABEL || props.label === SAVE_CHANGES_LABEL,
+    );
+}
+
+/**
+ * Arrange a ready list holding exactly the fixture row.
+ *
+ * @param rt - Runtime the Bindings body is about to mount against.
+ */
+function withSelectedRow(rt: ReturnType<typeof createTestRuntime>): void {
+    rt.state.bindings.status = 'ready';
+    rt.state.bindings.bindings = [bindingFixture()];
+    rt.state.bindings.selectedBinding = 'bnd-1';
+}
+
+describe('T-036 a selected binding has a reachable Edit affordance (FR-050)', () => {
+    it('mounts Edit and Cancel beside the other selected-row controls', () => {
+        const { dispose } = mountBindingsTab({ setup: withSelectedRow });
+        const strings = renderedStrings();
+        dispose();
+
+        expect(strings).toContain('Edit binding');
+        expect(strings).toContain('Cancel edit');
+        expect(primaryControl()?.label).toBe(ADD_BINDING_LABEL);
+    });
+
+    it('reads Save changes while the row is loaded, Add binding after it is not', () => {
+        const { rt, dispose } = mountBindingsTab({ setup: withSelectedRow });
+
+        startEditingBinding(rt);
+        // The label is the promise: activating it writes what it now says,
+        // because the same control is the whole-file grant's one entry point.
+        expect(primaryControl()?.label).toBe(SAVE_CHANGES_LABEL);
+        expect(primaryControl()?.disabled).toBe(false);
+        expect(rt.state.bindings.repoInput).toBe(bindingFixture().repository);
+        expect(rt.state.bindings.editing).toBe(true);
+
+        stopEditingBinding(rt, null);
+        expect(primaryControl()?.label).toBe(ADD_BINDING_LABEL);
+        expect(rt.state.bindings.editing).toBe(false);
+        dispose();
     });
 });

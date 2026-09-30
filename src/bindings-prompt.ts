@@ -20,6 +20,7 @@
 
 import { mountButton, mountTextField } from '@openchamber/sdk/ui';
 import type { ButtonHandle, TextFieldHandle } from '@openchamber/sdk/ui';
+import type { ServiceErrorResult } from './service-envelope.ts';
 import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
 
 /** What the field is, in 005 FR-051's words (the operator's instruction). */
@@ -33,6 +34,27 @@ const PROMPT_HELPER = 'Sent first in every dispatch from this binding.';
 
 /** Help under the field before a binding is selected to edit. */
 const PROMPT_IDLE = 'Select a binding to edit its starting prompt.';
+
+/**
+ * Read the service's refusal **if it belongs to the prompt field** (FR-052).
+ *
+ * The whole-file grant validates every binding in one pass, so a 422 can be
+ * about any of them; only the one whose message names the prompt may be
+ * painted onto the prompt field, and anything else stays on the tab's note
+ * where it already has a home. Shared by the prompt's own save and by the
+ * binding editor's save, so the two cannot classify the same envelope
+ * differently.
+ *
+ * @param answer - The grant's answer.
+ * @returns The field-level copy to render, or `null` when it is not the prompt's.
+ */
+export function promptRefusal(answer: ServiceErrorResult): string | null {
+    if (answer.ok || answer.code !== 'validation' || answer.message === null) {
+        return null;
+    }
+
+    return answer.message.includes('startingPrompt') ? answer.message : null;
+}
 
 /** Callbacks the field and its save control invoke. */
 export interface BindingPromptHandlers {

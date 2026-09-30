@@ -107,6 +107,8 @@ export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
         addBinding: stubHandle(),
         toggleSelected: stubHandle(),
         removeSelected: stubHandle(),
+        editSelected: stubHandle(),
+        cancelEdit: stubHandle(),
         note: stubHandle(),
         detailBox: paneBody,
         selectedDetail: stubHandle(),
