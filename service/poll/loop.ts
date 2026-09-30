@@ -32,6 +32,7 @@ import { DEFAULT_CONFIG, CONFIG_FILE, configFromStore, parseStoredConfig } from 
 import { readAccount } from '../accounts/store.ts';
 import { readBindings } from '../bindings-read.ts';
 import { promptSnapshotOf } from '../prompt.ts';
+import { runRetentionPasses } from '../retention.ts';
 import type { ServiceConfig } from '../config.ts';
 import type { BindingRecord } from '../bindings.ts';
 import type { ServiceLogger } from '../log.ts';
@@ -501,6 +502,12 @@ export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     }
 
     const context = await cycleContext({ store: deps.store, log: deps.log, poller: deps.poller });
+    // 006 FR-055(b)/FR-057: both retention passes run at the cycle boundary,
+    // on the configuration this cycle already read — the boundary adds no
+    // second read, and a save takes effect here rather than at the write
+    // (FR-047). Nothing below may throw because a pass failed: each one is
+    // guarded inside `runRetentionPasses`.
+    await runRetentionPasses({ store: context.store, log: context.log, config: context.config });
     // Health pass before this cycle reads its windows: a queue file that has
     // to be quarantined clears every binding's `lastScanAt` inside that read,
     // so the scan-state read below must see the cleared slots rather than

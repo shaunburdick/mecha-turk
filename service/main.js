@@ -139,6 +139,7 @@ function readFlag(value) {
 
 // service/audit.ts
 var AUDIT_FILE = "audit.ndjson";
+var CONFIGURATION_ENTITY_ID = "configuration";
 var AUDIT_ENTITY_KINDS = new Set([
   "service",
   "account",
@@ -258,6 +259,27 @@ async function claimConsentVersion(store, version) {
 async function releaseConsentVersion(store, version) {
   const cache = await auditCacheFor(store).catch(() => null);
   cache?.consentVersions.delete(version);
+}
+function serializeAudit(store, task) {
+  return auditCacheFor(store).then((cache) => inWriteChain(cache, task));
+}
+async function composeAudit(store, input) {
+  const cache = await auditCacheFor(store);
+  const { details, reason, redaction } = redactInput(input);
+  const entry = {
+    seq: cache.nextSeq,
+    timestamp: nowIso(),
+    correlationId: input.correlationId ?? newCorrelationId(),
+    eventType: input.eventType,
+    actorSource: input.actorSource,
+    entity: input.entity,
+    decision: input.decision ?? null,
+    reason,
+    redaction,
+    details
+  };
+  cache.nextSeq += 1;
+  return entry;
 }
 async function appendAudit(store, input) {
   const cache = await auditCacheFor(store);
@@ -1084,1873 +1106,196 @@ function createGitHubVerifier(fetchImpl = (url, init) => globalThis.fetch(url, i
   };
 }
 
-// service/auth.ts
-import { createHash, timingSafeEqual } from "node:crypto";
-var BEARER_PREFIX = "Bearer ";
-var DIGEST_ALGORITHM = "sha256";
-function bearerCredential(header) {
-  if (header === undefined) {
-    return "";
-  }
-  return header.startsWith(BEARER_PREFIX) ? header.slice(BEARER_PREFIX.length) : "";
-}
-function digestsMatch(presented, expected) {
-  const left = createHash(DIGEST_ALGORITHM).update(presented).digest();
-  const right = createHash(DIGEST_ALGORITHM).update(expected).digest();
-  return timingSafeEqual(left, right);
-}
-function isAuthorized(header, token) {
-  return digestsMatch(bearerCredential(header), token);
-}
-
-// service/body.ts
-var BYTES_PER_UTF16_UNIT = 3;
-var REQUEST_BODY_MAX_BYTES = REQUEST_BODY_MAX_CHARS * BYTES_PER_UTF16_UNIT;
-function readBytes(request) {
-  return new Promise((resolve) => {
-    const chunks = [];
-    let total = 0;
-    let settled = false;
-    const finish = (outcome) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      resolve(outcome);
-    };
-    request.on("data", (chunk) => {
-      total += chunk.length;
-      if (total > REQUEST_BODY_MAX_BYTES) {
-        request.resume();
-        finish({ kind: "too-large" });
-        return;
-      }
-      chunks.push(chunk);
-    });
-    request.on("end", () => {
-      finish({ kind: "complete", chunks });
-    });
-    request.on("error", () => {
-      finish({ kind: "aborted" });
-    });
-    request.on("close", () => {
-      finish({ kind: "aborted" });
-    });
-  });
-}
-async function readJsonBody(request) {
-  const outcome = await readBytes(request);
-  if (outcome.kind === "too-large") {
-    return { status: "too-large", consumed: false };
-  }
-  if (outcome.kind === "aborted") {
-    return { status: "invalid-json", consumed: false };
-  }
-  const text = Buffer.concat(outcome.chunks).toString("utf8");
-  if (text === "") {
-    return { status: "empty", consumed: true };
-  }
-  if (text.length > REQUEST_BODY_MAX_CHARS) {
-    return { status: "too-large", consumed: true };
-  }
-  const parsed = parseJsonText(text);
-  if (!parsed.ok) {
-    return { status: "invalid-json", consumed: true };
-  }
-  return { status: "ok", consumed: true, value: parsed.value };
-}
-
-// service/store/index.ts
-import { promises as fs5 } from "node:fs";
-import { isAbsolute, resolve as resolve2 } from "node:path";
-
-// service/store/dir.ts
-import { promises as fs } from "node:fs";
-import { resolve } from "node:path";
-
-// service/store/errors.ts
-var STORAGE_UNAVAILABLE_CODE = "storage-unavailable";
-
-class StorageUnavailableError extends Error {
-  name = "StorageUnavailableError";
-  code = STORAGE_UNAVAILABLE_CODE;
-  constructor(message, cause) {
-    super(message, cause === undefined ? undefined : { cause });
-  }
-}
-
-// service/store/dir.ts
-var DATA_DIR_MODE = 448;
-var DATA_FILE_MODE = 384;
-var STORE_RELATIVE_PATH = ".config/openchamber/mecha-turk";
-function resolveDataDir(env) {
-  const home = env.HOME;
-  if (home === undefined || home === "") {
-    throw new StorageUnavailableError("HOME is not set; the Mecha Turk data directory cannot be located");
-  }
-  return resolve(home, STORE_RELATIVE_PATH);
-}
-async function ensureDir(dirPath) {
-  try {
-    await fs.mkdir(dirPath, { recursive: true, mode: DATA_DIR_MODE });
-    await fs.chmod(dirPath, DATA_DIR_MODE);
-  } catch (error) {
-    throw new StorageUnavailableError(`directory cannot be created or made owner-only: ${dirPath}`, error);
-  }
-}
-
-// service/store/json.ts
-import { randomUUID } from "node:crypto";
-import { promises as fs3 } from "node:fs";
-import { dirname, join } from "node:path";
-
-// service/store/files.ts
-import { promises as fs2 } from "node:fs";
-function isMissingFile(error) {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
-async function readTextFile(filePath) {
-  try {
-    return await fs2.readFile(filePath, "utf8");
-  } catch (error) {
-    if (isMissingFile(error)) {
-      return null;
-    }
-    throw new StorageUnavailableError(`store file cannot be read: ${filePath}`, error);
-  }
-}
-async function removeIfPresent(filePath) {
-  try {
-    await fs2.rm(filePath, { force: true });
-  } catch {
-    return;
-  }
-}
-
-// service/store/json.ts
-var QUARANTINE_MARKER = ".corrupt-";
-var TEMP_SUFFIX = ".tmp";
-var JSON_INDENT = 2;
-async function writeSyncedTempFile(tempPath, text) {
-  const handle = await fs3.open(tempPath, "w", DATA_FILE_MODE);
-  try {
-    await handle.writeFile(text, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-}
-async function quarantine(filePath) {
-  const quarantinePath = `${filePath}${QUARANTINE_MARKER}${Date.now()}-${randomUUID()}`;
-  try {
-    await fs3.rename(filePath, quarantinePath);
-  } catch (error) {
-    throw new StorageUnavailableError(`unusable store file cannot be set aside: ${filePath}`, error);
-  }
-  return { status: "quarantined", quarantinePath };
-}
-async function writeJsonAtomic(filePath, value) {
-  const text = `${JSON.stringify(value, null, JSON_INDENT)}
-`;
-  const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID()}`;
-  await ensureDir(dirname(filePath));
-  try {
-    await writeSyncedTempFile(tempPath, text);
-    await fs3.rename(tempPath, filePath);
-  } catch (error) {
-    await removeIfPresent(tempPath);
-    throw new StorageUnavailableError(`store file cannot be written: ${filePath}`, error);
-  }
-}
-var TEMP_DEBRIS_PATTERN = /\.tmp[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-var SWEEP_MAX_DEPTH = 3;
-function isTempDebris(name) {
-  return TEMP_DEBRIS_PATTERN.test(name);
-}
-async function sweepTempDebris(dirPath, depth = SWEEP_MAX_DEPTH) {
-  if (depth < 0) {
-    return 0;
-  }
-  let entries;
-  try {
-    entries = await fs3.readdir(dirPath, { withFileTypes: true });
-  } catch {
-    return 0;
-  }
-  let removed = 0;
-  for (const entry of entries) {
-    const target = join(dirPath, entry.name);
-    if (entry.isDirectory()) {
-      removed += await sweepTempDebris(target, depth - 1);
-    } else if (entry.isFile() && isTempDebris(entry.name)) {
-      removed += 1;
-      await removeIfPresent(target);
-    }
-  }
-  return removed;
-}
-async function readJsonFile(filePath, validate) {
-  const text = await readTextFile(filePath);
-  if (text === null) {
-    return { status: "absent" };
-  }
-  const parsed = parseJsonText(text);
-  if (!parsed.ok) {
-    return await quarantine(filePath);
-  }
-  const value = validate(parsed.value);
-  if (value === null) {
-    return await quarantine(filePath);
-  }
-  return { status: "ok", value };
-}
-
-// service/store/ndjson.ts
-import { randomUUID as randomUUID2 } from "node:crypto";
-import { promises as fs4 } from "node:fs";
-import { dirname as dirname2 } from "node:path";
-async function appendJsonLine(filePath, entry) {
-  const line = `${JSON.stringify(entry)}
-`;
-  try {
-    await fs4.mkdir(dirname2(filePath), { recursive: true, mode: DATA_DIR_MODE });
-    const handle = await fs4.open(filePath, "a", DATA_FILE_MODE);
-    try {
-      await handle.writeFile(line, "utf8");
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-  } catch (error) {
-    if (error instanceof StorageUnavailableError) {
-      throw error;
-    }
-    throw new StorageUnavailableError(`log line cannot be appended: ${filePath}`, error);
-  }
-}
-async function writeJsonLinesAtomic(filePath, entries) {
-  const text = entries.map((entry) => `${JSON.stringify(entry)}
-`).join("");
-  const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID2()}`;
-  await ensureDir(dirname2(filePath));
-  try {
-    await writeSyncedTempFile(tempPath, text);
-    await fs4.rename(tempPath, filePath);
-  } catch (error) {
-    await removeIfPresent(tempPath);
-    throw new StorageUnavailableError(`store file cannot be written: ${filePath}`, error);
-  }
-}
-async function readJsonLines(filePath, parse) {
-  const text = await readTextFile(filePath);
-  if (text === null) {
-    return { entries: [], malformed: 0 };
-  }
-  const entries = [];
-  let malformed = 0;
-  for (const line of text.split(`
-`)) {
-    const trimmed = line.trim();
-    if (trimmed === "") {
-      continue;
-    }
-    const parsed = parseJsonText(trimmed);
-    const value = parsed.ok ? parse(parsed.value) : null;
-    if (value === null) {
-      malformed += 1;
-      continue;
-    }
-    entries.push(value);
-  }
-  return { entries, malformed };
-}
-
-// service/store/index.ts
-var SERVICE_SCHEMA_VERSION = 1;
-var STATE_FILE = "state.json";
-function parseServiceState(raw) {
-  if (!isRecord(raw)) {
-    return null;
-  }
-  const version = raw.schemaVersion;
-  if (typeof version !== "number" || !Number.isInteger(version) || version < 1) {
-    return null;
-  }
-  const initializedAt = typeof raw.initializedAt === "string" ? raw.initializedAt : nowIso();
-  return { schemaVersion: version, initializedAt };
-}
-async function readOrCreateSchemaVersion(dataDir) {
-  const statePath = resolve2(dataDir, STATE_FILE);
-  const result = await readJsonFile(statePath, parseServiceState);
-  if (result.status === "ok") {
-    return result.value.schemaVersion;
-  }
-  const state = { schemaVersion: SERVICE_SCHEMA_VERSION, initializedAt: nowIso() };
-  await writeJsonAtomic(statePath, state);
-  return SERVICE_SCHEMA_VERSION;
-}
-function resolveStorePath(dataDir, relativePath) {
-  if (relativePath === "" || isAbsolute(relativePath) || relativePath.includes("..")) {
-    throw new Error(`store path must be a relative path inside the data directory: ${relativePath}`);
-  }
-  return resolve2(dataDir, relativePath);
-}
-async function listStoreDir(dataDir, relativePath) {
-  const target = resolveStorePath(dataDir, relativePath);
-  try {
-    return await fs5.readdir(target);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return [];
-    }
-    throw new StorageUnavailableError(`store directory cannot be listed: ${target}`, error);
-  }
-}
-async function removeStoreFile(dataDir, relativePath) {
-  const target = resolveStorePath(dataDir, relativePath);
-  try {
-    await fs5.rm(target, { force: true });
-  } catch (error) {
-    throw new StorageUnavailableError(`store file cannot be removed: ${target}`, error);
-  }
-}
-function createStore(dataDir, schemaVersion) {
-  const locate = (relativePath) => resolveStorePath(dataDir, relativePath);
-  return {
-    dataDir,
-    schemaVersion,
-    readJson: async (relativePath, validate) => await readJsonFile(locate(relativePath), validate),
-    writeJson: async (relativePath, value) => await writeJsonAtomic(locate(relativePath), value),
-    appendLine: async (relativePath, entry) => await appendJsonLine(locate(relativePath), entry),
-    writeLines: async (relativePath, entries) => await writeJsonLinesAtomic(locate(relativePath), entries),
-    readLines: async (relativePath, parse) => await readJsonLines(locate(relativePath), parse),
-    listDir: async (relativePath) => await listStoreDir(dataDir, relativePath),
-    removeFile: async (relativePath) => await removeStoreFile(dataDir, relativePath)
-  };
-}
-async function openStore(options) {
-  const { dataDir } = options;
-  await ensureDir(dataDir);
-  await sweepTempDebris(dataDir);
-  const schemaVersion = await readOrCreateSchemaVersion(dataDir);
-  return createStore(dataDir, schemaVersion);
-}
-
-// service/pipeline.ts
-var CONTENT_TYPE_HEADER = "content-type";
-var CONTENT_LENGTH_HEADER = "content-length";
-var CONNECTION_HEADER = "connection";
-var PARAM_PREFIX = ":";
-function matchPathPattern(routePath, pathname) {
-  const pattern = routePath.split("/");
-  const segments = pathname.split("/");
-  if (pattern.length !== segments.length) {
-    return null;
-  }
-  const params = {};
-  for (let index = 0;index < pattern.length; index += 1) {
-    const expected = pattern[index];
-    const actual = segments[index];
-    if (expected === undefined || actual === undefined) {
-      return null;
-    }
-    if (expected.startsWith(PARAM_PREFIX)) {
-      if (actual === "") {
-        return null;
-      }
-      params[expected.slice(PARAM_PREFIX.length)] = actual;
-    } else if (expected !== actual) {
-      return null;
-    }
-  }
-  return params;
-}
-function isPatternPath(routePath) {
-  return routePath.split("/").some((segment) => segment.startsWith(PARAM_PREFIX));
-}
-function writeResponse(call, response) {
-  const outgoing = call.response;
-  if (call.sent || outgoing.headersSent) {
-    call.deps.log.warn("response already committed");
-    return;
-  }
-  call.sent = true;
-  const serialized = serializeBody(response.body);
-  const status = serialized.ok ? response.status : STATUS.internal;
-  const body = serialized.ok ? serialized.text : JSON.stringify(serialized.fallback.body);
-  const text = redact(body);
-  const headers = {
-    [CONTENT_TYPE_HEADER]: JSON_CONTENT_TYPE,
-    [CONTENT_LENGTH_HEADER]: String(Buffer.byteLength(text))
-  };
-  for (const [name, value] of Object.entries(response.headers ?? {})) {
-    headers[name] = value;
-  }
-  if (!call.bodyRead) {
-    headers[CONNECTION_HEADER] = "close";
-  }
-  outgoing.writeHead(status, headers);
-  outgoing.end(text);
-}
-function describeFailure(error, call) {
-  if (error instanceof StorageUnavailableError) {
-    return errorResponse(STATUS.storageUnavailable, { code: error.code, message: error.message });
-  }
-  const correlationId = newCorrelationId();
-  call.deps.log.error("route failed", { correlationId, error: describeError(error) });
-  return errorResponse(STATUS.internal, {
-    code: "internal",
-    message: "unexpected service failure",
-    correlationId
-  });
-}
-function patternRoutes(routes, pathname) {
-  return routes.filter((route) => route.path !== pathname && isPatternPath(route.path) && matchPathPattern(route.path, pathname) !== null);
-}
-function matchRoute(call, url) {
-  const method = call.request.method ?? "";
-  const { routes } = call.deps;
-  const candidates = [
-    ...routes.filter((route2) => route2.path === url.pathname),
-    ...patternRoutes(routes, url.pathname)
-  ];
-  if (candidates.length === 0) {
-    return { kind: "not-found" };
-  }
-  const route = candidates.find((candidate) => candidate.method === method);
-  if (route === undefined) {
-    return { kind: "method-not-allowed", allow: candidates.map((candidate) => candidate.method) };
-  }
-  return { kind: "matched", route, params: matchPathPattern(route.path, url.pathname) ?? {} };
-}
-function refusalResponse(match) {
-  if (match.kind === "not-found") {
-    return errorResponse(STATUS.notFound, { code: "not-found", message: "no route for this path" });
-  }
-  return {
-    status: STATUS.methodNotAllowed,
-    body: errorBody({
-      code: "method-not-allowed",
-      message: "method not allowed for this path"
-    }),
-    headers: { allow: match.allow.join(", ") }
-  };
-}
-async function readBody(call) {
-  const result = await readJsonBody(call.request);
-  call.bodyRead = result.consumed;
-  if (result.status === "too-large") {
-    writeResponse(call, errorResponse(STATUS.payloadTooLarge, {
-      code: "payload-too-large",
-      message: `request body exceeds the ${REQUEST_BODY_MAX_CHARS}-character limit`
-    }));
-    return null;
-  }
-  if (result.status === "invalid-json") {
-    writeResponse(call, errorResponse(STATUS.badRequest, { code: "invalid-json", message: "request body must be valid JSON" }));
-    return null;
-  }
-  return result.status === "ok" ? result.value : undefined;
-}
-function matchRequest(call) {
-  const { request, deps } = call;
-  if (!isAuthorized(request.headers.authorization, deps.env.token)) {
-    writeResponse(call, unauthorizedResponse());
-    return null;
-  }
-  const url = parseRequestTarget(request.url);
-  if (url === null) {
-    writeResponse(call, errorResponse(STATUS.badRequest, {
-      code: "bad-path",
-      message: "request target must be an absolute path on this service"
-    }));
-    return null;
-  }
-  const match = matchRoute(call, url);
-  if (match.kind !== "matched") {
-    writeResponse(call, refusalResponse(match));
-    return null;
-  }
-  return { url, route: match.route, params: match.params };
-}
-async function runPipeline(call) {
-  const matched = matchRequest(call);
-  if (matched === null) {
-    return;
-  }
-  const body = await readBody(call);
-  if (body === null) {
-    return;
-  }
-  const request = {
-    method: call.request.method ?? "GET",
-    url: matched.url,
-    body,
-    params: matched.params
-  };
-  let response;
-  try {
-    response = await matched.route.handler(call.deps.context, request);
-  } catch (error) {
-    response = describeFailure(error, call);
-  }
-  writeResponse(call, response);
-}
-function attachCompletion(call) {
-  const startedAt = Date.now();
-  const url = parseRequestTarget(call.request.url);
-  let settled = false;
-  const complete = () => {
-    if (settled) {
-      return;
-    }
-    settled = true;
-    call.deps.state.inFlight -= 1;
-    call.deps.log.info("request", {
-      method: call.request.method ?? "unknown",
-      path: url === null ? "<invalid-target>" : url.pathname,
-      status: call.response.statusCode,
-      durationMs: Date.now() - startedAt
-    });
-  };
-  call.response.once("finish", complete);
-  call.response.once("close", complete);
-}
-function createRequestHandler(deps) {
-  return (request, response) => {
-    deps.state.inFlight += 1;
-    const call = { request, response, deps, bodyRead: false, sent: false };
-    attachCompletion(call);
-    runPipeline(call).catch((error) => {
-      deps.log.error("request pipeline failed", { error: describeError(error) });
-      writeResponse(call, errorResponse(STATUS.internal, {
-        code: "internal",
-        message: "unexpected service failure",
-        correlationId: newCorrelationId()
-      }));
-    });
-  };
-}
-// src/consent-copy.json
-var consent_copy_default = {
-  version: 1,
-  paragraphs: [
-    "Mecha Turk wants to send a GitHub token to a local service.",
-    "This local service is allowed but sandbox-advisory: Phase 1 does not enforce an OS sandbox; an allowed service has your full user access — it can run any command and read or write any file your user can.",
-    "Your GitHub token is sent over the loopback proxy to this service and stored outside OpenChamber extension storage, protected by file permissions you can back up. It is stored unencrypted (plaintext) on disk, readable by anything running as your user.",
-    "Consent is recorded in the service audit as an occurrence only — a version and a time, never the token."
-  ]
-};
-
-// src/consent.ts
-var CONSENT_VERSION = consent_copy_default.version;
-var CONSENT_COPY_PARAGRAPHS = consent_copy_default.paragraphs;
-var CONSENT_COPY_V1 = CONSENT_COPY_PARAGRAPHS.join(`
-
-`);
-
-// service/consent.ts
-function checkConsent(body) {
-  const raw = body.consentVersion;
-  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < CONSENT_VERSION) {
-    return { ok: false };
-  }
-  return { ok: true, version: raw };
-}
-function consentRequiredResponse() {
-  return errorResponse(STATUS.validation, {
-    code: "consent-required",
-    message: "consent needs renewing — review and accept the handoff notice again"
-  });
-}
-async function recordConsentOccurrence(store, version) {
-  if (!await claimConsentVersion(store, version)) {
-    return;
-  }
-  try {
-    await appendAudit(store, {
-      eventType: "consent",
-      actorSource: "panel",
-      entity: { kind: "service", id: "consent" },
-      reason: "operator accepted the handoff consent",
-      details: { version, givenAt: nowIso() }
-    });
-  } catch (error) {
-    await releaseConsentVersion(store, version);
-    throw error;
-  }
-}
-
-// service/routes/credential.ts
-var TOKEN_MAX_CHARS = 4096;
-var EXPECTED_LOGIN_MAX_CHARS = 200;
-var SCOPE_MISSING_PREFIX = "scope-missing:";
-function readToken2(raw) {
-  if (typeof raw !== "string") {
-    return { issues: [{ field: "token", remediation: "send the GitHub token as a JSON string" }] };
-  }
-  const issues = [];
-  if (raw === "") {
-    issues.push({ field: "token", remediation: "the token must not be empty" });
-  }
-  if (/\s/.test(raw)) {
-    issues.push({ field: "token", remediation: "the token must not contain whitespace" });
-  }
-  if (raw.length > TOKEN_MAX_CHARS) {
-    issues.push({ field: "token", remediation: `the token must be at most ${TOKEN_MAX_CHARS} characters` });
-  }
-  return issues.length > 0 ? { issues } : { token: raw, issues };
-}
-function expectedLoginIssues(raw) {
-  if (raw === undefined) {
-    return [];
-  }
-  if (typeof raw === "string" && raw !== "" && raw.length <= EXPECTED_LOGIN_MAX_CHARS) {
-    return [];
-  }
-  return [
-    {
-      field: "expectedLogin",
-      remediation: `send a non-empty string of at most ${EXPECTED_LOGIN_MAX_CHARS} characters, or omit the field`
-    }
-  ];
-}
-function parseCredentialBody(raw, allowExpectedLogin) {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return {
-      ok: false,
-      consentVersion: null,
-      response: validationResponse([{ field: "body", remediation: "send a JSON object" }])
-    };
-  }
-  const body = raw;
-  const consent = checkConsent(body);
-  if (!consent.ok) {
-    return { ok: false, consentVersion: null, response: consentRequiredResponse() };
-  }
-  const read = readToken2(body.token);
-  const issues = [...read.issues, ...allowExpectedLogin ? expectedLoginIssues(body.expectedLogin) : []];
-  if (issues.length > 0 || read.token === undefined) {
-    return { ok: false, consentVersion: consent.version, response: validationResponse(issues) };
-  }
-  return {
-    ok: true,
-    credential: {
-      token: read.token,
-      consentVersion: consent.version,
-      expectedLogin: allowExpectedLogin && typeof body.expectedLogin === "string" ? body.expectedLogin : null
-    }
-  };
-}
-async function acceptCredentialRequest(input) {
-  const parsed = parseCredentialBody(input.body, input.allowExpectedLogin);
-  const consentVersion = parsed.ok ? parsed.credential.consentVersion : parsed.consentVersion;
-  if (consentVersion !== null) {
-    await recordConsentOccurrence(input.store, consentVersion);
-  }
-  return parsed.ok ? { ok: true, credential: parsed.credential } : { ok: false, response: parsed.response };
-}
-function capabilityLabel(reason) {
-  const capability = reason.slice(SCOPE_MISSING_PREFIX.length);
-  switch (capability) {
-    case "metadata":
-      return "Metadata";
-    case "issues":
-      return "Issues";
-    case "pull-requests":
-      return "Pull requests";
-    default:
-      return "Contents";
-  }
-}
-function reasonCopy(reason) {
-  if (reason === "auth-failed") {
-    return "GitHub rejected this token — create a fresh PAT and paste it again";
-  }
-  if (reason === "sso-required") {
-    return "Your organization requires SSO — authorize the token for this org, then paste it again";
-  }
-  return `This token is missing the ${capabilityLabel(reason)} scope — update the token, then paste it again`;
-}
-function credentialRejectedResponse(reason, correlationId) {
-  return errorResponse(STATUS.validation, {
-    code: "credential-rejected",
-    message: reasonCopy(reason),
-    correlationId,
-    reasonClass: reason
-  });
-}
-function upstreamUnavailableResponse(detail, correlationId) {
-  const messages = {
-    offline: "GitHub could not be reached — check the network, then paste the token again",
-    timeout: "GitHub did not answer in time — wait a moment, then paste the token again",
-    upstream: "GitHub returned an unexpected response — wait a moment, then paste the token again"
-  };
-  return errorResponse(STATUS.badGateway, {
-    code: "upstream-unavailable",
-    message: messages[detail],
-    correlationId
-  });
-}
-function githubRateLimitedResponse(retryAfterSeconds) {
-  return throttleResponse({
-    status: STATUS.tooManyRequests,
-    code: "rate-limited",
-    message: "GitHub rate-limited this verification — wait the stated time, then paste the token again",
-    retryAfterSeconds
-  });
-}
-var VERIFY_BUSY_MESSAGE = "a verification is already running — wait a moment, then retry";
-function throttleRefusal(code, retryAfterSeconds) {
-  const message = code === "verify-busy" ? VERIFY_BUSY_MESSAGE : `verification attempts are limited — retry after ${retryAfterSeconds} seconds`;
-  return throttleResponse({ status: STATUS.tooManyRequests, code, message, retryAfterSeconds });
-}
-function accountRejectedResponse(message, correlationId) {
-  return errorResponse(STATUS.validation, {
-    code: "account-rejected",
-    message,
-    correlationId
-  });
-}
-function duplicateAccountResponse(correlationId) {
-  return errorResponse(STATUS.conflict, {
-    code: "duplicate-account",
-    message: "an account with this GitHub id already exists — rotate its token instead",
-    correlationId
-  });
-}
-function guardCredentialRoute(handler) {
-  return async (context, request) => {
-    try {
-      return await handler(context, request);
-    } catch (error) {
-      if (error instanceof StorageUnavailableError) {
-        return storageUnavailableResponse();
-      }
-      const correlationId = newCorrelationId();
-      context.log.error("credential route failed", {
-        correlationId,
-        errorKind: error instanceof Error ? error.name : typeof error
-      });
-      return errorResponse(STATUS.internal, {
-        code: "internal",
-        message: "unexpected service failure",
-        correlationId
-      });
-    }
-  };
-}
-
-// service/routes/accounts.ts
-var ACCOUNTS_PATH = "/v1/accounts";
-var ACCOUNT_TOKEN_PATH = `${ACCOUNTS_PATH}/:numericUserId/token`;
-var ACCOUNT_PATH = `${ACCOUNTS_PATH}/:numericUserId`;
-var ACCOUNT_DISPLAY_NAME_PATH = `${ACCOUNTS_PATH}/:numericUserId/display-name`;
-var FORCE_QUERY_FLAG = "force";
-var FORCE_QUERY_VALUE = "1";
-var ROTATION_ID_MISMATCH = "the new token belongs to a different GitHub account than this one";
-var ROTATION_LOGIN_MISMATCH = "the new token belongs to a different GitHub login";
-var REJECTED_EVENT = "account.rejected";
-var REJECT_DECISION = "reject";
-var ACCOUNT_KIND = "account";
-function unknownAccountResponse() {
-  return errorResponse(STATUS.notFound, {
-    code: "unknown-account",
-    message: "no account with this GitHub id is registered"
-  });
-}
-function bindingsRefusalResponse(count) {
-  return errorResponse(STATUS.conflict, {
-    code: "invalid-transition",
-    message: `${count} binding(s) still reference this account — remove them, or confirm a force delete`
-  });
-}
-function displayNameBodyRefusal() {
-  return validationResponse([{
-    field: "displayName",
-    remediation: "the body must carry displayName, as text or null"
-  }]);
-}
-function pathAccountId(request) {
-  const raw = request.params.numericUserId;
-  return isNumericUserId(raw) ? raw : null;
-}
-async function handleListAccounts(context) {
-  const { store } = context;
-  if (store === null) {
-    return storageUnavailableResponse();
-  }
-  const accounts = await listAccounts(store, context.log);
-  return { status: STATUS.ok, body: { accounts: accounts.map(toAccountDto) } };
-}
-function rotatedAccount(input) {
-  const { account, outcome, token } = input;
-  const recovering = account.state !== "active";
-  const verifiedAt = nowIso();
-  return {
-    ...account,
-    login: outcome.identity.login,
-    credential: { token, kind: outcome.credentialKind, verifiedAt },
-    scopeCheck: outcome.scopeCheck,
-    verifiedAt,
-    ...recovering ? { state: "active", connectionState: "connected", errorReason: null } : {}
-  };
-}
-async function recordRotationRejection(subject, reason) {
-  await appendAudit(subject.store, {
-    eventType: REJECTED_EVENT,
-    actorSource: "service",
-    entity: { kind: ACCOUNT_KIND, id: subject.account.numericUserId },
-    decision: REJECT_DECISION,
-    reason,
-    correlationId: subject.correlationId,
-    details: { reasonClass: reason, operation: "rotation" }
-  });
-}
-async function rotationRefusal(subject, outcome) {
-  if (outcome.kind === "rate-limited") {
-    return githubRateLimitedResponse(outcome.retryAfterSeconds);
-  }
-  if (outcome.kind === "unavailable") {
-    return upstreamUnavailableResponse(outcome.detail, subject.correlationId);
-  }
-  if (outcome.kind === "rejected") {
-    await recordRotationRejection(subject, outcome.reason);
-    return credentialRejectedResponse(outcome.reason, subject.correlationId);
-  }
-  if (outcome.identity.numericUserId !== subject.account.numericUserId) {
-    await recordRotationRejection(subject, "rotation-id-mismatch");
-    return accountRejectedResponse(ROTATION_ID_MISMATCH, subject.correlationId);
-  }
-  const expected = subject.account.expectedLogin;
-  if (expected !== null && expected.toLowerCase() !== outcome.identity.login.toLowerCase()) {
-    await recordRotationRejection(subject, "expected-login-mismatch");
-    return accountRejectedResponse(ROTATION_LOGIN_MISMATCH, subject.correlationId);
-  }
-  return null;
-}
-async function recordRotation(input) {
-  try {
-    await appendAudit(input.store, {
-      eventType: "account.rotated",
-      actorSource: "operator",
-      entity: { kind: ACCOUNT_KIND, id: input.account.numericUserId },
-      decision: "accept",
-      reason: "replacement token verified against GitHub /user",
-      correlationId: input.correlationId,
-      details: { login: input.account.login, scopeCheck: input.account.scopeCheck.results }
-    });
-  } catch (error) {
-    input.log.warn("account rotated but the audit row could not be appended", {
-      numericUserId: input.account.numericUserId,
-      errorKind: error instanceof Error ? error.name : typeof error
-    });
-  }
-}
-async function persistRotation(input) {
-  const rotated = rotatedAccount({ account: input.account, outcome: input.outcome, token: input.token });
-  await writeAccount(input.store, rotated);
-  await recordRotation({ store: input.store, log: input.log, account: rotated, correlationId: input.correlationId });
-  return {
-    status: STATUS.ok,
-    body: { numericUserId: rotated.numericUserId, login: rotated.login, verifiedAt: rotated.verifiedAt }
-  };
-}
-async function prepareRotation(input) {
-  const parsed = await acceptCredentialRequest({
-    store: input.store,
-    body: input.body,
-    allowExpectedLogin: false
-  });
-  if (!parsed.ok) {
-    return { ok: false, response: parsed.response };
-  }
-  const account = input.pathId === null ? null : await readAccount({ store: input.store, numericUserId: input.pathId });
-  if (input.pathId === null || account === null) {
-    return { ok: false, response: unknownAccountResponse() };
-  }
-  return { ok: true, account, credential: parsed.credential };
-}
-async function handleRotateToken(context, request) {
-  const { store } = context;
-  if (store === null) {
-    return storageUnavailableResponse();
-  }
-  const prepared = await prepareRotation({ store, pathId: pathAccountId(request), body: request.body });
-  if (!prepared.ok) {
-    return prepared.response;
-  }
-  const decision = context.throttle.attempt();
-  if (!decision.allowed) {
-    return throttleRefusal(decision.code, decision.retryAfterSeconds);
-  }
-  try {
-    const outcome = await context.github.verify(prepared.credential.token);
-    const subject = { store, account: prepared.account, correlationId: newCorrelationId() };
-    const refusal = await rotationRefusal(subject, outcome);
-    if (refusal !== null) {
-      return refusal;
-    }
-    if (outcome.kind !== "ok") {
-      return upstreamUnavailableResponse("upstream", subject.correlationId);
-    }
-    return await persistRotation({
-      store,
-      log: context.log,
-      account: prepared.account,
-      token: prepared.credential.token,
-      outcome,
-      correlationId: subject.correlationId
-    });
-  } finally {
-    decision.lease.release();
-  }
-}
-async function recordDisabledBindings(store, bindings) {
-  for (const binding of bindings) {
-    await appendAudit(store, {
-      eventType: "binding.disabled",
-      actorSource: "operator",
-      entity: { kind: "binding", id: binding.bindingId },
-      decision: "disable",
-      reason: "account deleted with force=1",
-      details: {}
-    });
-  }
-}
-async function recordAccountDeleted(store, numericUserId) {
-  await appendAudit(store, {
-    eventType: "account.deleted",
-    actorSource: "operator",
-    entity: { kind: ACCOUNT_KIND, id: numericUserId },
-    decision: "remove",
-    reason: "operator deleted the account",
-    details: { credentialFile: accountPath(numericUserId) }
-  });
-}
-async function handleDeleteAccount(context, request) {
-  const { store } = context;
-  if (store === null) {
-    return storageUnavailableResponse();
-  }
-  const pathId = pathAccountId(request);
-  const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId });
-  if (pathId === null || account === null) {
-    return unknownAccountResponse();
-  }
-  const bindings = await bindingsReferencing(store, pathId);
-  const forced = request.url.searchParams.get(FORCE_QUERY_FLAG) === FORCE_QUERY_VALUE;
-  if (bindings.length > 0 && !forced) {
-    return bindingsRefusalResponse(bindings.length);
-  }
-  if (bindings.length > 0) {
-    await recordDisabledBindings(store, await disableBindings(store, bindings));
-  }
-  await removeAccount(store, pathId);
-  await recordAccountDeleted(store, pathId);
-  return { status: STATUS.ok, body: { removed: true } };
-}
-async function handleSetDisplayName(context, request) {
-  const { store } = context;
-  if (store === null) {
-    return storageUnavailableResponse();
-  }
-  const pathId = pathAccountId(request);
-  const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId });
-  if (pathId === null || account === null) {
-    return unknownAccountResponse();
-  }
-  const { body } = request;
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    return displayNameBodyRefusal();
-  }
-  const record = body;
-  if (!("displayName" in record)) {
-    return displayNameBodyRefusal();
-  }
-  const validation = validateDisplayName(record.displayName);
-  if (!validation.ok) {
-    return validationResponse([validation.issue]);
-  }
-  const updated = { ...account, displayName: validation.displayName, updatedAt: nowIso() };
-  await writeAccount(store, updated);
-  return { status: STATUS.ok, body: { account: toAccountDto(updated) } };
-}
-var listAccountsRoute = {
-  method: "GET",
-  path: ACCOUNTS_PATH,
-  handler: guardCredentialRoute(handleListAccounts)
-};
-var rotateTokenRoute = {
-  method: "POST",
-  path: ACCOUNT_TOKEN_PATH,
-  handler: guardCredentialRoute(handleRotateToken)
-};
-var setDisplayNameRoute = {
-  method: "PUT",
-  path: ACCOUNT_DISPLAY_NAME_PATH,
-  handler: guardCredentialRoute(handleSetDisplayName)
-};
-var deleteAccountRoute = {
-  method: "DELETE",
-  path: ACCOUNT_PATH,
-  handler: guardCredentialRoute(handleDeleteAccount)
-};
-
-// service/routes/audit.ts
-var AUDIT_PATH = "/v1/audit";
-var DEFAULT_AUDIT_LIMIT = 100;
-var MAX_AUDIT_LIMIT = 200;
-function auditLimitOf(raw) {
-  if (raw === null || raw.trim() === "") {
-    return DEFAULT_AUDIT_LIMIT;
-  }
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_AUDIT_LIMIT;
-  }
-  return Math.min(Math.max(Math.trunc(parsed), 1), MAX_AUDIT_LIMIT);
-}
-function auditCursorOf(raw) {
-  if (raw === null || raw.trim() === "") {
-    return 0;
-  }
-  if (!/^[0-9]{1,15}$/.test(raw.trim())) {
-    return null;
-  }
-  return Number(raw.trim());
-}
-function cursorIssue() {
-  const issues = [{
-    field: "cursor",
-    remediation: "send the nextCursor this route returned, or omit it to start at the oldest row"
-  }];
-  return validationResponse(issues);
-}
-async function handleAuditRead(context, request) {
-  const { store } = context;
-  if (store === null) {
-    return storageUnavailableResponse();
-  }
-  const cursor = auditCursorOf(request.url.searchParams.get("cursor"));
-  if (cursor === null) {
-    return cursorIssue();
-  }
-  const limit = auditLimitOf(request.url.searchParams.get("limit"));
-  const correlationId = request.url.searchParams.get("correlationId");
-  const entries = await readAuditEntries(store);
-  const filtered = correlationId === null ? entries : entries.filter((entry) => entry.correlationId === correlationId);
-  const ahead = filtered.filter((entry) => entry.seq > cursor);
-  const page = ahead.slice(0, limit);
-  const last = page.at(-1);
-  return {
-    status: STATUS.ok,
-    body: {
-      entries: page,
-      nextCursor: ahead.length > page.length && last !== undefined ? last.seq : null,
-      count: page.length
-    }
-  };
-}
-var auditRoute = {
-  method: "GET",
-  path: AUDIT_PATH,
-  handler: (context, request) => handleAuditRead(context, request)
-};
-
-// service/config-schema.ts
-var NEXT_CYCLE = "next-cycle";
-var TAKE_EFFECT = {
-  intervalMs: NEXT_CYCLE,
-  overlapMs: NEXT_CYCLE,
-  perPage: NEXT_CYCLE,
-  retryMaxAttempts: NEXT_CYCLE,
-  retryBaseMs: NEXT_CYCLE,
-  retryMaxMs: NEXT_CYCLE,
-  auditRetentionDays: NEXT_CYCLE,
-  auditMaxEntries: NEXT_CYCLE,
-  excerptRetentionDays: NEXT_CYCLE,
-  leaseMs: NEXT_CYCLE,
-  resultDeadlineMs: NEXT_CYCLE,
-  logLevel: "immediate",
-  expectedAgent: "next-dispatch"
-};
-function configSchema() {
-  const numericFields = Object.keys(NUMERIC_BOUNDS);
-  const descriptors = numericFields.map((field) => ({
-    name: field,
-    kind: "integer",
-    unit: NUMERIC_BOUNDS[field].unit,
-    min: NUMERIC_BOUNDS[field].min,
-    max: NUMERIC_BOUNDS[field].max,
-    default: DEFAULT_CONFIG[field],
-    takesEffect: TAKE_EFFECT[field]
-  }));
-  descriptors.push({
-    name: "logLevel",
-    kind: "enum",
-    unit: null,
-    values: LOG_LEVEL_VALUES,
-    default: DEFAULT_CONFIG.logLevel,
-    takesEffect: TAKE_EFFECT.logLevel
-  });
-  descriptors.push({
-    name: "expectedAgent",
-    kind: "string",
-    unit: null,
-    format: EXPECTED_AGENT_RULE.format,
-    maxLength: EXPECTED_AGENT_RULE.maxLength,
-    default: DEFAULT_CONFIG.expectedAgent,
-    takesEffect: TAKE_EFFECT.expectedAgent
-  });
-  return descriptors;
-}
-
-// service/routes/config.ts
-var CONFIG_PATH = "/v1/config";
-async function handleGetConfig(context) {
-  if (context.store === null) {
-    return storageUnavailableResponse();
-  }
-  const result = await context.store.readJson(CONFIG_FILE, parseStoredConfig);
-  const read = configFromStore(result, context.log);
-  return {
-    status: STATUS.ok,
-    body: {
-      config: read.config,
-      fields: configSchema(),
-      source: read.source,
-      defaultsApplied: read.defaultsApplied
-    }
-  };
-}
-async function handlePutConfig(context, request) {
-  const validation = validateConfig(request.body);
-  if (!validation.ok) {
-    return validationResponse(validation.issues);
-  }
-  if (context.store === null) {
-    return storageUnavailableResponse();
-  }
-  await context.store.writeJson(CONFIG_FILE, validation.config);
-  context.log.setLevel(validation.config.logLevel);
-  return { status: STATUS.ok, body: { config: validation.config } };
-}
-var getConfigRoute = {
-  method: "GET",
-  path: CONFIG_PATH,
-  handler: (context) => handleGetConfig(context)
-};
-var putConfigRoute = {
-  method: "PUT",
-  path: CONFIG_PATH,
-  handler: (context, request) => handlePutConfig(context, request)
-};
-
-// src/config.ts
-var REPOSITORY_PART_PATTERN = /^[A-Za-z0-9_.-]+$/;
-var BRANCH_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
-var PARENT_PATH_REFERENCE = "..";
-var PROJECT_ID_PATTERN = /^[\x20-\x7E]+$/;
-var PROJECT_ID_MAX = 128;
-function parseRepository(value) {
-  const parts = value.trim().split("/");
-  if (parts.length !== 2) {
-    return null;
-  }
-  const owner = parts[0];
-  const name = parts[1];
-  if (owner === undefined || name === undefined || owner === "" || name === "") {
-    return null;
-  }
-  if (!REPOSITORY_PART_PATTERN.test(owner) || !REPOSITORY_PART_PATTERN.test(name)) {
-    return null;
-  }
-  return { owner, name };
-}
-function parseWorktreeOption(value) {
-  const trimmed = value.trim();
-  if (trimmed === "" || trimmed === "none") {
-    return { kind: "none" };
-  }
-  if (trimmed === "generated") {
-    return { kind: "generated" };
-  }
-  if (!trimmed.startsWith("new:")) {
-    return null;
-  }
-  const name = trimmed.slice("new:".length).trim();
-  if (name === "" || name.includes(PARENT_PATH_REFERENCE) || !BRANCH_NAME_PATTERN.test(name)) {
-    return null;
-  }
-  return { kind: "new", name };
-}
-function parseProjectId(raw) {
-  if (raw === null) {
-    return null;
-  }
-  const trimmed = raw.trim();
-  if (trimmed === "" || trimmed.length > PROJECT_ID_MAX || !PROJECT_ID_PATTERN.test(trimmed)) {
-    return null;
-  }
-  return trimmed;
-}
-function repositoryLabel(repository) {
-  return `${repository.owner}/${repository.name}`;
-}
-
-// service/prompt.ts
-import { createHash as createHash2 } from "node:crypto";
-
-// src/prompt.ts
-var RESERVED_MARKER_PREFIXES = ["--- BEGIN ", "--- END "];
-var NEWLINE = `
-`;
-var PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
-var LAST_FORBIDDEN_LOW_CODE_POINT = 8;
-var TAB_CODE_POINT = 9;
-var LINE_FEED_CODE_POINT = 10;
-var FORBIDDEN_MIDDLE_START = 11;
-var FORBIDDEN_MIDDLE_END = 31;
-var FORBIDDEN_UPPER_START = 127;
-var FORBIDDEN_UPPER_END = 159;
-function trimPrompt(text) {
-  return text.trim();
-}
-function normaliseLineEndings(text) {
-  let folded = "";
-  for (let index = 0;index < text.length; index += 1) {
-    if (text[index] !== "\r") {
-      folded += text[index] ?? "";
-      continue;
-    }
-    folded += NEWLINE;
-    if (text[index + 1] === `
-`) {
-      index += 1;
-    }
-  }
-  return folded;
-}
-function countCodePoints(text) {
-  return [...text].length;
-}
-function hasReservedMarkerLine(text) {
-  const prefixes = RESERVED_MARKER_PREFIXES;
-  return text.split(NEWLINE).some((line) => prefixes.some((prefix) => line.startsWith(prefix)));
-}
-function isForbiddenControl(codePoint) {
-  if (codePoint <= LAST_FORBIDDEN_LOW_CODE_POINT) {
+// service/audit-trim.ts
+var DAY_MS = 86400000;
+var DECISION_EVENTS = new Set(["policy.decision", "config.changed"]);
+var RUN_SCOPED_PREFIXES = ["run.", "dispatch.", "agent."];
+function isRunScoped(entry) {
+  if (entry.entity.kind === "run") {
     return true;
   }
-  if (codePoint === TAB_CODE_POINT || codePoint === LINE_FEED_CODE_POINT) {
-    return false;
-  }
-  if (codePoint >= FORBIDDEN_MIDDLE_START && codePoint <= FORBIDDEN_MIDDLE_END) {
-    return true;
-  }
-  return codePoint >= FORBIDDEN_UPPER_START && codePoint <= FORBIDDEN_UPPER_END;
+  return RUN_SCOPED_PREFIXES.some((prefix) => entry.eventType.startsWith(prefix));
 }
-function hasIllegalControlChar(text) {
-  for (const character of text) {
-    if (isForbiddenControl(character.codePointAt(0) ?? 0)) {
-      return true;
+function bindingIdsOf(probe) {
+  if (probe.status === "absent") {
+    return new Set;
+  }
+  if (probe.status === "quarantined" || !Array.isArray(probe.value)) {
+    return null;
+  }
+  const ids = new Set;
+  for (const entry of probe.value) {
+    if (isRecord(entry) && typeof entry.bindingId === "string") {
+      ids.add(entry.bindingId);
     }
   }
-  return false;
+  return ids;
 }
-
-// service/prompt.ts
-var STARTING_PROMPT_MAX_CODE_POINTS = 2000;
-var PROMPT_FINGERPRINT_PREFIX = "mtp-";
-var FINGERPRINT_HEX_CHARS = 32;
-var REMEDIATION_TYPE = "startingPrompt must be text; send it absent or null to leave the starting prompt unset";
-var REMEDIATION_CAP = `startingPrompt must be at most ${STARTING_PROMPT_MAX_CODE_POINTS}` + " characters (Unicode code points) after trimming";
-var REMEDIATION_CONTROL = "startingPrompt must not contain null or control characters other than newline and tab";
-var REMEDIATION_MARKER = "startingPrompt must not contain a line beginning with" + ' "--- BEGIN " or "--- END " (reserved composition markers)';
-function credentialRemediation(label) {
-  return `startingPrompt must not contain credential-shaped material (matched shape: ${label})`;
-}
-function refuse(remediation) {
-  return { ok: false, issue: { field: "startingPrompt", remediation } };
-}
-function validateStartingPrompt(raw) {
-  if (raw === undefined || raw === null) {
-    return { ok: true, prompt: null };
-  }
-  if (typeof raw !== "string") {
-    return refuse(REMEDIATION_TYPE);
-  }
-  const trimmed = trimPrompt(raw);
-  if (trimmed === "") {
-    return { ok: true, prompt: null };
-  }
-  const text = normaliseLineEndings(trimmed);
-  if (countCodePoints(text) > STARTING_PROMPT_MAX_CODE_POINTS) {
-    return refuse(REMEDIATION_CAP);
-  }
-  if (hasIllegalControlChar(text)) {
-    return refuse(REMEDIATION_CONTROL);
-  }
-  if (hasReservedMarkerLine(text)) {
-    return refuse(REMEDIATION_MARKER);
-  }
-  const label = findSecretLeak(text);
-  if (label !== null) {
-    return refuse(credentialRemediation(label));
-  }
-  return { ok: true, prompt: text };
-}
-function promptFingerprint(text) {
-  const digest = createHash2("sha256").update(text, "utf8").digest("hex");
-  return `${PROMPT_FINGERPRINT_PREFIX}${digest.slice(0, FINGERPRINT_HEX_CHARS)}`;
-}
-function promptSnapshotOf(record) {
-  const verdict = validateStartingPrompt(record.startingPrompt);
-  if (!verdict.ok || verdict.prompt === null) {
-    return null;
-  }
-  const text = verdict.prompt;
-  return { text, fingerprint: promptFingerprint(text), length: countCodePoints(text) };
-}
-function storedText(candidate) {
-  const { text } = candidate;
-  return typeof text === "string" && text !== "" ? text : null;
-}
-function storedFingerprint(candidate) {
-  const { fingerprint } = candidate;
-  return typeof fingerprint === "string" && PROMPT_FINGERPRINT_PATTERN.test(fingerprint) ? fingerprint : null;
-}
-function storedLength(candidate) {
-  const { length } = candidate;
-  return typeof length === "number" && Number.isInteger(length) && length > 0 ? length : null;
-}
-function readStoredSnapshot(candidate) {
-  const text = storedText(candidate);
-  const fingerprint = storedFingerprint(candidate);
-  const length = storedLength(candidate);
-  if (text === null || fingerprint === null || length === null) {
-    return null;
-  }
-  if (countCodePoints(text) !== length) {
-    return null;
-  }
-  if (length > STARTING_PROMPT_MAX_CODE_POINTS || findSecretLeak(text) !== null) {
-    return null;
-  }
-  return { text, fingerprint, length };
-}
-function parseStoredPromptSnapshot(raw) {
-  if (raw === undefined || raw === null) {
-    return { status: "unset" };
-  }
-  if (typeof raw !== "object" || Array.isArray(raw)) {
-    return null;
-  }
-  const snapshot = readStoredSnapshot(raw);
-  return snapshot === null ? null : { status: "set", snapshot };
-}
-
-// service/bindings.ts
-var MAX_BINDINGS = 100;
-var MAX_BINDING_ID_CHARS = 128;
-var MAX_REPOSITORY_CHARS = 200;
-var NUMERIC_ID_PATTERN = /^\d+$/;
-function stringFieldOf(value) {
-  return typeof value === "string" && value !== "" ? value : null;
-}
-function issue(value) {
-  return { issue: value };
-}
-function triggersFieldOf(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const record = value;
-  const { assignment, mention, reviewRequest } = record;
-  if (typeof assignment !== "boolean" || typeof mention !== "boolean") {
-    return null;
-  }
-  if (reviewRequest !== undefined && typeof reviewRequest !== "boolean") {
-    return null;
-  }
-  return { assignment, mention, reviewRequest: reviewRequest === true };
-}
-function stateFieldOf(value) {
-  if (value === undefined) {
-    return "active";
-  }
-  if (value === "active" || value === "disabled") {
-    return value;
-  }
-  return null;
-}
-function stampOrKeep(value, fallback) {
-  return typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : fallback;
-}
-function repositoryFieldOf(value) {
-  if (typeof value !== "string" || value.length > MAX_REPOSITORY_CHARS) {
-    return null;
-  }
-  const parsed = parseRepository(value);
-  return parsed === null ? null : `${parsed.owner}/${parsed.name}`;
-}
-function worktreeFieldOf(value) {
-  const parsed = parseWorktreeOption(typeof value === "string" ? value : "");
-  if (parsed === null) {
-    return null;
-  }
-  if (parsed.kind === "new") {
-    return `new:${parsed.name}`;
-  }
-  return parsed.kind;
-}
-function bindingIdentityOf(raw, accountExists) {
-  const bindingId = stringFieldOf(raw.bindingId);
-  if (bindingId === null || bindingId.length > MAX_BINDING_ID_CHARS) {
-    return issue({
-      field: "bindingId",
-      remediation: `bindingId must be a unique string of at most ${MAX_BINDING_ID_CHARS} characters`
-    });
-  }
-  const accountId = raw.accountNumericUserId;
-  const accountCopy = "accountNumericUserId must be the GitHub numeric user id of a registered account";
-  if (typeof accountId !== "string" || !NUMERIC_ID_PATTERN.test(accountId)) {
-    return issue({ field: "accountNumericUserId", remediation: accountCopy });
-  }
-  if (!accountExists) {
-    return issue({
-      field: "accountNumericUserId",
-      remediation: "register the account before binding it"
-    });
-  }
-  const login = stringFieldOf(raw.accountLogin);
-  if (login === null || login.trim() === "") {
-    return issue({
-      field: "accountLogin",
-      remediation: "accountLogin must be the login shown for this account"
-    });
-  }
-  return { binding: { bindingId, accountNumericUserId: accountId, accountLogin: login } };
-}
-function bindingTargetOf(raw) {
-  const repository = repositoryFieldOf(raw.repository);
-  if (repository === null) {
-    return issue({
-      field: "repository",
-      remediation: "repository must be an existing GitHub repository written as `owner/name`"
-    });
-  }
-  const projectId = parseProjectId(stringFieldOf(raw.projectId));
-  if (projectId === null) {
-    return issue({
-      field: "projectId",
-      remediation: "projectId must be an existing OpenChamber project id (from the panel picker)"
-    });
-  }
-  const worktreeOption = worktreeFieldOf(raw.worktreeOption);
-  if (worktreeOption === null) {
-    return issue({
-      field: "worktreeOption",
-      remediation: "worktreeOption must be `none`, `generated`, or `new:<branch-name>`"
-    });
-  }
-  return { binding: { repository, projectId, worktreeOption } };
-}
-function bindingModeOf(raw) {
-  const triggers = triggersFieldOf(raw.triggers);
-  if (triggers === null) {
-    return issue({
-      field: "triggers",
-      remediation: "triggers must be an object with assignment, mention, and reviewRequest boolean flags"
-    });
-  }
-  const state = stateFieldOf(raw.state);
-  if (state === null) {
-    return issue({
-      field: "state",
-      remediation: "state must be `active` or `disabled`"
-    });
-  }
-  return { binding: { triggers, state } };
-}
-function bindingPromptOf(raw) {
-  const verdict = validateStartingPrompt(raw.startingPrompt);
-  return verdict.ok ? { prompt: verdict.prompt } : { issue: verdict.issue };
-}
-function assembleBinding(raw, accountExists) {
-  const identity = bindingIdentityOf(raw, accountExists);
-  if ("issue" in identity) {
-    return null;
-  }
-  const target = bindingTargetOf(raw);
-  if ("issue" in target) {
-    return null;
-  }
-  const mode = bindingModeOf(raw);
-  if ("issue" in mode) {
-    return null;
-  }
-  const prompt = bindingPromptOf(raw);
-  if ("issue" in prompt) {
-    return null;
-  }
-  const login = identity.binding.accountLogin.trim();
-  const createdAt = stampOrKeep(raw.createdAt, nowIso());
-  return {
-    ...identity.binding,
-    accountLogin: login,
-    ...target.binding,
-    ...mode.binding,
-    ...prompt.prompt === null ? {} : { startingPrompt: prompt.prompt },
-    createdAt,
-    updatedAt: stampOrKeep(raw.updatedAt, createdAt)
-  };
-}
-function refusalsIn(verdicts) {
-  return verdicts.flatMap((verdict) => ("issue" in verdict) ? [verdict.issue] : []);
-}
-function parseBinding(input) {
-  const { raw, accountExists } = input;
-  const record = assembleBinding(raw, accountExists);
-  if (record !== null) {
-    return { binding: record };
-  }
-  return {
-    issues: refusalsIn([
-      bindingIdentityOf(raw, accountExists),
-      bindingTargetOf(raw),
-      bindingModeOf(raw),
-      bindingPromptOf(raw)
-    ])
-  };
-}
-function collectBindingIssues(candidates, accountExists) {
-  const issues = [];
-  const seen = new Set;
-  const bindings = [];
-  for (const candidate of candidates) {
-    const record = isRecord(candidate) ? candidate : null;
-    if (record === null) {
-      issues.push({ field: "bindings[]", remediation: "each binding must be a JSON object" });
-      continue;
-    }
-    const exists = typeof record.accountNumericUserId === "string" && accountExists(record.accountNumericUserId);
-    const verdict = parseBinding({ raw: record, accountExists: exists });
-    if ("issues" in verdict) {
-      issues.push(...verdict.issues);
-      continue;
-    }
-    if (seen.has(verdict.binding.bindingId)) {
-      issues.push({ field: "bindingId", remediation: "each binding must carry a unique bindingId" });
-      continue;
-    }
-    seen.add(verdict.binding.bindingId);
-    bindings.push(verdict.binding);
-  }
-  if (issues.length > 0) {
-    return { ok: false, issues };
-  }
-  return { ok: true, bindings };
-}
-function validateBindings(input) {
-  const bodyCopy = "send `{ bindings: [...] }` holding every binding the panel keeps";
-  const body = isRecord(input.raw) ? input.raw : null;
-  if (body === null || !Array.isArray(body.bindings)) {
-    return {
-      ok: false,
-      issues: [{ field: "body", remediation: bodyCopy }]
-    };
-  }
-  const capCopy = `keep the list to ${MAX_BINDINGS} bindings`;
-  if (body.bindings.length > MAX_BINDINGS) {
-    return {
-      ok: false,
-      issues: [{ field: "bindings", remediation: capCopy }]
-    };
-  }
-  return collectBindingIssues(body.bindings, input.accountExists);
-}
-async function writeBindings(input) {
-  await input.store.writeJson(BINDINGS_FILE, input.bindings);
-}
-
-// service/prompt-audit.ts
-var PROMPT_UPDATED_EVENT = "binding.prompt-updated";
-var observationStates = new WeakMap;
-function stateFor(store) {
-  let state = observationStates.get(store);
-  if (state === undefined) {
-    state = { baseline: new Map, seeded: false, chain: Promise.resolve() };
-    observationStates.set(store, state);
-  }
-  return state;
-}
-async function seedBaseline(store, baseline) {
-  const trail = await store.readLines(AUDIT_FILE, parseAuditEntry);
-  const highest = new Map;
-  for (const entry of trail.entries) {
-    if (entry.eventType !== PROMPT_UPDATED_EVENT) {
-      continue;
-    }
-    const { bindingId } = entry.details;
-    if (typeof bindingId !== "string") {
-      continue;
-    }
-    const recorded = entry.details.promptFingerprint;
-    const fingerprint = entry.details.promptPresent === true && typeof recorded === "string" ? recorded : null;
-    const prior = highest.get(bindingId);
-    if (prior === undefined || entry.seq > prior.seq) {
-      highest.set(bindingId, { seq: entry.seq, fingerprint });
-    }
-  }
-  for (const [bindingId, value] of highest) {
-    baseline.set(bindingId, value.fingerprint);
-  }
-}
-async function runPromptChain(store, task) {
-  const state = stateFor(store);
-  const start = async () => {
-    if (!state.seeded) {
-      await seedBaseline(store, state.baseline);
-      state.seeded = true;
-    }
-    return await task();
-  };
-  const run = state.chain.then(start, start);
-  state.chain = run;
-  return await run;
-}
-async function appendPromptChange(input) {
-  const present = input.current !== null;
-  let decision;
-  if (input.current === null) {
-    decision = "cleared";
-  } else {
-    decision = input.previousFingerprint === null ? "set" : "changed";
-  }
-  await appendAudit(input.store, {
-    eventType: PROMPT_UPDATED_EVENT,
-    actorSource: input.actor,
-    entity: { kind: "binding", id: input.bindingId },
-    correlationId: newCorrelationId(),
-    decision,
-    reason: null,
-    details: {
-      bindingId: input.bindingId,
-      promptPresent: present,
-      promptFingerprint: input.current?.fingerprint ?? null,
-      promptLength: input.current?.length ?? 0,
-      previousFingerprint: input.previousFingerprint
-    }
-  });
-}
-function dropUnobserved(state, observed) {
-  for (const bindingId of state.baseline.keys()) {
-    if (!observed.has(bindingId)) {
-      state.baseline.delete(bindingId);
-    }
-  }
-}
-async function recordOneChange(context) {
-  const { input, binding, snapshot, current, previous } = context;
+async function existingAccountIds(input) {
   try {
-    await appendPromptChange({
-      store: input.store,
-      bindingId: binding.bindingId,
-      current: snapshot,
-      previousFingerprint: previous,
-      actor: input.actor
-    });
-    return 1;
+    const accounts = await listAccounts(input.store, input.log);
+    return new Set(accounts.map((account) => account.numericUserId));
   } catch (cause) {
-    input.log.warn("prompt change audit row could not be appended", {
-      bindingId: binding.bindingId,
-      promptFingerprint: current,
+    input.log.warn("audit trim could not list accounts", {
       errorKind: cause instanceof Error ? cause.name : typeof cause
     });
-    return 0;
-  }
-}
-async function recordPromptChanges(input) {
-  const state = stateFor(input.store);
-  const observed = new Set;
-  let rows = 0;
-  for (const binding of input.bindings) {
-    observed.add(binding.bindingId);
-    const snapshot = promptSnapshotOf(binding);
-    const current = snapshot === null ? null : snapshot.fingerprint;
-    const previous = state.baseline.get(binding.bindingId) ?? null;
-    state.baseline.set(binding.bindingId, current);
-    if (previous === current) {
-      continue;
-    }
-    rows += await recordOneChange({ input, binding, snapshot, current, previous });
-  }
-  dropUnobserved(state, observed);
-  return rows;
-}
-async function observePromptChanges(input) {
-  return await runPromptChain(input.store, async () => await recordPromptChanges(input));
-}
-
-// service/bindings-read.ts
-function noteFirstRefusal(note, issues) {
-  const first = issues[0];
-  if (note.reason === null && first !== undefined) {
-    note.reason = `${first.field}: ${first.remediation}`;
-  }
-}
-function parseBindingsFile(raw, note) {
-  if (!Array.isArray(raw) || raw.some((entry) => !isRecord(entry))) {
     return null;
   }
-  const bindings = [];
-  for (const entry of raw) {
-    const verdict = parseBinding({ raw: entry, accountExists: true });
-    if ("issues" in verdict) {
-      noteFirstRefusal(note, verdict.issues);
-      return null;
-    }
-    bindings.push(verdict.binding);
-  }
-  return bindings;
 }
-async function readBindingsUnobserved(input) {
-  const { store, log } = input;
-  const note = { reason: null };
+async function existingBindingIds(input) {
+  let probe;
   try {
-    const result = await store.readJson(BINDINGS_FILE, (raw) => parseBindingsFile(raw, note));
-    if (result.status === "ok") {
-      return result.value;
-    }
-    if (result.status === "quarantined") {
-      log.warn("stored bindings were unusable and have been set aside", {
-        quarantinePath: result.quarantinePath,
-        ...note.reason === null ? {} : { reason: note.reason }
-      });
-    }
-    return [];
+    probe = await input.store.readJson(BINDINGS_FILE, (raw) => raw);
   } catch (cause) {
-    log.warn("bindings read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
-    return [];
+    input.log.warn("audit trim could not read the bindings document", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return null;
   }
+  return bindingIdsOf(probe);
 }
-async function readBindings(input) {
-  const bindings = await readBindingsUnobserved(input);
-  await observePromptChanges({
-    store: input.store,
-    log: input.log,
-    bindings,
-    actor: "service"
+function chainAndDecisionSeqs(entries) {
+  const protectedSeqs = [];
+  const openers = new Map;
+  const outcomes = new Map;
+  for (const entry of entries) {
+    if (DECISION_EVENTS.has(entry.eventType)) {
+      protectedSeqs.push(entry.seq);
+    }
+    const opener = openers.get(entry.correlationId);
+    if (opener === undefined || entry.seq < opener.seq) {
+      openers.set(entry.correlationId, entry);
+    }
+    if (!isRunScoped(entry)) {
+      continue;
+    }
+    const outcome = outcomes.get(entry.correlationId);
+    if (outcome === undefined || entry.seq > outcome.seq) {
+      outcomes.set(entry.correlationId, entry);
+    }
+  }
+  for (const [correlationId, outcome] of outcomes) {
+    const opener = openers.get(correlationId);
+    if (opener !== undefined) {
+      protectedSeqs.push(opener.seq);
+    }
+    protectedSeqs.push(outcome.seq);
+  }
+  return protectedSeqs;
+}
+async function subjectSeqs(input) {
+  const accounts = await existingAccountIds(input);
+  const bindings = await existingBindingIds(input);
+  const protectedSeqs = [];
+  for (const entry of input.entries) {
+    const { kind, id } = entry.entity;
+    if (kind === "account" && (accounts === null || accounts.has(id))) {
+      protectedSeqs.push(entry.seq);
+    }
+    if (kind === "binding" && (bindings === null || bindings.has(id))) {
+      protectedSeqs.push(entry.seq);
+    }
+  }
+  return protectedSeqs;
+}
+async function protectedSeqsOf(input) {
+  const protectedSeqs = new Set(chainAndDecisionSeqs(input.entries));
+  for (const seq of await subjectSeqs(input)) {
+    protectedSeqs.add(seq);
+  }
+  return protectedSeqs;
+}
+function planRemoval(input) {
+  const { ordered, protectedSeqs, cutoff, maxEntries } = input;
+  const overCap = ordered.length > maxEntries;
+  const neededForCap = overCap ? ordered.length + 1 - maxEntries : 0;
+  const survivors = [];
+  const removed = [];
+  let limitReached = null;
+  for (const entry of ordered) {
+    if (protectedSeqs.has(entry.seq)) {
+      survivors.push(entry);
+      continue;
+    }
+    const stamped = Date.parse(entry.timestamp);
+    const tooOld = Number.isFinite(stamped) && stamped < cutoff;
+    const forCap = removed.length < neededForCap;
+    if (!tooOld && !forCap) {
+      survivors.push(entry);
+      continue;
+    }
+    limitReached ??= tooOld ? "day-window" : "entry-cap";
+    removed.push(entry);
+  }
+  return { survivors, removed, limitReached };
+}
+async function composeTrimRow(input) {
+  const { plan, limitReached, minimalReferencesPreserved, store } = input;
+  const oldestSeq = Math.min(...plan.removed.map((entry) => entry.seq));
+  const newestSeq = Math.max(...plan.removed.map((entry) => entry.seq));
+  return await composeAudit(store, {
+    eventType: "audit.trimmed",
+    actorSource: "service",
+    entity: { kind: "service", id: CONFIGURATION_ENTITY_ID },
+    decision: "trimmed",
+    reason: `audit trail trimmed; limit reached: ${limitReached}`,
+    details: {
+      entriesRemoved: plan.removed.length,
+      oldestSeq,
+      newestSeq,
+      limitReached,
+      minimalReferencesPreserved
+    }
   });
-  return bindings;
 }
-
-// service/poll/claim-bounds.ts
-var MAX_CLAIMED_RUNS = 50;
-var CLAIM_ANSWER_RESERVE_CHARS = 65536;
-var CLAIM_EVENTS_BUDGET_CHARS = RESPONSE_BODY_MAX_CHARS - CLAIM_ANSWER_RESERVE_CHARS;
-var RUN_EXCERPT_MAX_CHARS = 12000;
-var REFERENCE_EXCERPT_MAX_CHARS = 600;
-var EXCERPT_TRUNCATION_MARKER = "… [truncated]";
-var EXCERPT_OMITTED_MARKER = "[excerpt omitted: the claim answer carried this reference without its text]";
-function boundedExcerpt(excerpt) {
-  if (excerpt.length <= REFERENCE_EXCERPT_MAX_CHARS) {
-    return excerpt;
-  }
-  return `${excerpt.slice(0, REFERENCE_EXCERPT_MAX_CHARS)}${EXCERPT_TRUNCATION_MARKER}`;
+async function readOrderedTrail(store) {
+  const entries = await readAuditEntries(store);
+  return [...entries].sort((left, right) => left.seq - right.seq);
 }
-function excerptCost(excerpt) {
-  return excerpt === EXCERPT_OMITTED_MARKER ? 0 : excerpt.length;
-}
-function projectReferences(input) {
-  let remaining = input.budget;
-  return input.references.map((reference) => {
-    const stored = input.deliveries.get(reference.deliveryId)?.issueBodyExcerpt ?? "";
-    const bounded = boundedExcerpt(stored);
-    const excerpt = remaining >= excerptCost(bounded) ? bounded : EXCERPT_OMITTED_MARKER;
-    remaining -= excerptCost(excerpt);
-    return {
-      deliveryId: reference.deliveryId,
-      kind: reference.kind,
-      origin: reference.origin,
-      sourceUrl: reference.sourceUrl,
-      detectedAt: reference.detectedAt,
-      excerpt,
-      presentAtAuthorization: reference.presentAtAuthorization
+async function trimAudit(input) {
+  const now = input.now ?? Date.now();
+  const cutoff = now - input.config.auditRetentionDays * DAY_MS;
+  return await serializeAudit(input.store, async () => {
+    const ordered = await readOrderedTrail(input.store);
+    const protectedSeqs = await protectedSeqsOf({
+      store: input.store,
+      log: input.log,
+      entries: ordered
+    });
+    const plan = planRemoval({
+      ordered,
+      protectedSeqs,
+      cutoff,
+      maxEntries: input.config.auditMaxEntries
+    });
+    const minimalReferencesPreserved = protectedSeqs.size;
+    const outcome = {
+      removed: plan.removed.length,
+      limitReached: plan.limitReached,
+      minimalReferencesPreserved
     };
+    if (plan.removed.length === 0 || plan.limitReached === null) {
+      return outcome;
+    }
+    const trimRow = await composeTrimRow({
+      plan,
+      limitReached: plan.limitReached,
+      minimalReferencesPreserved,
+      store: input.store
+    });
+    await input.store.writeLines(AUDIT_FILE, [...plan.survivors, trimRow]);
+    input.log.info("audit trail trimmed", {
+      entriesRemoved: plan.removed.length,
+      limitReached: plan.limitReached,
+      minimalReferencesPreserved,
+      entriesAfter: plan.survivors.length + 1
+    });
+    return outcome;
   });
-}
-function measureEvents(runs) {
-  return JSON.stringify(runs).length;
-}
-
-// service/poll/claim.ts
-import { createHash as createHash4 } from "node:crypto";
-
-// service/poll/claim-project.ts
-function reviewCoordinates(delivery) {
-  const head = delivery?.headSha ?? null;
-  const base = delivery?.baseRef ?? null;
-  return { ...head === null ? {} : { headSha: head }, ...base === null ? {} : { baseRef: base } };
-}
-function deliveryView(input) {
-  const { delivery, primary } = input;
-  return {
-    accountLogin: delivery?.accountLogin ?? "",
-    issueTitle: delivery?.issueTitle ?? "",
-    issueUrl: primary?.sourceUrl ?? "",
-    issueBodyExcerpt: delivery?.issueBodyExcerpt ?? "",
-    ...reviewCoordinates(delivery)
-  };
-}
-function promptViewOf(run) {
-  if (run.prompt === null) {
-    return { promptPresent: false, promptFingerprint: null, promptLength: null, promptText: null };
-  }
-  return {
-    promptPresent: true,
-    promptFingerprint: run.prompt.fingerprint,
-    promptLength: run.prompt.length,
-    promptText: run.prompt.text
-  };
-}
-function projectClaimedRun(input) {
-  const { run, lease, deliveries } = input;
-  const primary = run.sourceReferences[0];
-  const delivery = primary === undefined ? undefined : deliveries.get(primary.deliveryId);
-  return {
-    correlationId: run.correlationId,
-    runKey: run.runKey,
-    ordinal: run.ordinal,
-    attempt: run.attempt,
-    lease,
-    state: "pending",
-    stateReason: `waiting for a panel; leased until ${lease.expiresAt}`,
-    bindingId: run.bindingId,
-    repository: run.repository,
-    projectId: run.projectId,
-    worktreeOption: run.worktreeOption,
-    subjectType: run.subjectType,
-    issueNumber: run.subjectNumber,
-    attachmentId: run.attachmentId,
-    sourceReferences: projectReferences({
-      references: run.sourceReferences,
-      deliveries,
-      budget: RUN_EXCERPT_MAX_CHARS
-    }),
-    referenceCount: run.referenceCount,
-    referencesNotRetained: run.referencesNotRetained,
-    referencesTruncated: run.referencesTruncated,
-    detectedAt: primary?.detectedAt ?? run.createdAt,
-    ...promptViewOf(run),
-    ...deliveryView({ delivery, primary })
-  };
 }
 
 // service/poll/events.ts
-import { basename, join as join2 } from "node:path";
+import { basename, join } from "node:path";
 
 // service/poll/events-parse.ts
 var EVENTS_FILE = "events.json";
@@ -3167,8 +1512,171 @@ async function recordEnqueueAudits(input) {
   await recordDetectedDeliveries(input);
 }
 
+// service/store/errors.ts
+var STORAGE_UNAVAILABLE_CODE = "storage-unavailable";
+
+class StorageUnavailableError extends Error {
+  name = "StorageUnavailableError";
+  code = STORAGE_UNAVAILABLE_CODE;
+  constructor(message, cause) {
+    super(message, cause === undefined ? undefined : { cause });
+  }
+}
+
+// service/prompt.ts
+import { createHash } from "node:crypto";
+
+// src/prompt.ts
+var RESERVED_MARKER_PREFIXES = ["--- BEGIN ", "--- END "];
+var NEWLINE = `
+`;
+var PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
+var LAST_FORBIDDEN_LOW_CODE_POINT = 8;
+var TAB_CODE_POINT = 9;
+var LINE_FEED_CODE_POINT = 10;
+var FORBIDDEN_MIDDLE_START = 11;
+var FORBIDDEN_MIDDLE_END = 31;
+var FORBIDDEN_UPPER_START = 127;
+var FORBIDDEN_UPPER_END = 159;
+function trimPrompt(text) {
+  return text.trim();
+}
+function normaliseLineEndings(text) {
+  let folded = "";
+  for (let index = 0;index < text.length; index += 1) {
+    if (text[index] !== "\r") {
+      folded += text[index] ?? "";
+      continue;
+    }
+    folded += NEWLINE;
+    if (text[index + 1] === `
+`) {
+      index += 1;
+    }
+  }
+  return folded;
+}
+function countCodePoints(text) {
+  return [...text].length;
+}
+function hasReservedMarkerLine(text) {
+  const prefixes = RESERVED_MARKER_PREFIXES;
+  return text.split(NEWLINE).some((line) => prefixes.some((prefix) => line.startsWith(prefix)));
+}
+function isForbiddenControl(codePoint) {
+  if (codePoint <= LAST_FORBIDDEN_LOW_CODE_POINT) {
+    return true;
+  }
+  if (codePoint === TAB_CODE_POINT || codePoint === LINE_FEED_CODE_POINT) {
+    return false;
+  }
+  if (codePoint >= FORBIDDEN_MIDDLE_START && codePoint <= FORBIDDEN_MIDDLE_END) {
+    return true;
+  }
+  return codePoint >= FORBIDDEN_UPPER_START && codePoint <= FORBIDDEN_UPPER_END;
+}
+function hasIllegalControlChar(text) {
+  for (const character of text) {
+    if (isForbiddenControl(character.codePointAt(0) ?? 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// service/prompt.ts
+var STARTING_PROMPT_MAX_CODE_POINTS = 2000;
+var PROMPT_FINGERPRINT_PREFIX = "mtp-";
+var FINGERPRINT_HEX_CHARS = 32;
+var REMEDIATION_TYPE = "startingPrompt must be text; send it absent or null to leave the starting prompt unset";
+var REMEDIATION_CAP = `startingPrompt must be at most ${STARTING_PROMPT_MAX_CODE_POINTS}` + " characters (Unicode code points) after trimming";
+var REMEDIATION_CONTROL = "startingPrompt must not contain null or control characters other than newline and tab";
+var REMEDIATION_MARKER = "startingPrompt must not contain a line beginning with" + ' "--- BEGIN " or "--- END " (reserved composition markers)';
+function credentialRemediation(label) {
+  return `startingPrompt must not contain credential-shaped material (matched shape: ${label})`;
+}
+function refuse(remediation) {
+  return { ok: false, issue: { field: "startingPrompt", remediation } };
+}
+function validateStartingPrompt(raw) {
+  if (raw === undefined || raw === null) {
+    return { ok: true, prompt: null };
+  }
+  if (typeof raw !== "string") {
+    return refuse(REMEDIATION_TYPE);
+  }
+  const trimmed = trimPrompt(raw);
+  if (trimmed === "") {
+    return { ok: true, prompt: null };
+  }
+  const text = normaliseLineEndings(trimmed);
+  if (countCodePoints(text) > STARTING_PROMPT_MAX_CODE_POINTS) {
+    return refuse(REMEDIATION_CAP);
+  }
+  if (hasIllegalControlChar(text)) {
+    return refuse(REMEDIATION_CONTROL);
+  }
+  if (hasReservedMarkerLine(text)) {
+    return refuse(REMEDIATION_MARKER);
+  }
+  const label = findSecretLeak(text);
+  if (label !== null) {
+    return refuse(credentialRemediation(label));
+  }
+  return { ok: true, prompt: text };
+}
+function promptFingerprint(text) {
+  const digest = createHash("sha256").update(text, "utf8").digest("hex");
+  return `${PROMPT_FINGERPRINT_PREFIX}${digest.slice(0, FINGERPRINT_HEX_CHARS)}`;
+}
+function promptSnapshotOf(record) {
+  const verdict = validateStartingPrompt(record.startingPrompt);
+  if (!verdict.ok || verdict.prompt === null) {
+    return null;
+  }
+  const text = verdict.prompt;
+  return { text, fingerprint: promptFingerprint(text), length: countCodePoints(text) };
+}
+function storedText(candidate) {
+  const { text } = candidate;
+  return typeof text === "string" && text !== "" ? text : null;
+}
+function storedFingerprint(candidate) {
+  const { fingerprint } = candidate;
+  return typeof fingerprint === "string" && PROMPT_FINGERPRINT_PATTERN.test(fingerprint) ? fingerprint : null;
+}
+function storedLength(candidate) {
+  const { length } = candidate;
+  return typeof length === "number" && Number.isInteger(length) && length > 0 ? length : null;
+}
+function readStoredSnapshot(candidate) {
+  const text = storedText(candidate);
+  const fingerprint = storedFingerprint(candidate);
+  const length = storedLength(candidate);
+  if (text === null || fingerprint === null || length === null) {
+    return null;
+  }
+  if (countCodePoints(text) !== length) {
+    return null;
+  }
+  if (length > STARTING_PROMPT_MAX_CODE_POINTS || findSecretLeak(text) !== null) {
+    return null;
+  }
+  return { text, fingerprint, length };
+}
+function parseStoredPromptSnapshot(raw) {
+  if (raw === undefined || raw === null) {
+    return { status: "unset" };
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const snapshot = readStoredSnapshot(raw);
+  return snapshot === null ? null : { status: "set", snapshot };
+}
+
 // service/poll/run-key.ts
-import { createHash as createHash3 } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 var RUN_PROVIDER = "github";
 var ATTACHMENT_ID_MAX = 128;
 var CORRELATION_HEX_CHARS = 24;
@@ -3203,7 +1711,7 @@ function buildSubjectKey(input) {
   return keySegments(input).slice(0, -1).join(KEY_SEPARATOR);
 }
 function digestHex(text, hexChars) {
-  return createHash3("sha256").update(text, "utf8").digest("hex").slice(0, hexChars);
+  return createHash2("sha256").update(text, "utf8").digest("hex").slice(0, hexChars);
 }
 function buildCorrelationId(runKey) {
   return `mt-run-${digestHex(runKey, CORRELATION_HEX_CHARS)}`;
@@ -4737,7 +3245,7 @@ async function recoverFromEvidence(input) {
   const entries = await input.store.listDir(".");
   for (const entry of entries) {
     if (entry.startsWith(QUARANTINE_EVIDENCE_PREFIX)) {
-      await recoverQuarantinedQueue({ ...input, quarantinePath: join2(input.store.dataDir, entry) });
+      await recoverQuarantinedQueue({ ...input, quarantinePath: join(input.store.dataDir, entry) });
     }
   }
 }
@@ -4796,6 +3304,1784 @@ async function enqueueWithinChain(input) {
 }
 async function enqueueEvents(input) {
   return await inQueueChain(async () => await enqueueWithinChain(input));
+}
+
+// service/poll/excerpt-trim.ts
+var DAY_MS2 = 86400000;
+function clearable(event, cutoff) {
+  if (!isDispatchedTerminal(event) || event.excerptTrimmedAt !== undefined || event.issueBodyExcerpt === "") {
+    return false;
+  }
+  const stamped = Date.parse(event.detectedAt);
+  return Number.isFinite(stamped) && stamped < cutoff;
+}
+async function trimExcerpts(input) {
+  const now = input.now ?? Date.now();
+  return await inQueueChain(async () => {
+    const events = await readEvents({ store: input.store, log: input.log });
+    const cutoff = now - input.config.excerptRetentionDays * DAY_MS2;
+    const eligible = events.filter((event) => clearable(event, cutoff));
+    if (eligible.length === 0) {
+      return { cleared: 0 };
+    }
+    const clearing = new Set(eligible.map((event) => event.id));
+    const clearedAt = new Date(now).toISOString();
+    const next = events.map((event) => clearing.has(event.id) ? { ...event, issueBodyExcerpt: "", excerptTrimmedAt: clearedAt } : event);
+    await input.store.writeJson(EVENTS_FILE, next);
+    await appendAudit(input.store, {
+      eventType: "audit.trimmed",
+      actorSource: "service",
+      entity: { kind: "service", id: CONFIGURATION_ENTITY_ID },
+      decision: "trimmed",
+      reason: "stored payload excerpts trimmed; limit reached: excerpt-days",
+      details: {
+        entriesRemoved: eligible.length,
+        limitReached: "excerpt-days",
+        minimalReferencesPreserved: 0
+      }
+    });
+    input.log.info("stored payload excerpts trimmed", { entriesRemoved: eligible.length });
+    return { cleared: eligible.length };
+  });
+}
+
+// service/retention.ts
+async function runGuarded(input) {
+  try {
+    await input.pass();
+  } catch (cause) {
+    input.log.warn(input.message, { errorKind: cause instanceof Error ? cause.name : typeof cause });
+  }
+}
+async function runRetentionPasses(input) {
+  await runGuarded({
+    message: "audit retention pass failed",
+    log: input.log,
+    pass: () => trimAudit(input)
+  });
+  await runGuarded({
+    message: "excerpt retention pass failed",
+    log: input.log,
+    pass: () => trimExcerpts(input)
+  });
+}
+async function readOpenConfig(store, log) {
+  try {
+    const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
+    return config;
+  } catch (cause) {
+    log.warn("retention configuration read failed", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return DEFAULT_CONFIG;
+  }
+}
+async function runRetentionAtOpen(input) {
+  if (input.store === null) {
+    return;
+  }
+  const config = await readOpenConfig(input.store, input.log);
+  await runRetentionPasses({ store: input.store, log: input.log, config });
+}
+
+// service/auth.ts
+import { createHash as createHash3, timingSafeEqual } from "node:crypto";
+var BEARER_PREFIX = "Bearer ";
+var DIGEST_ALGORITHM = "sha256";
+function bearerCredential(header) {
+  if (header === undefined) {
+    return "";
+  }
+  return header.startsWith(BEARER_PREFIX) ? header.slice(BEARER_PREFIX.length) : "";
+}
+function digestsMatch(presented, expected) {
+  const left = createHash3(DIGEST_ALGORITHM).update(presented).digest();
+  const right = createHash3(DIGEST_ALGORITHM).update(expected).digest();
+  return timingSafeEqual(left, right);
+}
+function isAuthorized(header, token) {
+  return digestsMatch(bearerCredential(header), token);
+}
+
+// service/body.ts
+var BYTES_PER_UTF16_UNIT = 3;
+var REQUEST_BODY_MAX_BYTES = REQUEST_BODY_MAX_CHARS * BYTES_PER_UTF16_UNIT;
+function readBytes(request) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    let total = 0;
+    let settled2 = false;
+    const finish = (outcome) => {
+      if (settled2) {
+        return;
+      }
+      settled2 = true;
+      resolve(outcome);
+    };
+    request.on("data", (chunk) => {
+      total += chunk.length;
+      if (total > REQUEST_BODY_MAX_BYTES) {
+        request.resume();
+        finish({ kind: "too-large" });
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      finish({ kind: "complete", chunks });
+    });
+    request.on("error", () => {
+      finish({ kind: "aborted" });
+    });
+    request.on("close", () => {
+      finish({ kind: "aborted" });
+    });
+  });
+}
+async function readJsonBody(request) {
+  const outcome = await readBytes(request);
+  if (outcome.kind === "too-large") {
+    return { status: "too-large", consumed: false };
+  }
+  if (outcome.kind === "aborted") {
+    return { status: "invalid-json", consumed: false };
+  }
+  const text = Buffer.concat(outcome.chunks).toString("utf8");
+  if (text === "") {
+    return { status: "empty", consumed: true };
+  }
+  if (text.length > REQUEST_BODY_MAX_CHARS) {
+    return { status: "too-large", consumed: true };
+  }
+  const parsed = parseJsonText(text);
+  if (!parsed.ok) {
+    return { status: "invalid-json", consumed: true };
+  }
+  return { status: "ok", consumed: true, value: parsed.value };
+}
+
+// service/store/index.ts
+import { promises as fs5 } from "node:fs";
+import { isAbsolute, resolve as resolve2 } from "node:path";
+
+// service/store/dir.ts
+import { promises as fs } from "node:fs";
+import { resolve } from "node:path";
+var DATA_DIR_MODE = 448;
+var DATA_FILE_MODE = 384;
+var STORE_RELATIVE_PATH = ".config/openchamber/mecha-turk";
+function resolveDataDir(env) {
+  const home = env.HOME;
+  if (home === undefined || home === "") {
+    throw new StorageUnavailableError("HOME is not set; the Mecha Turk data directory cannot be located");
+  }
+  return resolve(home, STORE_RELATIVE_PATH);
+}
+async function ensureDir(dirPath) {
+  try {
+    await fs.mkdir(dirPath, { recursive: true, mode: DATA_DIR_MODE });
+    await fs.chmod(dirPath, DATA_DIR_MODE);
+  } catch (error) {
+    throw new StorageUnavailableError(`directory cannot be created or made owner-only: ${dirPath}`, error);
+  }
+}
+
+// service/store/json.ts
+import { randomUUID } from "node:crypto";
+import { promises as fs3 } from "node:fs";
+import { dirname, join as join2 } from "node:path";
+
+// service/store/files.ts
+import { promises as fs2 } from "node:fs";
+function isMissingFile(error) {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+async function readTextFile(filePath) {
+  try {
+    return await fs2.readFile(filePath, "utf8");
+  } catch (error) {
+    if (isMissingFile(error)) {
+      return null;
+    }
+    throw new StorageUnavailableError(`store file cannot be read: ${filePath}`, error);
+  }
+}
+async function removeIfPresent(filePath) {
+  try {
+    await fs2.rm(filePath, { force: true });
+  } catch {
+    return;
+  }
+}
+
+// service/store/json.ts
+var QUARANTINE_MARKER = ".corrupt-";
+var TEMP_SUFFIX = ".tmp";
+var JSON_INDENT = 2;
+async function writeSyncedTempFile(tempPath, text) {
+  const handle = await fs3.open(tempPath, "w", DATA_FILE_MODE);
+  try {
+    await handle.writeFile(text, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+async function quarantine(filePath) {
+  const quarantinePath = `${filePath}${QUARANTINE_MARKER}${Date.now()}-${randomUUID()}`;
+  try {
+    await fs3.rename(filePath, quarantinePath);
+  } catch (error) {
+    throw new StorageUnavailableError(`unusable store file cannot be set aside: ${filePath}`, error);
+  }
+  return { status: "quarantined", quarantinePath };
+}
+async function writeJsonAtomic(filePath, value) {
+  const text = `${JSON.stringify(value, null, JSON_INDENT)}
+`;
+  const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID()}`;
+  await ensureDir(dirname(filePath));
+  try {
+    await writeSyncedTempFile(tempPath, text);
+    await fs3.rename(tempPath, filePath);
+  } catch (error) {
+    await removeIfPresent(tempPath);
+    throw new StorageUnavailableError(`store file cannot be written: ${filePath}`, error);
+  }
+}
+var TEMP_DEBRIS_PATTERN = /\.tmp[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+var SWEEP_MAX_DEPTH = 3;
+function isTempDebris(name) {
+  return TEMP_DEBRIS_PATTERN.test(name);
+}
+async function sweepTempDebris(dirPath, depth = SWEEP_MAX_DEPTH) {
+  if (depth < 0) {
+    return 0;
+  }
+  let entries;
+  try {
+    entries = await fs3.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const entry of entries) {
+    const target = join2(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      removed += await sweepTempDebris(target, depth - 1);
+    } else if (entry.isFile() && isTempDebris(entry.name)) {
+      removed += 1;
+      await removeIfPresent(target);
+    }
+  }
+  return removed;
+}
+async function readJsonFile(filePath, validate) {
+  const text = await readTextFile(filePath);
+  if (text === null) {
+    return { status: "absent" };
+  }
+  const parsed = parseJsonText(text);
+  if (!parsed.ok) {
+    return await quarantine(filePath);
+  }
+  const value = validate(parsed.value);
+  if (value === null) {
+    return await quarantine(filePath);
+  }
+  return { status: "ok", value };
+}
+
+// service/store/ndjson.ts
+import { randomUUID as randomUUID2 } from "node:crypto";
+import { promises as fs4 } from "node:fs";
+import { dirname as dirname2 } from "node:path";
+async function appendJsonLine(filePath, entry) {
+  const line = `${JSON.stringify(entry)}
+`;
+  try {
+    await fs4.mkdir(dirname2(filePath), { recursive: true, mode: DATA_DIR_MODE });
+    const handle = await fs4.open(filePath, "a", DATA_FILE_MODE);
+    try {
+      await handle.writeFile(line, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (error instanceof StorageUnavailableError) {
+      throw error;
+    }
+    throw new StorageUnavailableError(`log line cannot be appended: ${filePath}`, error);
+  }
+}
+async function writeJsonLinesAtomic(filePath, entries) {
+  const text = entries.map((entry) => `${JSON.stringify(entry)}
+`).join("");
+  const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID2()}`;
+  await ensureDir(dirname2(filePath));
+  try {
+    await writeSyncedTempFile(tempPath, text);
+    await fs4.rename(tempPath, filePath);
+  } catch (error) {
+    await removeIfPresent(tempPath);
+    throw new StorageUnavailableError(`store file cannot be written: ${filePath}`, error);
+  }
+}
+async function readJsonLines(filePath, parse) {
+  const text = await readTextFile(filePath);
+  if (text === null) {
+    return { entries: [], malformed: 0 };
+  }
+  const entries = [];
+  let malformed = 0;
+  for (const line of text.split(`
+`)) {
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      continue;
+    }
+    const parsed = parseJsonText(trimmed);
+    const value = parsed.ok ? parse(parsed.value) : null;
+    if (value === null) {
+      malformed += 1;
+      continue;
+    }
+    entries.push(value);
+  }
+  return { entries, malformed };
+}
+
+// service/store/index.ts
+var SERVICE_SCHEMA_VERSION = 1;
+var STATE_FILE = "state.json";
+function parseServiceState(raw) {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const version = raw.schemaVersion;
+  if (typeof version !== "number" || !Number.isInteger(version) || version < 1) {
+    return null;
+  }
+  const initializedAt = typeof raw.initializedAt === "string" ? raw.initializedAt : nowIso();
+  return { schemaVersion: version, initializedAt };
+}
+async function readOrCreateSchemaVersion(dataDir) {
+  const statePath = resolve2(dataDir, STATE_FILE);
+  const result = await readJsonFile(statePath, parseServiceState);
+  if (result.status === "ok") {
+    return result.value.schemaVersion;
+  }
+  const state = { schemaVersion: SERVICE_SCHEMA_VERSION, initializedAt: nowIso() };
+  await writeJsonAtomic(statePath, state);
+  return SERVICE_SCHEMA_VERSION;
+}
+function resolveStorePath(dataDir, relativePath) {
+  if (relativePath === "" || isAbsolute(relativePath) || relativePath.includes("..")) {
+    throw new Error(`store path must be a relative path inside the data directory: ${relativePath}`);
+  }
+  return resolve2(dataDir, relativePath);
+}
+async function listStoreDir(dataDir, relativePath) {
+  const target = resolveStorePath(dataDir, relativePath);
+  try {
+    return await fs5.readdir(target);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return [];
+    }
+    throw new StorageUnavailableError(`store directory cannot be listed: ${target}`, error);
+  }
+}
+async function removeStoreFile(dataDir, relativePath) {
+  const target = resolveStorePath(dataDir, relativePath);
+  try {
+    await fs5.rm(target, { force: true });
+  } catch (error) {
+    throw new StorageUnavailableError(`store file cannot be removed: ${target}`, error);
+  }
+}
+function createStore(dataDir, schemaVersion) {
+  const locate = (relativePath) => resolveStorePath(dataDir, relativePath);
+  return {
+    dataDir,
+    schemaVersion,
+    readJson: async (relativePath, validate) => await readJsonFile(locate(relativePath), validate),
+    writeJson: async (relativePath, value) => await writeJsonAtomic(locate(relativePath), value),
+    appendLine: async (relativePath, entry) => await appendJsonLine(locate(relativePath), entry),
+    writeLines: async (relativePath, entries) => await writeJsonLinesAtomic(locate(relativePath), entries),
+    readLines: async (relativePath, parse) => await readJsonLines(locate(relativePath), parse),
+    listDir: async (relativePath) => await listStoreDir(dataDir, relativePath),
+    removeFile: async (relativePath) => await removeStoreFile(dataDir, relativePath)
+  };
+}
+async function openStore(options) {
+  const { dataDir } = options;
+  await ensureDir(dataDir);
+  await sweepTempDebris(dataDir);
+  const schemaVersion = await readOrCreateSchemaVersion(dataDir);
+  return createStore(dataDir, schemaVersion);
+}
+
+// service/pipeline.ts
+var CONTENT_TYPE_HEADER = "content-type";
+var CONTENT_LENGTH_HEADER = "content-length";
+var CONNECTION_HEADER = "connection";
+var PARAM_PREFIX = ":";
+function matchPathPattern(routePath, pathname) {
+  const pattern = routePath.split("/");
+  const segments = pathname.split("/");
+  if (pattern.length !== segments.length) {
+    return null;
+  }
+  const params = {};
+  for (let index = 0;index < pattern.length; index += 1) {
+    const expected = pattern[index];
+    const actual = segments[index];
+    if (expected === undefined || actual === undefined) {
+      return null;
+    }
+    if (expected.startsWith(PARAM_PREFIX)) {
+      if (actual === "") {
+        return null;
+      }
+      params[expected.slice(PARAM_PREFIX.length)] = actual;
+    } else if (expected !== actual) {
+      return null;
+    }
+  }
+  return params;
+}
+function isPatternPath(routePath) {
+  return routePath.split("/").some((segment) => segment.startsWith(PARAM_PREFIX));
+}
+function writeResponse(call, response) {
+  const outgoing = call.response;
+  if (call.sent || outgoing.headersSent) {
+    call.deps.log.warn("response already committed");
+    return;
+  }
+  call.sent = true;
+  const serialized = serializeBody(response.body);
+  const status = serialized.ok ? response.status : STATUS.internal;
+  const body = serialized.ok ? serialized.text : JSON.stringify(serialized.fallback.body);
+  const text = redact(body);
+  const headers = {
+    [CONTENT_TYPE_HEADER]: JSON_CONTENT_TYPE,
+    [CONTENT_LENGTH_HEADER]: String(Buffer.byteLength(text))
+  };
+  for (const [name, value] of Object.entries(response.headers ?? {})) {
+    headers[name] = value;
+  }
+  if (!call.bodyRead) {
+    headers[CONNECTION_HEADER] = "close";
+  }
+  outgoing.writeHead(status, headers);
+  outgoing.end(text);
+}
+function describeFailure(error, call) {
+  if (error instanceof StorageUnavailableError) {
+    return errorResponse(STATUS.storageUnavailable, { code: error.code, message: error.message });
+  }
+  const correlationId = newCorrelationId();
+  call.deps.log.error("route failed", { correlationId, error: describeError(error) });
+  return errorResponse(STATUS.internal, {
+    code: "internal",
+    message: "unexpected service failure",
+    correlationId
+  });
+}
+function patternRoutes(routes, pathname) {
+  return routes.filter((route) => route.path !== pathname && isPatternPath(route.path) && matchPathPattern(route.path, pathname) !== null);
+}
+function matchRoute(call, url) {
+  const method = call.request.method ?? "";
+  const { routes } = call.deps;
+  const candidates = [
+    ...routes.filter((route2) => route2.path === url.pathname),
+    ...patternRoutes(routes, url.pathname)
+  ];
+  if (candidates.length === 0) {
+    return { kind: "not-found" };
+  }
+  const route = candidates.find((candidate) => candidate.method === method);
+  if (route === undefined) {
+    return { kind: "method-not-allowed", allow: candidates.map((candidate) => candidate.method) };
+  }
+  return { kind: "matched", route, params: matchPathPattern(route.path, url.pathname) ?? {} };
+}
+function refusalResponse(match) {
+  if (match.kind === "not-found") {
+    return errorResponse(STATUS.notFound, { code: "not-found", message: "no route for this path" });
+  }
+  return {
+    status: STATUS.methodNotAllowed,
+    body: errorBody({
+      code: "method-not-allowed",
+      message: "method not allowed for this path"
+    }),
+    headers: { allow: match.allow.join(", ") }
+  };
+}
+async function readBody(call) {
+  const result = await readJsonBody(call.request);
+  call.bodyRead = result.consumed;
+  if (result.status === "too-large") {
+    writeResponse(call, errorResponse(STATUS.payloadTooLarge, {
+      code: "payload-too-large",
+      message: `request body exceeds the ${REQUEST_BODY_MAX_CHARS}-character limit`
+    }));
+    return null;
+  }
+  if (result.status === "invalid-json") {
+    writeResponse(call, errorResponse(STATUS.badRequest, { code: "invalid-json", message: "request body must be valid JSON" }));
+    return null;
+  }
+  return result.status === "ok" ? result.value : undefined;
+}
+function matchRequest(call) {
+  const { request, deps } = call;
+  if (!isAuthorized(request.headers.authorization, deps.env.token)) {
+    writeResponse(call, unauthorizedResponse());
+    return null;
+  }
+  const url = parseRequestTarget(request.url);
+  if (url === null) {
+    writeResponse(call, errorResponse(STATUS.badRequest, {
+      code: "bad-path",
+      message: "request target must be an absolute path on this service"
+    }));
+    return null;
+  }
+  const match = matchRoute(call, url);
+  if (match.kind !== "matched") {
+    writeResponse(call, refusalResponse(match));
+    return null;
+  }
+  return { url, route: match.route, params: match.params };
+}
+async function runPipeline(call) {
+  const matched = matchRequest(call);
+  if (matched === null) {
+    return;
+  }
+  const body = await readBody(call);
+  if (body === null) {
+    return;
+  }
+  const request = {
+    method: call.request.method ?? "GET",
+    url: matched.url,
+    body,
+    params: matched.params
+  };
+  let response;
+  try {
+    response = await matched.route.handler(call.deps.context, request);
+  } catch (error) {
+    response = describeFailure(error, call);
+  }
+  writeResponse(call, response);
+}
+function attachCompletion(call) {
+  const startedAt = Date.now();
+  const url = parseRequestTarget(call.request.url);
+  let settled2 = false;
+  const complete = () => {
+    if (settled2) {
+      return;
+    }
+    settled2 = true;
+    call.deps.state.inFlight -= 1;
+    call.deps.log.info("request", {
+      method: call.request.method ?? "unknown",
+      path: url === null ? "<invalid-target>" : url.pathname,
+      status: call.response.statusCode,
+      durationMs: Date.now() - startedAt
+    });
+  };
+  call.response.once("finish", complete);
+  call.response.once("close", complete);
+}
+function createRequestHandler(deps) {
+  return (request, response) => {
+    deps.state.inFlight += 1;
+    const call = { request, response, deps, bodyRead: false, sent: false };
+    attachCompletion(call);
+    runPipeline(call).catch((error) => {
+      deps.log.error("request pipeline failed", { error: describeError(error) });
+      writeResponse(call, errorResponse(STATUS.internal, {
+        code: "internal",
+        message: "unexpected service failure",
+        correlationId: newCorrelationId()
+      }));
+    });
+  };
+}
+// src/consent-copy.json
+var consent_copy_default = {
+  version: 1,
+  paragraphs: [
+    "Mecha Turk wants to send a GitHub token to a local service.",
+    "This local service is allowed but sandbox-advisory: Phase 1 does not enforce an OS sandbox; an allowed service has your full user access — it can run any command and read or write any file your user can.",
+    "Your GitHub token is sent over the loopback proxy to this service and stored outside OpenChamber extension storage, protected by file permissions you can back up. It is stored unencrypted (plaintext) on disk, readable by anything running as your user.",
+    "Consent is recorded in the service audit as an occurrence only — a version and a time, never the token."
+  ]
+};
+
+// src/consent.ts
+var CONSENT_VERSION = consent_copy_default.version;
+var CONSENT_COPY_PARAGRAPHS = consent_copy_default.paragraphs;
+var CONSENT_COPY_V1 = CONSENT_COPY_PARAGRAPHS.join(`
+
+`);
+
+// service/consent.ts
+function checkConsent(body) {
+  const raw = body.consentVersion;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < CONSENT_VERSION) {
+    return { ok: false };
+  }
+  return { ok: true, version: raw };
+}
+function consentRequiredResponse() {
+  return errorResponse(STATUS.validation, {
+    code: "consent-required",
+    message: "consent needs renewing — review and accept the handoff notice again"
+  });
+}
+async function recordConsentOccurrence(store, version) {
+  if (!await claimConsentVersion(store, version)) {
+    return;
+  }
+  try {
+    await appendAudit(store, {
+      eventType: "consent",
+      actorSource: "panel",
+      entity: { kind: "service", id: "consent" },
+      reason: "operator accepted the handoff consent",
+      details: { version, givenAt: nowIso() }
+    });
+  } catch (error) {
+    await releaseConsentVersion(store, version);
+    throw error;
+  }
+}
+
+// service/routes/credential.ts
+var TOKEN_MAX_CHARS = 4096;
+var EXPECTED_LOGIN_MAX_CHARS = 200;
+var SCOPE_MISSING_PREFIX = "scope-missing:";
+function readToken2(raw) {
+  if (typeof raw !== "string") {
+    return { issues: [{ field: "token", remediation: "send the GitHub token as a JSON string" }] };
+  }
+  const issues = [];
+  if (raw === "") {
+    issues.push({ field: "token", remediation: "the token must not be empty" });
+  }
+  if (/\s/.test(raw)) {
+    issues.push({ field: "token", remediation: "the token must not contain whitespace" });
+  }
+  if (raw.length > TOKEN_MAX_CHARS) {
+    issues.push({ field: "token", remediation: `the token must be at most ${TOKEN_MAX_CHARS} characters` });
+  }
+  return issues.length > 0 ? { issues } : { token: raw, issues };
+}
+function expectedLoginIssues(raw) {
+  if (raw === undefined) {
+    return [];
+  }
+  if (typeof raw === "string" && raw !== "" && raw.length <= EXPECTED_LOGIN_MAX_CHARS) {
+    return [];
+  }
+  return [
+    {
+      field: "expectedLogin",
+      remediation: `send a non-empty string of at most ${EXPECTED_LOGIN_MAX_CHARS} characters, or omit the field`
+    }
+  ];
+}
+function parseCredentialBody(raw, allowExpectedLogin) {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return {
+      ok: false,
+      consentVersion: null,
+      response: validationResponse([{ field: "body", remediation: "send a JSON object" }])
+    };
+  }
+  const body = raw;
+  const consent = checkConsent(body);
+  if (!consent.ok) {
+    return { ok: false, consentVersion: null, response: consentRequiredResponse() };
+  }
+  const read = readToken2(body.token);
+  const issues = [...read.issues, ...allowExpectedLogin ? expectedLoginIssues(body.expectedLogin) : []];
+  if (issues.length > 0 || read.token === undefined) {
+    return { ok: false, consentVersion: consent.version, response: validationResponse(issues) };
+  }
+  return {
+    ok: true,
+    credential: {
+      token: read.token,
+      consentVersion: consent.version,
+      expectedLogin: allowExpectedLogin && typeof body.expectedLogin === "string" ? body.expectedLogin : null
+    }
+  };
+}
+async function acceptCredentialRequest(input) {
+  const parsed = parseCredentialBody(input.body, input.allowExpectedLogin);
+  const consentVersion = parsed.ok ? parsed.credential.consentVersion : parsed.consentVersion;
+  if (consentVersion !== null) {
+    await recordConsentOccurrence(input.store, consentVersion);
+  }
+  return parsed.ok ? { ok: true, credential: parsed.credential } : { ok: false, response: parsed.response };
+}
+function capabilityLabel(reason) {
+  const capability = reason.slice(SCOPE_MISSING_PREFIX.length);
+  switch (capability) {
+    case "metadata":
+      return "Metadata";
+    case "issues":
+      return "Issues";
+    case "pull-requests":
+      return "Pull requests";
+    default:
+      return "Contents";
+  }
+}
+function reasonCopy(reason) {
+  if (reason === "auth-failed") {
+    return "GitHub rejected this token — create a fresh PAT and paste it again";
+  }
+  if (reason === "sso-required") {
+    return "Your organization requires SSO — authorize the token for this org, then paste it again";
+  }
+  return `This token is missing the ${capabilityLabel(reason)} scope — update the token, then paste it again`;
+}
+function credentialRejectedResponse(reason, correlationId) {
+  return errorResponse(STATUS.validation, {
+    code: "credential-rejected",
+    message: reasonCopy(reason),
+    correlationId,
+    reasonClass: reason
+  });
+}
+function upstreamUnavailableResponse(detail, correlationId) {
+  const messages = {
+    offline: "GitHub could not be reached — check the network, then paste the token again",
+    timeout: "GitHub did not answer in time — wait a moment, then paste the token again",
+    upstream: "GitHub returned an unexpected response — wait a moment, then paste the token again"
+  };
+  return errorResponse(STATUS.badGateway, {
+    code: "upstream-unavailable",
+    message: messages[detail],
+    correlationId
+  });
+}
+function githubRateLimitedResponse(retryAfterSeconds) {
+  return throttleResponse({
+    status: STATUS.tooManyRequests,
+    code: "rate-limited",
+    message: "GitHub rate-limited this verification — wait the stated time, then paste the token again",
+    retryAfterSeconds
+  });
+}
+var VERIFY_BUSY_MESSAGE = "a verification is already running — wait a moment, then retry";
+function throttleRefusal(code, retryAfterSeconds) {
+  const message = code === "verify-busy" ? VERIFY_BUSY_MESSAGE : `verification attempts are limited — retry after ${retryAfterSeconds} seconds`;
+  return throttleResponse({ status: STATUS.tooManyRequests, code, message, retryAfterSeconds });
+}
+function accountRejectedResponse(message, correlationId) {
+  return errorResponse(STATUS.validation, {
+    code: "account-rejected",
+    message,
+    correlationId
+  });
+}
+function duplicateAccountResponse(correlationId) {
+  return errorResponse(STATUS.conflict, {
+    code: "duplicate-account",
+    message: "an account with this GitHub id already exists — rotate its token instead",
+    correlationId
+  });
+}
+function guardCredentialRoute(handler) {
+  return async (context, request) => {
+    try {
+      return await handler(context, request);
+    } catch (error) {
+      if (error instanceof StorageUnavailableError) {
+        return storageUnavailableResponse();
+      }
+      const correlationId = newCorrelationId();
+      context.log.error("credential route failed", {
+        correlationId,
+        errorKind: error instanceof Error ? error.name : typeof error
+      });
+      return errorResponse(STATUS.internal, {
+        code: "internal",
+        message: "unexpected service failure",
+        correlationId
+      });
+    }
+  };
+}
+
+// service/routes/accounts.ts
+var ACCOUNTS_PATH = "/v1/accounts";
+var ACCOUNT_TOKEN_PATH = `${ACCOUNTS_PATH}/:numericUserId/token`;
+var ACCOUNT_PATH = `${ACCOUNTS_PATH}/:numericUserId`;
+var ACCOUNT_DISPLAY_NAME_PATH = `${ACCOUNTS_PATH}/:numericUserId/display-name`;
+var FORCE_QUERY_FLAG = "force";
+var FORCE_QUERY_VALUE = "1";
+var ROTATION_ID_MISMATCH = "the new token belongs to a different GitHub account than this one";
+var ROTATION_LOGIN_MISMATCH = "the new token belongs to a different GitHub login";
+var REJECTED_EVENT = "account.rejected";
+var REJECT_DECISION = "reject";
+var ACCOUNT_KIND = "account";
+function unknownAccountResponse() {
+  return errorResponse(STATUS.notFound, {
+    code: "unknown-account",
+    message: "no account with this GitHub id is registered"
+  });
+}
+function bindingsRefusalResponse(count) {
+  return errorResponse(STATUS.conflict, {
+    code: "invalid-transition",
+    message: `${count} binding(s) still reference this account — remove them, or confirm a force delete`
+  });
+}
+function displayNameBodyRefusal() {
+  return validationResponse([{
+    field: "displayName",
+    remediation: "the body must carry displayName, as text or null"
+  }]);
+}
+function pathAccountId(request) {
+  const raw = request.params.numericUserId;
+  return isNumericUserId(raw) ? raw : null;
+}
+async function handleListAccounts(context) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const accounts = await listAccounts(store, context.log);
+  return { status: STATUS.ok, body: { accounts: accounts.map(toAccountDto) } };
+}
+function rotatedAccount(input) {
+  const { account, outcome, token } = input;
+  const recovering = account.state !== "active";
+  const verifiedAt = nowIso();
+  return {
+    ...account,
+    login: outcome.identity.login,
+    credential: { token, kind: outcome.credentialKind, verifiedAt },
+    scopeCheck: outcome.scopeCheck,
+    verifiedAt,
+    ...recovering ? { state: "active", connectionState: "connected", errorReason: null } : {}
+  };
+}
+async function recordRotationRejection(subject, reason) {
+  await appendAudit(subject.store, {
+    eventType: REJECTED_EVENT,
+    actorSource: "service",
+    entity: { kind: ACCOUNT_KIND, id: subject.account.numericUserId },
+    decision: REJECT_DECISION,
+    reason,
+    correlationId: subject.correlationId,
+    details: { reasonClass: reason, operation: "rotation" }
+  });
+}
+async function rotationRefusal(subject, outcome) {
+  if (outcome.kind === "rate-limited") {
+    return githubRateLimitedResponse(outcome.retryAfterSeconds);
+  }
+  if (outcome.kind === "unavailable") {
+    return upstreamUnavailableResponse(outcome.detail, subject.correlationId);
+  }
+  if (outcome.kind === "rejected") {
+    await recordRotationRejection(subject, outcome.reason);
+    return credentialRejectedResponse(outcome.reason, subject.correlationId);
+  }
+  if (outcome.identity.numericUserId !== subject.account.numericUserId) {
+    await recordRotationRejection(subject, "rotation-id-mismatch");
+    return accountRejectedResponse(ROTATION_ID_MISMATCH, subject.correlationId);
+  }
+  const expected = subject.account.expectedLogin;
+  if (expected !== null && expected.toLowerCase() !== outcome.identity.login.toLowerCase()) {
+    await recordRotationRejection(subject, "expected-login-mismatch");
+    return accountRejectedResponse(ROTATION_LOGIN_MISMATCH, subject.correlationId);
+  }
+  return null;
+}
+async function recordRotation(input) {
+  try {
+    await appendAudit(input.store, {
+      eventType: "account.rotated",
+      actorSource: "operator",
+      entity: { kind: ACCOUNT_KIND, id: input.account.numericUserId },
+      decision: "accept",
+      reason: "replacement token verified against GitHub /user",
+      correlationId: input.correlationId,
+      details: { login: input.account.login, scopeCheck: input.account.scopeCheck.results }
+    });
+  } catch (error) {
+    input.log.warn("account rotated but the audit row could not be appended", {
+      numericUserId: input.account.numericUserId,
+      errorKind: error instanceof Error ? error.name : typeof error
+    });
+  }
+}
+async function persistRotation(input) {
+  const rotated = rotatedAccount({ account: input.account, outcome: input.outcome, token: input.token });
+  await writeAccount(input.store, rotated);
+  await recordRotation({ store: input.store, log: input.log, account: rotated, correlationId: input.correlationId });
+  return {
+    status: STATUS.ok,
+    body: { numericUserId: rotated.numericUserId, login: rotated.login, verifiedAt: rotated.verifiedAt }
+  };
+}
+async function prepareRotation(input) {
+  const parsed = await acceptCredentialRequest({
+    store: input.store,
+    body: input.body,
+    allowExpectedLogin: false
+  });
+  if (!parsed.ok) {
+    return { ok: false, response: parsed.response };
+  }
+  const account = input.pathId === null ? null : await readAccount({ store: input.store, numericUserId: input.pathId });
+  if (input.pathId === null || account === null) {
+    return { ok: false, response: unknownAccountResponse() };
+  }
+  return { ok: true, account, credential: parsed.credential };
+}
+async function handleRotateToken(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const prepared = await prepareRotation({ store, pathId: pathAccountId(request), body: request.body });
+  if (!prepared.ok) {
+    return prepared.response;
+  }
+  const decision = context.throttle.attempt();
+  if (!decision.allowed) {
+    return throttleRefusal(decision.code, decision.retryAfterSeconds);
+  }
+  try {
+    const outcome = await context.github.verify(prepared.credential.token);
+    const subject = { store, account: prepared.account, correlationId: newCorrelationId() };
+    const refusal = await rotationRefusal(subject, outcome);
+    if (refusal !== null) {
+      return refusal;
+    }
+    if (outcome.kind !== "ok") {
+      return upstreamUnavailableResponse("upstream", subject.correlationId);
+    }
+    return await persistRotation({
+      store,
+      log: context.log,
+      account: prepared.account,
+      token: prepared.credential.token,
+      outcome,
+      correlationId: subject.correlationId
+    });
+  } finally {
+    decision.lease.release();
+  }
+}
+async function recordDisabledBindings(store, bindings) {
+  for (const binding of bindings) {
+    await appendAudit(store, {
+      eventType: "binding.disabled",
+      actorSource: "operator",
+      entity: { kind: "binding", id: binding.bindingId },
+      decision: "disable",
+      reason: "account deleted with force=1",
+      details: {}
+    });
+  }
+}
+async function recordAccountDeleted(store, numericUserId) {
+  await appendAudit(store, {
+    eventType: "account.deleted",
+    actorSource: "operator",
+    entity: { kind: ACCOUNT_KIND, id: numericUserId },
+    decision: "remove",
+    reason: "operator deleted the account",
+    details: { credentialFile: accountPath(numericUserId) }
+  });
+}
+async function handleDeleteAccount(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const pathId = pathAccountId(request);
+  const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId });
+  if (pathId === null || account === null) {
+    return unknownAccountResponse();
+  }
+  const bindings = await bindingsReferencing(store, pathId);
+  const forced = request.url.searchParams.get(FORCE_QUERY_FLAG) === FORCE_QUERY_VALUE;
+  if (bindings.length > 0 && !forced) {
+    return bindingsRefusalResponse(bindings.length);
+  }
+  if (bindings.length > 0) {
+    await recordDisabledBindings(store, await disableBindings(store, bindings));
+  }
+  await removeAccount(store, pathId);
+  await recordAccountDeleted(store, pathId);
+  return { status: STATUS.ok, body: { removed: true } };
+}
+async function handleSetDisplayName(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const pathId = pathAccountId(request);
+  const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId });
+  if (pathId === null || account === null) {
+    return unknownAccountResponse();
+  }
+  const { body } = request;
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return displayNameBodyRefusal();
+  }
+  const record = body;
+  if (!("displayName" in record)) {
+    return displayNameBodyRefusal();
+  }
+  const validation = validateDisplayName(record.displayName);
+  if (!validation.ok) {
+    return validationResponse([validation.issue]);
+  }
+  const updated = { ...account, displayName: validation.displayName, updatedAt: nowIso() };
+  await writeAccount(store, updated);
+  return { status: STATUS.ok, body: { account: toAccountDto(updated) } };
+}
+var listAccountsRoute = {
+  method: "GET",
+  path: ACCOUNTS_PATH,
+  handler: guardCredentialRoute(handleListAccounts)
+};
+var rotateTokenRoute = {
+  method: "POST",
+  path: ACCOUNT_TOKEN_PATH,
+  handler: guardCredentialRoute(handleRotateToken)
+};
+var setDisplayNameRoute = {
+  method: "PUT",
+  path: ACCOUNT_DISPLAY_NAME_PATH,
+  handler: guardCredentialRoute(handleSetDisplayName)
+};
+var deleteAccountRoute = {
+  method: "DELETE",
+  path: ACCOUNT_PATH,
+  handler: guardCredentialRoute(handleDeleteAccount)
+};
+
+// service/routes/audit.ts
+var AUDIT_PATH = "/v1/audit";
+var DEFAULT_AUDIT_LIMIT = 100;
+var MAX_AUDIT_LIMIT = 200;
+function auditLimitOf(raw) {
+  if (raw === null || raw.trim() === "") {
+    return DEFAULT_AUDIT_LIMIT;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_AUDIT_LIMIT;
+  }
+  return Math.min(Math.max(Math.trunc(parsed), 1), MAX_AUDIT_LIMIT);
+}
+function auditCursorOf(raw) {
+  if (raw === null || raw.trim() === "") {
+    return 0;
+  }
+  if (!/^[0-9]{1,15}$/.test(raw.trim())) {
+    return null;
+  }
+  return Number(raw.trim());
+}
+function cursorIssue() {
+  const issues = [{
+    field: "cursor",
+    remediation: "send the nextCursor this route returned, or omit it to start at the oldest row"
+  }];
+  return validationResponse(issues);
+}
+async function handleAuditRead(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const cursor = auditCursorOf(request.url.searchParams.get("cursor"));
+  if (cursor === null) {
+    return cursorIssue();
+  }
+  const limit = auditLimitOf(request.url.searchParams.get("limit"));
+  const correlationId = request.url.searchParams.get("correlationId");
+  const entries = await readAuditEntries(store);
+  const filtered = correlationId === null ? entries : entries.filter((entry) => entry.correlationId === correlationId);
+  const ahead = filtered.filter((entry) => entry.seq > cursor);
+  const page = ahead.slice(0, limit);
+  const last = page.at(-1);
+  return {
+    status: STATUS.ok,
+    body: {
+      entries: page,
+      nextCursor: ahead.length > page.length && last !== undefined ? last.seq : null,
+      count: page.length
+    }
+  };
+}
+var auditRoute = {
+  method: "GET",
+  path: AUDIT_PATH,
+  handler: (context, request) => handleAuditRead(context, request)
+};
+
+// service/config-schema.ts
+var NEXT_CYCLE = "next-cycle";
+var TAKE_EFFECT = {
+  intervalMs: NEXT_CYCLE,
+  overlapMs: NEXT_CYCLE,
+  perPage: NEXT_CYCLE,
+  retryMaxAttempts: NEXT_CYCLE,
+  retryBaseMs: NEXT_CYCLE,
+  retryMaxMs: NEXT_CYCLE,
+  auditRetentionDays: NEXT_CYCLE,
+  auditMaxEntries: NEXT_CYCLE,
+  excerptRetentionDays: NEXT_CYCLE,
+  leaseMs: NEXT_CYCLE,
+  resultDeadlineMs: NEXT_CYCLE,
+  logLevel: "immediate",
+  expectedAgent: "next-dispatch"
+};
+function configSchema() {
+  const numericFields = Object.keys(NUMERIC_BOUNDS);
+  const descriptors = numericFields.map((field) => ({
+    name: field,
+    kind: "integer",
+    unit: NUMERIC_BOUNDS[field].unit,
+    min: NUMERIC_BOUNDS[field].min,
+    max: NUMERIC_BOUNDS[field].max,
+    default: DEFAULT_CONFIG[field],
+    takesEffect: TAKE_EFFECT[field]
+  }));
+  descriptors.push({
+    name: "logLevel",
+    kind: "enum",
+    unit: null,
+    values: LOG_LEVEL_VALUES,
+    default: DEFAULT_CONFIG.logLevel,
+    takesEffect: TAKE_EFFECT.logLevel
+  });
+  descriptors.push({
+    name: "expectedAgent",
+    kind: "string",
+    unit: null,
+    format: EXPECTED_AGENT_RULE.format,
+    maxLength: EXPECTED_AGENT_RULE.maxLength,
+    default: DEFAULT_CONFIG.expectedAgent,
+    takesEffect: TAKE_EFFECT.expectedAgent
+  });
+  return descriptors;
+}
+
+// service/routes/config.ts
+var CONFIG_PATH = "/v1/config";
+async function handleGetConfig(context) {
+  if (context.store === null) {
+    return storageUnavailableResponse();
+  }
+  const result = await context.store.readJson(CONFIG_FILE, parseStoredConfig);
+  const read = configFromStore(result, context.log);
+  return {
+    status: STATUS.ok,
+    body: {
+      config: read.config,
+      fields: configSchema(),
+      source: read.source,
+      defaultsApplied: read.defaultsApplied
+    }
+  };
+}
+async function handlePutConfig(context, request) {
+  const validation = validateConfig(request.body);
+  if (!validation.ok) {
+    return validationResponse(validation.issues);
+  }
+  if (context.store === null) {
+    return storageUnavailableResponse();
+  }
+  await context.store.writeJson(CONFIG_FILE, validation.config);
+  context.log.setLevel(validation.config.logLevel);
+  return { status: STATUS.ok, body: { config: validation.config } };
+}
+var getConfigRoute = {
+  method: "GET",
+  path: CONFIG_PATH,
+  handler: (context) => handleGetConfig(context)
+};
+var putConfigRoute = {
+  method: "PUT",
+  path: CONFIG_PATH,
+  handler: (context, request) => handlePutConfig(context, request)
+};
+
+// src/config.ts
+var REPOSITORY_PART_PATTERN = /^[A-Za-z0-9_.-]+$/;
+var BRANCH_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+var PARENT_PATH_REFERENCE = "..";
+var PROJECT_ID_PATTERN = /^[\x20-\x7E]+$/;
+var PROJECT_ID_MAX = 128;
+function parseRepository(value) {
+  const parts = value.trim().split("/");
+  if (parts.length !== 2) {
+    return null;
+  }
+  const owner = parts[0];
+  const name = parts[1];
+  if (owner === undefined || name === undefined || owner === "" || name === "") {
+    return null;
+  }
+  if (!REPOSITORY_PART_PATTERN.test(owner) || !REPOSITORY_PART_PATTERN.test(name)) {
+    return null;
+  }
+  return { owner, name };
+}
+function parseWorktreeOption(value) {
+  const trimmed = value.trim();
+  if (trimmed === "" || trimmed === "none") {
+    return { kind: "none" };
+  }
+  if (trimmed === "generated") {
+    return { kind: "generated" };
+  }
+  if (!trimmed.startsWith("new:")) {
+    return null;
+  }
+  const name = trimmed.slice("new:".length).trim();
+  if (name === "" || name.includes(PARENT_PATH_REFERENCE) || !BRANCH_NAME_PATTERN.test(name)) {
+    return null;
+  }
+  return { kind: "new", name };
+}
+function parseProjectId(raw) {
+  if (raw === null) {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (trimmed === "" || trimmed.length > PROJECT_ID_MAX || !PROJECT_ID_PATTERN.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+function repositoryLabel(repository) {
+  return `${repository.owner}/${repository.name}`;
+}
+
+// service/bindings.ts
+var MAX_BINDINGS = 100;
+var MAX_BINDING_ID_CHARS = 128;
+var MAX_REPOSITORY_CHARS = 200;
+var NUMERIC_ID_PATTERN = /^\d+$/;
+function stringFieldOf(value) {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+function issue(value) {
+  return { issue: value };
+}
+function triggersFieldOf(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value;
+  const { assignment, mention, reviewRequest } = record;
+  if (typeof assignment !== "boolean" || typeof mention !== "boolean") {
+    return null;
+  }
+  if (reviewRequest !== undefined && typeof reviewRequest !== "boolean") {
+    return null;
+  }
+  return { assignment, mention, reviewRequest: reviewRequest === true };
+}
+function stateFieldOf(value) {
+  if (value === undefined) {
+    return "active";
+  }
+  if (value === "active" || value === "disabled") {
+    return value;
+  }
+  return null;
+}
+function stampOrKeep(value, fallback) {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : fallback;
+}
+function repositoryFieldOf(value) {
+  if (typeof value !== "string" || value.length > MAX_REPOSITORY_CHARS) {
+    return null;
+  }
+  const parsed = parseRepository(value);
+  return parsed === null ? null : `${parsed.owner}/${parsed.name}`;
+}
+function worktreeFieldOf(value) {
+  const parsed = parseWorktreeOption(typeof value === "string" ? value : "");
+  if (parsed === null) {
+    return null;
+  }
+  if (parsed.kind === "new") {
+    return `new:${parsed.name}`;
+  }
+  return parsed.kind;
+}
+function bindingIdentityOf(raw, accountExists) {
+  const bindingId = stringFieldOf(raw.bindingId);
+  if (bindingId === null || bindingId.length > MAX_BINDING_ID_CHARS) {
+    return issue({
+      field: "bindingId",
+      remediation: `bindingId must be a unique string of at most ${MAX_BINDING_ID_CHARS} characters`
+    });
+  }
+  const accountId = raw.accountNumericUserId;
+  const accountCopy = "accountNumericUserId must be the GitHub numeric user id of a registered account";
+  if (typeof accountId !== "string" || !NUMERIC_ID_PATTERN.test(accountId)) {
+    return issue({ field: "accountNumericUserId", remediation: accountCopy });
+  }
+  if (!accountExists) {
+    return issue({
+      field: "accountNumericUserId",
+      remediation: "register the account before binding it"
+    });
+  }
+  const login = stringFieldOf(raw.accountLogin);
+  if (login === null || login.trim() === "") {
+    return issue({
+      field: "accountLogin",
+      remediation: "accountLogin must be the login shown for this account"
+    });
+  }
+  return { binding: { bindingId, accountNumericUserId: accountId, accountLogin: login } };
+}
+function bindingTargetOf(raw) {
+  const repository = repositoryFieldOf(raw.repository);
+  if (repository === null) {
+    return issue({
+      field: "repository",
+      remediation: "repository must be an existing GitHub repository written as `owner/name`"
+    });
+  }
+  const projectId = parseProjectId(stringFieldOf(raw.projectId));
+  if (projectId === null) {
+    return issue({
+      field: "projectId",
+      remediation: "projectId must be an existing OpenChamber project id (from the panel picker)"
+    });
+  }
+  const worktreeOption = worktreeFieldOf(raw.worktreeOption);
+  if (worktreeOption === null) {
+    return issue({
+      field: "worktreeOption",
+      remediation: "worktreeOption must be `none`, `generated`, or `new:<branch-name>`"
+    });
+  }
+  return { binding: { repository, projectId, worktreeOption } };
+}
+function bindingModeOf(raw) {
+  const triggers = triggersFieldOf(raw.triggers);
+  if (triggers === null) {
+    return issue({
+      field: "triggers",
+      remediation: "triggers must be an object with assignment, mention, and reviewRequest boolean flags"
+    });
+  }
+  const state = stateFieldOf(raw.state);
+  if (state === null) {
+    return issue({
+      field: "state",
+      remediation: "state must be `active` or `disabled`"
+    });
+  }
+  return { binding: { triggers, state } };
+}
+function bindingPromptOf(raw) {
+  const verdict = validateStartingPrompt(raw.startingPrompt);
+  return verdict.ok ? { prompt: verdict.prompt } : { issue: verdict.issue };
+}
+function assembleBinding(raw, accountExists) {
+  const identity = bindingIdentityOf(raw, accountExists);
+  if ("issue" in identity) {
+    return null;
+  }
+  const target = bindingTargetOf(raw);
+  if ("issue" in target) {
+    return null;
+  }
+  const mode = bindingModeOf(raw);
+  if ("issue" in mode) {
+    return null;
+  }
+  const prompt = bindingPromptOf(raw);
+  if ("issue" in prompt) {
+    return null;
+  }
+  const login = identity.binding.accountLogin.trim();
+  const createdAt = stampOrKeep(raw.createdAt, nowIso());
+  return {
+    ...identity.binding,
+    accountLogin: login,
+    ...target.binding,
+    ...mode.binding,
+    ...prompt.prompt === null ? {} : { startingPrompt: prompt.prompt },
+    createdAt,
+    updatedAt: stampOrKeep(raw.updatedAt, createdAt)
+  };
+}
+function refusalsIn(verdicts) {
+  return verdicts.flatMap((verdict) => ("issue" in verdict) ? [verdict.issue] : []);
+}
+function parseBinding(input) {
+  const { raw, accountExists } = input;
+  const record = assembleBinding(raw, accountExists);
+  if (record !== null) {
+    return { binding: record };
+  }
+  return {
+    issues: refusalsIn([
+      bindingIdentityOf(raw, accountExists),
+      bindingTargetOf(raw),
+      bindingModeOf(raw),
+      bindingPromptOf(raw)
+    ])
+  };
+}
+function collectBindingIssues(candidates, accountExists) {
+  const issues = [];
+  const seen = new Set;
+  const bindings = [];
+  for (const candidate of candidates) {
+    const record = isRecord(candidate) ? candidate : null;
+    if (record === null) {
+      issues.push({ field: "bindings[]", remediation: "each binding must be a JSON object" });
+      continue;
+    }
+    const exists = typeof record.accountNumericUserId === "string" && accountExists(record.accountNumericUserId);
+    const verdict = parseBinding({ raw: record, accountExists: exists });
+    if ("issues" in verdict) {
+      issues.push(...verdict.issues);
+      continue;
+    }
+    if (seen.has(verdict.binding.bindingId)) {
+      issues.push({ field: "bindingId", remediation: "each binding must carry a unique bindingId" });
+      continue;
+    }
+    seen.add(verdict.binding.bindingId);
+    bindings.push(verdict.binding);
+  }
+  if (issues.length > 0) {
+    return { ok: false, issues };
+  }
+  return { ok: true, bindings };
+}
+function validateBindings(input) {
+  const bodyCopy = "send `{ bindings: [...] }` holding every binding the panel keeps";
+  const body = isRecord(input.raw) ? input.raw : null;
+  if (body === null || !Array.isArray(body.bindings)) {
+    return {
+      ok: false,
+      issues: [{ field: "body", remediation: bodyCopy }]
+    };
+  }
+  const capCopy = `keep the list to ${MAX_BINDINGS} bindings`;
+  if (body.bindings.length > MAX_BINDINGS) {
+    return {
+      ok: false,
+      issues: [{ field: "bindings", remediation: capCopy }]
+    };
+  }
+  return collectBindingIssues(body.bindings, input.accountExists);
+}
+async function writeBindings(input) {
+  await input.store.writeJson(BINDINGS_FILE, input.bindings);
+}
+
+// service/prompt-audit.ts
+var PROMPT_UPDATED_EVENT = "binding.prompt-updated";
+var observationStates = new WeakMap;
+function stateFor(store) {
+  let state = observationStates.get(store);
+  if (state === undefined) {
+    state = { baseline: new Map, seeded: false, chain: Promise.resolve() };
+    observationStates.set(store, state);
+  }
+  return state;
+}
+async function seedBaseline(store, baseline) {
+  const trail = await store.readLines(AUDIT_FILE, parseAuditEntry);
+  const highest = new Map;
+  for (const entry of trail.entries) {
+    if (entry.eventType !== PROMPT_UPDATED_EVENT) {
+      continue;
+    }
+    const { bindingId } = entry.details;
+    if (typeof bindingId !== "string") {
+      continue;
+    }
+    const recorded = entry.details.promptFingerprint;
+    const fingerprint = entry.details.promptPresent === true && typeof recorded === "string" ? recorded : null;
+    const prior = highest.get(bindingId);
+    if (prior === undefined || entry.seq > prior.seq) {
+      highest.set(bindingId, { seq: entry.seq, fingerprint });
+    }
+  }
+  for (const [bindingId, value] of highest) {
+    baseline.set(bindingId, value.fingerprint);
+  }
+}
+async function runPromptChain(store, task) {
+  const state = stateFor(store);
+  const start = async () => {
+    if (!state.seeded) {
+      await seedBaseline(store, state.baseline);
+      state.seeded = true;
+    }
+    return await task();
+  };
+  const run = state.chain.then(start, start);
+  state.chain = run;
+  return await run;
+}
+async function appendPromptChange(input) {
+  const present = input.current !== null;
+  let decision;
+  if (input.current === null) {
+    decision = "cleared";
+  } else {
+    decision = input.previousFingerprint === null ? "set" : "changed";
+  }
+  await appendAudit(input.store, {
+    eventType: PROMPT_UPDATED_EVENT,
+    actorSource: input.actor,
+    entity: { kind: "binding", id: input.bindingId },
+    correlationId: newCorrelationId(),
+    decision,
+    reason: null,
+    details: {
+      bindingId: input.bindingId,
+      promptPresent: present,
+      promptFingerprint: input.current?.fingerprint ?? null,
+      promptLength: input.current?.length ?? 0,
+      previousFingerprint: input.previousFingerprint
+    }
+  });
+}
+function dropUnobserved(state, observed) {
+  for (const bindingId of state.baseline.keys()) {
+    if (!observed.has(bindingId)) {
+      state.baseline.delete(bindingId);
+    }
+  }
+}
+async function recordOneChange(context) {
+  const { input, binding, snapshot, current, previous } = context;
+  try {
+    await appendPromptChange({
+      store: input.store,
+      bindingId: binding.bindingId,
+      current: snapshot,
+      previousFingerprint: previous,
+      actor: input.actor
+    });
+    return 1;
+  } catch (cause) {
+    input.log.warn("prompt change audit row could not be appended", {
+      bindingId: binding.bindingId,
+      promptFingerprint: current,
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return 0;
+  }
+}
+async function recordPromptChanges(input) {
+  const state = stateFor(input.store);
+  const observed = new Set;
+  let rows = 0;
+  for (const binding of input.bindings) {
+    observed.add(binding.bindingId);
+    const snapshot = promptSnapshotOf(binding);
+    const current = snapshot === null ? null : snapshot.fingerprint;
+    const previous = state.baseline.get(binding.bindingId) ?? null;
+    state.baseline.set(binding.bindingId, current);
+    if (previous === current) {
+      continue;
+    }
+    rows += await recordOneChange({ input, binding, snapshot, current, previous });
+  }
+  dropUnobserved(state, observed);
+  return rows;
+}
+async function observePromptChanges(input) {
+  return await runPromptChain(input.store, async () => await recordPromptChanges(input));
+}
+
+// service/bindings-read.ts
+function noteFirstRefusal(note, issues) {
+  const first = issues[0];
+  if (note.reason === null && first !== undefined) {
+    note.reason = `${first.field}: ${first.remediation}`;
+  }
+}
+function parseBindingsFile(raw, note) {
+  if (!Array.isArray(raw) || raw.some((entry) => !isRecord(entry))) {
+    return null;
+  }
+  const bindings = [];
+  for (const entry of raw) {
+    const verdict = parseBinding({ raw: entry, accountExists: true });
+    if ("issues" in verdict) {
+      noteFirstRefusal(note, verdict.issues);
+      return null;
+    }
+    bindings.push(verdict.binding);
+  }
+  return bindings;
+}
+async function readBindingsUnobserved(input) {
+  const { store, log } = input;
+  const note = { reason: null };
+  try {
+    const result = await store.readJson(BINDINGS_FILE, (raw) => parseBindingsFile(raw, note));
+    if (result.status === "ok") {
+      return result.value;
+    }
+    if (result.status === "quarantined") {
+      log.warn("stored bindings were unusable and have been set aside", {
+        quarantinePath: result.quarantinePath,
+        ...note.reason === null ? {} : { reason: note.reason }
+      });
+    }
+    return [];
+  } catch (cause) {
+    log.warn("bindings read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
+    return [];
+  }
+}
+async function readBindings(input) {
+  const bindings = await readBindingsUnobserved(input);
+  await observePromptChanges({
+    store: input.store,
+    log: input.log,
+    bindings,
+    actor: "service"
+  });
+  return bindings;
+}
+
+// service/poll/claim-bounds.ts
+var MAX_CLAIMED_RUNS = 50;
+var CLAIM_ANSWER_RESERVE_CHARS = 65536;
+var CLAIM_EVENTS_BUDGET_CHARS = RESPONSE_BODY_MAX_CHARS - CLAIM_ANSWER_RESERVE_CHARS;
+var RUN_EXCERPT_MAX_CHARS = 12000;
+var REFERENCE_EXCERPT_MAX_CHARS = 600;
+var EXCERPT_TRUNCATION_MARKER = "… [truncated]";
+var EXCERPT_OMITTED_MARKER = "[excerpt omitted: the claim answer carried this reference without its text]";
+function boundedExcerpt(excerpt) {
+  if (excerpt.length <= REFERENCE_EXCERPT_MAX_CHARS) {
+    return excerpt;
+  }
+  return `${excerpt.slice(0, REFERENCE_EXCERPT_MAX_CHARS)}${EXCERPT_TRUNCATION_MARKER}`;
+}
+function excerptCost(excerpt) {
+  return excerpt === EXCERPT_OMITTED_MARKER ? 0 : excerpt.length;
+}
+function projectReferences(input) {
+  let remaining = input.budget;
+  return input.references.map((reference) => {
+    const stored = input.deliveries.get(reference.deliveryId)?.issueBodyExcerpt ?? "";
+    const bounded = boundedExcerpt(stored);
+    const excerpt = remaining >= excerptCost(bounded) ? bounded : EXCERPT_OMITTED_MARKER;
+    remaining -= excerptCost(excerpt);
+    return {
+      deliveryId: reference.deliveryId,
+      kind: reference.kind,
+      origin: reference.origin,
+      sourceUrl: reference.sourceUrl,
+      detectedAt: reference.detectedAt,
+      excerpt,
+      presentAtAuthorization: reference.presentAtAuthorization
+    };
+  });
+}
+function measureEvents(runs) {
+  return JSON.stringify(runs).length;
+}
+
+// service/poll/claim.ts
+import { createHash as createHash4 } from "node:crypto";
+
+// service/poll/claim-project.ts
+function reviewCoordinates(delivery) {
+  const head = delivery?.headSha ?? null;
+  const base = delivery?.baseRef ?? null;
+  return { ...head === null ? {} : { headSha: head }, ...base === null ? {} : { baseRef: base } };
+}
+function deliveryView(input) {
+  const { delivery, primary } = input;
+  return {
+    accountLogin: delivery?.accountLogin ?? "",
+    issueTitle: delivery?.issueTitle ?? "",
+    issueUrl: primary?.sourceUrl ?? "",
+    issueBodyExcerpt: delivery?.issueBodyExcerpt ?? "",
+    ...reviewCoordinates(delivery)
+  };
+}
+function promptViewOf(run) {
+  if (run.prompt === null) {
+    return { promptPresent: false, promptFingerprint: null, promptLength: null, promptText: null };
+  }
+  return {
+    promptPresent: true,
+    promptFingerprint: run.prompt.fingerprint,
+    promptLength: run.prompt.length,
+    promptText: run.prompt.text
+  };
+}
+function projectClaimedRun(input) {
+  const { run, lease, deliveries } = input;
+  const primary = run.sourceReferences[0];
+  const delivery = primary === undefined ? undefined : deliveries.get(primary.deliveryId);
+  return {
+    correlationId: run.correlationId,
+    runKey: run.runKey,
+    ordinal: run.ordinal,
+    attempt: run.attempt,
+    lease,
+    state: "pending",
+    stateReason: `waiting for a panel; leased until ${lease.expiresAt}`,
+    bindingId: run.bindingId,
+    repository: run.repository,
+    projectId: run.projectId,
+    worktreeOption: run.worktreeOption,
+    subjectType: run.subjectType,
+    issueNumber: run.subjectNumber,
+    attachmentId: run.attachmentId,
+    sourceReferences: projectReferences({
+      references: run.sourceReferences,
+      deliveries,
+      budget: RUN_EXCERPT_MAX_CHARS
+    }),
+    referenceCount: run.referenceCount,
+    referencesNotRetained: run.referencesNotRetained,
+    referencesTruncated: run.referencesTruncated,
+    detectedAt: primary?.detectedAt ?? run.createdAt,
+    ...promptViewOf(run),
+    ...deliveryView({ delivery, primary })
+  };
 }
 
 // service/poll/runs-transitions.ts
@@ -7953,6 +8239,7 @@ async function runScanCycle(deps) {
     return { bindings: [], enqueued: 0 };
   }
   const context = await cycleContext({ store: deps.store, log: deps.log, poller: deps.poller });
+  await runRetentionPasses({ store: context.store, log: context.log, config: context.config });
   await readEvents({ store: context.store, log: context.log });
   const [bindings, scannedState] = await Promise.all([
     readBindings({ store: context.store, log: context.log }),
@@ -8564,6 +8851,7 @@ function buildContext(input) {
 async function startService(options) {
   const store = await openStoreSafe(options);
   await adoptStoredLogLevel(store, options.log);
+  await runRetentionAtOpen({ store, log: options.log });
   const github = options.github ?? createGitHubVerifier();
   const state = { inFlight: 0 };
   const polling = createPollingView();

@@ -15,6 +15,7 @@ import type { Server } from 'node:http';
 import { reconcileInterruptedAccounts } from './accounts/reconcile.ts';
 import { CONFIG_FILE, configFromStore, parseStoredConfig } from './config.ts';
 import { createGitHubVerifier } from './github.ts';
+import { runRetentionAtOpen } from './retention.ts';
 import type { GitHubIssuePoller } from './poll/poller-github.ts';
 import { LOOPBACK_HOST } from './http.ts';
 import { createRequestHandler } from './pipeline.ts';
@@ -460,6 +461,10 @@ export async function startService(options: StartServiceOptions): Promise<Servic
     // first line this instance writes after the store opens is judged at the
     // configured threshold — the whole `immediate` promise, before `listen`.
     await adoptStoredLogLevel(store, options.log);
+    // 006 FR-055(a)/FR-057: both retention passes run once here, still before
+    // the listener accepts, so a saved limit is in force from the first start
+    // after it was acknowledged. A configuration write runs neither (FR-047).
+    await runRetentionAtOpen({ store, log: options.log });
     const github = options.github ?? createGitHubVerifier();
     const state: PipelineState = { inFlight: 0 };
     // The scheduler view exists before the context so every route can hold a
