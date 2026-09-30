@@ -7,7 +7,7 @@ Governing requirements: FR-006 (N-account custody flow), FR-007 (panel never ret
 
 ## 1. Approval requirements (both parts, before any token moves)
 
-1. **Install-time capability grant** — the manifest's implied capability set (`sessions`, `prompt`, `service`, `network`) is approved once at install (GUEST_SERVICES.md lifecycle). Without the `service` grant the first `serviceRequest` fails `NO_SERVICE` and **the handoff is refused with approval instruction; no token leaves the panel** (AC-002).
+1. **Install-time capability grant** — the manifest's capability set (`sessions`, `prompt`, plus the implied `service`; `network` left the set when the integration card was removed on 2026-09-30 — 002 FR-011 as re-cut at v1.8.0) is approved once at install (GUEST_SERVICES.md lifecycle). Without the `service` grant the first `serviceRequest` fails `NO_SERVICE` and **the handoff is refused with approval instruction; no token leaves the panel** (AC-002).
 2. **In-panel consent (FR-008)** — before the *first* handoff on this install, the panel shows a consent step rendering **`CONSENT_COPY_V1` (§1.1) verbatim**; nothing else may be shown as the consent text. Declining keeps the panel usable for health/runs display; account add stays disabled with the reason shown.
 
 ### 1.1 Canonical consent string — `CONSENT_COPY_V1` (single source, SEC-12)
@@ -131,7 +131,7 @@ panel: clear token (finally)  →  render "Connected as <login>"  →  audit (se
   - old token bytes are not retained anywhere (no history of secrets), and the replaced copy is gone atomically.
   *Contract test note: rotate with a different-id token → 422 + byte-identical store; rotate with a same-id token → store diff shows only credential/login/scopeCheck/verifiedAt (plus state/connectionState/errorReason when the account was not `active`, the recovery documented above).*
 - Revocation (on GitHub) + next poll → account `revoked`/`error` state, streams block with capability named, other accounts unaffected (spec Edge Case).
-- The panel's *host-managed* optional integration card (FR-011) is a **separate** credential OpenChamber owns; it is never read into panel state and never used for polling/dispatch.
+- **There is no second credential in the panel** (002 FR-011 as re-cut at v1.8.0, 2026-09-30): the host-managed integration card and its token were removed from the manifest, so this handoff is the only path by which a GitHub credential enters the product — and it lands in the service store, never in panel state, never used for polling or dispatch by any reader.
 
 ## 7. Threat notes for the reviewer (T-001 scope)
 

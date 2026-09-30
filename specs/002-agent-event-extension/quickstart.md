@@ -20,7 +20,7 @@ npm run build        # panel IIFE + service ESM (both committed)
 
 - Panel: `bunx openchamber-guest-bundle panel/main.ts panel/main.js` (classic IIFE).
 - Service: `bunx openchamber-guest-bundle --node service/main.ts service/main.js` (ESM — ship built JS; the host never compiles TS).
-- The manifest ships from the repository root `package.json`: `contributes.panel`, `contributes.service` (`runtime: "host"`, **no `permissions` key** — loopback network only), `capabilities: ["sessions", "prompt"]`, and the optional non-authoritative GitHub `integration` card.
+- The manifest ships from the repository root `package.json`: `contributes.panel`, `contributes.service` (`runtime: "host"`, **no `permissions` key** — loopback network only), and `capabilities: ["sessions", "prompt"]`. There is **no `contributes.integration` card**: the install-time GitHub token card and its two products (a connected-login badge, a `/user` diagnostic) were removed by product-owner order on 2026-09-30, so the panel makes no GitHub request of its own and `network` is no longer requested.
 
 ## 2. Verify (every commit)
 
@@ -33,7 +33,7 @@ Expect: 0 lint errors/warnings (zero suppressions — no `eslint-disable`, no `@
 ## 3. Install
 
 1. OpenChamber → **Settings → Extensions** → paste `https://github.com/shaunburdick/mecha-turk` (git-URL install; append `#tag` to pin), or the absolute path of the repository root for a local folder install.
-2. Approval dialog shows `sessions`, `prompt`, `service`, `network`. Read the local-service line (*"a separate program with your full user access"*) and choose **Allow and enable**.
+2. Approval dialog shows `sessions`, `prompt`, `service`. Read the local-service line (*"a separate program with your full user access"*) and choose **Allow and enable**.
 3. Open the **Mecha Turk** rail panel. It opens on **Status**: the honest projection (service, polling, accounts, bindings, agent pin) with the **Setup prerequisites** section beneath it — six lines (Default Agent pin, OpenChamber running, desktop-or-web surface, GitHub token scopes, registered project per binding, service-capability approval), each rendered *met*, *not met*, or **not checkable by the panel**, each with its own remediation, and any checkable-and-unmet item also raises a notice above the tabs. The Default Agent pin reads **not checkable** on purpose (the panel cannot read that setting), so §0 step 2 remains the operator's own action; verification still reads the pin back after every dispatch and warns when a session reports another agent.
 
    The strip has six tabs, in order: **Status** (the overview and prerequisites above), **Dispatches** (every queued, running, and finished dispatch, with paging and filters), **Bindings** (the repositories you watch, plus the project picker and the add form), **Accounts** (the GitHub accounts, their scope, and the add form), **Settings** (the single configuration input for the whole service configuration), and **About** (identity, the data directory, and read-only diagnostics).
@@ -130,13 +130,13 @@ the documented defaults take over, with the tab saying exactly that. Nothing
 is configured through an environment file, an environment variable, or an
 integration-card setting.
 
-The integration card carries **no settings**, so nothing is configured through
-card fields or an *agent-verification baseline* the card no longer has: that
-baseline (`expectedAgent`, default `project-manager`) is service
-configuration, read by verification through `GET /v1/config` and falling back
-to the documented default when the document does not carry the field. The
-Settings tab is therefore where you both read and change what the service is
-actually using.
+There is no integration card any more (product-owner order, 2026-09-30), so
+nothing is configured through card fields, and the *agent-verification
+baseline* was never one: that baseline (`expectedAgent`, default
+`project-manager`) is service configuration, read by verification through
+`GET /v1/config` and falling back to the documented default when the document
+does not carry the field. The Settings tab is therefore where you both read
+and change what the service is actually using.
 
 ## 7. Cleanup (manual only)
 
