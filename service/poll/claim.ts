@@ -290,7 +290,7 @@ async function readLeaseMs(store: ServiceStore, log: ServiceLogger): Promise<num
     try {
         const stored = await store.readJson(CONFIG_FILE, parseStoredConfig);
 
-        return configFromStore(stored, log).leaseMs;
+        return configFromStore(stored, log).config.leaseMs;
     } catch (cause) {
         log.warn('lease duration read failed', { errorKind: cause instanceof Error ? cause.name : typeof cause });
 

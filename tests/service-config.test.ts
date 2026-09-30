@@ -13,9 +13,11 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_CONFIG, parseStoredConfig, validateConfig } from '../service/config.ts';
+import { DEFAULT_CONFIG, NUMERIC_BOUNDS, parseStoredConfig, validateConfig } from '../service/config.ts';
+import { configSchema } from '../service/config-schema.ts';
 import { SERVICE_SCHEMA_VERSION } from '../service/store/index.ts';
 import type { ServiceConfig } from '../service/config.ts';
+import type { FieldDescriptor } from '../service/config-schema.ts';
 import type { ServiceStatusBody } from '../service/routes/status.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
@@ -87,6 +89,50 @@ const PRE_RUN_LAYER_CONFIG = {
     excerptRetentionDays: 14,
     logLevel: 'debug',
 } as const;
+
+/**
+ * A document written after 003's lease knobs but before 006's field landed:
+ * every documented key **except** `expectedAgent`.
+ *
+ * Derived from {@link DEFAULT_CONFIG} rather than retyped, so the fixture can
+ * never claim to be "complete minus one" once a field is added.
+ */
+const PRE_AGENT_CONFIG: Readonly<Record<string, unknown>> = Object.fromEntries(
+    Object.entries(DEFAULT_CONFIG).filter(([field]) => field !== 'expectedAgent'),
+);
+
+/** Field name 006 adds; one literal, one home. */
+const AGENT_FIELD = 'expectedAgent';
+
+/** Documented default for {@link AGENT_FIELD}. */
+const AGENT_DEFAULT = 'project-manager';
+
+/** A baseline every rule accepts; used for the trimmed round trip and an accepted save. */
+const ACCEPTED_AGENT = 'codex-reviewer';
+
+/** The same baseline padded with whitespace, to prove the stored value is trimmed. */
+const PADDED_AGENT = `  ${ACCEPTED_AGENT}  `;
+
+/**
+ * A value that passes the charset rule and still looks like a credential,
+ * so the secret-shape refusal is the one that fires (AC-154).
+ */
+const CREDENTIAL_SHAPED_VALUE = `ghp_${'a'.repeat(36)}`;
+
+/** 006's own eleven fields — the histogram's criterion of record (SC-106). */
+const SPEC_FIELDS: readonly string[] = [
+    'intervalMs',
+    'overlapMs',
+    'perPage',
+    'retryMaxAttempts',
+    'retryBaseMs',
+    'retryMaxMs',
+    'auditRetentionDays',
+    'auditMaxEntries',
+    'excerptRetentionDays',
+    'logLevel',
+    'expectedAgent',
+];
 
 /** Service registered for cleanup after the current test. */
 let running: TestService | null = null;
@@ -231,7 +277,15 @@ describe('ServiceConfig validation', () => {
     it('reads a configuration document written before the lease fields existed (T-008)', () => {
         const result = parseStoredConfig(PRE_RUN_LAYER_CONFIG);
 
-        expect(result).toEqual({ ...PRE_RUN_LAYER_CONFIG, leaseMs: 120_000, resultDeadlineMs: 120_000 });
+        expect(result).toEqual({
+            config: {
+                ...PRE_RUN_LAYER_CONFIG,
+                leaseMs: 120_000,
+                resultDeadlineMs: 120_000,
+                [AGENT_FIELD]: AGENT_DEFAULT,
+            },
+            defaultsApplied: ['leaseMs', 'resultDeadlineMs', AGENT_FIELD],
+        });
     });
 
     it('still quarantines a stored document whose own values are unusable (T-008)', () => {
@@ -314,7 +368,12 @@ describe('GET and PUT /v1/config', () => {
         const entries = await readdir(service.dataDir);
 
         expect(response.status).toBe(200);
-        expect(body.config).toEqual({ ...PRE_RUN_LAYER_CONFIG, leaseMs: 120_000, resultDeadlineMs: 120_000 });
+        expect(body.config).toEqual({
+            ...PRE_RUN_LAYER_CONFIG,
+            leaseMs: 120_000,
+            resultDeadlineMs: 120_000,
+            [AGENT_FIELD]: AGENT_DEFAULT,
+        });
         expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toEqual([]);
     });
 
@@ -392,5 +451,257 @@ describe('GET /v1/status', () => {
         expect(body.service.schemaVersion).toBeNull();
         expect(body.polling.paused).toBe(true);
         expect(body.surface.supported).toBe(true);
+    });
+});
+
+/** The widened `GET /v1/config` envelope (006 contract §1). */
+interface ConfigEnvelope {
+    /** The effective document — unchanged in name and type from pre-006. */
+    readonly config: ServiceConfig;
+    /** The declaration, projected from the validator's own tables. */
+    readonly fields: readonly FieldDescriptor[];
+    /** Where `config` came from. */
+    readonly source: 'stored' | 'default' | 'quarantined';
+    /** Documented keys the stored file lacked. */
+    readonly defaultsApplied: readonly string[];
+}
+
+describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
+    /** One case per documented refusal, with the remediation contract §4 fixes. */
+    const REFUSALS: readonly { readonly case: string; readonly value: string; readonly remediation: string }[] = [
+        {
+            case: 'empty after trimming',
+            value: '   ',
+            remediation: 'set expectedAgent to a non-empty agent name',
+        },
+        {
+            case: 'longer than 80 characters',
+            value: 'a'.repeat(81),
+            remediation: 'set expectedAgent to at most 80 characters',
+        },
+        {
+            case: 'contains a space',
+            value: 'project manager',
+            remediation: 'set expectedAgent to letters, digits, and . _ - @ : / with no spaces',
+        },
+        {
+            case: 'credential shaped',
+            value: CREDENTIAL_SHAPED_VALUE,
+            remediation: 'set expectedAgent to an agent name, not a credential',
+        },
+    ];
+
+    it.each(REFUSALS)('refuses a value $case with its own remediation and no echo', ({ value, remediation }) => {
+        const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: value });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
+            expect(issue?.remediation).toBe(remediation);
+            expect(issue?.remediation).not.toContain('    ');
+            const submitted = value.trim();
+            if (submitted !== '') {
+                expect(JSON.stringify(result.issues)).not.toContain(submitted);
+            }
+        }
+    });
+
+    it('stores the trimmed value so a save/load round trip is stable', () => {
+        const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: PADDED_AGENT });
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.config[AGENT_FIELD]).toBe(ACCEPTED_AGENT);
+        }
+    });
+
+    it('refuses a PUT that omits the field while the read fills it (FR-100(b), data-model §2)', async () => {
+        const service = await startServiceForTest();
+        await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_AGENT_CONFIG), 'utf8');
+
+        const read = await service.call(CONFIG_PATH);
+        const envelope: ConfigEnvelope = await read.json();
+        const put = await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(PRE_AGENT_CONFIG) });
+        const failure: ValidationBody = await put.json();
+        const stored = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8');
+
+        // Read side: filled, reported, and byte-identical — a read writes nothing.
+        expect(read.status).toBe(200);
+        expect(envelope.source).toBe('stored');
+        expect(envelope.defaultsApplied).toEqual([AGENT_FIELD]);
+        expect(envelope.config[AGENT_FIELD]).toBe(AGENT_DEFAULT);
+        expect(envelope.config.intervalMs).toBe(DEFAULT_CONFIG.intervalMs);
+        expect(stored).toBe(JSON.stringify(PRE_AGENT_CONFIG));
+
+        // Write side: the whole-file rule is unchanged, so the same body is a 422.
+        expect(put.status).toBe(422);
+        expect(failure.error.issues.map((issue) => issue.field)).toContain(AGENT_FIELD);
+        expect(await readFile(join(service.dataDir, CONFIG_FILE), 'utf8')).toBe(JSON.stringify(PRE_AGENT_CONFIG));
+    });
+
+    it('leaves the stored value in force when a credential-shaped save is refused (AC-154)', async () => {
+        const service = await startServiceForTest();
+        const accepted = { ...DEFAULT_CONFIG, [AGENT_FIELD]: ACCEPTED_AGENT };
+        await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(accepted) });
+        const before = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8');
+
+        const refused = await service.call(CONFIG_PATH, {
+            method: 'PUT',
+            body: JSON.stringify({ ...DEFAULT_CONFIG, [AGENT_FIELD]: CREDENTIAL_SHAPED_VALUE }),
+        });
+        const body = await refused.text();
+        const after = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8');
+
+        expect(refused.status).toBe(422);
+        expect(body).toContain(AGENT_FIELD);
+        expect(body).not.toContain(CREDENTIAL_SHAPED_VALUE);
+        expect(after).toBe(before);
+    });
+});
+
+describe('GET /v1/config widens without changing what it already said (006 FR-020, contract §1)', () => {
+    it('reports source fidelity for all three reads, and [] whenever source is not stored', async () => {
+        const service = await startServiceForTest();
+
+        // Absent: the documented defaults answer, and `config` keeps its shape.
+        const absentResponse = await service.call(CONFIG_PATH);
+        const absent: ConfigEnvelope = await absentResponse.json();
+        expect(absent.source).toBe('default');
+        expect(absent.defaultsApplied).toEqual([]);
+        expect(absent.config).toEqual(DEFAULT_CONFIG);
+
+        // Stored: the file's values, with only the missing key reported as filled.
+        await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_AGENT_CONFIG), 'utf8');
+        const storedResponse = await service.call(CONFIG_PATH);
+        const stored: ConfigEnvelope = await storedResponse.json();
+        expect(stored.source).toBe('stored');
+        expect(stored.defaultsApplied).toEqual([AGENT_FIELD]);
+        expect(stored.config[AGENT_FIELD]).toBe(AGENT_DEFAULT);
+
+        // Quarantined: defaults serve, no key is claimed as filled, no value as configured.
+        const unusable = JSON.stringify({ ...PRE_AGENT_CONFIG, surprise: 1 });
+        await writeFile(join(service.dataDir, CONFIG_FILE), unusable, 'utf8');
+        const quarantinedResponse = await service.call(CONFIG_PATH);
+        const quarantined: ConfigEnvelope = await quarantinedResponse.json();
+        expect(quarantined.source).toBe('quarantined');
+        expect(quarantined.defaultsApplied).toEqual([]);
+        expect(quarantined.config).toEqual(DEFAULT_CONFIG);
+        const entries = await readdir(service.dataDir);
+        expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toHaveLength(1);
+    });
+
+    it('carries one descriptor per documented field, in the validator\'s own order (AC-107)', async () => {
+        const service = await startServiceForTest();
+        const response = await service.call(CONFIG_PATH);
+        const envelope: ConfigEnvelope = await response.json();
+
+        expect(envelope.fields.map((descriptor) => descriptor.name)).toEqual(Object.keys(DEFAULT_CONFIG));
+        expect(envelope.fields).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
+        for (const descriptor of envelope.fields) {
+            expect(descriptor.takesEffect).toBeTruthy();
+        }
+    });
+});
+
+/**
+ * Find one projected descriptor.
+ *
+ * @param name - Documented field name.
+ * @returns Its descriptor, or `undefined` when the field is undocumented.
+ */
+function descriptorOf(name: string): FieldDescriptor | undefined {
+    return configSchema().find((descriptor) => descriptor.name === name);
+}
+
+/**
+ * Build a value that each descriptor's own kind refuses.
+ *
+ * @param descriptor - The projected field to fail.
+ * @returns A value outside that field's rule, for the ordering assertion.
+ */
+function refusedValueFor(descriptor: FieldDescriptor): unknown {
+    if (descriptor.kind === 'integer') {
+        return descriptor.min - 1;
+    }
+
+    if (descriptor.kind === 'enum') {
+        return 'verbose';
+    }
+
+    return 'project manager';
+}
+
+describe('the projection is the validator\'s own declaration (006 SC-101, SC-106)', () => {
+    it('moves together when a bound moves, and returns when it is reverted (SC-101)', () => {
+        expect(descriptorOf('intervalMs')).toMatchObject({ min: 15_000, max: 300_000 });
+        expect(validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 }).ok).toBe(true);
+
+        try {
+            Reflect.set(NUMERIC_BOUNDS.intervalMs, 'min', 42_000);
+            expect(descriptorOf('intervalMs')).toMatchObject({ min: 42_000, max: 300_000 });
+            const moved = validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 });
+            expect(moved.ok).toBe(false);
+            if (!moved.ok) {
+                const issue = moved.issues.find((candidate) => candidate.field === 'intervalMs');
+                expect(issue?.remediation).toContain('42000');
+            }
+        } finally {
+            Reflect.set(NUMERIC_BOUNDS.intervalMs, 'min', 15_000);
+        }
+
+        expect(descriptorOf('intervalMs')).toMatchObject({ min: 15_000 });
+        expect(validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 }).ok).toBe(true);
+    });
+
+    it('emits descriptors in exactly the order a full refusal reports issues', () => {
+        const candidate: Record<string, unknown> = {};
+        for (const descriptor of configSchema()) {
+            candidate[descriptor.name] = refusedValueFor(descriptor);
+        }
+
+        const result = validateConfig(candidate);
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            const reportedOrder = configSchema().map((descriptor) => descriptor.name);
+            expect(result.issues.map((issue) => issue.field)).toEqual(reportedOrder);
+        }
+    });
+
+    it('declares nine next-cycle, one immediate, and one next-dispatch over 006\'s eleven (SC-106)', () => {
+        const declared = configSchema()
+            .filter((descriptor) => SPEC_FIELDS.includes(descriptor.name))
+            .map((descriptor) => descriptor.takesEffect);
+
+        expect(declared).toHaveLength(11);
+        expect(declared.filter((takeEffect) => takeEffect === 'next-cycle')).toHaveLength(9);
+        expect(declared.filter((takeEffect) => takeEffect === 'immediate')).toHaveLength(1);
+        expect(declared.filter((takeEffect) => takeEffect === 'next-dispatch')).toHaveLength(1);
+        expect(declared.filter((takeEffect) => takeEffect === 'restart' || takeEffect === 'none')).toHaveLength(0);
+    });
+
+    it('gives the string field no unit and no numeric bound, and the enum field the four levels', () => {
+        const agent = descriptorOf(AGENT_FIELD);
+        expect(agent).toMatchObject({
+            kind: 'string',
+            unit: null,
+            maxLength: 80,
+            default: AGENT_DEFAULT,
+            takesEffect: 'next-dispatch',
+        });
+        const agentKeys = agent === undefined ? [] : Object.keys(agent);
+        expect(agentKeys).not.toContain('min');
+        expect(agentKeys).not.toContain('max');
+        if (agent?.kind === 'string') {
+            expect(agent.format).toContain('no spaces');
+        }
+
+        expect(descriptorOf('logLevel')).toMatchObject({
+            kind: 'enum',
+            unit: null,
+            values: ['debug', 'info', 'warn', 'error'],
+            default: 'info',
+            takesEffect: 'immediate',
+        });
     });
 });

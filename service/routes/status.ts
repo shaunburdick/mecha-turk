@@ -385,7 +385,7 @@ async function readConfig(context: RouteContext): Promise<ServiceConfig> {
 
     const result = await context.store.readJson(CONFIG_FILE, parseStoredConfig);
 
-    return configFromStore(result, context.log);
+    return configFromStore(result, context.log).config;
 }
 
 /**

@@ -94,7 +94,7 @@ export function sweepIntervalMs(durations: SweepDurations): number {
 export async function readSweepDurations(input: SweepLoopInput): Promise<SweepDurations> {
     try {
         const stored = await input.store.readJson(CONFIG_FILE, parseStoredConfig);
-        const config = configFromStore(stored, input.log);
+        const { config } = configFromStore(stored, input.log);
 
         return { leaseMs: config.leaseMs, resultDeadlineMs: config.resultDeadlineMs };
     } catch (cause) {

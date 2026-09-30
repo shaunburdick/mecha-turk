@@ -229,7 +229,7 @@ async function readResultDeadlineMs(store: ServiceStore, log: ServiceLogger): Pr
     try {
         const stored = await store.readJson(CONFIG_FILE, parseStoredConfig);
 
-        return configFromStore(stored, log).resultDeadlineMs;
+        return configFromStore(stored, log).config.resultDeadlineMs;
     } catch (cause) {
         log.warn('result deadline read failed', { errorKind: cause instanceof Error ? cause.name : typeof cause });
 

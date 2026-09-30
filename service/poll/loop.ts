@@ -126,7 +126,7 @@ export async function currentIntervalMs(store: ServiceStore | null, log: Service
     }
 
     try {
-        const config = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
+        const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
 
         return config.intervalMs;
     } catch (cause) {

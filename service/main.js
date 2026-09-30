@@ -1930,7 +1930,8 @@ var auditRoute = {
 // service/config.ts
 var CONFIG_FILE = "config.json";
 var MAX_ECHOED_FIELD_CHARS = 64;
-var LOG_LEVELS = new Set(["debug", "info", "warn", "error"]);
+var LOG_LEVEL_VALUES = ["debug", "info", "warn", "error"];
+var LOG_LEVELS = new Set(LOG_LEVEL_VALUES);
 var NUMERIC_BOUNDS = {
   intervalMs: { min: 15000, max: 300000, unit: "milliseconds" },
   overlapMs: { min: 60000, max: 7200000, unit: "milliseconds" },
@@ -1945,6 +1946,11 @@ var NUMERIC_BOUNDS = {
   resultDeadlineMs: { min: 30000, max: 600000, unit: "milliseconds" }
 };
 var NUMERIC_FIELDS = Object.keys(NUMERIC_BOUNDS);
+var EXPECTED_AGENT_RULE = {
+  maxLength: 80,
+  format: "letters, digits, and . _ - @ : / (a single token, no spaces)",
+  pattern: /^[A-Za-z0-9.@/_:-]+$/
+};
 var DEFAULT_CONFIG = {
   intervalMs: 60000,
   overlapMs: 600000,
@@ -1957,11 +1963,8 @@ var DEFAULT_CONFIG = {
   excerptRetentionDays: 30,
   leaseMs: 120000,
   resultDeadlineMs: 120000,
-  logLevel: "info"
-};
-var ADDED_AFTER_FIRST_RELEASE = {
-  leaseMs: DEFAULT_CONFIG.leaseMs,
-  resultDeadlineMs: DEFAULT_CONFIG.resultDeadlineMs
+  logLevel: "info",
+  expectedAgent: "project-manager"
 };
 function isLogLevel(value) {
   return typeof value === "string" && LOG_LEVELS.has(value);
@@ -2006,7 +2009,33 @@ function unknownFieldIssue(key) {
   };
 }
 function isKnownField(key) {
-  return key === "logLevel" || Object.hasOwn(NUMERIC_BOUNDS, key);
+  return Object.hasOwn(DEFAULT_CONFIG, key);
+}
+function expectedAgentIssue(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (text === "") {
+    return [{ field: "expectedAgent", remediation: "set expectedAgent to a non-empty agent name" }];
+  }
+  if (text.length > EXPECTED_AGENT_RULE.maxLength) {
+    return [
+      {
+        field: "expectedAgent",
+        remediation: `set expectedAgent to at most ${EXPECTED_AGENT_RULE.maxLength} characters`
+      }
+    ];
+  }
+  if (!EXPECTED_AGENT_RULE.pattern.test(text)) {
+    return [
+      {
+        field: "expectedAgent",
+        remediation: "set expectedAgent to letters, digits, and . _ - @ : / with no spaces"
+      }
+    ];
+  }
+  if (findSecretLeak(text) !== null) {
+    return [{ field: "expectedAgent", remediation: "set expectedAgent to an agent name, not a credential" }];
+  }
+  return [];
 }
 function collectIssues(raw) {
   const issues = [];
@@ -2019,6 +2048,7 @@ function collectIssues(raw) {
       remediation: "set logLevel to one of debug, info, warn, error"
     });
   }
+  issues.push(...expectedAgentIssue(raw.expectedAgent));
   issues.push(...retryOrderIssue(raw));
   for (const key of Object.keys(raw)) {
     if (!isKnownField(key)) {
@@ -2041,6 +2071,13 @@ function readLogLevel(raw) {
   }
   return value;
 }
+function readExpectedAgent(raw) {
+  const value = raw.expectedAgent;
+  if (typeof value !== "string") {
+    throw new Error("validated configuration is missing expectedAgent");
+  }
+  return value.trim();
+}
 function buildConfig(raw) {
   return {
     intervalMs: readNumber(raw, "intervalMs"),
@@ -2054,7 +2091,8 @@ function buildConfig(raw) {
     excerptRetentionDays: readNumber(raw, "excerptRetentionDays"),
     leaseMs: readNumber(raw, "leaseMs"),
     resultDeadlineMs: readNumber(raw, "resultDeadlineMs"),
-    logLevel: readLogLevel(raw)
+    logLevel: readLogLevel(raw),
+    expectedAgent: readExpectedAgent(raw)
   };
 }
 function validateConfig(raw) {
@@ -2075,24 +2113,79 @@ function parseStoredConfig(raw) {
     return null;
   }
   const filled = { ...raw };
-  for (const [field, fallback] of Object.entries(ADDED_AFTER_FIRST_RELEASE)) {
-    if (!(field in filled)) {
-      filled[field] = fallback;
+  const defaultsApplied = [];
+  for (const field of Object.keys(DEFAULT_CONFIG)) {
+    if (!Object.hasOwn(filled, field)) {
+      filled[field] = DEFAULT_CONFIG[field];
+      defaultsApplied.push(field);
     }
   }
   const validation = validateConfig(filled);
-  return validation.ok ? validation.config : null;
+  return validation.ok ? { config: validation.config, defaultsApplied } : null;
 }
 function configFromStore(result, log) {
   if (result.status === "ok") {
-    return result.value;
+    return {
+      config: result.value.config,
+      source: "stored",
+      defaultsApplied: result.value.defaultsApplied
+    };
   }
   if (result.status === "quarantined") {
     log.warn("stored configuration was unusable and has been set aside", {
       quarantinePath: result.quarantinePath
     });
+    return { config: DEFAULT_CONFIG, source: "quarantined", defaultsApplied: [] };
   }
-  return DEFAULT_CONFIG;
+  return { config: DEFAULT_CONFIG, source: "default", defaultsApplied: [] };
+}
+
+// service/config-schema.ts
+var NEXT_CYCLE = "next-cycle";
+var TAKE_EFFECT = {
+  intervalMs: NEXT_CYCLE,
+  overlapMs: NEXT_CYCLE,
+  perPage: NEXT_CYCLE,
+  retryMaxAttempts: NEXT_CYCLE,
+  retryBaseMs: NEXT_CYCLE,
+  retryMaxMs: NEXT_CYCLE,
+  auditRetentionDays: NEXT_CYCLE,
+  auditMaxEntries: NEXT_CYCLE,
+  excerptRetentionDays: NEXT_CYCLE,
+  leaseMs: NEXT_CYCLE,
+  resultDeadlineMs: NEXT_CYCLE,
+  logLevel: "immediate",
+  expectedAgent: "next-dispatch"
+};
+function configSchema() {
+  const numericFields = Object.keys(NUMERIC_BOUNDS);
+  const descriptors = numericFields.map((field) => ({
+    name: field,
+    kind: "integer",
+    unit: NUMERIC_BOUNDS[field].unit,
+    min: NUMERIC_BOUNDS[field].min,
+    max: NUMERIC_BOUNDS[field].max,
+    default: DEFAULT_CONFIG[field],
+    takesEffect: TAKE_EFFECT[field]
+  }));
+  descriptors.push({
+    name: "logLevel",
+    kind: "enum",
+    unit: null,
+    values: LOG_LEVEL_VALUES,
+    default: DEFAULT_CONFIG.logLevel,
+    takesEffect: TAKE_EFFECT.logLevel
+  });
+  descriptors.push({
+    name: "expectedAgent",
+    kind: "string",
+    unit: null,
+    format: EXPECTED_AGENT_RULE.format,
+    maxLength: EXPECTED_AGENT_RULE.maxLength,
+    default: DEFAULT_CONFIG.expectedAgent,
+    takesEffect: TAKE_EFFECT.expectedAgent
+  });
+  return descriptors;
 }
 
 // service/routes/config.ts
@@ -2102,8 +2195,16 @@ async function handleGetConfig(context) {
     return storageUnavailableResponse();
   }
   const result = await context.store.readJson(CONFIG_FILE, parseStoredConfig);
-  const config = configFromStore(result, context.log);
-  return { status: STATUS.ok, body: { config } };
+  const read = configFromStore(result, context.log);
+  return {
+    status: STATUS.ok,
+    body: {
+      config: read.config,
+      fields: configSchema(),
+      source: read.source,
+      defaultsApplied: read.defaultsApplied
+    }
+  };
 }
 async function handlePutConfig(context, request) {
   const validation = validateConfig(request.body);
@@ -4803,7 +4904,7 @@ function planClaim(input) {
 async function readLeaseMs(store, log) {
   try {
     const stored = await store.readJson(CONFIG_FILE, parseStoredConfig);
-    return configFromStore(stored, log).leaseMs;
+    return configFromStore(stored, log).config.leaseMs;
   } catch (cause) {
     log.warn("lease duration read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
     return DEFAULT_CONFIG.leaseMs;
@@ -5521,7 +5622,7 @@ function reservedRun(input) {
 async function readResultDeadlineMs(store, log) {
   try {
     const stored = await store.readJson(CONFIG_FILE, parseStoredConfig);
-    return configFromStore(stored, log).resultDeadlineMs;
+    return configFromStore(stored, log).config.resultDeadlineMs;
   } catch (cause) {
     log.warn("result deadline read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
     return DEFAULT_CONFIG.resultDeadlineMs;
@@ -6912,7 +7013,7 @@ async function readConfig(context) {
     return DEFAULT_CONFIG;
   }
   const result = await context.store.readJson(CONFIG_FILE, parseStoredConfig);
-  return configFromStore(result, context.log);
+  return configFromStore(result, context.log).config;
 }
 async function buildStatusBody(context) {
   const config = await readConfig(context);
@@ -7147,7 +7248,7 @@ function sweepIntervalMs(durations) {
 async function readSweepDurations(input) {
   try {
     const stored = await input.store.readJson(CONFIG_FILE, parseStoredConfig);
-    const config = configFromStore(stored, input.log);
+    const { config } = configFromStore(stored, input.log);
     return { leaseMs: config.leaseMs, resultDeadlineMs: config.resultDeadlineMs };
   } catch (cause) {
     input.log.warn("sweep cadence read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
@@ -7612,7 +7713,7 @@ async function currentIntervalMs(store, log) {
     return DEFAULT_CONFIG.intervalMs;
   }
   try {
-    const config = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
+    const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
     return config.intervalMs;
   } catch (cause) {
     log.warn("poll interval read failed", { errorKind: describeKind(cause) });

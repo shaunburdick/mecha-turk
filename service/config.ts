@@ -38,12 +38,20 @@ const MAX_ECHOED_FIELD_CHARS = 64;
 /**
  * Every log level the service accepts, in increasing severity.
  *
- * Exported for one reader only: 005's Settings-tab cross-check
- * (`tests/settings-rows.test.ts`) asserts the panel's row declaration matches
- * the service's own enum set, so a level added here fails the build instead of
- * printing a stale set to the operator (005 research Q1).
+ * The ordered tuple is the single declaration of *which* levels exist;
+ * {@link LOG_LEVELS} is derived from it for membership tests and
+ * {@link configSchema} projects it as an enum descriptor's `values`, so a
+ * level added here changes the validator and the wire together.
+ *
+ * Exported for one reader besides the projection: 005's Settings-tab
+ * cross-check (`tests/settings-rows.test.ts`) asserts the panel's row
+ * declaration matches the service's own enum set, so a level added here fails
+ * the build instead of printing a stale set to the operator (005 research Q1).
  */
-export const LOG_LEVELS = new Set<string>(['debug', 'info', 'warn', 'error']);
+export const LOG_LEVEL_VALUES = ['debug', 'info', 'warn', 'error'] as const satisfies readonly LogLevel[];
+
+/** Membership view of {@link LOG_LEVEL_VALUES}, used by the validator. */
+export const LOG_LEVELS = new Set<string>(LOG_LEVEL_VALUES);
 
 /** Validated, fully-populated service configuration. */
 export interface ServiceConfig {
@@ -82,6 +90,16 @@ export interface ServiceConfig {
     readonly resultDeadlineMs: number;
     /** Structured-log verbosity. */
     readonly logLevel: LogLevel;
+    /**
+     * Comparison baseline 002 FR-029 evaluates the observed agent against
+     * after every dispatch (006 FR-100).
+     *
+     * The service only serves it — `GET /v1/config` hands the value to the
+     * panel, which posts it with each verification read-back. The value is a
+     * single token (never credential-shaped), trimmed on write, and the
+     * documented default doubles as the fallback for a missing baseline.
+     */
+    readonly expectedAgent: string;
 }
 
 /** One rejected field with the action that would fix it. */
@@ -132,6 +150,25 @@ type NumericField = keyof typeof NUMERIC_BOUNDS;
 /** Numeric fields, derived so the list can never drift from the bounds. */
 const NUMERIC_FIELDS = Object.keys(NUMERIC_BOUNDS) as readonly NumericField[];
 
+/**
+ * The one string field's rule, in the same declaration style as the bounds
+ * (006 FR-100(c), contract §4).
+ *
+ * `format` is the service-authored prose the wire carries as a descriptor's
+ * `format` member — rendered as text by the panel, never compiled into a
+ * second validator (FR-023). `pattern` is the validator's own gate: one
+ * token of letters, digits, and `. _ - @ : /`, so a pasted credential (or
+ * anything containing a space or control character) never reaches the store.
+ */
+export const EXPECTED_AGENT_RULE = {
+    /** Host ceiling for an agent name (002 research §R4, `GUEST_SESSION_AGENT_MAX`). */
+    maxLength: 80,
+    /** Allowed characters, rendered verbatim on the field's row. */
+    format: 'letters, digits, and . _ - @ : / (a single token, no spaces)',
+    /** The charset gate itself; the hyphen sits last so it reads literally. */
+    pattern: /^[A-Za-z0-9.@/_:-]+$/,
+} as const;
+
 /** The configuration a fresh store starts with. */
 export const DEFAULT_CONFIG: ServiceConfig = {
     intervalMs: 60_000,
@@ -146,22 +183,8 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     leaseMs: 120_000,
     resultDeadlineMs: 120_000,
     logLevel: 'info',
+    expectedAgent: 'project-manager',
 };
-
-/**
- * Fields this feature added to a configuration a build without them wrote.
- *
- * The read path fills these in rather than demanding them, because the
- * alternative is worse than useless: a strict read would quarantine every
- * `config.json` an operator already has the moment this build starts, and the
- * store answers a quarantined file with the defaults anyway (T-008). The
- * write path stays strict — `PUT` is a full replacement, so a body missing a
- * field is a refusal with a remediation, not a silent default.
- */
-const ADDED_AFTER_FIRST_RELEASE = {
-    leaseMs: DEFAULT_CONFIG.leaseMs,
-    resultDeadlineMs: DEFAULT_CONFIG.resultDeadlineMs,
-} as const satisfies Partial<ServiceConfig>;
 
 /**
  * Narrow a value to a supported log level.
@@ -246,11 +269,57 @@ function unknownFieldIssue(key: string): ConfigIssue {
 /**
  * Recognise a defined configuration field.
  *
+ * The documented field set *is* the default document's key set, so a field
+ * cannot be declared in one place and forgotten here (006 FR-020: one
+ * declaration, read twice).
+ *
  * @param key - Key from the request body.
- * @returns `true` for `logLevel` or any numeric field above.
+ * @returns `true` for any key {@link DEFAULT_CONFIG} carries.
  */
 function isKnownField(key: string): boolean {
-    return key === 'logLevel' || Object.hasOwn(NUMERIC_BOUNDS, key);
+    return Object.hasOwn(DEFAULT_CONFIG, key);
+}
+
+/**
+ * Check the one string field against its rule (006 FR-100(c)).
+ *
+ * The four refusals answer in a fixed order — empty after trimming, over the
+ * length ceiling, outside the charset, credential-shaped — and each remediation
+ * is built from the declaration, never from the submission, so a `422` can
+ * never become a reflection oracle for a pasted token.
+ *
+ * @param value - Candidate value; a missing or non-string member counts as empty.
+ * @returns Zero or one issue.
+ */
+function expectedAgentIssue(value: unknown): readonly ConfigIssue[] {
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (text === '') {
+        return [{ field: 'expectedAgent', remediation: 'set expectedAgent to a non-empty agent name' }];
+    }
+
+    if (text.length > EXPECTED_AGENT_RULE.maxLength) {
+        return [
+            {
+                field: 'expectedAgent',
+                remediation: `set expectedAgent to at most ${EXPECTED_AGENT_RULE.maxLength} characters`,
+            },
+        ];
+    }
+
+    if (!EXPECTED_AGENT_RULE.pattern.test(text)) {
+        return [
+            {
+                field: 'expectedAgent',
+                remediation: 'set expectedAgent to letters, digits, and . _ - @ : / with no spaces',
+            },
+        ];
+    }
+
+    if (findSecretLeak(text) !== null) {
+        return [{ field: 'expectedAgent', remediation: 'set expectedAgent to an agent name, not a credential' }];
+    }
+
+    return [];
 }
 
 /**
@@ -272,6 +341,7 @@ function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
         });
     }
 
+    issues.push(...expectedAgentIssue(raw.expectedAgent));
     issues.push(...retryOrderIssue(raw));
     for (const key of Object.keys(raw)) {
         if (!isKnownField(key)) {
@@ -318,6 +388,26 @@ function readLogLevel(raw: Record<string, unknown>): LogLevel {
 }
 
 /**
+ * Read the validated agent name.
+ *
+ * The stored value is the **trimmed** one, so a save/load round trip is
+ * stable and the audit `from`/`to` pair records the value as it stands
+ * (006 data-model §1.3).
+ *
+ * @param raw - Document that already passed {@link validateConfig}.
+ * @returns The stored baseline.
+ * @throws {Error} When the value is missing; see {@link readNumber}.
+ */
+function readExpectedAgent(raw: Record<string, unknown>): string {
+    const value = raw.expectedAgent;
+    if (typeof value !== 'string') {
+        throw new Error('validated configuration is missing expectedAgent');
+    }
+
+    return value.trim();
+}
+
+/**
  * Assemble the typed configuration once every field has been checked.
  *
  * @param raw - Document that produced no issues.
@@ -337,6 +427,7 @@ function buildConfig(raw: Record<string, unknown>): ServiceConfig {
         leaseMs: readNumber(raw, 'leaseMs'),
         resultDeadlineMs: readNumber(raw, 'resultDeadlineMs'),
         logLevel: readLogLevel(raw),
+        expectedAgent: readExpectedAgent(raw),
     };
 }
 
@@ -362,56 +453,97 @@ export function validateConfig(raw: unknown): ConfigValidation {
     return { ok: true, config: buildConfig(raw) };
 }
 
+/** One read of the stored document: the parsed config plus its provenance. */
+export interface StoredConfigRead {
+    /** The document, with every documented key it lacked filled in. */
+    readonly config: ServiceConfig;
+    /** Documented keys this read filled from {@link DEFAULT_CONFIG}, in declaration order. */
+    readonly defaultsApplied: readonly string[];
+}
+
+/** Where a resolved configuration came from — the contract's `source` member. */
+export type ConfigSource = 'stored' | 'default' | 'quarantined';
+
+/** One resolved store read: the effective document and its provenance. */
+export interface ConfigRead {
+    /** The document the caller should treat as effective. */
+    readonly config: ServiceConfig;
+    /** Which read produced it; `default` and `quarantined` both serve defaults. */
+    readonly source: ConfigSource;
+    /** Documented keys the stored file lacked; always `[]` unless `source` is `stored`. */
+    readonly defaultsApplied: readonly string[];
+}
+
 /**
- * Store-side validator: accept a valid document, filling fields this build
- * added after the file was written.
+ * Store-side validator: accept a valid document, filling every documented key
+ * the file predates.
  *
  * A hand-edited `config.json` that fails validation is quarantined by the
  * store (never fail-stuck) and the service answers with defaults until the
  * operator PUTs a valid document. A document that is merely *older* than this
- * build must not be treated that way: only a field that is present and
- * unusable refuses, so an unknown key, a bad value, or a non-object still
- * quarantines exactly as before (T-008).
+ * build must not be treated that way: a missing **documented** key is filled
+ * from {@link DEFAULT_CONFIG} and reported, so schema evolution never costs an
+ * operator their other values — while an unknown key, a bad value, or a
+ * non-object still quarantines exactly as before (006 FR-100(b), data-model §2;
+ * 003 T-008's shared upgrade path).
+ *
+ * The write path is deliberately stricter: `PUT` stays a full replacement, so
+ * a body missing a field is a refusal with a remediation, never a silent
+ * default (FR-040, FR-041).
  *
  * @param raw - Parsed stored document.
- * @returns The typed config, or `null` to trigger quarantine.
+ * @returns The typed config plus the keys this read filled, or `null` to
+ *   trigger quarantine.
  */
-export function parseStoredConfig(raw: unknown): ServiceConfig | null {
+export function parseStoredConfig(raw: unknown): StoredConfigRead | null {
     if (!isRecord(raw)) {
         return null;
     }
 
     const filled: Record<string, unknown> = { ...raw };
-    for (const [field, fallback] of Object.entries(ADDED_AFTER_FIRST_RELEASE)) {
-        if (!(field in filled)) {
-            filled[field] = fallback;
+    const defaultsApplied: string[] = [];
+    for (const field of Object.keys(DEFAULT_CONFIG) as readonly (keyof ServiceConfig)[]) {
+        if (!Object.hasOwn(filled, field)) {
+            filled[field] = DEFAULT_CONFIG[field];
+            defaultsApplied.push(field);
         }
     }
 
     const validation = validateConfig(filled);
 
-    return validation.ok ? validation.config : null;
+    return validation.ok ? { config: validation.config, defaultsApplied } : null;
 }
 
 /**
  * Resolve the effective configuration from a store read.
  *
+ * The three answers the contract's `source` member distinguishes come out of
+ * the read itself, so the quarantine fact reaches the panel without a second
+ * read (006 contract §3).
+ *
  * @param result - Outcome of reading `config.json`.
  * @param log - Logger used when a stored document had to be set aside.
- * @returns The stored configuration, or the defaults.
+ * @returns The effective document, where it came from, and which documented
+ *   keys this read filled (always `[]` unless `source` is `stored`).
  */
-export function configFromStore(result: JsonReadResult<ServiceConfig>, log: ServiceLogger): ServiceConfig {
+export function configFromStore(result: JsonReadResult<StoredConfigRead>, log: ServiceLogger): ConfigRead {
     if (result.status === 'ok') {
-        return result.value;
+        return {
+            config: result.value.config,
+            source: 'stored',
+            defaultsApplied: result.value.defaultsApplied,
+        };
     }
 
     if (result.status === 'quarantined') {
         log.warn('stored configuration was unusable and has been set aside', {
             quarantinePath: result.quarantinePath,
         });
+
+        return { config: DEFAULT_CONFIG, source: 'quarantined', defaultsApplied: [] };
     }
 
-    return DEFAULT_CONFIG;
+    return { config: DEFAULT_CONFIG, source: 'default', defaultsApplied: [] };
 }
 
 /**

@@ -10,23 +10,38 @@
  * failure instead of a silent default (FR-039).
  */
 
-import { CONFIG_FILE, configFromStore, parseStoredConfig, validateConfig, validationResponse } from '../config.ts';
+import {
+    CONFIG_FILE,
+    configFromStore,
+    parseStoredConfig,
+    validateConfig,
+    validationResponse,
+} from '../config.ts';
+import { configSchema } from '../config-schema.ts';
 import { STATUS, storageUnavailableResponse } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
-import type { ServiceConfig } from '../config.ts';
 import type { Route, RouteContext, RouteRequest } from './types.ts';
 
 /** Path of the configuration resource. */
 export const CONFIG_PATH = '/v1/config';
 
 /**
- * Answer `GET /v1/config` with the effective configuration.
+ * Answer `GET /v1/config` with the effective configuration **and its
+ * declaration** (006 FR-020, contract §1).
+ *
+ * The envelope widens additively: `config` is unchanged in name, type, and
+ * semantics, so a reader that ignores the three new members still gets the
+ * document it got before. `fields` is projected from the same declaration the
+ * validator reads, `source` says where `config` came from, and
+ * `defaultsApplied` names the documented keys the stored file lacked — a
+ * pre-upgrade document therefore renders its missing rows as *default* rather
+ * than as configured facts (006 FR-028, data-model §2.1).
  *
  * A fresh store has no `config.json`, so the defaults answer — the same
  * document `PUT` would persist if the operator chose to edit it.
  *
  * @param context - Route context carrying the open store.
- * @returns The stored configuration, its defaults, or the 503.
+ * @returns The envelope above, or the 503 when the store is unusable.
  */
 async function handleGetConfig(context: RouteContext): Promise<HttpResponse> {
     if (context.store === null) {
@@ -34,9 +49,17 @@ async function handleGetConfig(context: RouteContext): Promise<HttpResponse> {
     }
 
     const result = await context.store.readJson(CONFIG_FILE, parseStoredConfig);
-    const config: ServiceConfig = configFromStore(result, context.log);
+    const read = configFromStore(result, context.log);
 
-    return { status: STATUS.ok, body: { config } };
+    return {
+        status: STATUS.ok,
+        body: {
+            config: read.config,
+            fields: configSchema(),
+            source: read.source,
+            defaultsApplied: read.defaultsApplied,
+        },
+    };
 }
 
 /**
