@@ -15,10 +15,20 @@
  * actions run the tab's reads and writes, and `switchTab` writes
  * `activeTab` for the central repaint to act on. Nothing new is invented —
  * the handlers are a table, not a layer.
+ *
+ * The one write spelled out here rather than imported is the starting
+ * prompt's save: it is the form's own rule set (untouched omits, cleared
+ * travels, a refusal lands at the field), and keeping it beside the table
+ * that submits it is what stops a second implementation of those rules from
+ * appearing somewhere with less reason to know them (005 FR-051, FR-052).
  */
 
 import { loadProjects, selectBindingProject } from './project-actions.ts';
+import { refresh } from './panel-ui.ts';
+import { redact } from './redaction.ts';
 import type { PanelRuntime } from './panel-state.ts';
+import { grantBindings } from './bindings-grant.ts';
+import { storedPromptFor } from './bindings-prompt.ts';
 import {
     armAccountRemoval,
     bindRepository,
@@ -51,6 +61,116 @@ import {
     setSessionInput,
     toggleReferences,
 } from './dispatches.ts';
+import type { ServiceErrorResult } from './service-calls.ts';
+
+/**
+ * Read the service's refusal **if it belongs to the prompt field** (FR-052).
+ *
+ * The whole-file grant validates every binding in one pass, so a 422 can be
+ * about any of them; only the one whose `field` is the prompt may be painted
+ * onto the prompt, and anything else stays on the tab's note where it already
+ * has a home.
+ *
+ * @param answer - The grant's answer.
+ * @returns The field-level copy to render, or `null` when it is not the prompt's.
+ */
+function promptRefusal(answer: ServiceErrorResult): string | null {
+    if (answer.ok || answer.code !== 'validation' || answer.message === null) {
+        return null;
+    }
+
+    return answer.message.includes('startingPrompt') ? answer.message : null;
+}
+
+/**
+ * Write the edited starting prompt through the whole-file grant (FR-051).
+ *
+ * Three rules are enforced here rather than in the field: a save the operator
+ * never asked for **does nothing at all**, so the key stays omitted and the
+ * service keeps what it holds (004 FR-014); an explicit clear travels as an
+ * empty string, which is how the route is told to remove it; and a refusal is
+ * rendered **at the field** with the service's own remediation while the
+ * stored prompt stays in force and nothing is reported as saved (FR-052).
+ *
+ * @param rt - Panel runtime.
+ */
+async function saveStartingPrompt(rt: PanelRuntime): Promise<void> {
+    const { bindings } = rt.state;
+    const target = bindings.selectedBinding;
+    if (target === null) {
+        bindings.note = 'Select a binding to edit its starting prompt.';
+        refresh(rt);
+
+        return;
+    }
+
+    if (!bindings.startingPromptDirty) {
+        bindings.note = 'Nothing to save: the starting prompt was not changed.';
+        refresh(rt);
+
+        return;
+    }
+
+    const stored = bindings.bindings.find((binding) => binding.bindingId === target)?.repository ?? target;
+    const clearing = bindings.startingPromptInput.trim() === '';
+    const answer = await grantBindings({
+        rt,
+        bindings: bindings.bindings,
+        note: clearing ? `Starting prompt cleared for ${stored}.` : `Starting prompt saved for ${stored}.`,
+        prompt: { bindingId: target, startingPrompt: bindings.startingPromptInput },
+    });
+    if (rt.disposed) {
+        return;
+    }
+
+    if (answer.ok) {
+        bindings.startingPromptError = null;
+        bindings.startingPromptDirty = false;
+        // The service normalises (trim, cap, line endings), so the field shows
+        // what it actually stored rather than what was typed.
+        bindings.startingPromptInput = storedPromptFor(bindings, target);
+    } else {
+        // A refusal keeps the draft exactly as it was typed: the operator gets
+        // their text back with the remediation, not a silent revert.
+        const refusal = promptRefusal(answer);
+        bindings.startingPromptError = refusal === null ? null : redact(refusal);
+    }
+
+    refresh(rt);
+}
+
+/**
+ * The prompt field's three callbacks (005 FR-051, FR-052).
+ *
+ * Split out so the handler table below stays a table: selecting a row opens
+ * the field on what the service holds for it, typing marks the edit, and the
+ * save runs the rules spelled out in {@link saveStartingPrompt}.
+ *
+ * @param rt - Panel runtime the actions read and repaint.
+ * @returns The handlers the field and its save control invoke.
+ */
+function promptHandlers(rt: PanelRuntime): Pick<
+    BindingsPaneHandlers,
+    'selectBinding' | 'setStartingPrompt' | 'saveStartingPrompt'
+> {
+    return {
+        selectBinding: (id) => editBindings(rt, {
+            selectedBinding: id,
+            // The editor field opens on what the service holds for this row
+            // (004 FR-012) — never on a fingerprint, and never on whichever
+            // row was selected before (005 FR-051).
+            startingPromptInput: storedPromptFor(rt.state.bindings, id),
+            startingPromptDirty: false,
+            startingPromptError: null,
+        }),
+        setStartingPrompt: (value) => editBindings(rt, {
+            startingPromptInput: value,
+            startingPromptDirty: true,
+            startingPromptError: null,
+        }),
+        saveStartingPrompt: () => void saveStartingPrompt(rt),
+    };
+}
 
 /**
  * Map the Bindings pane's callbacks onto the existing actions.
@@ -84,7 +204,7 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
         setMention: (checked) => editBindings(rt, { triggerMention: checked }),
         setReviewRequest: (checked) => editBindings(rt, { triggerReviewRequest: checked }),
         setWorktree: (id) => editBindings(rt, { worktreeSelection: id }),
-        selectBinding: (id) => editBindings(rt, { selectedBinding: id }),
+        ...promptHandlers(rt),
         refreshProjects: () => void loadProjects(rt),
         refreshDispatches: () => void loadDispatches(rt),
         selectDispatch: (id) => selectDispatch(rt, id),

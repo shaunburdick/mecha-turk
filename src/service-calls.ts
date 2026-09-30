@@ -218,10 +218,15 @@ export async function serviceGet(input: {
 }
 
 /**
- * Run one PUT through `host.serviceRequest`.
+ * Run one PUT through `host.serviceRequest`, reading the error code.
+ *
+ * The error-aware shape (same as {@link servicePost}) costs nothing for a
+ * caller that only checks `ok`, and it lets the bindings grant put the
+ * service's own field-level remediation next to the field it belongs to
+ * (005 FR-052) instead of behind a generic "the service refused".
  *
  * @param input - The host surface, path, and the JSON body text.
- * @returns The wrapper's result.
+ * @returns The wrapper's result, carrying the envelope when it sent one.
  */
 export async function servicePut(input: {
     /** Host surface. */
@@ -230,13 +235,13 @@ export async function servicePut(input: {
     readonly path: string;
     /** Serialized body. */
     readonly body: string;
-}): Promise<ServiceResult> {
+}): Promise<ServiceErrorResult> {
     try {
         const answer = await input.serviceRequest({ method: 'PUT', path: input.path, body: input.body });
 
-        return resultOf(answer);
+        return resultWithErrorOf(answer);
     } catch (cause) {
-        return { ok: false, problem: describeTransport(cause) };
+        return { ok: false, problem: describeTransport(cause), code: null, message: null };
     }
 }
 

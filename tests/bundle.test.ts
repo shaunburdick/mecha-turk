@@ -541,12 +541,18 @@ describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
         }
     });
 
-    it('keeps the binding field out of the shipped panel bundle (FR-011, FR-062)', () => {
-        // 004 ships no editor, preview, or display surface for this field, so
-        // the panel never even names it: nothing in the IIFE can read, write,
-        // or render `startingPrompt`. 005 replaces this assertion when it
-        // renders the one field — for 004's window, its absence is the rule.
-        expect(readFileSync(BUNDLE, UTF8)).not.toContain('startingPrompt');
+    it('carries the binding field exactly where 005 renders it (FR-051, SC-105)', () => {
+        // This assertion used to read "the panel never even names it": 004
+        // shipped no editor, so `startingPrompt` had no business in the IIFE.
+        // 005 T-021 is the feature that breaks it **by design** (plan.md X7)
+        // — one field in the binding editor — so the bundle now carries the
+        // name, and the rule the old assertion stood for has moved to
+        // SC-105: `tests/bindings-prompt.test.ts` counts rendered elements
+        // across all six tabs and fails at 0 and at 2 alike.
+        expect(readFileSync(BUNDLE, UTF8)).toContain('startingPrompt');
+        expect(readFileSync(BUNDLE, UTF8)).toContain(
+            'Starting prompt for dispatches from this repository',
+        );
         // The save boundary is the service, which is exactly where the
         // refusal vocabulary does live.
         expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('startingPrompt');

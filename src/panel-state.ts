@@ -119,6 +119,9 @@ export function initialBindings(): BindingsTabState {
         selectedBinding: null,
         removeAccountArmed: false,
         statusRows: [],
+        startingPromptInput: '',
+        startingPromptDirty: false,
+        startingPromptError: null,
     };
 }
 
@@ -269,6 +272,18 @@ export interface BindingsTabState {
     removeAccountArmed: boolean;
     /** Last relay status rows rendered per binding. */
     statusRows: readonly BindingStatusRow[];
+    /** The starting-prompt editor field's current text (005 FR-051). */
+    startingPromptInput: string;
+    /**
+     * Whether the operator changed that field on this selection (004 FR-014).
+     *
+     * Untouched means a save **omits** `startingPrompt` entirely, so the
+     * service keeps whatever it holds; a change — clearing the field included —
+     * means the save carries the value explicitly.
+     */
+    startingPromptDirty: boolean;
+    /** The service's field-level refusal for the prompt, or `null` (FR-052). */
+    startingPromptError: string | null;
 }
 
 /** Everything the panel's functions share. */

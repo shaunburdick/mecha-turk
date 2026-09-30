@@ -14,6 +14,7 @@
 
 import type { ListItem } from '@openchamber/sdk/ui';
 import type { BindingsTabState } from './panel-state.ts';
+import type { PanelBinding } from './bindings-service.ts';
 
 /** Milliseconds in a second. */
 const SECOND_MS = 1_000;
@@ -43,6 +44,45 @@ export interface BindingView {
     readonly accountNumericUserId: string;
     readonly projectId: string;
     readonly state: 'active' | 'disabled';
+    /** Length of the stored prompt in code points, or `null` when there is none. */
+    readonly promptLength: number | null;
+}
+
+/**
+ * Narrow one stored binding to what a row may show.
+ *
+ * @param binding - The binding as the service projected it.
+ * @returns The view, with the prompt reduced to its length.
+ */
+function toView(binding: PanelBinding): BindingView {
+    return {
+        bindingId: binding.bindingId,
+        repository: binding.repository,
+        accountLogin: binding.accountLogin,
+        accountNumericUserId: binding.accountNumericUserId,
+        projectId: binding.projectId,
+        state: binding.state,
+        promptLength: binding.startingPrompt === undefined ? null : [...binding.startingPrompt].length,
+    };
+}
+
+/**
+ * The prompt words a row summary may carry: presence and length, never text.
+ *
+ * 005 FR-051 forbids both the instruction and 004's fingerprint on the row —
+ * two renderings of one operator instruction is how two versions of it start
+ * to disagree — so the summary says only *whether* one exists and *how long*
+ * it is, counted the way 004 caps it (code points, not UTF-16 units).
+ *
+ * @param binding - The binding being rendered.
+ * @returns `prompt set · N chars`, or `prompt not set`.
+ */
+export function promptSummary(binding: BindingView): string {
+    if (binding.promptLength === null) {
+        return 'prompt not set';
+    }
+
+    return `prompt set · ${binding.promptLength} chars`;
 }
 
 /**
@@ -167,7 +207,7 @@ export function bindingRow(bindings: BindingsTabState, binding: BindingView): Li
     const scan = row === null ? 'not scanned yet' : scanPhrase(row);
     const reason = disabledReason(bindings, binding);
     const state = statePhrase(binding.state, reason);
-    const parts = [state, `polled as ${binding.accountLogin}`, binding.projectId, scan];
+    const parts = [state, `polled as ${binding.accountLogin}`, binding.projectId, promptSummary(binding), scan];
     const subtitle = parts.filter((part): part is string => part !== null).join(' · ');
 
     return {
@@ -186,5 +226,5 @@ export function bindingRow(bindings: BindingsTabState, binding: BindingView): Li
  * @returns The list rows, in stored order.
  */
 export function bindingRows(bindings: BindingsTabState): ListItem[] {
-    return bindings.bindings.map((binding) => bindingRow(bindings, binding));
+    return bindings.bindings.map((binding) => bindingRow(bindings, toView(binding)));
 }

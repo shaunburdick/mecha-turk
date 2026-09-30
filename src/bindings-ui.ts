@@ -33,6 +33,8 @@ import type {
 } from '@openchamber/sdk/ui';
 import type { PanelRuntime, BindingsTabState } from './panel-state.ts';
 import type { DispatchControlsHandlers } from './dispatches-controls.ts';
+import { disposeBindingPrompt, mountBindingPrompt, repaintBindingPrompt } from './bindings-prompt.ts';
+import type { BindingPromptControls, BindingPromptHandlers } from './bindings-prompt.ts';
 import { notListedGuidance } from './project-picker.ts';
 import { bindingRows } from './bindings-rows.ts';
 
@@ -70,12 +72,14 @@ export interface BindingsPane {
     readonly removeAccount: ButtonHandle;
     /** Note under the form. */
     readonly note: TextHandle;
+    /** The starting-prompt field and its save control (005 FR-051). */
+    readonly prompt: BindingPromptControls;
     /** Remove every node this pane mounted. */
     readonly dispose: () => void;
 }
 
 /** Callbacks the mounted Bindings pane invokes. */
-export interface BindingsPaneHandlers extends DispatchControlsHandlers {
+export interface BindingsPaneHandlers extends DispatchControlsHandlers, BindingPromptHandlers {
     /** Operators re-read the bindings and accounts. */
     readonly refresh: () => void;
     /** Operators submitted the add form. */
@@ -356,47 +360,6 @@ function mountAddForm(input: MountInputs): Form {
 }
 
 /**
- * The worktree select's documented options.
- *
- * @param bindings - Bindings state.
- * @returns The mount parameters for the SDK select.
- */
-
-/**
- * Mount the repository owner/name input.
- *
- * @param input - Runtime, pane root, and handlers.
- * @returns The text-field handle.
- */
-
-/**
- * Mount the account select for the add form.
- *
- * @param input - Runtime, the pane root, and the handlers.
- * @returns The select handle.
- */
-
-/**
- * Mount the project select for the add form.
- *
- * @param input - Runtime, pane root, and handlers.
- * @returns The select handle.
- */
-
-/**
- * Mount the trigger checkboxes.
- *
- * @param input - Runtime, pane root, and handlers.
- * @returns The two checkbox handles.
- */
-
-/**
- * Mount the Bindings pane.
- *
- * @param input - Panel root, runtime, and the handlers the controls invoke.
- * @returns The mounted pane, tab strip, and repaint handles.
- */
-/**
  * Dispose every handle a mounted Bindings body owns, then its own node.
  *
  * FR-017 asks teardown to release what a tab mounted, not merely to hide it —
@@ -411,8 +374,10 @@ function disposeBindingsBody(input: {
     readonly board: Board;
     /** Add-form half. */
     readonly form: Form;
+    /** Starting-prompt field and its save control. */
+    readonly prompt: BindingPromptControls;
 }): void {
-    const { pane, board, form } = input;
+    const { pane, board, form, prompt } = input;
     const handles = [
         board.status,
         board.bindingsList,
@@ -435,6 +400,7 @@ function disposeBindingsBody(input: {
         handle.dispose();
     }
 
+    disposeBindingPrompt(prompt);
     pane.remove();
 }
 
@@ -462,6 +428,9 @@ export function mountBindingsBody(input: {
 
     const board = mountBindingsBoard({ rt, pane, handlers });
     const form = mountAddForm({ rt, pane, handlers });
+    // Mounted last so the field that carries the operator's instruction sits
+    // at the end of the form it belongs to, with its own save control.
+    const prompt = mountBindingPrompt({ rt, pane, handlers });
 
     return {
         pane,
@@ -480,7 +449,8 @@ export function mountBindingsBody(input: {
         removeSelected: form.removeSelected,
         removeAccount: form.removeAccount,
         note: form.note,
-        dispose: () => disposeBindingsBody({ pane, board, form }),
+        prompt,
+        dispose: () => disposeBindingsBody({ pane, board, form, prompt }),
     };
 }
 
@@ -538,4 +508,5 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
         disabled: bindings.status !== 'ready' && !bindings.removeAccountArmed,
     });
     view.note.update({ text: bindings.note });
+    repaintBindingPrompt(rt, view.prompt);
 }

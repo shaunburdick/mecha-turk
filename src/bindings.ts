@@ -18,15 +18,14 @@ import { newCorrelationId, nowIso } from './ids.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import { removeAccountMirror } from './account-mirror.ts';
+import { armRelayForBindings, grantBindings } from './bindings-grant.ts';
 import {
     ACCOUNTS_PATH,
     BINDINGS_PATH,
     accountDeletePath,
     serviceDelete,
     serviceGet,
-    servicePut,
 } from './service-calls.ts';
-import { startRelayPolling } from './relay.ts';
 import { countEnabledBindings, parseAccountsBody, parseBindingsBody } from './bindings-service.ts';
 import type {
     BindingStatusRow,
@@ -207,94 +206,6 @@ export function readDraft(bindings: BindingsTabState): PreparedBinding | null {
         createdAt: stamp,
         updatedAt: stamp,
     };
-}
-
-/**
- * Arm the event relay from one bindings list the service just confirmed.
- *
- * Arming used to happen in exactly two places — a *successful* mount-time
- * read with a binding in it (`bindings-mode.loadInitialBindings`) and an
- * integration-card connection while bindings were already active
- * (`app.handleConnection`). Both are mount-time signals, so a panel whose
- * first binding landed in-session, or whose mount-time `GET /v1/bindings`
- * answered 503 (the service's spawn race on a first run), never armed:
- * every later event sat `pending` until a remount. Any read or grant that
- * lands here is proof the service is up and the binding exists, so it arms
- * too. `startRelayPolling` is a no-op once `rt.relayArmed` is set, which
- * makes the extra calls idempotent — and it kicks one immediate tick, so the
- * operator does not wait out `RELAY_POLL_INTERVAL_MS` after binding.
- *
- * An empty list must not arm: a relay draining against no binding would
- * mark queued events `binding-missing` before the binding they belong to
- * ever lands.
- *
- * @param rt - Panel runtime.
- * @param bindings - The bindings list the service just confirmed as stored.
- */
-function armRelayForBindings(rt: PanelRuntime, bindings: readonly PanelBinding[]): void {
-    if (countEnabledBindings(bindings) > 0) {
-        startRelayPolling(rt);
-    }
-}
-
-/**
- * Replace the stored bindings with one PUT; never throws.
- *
- * On a refused body the panel keeps its local draft and the note explains.
- * A granted list with an enabled row also arms the relay (see
- * {@link armRelayForBindings}), so the first binding created in-session
- * dispatches without waiting for a remount.
- *
- * @param input - Runtime, the replacement list, and the success note.
- */
-async function grantBindings(input: {
-    /** Panel runtime. */
-    readonly rt: PanelRuntime;
-    /** The replacement list. */
-    readonly bindings: readonly PanelBinding[];
-    /** Success note once the service stored it. */
-    readonly note: string;
-}): Promise<void> {
-    const { rt, bindings, note } = input;
-    const result = await servicePut({
-        serviceRequest: rt.host.serviceRequest,
-        path: BINDINGS_PATH,
-        body: JSON.stringify({ bindings }),
-    });
-
-    if (!stillMounted(rt)) {
-        return;
-    }
-
-    if (!result.ok) {
-        // The whole-file grant is all-or-nothing after validation (FR-058), so
-        // a refusal changed nothing — and the panel says so rather than
-        // looking as though it half-saved. The list on screen is still the
-        // last one the service confirmed, which is what makes AC-125's
-        // byte-identical guarantee true rather than merely intended.
-        rt.state.bindings.note = redact(
-            `${result.problem} — the service refused the whole-file write, so no binding changed; `
-                + 'this list is still exactly what the service holds.',
-        );
-        refresh(rt);
-
-        return;
-    }
-
-    const parsed = parseBindingsBody(result.body);
-    if (parsed === null) {
-        rt.state.bindings.note = 'The service answered a list the panel could not read — refresh to see what stuck.';
-        refresh(rt);
-
-        return;
-    }
-
-    rt.state.bindings.bindings = parsed.bindings;
-    rt.state.bindings.statusRows = parsed.status;
-    rt.state.bindingsActive = countEnabledBindings(parsed.bindings);
-    armRelayForBindings(rt, parsed.bindings);
-    rt.state.bindings.note = note;
-    refresh(rt);
 }
 
 /**

@@ -108,6 +108,7 @@ export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
         removeSelected: stubHandle(),
         removeAccount: stubHandle(),
         note: stubHandle(),
+        prompt: { field: stubHandle(), save: stubHandle() },
         pane: paneBody,
         dispose: (): void => undefined,
     };

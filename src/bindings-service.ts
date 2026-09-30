@@ -63,6 +63,19 @@ export interface PanelBinding {
     readonly createdAt: string;
     /** RFC 3339 stamp of the last change. */
     readonly updatedAt: string;
+    /**
+     * The stored starting prompt, or absent when this binding has none
+     * (004 FR-012).
+     *
+     * Read only: the row summary renders presence and length, never this text
+     * and never a fingerprint (005 FR-051), and a whole-file write carries it
+     * for exactly one binding — the one whose prompt the operator edited —
+     * so every other row omits the key and the service preserves its prompt
+     * (004 FR-014). `| undefined` is what lets that omission be expressed as
+     * data: `JSON.stringify` drops the member, and the route reads an absent
+     * key as *leave this one alone*.
+     */
+    readonly startingPrompt?: string | undefined;
 }
 
 /** Verdict one account's recorded scope matrix gives its token (FR-010). */
@@ -247,6 +260,13 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
     }
 
     const { bindingId, accountNumericUserId, accountLogin, repository, projectId, worktreeOption } = record;
+    // The prompt is the one member the reader refuses rather than defaults: a
+    // value that is not text cannot be rendered, cleared, or re-sent honestly,
+    // so the whole body stops (004 FR-028, invariant 8).
+    const { startingPrompt } = record;
+    if (startingPrompt !== undefined && typeof startingPrompt !== 'string') {
+        return null;
+    }
 
     return {
         bindingId: bindingId as string,
@@ -259,6 +279,7 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
         state,
         createdAt: record.createdAt as string,
         updatedAt: record.updatedAt as string,
+        ...(startingPrompt === undefined ? {} : { startingPrompt }),
     };
 }
 
