@@ -135,6 +135,8 @@ network — those checks are operator-gated and recorded in the spec (see
 | `reconcile.ts` | Mount-time re-report of every unacknowledged attempt, before the first claim (bounded, warns visibly) |
 | `prerequisites.ts` | The six first-run prerequisites, each `met` / `not-met` / `not-checkable`, with its remediation line |
 | `status-document.ts` / `status-lines.ts` / `status-tab.ts` | The `GET /v1/status` document parsed fail closed and the read state that holds it; the Status tab's operator-facing copy as pure functions; and the tab's mount, repaint, and single read |
+| `settings-rows.ts` | The Settings tab's row declaration (bounds, defaults, enum set, take-effect) pinned to `service/config.ts` by a cross-check test — a stand-in 006's T-018 deletes with that test |
+| `settings-tab.ts` | The Settings body: the one `GET /v1/config` read, its fail-closed read state, and the read-only rows (005 FR-070–FR-073, FR-078) |
 | `audit-view.ts` | One run's audit history under its correlation id, rendered as text (never markup) |
 | `agent-verify.ts` | Post-dispatch `openSession()` agent read-back, reported to the service (warn-only) |
 | `handoff*.ts` / `account*.ts` / `consent*.ts` | One-shot token handoff, consent gate, credential-free account mirror |

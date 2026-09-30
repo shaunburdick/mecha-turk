@@ -35,8 +35,15 @@ export const CONFIG_FILE = 'config.json';
 /** Longest unknown field name echoed back before it is elided. */
 const MAX_ECHOED_FIELD_CHARS = 64;
 
-/** Every log level the service accepts, in increasing severity. */
-const LOG_LEVELS = new Set<string>(['debug', 'info', 'warn', 'error']);
+/**
+ * Every log level the service accepts, in increasing severity.
+ *
+ * Exported for one reader only: 005's Settings-tab cross-check
+ * (`tests/settings-rows.test.ts`) asserts the panel's row declaration matches
+ * the service's own enum set, so a level added here fails the build instead of
+ * printing a stale set to the operator (005 research Q1).
+ */
+export const LOG_LEVELS = new Set<string>(['debug', 'info', 'warn', 'error']);
 
 /** Validated, fully-populated service configuration. */
 export interface ServiceConfig {
@@ -91,14 +98,21 @@ export type ConfigValidation =
     | { readonly ok: false; readonly issues: readonly ConfigIssue[] };
 
 /** Inclusive bounds of one numeric field, with the unit its range is in. */
-interface NumericBounds {
+export interface NumericBounds {
     readonly min: number;
     readonly max: number;
     readonly unit: string;
 }
 
-/** Bounds for every numeric field; the validation messages read from here. */
-const NUMERIC_BOUNDS = {
+/**
+ * Bounds for every numeric field; the validation messages read from here.
+ *
+ * Exported for one reader only: 005's Settings-tab cross-check
+ * (`tests/settings-rows.test.ts`) pins the panel's row declaration to these
+ * bounds and units, so a bound changed here fails the build instead of
+ * printing a stale number to the operator (005 research Q1).
+ */
+export const NUMERIC_BOUNDS = {
     intervalMs: { min: 15_000, max: 300_000, unit: 'milliseconds' },
     overlapMs: { min: 60_000, max: 7_200_000, unit: 'milliseconds' },
     perPage: { min: 1, max: 30, unit: 'items per page' },

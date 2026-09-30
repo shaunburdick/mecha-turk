@@ -6,10 +6,9 @@
  * surface onto a container — the spike era's two hidden bodies become six
  * bodies that each mount once and stay mounted (FR-013).
  *
- * One body still carries no read: Settings renders what wave 9 fills in.
- * Mounting an empty container is honest in a way a placeholder promise would
- * not be, and it keeps "no second path to a capability" true while the tabs
- * are still being filled (FR-010).
+ * Each body owns its own read and its own disposer: Settings reads the
+ * configuration document on first activation and releases it on teardown,
+ * exactly as Status reads the projection and Dispatches reads the list.
  */
 
 import { createAccountsHandlers, mountAccountsBody as mountAccountsTab } from './accounts-tab.ts';
@@ -19,8 +18,9 @@ import type { PanelRuntime } from './panel-state.ts';
 import { mountDiagnostics, mountProjectPicker } from './panel-ui.ts';
 import type { PanelHandlers } from './panel-ui.ts';
 import { mountPrerequisitesSection } from './prerequisites.ts';
+import { disposeSettingsTab, mountSettingsTab } from './settings-tab.ts';
 import { disposeStatusTab, mountStatusTab } from './status-tab.ts';
-import type { TabSpec } from './tabs.ts';
+import type { TabDisposer, TabSpec } from './tabs.ts';
 
 /**
  * The Accounts body: the handoff group, the account list, and one detail
@@ -62,6 +62,23 @@ function statusSpec(rt: PanelRuntime, body: HTMLElement): () => void {
     mountPrerequisitesSection({ rt, parent: body });
 
     return () => disposeStatusTab(rt);
+}
+
+/**
+ * The Settings body: the read-only configuration rows (FR-070–FR-073).
+ *
+ * The mount reads `GET /v1/config` once — the tab's one read, with Refresh as
+ * its one retry — and the disposer releases every handle it created. Nothing
+ * here writes: the configuration document is rendered, not edited (FR-070).
+ *
+ * @param rt - Panel runtime the body reads and repaints.
+ * @param body - The Settings body container the shell created.
+ * @returns A disposer that releases the body's handles.
+ */
+function settingsSpec(rt: PanelRuntime, body: HTMLElement): TabDisposer {
+    mountSettingsTab({ rt, body });
+
+    return () => disposeSettingsTab(rt);
 }
 
 /**
@@ -152,7 +169,7 @@ export function tabSpecs(rt: PanelRuntime, handlers: PanelHandlers): readonly Ta
         { id: 'dispatches', label: 'Dispatches', mount: (body) => mountDispatchesBody(rt, body) },
         { id: 'bindings', label: 'Bindings', mount: (body) => mountBindingsBody({ rt, body, handlers }) },
         { id: 'accounts', label: 'Accounts', mount: (body) => mountAccountsBody(rt, body) },
-        { id: 'settings', label: 'Settings', mount: () => null },
+        { id: 'settings', label: 'Settings', mount: (body) => settingsSpec(rt, body) },
         { id: 'about', label: 'About', mount: (body) => mountAboutBody(rt, body) },
     ];
 }

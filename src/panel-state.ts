@@ -31,6 +31,8 @@ import type { DispatchesBoard } from './dispatches-ui.ts';
 import type { StatusTabUi } from './status-tab.ts';
 import { initialStatusTab } from './status-document.ts';
 import type { StatusTabState } from './status-document.ts';
+import { initialSettingsTab } from './settings-tab.ts';
+import type { SettingsTabState, SettingsTabUi } from './settings-tab.ts';
 import type { TabShell } from './tabs.ts';
 import type { DiagnosticsUi, PanelUi, ProjectPickerUi } from './panel-ui.ts';
 
@@ -183,6 +185,8 @@ export interface PanelState {
     dispatches: DispatchesState;
     /** The Status tab's projection, read state, and staleness (FR-019, FR-030). */
     statusTab: StatusTabState;
+    /** The Settings tab's read state and configuration document (FR-070, FR-078). */
+    settingsTab: SettingsTabState;
     /** Event-relay loop state (M4). */
     relay: Relay;
 }
@@ -295,6 +299,8 @@ export interface PanelRuntime {
     dispatchesUi: DispatchesBoard | null;
     /** Status body's mounted view, `null` until that tab first activates. */
     statusUi: StatusTabUi | null;
+    /** Settings body's mounted view, `null` until that tab first activates. */
+    settingsUi: SettingsTabUi | null;
     /** Project picker handles, which live inside the Bindings body. */
     pickerUi: ProjectPickerUi | null;
     /** About body's diagnostics list, `null` until that tab first activates. */
@@ -444,6 +450,7 @@ function initialState(createdAt: string): PanelState {
         accounts: initialAccounts(),
         dispatches: initialDispatches(),
         statusTab: initialStatusTab(),
+        settingsTab: initialSettingsTab(),
         relay: initialRelay(),
     };
 }
@@ -473,6 +480,7 @@ export function createPanelRuntime(
         accountsUi: null,
         dispatchesUi: null,
         statusUi: null,
+        settingsUi: null,
         pickerUi: null,
         aboutUi: null,
         disposed: false,
