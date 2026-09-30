@@ -1106,16 +1106,103 @@ function createGitHubVerifier(fetchImpl = (url, init) => globalThis.fetch(url, i
   };
 }
 
-// service/audit-trim.ts
-var DAY_MS = 86400000;
+// service/audit-protect.ts
 var DECISION_EVENTS = new Set(["policy.decision", "config.changed"]);
 var RUN_SCOPED_PREFIXES = ["run.", "dispatch.", "agent."];
+var RUN_CREATED_EVENT = "run.created";
+var STATE_TRANSITION_EVENTS = new Set([
+  RUN_CREATED_EVENT,
+  "run.migrated",
+  "dispatch.claimed",
+  "dispatch.reserved",
+  "dispatch.result",
+  "dispatch.abandoned",
+  "dispatch.lease-expired",
+  "dispatch.unconfirmed",
+  "dispatch.retry",
+  "dispatch.resolved",
+  "run.blocked",
+  "run.dead_lettered"
+]);
 function isRunScoped(entry) {
   if (entry.entity.kind === "run") {
     return true;
   }
   return RUN_SCOPED_PREFIXES.some((prefix) => entry.eventType.startsWith(prefix));
 }
+function isDecisionEvent(entry) {
+  return DECISION_EVENTS.has(entry.eventType);
+}
+function isStateTransition(entry) {
+  return STATE_TRANSITION_EVENTS.has(entry.eventType);
+}
+function openersOf(entries) {
+  const openers = new Map;
+  for (const entry of entries) {
+    const seen = openers.get(entry.correlationId);
+    if (seen === undefined || entry.seq < seen.seq) {
+      openers.set(entry.correlationId, entry);
+    }
+  }
+  return openers;
+}
+function latestOf(entries, accept) {
+  const latest = new Map;
+  for (const entry of entries) {
+    if (!accept(entry)) {
+      continue;
+    }
+    const seen = latest.get(entry.correlationId);
+    if (seen === undefined || entry.seq > seen.seq) {
+      latest.set(entry.correlationId, entry);
+    }
+  }
+  return latest;
+}
+function chainSeqs(entries, openers) {
+  const outcomes = latestOf(entries, isRunScoped);
+  const hops = latestOf(entries, isStateTransition);
+  const protectedSeqs = [];
+  for (const [correlationId, outcome] of outcomes) {
+    const opener = openers.get(correlationId);
+    if (opener !== undefined) {
+      protectedSeqs.push(opener.seq);
+    }
+    protectedSeqs.push(outcome.seq);
+    const hop = hops.get(correlationId);
+    if (hop !== undefined) {
+      protectedSeqs.push(hop.seq);
+    }
+  }
+  return protectedSeqs;
+}
+function creationSeqs(entries, openers) {
+  const protectedSeqs = [];
+  for (const entry of entries) {
+    if (entry.eventType !== RUN_CREATED_EVENT) {
+      continue;
+    }
+    const opener = openers.get(entry.correlationId);
+    if (opener !== undefined && opener.seq !== entry.seq) {
+      protectedSeqs.push(entry.seq);
+    }
+  }
+  return protectedSeqs;
+}
+function chainAndDecisionSeqs(entries) {
+  const openers = openersOf(entries);
+  const protectedSeqs = [];
+  for (const entry of entries) {
+    if (isDecisionEvent(entry)) {
+      protectedSeqs.push(entry.seq);
+    }
+  }
+  protectedSeqs.push(...chainSeqs(entries, openers), ...creationSeqs(entries, openers));
+  return protectedSeqs;
+}
+
+// service/audit-trim.ts
+var DAY_MS = 86400000;
 function bindingIdsOf(probe) {
   if (probe.status === "absent") {
     return new Set;
@@ -1153,35 +1240,6 @@ async function existingBindingIds(input) {
     return null;
   }
   return bindingIdsOf(probe);
-}
-function chainAndDecisionSeqs(entries) {
-  const protectedSeqs = [];
-  const openers = new Map;
-  const outcomes = new Map;
-  for (const entry of entries) {
-    if (DECISION_EVENTS.has(entry.eventType)) {
-      protectedSeqs.push(entry.seq);
-    }
-    const opener = openers.get(entry.correlationId);
-    if (opener === undefined || entry.seq < opener.seq) {
-      openers.set(entry.correlationId, entry);
-    }
-    if (!isRunScoped(entry)) {
-      continue;
-    }
-    const outcome = outcomes.get(entry.correlationId);
-    if (outcome === undefined || entry.seq > outcome.seq) {
-      outcomes.set(entry.correlationId, entry);
-    }
-  }
-  for (const [correlationId, outcome] of outcomes) {
-    const opener = openers.get(correlationId);
-    if (opener !== undefined) {
-      protectedSeqs.push(opener.seq);
-    }
-    protectedSeqs.push(outcome.seq);
-  }
-  return protectedSeqs;
 }
 async function subjectSeqs(input) {
   const accounts = await existingAccountIds(input);

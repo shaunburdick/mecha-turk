@@ -16,8 +16,11 @@
  *    exceeds the cap left over-cap **and explained**.
  *
  * The seeded fixture carries **all seventeen** 003 event types in one
- * correlation chain, so the opener/outcome rule is exercised against the real
- * vocabulary rather than a paraphrase of it.
+ * correlation chain, so the opener/outcome/hop rule is exercised against the
+ * real vocabulary rather than a paraphrase of it, and a second fixture runs
+ * the same chain in the order a dispatched run actually writes it — detection,
+ * creation, claim, reserve, result, read-back — because that is the chronology
+ * in which the final-state row is *not* the chain's last row (003 FR-065).
  */
 
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -73,6 +76,9 @@ const TRIM_EVENT = 'audit.trimmed';
 /** The correlation id of the chain carrying all seventeen 003 event types. */
 const CHAIN_RUN = 'chain-run';
 
+/** The correlation id of the chronologically ordered dispatched-run chain. */
+const CHAIN_CHRONOLOGICAL = 'chain-chronological';
+
 /** Decision rows FR-056(d) protects outright. */
 const CONFIG_CHANGED = 'config.changed';
 
@@ -87,17 +93,26 @@ const DELIVERY_DETECTED = 'delivery.detected';
 /** The limit a day-window trim names on its row. */
 const DAY_WINDOW = 'day-window';
 
+/** Vocabulary the chronology fixture spells out more than once. */
+const RUN_CREATED = 'run.created';
+
+/** The row that records a run's final state, session, and failure reason. */
+const DISPATCH_RESULT = 'dispatch.result';
+
+/** The warn-only read-back that lands *after* the final state. */
+const AGENT_VERIFIED = 'agent.verified';
+
 /**
  * The seventeen 003 event types, seeded into one correlation chain so the
  * opener/outcome rule runs against the real vocabulary (plan X4).
  */
 const SEVENTEEN_RUN_TYPES: readonly string[] = [
-    'run.created',
+    RUN_CREATED,
     'run.coalesced',
     'run.migrated',
     'dispatch.reserved',
     'dispatch.claimed',
-    'dispatch.result',
+    DISPATCH_RESULT,
     'dispatch.duplicate-report',
     'dispatch.abandoned',
     'dispatch.lease-expired',
@@ -106,7 +121,7 @@ const SEVENTEEN_RUN_TYPES: readonly string[] = [
     'dispatch.resolved',
     'run.blocked',
     'run.dead_lettered',
-    'agent.verified',
+    AGENT_VERIFIED,
     'agent.mismatch',
     'dispatch.refused',
 ];
@@ -295,42 +310,96 @@ describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', (
                 entityId: GONE_ACCOUNT_ID,
             }),
             // A chain whose opener is run-scoped and only row: it is both.
-            trailRow({ seq: 28, eventType: 'run.created', correlationId: 'chain-solo', timestamp: LONG_AGO }),
+            trailRow({ seq: 28, eventType: RUN_CREATED, correlationId: 'chain-solo', timestamp: LONG_AGO }),
         ];
         await plantTrail(rows);
         expect(new Set(rows.map((row) => String(row.eventType))).size).toBeGreaterThanOrEqual(19);
 
         const outcome = await trimAudit({ store, log: capturingLogger().log, config: configWith(), now: NOW });
 
-        // Twenty rows went: the sixteen middle lifecycle rows plus the four
-        // unprotected aged rows. Nothing protected, nothing fresh.
-        expect(outcome.removed).toBe(20);
+        // Eighteen rows went: the fourteen middle lifecycle rows that are
+        // neither the opener, the outcome, the final hop, nor the creation
+        // row, plus the four unprotected aged rows. Nothing protected, nothing
+        // fresh.
+        expect(outcome.removed).toBe(18);
         expect(outcome.limitReached).toBe(DAY_WINDOW);
-        expect(outcome.minimalReferencesPreserved).toBe(7);
+        expect(outcome.minimalReferencesPreserved).toBe(9);
         const trail = await storedTrail();
-        expect(trail.map((entry) => entry.seq)).toEqual([1, 18, 19, 20, 21, 22, 26, 28, 29]);
+        expect(trail.map((entry) => entry.seq)).toEqual([1, 2, 15, 18, 19, 20, 21, 22, 26, 28, 29]);
         // Survivors keep their original numbers — a trim never renumbers — and
         // the row it appended is the only one carrying the trim vocabulary.
         expect(trail.filter((entry) => entry.eventType === TRIM_EVENT).map((entry) => entry.seq)).toEqual([29]);
-        // Every run chain keeps its opener **and** its outcome, sharing one id.
+        // Every run chain keeps its opener **and** its outcome, sharing one id,
+        // plus the hop that recorded the final state and the creation row.
         const chainRows = trail.filter((entry) => entry.correlationId === CHAIN_RUN);
-        expect(chainRows.map((entry) => entry.seq)).toEqual([1, 18]);
+        expect(chainRows.map((entry) => entry.seq)).toEqual([1, 2, 15, 18]);
         expect(chainRows[0]?.eventType).toBe(DELIVERY_DETECTED);
-        expect(chainRows[1]?.eventType).toBe('dispatch.refused');
+        expect(chainRows[1]?.eventType).toBe(RUN_CREATED);
+        expect(chainRows[2]?.eventType).toBe('run.dead_lettered');
+        expect(chainRows[3]?.eventType).toBe('dispatch.refused');
         // The row records exactly what it took, by seq, and why.
         const [trimmed] = await trimRows();
         expect(trimmed).toBeDefined();
         expect(trimmed?.details).toEqual({
-            entriesRemoved: 20,
-            oldestSeq: 2,
+            entriesRemoved: 18,
+            oldestSeq: 3,
             newestSeq: 27,
             limitReached: DAY_WINDOW,
-            minimalReferencesPreserved: 7,
+            minimalReferencesPreserved: 9,
         });
         expect(trimmed?.decision).toBe('trimmed');
         expect(trimmed?.actorSource).toBe('service');
         expect(trimmed?.entity).toEqual({ kind: 'service', id: 'configuration' });
         expect(trimmed?.reason).toContain(DAY_WINDOW);
+    });
+
+    it('keeps a chronologically ordered run\'s final-state row and creation row', async () => {
+        // The order a dispatched run really writes in: detection opens the
+        // chain, the run is created, the panel claims and reserves, the result
+        // records the final state (and its reason), and only afterwards does
+        // the warn-only read-back land. The chain's latest run-scoped row is
+        // therefore *not* the row that carries the outcome, which is the case
+        // a fixture ordered by vocabulary name never reached (003 FR-065).
+        const chronology = [
+            DELIVERY_DETECTED,
+            RUN_CREATED,
+            'dispatch.claimed',
+            'dispatch.reserved',
+            DISPATCH_RESULT,
+            AGENT_VERIFIED,
+        ];
+        await plantTrail(
+            chronology.map((eventType, index) =>
+                trailRow({ seq: index + 1, eventType, correlationId: CHAIN_CHRONOLOGICAL, timestamp: LONG_AGO }),),
+        );
+
+        const outcome = await trimAudit({ store, log: capturingLogger().log, config: configWith(), now: NOW });
+
+        // Four survive — opener, creation, final state, warn-only tail — and
+        // exactly the two middle observations go: a chain whose outcome *is*
+        // its latest row still loses its middle, so the wider protection is
+        // the final-state row and the subject, not the whole chain.
+        expect(outcome.removed).toBe(2);
+        expect(outcome.limitReached).toBe(DAY_WINDOW);
+        expect(outcome.minimalReferencesPreserved).toBe(4);
+        const chronological = await storedTrail();
+        const chain = chronological.filter((entry) => entry.correlationId === CHAIN_CHRONOLOGICAL);
+        expect(chain.map((entry) => entry.seq)).toEqual([1, 2, 5, 6]);
+        expect(chain.map((entry) => entry.eventType)).toEqual([
+            DELIVERY_DETECTED,
+            RUN_CREATED,
+            DISPATCH_RESULT,
+            AGENT_VERIFIED,
+        ]);
+        const [trimmed] = await trimRows();
+        expect(trimmed).toBeDefined();
+        expect(trimmed?.details).toEqual({
+            entriesRemoved: 2,
+            oldestSeq: 3,
+            newestSeq: 4,
+            limitReached: DAY_WINDOW,
+            minimalReferencesPreserved: 4,
+        });
     });
 
     it('protects account and binding rows only while their subject still exists', async () => {

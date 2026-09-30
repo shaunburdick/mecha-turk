@@ -9,11 +9,16 @@
  *
  * - **The protected set is computed by rule, never by list** (FR-056). A row is
  *   protected when it opens or closes a correlation chain that contains a
- *   run-scoped row, when it names an account or binding the store can still
- *   account for, or when it records a policy/configuration decision. A
- *   vocabulary row 003 adds later is protected without a change here, because
- *   run-scoped means `entity.kind === 'run'` **or** a `run.`/`dispatch.`/
- *   `agent.` event type — categories, not a transcription of the table.
+ *   run-scoped row, when it records the hop that left the run in its final
+ *   state, when it created the run, when it names an account or binding the
+ *   store can still account for, or when it records a policy/configuration
+ *   decision. A vocabulary row 003 adds later is protected without a change
+ *   here, because run-scoped means `entity.kind === 'run'` **or** a
+ *   `run.`/`dispatch.`/`agent.` event type — categories, not a transcription of
+ *   the table. The chain half of that rule — openers, outcomes, the hop that
+ *   recorded the run's final state, and the creation row — lives in
+ *   `audit-protect.ts`, where 003 data-model §4.3's transition table is read
+ *   the same way: *rows that move a run*, so a later hop lands in it.
  * - **Both limits are honoured, whichever trips first**: the day window and the
  *   entry cap, and the pass counts the `audit.trimmed` row it is about to write
  *   *before* it decides, so a cap of N lands the trail at or below N instead of
@@ -36,6 +41,7 @@
 
 import { BINDINGS_FILE, listAccounts } from './accounts/store.ts';
 import { AUDIT_FILE, CONFIGURATION_ENTITY_ID, composeAudit, readAuditEntries, serializeAudit } from './audit.ts';
+import { chainAndDecisionSeqs } from './audit-protect.ts';
 import { isRecord } from './json.ts';
 import type { AuditEntry } from './audit.ts';
 import type { ServiceConfig } from './config.ts';
@@ -44,12 +50,6 @@ import type { JsonReadResult, ServiceStore } from './store/index.ts';
 
 /** Milliseconds in one day — the unit `auditRetentionDays` is counted in. */
 const DAY_MS = 86_400_000;
-
-/** Event types that record a policy or configuration decision (FR-056(d)). */
-const DECISION_EVENTS: ReadonlySet<string> = new Set(['policy.decision', 'config.changed']);
-
-/** Prefixes that make a row run-scoped; read as categories, never as a list. */
-const RUN_SCOPED_PREFIXES: readonly string[] = ['run.', 'dispatch.', 'agent.'];
 
 /** One retention limit, named the way the trim row's `limitReached` records it. */
 export type AuditLimit = 'day-window' | 'entry-cap';
@@ -89,20 +89,6 @@ interface RemovalPlan {
     readonly removed: readonly AuditEntry[];
     /** Which limit tripped first, or `null` when nothing was removed. */
     readonly limitReached: AuditLimit | null;
-}
-
-/**
- * Decide whether a row is run-scoped (data-model §4.2's reading of FR-056).
- *
- * @param entry - Trail row.
- * @returns `true` for a `run` entity or a `run.`/`dispatch.`/`agent.` event.
- */
-function isRunScoped(entry: AuditEntry): boolean {
-    if (entry.entity.kind === 'run') {
-        return true;
-    }
-
-    return RUN_SCOPED_PREFIXES.some((prefix) => entry.eventType.startsWith(prefix));
 }
 
 /**
@@ -194,52 +180,6 @@ async function existingBindingIds(input: {
 }
 
 /**
- * The `seq` numbers FR-056(a), (b), and (d) protect: chain openers, chain
- * outcomes, and decision rows.
- *
- * @param entries - Trail rows, in any order.
- * @returns The protected `seq` numbers this half of the rule contributes.
- */
-function chainAndDecisionSeqs(entries: readonly AuditEntry[]): readonly number[] {
-    const protectedSeqs: number[] = [];
-    const openers = new Map<string, AuditEntry>();
-    const outcomes = new Map<string, AuditEntry>();
-    for (const entry of entries) {
-        if (DECISION_EVENTS.has(entry.eventType)) {
-            protectedSeqs.push(entry.seq);
-        }
-
-        const opener = openers.get(entry.correlationId);
-        if (opener === undefined || entry.seq < opener.seq) {
-            openers.set(entry.correlationId, entry);
-        }
-
-        if (!isRunScoped(entry)) {
-            continue;
-        }
-
-        const outcome = outcomes.get(entry.correlationId);
-        if (outcome === undefined || entry.seq > outcome.seq) {
-            outcomes.set(entry.correlationId, entry);
-        }
-    }
-
-    // A chain is only protected when it *contains* a run-scoped row, and it
-    // keeps both ends: protecting the opener and the outcome together is what
-    // makes "an outcome with no opener" structurally impossible (FR-056).
-    for (const [correlationId, outcome] of outcomes) {
-        const opener = openers.get(correlationId);
-        if (opener !== undefined) {
-            protectedSeqs.push(opener.seq);
-        }
-
-        protectedSeqs.push(outcome.seq);
-    }
-
-    return protectedSeqs;
-}
-
-/**
  * The `seq` numbers FR-056(c) protects: rows naming a subject that exists.
  *
  * @param input - Trail rows, the store, and the logger.
@@ -274,8 +214,9 @@ async function subjectSeqs(input: {
  * Compute FR-056's protected set — by rule, before anything is chosen.
  *
  * (a) the earliest row of every correlation chain that contains a run-scoped
- * row, (b) that chain's latest run-scoped row, (c) `account`/`binding` entity
- * rows whose subject still exists, and (d) every `policy.decision` /
+ * row, (b) that chain's latest run-scoped row **plus** the latest state hop and
+ * the `run.created` row that are not the opener, (c) `account`/`binding`
+ * entity rows whose subject still exists, and (d) every `policy.decision` /
  * `config.changed` row.
  *
  * @param input - Open store, logger, and the trail rows.
