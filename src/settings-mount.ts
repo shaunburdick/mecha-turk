@@ -24,6 +24,7 @@ import { mountBanner, mountButton, mountText } from '@openchamber/sdk/ui';
 import type { BannerHandle, ButtonHandle, TextHandle } from '@openchamber/sdk/ui';
 import type { SettingsTabUi } from './settings-tab.ts';
 import { createBlock, mountColumnHead, mountStyledText } from './style.ts';
+import type { Block } from './style.ts';
 import {
     CONFIG_SOURCE,
     CONFIRM_CANCEL_LABEL,
@@ -49,6 +50,8 @@ const ROW_COLUMNS: readonly string[] = ['Field', 'Value', 'Shape and default'];
 
 /** What one row-region mount produced. */
 export interface RowRegion {
+    /** The block the region's heading lives in. */
+    readonly block: Block;
     /** Where the rows come from. */
     readonly sourceNote: TextHandle;
     /** Message shown while no document has ever been read. */
@@ -59,6 +62,8 @@ export interface RowRegion {
 
 /** What the save bar, the armed confirmation, and the two notices produced. */
 export interface ControlRegion {
+    /** The block the save bar and its confirmation live in. */
+    readonly block: Block;
     /** Wrapper around the save bar. */
     readonly saveBox: HTMLElement;
     /** The one write. */
@@ -128,7 +133,7 @@ export function mountRowRegion(pane: HTMLElement): RowRegion {
     mountColumnHead(rowsBox, { modifier: 'mt-head--settings', cells: ROW_COLUMNS });
     block.body.append(rowsBox);
 
-    return { sourceNote, emptyText, rowsBox };
+    return { block, sourceNote, emptyText, rowsBox };
 }
 
 /**
@@ -186,7 +191,8 @@ export function mountControlRegion(input: {
 }): ControlRegion {
     // The save bar, the confirmation, the "no save" reason, and the issues
     // are one surface: what a write will do, and what stopped the last one.
-    const pane = createBlock(input.pane, { heading: SAVE_HEADING }).body;
+    const block = createBlock(input.pane, { heading: SAVE_HEADING });
+    const pane = block.body;
     const saveBox = pane.ownerDocument.createElement('div');
     saveBox.style.display = 'flex';
     saveBox.style.alignItems = 'center';
@@ -210,6 +216,7 @@ export function mountControlRegion(input: {
     const issues = mountText(issuesBox, { text: '' });
 
     return {
+        block,
         saveBox,
         save,
         discard,
@@ -282,9 +289,11 @@ function disposeRegions(input: {
     controls.refresh.dispose();
     controls.readLine.dispose();
     notice.failure.dispose();
+    region.block.dispose();
     region.sourceNote.dispose();
     region.emptyText.dispose();
     region.rowsBox.remove();
+    controlsRegion.block.dispose();
     controlsRegion.save.dispose();
     controlsRegion.discard.dispose();
     controlsRegion.restore.dispose();

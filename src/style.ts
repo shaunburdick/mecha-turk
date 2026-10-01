@@ -74,9 +74,11 @@ export interface Cell {
 export interface Block {
     /** Body element; rows, cards, and controls append into this. */
     readonly body: HTMLElement;
+    /** The heading line, mounted so its text reaches the SDK's text path. */
+    readonly heading: TextHandle;
     /** The muted description line under the heading, or `null` when there is none. */
     readonly lede: Cell | null;
-    /** Remove the block and every handle mounted inside the caller's rows. */
+    /** Remove the block and every handle it mounted. */
     dispose(): void;
 }
 
@@ -218,10 +220,10 @@ export function mountColumnHead(parent: HTMLElement, input: ColumnHeadInput): HT
 /**
  * Mount a block: a real heading element over the body later rows append into.
  *
- * The heading is written once with `textContent` rather than mounted, because
- * a section heading is the tab's own constant copy — never a value the service
- * supplied — and a heading element (rather than a styled `div`) is what gives
- * each tab the hierarchy the accessibility pass checks.
+ * The heading is a **real heading element**, and its text is still handed to
+ * `mountText` rather than written with `textContent`: an outline the
+ * accessibility pass can walk, over copy that keeps travelling the one path
+ * every other string in the panel takes (003 NFR-109, 005 FR-080).
  *
  * @param parent - Element to append the block into.
  * @param input - The heading and the optional surface extras.
@@ -234,8 +236,8 @@ export function createBlock(parent: HTMLElement, input: BlockInput): Block {
 
     const heading = document.createElement('h2');
     heading.className = input.title === true ? TITLE_HEADING_CLASS : HEADING_CLASS;
-    heading.textContent = input.heading;
     block.append(heading);
+    const headingText = mountText(heading, { text: input.heading });
 
     const lede = input.lede === undefined ? null : mountCell(block, { className: 'mt-lede', text: input.lede });
     let body = block;
@@ -250,8 +252,13 @@ export function createBlock(parent: HTMLElement, input: BlockInput): Block {
 
     return {
         body,
+        heading: headingText,
         lede,
-        dispose: () => block.remove(),
+        dispose: () => {
+            headingText.dispose();
+            lede?.dispose();
+            block.remove();
+        },
     };
 }
 

@@ -215,14 +215,17 @@ describe('a mounted row is the two cells the stylesheet lays out', () => {
         expect(dom.created.some((node) => node.className.includes('mt-def--note'))).toBe(true);
     });
 
-    it('gives a block a real heading element, and appends rows under it', () => {
+    it('gives a block a real heading element, whose text still reaches the SDK', () => {
         mounts.log.length = 0;
         const dom = fakeDom();
         const block = createBlock(dom.root, { heading: 'Service' });
 
         const heading = dom.created.find((node) => node.tagName === 'h2');
-        expect(heading?.textContent).toBe('Service');
         expect(heading?.className).toBe('mt-heading');
+        const painted = mounts.log.filter((entry) => entry.key === 'mountText').map(
+            (entry) => (entry.props as { readonly text?: string }).text,
+        );
+        expect(painted).toContain('Service');
         expect(block.body.className).toBe('mt-block');
         expect(dom.created.some((node) => node.className === 'mt-block')).toBe(true);
     });

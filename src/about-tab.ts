@@ -32,6 +32,7 @@ import { parseJsonObject } from './json.ts';
 import { nowIso } from './ids.ts';
 import { LEDGER_SCHEMA_VERSION, ledgerTail } from './ledger.ts';
 import { HEALTH_PATH, serviceGet } from './service-calls.ts';
+import { createBlock, mountStyledText } from './style.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
 /** The panel id the manifest declares (`AGENTS.md` invariant 4). */
@@ -133,8 +134,6 @@ export function initialAboutTab(): AboutTabState {
 export interface AboutTabUi {
     /** Body root this view mounted into. */
     readonly pane: HTMLElement;
-    /** Tab heading. */
-    readonly heading: TextHandle;
     /** Product name and the panel id it installs under (FR-075). */
     readonly identity: TextHandle;
     /** The single version line (FR-074). */
@@ -157,8 +156,6 @@ export interface AboutTabUi {
     readonly cleanup: TextHandle;
     /** The release posture (FR-075). */
     readonly release: TextHandle;
-    /** Heading above the read-only record. */
-    readonly diagnosticsHeading: TextHandle;
     /** The two schema versions this build ships (FR-075). */
     readonly schemas: TextHandle;
     /** The phase record, read-only (FR-075). */
@@ -395,18 +392,16 @@ function mountHeader(input: {
     /** Pane the four mount into. */
     readonly pane: HTMLElement;
 }): {
-    readonly heading: TextHandle;
     readonly identity: TextHandle;
     readonly version: TextHandle;
     readonly versionSource: TextHandle;
 } {
     const { pane } = input;
-    const heading = mountText(pane, { text: ABOUT_HEADING });
     const identity = mountText(pane, { text: `${PRODUCT_NAME} — panel id: ${PANEL_ID}` });
     const version = mountText(pane, { text: versionLine(input.rt.state.aboutTab) });
     const versionSource = mountText(pane, { text: VERSION_SOURCE });
 
-    return { heading, identity, version, versionSource };
+    return { identity, version, versionSource };
 }
 
 /**
@@ -427,9 +422,7 @@ function mountRetryRow(input: {
     readonly failure: BannerHandle;
 } {
     const row = input.pane.ownerDocument.createElement('div');
-    row.style.display = 'flex';
-    row.style.alignItems = 'center';
-    row.style.gap = '8px';
+    row.className = 'mt-toolbar';
     input.pane.append(row);
 
     const retry = mountButton(row, {
@@ -439,7 +432,10 @@ function mountRetryRow(input: {
             void loadVersion(input.rt);
         },
     });
-    const readLine = mountText(row, { text: readStateLine(input.rt.state.aboutTab) });
+    const readLine = mountStyledText(row, {
+        className: 'mt-lede',
+        text: readStateLine(input.rt.state.aboutTab),
+    });
 
     const failureBox = input.pane.ownerDocument.createElement('div');
     failureBox.hidden = true;
@@ -471,13 +467,13 @@ function mountStatements(input: {
     readonly cleanup: TextHandle;
     readonly release: TextHandle;
 } {
-    const dataDir = mountText(input.pane, { text: dataDirLine(input.rt) });
+    const dataDir = mountStyledText(input.pane, { className: 'mt-prose', text: dataDirLine(input.rt) });
 
     return {
         dataDir,
-        vocabulary: mountText(input.pane, { text: VOCABULARY_SHORT_FORM }),
-        cleanup: mountText(input.pane, { text: CLEANUP_POSTURE }),
-        release: mountText(input.pane, { text: RELEASE_POSTURE }),
+        vocabulary: mountStyledText(input.pane, { className: 'mt-prose', text: VOCABULARY_SHORT_FORM }),
+        cleanup: mountStyledText(input.pane, { className: 'mt-prose', text: CLEANUP_POSTURE }),
+        release: mountStyledText(input.pane, { className: 'mt-prose', text: RELEASE_POSTURE }),
     };
 }
 
@@ -493,21 +489,19 @@ function mountDiagnostics(input: {
     /** Pane the block mounts into. */
     readonly pane: HTMLElement;
 }): {
-    readonly diagnosticsHeading: TextHandle;
     readonly schemas: TextHandle;
     readonly phaseRecord: TextHandle;
     readonly ledger: TextHandle;
 } {
-    const diagnosticsHeading = mountText(input.pane, { text: DIAGNOSTICS_HEADING });
-    const schemas = mountText(input.pane, {
+    const schemas = mountStyledText(input.pane, {
+        className: 'mt-prose',
         text: `Evidence schema: ${EVIDENCE_SCHEMA_VERSION} · Ledger schema: ${LEDGER_SCHEMA_VERSION}`,
     });
 
     return {
-        diagnosticsHeading,
         schemas,
-        phaseRecord: mountText(input.pane, { text: phaseRecordLine(input.rt) }),
-        ledger: mountText(input.pane, { text: ledgerLines(input.rt) }),
+        phaseRecord: mountStyledText(input.pane, { className: 'mt-prose', text: phaseRecordLine(input.rt) }),
+        ledger: mountStyledText(input.pane, { className: 'mt-prose', text: ledgerLines(input.rt) }),
     };
 }
 
@@ -517,7 +511,6 @@ function mountDiagnostics(input: {
  * @param ui - The mounted view.
  */
 function disposeAbout(ui: AboutTabUi): void {
-    ui.heading.dispose();
     ui.identity.dispose();
     ui.version.dispose();
     ui.versionSource.dispose();
@@ -528,7 +521,6 @@ function disposeAbout(ui: AboutTabUi): void {
     ui.vocabulary.dispose();
     ui.cleanup.dispose();
     ui.release.dispose();
-    ui.diagnosticsHeading.dispose();
     ui.schemas.dispose();
     ui.phaseRecord.dispose();
     ui.ledger.dispose();
@@ -553,10 +545,14 @@ export function mountAboutTab(input: {
     const pane = body.ownerDocument.createElement('div');
     body.append(pane);
 
-    const header = mountHeader({ rt, pane });
-    const retryRow = mountRetryRow({ rt, pane });
-    const statements = mountStatements({ rt, pane });
-    const diagnostics = mountDiagnostics({ rt, pane });
+    // Two blocks: what this panel is, then the record it keeps about itself.
+    const about = createBlock(pane, { heading: ABOUT_HEADING });
+    const record = createBlock(pane, { heading: DIAGNOSTICS_HEADING });
+
+    const header = mountHeader({ rt, pane: about.body });
+    const retryRow = mountRetryRow({ rt, pane: about.body });
+    const statements = mountStatements({ rt, pane: about.body });
+    const diagnostics = mountDiagnostics({ rt, pane: record.body });
 
     const ui: AboutTabUi = {
         pane,
@@ -564,7 +560,11 @@ export function mountAboutTab(input: {
         ...retryRow,
         ...statements,
         ...diagnostics,
-        dispose: (): void => disposeAbout(ui),
+        dispose: (): void => {
+            about.dispose();
+            record.dispose();
+            disposeAbout(ui);
+        },
     };
 
     rt.aboutUi = ui;
