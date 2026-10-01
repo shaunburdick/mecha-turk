@@ -12,6 +12,9 @@
  *   and each list surface carries the header row its columns hang from.
  * - **Chips** — the prerequisite states reach the DOM as toned badges, in all
  *   three tones FR-072 allows, with the state in the label (FR-083).
+ * - **Hidden** — an element the shell hid is out of the layout, whichever
+ *   author rule would otherwise paint it (`.mt-block`, the SDK's button, or an
+ *   inline `style.display`).
  * - **The strip contract** — the layout rules the A3 pass pinned are still in
  *   `panel/index.html`, because a redesign that squeezes the tab strip is a
  *   redesign that broke the panel.
@@ -34,6 +37,7 @@ import { fakeDom } from './support/dom.ts';
 import type { FakeDom } from './support/dom.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
 import { mediaVariants, parseStylesheet, styleText } from './support/stylesheet.ts';
+import type { StyleRule } from './support/stylesheet.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -166,6 +170,30 @@ const HEADER_CELLS: readonly (readonly [string, readonly string[]])[] = [
     ['mt-head--settings', ['Field', 'Value', 'Shape and default']],
 ];
 
+/** The shipped panel document, read once for every assertion that reads it. */
+const PANEL_HTML = readFileSync(resolve(import.meta.dirname, '../panel/index.html'), 'utf8');
+
+/** Its stylesheet, parsed once for every cascade assertion below. */
+const PANEL_RULES = parseStylesheet(styleText(PANEL_HTML));
+
+/** Every selector in the sheet that can take a hidden element out of a layout. */
+const HIDING_SELECTORS: readonly string[] = ['[hidden]', '[data-body][hidden]'];
+
+/** The media set with no `@media` in force, for an unguarded reading. */
+const NO_MEDIA: ReadonlySet<string> = new Set<string>();
+
+/**
+ * The stylesheet with the named hiding rules stripped — the panel as it was
+ * before them, which is the answer a non-vacuity case must fall back to.
+ *
+ * @param source - The rules to strip.
+ * @param selectors - A rule is dropped when it carries any of these.
+ * @returns The rules that are left, in their original order.
+ */
+function withoutHidingRules(source: readonly StyleRule[], selectors: readonly string[]): readonly StyleRule[] {
+    return source.filter((rule) => !rule.selectors.some((selector) => selectors.includes(selector)));
+}
+
 /**
  * The service's answers: one status document, and nothing else.
  *
@@ -268,11 +296,9 @@ describe('every tab is a stack of blocks with a real heading', () => {
     });
 
     it('keeps the strip contract the A3 pass pinned', () => {
-        const html = readFileSync(resolve(import.meta.dirname, '../panel/index.html'), 'utf8');
-
-        expect(html).toMatch(/#root > \* \{\s*flex-shrink: 0;\s*\}/);
-        expect(html).toMatch(/#root \{[^}]*display: flex;/);
-        expect(html).toMatch(/#root \{[^}]*flex-direction: column;/);
+        expect(PANEL_HTML).toMatch(/#root > \* \{\s*flex-shrink: 0;\s*\}/);
+        expect(PANEL_HTML).toMatch(/#root \{[^}]*display: flex;/);
+        expect(PANEL_HTML).toMatch(/#root \{[^}]*flex-direction: column;/);
     });
 });
 
@@ -330,8 +356,7 @@ describe('the Status tab renders structure instead of loose lines', () => {
  * resolve it instead — and the last case proves the fence is not vacuous.
  */
 describe('exactly one tab body is in the layout', () => {
-    const html = readFileSync(resolve(import.meta.dirname, '../panel/index.html'), 'utf8');
-    const rules = parseStylesheet(styleText(html));
+    const rules = PANEL_RULES;
 
     /** The region the six bodies hang from, as `src/tabs.ts` builds it. */
     const region: ProbeElement = {
@@ -404,16 +429,125 @@ describe('exactly one tab body is in the layout', () => {
         }
     });
 
-    it('would fail against the stylesheet as it was before the fix', () => {
-        const without = rules.filter((rule) => !rule.selectors.includes('[data-body][hidden]'));
+    it('would fail against the stylesheet as it was before either rule hid a body', () => {
+        const without = withoutHidingRules(rules, HIDING_SELECTORS);
 
-        expect(without).toHaveLength(rules.length - 1);
+        expect(without).toHaveLength(rules.length - HIDING_SELECTORS.length);
         expect(
             cascadedDisplay({
                 rules: without,
                 element: bodyProbe({ id: 'settings', hidden: true }),
-                media: new Set<string>(),
+                media: NO_MEDIA,
             }),
         ).toBe('flex');
+    });
+});
+
+/**
+ * The SDK's own sheet, at the one declaration that painted a hidden button.
+ *
+ * `@openchamber/sdk` injects this into the same document, so it competes as
+ * an author rule like any other — but it does not live in `panel/index.html`,
+ * and without it the button case below would resolve against nothing at all
+ * rather than against the `inline-flex` the live panel computed.
+ */
+const SDK_SHEET = '.oc-sdk-btn { display: inline-flex; }';
+
+/** The panel's stylesheet read with the SDK's, as one document's rules. */
+const COMBINED_RULES = parseStylesheet(`${styleText(PANEL_HTML)}\n${SDK_SHEET}`);
+
+/** One shape the sweep found: what it is, and what it painted while hidden. */
+interface HiddenShape {
+    /** How the case names itself in a failure message. */
+    readonly name: string;
+    /** Lower-case tag name. */
+    readonly tag: string;
+    /** Class words the element carries. */
+    readonly classes: readonly string[];
+    /** The `style` attribute's text, when the element writes one inline. */
+    readonly style?: string;
+    /** The `display` it computed while the panel had it hidden. */
+    readonly painted: string;
+}
+
+/** The three shapes behind the five painted elements the sweep found. */
+const HIDDEN_SHAPES: readonly HiddenShape[] = [
+    { name: 'section.mt-block', tag: 'section', classes: ['mt-block'], painted: 'flex' },
+    { name: 'button.oc-sdk-btn', tag: 'button', classes: ['oc-sdk', 'oc-sdk-btn'], painted: 'inline-flex' },
+    { name: 'inline style.display', tag: 'div', classes: [], style: 'display: flex', painted: 'flex' },
+];
+
+/**
+ * One of those shapes as the cascade sees it.
+ *
+ * @param shape - Which element to build.
+ * @param hidden - Whether the panel has marked it hidden, the way `src/` does.
+ * @returns The probe to resolve a `display` for.
+ */
+function shapeProbe(shape: HiddenShape, hidden: boolean): ProbeElement {
+    const attributes: Record<string, string> = {};
+
+    if (hidden) {
+        attributes.hidden = '';
+    }
+
+    if (shape.style !== undefined) {
+        attributes.style = shape.style;
+    }
+
+    return { tag: shape.tag, classes: shape.classes, attributes, position: 1, childCount: 1 };
+}
+
+/**
+ * The `[hidden]` fence, and the shapes behind every element it hides.
+ *
+ * A sweep of the live panel at `219f093` found five elements carrying the
+ * `hidden` attribute that the cascade still gave a box, all with the tab
+ * body's root cause: the UA sheet's `[hidden] { display: none }` is
+ * origin-weak, so an author rule naming the element paints it anyway.
+ * `section.mt-block` answered `flex`, the SDK's `button.oc-sdk-btn` answered
+ * `inline-flex`, and three plain Dispatches control rows answered `flex` from
+ * an inline `style.display`.
+ *
+ * `panel/index.html` closes the class in one rule —
+ * `[hidden] { display: none !important }` — whose `!important` is what makes
+ * it one rule: importance is compared before specificity, before source
+ * order, and before the style attribute, so no *normal* author declaration
+ * from any stylesheet can reach an element the panel marked hidden.
+ */
+describe('no element the panel hid is still painted', () => {
+    it('takes every hidden one out of the layout, under every media reading', () => {
+        for (const media of mediaVariants(COMBINED_RULES)) {
+            const joined = [...media].join(', ');
+            const reading = joined === '' ? 'no media' : joined;
+
+            for (const shape of HIDDEN_SHAPES) {
+                expect(
+                    cascadedDisplay({ rules: COMBINED_RULES, element: shapeProbe(shape, true), media }),
+                    `${shape.name} hidden at ${reading}`,
+                ).toBe('none');
+            }
+        }
+    });
+
+    it('paints each of them while the panel has not marked it hidden', () => {
+        for (const shape of HIDDEN_SHAPES) {
+            expect(
+                cascadedDisplay({ rules: COMBINED_RULES, element: shapeProbe(shape, false), media: NO_MEDIA }),
+                `${shape.name} shown`,
+            ).toBe(shape.painted);
+        }
+    });
+
+    it('would paint every one of them again if the `[hidden]` rule were stripped', () => {
+        const without = withoutHidingRules(COMBINED_RULES, ['[hidden]']);
+
+        expect(without).toHaveLength(COMBINED_RULES.length - 1);
+        for (const shape of HIDDEN_SHAPES) {
+            expect(
+                cascadedDisplay({ rules: without, element: shapeProbe(shape, true), media: NO_MEDIA }),
+                `${shape.name} without the fence`,
+            ).toBe(shape.painted);
+        }
     });
 });

@@ -7,7 +7,9 @@
  * a Settings-labelled frame shipped over the Dispatches board. This reads
  * `getComputedStyle` for every body in the live document, insists the ones the
  * shell hid are really out of the layout, and proves the one body with a box
- * is the one the selected tab labels. `shot.js` calls it after the probe and
+ * is the one the selected tab labels. The same question is then asked of every
+ * *other* `[hidden]` element: a stray control the panel hid but the cascade
+ * still paints fails the run too. `shot.js` calls it after the probe and
  * before the capture, so a mismatch aborts the run instead of publishing.
  */
 
@@ -84,6 +86,29 @@ function assertOneBox(tab, view) {
     );
 }
 
+/** One painted hidden element as the refusal names it: what it is, and how. */
+function describePainted(entry) {
+    const name = entry.className === '' ? entry.tag : `${entry.tag}.${entry.className}`;
+
+    return `${name} display=${entry.display}`;
+}
+
+/** Several painted hidden elements, named the same way. */
+function listPainted(painted) {
+    return painted.map(describePainted).join('; ');
+}
+
+/** Refuse an element the panel hid that the cascade still gives a box. */
+function assertNothingPainted(view) {
+    if (view.painted.length === 0) {
+        return;
+    }
+
+    const count = `${view.painted.length} hidden element${view.painted.length === 1 ? '' : 's'}`;
+
+    throw new Error(`the panel hid ${count} the cascade still paints: ${listPainted(view.painted)}`);
+}
+
 /**
  * Refuse a frame whose visible body is not the tab that was asked for.
  *
@@ -99,5 +124,6 @@ export function assertVisibleBody(input) {
 
     assertBodyCount(view, expected);
     assertNothingLingering(view);
+    assertNothingPainted(view);
     assertOneBox(tab, view);
 }

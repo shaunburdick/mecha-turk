@@ -217,10 +217,14 @@ function splitSelectors(prelude: string): readonly string[] {
 /**
  * Read one `property: value` pair, pulling `!important` off the end.
  *
+ * Exported because an inline `style` attribute holds the same syntax a
+ * declaration block does, and the cascade reads it with this (see
+ * `./cascade.ts`).
+ *
  * @param chunk - One declaration, already trimmed.
  * @returns The parsed declaration.
  */
-function toDeclaration(chunk: string): Declaration {
+export function toDeclaration(chunk: string): Declaration {
     const cursor: Cursor = { text: chunk, index: 0 };
     const separator = scanTo(cursor, ':');
     const raw = separator.found === '' ? '' : chunk.slice(cursor.index).trim();

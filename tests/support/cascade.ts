@@ -15,7 +15,15 @@
  * Ties resolve the way a browser resolves them: `!important` first, then
  * specificity, then source order. The user-agent sheet is not modelled at all,
  * because anything it declares is already out-ranked by every author rule.
+ *
+ * One author declaration is not written in a rule at all: an element's own
+ * `style` attribute. It is offered to the contest as a candidate whose weight
+ * no selector can reach (an inline declaration has the highest specificity
+ * there is), so an inline `display` is a real answer here rather than a gap
+ * the reader silently skips — which is what makes
+ * `[hidden] { display: none !important }` provably necessary.
  */
+import { toDeclaration } from './stylesheet.ts';
 import type { StyleRule } from './stylesheet.ts';
 
 /** The element the cascade is asked about. */
@@ -111,6 +119,9 @@ const STAR = '*';
 /** The one property these assertions resolve: an element's `display`. */
 const DISPLAY_PROPERTY = 'display';
 
+/** The `style` attribute, which carries declarations an element owns itself. */
+const STYLE_ATTRIBUTE = 'style';
+
 /** Characters a CSS identifier may carry, so names are scanned rather than matched. */
 const NAME_CHAR = /[\w-]/;
 
@@ -126,6 +137,13 @@ const QUOTED = /^["']|["']$/g;
 /** Scale factors that turn (ids, classes, types) into one comparable number. */
 const CLASS_WEIGHT = 1_000;
 const ID_WEIGHT = 1_000_000;
+
+/**
+ * The weight of an element's own `style` declaration — the (1,0,0,0) a
+ * selector cannot reach. Spelled as the product of the two scales above so it
+ * stays "more ids than any selector could ever carry" if they ever move.
+ */
+const STYLE_WEIGHT = ID_WEIGHT * CLASS_WEIGHT;
 
 /** The `=` operator, spelled out for the case that carries no prefix. */
 const EQUALS = '=';
@@ -538,6 +556,40 @@ function applyRule(input: RuleInput): Candidate | null {
 }
 
 /**
+ * The candidate an element's own `style` attribute contributes, if any.
+ *
+ * An inline declaration is an author declaration carrying the highest
+ * specificity there is, so it enters the contest at {@link STYLE_WEIGHT} — no
+ * selector can out-rank it, and only another `!important` declaration beats
+ * it. It is read through `toDeclaration` so an inline `!important` is parsed
+ * as one rather than left glued to the value.
+ *
+ * `order` is 0 because nothing ever ties on this weight: `beats` only consults
+ * source order when importance and weight are both equal, and this candidate
+ * is alone at the top of the scale.
+ *
+ * @param element - The element under test.
+ * @returns The inline `display` candidate, or null when the attribute holds none.
+ */
+function inlineCandidate(element: ProbeElement): Candidate | null {
+    const text = element.attributes?.[STYLE_ATTRIBUTE];
+
+    if (text === undefined) {
+        return null;
+    }
+
+    for (const chunk of text.split(';')) {
+        const declaration = toDeclaration(chunk);
+
+        if (declaration.property === DISPLAY_PROPERTY) {
+            return { value: declaration.value, important: declaration.important, weight: STYLE_WEIGHT, order: 0 };
+        }
+    }
+
+    return null;
+}
+
+/**
  * The `display` the cascade gives one element, under one set of media.
  *
  * @param input - The parsed rules, the element, and the media in force.
@@ -546,7 +598,7 @@ function applyRule(input: RuleInput): Candidate | null {
 export function cascadedDisplay(input: CascadeInput): string | null {
     const winner = input.rules.reduce<Candidate | null>(
         (current, rule) => applyRule({ rule, element: input.element, media: input.media, current }),
-        null,
+        inlineCandidate(input.element),
     );
 
     return winner === null ? null : winner.value;

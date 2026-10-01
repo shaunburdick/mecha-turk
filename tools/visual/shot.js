@@ -25,7 +25,10 @@
  *    asks every `[data-body]` of the cascade: the five the shell hid must have
  *    no box, and the one that does must be the body the requested tab labels.
  *    The strip's pill lives outside the scroller, so 2 alone validated the
- *    right pill over the wrong body whenever all six shared the layout.
+ *    right pill over the wrong body whenever all six shared the layout. It
+ *    then asks every *other* `[hidden]` element the same question, so a
+ *    control the panel hid but the cascade still paints — a greyed button, an
+ *    inline-`display` row — aborts the run instead of shipping.
  *
  * Plus: the sentinel must be absent from the delivered frame, and it must
  * differ from the capture before it. Five independent answers to "is this the

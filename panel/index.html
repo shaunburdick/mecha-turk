@@ -72,6 +72,45 @@
             }
 
             /* ---------------------------------------------------------------- *
+             * Hidden: the element is out of the layout, whatever says otherwise.
+             * ---------------------------------------------------------------- */
+
+            /*
+             * The HTML standard's suggested rendering for `hidden` is
+             * `display: none`, and its own note warns that "because this
+             * attribute is typically implemented using CSS, it's also
+             * possible to override it using CSS" — an author rule naming a
+             * hidden element outranks the UA sheet outright. The panel writes
+             * such rules everywhere, so the suggested rendering is strengthened
+             * with `!important`: the form GitHub's Primer CSS ships, and the
+             * only form that settles the contest in one place.
+             *
+             * Three shapes painted while hidden before this rule existed:
+             *
+             *   `section.mt-block`   → `flex`       `createBlock` hands back
+             *                                       the section itself when a
+             *                                       block carries no lede, so
+             *                                       `.mt-block` names it.
+             *   `button.oc-sdk-btn`  → `inline-flex` the SDK's own sheet.
+             *   three plain Dispatches → `flex`      an inline `style.display`
+             *   control rows                           from `src/`.
+             *
+             * `!important` is the point, not decoration: importance is compared
+             * before specificity, before source order, and before the style
+             * attribute, so no *normal* author declaration — from this sheet,
+             * from the SDK's, or written inline — can reach an element the
+             * panel marked hidden.
+             *
+             * Two fences check it: `tools/visual/assert-body.js` refuses a
+             * capture whose live document still paints a `[hidden]` element,
+             * and `tests/visual-structure.test.ts` proves the cascade offline
+             * (including that the answers flip when this rule is stripped).
+             */
+            [hidden] {
+                display: none !important;
+            }
+
+            /* ---------------------------------------------------------------- *
              * Shell: the six tab bodies are stacks of blocks.
              * ---------------------------------------------------------------- */
 
@@ -96,6 +135,12 @@
              * above whatever the order, they outrank the UA sheet on origin
              * alone, and they cannot match anything but a body the shell has
              * actually marked hidden.
+             *
+             * The `[hidden]` rule above now takes a body out of the layout as
+             * well, so the two agree rather than compete; this one stays
+             * because it states the tab-body contract where it is read, and
+             * the offline fence strips both to show the stylesheet as it was
+             * before either rule hid a body.
              */
             [data-body][hidden] {
                 display: none;

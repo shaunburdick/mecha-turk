@@ -368,6 +368,30 @@ function align(name) {
 }
 
 /**
+ * Every element the panel marked hidden that the cascade still gives a box.
+ *
+ * `hidden` is an *intent*, and an author `display` rule outranks the UA
+ * sheet — which is how a greyed "Connect account" button and three Dispatches
+ * control rows sat in frames whose tab bodies were already correct. This reads
+ * `getComputedStyle` for every `[hidden]` element in the live document, so a
+ * capture cannot publish a stray control the panel meant to remove.
+ *
+ * @param panel - The panel's document.
+ * @returns One entry per painted element: its tag, its classes, its display.
+ */
+function paintedHidden(panel) {
+    const view = panel.defaultView;
+
+    return [...panel.querySelectorAll('[hidden]')]
+        .map((element) => ({
+            tag: element.tagName.toLowerCase(),
+            className: typeof element.className === 'string' ? element.className : '',
+            display: view.getComputedStyle(element).display,
+        }))
+        .filter((entry) => entry.display !== 'none');
+}
+
+/**
  * Every tab body as the cascade paints it, plus the strip's own answer.
  *
  * The DOM alone cannot say a body is out of the layout — `hidden` is an
@@ -376,9 +400,10 @@ function align(name) {
  * reads `getComputedStyle` for each body, so "visible" here means "has a box",
  * and it pairs each body with the tab element its `aria-labelledby` points at
  * so a caller can prove the body on screen belongs to the tab that was asked
- * for.
+ * for. `painted` is the same question asked of every other `[hidden]` element
+ * in the document.
  *
- * @returns `{ active, selectedId, bodies }`, or null before the panel loads.
+ * @returns `{ active, selectedId, bodies, painted }`, or null before the panel loads.
  */
 function bodyView() {
     const panel = panelDoc();
@@ -399,6 +424,7 @@ function bodyView() {
         active: activeTab(),
         selectedId: selected === null ? null : selected.id,
         bodies,
+        painted: paintedHidden(panel),
     };
 }
 
