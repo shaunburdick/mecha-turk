@@ -179,9 +179,9 @@ No session, worktree, or project is ever created, mutated, or deleted outside `h
 | `seq` | number (monotonic) | assigned by the writer |
 | `timestamp` | string | RFC3339 |
 | `correlationId` | string | NFR-007 chain |
-| `eventType` | string enum | `consent`, `account.added/verified/rejected/rotated/error/deleted`, `binding.*`, `poll.checkpoint/observation/duplicate`, `rate.*`, `policy.decision`, `run.created/relayed/dispatched/verified/blocked/retried/dead_lettered`, `service.started/stopped/failed`, `config.changed`, `audit.trimmed` |
+| `eventType` | string enum | `account.added/verified/rejected/rotated/error/deleted`, `binding.*`, `poll.checkpoint/observation/duplicate`, `rate.*`, `policy.decision`, `run.created/relayed/dispatched/verified/blocked/retried/dead_lettered`, `service.started/stopped/failed`, `config.changed`, `audit.trimmed` *(the `consent` member this enum carried was **removed at v1.9.0**, 2026-10-01, with the consent dialog — a vocabulary removal recorded in `## Amendment History`; rows already on disk keep parsing, since the reader accepts any `eventType` string)* |
 | `actorSource` | string | e.g. `panel`, `service`, `operator` |
-| `entity` | `{ kind: 'service' \| 'account' \| 'binding' \| 'run' \| 'delivery', id: string }` | `service` for entries that reference no account (consent occurrences, identity-less credential rejections) |
+| `entity` | `{ kind: 'service' \| 'account' \| 'binding' \| 'run' \| 'delivery', id: string }` | `service` for entries that reference no account (identity-less credential rejections, configuration-wide rows) |
 | `decision`, `reason` | string \| null | |
 | `redaction` | `{ redacted: boolean, fields: string[] }` | which fields were stripped |
 | `details` | JSON (pre-redaction pass) | **no token material, ever** (FR-035) |
@@ -206,7 +206,7 @@ Retention (spec Assumption): 180 days **or** 50,000 entries, whichever first; pa
 | --- | --- | --- |
 | `ui` | JSON | active tab, filters, last-viewed run, sort; ≤4 KiB |
 | `project` | string | selected project id — **picker memory, not configuration**: the spike key is retained (005 FR-025, `AGENTS.md` invariant 4), and since 002 FR-041 (v1.6.0, 2026-09-28) there is no `project-id` card setting beneath it in precedence — the `integration-setting` fallback was retired with the card's settings; the binding's `projectId` is the configuration (FR-013/FR-014). *The "001 amendment 4" precedence rule this row once cited is historical — see the note at the top of this file* |
-| `consent` | `{ givenAt: string, version: 1 }` | **occurrence only** — no token material; mirrors the service audit `consent` entry (FR-008) |
+| ~~`consent`~~ | ~~`{ givenAt: string, version: 1 }`~~ | **Removed at v1.9.0 (2026-10-01)** with the consent dialog: no panel state reads or writes this key any more (002 FR-008 re-cut). The key is *removed, not renamed*, so no storage-namespace reset occurs (AGENTS invariant 4); an orphaned value on an upgraded install is unread and harmless |
 | `accounts` | JSON array | bounded account mirror `{ numericUserId, login, state, scopeCheck }` written after a successful handoff — display only, never authoritative, never a credential (token-handoff §3) |
 | `expected-agent` mirror | string | effective value + provenance for display — **source superseded 2026-09-28**: the manifest setting is gone (002 FR-041 re-cut, card = zero settings) and the provenance is now *service configuration (`expectedAgent` in `config.json`) vs the documented default*; the panel reads it through `GET /v1/config` (002 FR-029 as amended, 006 FR-100). Whether the panel still mirrors it into `host.storage` is Phase 4's call — it is UI state either way (FR-034) |
 | `runs-mirror` | JSON array | **bounded** display mirror of the latest ≤50 runs `{ runKeyHash, state, sourceUrl, correlationId, updatedAt }` — never authoritative, never an audit home (FR-034) |
