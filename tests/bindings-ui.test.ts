@@ -680,3 +680,54 @@ describe('T-036 a selected binding has a reachable Edit affordance (FR-050)', ()
         dispose();
     });
 });
+
+/**
+ * Read the rows the bindings list was last painted with — the frame the
+ * operator is looking at now.
+ *
+ * The list mounts empty (`items: []`) and its rows arrive only through a
+ * repaint, so the last `mountList` call of any kind is the frame on screen:
+ * at mount that is the update the body issues itself, with no read in between.
+ *
+ * @returns The rows, in paint order; an empty list when none were painted.
+ */
+function paintedListItems(): readonly { readonly title?: string; readonly subtitle?: string }[] {
+    const paints = mounts.log.filter(
+        (entry) => entry.key === 'mountList' || entry.key === 'mountList:update',
+    );
+    const frame = paints[paints.length - 1];
+    const items = (frame?.props as { readonly items?: unknown } | undefined)?.items;
+
+    return Array.isArray(items)
+        ? (items as readonly { readonly title?: string; readonly subtitle?: string }[])
+        : [];
+}
+
+describe('FR-013 the Bindings body paints its stored list on first activation', () => {
+    it('renders the bindings the runtime holds at mount, before any read runs', () => {
+        const requests: GuestRequest[] = [];
+        const host = fakeHost({
+            serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
+                requests.push(request);
+
+                return { status: 200, body: JSON.stringify({ bindings: [], status: [] }) };
+            },
+        });
+        // The runtime already knows one binding — the state a refresh tick
+        // would otherwise be the first thing to show.
+        const { dispose } = mountBindingsTab({ host, setup: withSelectedRow });
+        const painted = paintedListItems();
+        const statusLine = renderedStrings().find((line) => line.startsWith('Bindings: '));
+        dispose();
+
+        // Nothing was read to get here, so this *is* the first frame: the
+        // status line's count and the list it counts down to agree, and the
+        // empty-state text is not what the list is showing (the mount always
+        // carries it as the list's `emptyText`, so emptiness is read from the
+        // rows actually painted, not from the prop's presence).
+        expect(requests).toEqual([]);
+        expect(statusLine).toBe('Bindings: 1 (1 enabled) · Accounts: 0');
+        expect(painted).toHaveLength(1);
+        expect(painted[0]?.title).toBe('acme/widget → prj_42');
+    });
+});

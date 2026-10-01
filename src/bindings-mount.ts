@@ -41,7 +41,7 @@ import {
     startEditingBinding,
     stopEditingBinding,
 } from './bindings-edit.ts';
-import { mountBindingsBody } from './bindings-ui.ts';
+import { mountBindingsBody, repaintBindingsPane } from './bindings-ui.ts';
 import type { BindingsPaneHandlers } from './bindings-ui.ts';
 import { loadAuditHistory } from './audit-view.ts';
 import {
@@ -232,6 +232,12 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
  * everything here is the body itself — the status line, the list, and the add
  * form — and the runtime handle the repaint path reads.
  *
+ * The body repaints once at mount, as Status and Accounts do: the list mounts
+ * empty (its items arrive only through a repaint), so without this call the
+ * first frame would show "No binding yet" under a status line that already
+ * counts the bindings the runtime holds — true only until the next refresh
+ * tick, which is exactly how long a first frame is allowed to lie.
+ *
  * @param rt - Panel runtime.
  * @param root - The body container `mountTabShell` created for `bindings`.
  */
@@ -243,4 +249,8 @@ export function mountBindingsTabBody(rt: PanelRuntime, root: HTMLElement): void 
     // for the operator's DOM inspector.
     view.pane.setAttribute('data-mount', 'mountBindingsBody');
     rt.bindingsUi = view;
+    // Paint what the runtime already knows, before anything is read: the
+    // status line mounts composed from state, but the list does not, and the
+    // two must never disagree on the first frame.
+    repaintBindingsPane(rt, view);
 }
