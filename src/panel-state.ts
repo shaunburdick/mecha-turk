@@ -107,6 +107,7 @@ export function initialBindings(): BindingsTabState {
         worktreeSelection: 'none',
         selectedBinding: null,
         statusRows: [],
+        editorOpen: false,
         editing: false,
         startingPromptInput: '',
         startingPromptDirty: false,
@@ -255,13 +256,24 @@ export interface BindingsTabState {
     /** Last relay status rows rendered per binding. */
     statusRows: readonly BindingStatusRow[];
     /**
+     * Whether the binding editor block is on screen at all (2026-10-01 review).
+     *
+     * The editor is **not open by default**: the tab entry shows the list, a
+     * row click loads that row into the editor and opens it, and **New
+     * binding** opens an empty one. `false` at mount, and false again after a
+     * save, a cancel, or a refusal to load — the list is the surface the
+     * operator returns to.
+     */
+    editorOpen: boolean;
+    /**
      * Whether the form is loaded with `selectedBinding` and its primary
      * control **saves** that row instead of adding one (005 FR-050).
      *
-     * Set only by the Edit affordance and cleared by a save, a cancel, or a
-     * different row selection — so the draft on screen always describes the
-     * row the primary control would write, which is what keeps a displayed
-     * value and a saved value the same thing.
+     * Set by the row click that loads a binding into the editor (the Edit
+     * affordance the post-install review added, now the row itself) and
+     * cleared by a save, a cancel, or a refusal to load — so the draft on
+     * screen always describes the row the primary control would write, which
+     * is what keeps a displayed value and a saved value the same thing.
      */
     editing: boolean;
     /** The starting-prompt editor field's current text (005 FR-051). */

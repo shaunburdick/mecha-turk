@@ -142,6 +142,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `service-calls.ts` | Shared `host.serviceRequest()` GET/PUT/POST/DELETE wrappers (including `servicePutConfig`, the configuration write) + the run-scoped paths (reserve, result, abandon, blocked, retry, requeue, resolve, verification, audit read) |
 | `service-envelope.ts` | The one place an answer is classified: status → problem/code/message/issues, with the resource each refusal names (006 FR-043) |
 | `bindings-mode.ts` | Bindings-authoritative mode: first enabled binding is dispatch context |
+| `bindings-body.ts` | Mounts and disposes the Bindings tab body: the list block with its toolbar, and the editor block that opens on a row click or **New binding** and states the loaded binding's state (2026-10-01 review) |
 | `bindings*.ts` / `dispatches*.ts` | The Bindings tab (binding rows, the editor, the add form) plus the Dispatches list's rows, paging, and controls |
 | `bindings-grant.ts` | The whole-file `PUT /v1/bindings` write: prompt-key stripping (004 FR-014), the "nothing changed" refusal note, and the relay arming that follows a confirmed list |
 | `bindings-prompt.ts` | The binding editor's starting-prompt field — the one element in the panel that ever holds its text (005 FR-051) |

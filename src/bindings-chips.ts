@@ -27,10 +27,10 @@ export const TRIGGER_MENTION = 'Mention';
 export const TRIGGER_REVIEW = 'Review request';
 
 /** The two states a binding row can be in, as its chip prints them. */
-const STATE_ON = 'enabled';
+export const STATE_ON = 'enabled';
 
 /** The state chip for a binding that does not poll. */
-const STATE_OFF = 'disabled';
+export const STATE_OFF = 'disabled';
 
 /** The chip row over the selected binding's detail line. */
 export interface DetailChips {

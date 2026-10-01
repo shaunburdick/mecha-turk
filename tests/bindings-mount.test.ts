@@ -25,12 +25,16 @@ import {
     DEFAULT_BODY,
     DEFAULT_STATUS,
     fakeHost,
+    FIXTURE_TIMESTAMP,
     LOGIN,
     PROJECTS,
     tick,
 } from './support/panel.ts';
 import { fakeDom } from './support/dom.ts';
 import { stubPaints, stubPanelUi, stubProjectPickerUi, stubBindingsPane } from './support/ui-stubs.ts';
+
+/** Repository the draft patches and the loaded fixture row both name. */
+const REPOSITORY = 'acme/widget';
 
 /**
  * Read a stubbed handle's paint count.
@@ -75,7 +79,7 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
         rt.state.projects.projects = PROJECTS.projects;
         const handlers = createBindingsHandlers(rt);
 
-        handlers.setRepoInput('acme/widget');
+        handlers.setRepoInput(REPOSITORY);
         handlers.selectAccount('77331');
         handlers.selectProject('prj_42');
         handlers.setAssignment(false);
@@ -84,17 +88,44 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
         expect(rt.state.bindings.triggerReviewRequest).toBe(true);
         handlers.setReviewRequest(false);
         handlers.setWorktree('generated');
-        handlers.selectBinding('bnd-1');
 
         const { bindings } = rt.state;
-        expect(bindings.repoInput).toBe('acme/widget');
+        expect(bindings.repoInput).toBe(REPOSITORY);
         expect(bindings.accountSelection).toBe('77331');
         expect(bindings.repoProjectSelection).toBe('prj_42');
         expect(bindings.triggerAssignment).toBe(false);
         expect(bindings.triggerMention).toBe(true);
         expect(bindings.triggerReviewRequest).toBe(false);
         expect(bindings.worktreeSelection).toBe('generated');
+    });
+
+    it('loads a clicked row into the editor, which the click opens (2026-10-01 review)', () => {
+        const rt = createTestRuntime(fakeHost());
+        rt.state.bindings.status = 'ready';
+        rt.state.bindings.bindings = [
+            {
+                bindingId: 'bnd-1',
+                accountNumericUserId: '77331',
+                accountLogin: LOGIN,
+                repository: REPOSITORY,
+                projectId: 'prj_42',
+                worktreeOption: 'generated',
+                triggers: { assignment: true, mention: false, reviewRequest: true },
+                state: 'active',
+                createdAt: FIXTURE_TIMESTAMP,
+                updatedAt: FIXTURE_TIMESTAMP,
+            },
+        ];
+        const handlers = createBindingsHandlers(rt);
+
+        handlers.selectBinding('bnd-1');
+
+        const { bindings } = rt.state;
         expect(bindings.selectedBinding).toBe('bnd-1');
+        expect(bindings.editing).toBe(true);
+        expect(bindings.editorOpen).toBe(true);
+        expect(bindings.repoInput).toBe(REPOSITORY);
+        expect(bindings.repoProjectSelection).toBe('prj_42');
     });
 
     it('wires submit to bindRepository, which refuses an incomplete draft on the note', async () => {

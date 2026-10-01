@@ -97,6 +97,9 @@ const LOGIN = 'octocat-mt';
 /** Fixture repository the edited binding watches. */
 const REPOSITORY = 'acme/widget';
 
+/** The note an accepted save leaves for {@link REPOSITORY}'s row. */
+const SAVED_NOTE = 'Saved acme/widget.';
+
 /** Fixture repository the untouched binding watches. */
 const OTHER_REPOSITORY = 'acme/other';
 
@@ -325,7 +328,9 @@ describe('004 FR-014 the save carries the prompt only where it was edited', () =
         handlers.selectBinding(EDITED_ID);
         handlers.setStartingPrompt('');
 
-        handlers.saveStartingPrompt();
+        // One form, one save: the editor's primary control writes the prompt
+        // with the rest of the binding (2026-10-01 review).
+        handlers.submit();
         await tick();
 
         const raw = putBody(service.requests);
@@ -336,10 +341,11 @@ describe('004 FR-014 the save carries the prompt only where it was edited', () =
         expect(rows[0] === undefined ? false : Object.hasOwn(rows[0], 'startingPrompt')).toBe(true);
         expect(rows[1] === undefined ? true : Object.hasOwn(rows[1], 'startingPrompt')).toBe(false);
         expect(rt.state.bindings.startingPromptDirty).toBe(false);
-        expect(rt.state.bindings.note).toContain('Starting prompt cleared');
+        expect(rt.state.bindings.note).toBe(SAVED_NOTE);
+        expect(rt.state.bindings.editorOpen).toBe(false);
     });
 
-    it('sends nothing at all when the field was never touched', async () => {
+    it('omits the key from the save when the field was never touched', async () => {
         const service = echoService();
         const rt = createTestRuntime(service.host);
         rt.state.bindings.bindings = stateFromWire([
@@ -349,11 +355,15 @@ describe('004 FR-014 the save carries the prompt only where it was edited', () =
         const handlers = createBindingsHandlers(rt);
         handlers.selectBinding(EDITED_ID);
 
-        handlers.saveStartingPrompt();
+        handlers.submit();
         await tick();
 
-        expect(service.requests.filter((request) => request.method === 'PUT')).toHaveLength(0);
-        expect(rt.state.bindings.note).toContain('not changed');
+        // The row still saves — the operator asked for that — but the prompt
+        // key is absent from the wire, so the service keeps what it holds
+        // (004 FR-014's omission-preserves).
+        expect(service.requests.filter((request) => request.method === 'PUT')).toHaveLength(1);
+        expect(putBody(service.requests)).not.toContain('startingPrompt');
+        expect(rt.state.bindings.note).toBe(SAVED_NOTE);
     });
 });
 
@@ -379,7 +389,7 @@ describe('AC-124 a refused prompt stays in force and is never reported as saved'
         handlers.setStartingPrompt('ghp_A_CREDENTIAL_SHAPED_VALUE');
         const before = JSON.stringify(rt.state.bindings.bindings);
 
-        handlers.saveStartingPrompt();
+        handlers.submit();
         await tick();
 
         expect(requests.some((request) => request.method === 'PUT')).toBe(true);
@@ -407,7 +417,7 @@ describe('AC-124 a refused prompt stays in force and is never reported as saved'
         const edited = `${PREVIOUS} Then the release notes.`;
         handlers.setStartingPrompt(edited);
 
-        handlers.saveStartingPrompt();
+        handlers.submit();
         await tick();
 
         expect(rt.state.bindings.startingPromptError).toBeNull();
@@ -415,6 +425,6 @@ describe('AC-124 a refused prompt stays in force and is never reported as saved'
         // The field shows what the service stored after its own normalisation,
         // not the draft the operator typed.
         expect(rt.state.bindings.startingPromptInput).toBe(edited);
-        expect(rt.state.bindings.note).toContain('Starting prompt saved');
+        expect(rt.state.bindings.note).toBe(SAVED_NOTE);
     });
 });

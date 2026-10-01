@@ -1,12 +1,13 @@
 /**
  * The binding editor's edit mode (005 FR-050, FR-053).
  *
- * Three actions, one shape: **load** the selected row into the form the
- * Bindings tab already mounts, **leave** that form without writing, and
- * **save** it through the same whole-file `PUT /v1/bindings` grant every
- * other write uses. There is deliberately no per-binding endpoint here —
- * 005 FR-050 keeps 002's MVP decision closed — so an edit is a rebuilt row
- * in a whole-list grant, refused or accepted by the service like any other.
+ * Three actions, one shape: **load** a row into the editor the Bindings tab
+ * mounts (the row click is the affordance — the editor is not open by
+ * default), **leave** that editor without writing, and **save** it through the
+ * same whole-file `PUT /v1/bindings` grant every other write uses. There is
+ * deliberately no per-binding endpoint here — 005 FR-050 keeps 002's MVP
+ * decision closed — so an edit is a rebuilt row in a whole-list grant,
+ * refused or accepted by the service like any other.
  *
  * The module is its own file for the reason `bindings-prompt.ts` is: the
  * bindings action module was already at the file-length cap, and a second
@@ -23,7 +24,33 @@ import { redact } from './redaction.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
 /**
- * Load the selected binding into the existing editor and enter edit mode
+ * Open the editor on an empty draft — the list's **New binding** control
+ * (2026-10-01 review).
+ *
+ * Opening a new row and editing an existing one are mutually exclusive
+ * states of one editor, so this does exactly what a row click does in
+ * reverse: no row is selected (the add form's own signal throughout — the
+ * account picker lists, the prompt field waits), every draft field returns to
+ * its default, and the stale note from the last action is cleared so the form
+ * opens saying nothing rather than repeating an old refusal.
+ *
+ * @param rt - Panel runtime.
+ */
+export function startNewBinding(rt: PanelRuntime): void {
+    const { bindings } = rt.state;
+    resetDraft(bindings);
+    bindings.selectedBinding = null;
+    bindings.editing = false;
+    bindings.editorOpen = true;
+    bindings.startingPromptInput = '';
+    bindings.startingPromptDirty = false;
+    bindings.startingPromptError = null;
+    bindings.note = '';
+    refresh(rt);
+}
+
+/**
+ * Load the selected binding into the editor and enter edit mode
  * (005 FR-050, FR-053).
  *
  * Every field the editor presents is loaded from the stored row — repository,
@@ -35,7 +62,9 @@ import type { PanelRuntime } from './panel-state.ts';
  * select does not). Loading such a row would display *none* and silently
  * rewrite it on save, so the edit is refused with the reason instead
  * (FR-003: a displayed value and a saved value are the same value, or the
- * edit does not open).
+ * edit does not open) — and the editor **closes with a clean draft**, because
+ * a form that stays open showing one row's values while another row is
+ * selected is exactly how a save writes one binding's values into another.
  *
  * @param rt - Panel runtime.
  */
@@ -45,6 +74,9 @@ export function startEditingBinding(rt: PanelRuntime): void {
         bindings.bindings.find((candidate) => candidate.bindingId === bindings.selectedBinding) ?? null;
     if (binding === null) {
         bindings.note = SELECT_TO_EDIT_NOTE;
+        bindings.editorOpen = false;
+        bindings.editing = false;
+        resetDraft(bindings);
         refresh(rt);
 
         return;
@@ -54,6 +86,9 @@ export function startEditingBinding(rt: PanelRuntime): void {
         bindings.note =
             `This binding's worktree option (${binding.worktreeOption}) is not one the editor offers, ` +
             'so editing it here would change it — leave it as it is.';
+        bindings.editorOpen = false;
+        bindings.editing = false;
+        resetDraft(bindings);
         refresh(rt);
 
         return;
@@ -70,17 +105,19 @@ export function startEditingBinding(rt: PanelRuntime): void {
     bindings.startingPromptDirty = false;
     bindings.startingPromptError = null;
     bindings.editing = true;
+    bindings.editorOpen = true;
     bindings.note = `Editing ${binding.repository}. Change the fields above, then Save changes.`;
     refresh(rt);
 }
 
 /**
- * Leave edit mode and restore the add form and the prompt field.
+ * Leave the editor and restore the add form's defaults and the prompt field.
  *
- * The prompt field goes back to what the service stores for the selected row,
- * so a draft the operator walks away from cannot be mistaken for a saved one
- * (004 FR-014's untouched-omits rule depends on the dirty flag being reset
- * with it).
+ * The editor closes: the list is the tab, and a cancelled edit leaves nothing
+ * open to mistake for a saved one. The prompt field goes back to what the
+ * service stores for the selected row, so a draft the operator walks away
+ * from cannot be mistaken for a saved one (004 FR-014's untouched-omits rule
+ * depends on the dirty flag being reset with it).
  *
  * @param rt - Panel runtime.
  * @param note - Note to leave behind, or `null` to keep the current one (a
@@ -90,6 +127,7 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
     const { bindings } = rt.state;
     resetDraft(bindings);
     bindings.editing = false;
+    bindings.editorOpen = false;
     bindings.startingPromptInput = storedPromptFor(bindings, bindings.selectedBinding);
     bindings.startingPromptDirty = false;
     bindings.startingPromptError = null;
@@ -148,7 +186,11 @@ export async function saveEditedBinding(rt: PanelRuntime): Promise<void> {
     }
 
     if (answer.ok) {
+        // The service confirmed the write, so the editor closes: what the
+        // operator asked for is on the list, which is the surface the result
+        // belongs to (and the note now reports it).
         bindings.editing = false;
+        bindings.editorOpen = false;
         resetDraft(bindings);
         bindings.startingPromptDirty = false;
         bindings.startingPromptError = null;

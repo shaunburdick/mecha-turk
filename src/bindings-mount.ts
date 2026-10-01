@@ -16,19 +16,18 @@
  * `activeTab` for the central repaint to act on. Nothing new is invented —
  * the handlers are a table, not a layer.
  *
- * The one write spelled out here rather than imported is the starting
- * prompt's save: it is the form's own rule set (untouched omits, cleared
- * travels, a refusal lands at the field), and keeping it beside the table
- * that submits it is what stops a second implementation of those rules from
- * appearing somewhere with less reason to know them (005 FR-051, FR-052).
+ * The two handlers that carry the 2026-10-01 review's shape are spelled out
+ * here: **selecting a row loads it into the editor** (the row *is* the Edit
+ * affordance, and a stray click on the row being edited keeps the edit open),
+ * and **New binding** opens the same editor on an empty draft. The starting
+ * prompt travels with whichever primary control writes — untouched omits,
+ * cleared travels, a refusal lands at the field — all of it through
+ * `saveEditedBinding`, so those rules have exactly one home (005 FR-051,
+ * FR-052; 004 FR-014).
  */
 
 import { loadProjects, selectBindingProject } from './project-actions.ts';
-import { refresh } from './panel-ui.ts';
-import { redact } from './redaction.ts';
 import type { PanelRuntime } from './panel-state.ts';
-import { grantBindings } from './bindings-grant.ts';
-import { promptRefusal, storedPromptFor } from './bindings-prompt.ts';
 import {
     bindRepository,
     editBindings,
@@ -39,9 +38,12 @@ import {
 import {
     saveEditedBinding,
     startEditingBinding,
+    startNewBinding,
     stopEditingBinding,
 } from './bindings-edit.ts';
-import { mountBindingsBody, repaintBindingsPane } from './bindings-ui.ts';
+import { storedPromptFor } from './bindings-prompt.ts';
+import { mountBindingsBody } from './bindings-body.ts';
+import { repaintBindingsPane } from './bindings-ui.ts';
 import type { BindingsPaneHandlers } from './bindings-ui.ts';
 import { loadAuditHistory } from './audit-view.ts';
 import {
@@ -66,105 +68,76 @@ import {
 } from './dispatches.ts';
 
 /**
- * Write the edited starting prompt through the whole-file grant (FR-051).
+ * The prompt field's callback, and the row click that opens the editor
+ * (005 FR-051, FR-052).
  *
- * Three rules are enforced here rather than in the field: a save the operator
- * never asked for **does nothing at all**, so the key stays omitted and the
- * service keeps what it holds (004 FR-014); an explicit clear travels as an
- * empty string, which is how the route is told to remove it; and a refusal is
- * rendered **at the field** with the service's own remediation while the
- * stored prompt stays in force and nothing is reported as saved (FR-052).
- *
- * @param rt - Panel runtime.
- */
-async function saveStartingPrompt(rt: PanelRuntime): Promise<void> {
-    const { bindings } = rt.state;
-    const target = bindings.selectedBinding;
-    if (target === null) {
-        bindings.note = 'Select a binding to edit its starting prompt.';
-        refresh(rt);
-
-        return;
-    }
-
-    if (!bindings.startingPromptDirty) {
-        bindings.note = 'Nothing to save: the starting prompt was not changed.';
-        refresh(rt);
-
-        return;
-    }
-
-    const stored = bindings.bindings.find((binding) => binding.bindingId === target)?.repository ?? target;
-    const clearing = bindings.startingPromptInput.trim() === '';
-    const answer = await grantBindings({
-        rt,
-        bindings: bindings.bindings,
-        note: clearing ? `Starting prompt cleared for ${stored}.` : `Starting prompt saved for ${stored}.`,
-        prompt: { bindingId: target, startingPrompt: bindings.startingPromptInput },
-    });
-    if (rt.disposed) {
-        return;
-    }
-
-    if (answer.ok) {
-        bindings.startingPromptError = null;
-        bindings.startingPromptDirty = false;
-        // The service normalises (trim, cap, line endings), so the field shows
-        // what it actually stored rather than what was typed.
-        bindings.startingPromptInput = storedPromptFor(bindings, target);
-    } else {
-        // A refusal keeps the draft exactly as it was typed: the operator gets
-        // their text back with the remediation, not a silent revert.
-        const refusal = promptRefusal(answer);
-        bindings.startingPromptError = refusal === null ? null : redact(refusal);
-    }
-
-    refresh(rt);
-}
-
-/**
- * The prompt field's three callbacks (005 FR-051, FR-052).
- *
- * Split out so the handler table below stays a table: selecting a row opens
- * the field on what the service holds for it, typing marks the edit, and the
- * save runs the rules spelled out in {@link saveStartingPrompt}.
+ * Split out so the handler table below stays a table. Selecting a row both
+ * selects it and loads it into the editor — the row *is* the Edit affordance
+ * since the 2026-10-01 review — so the field opens on what the service holds
+ * for that row, never on a fingerprint and never on whichever row was
+ * selected before (005 FR-051).
  *
  * @param rt - Panel runtime the actions read and repaint.
- * @returns The handlers the field and its save control invoke.
+ * @returns The handlers the field invokes.
  */
 function promptHandlers(rt: PanelRuntime): Pick<
     BindingsPaneHandlers,
-    'selectBinding' | 'setStartingPrompt' | 'saveStartingPrompt'
+    'selectBinding' | 'setStartingPrompt'
 > {
     return {
         selectBinding: (id) => {
-            // Selecting another row closes whatever the editor had open, the
-            // way the Accounts rows do: the draft belongs to the row it was
-            // loaded from, and carrying it across would let a save write one
+            const { bindings } = rt.state;
+            // A stray click on the row being edited keeps the edit, so a
+            // passing click does not throw work away.
+            if (bindings.editing && bindings.selectedBinding === id) {
+                return;
+            }
+
+            // Clicking another row cancels the open edit first, the way the
+            // Accounts rows do: the draft belongs to the row it was loaded
+            // from, and carrying it across would let a save write one
             // binding's values into another (005 FR-050: what the form shows
-            // is what the grant writes). Re-selecting the row being edited
-            // keeps the edit, so a stray click does not throw work away.
-            if (rt.state.bindings.editing && rt.state.bindings.selectedBinding !== id) {
+            // is what the grant writes).
+            if (bindings.editing) {
                 stopEditingBinding(rt, null);
             }
 
-            editBindings(rt, {
-                selectedBinding: id,
-                // The editor field opens on what the service holds for this row
-                // (004 FR-012) — never on a fingerprint, and never on whichever
-                // row was selected before (005 FR-051).
-                startingPromptInput: storedPromptFor(rt.state.bindings, id),
-                startingPromptDirty: false,
-                startingPromptError: null,
-            });
+            // The selection is patched here rather than through
+            // `editBindings`, because the load below repaints: one click must
+            // paint once, and SC-105 counts the paints that carry the prompt.
+            bindings.selectedBinding = id;
+            // The editor field opens on what the service holds for this row
+            // (004 FR-012) — never on a fingerprint, and never on whichever
+            // row was selected before (005 FR-051).
+            bindings.startingPromptInput = storedPromptFor(bindings, id);
+            bindings.startingPromptDirty = false;
+            bindings.startingPromptError = null;
+            // The click opens the editor on this row — or refuses to open it
+            // (a worktree option this editor cannot render) and says why with
+            // the editor shut and the draft clean (FR-003).
+            startEditingBinding(rt);
         },
         setStartingPrompt: (value) => editBindings(rt, {
             startingPromptInput: value,
             startingPromptDirty: true,
             startingPromptError: null,
         }),
-        saveStartingPrompt: () => void saveStartingPrompt(rt),
     };
+}
+
+/**
+ * The note a cancelled editor leaves behind (2026-10-01 review).
+ *
+ * A loaded edit says it wrote nothing, because that is the promise the
+ * control makes; the add form simply closes — there was no row to disown, and
+ * an empty note is the honest one rather than claiming a cancelled *edit*
+ * that never started.
+ *
+ * @param rt - Panel runtime the cancel reads.
+ * @returns The note, which may be empty but is never `null`-meaningful.
+ */
+function cancelNote(rt: PanelRuntime): string {
+    return rt.state.bindings.editing ? 'Edit cancelled; nothing was written.' : '';
 }
 
 /**
@@ -194,8 +167,8 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
         },
         toggle: () => void toggleBinding(rt),
         removeBinding: () => void removeBinding(rt),
-        editBinding: () => startEditingBinding(rt),
-        cancelEdit: () => stopEditingBinding(rt, 'Edit cancelled; nothing was written.'),
+        newBinding: () => startNewBinding(rt),
+        cancelEdit: () => stopEditingBinding(rt, cancelNote(rt)),
         setRepoInput: (value) => editBindings(rt, { repoInput: value }),
         selectAccount: (id) => editBindings(rt, { accountSelection: id }),
         selectProject: (id) => selectBindingProject(rt, id),

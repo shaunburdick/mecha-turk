@@ -442,6 +442,10 @@ export function reloadBindingsAfterConnect(rt: PanelRuntime): void {
 /**
  * Add the drafted repository as a binding and grant the whole list.
  *
+ * A granted add closes the editor — the new row is on the list, which is the
+ * surface the success note reports from — while a refused one leaves the
+ * editor open with the draft the operator can correct.
+ *
  * @param rt - Panel runtime.
  */
 export async function bindRepository(rt: PanelRuntime): Promise<void> {
@@ -454,12 +458,16 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
         return;
     }
 
-    await grantBindings({
+    const answer = await grantBindings({
         rt,
         bindings: [...bindings.bindings, draft],
         note: `Bound ${draft.repository} to ${draft.accountLogin}.`,
     });
     resetCoveredDraft(bindings, draft.repository);
+    if (answer.ok) {
+        bindings.editorOpen = false;
+    }
+
     refresh(rt);
 }
 

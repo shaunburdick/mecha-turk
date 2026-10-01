@@ -394,7 +394,7 @@ describe('T-023 the Bindings tab speaks the product vocabulary (FR-020)', () => 
 
         expect(strings.some((line) => line.startsWith('Bindings: '))).toBe(true);
         expect(strings).toContain('Bindings');
-        expect(strings).toContain('No binding yet — add one below or refresh.');
+        expect(strings).toContain('No binding yet — select New binding to add one, or refresh.');
         expect(strings).toContain('Add binding');
         expect(strings.some((line) => line.includes('Repositories'))).toBe(false);
     });
@@ -652,32 +652,62 @@ function withSelectedRow(rt: ReturnType<typeof createTestRuntime>): void {
     rt.state.bindings.selectedBinding = 'bnd-1';
 }
 
-describe('T-036 a selected binding has a reachable Edit affordance (FR-050)', () => {
-    it('mounts Edit and Cancel beside the other selected-row controls', () => {
-        const { dispose } = mountBindingsTab({ setup: withSelectedRow });
+describe('T-036 the editor opens on request and states what it holds (FR-050, FR-053)', () => {
+    it('shows the list first, with New binding beside the row controls and no Edit button', () => {
+        const { rt, dispose } = mountBindingsTab({ setup: withSelectedRow });
         const strings = renderedStrings();
+        const editorOpen = rt.bindingsUi?.editorBox.hidden === false;
         dispose();
 
-        expect(strings).toContain('Edit binding');
+        // The list is the tab: the editor block is shut until a row click or
+        // New binding opens it (2026-10-01 review).
+        expect(editorOpen).toBe(false);
+        expect(strings).toContain('New binding');
+        expect(strings).toContain('Toggle enabled');
+        expect(strings).toContain('Remove');
+        // One primary control with a contextual label; the separate Edit row
+        // button is gone — the row click *is* the Edit affordance.
+        expect(strings).not.toContain('Edit binding');
         expect(strings).toContain('Cancel edit');
         expect(primaryControl()?.label).toBe(ADD_BINDING_LABEL);
+        // The prompt is a field of this form, not a section with its own save.
+        expect(strings).not.toContain('Save starting prompt');
     });
 
-    it('reads Save changes while the row is loaded, Add binding after it is not', () => {
+    it('opens on the row load, and reads Save changes while that row is loaded', () => {
         const { rt, dispose } = mountBindingsTab({ setup: withSelectedRow });
 
         startEditingBinding(rt);
         // The label is the promise: activating it writes what it now says,
         // because the same control is the whole-file grant's one entry point.
+        expect(rt.bindingsUi?.editorBox.hidden).toBe(false);
         expect(primaryControl()?.label).toBe(SAVE_CHANGES_LABEL);
         expect(primaryControl()?.disabled).toBe(false);
         expect(rt.state.bindings.repoInput).toBe(bindingFixture().repository);
         expect(rt.state.bindings.editing).toBe(true);
 
         stopEditingBinding(rt, null);
+        expect(rt.bindingsUi?.editorBox.hidden).toBe(true);
         expect(primaryControl()?.label).toBe(ADD_BINDING_LABEL);
         expect(rt.state.bindings.editing).toBe(false);
         dispose();
+    });
+
+    it('states whether the loaded binding is enabled or disabled (2026-10-01 review)', () => {
+        const { rt, dispose } = mountBindingsTab({
+            setup: (runtime): void => {
+                withSelectedRow(runtime);
+                runtime.state.bindings.bindings = [bindingFixture({ state: 'disabled' })];
+            },
+        });
+
+        startEditingBinding(rt);
+        const strings = renderedStrings();
+        dispose();
+
+        expect(strings).toContain('State: disabled');
+        // …and the enabled row states its own truth, not the last one painted.
+        expect(strings.filter((line) => line.startsWith('State: '))).not.toContain('State: enabled');
     });
 });
 

@@ -276,7 +276,7 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
         const rt = await editorRuntime(service);
         const handlers = createBindingsHandlers(rt);
 
-        handlers.editBinding();
+        handlers.selectBinding(BINDING_ID);
         handlers.setMention(true);
         handlers.setWorktree('generated');
         handlers.setRepoInput(NEXT_REPOSITORY);
@@ -315,7 +315,7 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
         const rt = await editorRuntime(service);
         const handlers = createBindingsHandlers(rt);
 
-        handlers.editBinding();
+        handlers.selectBinding(BINDING_ID);
         handlers.setStartingPrompt(REFUSED_PROMPT);
         handlers.setMention(true);
         await saveEditedBinding(rt);
@@ -349,7 +349,7 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
         const rt = await editorRuntime(service);
         const handlers = createBindingsHandlers(rt);
 
-        handlers.editBinding();
+        handlers.selectBinding(BINDING_ID);
         handlers.setRepoInput('not-a-repository');
         await saveEditedBinding(rt);
         stopRelayPolling(rt);
@@ -389,8 +389,8 @@ function otherRow(): PanelBinding {
     return { ...panelRow(), bindingId: 'bnd-other', repository: 'acme/other', startingPrompt: undefined };
 }
 
-describe('the Edit affordance on the row (FR-050, FR-081)', () => {
-    it('loads on Edit, and selecting another row closes the edit', () => {
+describe('the row click is the Edit affordance (FR-050, FR-081)', () => {
+    it('loads on a row click, and another row click swaps the edit to that row', () => {
         const { host } = recordingHost();
         const rt = createTestRuntime(host);
         rt.state.bindings.status = 'ready';
@@ -398,24 +398,27 @@ describe('the Edit affordance on the row (FR-050, FR-081)', () => {
         rt.state.bindings.selectedBinding = BINDING_ID;
         const handlers = createBindingsHandlers(rt);
 
-        handlers.editBinding();
+        handlers.selectBinding(BINDING_ID);
         expect(rt.state.bindings.editing).toBe(true);
+        expect(rt.state.bindings.editorOpen).toBe(true);
         expect(rt.state.bindings.repoInput).toBe(REPOSITORY);
 
         // A stray click on the row being edited keeps the edit open.
         handlers.selectBinding(BINDING_ID);
         expect(rt.state.bindings.editing).toBe(true);
+        expect(rt.state.bindings.repoInput).toBe(REPOSITORY);
 
-        // Another row closes it: one row's draft must never be pointed at a
-        // different row, or a save would write these values into that one.
+        // Clicking another row loads **that** row: one row's draft must never
+        // stay pointed at a different row, or a save would write these values
+        // into the row the selection now names.
         handlers.selectBinding('bnd-other');
-        expect(rt.state.bindings.editing).toBe(false);
-        expect(rt.state.bindings.repoInput).toBe('');
+        expect(rt.state.bindings.editing).toBe(true);
+        expect(rt.state.bindings.repoInput).toBe('acme/other');
         expect(rt.state.bindings.startingPromptInput).toBe('');
 
-        handlers.editBinding();
         handlers.cancelEdit();
         expect(rt.state.bindings.editing).toBe(false);
+        expect(rt.state.bindings.editorOpen).toBe(false);
         expect(rt.state.bindings.repoInput).toBe('');
         expect(rt.state.bindings.note).toBe('Edit cancelled; nothing was written.');
     });
@@ -428,7 +431,7 @@ describe('the Edit affordance on the row (FR-050, FR-081)', () => {
         rt.state.bindings.selectedBinding = BINDING_ID;
         const handlers = createBindingsHandlers(rt);
 
-        handlers.editBinding();
+        handlers.selectBinding(BINDING_ID);
         handlers.setMention(true);
         handlers.submit();
         await tick();
@@ -438,6 +441,46 @@ describe('the Edit affordance on the row (FR-050, FR-081)', () => {
         expect(sent.bindings[0]?.bindingId).toBe(BINDING_ID);
         expect(sent.bindings[0]?.triggers.mention).toBe(true);
         expect(rt.state.bindings.editing).toBe(false);
+        // A save the service accepted closes the editor: the list is the
+        // surface the result belongs to (2026-10-01 review).
+        expect(rt.state.bindings.editorOpen).toBe(false);
         stopRelayPolling(rt);
+    });
+});
+
+describe('New binding opens the editor on an empty draft (2026-10-01 review)', () => {
+    it('selects nothing, empties every field, and opens the editor', () => {
+        const rt = createTestRuntime(recordingHost().host);
+        rt.state.bindings.status = 'ready';
+        rt.state.bindings.bindings = [panelRow()];
+        rt.state.bindings.selectedBinding = BINDING_ID;
+        rt.state.bindings.repoInput = panelRow().repository;
+        rt.state.bindings.note = 'an older refusal';
+        const handlers = createBindingsHandlers(rt);
+
+        handlers.newBinding();
+
+        const { bindings } = rt.state;
+        expect(bindings.editorOpen).toBe(true);
+        expect(bindings.editing).toBe(false);
+        expect(bindings.selectedBinding).toBeNull();
+        expect(bindings.repoInput).toBe('');
+        expect(bindings.note).toBe('');
+        expect(bindings.startingPromptInput).toBe('');
+        expect(bindings.startingPromptDirty).toBe(false);
+    });
+
+    it('closes again on cancel, with nothing written', () => {
+        const rt = createTestRuntime(recordingHost().host);
+        rt.state.bindings.status = 'ready';
+        const handlers = createBindingsHandlers(rt);
+
+        handlers.newBinding();
+        handlers.setRepoInput('acme/brand-new');
+        handlers.cancelEdit();
+
+        expect(rt.state.bindings.editorOpen).toBe(false);
+        expect(rt.state.bindings.repoInput).toBe('');
+        expect(rt.state.bindings.note).toBe('');
     });
 });

@@ -27,9 +27,9 @@
  *
  * All three are pure functions of the tab's state, so the copy and the
  * scoping are unit-testable without a DOM. Two mounted pieces live here too —
- * the mention-token line, and the action row (the primary control plus the
- * Edit/cancel affordance 005 FR-050 asks for) — and this module deliberately
- * imports neither `panel-ui` nor `bindings.ts`: it is composed by
+ * the mention-token line, and the two action rows (the editor's primary
+ * control and cancel, plus the list's row-level controls) — and this module
+ * deliberately imports neither `panel-ui` nor `bindings.ts`: it is composed by
  * `bindings-ui`, so it has to stay a leaf.
  */
 
@@ -37,6 +37,7 @@ import { mountButton, mountText } from '@openchamber/sdk/ui';
 import type { ButtonHandle, SelectOption, TextHandle } from '@openchamber/sdk/ui';
 import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
 import type { PanelBinding } from './bindings-service.ts';
+import { STATE_OFF, STATE_ON } from './bindings-chips.ts';
 
 /** Label of the primary control while the form is adding a binding. */
 export const ADD_BINDING_LABEL = 'Add binding';
@@ -44,19 +45,19 @@ export const ADD_BINDING_LABEL = 'Add binding';
 /** Label of that same control once the editor holds a loaded row (FR-050). */
 export const SAVE_CHANGES_LABEL = 'Save changes';
 
-/** Label of the control that loads the selected row into the editor. */
-export const EDIT_BINDING_LABEL = 'Edit binding';
+/** Label of the list control that opens the editor on an empty draft. */
+export const NEW_BINDING_LABEL = 'New binding';
 
-/** Label of the control that walks away from a loaded edit without writing. */
+/** Label of the control that walks away from the open editor without writing. */
 export const CANCEL_EDIT_LABEL = 'Cancel edit';
 
 /** Callbacks the editor's action row invokes. */
 export interface BindingActionHandlers {
     /** The primary control: add in add mode, save in edit mode (FR-050). */
     readonly submit: () => void;
-    /** Load the selected row into this form — the Edit affordance. */
-    readonly editBinding: () => void;
-    /** Leave a loaded edit without writing it. */
+    /** Open the editor on an empty draft — the list's *New binding* control. */
+    readonly newBinding: () => void;
+    /** Leave the open editor without writing it. */
     readonly cancelEdit: () => void;
     /** Enable or disable the selected row (FR-054). */
     readonly toggle: () => void;
@@ -64,83 +65,86 @@ export interface BindingActionHandlers {
     readonly removeBinding: () => void;
 }
 
-/** The five controls under the editor's fields, as the pane carries them. */
+/** The five controls the pane carries: the editor's two, the list's three. */
 export interface BindingActions {
     /** Primary control: **Add binding**, or **Save changes** in edit mode. */
     readonly add: ButtonHandle;
-    /** Loads the selected row into the editor (005 FR-050's Edit). */
-    readonly edit: ButtonHandle;
+    /** Closes the editor without writing (the open form's own escape). */
+    readonly cancel: ButtonHandle;
+    /** Opens the editor on an empty draft, so the list is not the add form. */
+    readonly newBinding: ButtonHandle;
     /** Enable/disable toggle for the selected row. */
     readonly toggle: ButtonHandle;
     /** Removal control for the selected row. */
     readonly removeSelected: ButtonHandle;
-    /** Leaves a loaded edit without writing it. */
-    readonly cancel: ButtonHandle;
 }
 
 /**
- * Mount the action row beneath the editor's fields.
+ * Mount the editor's action row and the list's row-level controls.
  *
- * The primary control and the Edit affordance live together because they are
- * two halves of one rule: a row can only be changed by loading it into this
- * form and saving it through the whole-file grant, so the control that loads
- * it sits beside the control that writes it — no second write path, no
- * per-row endpoint (005 FR-050).
+ * They are two halves of one rule: a row can only be changed by loading it
+ * into this form and saving it through the whole-file grant, so the primary
+ * control is the editor's own (005 FR-050 — no second write path), while
+ * **New binding**, **Toggle**, and **Remove** live with the list they act on
+ * and stay reachable while the editor is closed (2026-10-01 review: the
+ * editor is no longer open by default).
  *
- * @param input - Pane root and the callbacks the controls invoke.
+ * @param input - The editor body, the list's toolbar row, and the callbacks.
  * @returns The five handles the pane carries.
  */
 export function mountBindingActions(input: {
-    /** Pane root the controls mount into. */
-    readonly pane: HTMLElement;
+    /** Toolbar row in the editor the primary control and Cancel mount into. */
+    readonly editor: HTMLElement;
+    /** Toolbar row under the list the row-level controls mount into. */
+    readonly row: HTMLElement;
     /** Callbacks the controls invoke. */
     readonly handlers: BindingActionHandlers;
 }): BindingActions {
-    const { pane, handlers } = input;
+    const { editor, row, handlers } = input;
 
     return {
-        add: mountButton(pane, { label: ADD_BINDING_LABEL, disabled: true, onClick: handlers.submit }),
-        edit: mountButton(pane, {
-            label: EDIT_BINDING_LABEL,
-            variant: 'outline',
-            disabled: true,
-            onClick: handlers.editBinding,
-        }),
-        toggle: mountButton(pane, {
-            label: 'Toggle enabled',
-            variant: 'outline',
-            disabled: true,
-            onClick: handlers.toggle,
-        }),
-        removeSelected: mountButton(pane, {
-            label: 'Remove',
-            variant: 'outline',
-            disabled: true,
-            onClick: handlers.removeBinding,
-        }),
-        cancel: mountButton(pane, {
+        add: mountButton(editor, { label: ADD_BINDING_LABEL, disabled: true, onClick: handlers.submit }),
+        cancel: mountButton(editor, {
             label: CANCEL_EDIT_LABEL,
             variant: 'ghost',
             disabled: true,
             onClick: handlers.cancelEdit,
         }),
+        newBinding: mountButton(row, {
+            label: NEW_BINDING_LABEL,
+            variant: 'secondary',
+            disabled: true,
+            onClick: handlers.newBinding,
+        }),
+        toggle: mountButton(row, {
+            label: 'Toggle enabled',
+            variant: 'outline',
+            disabled: true,
+            onClick: handlers.toggle,
+        }),
+        removeSelected: mountButton(row, {
+            label: 'Remove',
+            variant: 'outline',
+            disabled: true,
+            onClick: handlers.removeBinding,
+        }),
     };
 }
 
 /**
- * Repaint the action row from the tab's state (005 FR-050, FR-054).
+ * Repaint both action rows from the tab's state (005 FR-050, FR-054).
  *
- * The primary control's label follows the mode the Edit affordance set, so
- * what activating it writes is always what its own words say; the row
- * controls follow the selection, and **Cancel** exists only while an edit is
- * loaded.
+ * The primary control's label follows the editor's own mode, so what
+ * activating it writes is always what its own words say; the list controls
+ * follow the selection and the read state, and **Cancel** exists only while
+ * the editor is open.
  *
- * @param input - The tab's state and the mounted action row.
+ * @param input - The tab's state and the mounted action rows.
  */
 export function repaintBindingActions(input: {
-    /** State the row repaints from. */
+    /** State the rows repaint from. */
     readonly bindings: BindingsTabState;
-    /** The mounted action row. */
+    /** The mounted action rows. */
     readonly actions: BindingActions;
 }): void {
     const { bindings, actions } = input;
@@ -148,13 +152,14 @@ export function repaintBindingActions(input: {
         label: bindings.editing ? SAVE_CHANGES_LABEL : ADD_BINDING_LABEL,
         disabled: bindings.status !== 'ready',
     });
-    actions.edit.update({
-        disabled: bindings.selectedBinding === null || bindings.editing || bindings.status !== 'ready',
-    });
+    actions.cancel.update({ disabled: !bindings.editorOpen });
+    actions.newBinding.update({ disabled: bindings.status !== 'ready' });
     actions.toggle.update({ disabled: bindings.selectedBinding === null });
     actions.removeSelected.update({ disabled: bindings.selectedBinding === null });
-    actions.cancel.update({ disabled: !bindings.editing });
 }
+
+/** What the editor's state line says about a binding that does not exist yet. */
+const EDITOR_STATE_NEW = 'State: a new binding starts enabled.';
 
 /** Line shown before any account is known, so no token can be derived yet. */
 export const MENTION_IDLE = 'Select an account to see the mention token in force.';
@@ -213,6 +218,28 @@ function selectedBinding(bindings: BindingsTabState): PanelBinding | null {
     return bindings.bindings.find(
         (candidate) => candidate.bindingId === bindings.selectedBinding,
     ) ?? null;
+}
+
+/**
+ * The state the editor states in its own words (005 FR-053, 2026-10-01
+ * review: *"no indication in the Binding Editor that the binding is enabled
+ * or disabled"*).
+ *
+ * The line reads the stored row, not the toggle's intent, so it cannot claim
+ * a state the service did not confirm; in add mode there is no stored row
+ * yet, and the line says what a save will write instead of hiding the
+ * question.
+ *
+ * @param bindings - The Bindings tab's state.
+ * @returns The line the editor paints under its heading.
+ */
+export function editorStateLine(bindings: BindingsTabState): string {
+    const binding = selectedBinding(bindings);
+    if (binding === null) {
+        return EDITOR_STATE_NEW;
+    }
+
+    return `State: ${binding.state === 'active' ? STATE_ON : STATE_OFF}`;
 }
 
 /**

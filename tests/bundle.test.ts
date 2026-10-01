@@ -91,7 +91,7 @@ describe('built panel bundle', () => {
         expect(bundle).toContain('mountBindingsBody');
         // And a semantic proof that is only true when the pane's code is
         // actually bundled: the empty-list copy the pane itself renders.
-        expect(bundle).toContain('No binding yet — add one below or refresh.');
+        expect(bundle).toContain('No binding yet — select New binding to add one, or refresh.');
         expect(bundle).toContain('Add binding');
         // FR-020: the tab's status line leads with *Bindings*, and the retired
         // noun it used to lead with appears nowhere in the shipped bundle.

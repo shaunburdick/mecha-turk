@@ -465,7 +465,9 @@ describe('"Not listed?" guidance (FR-070, AC-121)', () => {
     });
 
     it('is painted by both pickers, so the routes need no navigation away', () => {
-        const bindingPicker = readFileSync(resolve(ROOT, 'src/bindings-ui.ts'), 'utf8');
+        // The Bindings pane's mount moved into `bindings-body.ts` with the
+        // 2026-10-01 editor re-cut; the guidance still paints from there.
+        const bindingPicker = readFileSync(resolve(ROOT, 'src/bindings-body.ts'), 'utf8');
         const spikePicker = readFileSync(resolve(ROOT, 'src/panel-ui.ts'), 'utf8');
 
         expect(bindingPicker).toContain('notListedGuidance()');

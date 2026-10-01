@@ -7,6 +7,14 @@
  * The row summary renders presence and length only, so this module — and
  * nothing else — is the one place the text can reach the DOM (FR-051).
  *
+ * **The field has no button of its own.** It is a field of the binding's
+ * form, so the editor's own primary control writes it with everything else
+ * (2026-10-01 review: the prompt belongs to the binding, so it saves
+ * alongside the rest) — and 004 FR-014's rules ride that write unchanged: a
+ * field the operator left alone omits `startingPrompt` entirely, a cleared
+ * one travels as an explicit empty value, and a refusal lands back on this
+ * field with the service's remediation.
+ *
  * It is its own module for the same reason `dispatches-controls.ts` is: the
  * Bindings pane was already close to the file-length cap, and a second
  * responsibility with its own refusal to render is exactly how a file goes
@@ -14,20 +22,17 @@
  *
  * The module deliberately imports neither `panel-ui` nor `bindings.ts`: a
  * control that `bindings-ui` composes *and* `refresh` repaints has to stay a
- * leaf, or the two would form an import cycle. Its actions are the form's
- * handlers in `bindings-mount.ts`, which already owns that table.
+ * leaf, or the two would form an import cycle. Its handler is the form's own
+ * in `bindings-mount.ts`, which already owns that table.
  */
 
-import { mountButton, mountTextField } from '@openchamber/sdk/ui';
-import type { ButtonHandle, TextFieldHandle } from '@openchamber/sdk/ui';
+import { mountTextField } from '@openchamber/sdk/ui';
+import type { TextFieldHandle } from '@openchamber/sdk/ui';
 import type { ServiceErrorResult } from './service-envelope.ts';
 import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
 
 /** What the field is, in 005 FR-051's words (the operator's instruction). */
 export const STARTING_PROMPT_LABEL = 'Starting prompt for dispatches from this repository';
-
-/** Label of the control that writes the edited prompt. */
-export const SAVE_PROMPT_LABEL = 'Save starting prompt';
 
 /** Help under the field while nothing is wrong with it. */
 const PROMPT_HELPER = 'Sent first in every dispatch from this binding.';
@@ -41,9 +46,8 @@ const PROMPT_IDLE = 'Select a binding to edit its starting prompt.';
  * The whole-file grant validates every binding in one pass, so a 422 can be
  * about any of them; only the one whose message names the prompt may be
  * painted onto the prompt field, and anything else stays on the tab's note
- * where it already has a home. Shared by the prompt's own save and by the
- * binding editor's save, so the two cannot classify the same envelope
- * differently.
+ * where it already has a home. It is read by the binding editor's one save,
+ * so the form and the field always classify the same envelope the same way.
  *
  * @param answer - The grant's answer.
  * @returns The field-level copy to render, or `null` when it is not the prompt's.
@@ -56,34 +60,31 @@ export function promptRefusal(answer: ServiceErrorResult): string | null {
     return answer.message.includes('startingPrompt') ? answer.message : null;
 }
 
-/** Callbacks the field and its save control invoke. */
+/** Callbacks the field invokes. */
 export interface BindingPromptHandlers {
     /** The operator typed into the prompt field. */
     readonly setStartingPrompt: (value: string) => void;
-    /** The operator saved the edited prompt. */
-    readonly saveStartingPrompt: () => void;
 }
 
-/** The field and its save control, as the pane carries them. */
+/** The field, as the pane carries it. */
 export interface BindingPromptControls {
     /** The prompt itself — the only element that ever holds its text. */
     readonly field: TextFieldHandle;
-    /** Writes the edit through the whole-file grant. */
-    readonly save: ButtonHandle;
 }
 
 /**
- * Mount the field and its save control into the pane.
+ * Mount the field into the editor, between the other fields and the form's
+ * own action row.
  *
- * @param input - Runtime, pane root, and the handlers the controls invoke.
- * @returns The two handles the pane carries.
+ * @param input - Runtime, editor root, and the handler the field invokes.
+ * @returns The handle the pane carries.
  */
 export function mountBindingPrompt(input: {
     /** Runtime whose state the field renders from. */
     readonly rt: PanelRuntime;
-    /** Pane root the controls mount into. */
+    /** Editor root the field mounts into. */
     readonly pane: HTMLElement;
-    /** Handlers the controls invoke. */
+    /** Handler the field invokes. */
     readonly handlers: BindingPromptHandlers;
 }): BindingPromptControls {
     const state = input.rt.state.bindings;
@@ -98,12 +99,6 @@ export function mountBindingPrompt(input: {
             helper: state.selectedBinding === null ? PROMPT_IDLE : PROMPT_HELPER,
             onChange: (value) => input.handlers.setStartingPrompt(value),
         }),
-        save: mountButton(input.pane, {
-            label: SAVE_PROMPT_LABEL,
-            variant: 'secondary',
-            disabled: true,
-            onClick: input.handlers.saveStartingPrompt,
-        }),
     };
 }
 
@@ -116,7 +111,7 @@ export function mountBindingPrompt(input: {
  * can be shown verbatim (FR-085).
  *
  * @param rt - Panel runtime.
- * @param controls - The mounted field and save control.
+ * @param controls - The mounted field.
  */
 export function repaintBindingPrompt(rt: PanelRuntime, controls: BindingPromptControls): void {
     const state = rt.state.bindings;
@@ -128,17 +123,15 @@ export function repaintBindingPrompt(rt: PanelRuntime, controls: BindingPromptCo
         disabled: !editable,
         helper: help,
     });
-    controls.save.update({ disabled: !editable || !state.startingPromptDirty });
 }
 
 /**
- * Release the two handles the prompt mounted (FR-017).
+ * Release the handle the prompt mounted (FR-017).
  *
- * @param controls - The field and save control the pane carries.
+ * @param controls - The field the pane carries.
  */
 export function disposeBindingPrompt(controls: BindingPromptControls): void {
     controls.field.dispose();
-    controls.save.dispose();
 }
 
 /**
