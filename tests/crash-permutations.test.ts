@@ -51,6 +51,21 @@ const LATER_STAMP = '2026-09-20T01:00:00.000Z';
 /** Trials the dual-trigger success criterion counts (SC-101). */
 const TRIALS = 100;
 
+/**
+ * Time budget for the 100-trial proof, sized to its measured workload rather
+ * than vitest's 5-second default.
+ *
+ * The body does the real thing end to end — 150 fixture enqueues through the
+ * coalescing store (~0.5 s) plus two relay ticks that dispatch all 100 runs
+ * sequentially over loopback HTTP (~1.2 s, 502 requests, five per run), about
+ * 1.7 s total on an idle machine. On a loaded runner that same work has
+ * crossed 5 s (CI run 36836694111, while a sibling run of the same commit
+ * passed), so the budget carries an order-of-magnitude margin for a shared
+ * machine without weakening what the test counts: still 100 trials, still
+ * exactly one run and one session each.
+ */
+const TRIALS_BUDGET_MS = 30_000;
+
 /** Trials of those whose second trigger arrives in a later scan. */
 const LATER_SCAN_TRIALS = 50;
 
@@ -715,5 +730,5 @@ describe('SC-101: two triggers, one run, one session (AC-101)', () => {
         const kinds = new Set(runs.flatMap((run) => run.sourceReferences.map((reference) => reference.kind)));
         expect([...kinds].sort()).toEqual(['assignment', 'mention']);
         expectAtMostOneSessionPerRun();
-    });
+    }, TRIALS_BUDGET_MS);
 });
