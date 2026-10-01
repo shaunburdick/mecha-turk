@@ -23,6 +23,7 @@
 import { mountBanner, mountButton, mountText } from '@openchamber/sdk/ui';
 import type { BannerHandle, ButtonHandle, TextHandle } from '@openchamber/sdk/ui';
 import type { SettingsTabUi } from './settings-tab.ts';
+import { createBlock, mountColumnHead, mountStyledText } from './style.ts';
 import {
     CONFIG_SOURCE,
     CONFIRM_CANCEL_LABEL,
@@ -36,6 +37,15 @@ import {
     SAVE_LINES,
     SOURCE_NOTE,
 } from './settings-state.ts';
+
+/** Heading above the read-only configuration grid. */
+const CONFIG_HEADING = 'Configuration';
+
+/** Heading above the save bar, its confirmation, and its error region. */
+const SAVE_HEADING = 'Save';
+
+/** The grid's column labels, in the order the row lays its cells out. */
+const ROW_COLUMNS: readonly string[] = ['Field', 'Value', 'Shape and default'];
 
 /** What one row-region mount produced. */
 export interface RowRegion {
@@ -108,12 +118,15 @@ export function mountFailureNotice(pane: HTMLElement): {
  * @returns The handles and the region element rows are painted into.
  */
 export function mountRowRegion(pane: HTMLElement): RowRegion {
-    const sourceNote = mountText(pane, { text: SOURCE_NOTE });
-    const emptyText = mountText(pane, { text: NO_DOCUMENT });
+    const block = createBlock(pane, { heading: CONFIG_HEADING });
+    const sourceNote = mountStyledText(block.body, { className: 'mt-lede', text: SOURCE_NOTE });
+    const emptyText = mountStyledText(block.body, { className: 'mt-lede', text: NO_DOCUMENT });
     const rowsBox = pane.ownerDocument.createElement('div');
+    rowsBox.className = 'mt-grid';
     rowsBox.setAttribute('role', 'region');
     rowsBox.setAttribute('aria-label', ROWS_LABEL);
-    pane.append(rowsBox);
+    mountColumnHead(rowsBox, { modifier: 'mt-head--settings', cells: ROW_COLUMNS });
+    block.body.append(rowsBox);
 
     return { sourceNote, emptyText, rowsBox };
 }
@@ -171,7 +184,9 @@ export function mountControlRegion(input: {
     /** What Cancel does: disarm and return the fields to the last-read values (FR-054). */
     readonly onCancel: () => void;
 }): ControlRegion {
-    const { pane } = input;
+    // The save bar, the confirmation, the "no save" reason, and the issues
+    // are one surface: what a write will do, and what stopped the last one.
+    const pane = createBlock(input.pane, { heading: SAVE_HEADING }).body;
     const saveBox = pane.ownerDocument.createElement('div');
     saveBox.style.display = 'flex';
     saveBox.style.alignItems = 'center';

@@ -28,7 +28,7 @@
  *   second is refused by the busy gate rather than queued (FR-046).
  */
 
-import { mountBanner, mountText } from '@openchamber/sdk/ui';
+import { mountBanner } from '@openchamber/sdk/ui';
 import type { BannerHandle, ButtonHandle, TextHandle } from '@openchamber/sdk/ui';
 import {
     applyConfigRead,
@@ -39,6 +39,7 @@ import {
     applyStageDefaults,
 } from './settings-actions.ts';
 import { mountSettingsRows, settingsRows, takeEffectWords, updateSettingsRows } from './settings-rows.ts';
+import { mountStyledText } from './style.ts';
 import {
     AUDIT_MISSING_LINE,
     EDITABLE_BODY,
@@ -482,7 +483,7 @@ export function mountSettingsTab(input: {
     const pane = body.ownerDocument.createElement('div');
     body.append(pane);
 
-    const heading = mountText(pane, { text: SETTINGS_HEADING });
+    const heading = mountStyledText(pane, { className: 'mt-heading mt-heading--title', text: SETTINGS_HEADING });
     const banner = mountBanner(pane, { tone: 'info', title: READ_ONLY_TITLE, body: READ_ONLY_BODY });
     const controls = mountReadControls({
         pane,

@@ -243,9 +243,55 @@
             .mt-val .oc-sdk-text,
             .mt-lede .oc-sdk-text,
             .mt-fix .oc-sdk-text,
-            .mt-card-body .oc-sdk-text {
+            .mt-card-body .oc-sdk-text,
+            .mt-heading .oc-sdk-text {
                 font: inherit;
                 color: inherit;
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Settings: field, value, and shape as one row per declared member.
+             * ---------------------------------------------------------------- */
+
+            .mt-head--settings {
+                column-gap: var(--mt-space-3);
+                padding: 0 0 var(--mt-space-1);
+                grid-template-columns: minmax(0, 18rem) minmax(0, 1fr) minmax(0, 15rem);
+            }
+
+            .mt-grid {
+                display: flex;
+                flex-direction: column;
+            }
+
+            /*
+             * Each SDK field lays its own label, control, and note out as the
+             * three columns the header names — the wrapper is a flex column
+             * precisely so the header and the rows are siblings that only have
+             * to agree on the template, never on their children's index.
+             */
+            .mt-grid > .oc-sdk-field,
+            .mt-grid > .oc-sdk-select {
+                display: grid;
+                grid-template-columns: minmax(0, 18rem) minmax(0, 1fr) minmax(0, 15rem);
+                column-gap: var(--mt-space-3);
+                row-gap: var(--mt-space-1);
+                align-items: start;
+                padding: var(--mt-space-2) 0;
+                border-top: 1px solid color-mix(in srgb, var(--mt-line) 45%, transparent);
+            }
+
+            /* A member this build declares no control for spans the row. */
+            .mt-grid > .oc-sdk-text {
+                padding: var(--mt-space-1) 0;
+                font-size: 0.8125rem;
+                color: var(--mt-dim);
+                border-top: 1px solid color-mix(in srgb, var(--mt-line) 45%, transparent);
+            }
+
+            .mt-grid > :first-child {
+                padding-top: 0;
+                border-top: 0;
             }
 
             /* ---------------------------------------------------------------- *
@@ -404,9 +450,20 @@
                 max-width: 72ch;
             }
 
+            /* The settings grid cannot hold three columns on a narrow rail. */
+            @media (max-width: 760px) {
+                .mt-head--settings {
+                    display: none;
+                }
+
+                .mt-grid > .oc-sdk-field,
+                .mt-grid > .oc-sdk-select {
+                    grid-template-columns: minmax(0, 1fr);
+                }
+            }
+
             /* Narrow rail: the key column stacks above its value. */
-            @media (max-width: 560px) {
-                .mt-def {
+            @media (max-width: 560px) {                .mt-def {
                     grid-template-columns: minmax(0, 1fr);
                     row-gap: 2px;
                 }
