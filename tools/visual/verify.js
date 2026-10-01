@@ -16,8 +16,15 @@
  *    pill, sampled where the DOM said it would be, must match the colour the
  *    cascade reports. A frame showing the previously selected tab paints the
  *    wrong pill and fails here.
- * 4. **Consecutive difference** (`verifyDelivered`): the frame must differ
- *    from the capture before it, which a re-emitted old frame does not.
+ * 4. **Width read-back** (`verifyDelivered`): the frame's width must equal
+ *    the width that was asked for — a narrow pass that quietly reused the
+ *    wide viewport delivers the wrong width, and no pixel comparison of two
+ *    *same-content* frames can be relied on to notice.
+ * 5. **Consecutive difference** (`verifyDelivered`): the frame must differ
+ *    from the last capture **at the same width**, which a re-emitted old
+ *    frame does not. Frames at different widths are never compared: their
+ *    overlap is background plus left-aligned text that did not move, so a
+ *    genuine pair can sit under any sane threshold.
  *
  * A failure throws, and `shot.js` stops the run rather than publish a picture
  * it cannot vouch for.
@@ -138,11 +145,25 @@ function verifyProbe(input) {
 /**
  * Decode a delivered capture and run every freshness check against it.
  *
- * @param input - `{ path, strip, probeColors, previous, minimumHeight }`.
+ * The width is asserted rather than inferred: a frame whose width is not the
+ * width that was asked for is exactly what a skipped viewport resize looks
+ * like (the narrow pass re-delivering the wide bitmap), and the pixel diff
+ * cannot be trusted to catch it — two frames of the *same* content at
+ * different widths can legitimately share 99% of their pixels, because the
+ * overlap is background plus left-aligned text that never moved.
+ *
+ * @param input - `{ path, strip, probeColors, expectedWidth, previous, minimumHeight }`.
  * @returns `{ image, size, diff }` for the report and the next comparison.
  */
 function verifyDelivered(input) {
     const image = readPng(input.path);
+
+    if (input.expectedWidth !== null && image.width !== input.expectedWidth) {
+        throw new Error(
+            `stale frame: ${input.path} is ${image.width}px wide, expected ${input.expectedWidth}px — ` +
+                'the viewport resize never reached the capture',
+        );
+    }
 
     assertNoSentinel(image, input.probeColors);
     assertStrip(image, input.strip);

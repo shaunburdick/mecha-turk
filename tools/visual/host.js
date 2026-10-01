@@ -323,6 +323,18 @@ function measure(name) {
 
     return {
         active: activeTab(),
+        /**
+         * The CSS viewport the panel is laid out at, and therefore the width
+         * every media query in `panel/index.html` evaluates against.
+         *
+         * It is read from the panel's own window rather than assumed from the
+         * `--width` a caller asked for: `fitViewport` used to converge on
+         * height alone, decide no resize was needed, and hand back a body it
+         * had measured at the *previous* width — which is how the narrow pass
+         * came out as a byte copy of the wide frame above it. `layout.js`
+         * asserts this number against the width it asked for before a capture.
+         */
+        viewportWidth: panel.defaultView === null ? 0 : panel.defaultView.innerWidth,
         bodyHeight: Math.round(bodyBox.height),
         regionHeight: Math.round(regionBox.height),
         rootHeight: Math.round(rootBox.height),

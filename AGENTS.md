@@ -42,17 +42,25 @@ npm run verify    # build -> lint -> typecheck -> test — THE gate, run before 
 npm run build     # bundles panel/main.js (IIFE) + service/main.js (ESM)
 npm test          # vitest, offline (563 tests)
 npm run format    # eslint --fix
-npm run shot      # screenshot all six panel tabs into screenshots/panel-<tab>.png
+npm run shot      # screenshot all six panel tabs at 720px and 560px into screenshots/
 ```
 
 ### Visual verification
 
 `npm run shot` (or `node tools/visual/shot.js <tab> …`) renders the shipped
 `panel/index.html` inside the offline harness in `tools/visual/` — a mock host
-bridge, fixture answers, and a no-cache loopback server — then writes one PNG
-per tab at 1400px wide (height following the tab's content) plus
-`panel-full.png` at full scroll height, into the repo-root `screenshots/`
-folder (git-ignored; `--out DIR` overrides it). It runs offline, needs
+bridge, fixture answers, and a no-cache loopback server — then writes **two
+PNGs per tab** at the widths the host actually gives a rail panel (height
+following the tab's content): `panel-<tab>.png` at **720px**, the default
+capture width, and `panel-<tab>-narrow.png` at **560px**, the tight end of
+the same band — plus `panel-full.png` at the default width and full scroll
+height — into the repo-root `screenshots/` folder (git-ignored; `--out DIR`
+overrides it, `--width N` overrides the default width for a frame at one
+particular size). The widths come from the host's own arithmetic, not a
+guess: extension panels are `plugin:<id>` context surfaces, whose
+`defaultWidthFraction` is `0.45` of the available content region, clamped
+between `320px` and `region − 400px` — ≈500px at 1440 and ≈715px at 1920.
+It runs offline, needs
 `agent-browser` on PATH, takes about a minute, and never touches `panel/`,
 `src/`, or `service/`. Every image is decoded and proven current before it is
 published:
