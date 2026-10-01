@@ -170,6 +170,25 @@
                 padding: var(--mt-space-2) var(--mt-pad) var(--mt-pad);
             }
 
+            /*
+             * A control a tab mounts straight into a block is a flex item of a
+             * column whose default `align-items` is `stretch`, so it paints as
+             * a slab the full width of the pane — and a *disabled* one, with
+             * nothing but its label to show, reads as an empty text input.
+             * Seven of them stacked in the Bindings editor is exactly how that
+             * looked (product-owner review 2026-10-01).
+             *
+             * The second selector reaches the body `createBlock` builds when a
+             * block carries a lede: the block's own children stop at the
+             * `.mt-group` wrapper, so a rule naming only the block would miss
+             * every button behind one. A run of controls that wants to share a
+             * line already sits in `.mt-toolbar`, which this never matches.
+             */
+            .mt-block > .oc-sdk-btn,
+            .mt-block > .mt-group > .oc-sdk-btn {
+                align-self: flex-start;
+            }
+
             .mt-heading {
                 margin: 0;
                 font-family: var(--mt-font);

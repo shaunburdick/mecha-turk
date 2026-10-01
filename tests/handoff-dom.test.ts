@@ -250,6 +250,74 @@ function verifyBody(mounted: MountedHandoff): Record<string, unknown> | undefine
     return JSON.parse(String(request.body)) as Record<string, unknown>;
 }
 
+/** Attribute the SDK paints every button variant from. */
+const VARIANT_ATTRIBUTE = 'data-variant';
+
+/** The consent step a {@link mountHandoff} run created, as its nodes. */
+interface MountedConsent {
+    /** The step's own container: copy, then the decisions toolbar. */
+    readonly box: FakeElement;
+    /** The toolbar the two decisions share, beneath the copy. */
+    readonly decisions: FakeElement;
+    /** The primary decision. */
+    readonly accept: FakeElement;
+    /** The secondary decision. */
+    readonly decline: FakeElement;
+}
+
+/**
+ * Read the consent step out of the nodes one mount created.
+ *
+ * @param mounted - The group under test.
+ * @returns The step's container, toolbar, and both decisions.
+ */
+function consentStep(mounted: MountedHandoff): MountedConsent {
+    const box = mounted.created.find((node) => node.className === 'mt-stack');
+    const decisions = mounted.created.find((node) => node.className === 'mt-toolbar');
+    const accept = mounted.created.find(
+        (node) => node.tagName === 'button' && node.textContent === 'Accept and continue',
+    );
+    const decline = mounted.created.find(
+        (node) => node.tagName === 'button' && node.textContent === 'Decline',
+    );
+    if (box === undefined || decisions === undefined || accept === undefined || decline === undefined) {
+        throw new Error('the consent step did not mount its container, toolbar, and two decisions');
+    }
+
+    return { box, decisions, accept, decline };
+}
+
+describe('the consent decisions read as controls, not as prose (2026-10-01 review)', () => {
+    it('gives every decision a real SDK variant, so none paints as bare text', async () => {
+        const mounted = await mountHandoff({
+            name: 'the consent decisions',
+            verify: { status: 201, body: VERIFY_BODY },
+        });
+        const { accept, decline } = consentStep(mounted);
+
+        // The SDK paints every variant from `[data-variant="…"]`; without the
+        // attribute the button keeps only its transparent base border.
+        expect(accept.attribute(VARIANT_ATTRIBUTE)).toBe('default');
+        expect(decline.attribute(VARIANT_ATTRIBUTE)).toBe('outline');
+        expect(mounted.submit.attribute(VARIANT_ATTRIBUTE)).toBe('default');
+    });
+
+    it('mounts both decisions beneath the copy rather than beside it', async () => {
+        const mounted = await mountHandoff({
+            name: 'the consent layout',
+            verify: { status: 201, body: VERIFY_BODY },
+        });
+        const { box, decisions, accept, decline } = consentStep(mounted);
+
+        // One column: the canonical copy first, one wrapping toolbar under it.
+        expect(box.children.map((child) => child.tagName)).toEqual(['p', 'div']);
+        expect(box.children[1]).toBe(decisions);
+        expect(decisions.children).toEqual([accept, decline]);
+        // The copy is the step's first child, never a sibling of a button.
+        expect(box.children[0]?.className).toBe('oc-sdk-field-note');
+    });
+});
+
 describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
     it('mounts exactly one optional non-credential input beside the token', async () => {
         const mounted = await mountHandoff({

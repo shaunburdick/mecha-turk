@@ -292,19 +292,32 @@ function makeElement(spec: { readonly doc: Document; readonly tag: string; reado
     return node;
 }
 
+/** The SDK button variants this adapter may ask for; the SDK reads `data-variant`. */
+type HandoffButtonVariant = 'default' | 'outline';
+
 /**
  * Create a button whose label is written as text, never as markup.
  *
- * @param spec - Document, label, and click handler.
+ * **The variant is not optional.** The SDK's sheet gives `.oc-sdk-btn` only a
+ * transparent border as its base and paints every real treatment from an
+ * attribute selector (`[data-variant="…"]`), so a button with no variant is
+ * bare text on the page — which is exactly how the consent decisions read
+ * before this (product-owner review 2026-10-01). The attribute is written with
+ * `setAttribute` rather than `dataset` so the offline DOM double records it
+ * like any other attribute and a test can pin it.
+ *
+ * @param spec - Document, label, variant, and click handler.
  * @returns The button.
  */
 function makeButton(spec: {
     readonly doc: Document;
     readonly label: string;
+    readonly variant: HandoffButtonVariant;
     readonly onClick: () => void;
 }): HTMLButtonElement {
     const button = spec.doc.createElement('button');
     button.className = 'oc-sdk oc-sdk-btn';
+    button.setAttribute('data-variant', spec.variant);
     button.type = 'button';
     button.textContent = spec.label;
     button.addEventListener('click', spec.onClick);
@@ -315,20 +328,35 @@ function makeButton(spec: {
 /**
  * Mount the consent step: the canonical copy plus accept and decline.
  *
+ * The two decisions sit **beneath** the copy in a wrapping toolbar rather
+ * than beside it: the step used to mount into an `.oc-sdk-row`, whose
+ * `align-items: center` floated the buttons vertically against four
+ * paragraphs and pushed them to the far right edge of the pane, where they
+ * read as sentences rather than as controls (product-owner review
+ * 2026-10-01).
+ *
  * @param spec - Document and the handlers the two decisions invoke.
  * @returns The consent step's container and text node.
  */
 function mountConsentStep(spec: DomFactory): ConsentStep {
-    const box = makeElement({ doc: spec.doc, tag: 'div', className: 'oc-sdk-row' });
+    const box = makeElement({ doc: spec.doc, tag: 'div', className: 'mt-stack' });
     const text = makeElement({ doc: spec.doc, tag: 'p', className: FIELD_NOTE_CLASS });
     text.style.whiteSpace = 'pre-line';
+    const decisions = makeElement({ doc: spec.doc, tag: 'div', className: 'mt-toolbar' });
     const accept = makeButton({
         doc: spec.doc,
         label: 'Accept and continue',
+        variant: 'default',
         onClick: spec.handlers.accept,
     });
-    const decline = makeButton({ doc: spec.doc, label: 'Decline', onClick: spec.handlers.decline });
-    box.append(text, accept, decline);
+    const decline = makeButton({
+        doc: spec.doc,
+        label: 'Decline',
+        variant: 'outline',
+        onClick: spec.handlers.decline,
+    });
+    decisions.append(accept, decline);
+    box.append(text, decisions);
 
     return { box, text };
 }
@@ -423,6 +451,7 @@ function mountSubmitButton(spec: {
     return makeButton({
         doc: spec.doc,
         label: 'Connect account',
+        variant: 'default',
         onClick: () => {
             const pasted = spec.input.value;
             spec.input.value = '';
