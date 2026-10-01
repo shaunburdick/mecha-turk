@@ -23,3 +23,8 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Screenshot output from `npm run shot` (tools/visual). Captures default to
+# /tmp/opencode, but `--out` can point into the repo — images never belong here.
+tools/visual/*.png
+/panel-*.png
