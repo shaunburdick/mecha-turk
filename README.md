@@ -118,7 +118,6 @@ and the run domain keep their own names. This is the full mapping (005
 | `repositories` (status member) | `repositories` | L3 | Retained — rendered as **Bindings** |
 | `GET` / `PUT /v1/bindings` | *retained* | L3 | Retained — already correctly named |
 | panel id `mecha-turk` | *retained* | L3 | Retained |
-| `extension-spike-1` evidence schema | *retained* | L4 | Retained |
 
 ## Requirements
 
