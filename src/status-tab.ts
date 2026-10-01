@@ -21,8 +21,8 @@
  * in a module graph where `refresh` is currently a leaf.
  */
 
-import { mountBanner, mountButton, mountText } from '@openchamber/sdk/ui';
-import type { BannerHandle, ButtonHandle, TextHandle } from '@openchamber/sdk/ui';
+import { mountBanner, mountButton } from '@openchamber/sdk/ui';
+import type { BannerHandle, ButtonHandle } from '@openchamber/sdk/ui';
 import { STATUS_PATH } from './handoff-status.ts';
 import { nowIso } from './ids.ts';
 import { redact } from './redaction.ts';
@@ -38,6 +38,8 @@ import {
     readStateLine,
     serviceLines,
 } from './status-lines.ts';
+import { createBlock, createRowList, EM_DASH_SEPARATOR, lineRow, mountCell, splitLine } from './style.ts';
+import type { Block, Cell, DefRow, LineInput } from './style.ts';
 import { configuredIntervalFrom, parseStatusView } from './status-document.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
@@ -56,6 +58,9 @@ const BINDINGS_HEADING = 'Bindings';
 /** Heading above the agent-pin block (FR-033). */
 const AGENT_PIN_HEADING = 'Agent pin';
 
+/** Label treatment for the two groups whose subjects are identifiers. */
+const SUBJECT_KEY_CLASS = 'mt-key--mono';
+
 /** Inputs for {@link mountNotice}; one object so the two notices stay ordered. */
 interface NoticeInput {
     /** Element to append into. */
@@ -72,12 +77,14 @@ interface NoticeInput {
 
 /** A heading plus the rows under it, repainted as one group. */
 export interface StatusRowGroup {
-    /** Container the heading and its rows live in. */
-    readonly container: HTMLElement;
-    /** Section heading. */
-    readonly heading: TextHandle;
-    /** One handle per row; rebuilt whenever the row count changes. */
-    rows: readonly TextHandle[];
+    /** The block surface: heading above, body below. */
+    readonly block: Block;
+    /** The row list every line of this group renders into. */
+    readonly list: HTMLElement;
+    /** Class words for this group's label cells, or `null` for the default. */
+    readonly keyClass: string | null;
+    /** One row per line; rebuilt whenever the line set changes. */
+    rows: readonly DefRow[];
 }
 
 /** One of the two blocking notices, wrapped so it can be shown and hidden. */
@@ -97,7 +104,7 @@ export interface StatusTabUi {
     /** Explicit refresh — the tab's one way to re-read (FR-014). */
     readonly refreshButton: ButtonHandle;
     /** One line of read state: loading, loaded with a stamp, failed with a cause. */
-    readonly readLine: TextHandle;
+    readonly readLine: Cell;
     /** Process health, uptime, location, schema, storage. */
     readonly service: StatusRowGroup;
     /** Effective interval, configured interval, cadence, and next poll. */
@@ -139,44 +146,74 @@ function mountNotice(input: NoticeInput): StatusNotice {
 }
 
 /**
- * Create one heading-and-rows container.
- *
- * @param parent - Element to append into.
- * @param heading - Section heading text.
- * @returns The group, with no rows yet.
+ * Rows whose *value* is machine-shaped — a path, a stamp — and so reads best
+ * in the mono stack. Matched against the label the split produced, so a
+ * service that reorders its block cannot quietly turn a path into
+ * proportional text.
  */
-function mountRowGroup(parent: HTMLElement, heading: string): StatusRowGroup {
-    const container = parent.ownerDocument.createElement('div');
-    container.style.display = 'flex';
-    container.style.flexDirection = 'column';
-    container.style.gap = '2px';
-    parent.append(container);
+const MONO_VALUE_LABELS: readonly string[] = ['Data directory', 'Next poll'];
 
-    return { container, heading: mountText(container, { text: heading }), rows: [] };
+/**
+ * Build one row's inputs from the line the copy module produced.
+ *
+ * @param group - The group the row belongs to, for its label treatment.
+ * @param line - One line of this group's copy.
+ * @returns The line, plus the cell classes this row takes.
+ */
+function rowInput(group: StatusRowGroup, line: string): LineInput {
+    const split = splitLine(line);
+    const machine = split !== null && MONO_VALUE_LABELS.includes(split.key);
+    const subject = split !== null && split.separator === EM_DASH_SEPARATOR;
+
+    return {
+        line,
+        ...(machine ? { valueClass: 'mt-val--mono' } : {}),
+        ...(subject && group.keyClass !== null ? { keyClass: group.keyClass } : {}),
+    };
 }
 
 /**
- * Paint a group's rows, rebuilding them when the count changed.
+ * Create one heading-and-rows block.
  *
- * Rebuilding rather than pooling keeps exactly one handle per visible row:
- * a handle left over from a five-account read would keep painting a row the
- * document no longer carries.
+ * The heading is the block's own element rather than a text row, which is
+ * what gives each group a place in the tab's heading hierarchy and its own
+ * surface to sit on.
+ *
+ * @param parent - Element to append into.
+ * @param input - The section heading, and the label treatment its rows take.
+ * @returns The group, with no rows yet.
+ */
+function mountRowGroup(
+    parent: HTMLElement,
+    input: { readonly heading: string; readonly keyClass?: string },
+): StatusRowGroup {
+    const block = createBlock(parent, { heading: input.heading });
+
+    return {
+        block,
+        list: createRowList(block.body),
+        keyClass: input.keyClass ?? null,
+        rows: [],
+    };
+}
+
+/**
+ * Paint a group's rows, rebuilding them on every pass.
+ *
+ * A row is a label cell and a value cell, and which one a line becomes is a
+ * fact about the line — so repainting in place would leave a row showing a
+ * label it no longer has. Rebuilding keeps exactly one row per line, and the
+ * handles are released as they go.
  *
  * @param group - The group to repaint.
  * @param lines - The lines to show, one per row.
  */
 function paintRowGroup(group: StatusRowGroup, lines: readonly string[]): void {
-    if (group.rows.length !== lines.length) {
-        for (const row of group.rows) {
-            row.dispose();
-        }
-
-        group.rows = lines.map(() => mountText(group.container, { text: '' }));
+    for (const row of group.rows) {
+        row.dispose();
     }
 
-    for (const [index, line] of lines.entries()) {
-        group.rows[index]?.update({ text: line });
-    }
+    group.rows = lines.map((line) => lineRow(group.list, rowInput(group, line)));
 }
 
 /**
@@ -185,12 +222,11 @@ function paintRowGroup(group: StatusRowGroup, lines: readonly string[]): void {
  * @param group - The group to dispose.
  */
 function disposeRowGroup(group: StatusRowGroup): void {
-    group.heading.dispose();
     for (const row of group.rows) {
         row.dispose();
     }
 
-    group.container.remove();
+    group.block.dispose();
 }
 
 /**
@@ -227,7 +263,7 @@ export function repaintStatusTab(rt: PanelRuntime): void {
     const loading = slice.phase === 'loading';
 
     ui.refreshButton.update({ disabled: loading, loading });
-    ui.readLine.update({ text: readStateLine(slice) });
+    ui.readLine.update(readStateLine(slice));
 
     // The two blocking notices are facts about the *last* document the panel
     // holds; with nothing read there is nothing to claim either way.
@@ -323,12 +359,10 @@ export async function loadStatus(rt: PanelRuntime): Promise<void> {
  */
 function mountControls(rt: PanelRuntime, parent: HTMLElement): {
     readonly refreshButton: ButtonHandle;
-    readonly readLine: TextHandle;
+    readonly readLine: Cell;
 } {
     const row = parent.ownerDocument.createElement('div');
-    row.style.display = 'flex';
-    row.style.alignItems = 'center';
-    row.style.gap = '8px';
+    row.className = 'mt-toolbar';
     parent.append(row);
 
     const refreshButton = mountButton(row, {
@@ -338,7 +372,10 @@ function mountControls(rt: PanelRuntime, parent: HTMLElement): {
         },
     });
 
-    return { refreshButton, readLine: mountText(row, { text: readStateLine(rt.state.statusTab) }) };
+    return {
+        refreshButton,
+        readLine: mountCell(row, { className: 'mt-lede', text: readStateLine(rt.state.statusTab) }),
+    };
 }
 
 /**
@@ -376,11 +413,11 @@ export function mountStatusTab(input: {
         unsupported,
         storageBlocked,
         ...controls,
-        service: mountRowGroup(parent, SERVICE_HEADING),
-        polling: mountRowGroup(parent, POLLING_HEADING),
-        accounts: mountRowGroup(parent, ACCOUNTS_HEADING),
-        bindings: mountRowGroup(parent, BINDINGS_HEADING),
-        agentPin: mountRowGroup(parent, AGENT_PIN_HEADING),
+        service: mountRowGroup(parent, { heading: SERVICE_HEADING }),
+        polling: mountRowGroup(parent, { heading: POLLING_HEADING }),
+        accounts: mountRowGroup(parent, { heading: ACCOUNTS_HEADING, keyClass: SUBJECT_KEY_CLASS }),
+        bindings: mountRowGroup(parent, { heading: BINDINGS_HEADING, keyClass: SUBJECT_KEY_CLASS }),
+        agentPin: mountRowGroup(parent, { heading: AGENT_PIN_HEADING }),
     };
     rt.statusUi = ui;
     repaintStatusTab(rt);

@@ -29,6 +29,35 @@
             }
 
             #root {
+                /*
+                 * Design tokens (2026-09-30 visual redesign).
+                 *
+                 * Every value is an alias of a token the host theme paints
+                 * onto `<html>` through `applyHostTheme` (the SDK writes both
+                 * its `--oc-*` aliases and the host's own `--surface-*` /
+                 * `--interactive-*` names), so light and dark follow the host
+                 * without this file knowing either palette. The right-hand
+                 * fallbacks only ever run in a frame the host never readied,
+                 * and each one is chosen to stay legible in both modes.
+                 */
+                --mt-gap: 12px;
+                --mt-pad: 14px;
+                --mt-space-1: 4px;
+                --mt-space-2: 8px;
+                --mt-space-3: 12px;
+                --mt-space-4: 16px;
+                --mt-radius: var(--radius, 8px);
+                --mt-surface: var(--oc-elevated, var(--surface-elevated, transparent));
+                --mt-sunken: var(--oc-subtle, var(--surface-subtle, transparent));
+                --mt-ink: var(--oc-fg, var(--surface-foreground, inherit));
+                --mt-dim: var(--oc-muted, var(--surface-muted-foreground, gray));
+                --mt-line: var(--oc-border, var(--interactive-border, currentColor));
+                --mt-accent: var(--oc-primary, var(--primary, currentColor));
+                --mt-font: var(--oc-font, var(--font-sans, inherit));
+                --mt-mono: var(--oc-mono, var(--font-mono, monospace));
+                --mt-hover: var(--oc-hover, var(--interactive-hover, transparent));
+                --mt-key-width: 13rem;
+
                 height: 100%;
                 padding: 12px;
                 box-sizing: border-box;
@@ -36,6 +65,329 @@
                 flex-direction: column;
                 gap: 12px;
                 overflow-y: auto;
+                font-family: var(--mt-font);
+                font-size: 0.875rem;
+                line-height: 1.45;
+                color: var(--mt-ink);
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Shell: the six tab bodies are stacks of blocks.
+             * ---------------------------------------------------------------- */
+
+            [data-body] {
+                display: flex;
+                flex-direction: column;
+                gap: var(--mt-gap);
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Blocks: every logical group gets a heading and its own surface.
+             * ---------------------------------------------------------------- */
+
+            .mt-block {
+                display: flex;
+                flex-direction: column;
+                gap: var(--mt-space-2);
+                padding: var(--mt-pad);
+                box-sizing: border-box;
+                border: 1px solid color-mix(in srgb, var(--mt-line) 60%, transparent);
+                border-radius: var(--mt-radius);
+                background: var(--mt-surface);
+            }
+
+            .mt-block--sunken {
+                background: var(--mt-sunken);
+            }
+
+            .mt-block--flush {
+                gap: var(--mt-space-1);
+                padding: var(--mt-space-2) var(--mt-pad) var(--mt-pad);
+            }
+
+            .mt-heading {
+                margin: 0;
+                font-family: var(--mt-font);
+                font-size: 0.6875rem;
+                font-weight: 700;
+                line-height: 1.4;
+                letter-spacing: 0.07em;
+                text-transform: none;
+                color: var(--mt-dim);
+            }
+
+            .mt-heading--title {
+                font-size: 0.9375rem;
+                font-weight: 650;
+                letter-spacing: 0;
+                color: var(--mt-ink);
+            }
+
+            .mt-lede {
+                margin: 0;
+                font-size: 0.8125rem;
+                line-height: 1.5;
+                color: var(--mt-dim);
+            }
+
+            /* A controls row: filters, paging, and the read-state line. */
+            .mt-toolbar {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: var(--mt-space-2);
+            }
+
+            .mt-toolbar--split {
+                justify-content: space-between;
+            }
+
+            .mt-stack {
+                display: flex;
+                flex-direction: column;
+                gap: var(--mt-space-2);
+            }
+
+            .mt-group {
+                display: flex;
+                flex-direction: column;
+                gap: var(--mt-space-3);
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Definition rows: label and value as structure, not prose.
+             * ---------------------------------------------------------------- */
+
+            .mt-defs {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .mt-def {
+                display: grid;
+                grid-template-columns: minmax(0, var(--mt-key-width)) minmax(0, 1fr);
+                column-gap: var(--mt-space-3);
+                padding: var(--mt-space-2) 0;
+                border-top: 1px solid color-mix(in srgb, var(--mt-line) 45%, transparent);
+            }
+
+            .mt-def:first-child {
+                padding-top: 0;
+                border-top: 0;
+            }
+
+            .mt-def:last-child {
+                padding-bottom: 0;
+            }
+
+            .mt-def--note {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .mt-def--interactive {
+                border-radius: 6px;
+                margin: 0 calc(-1 * var(--mt-space-1));
+                padding-left: var(--mt-space-1);
+                padding-right: var(--mt-space-1);
+            }
+
+            .mt-def--interactive:hover {
+                background: var(--mt-hover);
+            }
+
+            .mt-key {
+                min-width: 0;
+                font-size: 0.8125rem;
+                line-height: 1.45;
+                color: var(--mt-dim);
+            }
+
+            .mt-key--strong {
+                color: var(--mt-ink);
+                font-weight: 600;
+            }
+
+            .mt-key--mono {
+                font-family: var(--mt-mono);
+                font-size: 0.75rem;
+            }
+
+            .mt-val {
+                min-width: 0;
+                font-size: 0.8125rem;
+                line-height: 1.45;
+                color: var(--mt-ink);
+                font-variant-numeric: tabular-nums;
+                overflow-wrap: anywhere;
+            }
+
+            .mt-val--mono {
+                font-family: var(--mt-mono);
+                font-size: 0.75rem;
+            }
+
+            .mt-val--dim {
+                color: var(--mt-dim);
+            }
+
+            /*
+             * Cells own their text treatment.
+             *
+             * `mountText` renders into a node carrying the SDK's own `.oc-sdk`
+             * class, which sets the family, size, colour, and line-height of
+             * the *inner* node — so a treatment set on the wrapper would lose
+             * every cascade argument. These rules hand the inner node back to
+             * its cell; the SDK's link and image rules still apply inside it.
+             */
+            .mt-key .oc-sdk-text,
+            .mt-val .oc-sdk-text,
+            .mt-lede .oc-sdk-text,
+            .mt-fix .oc-sdk-text,
+            .mt-card-body .oc-sdk-text {
+                font: inherit;
+                color: inherit;
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Chips: state as colour *and* label (005 FR-083).
+             * ---------------------------------------------------------------- */
+
+            .mt-chiprow {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: var(--mt-space-2);
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Cards: one prerequisite / one run detail as a bordered unit.
+             * ---------------------------------------------------------------- */
+
+            .mt-card {
+                display: flex;
+                flex-direction: column;
+                gap: var(--mt-space-1);
+                padding: var(--mt-space-3);
+                box-sizing: border-box;
+                border: 1px solid color-mix(in srgb, var(--mt-line) 55%, transparent);
+                border-radius: var(--mt-radius);
+                background: var(--mt-sunken);
+            }
+
+            .mt-card-head {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: space-between;
+                gap: var(--mt-space-2);
+            }
+
+            .mt-card-title {
+                margin: 0;
+                font-family: var(--mt-font);
+                font-size: 0.8125rem;
+                font-weight: 650;
+                line-height: 1.4;
+                color: var(--mt-ink);
+            }
+
+            .mt-card-body {
+                display: flex;
+                flex-direction: column;
+                gap: var(--mt-space-1);
+                font-size: 0.8125rem;
+                line-height: 1.5;
+                color: var(--mt-dim);
+            }
+
+            .mt-fix {
+                display: block;
+                padding-left: var(--mt-space-2);
+                border-left: 2px solid var(--mt-accent);
+                color: var(--mt-ink);
+            }
+
+            /* Collapsible detail: hidden until the operator asks for it. */
+            .mt-details {
+                font-size: 0.8125rem;
+                line-height: 1.5;
+            }
+
+            .mt-details > summary {
+                cursor: pointer;
+                color: var(--mt-dim);
+                font-size: 0.75rem;
+                padding: var(--mt-space-1) 0;
+            }
+
+            .mt-details > summary:hover {
+                color: var(--mt-ink);
+            }
+
+            .mt-details > summary:focus-visible {
+                outline: 2px solid var(--mt-accent);
+                outline-offset: 2px;
+                border-radius: 4px;
+            }
+
+            .mt-details[open] > summary {
+                margin-bottom: var(--mt-space-1);
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Dense list surfaces: a header row above aligned columns.
+             * ---------------------------------------------------------------- */
+
+            .mt-head {
+                display: grid;
+                column-gap: var(--mt-space-3);
+                padding: 0 var(--mt-space-2) var(--mt-space-1);
+                font-size: 0.6875rem;
+                font-weight: 700;
+                letter-spacing: 0.07em;
+                color: var(--mt-dim);
+                border-bottom: 1px solid color-mix(in srgb, var(--mt-line) 60%, transparent);
+            }
+
+            .mt-head--dispatches {
+                grid-template-columns: 4.5rem minmax(0, 1fr) 7.5rem 4.5rem;
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Shared text treatments.
+             * ---------------------------------------------------------------- */
+
+            .mt-mono {
+                font-family: var(--mt-mono);
+                font-size: 0.75rem;
+            }
+
+            .mt-muted {
+                color: var(--mt-dim);
+            }
+
+            .mt-prose {
+                font-size: 0.8125rem;
+                line-height: 1.6;
+                max-width: 72ch;
+            }
+
+            /* Narrow rail: the key column stacks above its value. */
+            @media (max-width: 560px) {
+                .mt-def {
+                    grid-template-columns: minmax(0, 1fr);
+                    row-gap: 2px;
+                }
+
+                .mt-head--dispatches {
+                    grid-template-columns: minmax(0, 1fr) 5.5rem;
+                }
+
+                .mt-key {
+                    font-size: 0.6875rem;
+                    font-weight: 700;
+                    letter-spacing: 0.05em;
+                }
             }
         </style>
     </head>

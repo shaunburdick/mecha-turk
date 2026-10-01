@@ -114,6 +114,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `session.ts` / `host-verify.ts` | `startSession()` framing (attachment id = the run's correlation id, multi-reference bounded excerpt) + host-owned project/worktree/session read-back |
 | `lifecycle.ts` | Lifecycle experiment plan and mount bookkeeping |
 | `panel-state.ts` / `panel-ui.ts` | Shared runtime state; rendering with `@openchamber/sdk/ui` |
+| `style.ts` | The shared visual vocabulary: block surfaces, definition rows, cells, cards, and the lossless label/value split — structure only, never copy (2026-09-30 redesign) |
 | `panel-actions.ts` | The durable ledger write: append, guarded persist, repair-on-refusal (the poll loop, card diagnostic, and spike dispatch path were deleted 2026-09-30) |
 | `project-picker.ts` / `project-actions.ts` | Pure picker state; `listProjects()` + stored selection |
 | `app.ts` | Wiring: mount, subscribe, teardown |
@@ -136,7 +137,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `dispatch-record.ts` | `mecha-turk:dispatches`: the durable attempt record, written between the host call and its report and acknowledged on its own 2xx |
 | `claim-service.ts` | Claim and run-history body parsers (strict: an unknown state refuses the body) |
 | `reconcile.ts` | Mount-time re-report of every unacknowledged attempt, before the first claim (bounded, warns visibly) |
-| `prerequisites.ts` | The six first-run prerequisites, each `met` / `not-met` / `not-checkable`, with its remediation line |
+| `prerequisites.ts` / `prerequisite-records.ts` | The six first-run prerequisites: the mounted section (block, cards, state chips, FR-073 notice) and the pure derivation that answers each one `met` / `not-met` / `not-checkable` with its detail and remediation line |
 | `status-document.ts` / `status-lines.ts` / `status-tab.ts` | The `GET /v1/status` document parsed fail closed and the read state that holds it; the Status tab's operator-facing copy as pure functions; and the tab's mount, repaint, and single read |
 | `settings-rows.ts` | The Settings tab's row builder: one row per projected descriptor plus one per undocumented member — name, unit-or-*none*, bounds-or-format, value, and class words, every one of them from the wire (005's bounds stand-in retired by 006 T-018) |
 | `settings-schema.ts` | Fail-closed reader for `GET /v1/config`'s envelope: the closed descriptor union, plus the `unreadable` and `undisplayed` flags (006 T-017; FR-021, FR-027, FR-028) |
