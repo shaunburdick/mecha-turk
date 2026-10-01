@@ -78,7 +78,7 @@ const LIFECYCLE_UNREPORTED = 'state not reported';
 const VERIFIED_UNREPORTED = 'last verified: not reported';
 
 /** Words for a scope matrix the DTO did not carry (FR-010, NFR-112). */
-const SCOPE_UNCHECKED = 'scope: not checked';
+export const SCOPE_UNCHECKED = 'scope: not checked';
 
 /** Order the four FR-010 capabilities render in, so two rows read alike. */
 const SCOPE_ORDER = ['metadata', 'issues', 'pull-requests', 'contents'] as const;
@@ -338,4 +338,48 @@ export function armStatement(input: {
     }
 
     return null;
+}
+
+/**
+ * Compose the detail line for whatever row is open (FR-063, FR-055, FR-064).
+ *
+ * @param input - The stored data, the working state, and the open row.
+ * @returns The text the detail line shows.
+ */
+export function detailText(input: {
+    /** The Bindings tab's state, for counts and the row itself. */
+    readonly bindings: BindingsTabState;
+    /** The Accounts tab's working state, for the armed controls. */
+    readonly accounts: AccountsTabState;
+    /** The open row, or `undefined` when nothing is selected. */
+    readonly selected: PanelAccount | undefined;
+}): string {
+    if (input.selected === undefined) {
+        return '';
+    }
+
+    const { bindings, accounts, selected } = input;
+    const detail = accountDetail(bindings, selected);
+    const arm = armStatement({ accounts, bindings, account: selected });
+
+    return arm === null ? detail : `${detail} · ${arm}`;
+}
+
+/**
+ * Which label a two-step control carries right now (FR-055, FR-064).
+ *
+ * @param input - The armed row, the open row, and the two labels.
+ * @returns The label to paint.
+ */
+export function armLabel(input: {
+    /** The row whose control is armed, or `null`. */
+    readonly armed: string | null;
+    /** The row the control acts on, or `null` when nothing is open. */
+    readonly id: string | null;
+    /** What the control reads once armed. */
+    readonly armedLabel: string;
+    /** What it reads otherwise. */
+    readonly idleLabel: string;
+}): string {
+    return input.id !== null && input.armed === input.id ? input.armedLabel : input.idleLabel;
 }

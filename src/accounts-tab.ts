@@ -33,11 +33,12 @@ import {
 } from './accounts-actions.ts';
 import { declineHandoffConsent } from './handoff.ts';
 import { loadBindings } from './bindings.ts';
-import { accountDetail, accountRows, armStatement } from './accounts-rows.ts';
+import { accountRows, armLabel, detailText } from './accounts-rows.ts';
+import { mountDetailChips } from './accounts-chips.ts';
+import type { DetailChips } from './accounts-chips.ts';
 import { refresh } from './panel-ui.ts';
-import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
-import type { AccountsTabState } from './accounts-state.ts';
-import type { PanelAccount } from './bindings-service.ts';
+import { createBlock, mountColumnHead, mountStyledText } from './style.ts';
+import type { PanelRuntime } from './panel-state.ts';
 
 /** Callbacks the mounted Accounts body invokes. */
 export interface AccountsHandlers {
@@ -67,6 +68,8 @@ export interface AccountsBody {
     readonly refreshAccounts: ButtonHandle;
     /** Wrapper around the selected account's own line. */
     readonly detailBox: HTMLElement;
+    /** Chip row over that line: the account's connection and scope. */
+    readonly detailChips: DetailChips;
     /** The selected account's state, connection, scope, and remediation. */
     readonly detail: TextHandle;
     /** The selected account's operator display label (FR-066). */
@@ -105,49 +108,17 @@ const REMOVE_IDLE_LABEL = 'Remove account';
 /** Confirm-step label after the first click (no `confirm()` in the frame). */
 const REMOVE_ARMED_LABEL = 'Confirm remove';
 
-/**
- * Compose the detail line for whatever row is open (FR-063, FR-055, FR-064).
- *
- * @param input - The stored data, the working state, and the open row.
- * @returns The text the detail line shows.
- */
-function detailText(input: {
-    /** The Bindings tab's state, for counts and the row itself. */
-    readonly bindings: BindingsTabState;
-    /** The Accounts tab's working state, for the armed controls. */
-    readonly accounts: AccountsTabState;
-    /** The open row, or `undefined` when nothing is selected. */
-    readonly selected: PanelAccount | undefined;
-}): string {
-    if (input.selected === undefined) {
-        return '';
-    }
+/** Heading above the one-shot handoff group. */
+const CONNECT_HEADING = 'Connect an account';
 
-    const { bindings, accounts, selected } = input;
-    const detail = accountDetail(bindings, selected);
-    const arm = armStatement({ accounts, bindings, account: selected });
+/** Heading above the credential-free account list. */
+const LIST_HEADING = 'Accounts';
 
-    return arm === null ? detail : `${detail} · ${arm}`;
-}
+/** Heading above the open row's facts and its controls. */
+const SELECTED_HEADING = 'Selected account';
 
-/**
- * Which label a two-step control carries right now (FR-055, FR-064).
- *
- * @param input - The armed row, the open row, and the two labels.
- * @returns The label to paint.
- */
-function armLabel(input: {
-    /** The row whose control is armed, or `null`. */
-    readonly armed: string | null;
-    /** The row the control acts on, or `null` when nothing is open. */
-    readonly id: string | null;
-    /** What the control reads once armed. */
-    readonly armedLabel: string;
-    /** What it reads otherwise. */
-    readonly idleLabel: string;
-}): string {
-    return input.id !== null && input.armed === input.id ? input.armedLabel : input.idleLabel;
-}
+/** The list's column labels, in the order the SDK row lays its cells out. */
+const LIST_COLUMNS: readonly string[] = ['Lifecycle', 'Account', 'Bindings'];
 
 /**
  * Repaint the open row: its words, its label field, and its two confirmations.
@@ -165,6 +136,7 @@ function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
 
     view.detailBox.hidden = selected === undefined;
     view.detail.update({ text: detailText({ bindings, accounts, selected }) });
+    view.detailChips.paint(selected ?? null);
     view.displayNameField.update({
         value: accounts.displayNameDraft,
         disabled: !editable,
@@ -265,10 +237,15 @@ function mountListBoard(input: {
     /** Callbacks the list and refresh invoke. */
     readonly handlers: AccountsHandlers;
 }): ListBoard {
-    const status = mountText(input.pane, { text: composeStatus({ total: 0, usable: 0 }) });
-    const list = mountList(input.pane, {
+    const text = composeStatus({ total: 0, usable: 0 });
+    const status = mountStyledText(input.pane, { className: 'mt-lede', text });
+    const grid = input.pane.ownerDocument.createElement('div');
+    grid.className = 'mt-list';
+    input.pane.append(grid);
+    mountColumnHead(grid, { modifier: 'mt-head--accounts', cells: LIST_COLUMNS });
+    const list = mountList(grid, {
         items: [],
-        ariaLabel: 'Accounts',
+        ariaLabel: LIST_HEADING,
         emptyText: 'No account yet — connect one above or refresh.',
         onSelect: (id: string) => input.handlers.selectAccount(id),
     });
@@ -377,6 +354,44 @@ function mountDetailControls(input: {
     };
 }
 
+/** Everything the Accounts body's disposer releases, as one value. */
+interface AccountsParts {
+    /** Status, list, refresh, and note. */
+    readonly board: ListBoard;
+    /** The open row's own line. */
+    readonly detail: TextHandle;
+    /** The open row's display-name, rotation, and removal controls. */
+    readonly controls: ReturnType<typeof mountDetailControls>;
+    /** The open row's card, which doubles as its heading's wrapper. */
+    readonly detailBox: HTMLElement;
+    /** The open row's chip row. */
+    readonly detailChips: DetailChips;
+    /** The body root. */
+    readonly pane: HTMLElement;
+}
+
+/**
+ * Build the disposer that releases every node and handle the body mounted.
+ *
+ * @param parts - What the mount created.
+ * @returns The disposer the body hands its caller (FR-017).
+ */
+function accountsDisposer(parts: AccountsParts): () => void {
+    const { board, detail, controls, detailBox, detailChips, pane } = parts;
+
+    return (): void => {
+        board.status.dispose();
+        board.list.dispose();
+        board.refreshAccounts.dispose();
+        board.note.dispose();
+        detailChips.dispose();
+        detail.dispose();
+        controls.dispose();
+        detailBox.remove();
+        pane.remove();
+    };
+}
+
 /**
  * Mount the Accounts body: handoff group, list, detail, and note.
  *
@@ -395,11 +410,19 @@ export function mountAccountsBody(input: {
     const pane = body.ownerDocument.createElement('div');
     body.append(pane);
 
-    mountHandoffGroup(rt, pane);
-    const board = mountListBoard({ rt, pane, handlers });
-    const detailBox = body.ownerDocument.createElement('div');
+    // Three blocks: how an account arrives, which ones are here, and what the
+    // open row's own controls do to it. The third block *is* the detail
+    // wrapper, so hiding it hides its heading too — a heading over an empty
+    // region would be worse than no region at all.
+    const connectBlock = createBlock(pane, { heading: CONNECT_HEADING });
+    const listBlock = createBlock(pane, { heading: LIST_HEADING });
+    const selectedBlock = createBlock(pane, { heading: SELECTED_HEADING });
+
+    mountHandoffGroup(rt, connectBlock.body);
+    const board = mountListBoard({ rt, pane: listBlock.body, handlers });
+    const detailBox = selectedBlock.body;
     detailBox.hidden = true;
-    pane.append(detailBox);
+    const detailChips = mountDetailChips(detailBox);
     const detail = mountText(detailBox, { text: '' });
     const controls = mountDetailControls({ pane: detailBox, handlers });
 
@@ -409,22 +432,14 @@ export function mountAccountsBody(input: {
         list: board.list,
         refreshAccounts: board.refreshAccounts,
         detailBox,
+        detailChips,
         detail,
         displayNameField: controls.displayNameField,
         saveDisplayName: controls.saveDisplayName,
         rotateToken: controls.rotateToken,
         removeAccount: controls.removeAccount,
         note: board.note,
-        dispose: (): void => {
-            board.status.dispose();
-            board.list.dispose();
-            board.refreshAccounts.dispose();
-            board.note.dispose();
-            detail.dispose();
-            controls.dispose();
-            detailBox.remove();
-            pane.remove();
-        },
+        dispose: accountsDisposer({ board, detail, controls, detailBox, detailChips, pane }),
     };
 
     rt.accountsUi = view;

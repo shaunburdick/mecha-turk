@@ -365,12 +365,14 @@
                 text-align: right;
             }
 
-            /* Bindings: the same lead/subject arithmetic, with no badge column. */
-            .mt-head--bindings {
+            /* Bindings and Accounts: the same lead/subject arithmetic. */
+            .mt-head--bindings,
+            .mt-head--accounts {
                 grid-template-columns: 64px minmax(0, 1fr) 4.5rem;
             }
 
-            .mt-head--bindings > :last-child {
+            .mt-head--bindings > :last-child,
+            .mt-head--accounts > :last-child {
                 text-align: right;
             }
 
