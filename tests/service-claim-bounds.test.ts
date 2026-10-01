@@ -93,7 +93,7 @@ const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(lin
  * fixture must go through `enqueueEvents`, which writes two fsync'd audit rows
  * per delivery. 30 s ≈ 6× the observed CI failure and the same
  * order-of-magnitude margin SC-101 chose — and it binds **this test only**:
- * the other 1652 keep the 5-second default, so a real regression there still
+ * the other 1440 keep the 5-second default, so a real regression there still
  * fails loudly.
  */
 const FULL_REFERENCE_BUDGET_MS = 30_000;

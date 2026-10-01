@@ -55,12 +55,14 @@ const TRIALS = 100;
  * Time budget for the 100-trial proof, sized to its measured workload rather
  * than vitest's 5-second default.
  *
- * The body does the real thing end to end — 150 fixture enqueues through the
- * coalescing store (~0.5 s) plus two relay ticks that dispatch all 100 runs
- * sequentially over loopback HTTP (~1.2 s, 502 requests, five per run), about
- * 1.7 s total on an idle machine. On a loaded runner that same work has
- * crossed 5 s (CI run 36836694111, while a sibling run of the same commit
- * passed), so the budget carries an order-of-magnitude margin for a shared
+ * The body does the real thing end to end — the 150 fixture issues arrive as
+ * **two scan-sized enqueues** (the batched form production uses, since the
+ * 2026-10-01 de-slop pass stopped driving them one subject at a time) plus two
+ * relay ticks that dispatch all 100 runs sequentially over loopback HTTP
+ * (~502 requests, five per run). An idle machine measures ≈1.3 s since that
+ * batching; before it, the same proof measured ≈1.7 s and still crossed 5 s on
+ * a loaded CI runner (run 36836694111, while a sibling run of the same commit
+ * passed), so the budget keeps an order-of-magnitude margin for a shared
  * machine without weakening what the test counts: still 100 trials, still
  * exactly one run and one session each.
  */
@@ -695,23 +697,26 @@ describe('the cross-chain replay (FR-020, FR-028, AC-110)', () => {
 
 describe('SC-101: two triggers, one run, one session (AC-101)', () => {
     it(`answers ${TRIALS} dual-trigger trials with one run and one session each`, async () => {
-        for (let index = 0; index < TRIALS; index += 1) {
-            const issueNumber = FIRST_TRIAL_ISSUE + index;
-            // Half the trials see both triggers in one scan, half in two: both
-            // must coalesce onto a single run (FR-011).
-            if (index < LATER_SCAN_TRIALS) {
-                await loop.enqueue({ issueNumber, triggers: ['assignment', 'body-mention'] });
-            } else {
-                await loop.enqueue({ issueNumber, triggers: ['assignment'] });
-            }
-        }
-        for (let index = LATER_SCAN_TRIALS; index < TRIALS; index += 1) {
-            await loop.enqueue({
+        // One scan's worth of detections per call — exactly how the production
+        // loop hands a binding's scan to the queue (`service/poll/loop.ts`).
+        // Scan A carries both triggers for half the trials and one for the
+        // rest; scan B brings the second trigger for that half in a later
+        // window. Both shapes must coalesce onto a single run (FR-011).
+        await loop.enqueueScan(
+            Array.from({ length: TRIALS }, (_unused, index) => ({
                 issueNumber: FIRST_TRIAL_ISSUE + index,
-                triggers: ['body-mention'],
+                triggers: index < LATER_SCAN_TRIALS
+                    ? (['assignment', 'body-mention'] as const)
+                    : (['assignment'] as const),
+            })),
+        );
+        await loop.enqueueScan(
+            Array.from({ length: TRIALS - LATER_SCAN_TRIALS }, (_unused, index) => ({
+                issueNumber: FIRST_TRIAL_ISSUE + LATER_SCAN_TRIALS + index,
+                triggers: ['body-mention'] as const,
                 detectedAt: LATER_STAMP,
-            });
-        }
+            })),
+        );
 
         const rt = loop.mount();
         // The claim is paginated (contract `claim-lease.md`), so one tick can

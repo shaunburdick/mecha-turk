@@ -32,19 +32,26 @@ import { drainVerifications } from '../../src/agent-verify.ts';
 import { DISPATCH_STORAGE_KEY } from '../../src/dispatch-record.ts';
 import { parsePendingBody } from '../../src/claim-service.ts';
 import { EVENTS_PENDING_PATH, serviceGet } from '../../src/service-calls.ts';
-import { createEvent, enqueueEvents } from '../../service/poll/events.ts';
 import { createLogger } from '../../service/log.ts';
 import { readRunsDocument } from '../../service/poll/runs.ts';
 import { writeRunsDocument } from '../../service/poll/runs-document.ts';
 import { sweepOnce } from '../../service/poll/sweep.ts';
-import { promptSnapshotOf } from '../../service/prompt.ts';
-import type { EventSnapshot } from '../../service/poll/events.ts';
 import type { ClaimedRun } from '../../src/claim-service.ts';
 import type { PanelRuntime } from '../../src/panel-state.ts';
 import type { PanelBinding } from '../../src/bindings-service.ts';
 import type { SpikeHost } from '../../src/session.ts';
 import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceStore } from '../../service/store/index.ts';
+import {
+    ACCOUNT_ID,
+    ACCOUNT_LOGIN,
+    BINDING_ID,
+    FIXTURE_STAMP,
+    REPOSITORY,
+    WORKTREE_OPTION,
+    bindEnqueue,
+} from './fixture-enqueue.ts';
+import type { EnqueueInput } from './fixture-enqueue.ts';
 import {
     IDLE_UNSUBSCRIBE,
     PROJECT_ID,
@@ -58,29 +65,8 @@ import type { StorageDouble } from './panel.ts';
 import { startTestService } from './service.ts';
 import type { TestService } from './service.ts';
 
-/** Trigger shapes the loop's fixtures enqueue. */
-export type FixtureTrigger = 'assignment' | 'comment-mention' | 'body-mention';
-
-/** Binding every fixture detection names; the mounts install it as active. */
-const BINDING_ID = 'bnd-loop';
-
-/** Repository every fixture detection names. */
-const REPOSITORY = 'acme/loop';
-
-/** Account every fixture detection is about. */
-const ACCOUNT_ID = '77331';
-
-/** Login every fixture detection carries. */
-const ACCOUNT_LOGIN = 'octocat';
-
-/** Worktree option every fixture binding dispatches with. */
-const WORKTREE_OPTION = 'none';
-
 /** Prefix under the system temp directory for one loop. */
 const TEMP_PREFIX = 'mecha-turk-loop-';
-
-/** Stamp every fixture detection carries unless a test overrides it. */
-export const FIXTURE_STAMP = '2026-09-20T00:00:00.000Z';
 
 /** Stamp a fixture-aged lease reads as expired against (the service's clock). */
 const EXPIRED_LEASE_STAMP = '2000-01-01T00:00:00.000Z';
@@ -131,18 +117,6 @@ export interface MountOptions {
     readonly listProjects?: () => Promise<GuestProjectsSnapshot>;
 }
 
-/** Inputs for {@link DispatchLoop.enqueue}. */
-export interface EnqueueInput {
-    /** Issue the triggers are about. */
-    readonly issueNumber: number;
-    /** Triggers detected for that issue; defaults to one assignment. */
-    readonly triggers?: readonly FixtureTrigger[];
-    /** Detection stamp; defaults to {@link FIXTURE_STAMP}. */
-    readonly detectedAt?: string;
-    /** The binding's prompt at detection, snapshotted onto the run (004 FR-015). */
-    readonly prompt?: string;
-}
-
 /** One panel wired to one service, with the evidence a permutation asserts over. */
 export interface DispatchLoop {
     /** The running instance (reassigned by {@link DispatchLoop.restart}). */
@@ -157,6 +131,14 @@ export interface DispatchLoop {
     readonly panelStorage: Map<string, JsonValue>;
     /** Enqueue fixture deliveries through the real coalescing path. */
     enqueue(input: EnqueueInput): Promise<void>;
+    /**
+     * Enqueue many subjects' fixture deliveries through **one** real
+     * `enqueueEvents` call — a scan-sized batch, exactly how the production
+     * loop hands one binding's scan to the queue (`service/poll/loop.ts`).
+     *
+     * @param inputs - Every subject detected in this simulated scan.
+     */
+    enqueueScan(inputs: readonly EnqueueInput[]): Promise<void>;
     /** Mount a panel on this loop; the caller unmounts or lets it die. */
     mount(options?: MountOptions): PanelRuntime;
     /** Tear a mount down the way closing the panel does. */
@@ -185,43 +167,6 @@ function loopBinding(): PanelBinding {
         createdAt: FIXTURE_STAMP,
         updatedAt: FIXTURE_STAMP,
     };
-}
-
-/** Build the detection one fixture trigger maps onto. */
-function detection(input: {
-    /** Issue the detection is about. */
-    readonly issueNumber: number;
-    /** Which trigger fired. */
-    readonly trigger: FixtureTrigger;
-    /** RFC 3339 detection stamp. */
-    readonly detectedAt: string;
-}): EventSnapshot {
-    const base = {
-        bindingId: BINDING_ID,
-        repository: REPOSITORY,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        projectId: PROJECT_ID,
-        worktreeOption: WORKTREE_OPTION,
-        issue: {
-            issueNumber: input.issueNumber,
-            issueTitle: `Issue ${input.issueNumber}`,
-            issueUrl: `https://github.com/${REPOSITORY}/issues/${input.issueNumber}`,
-            issueBodyExcerpt: '',
-        },
-        triggerNote: `${input.trigger} fixture`,
-        detectedAt: input.detectedAt,
-    };
-
-    if (input.trigger === 'assignment') {
-        return { ...base, kind: 'assignment' };
-    }
-
-    if (input.trigger === 'body-mention') {
-        return { ...base, kind: 'mention', origin: 'body' };
-    }
-
-    return { ...base, kind: 'mention', origin: 'comment', commentId: 4_000 + input.issueNumber };
 }
 
 /** Forward one panel request to whichever instance is running. */
@@ -324,30 +269,6 @@ function stopMount(rt: PanelRuntime): void {
         clearInterval(rt.state.relay.timer);
         rt.state.relay.timer = null;
     }
-}
-
-/** Enqueue one subject's fixture deliveries through the real coalescing path. */
-async function enqueueTriggers(input: {
-    /** Open store to write through. */
-    readonly store: ServiceStore;
-    /** Issue the triggers are about. */
-    readonly issueNumber: number;
-    /** Which triggers fired; one assignment when absent. */
-    readonly triggers: readonly FixtureTrigger[] | undefined;
-    /** Detection stamp; the fixture stamp when absent. */
-    readonly detectedAt: string | undefined;
-    /** The binding's prompt at detection, or `undefined` for none. */
-    readonly prompt: string | undefined;
-}): Promise<void> {
-    const triggers: readonly FixtureTrigger[] = input.triggers ?? ['assignment'];
-    const incoming = triggers.map((trigger) => createEvent(detection({
-        issueNumber: input.issueNumber,
-        trigger,
-        detectedAt: input.detectedAt ?? FIXTURE_STAMP,
-    })));
-    const snapshot = input.prompt === undefined ? null : promptSnapshotOf({ startingPrompt: input.prompt });
-    const queued = { store: input.store, log: LOOP_LOGGER, incoming };
-    await enqueueEvents(snapshot === null ? queued : { ...queued, prompt: snapshot });
 }
 
 /** Drain every mount (pending read-backs first) and the instance itself. */
@@ -492,14 +413,7 @@ export async function startDispatchLoop(): Promise<DispatchLoop> {
         sessions,
         timeline,
         panelStorage: storage.values,
-        enqueue: async (input) =>
-            await enqueueTriggers({
-                store: loop.store,
-                issueNumber: input.issueNumber,
-                triggers: input.triggers,
-                detectedAt: input.detectedAt,
-                prompt: input.prompt,
-            }),
+        ...bindEnqueue({ storeOf: () => loop.store, log: LOOP_LOGGER }),
         mount: (options = {}) => mountPanel({
             service,
             options,
