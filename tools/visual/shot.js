@@ -21,9 +21,14 @@
  * 2. **Strip read-back.** The delivered frame is decoded and the fill of the
  *    *selected* tab's pill is measured where the DOM said it would be. A frame
  *    showing the previously selected tab paints the wrong pill, so it fails.
+ * 3. **Visible-body read-back.** Right before each capture, `assert-body.js`
+ *    asks every `[data-body]` of the cascade: the five the shell hid must have
+ *    no box, and the one that does must be the body the requested tab labels.
+ *    The strip's pill lives outside the scroller, so 2 alone validated the
+ *    right pill over the wrong body whenever all six shared the layout.
  *
  * Plus: the sentinel must be absent from the delivered frame, and it must
- * differ from the capture before it. Four independent answers to "is this the
+ * differ from the capture before it. Five independent answers to "is this the
  * picture I just asked for?".
  */
 import { mkdir, rm } from 'node:fs/promises';
@@ -31,6 +36,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { assertVisibleBody } from './assert-body.js';
 import { createBrowser } from './browser.js';
 import { selfTest } from './png-selftest.js';
 import { startServer } from './serve.js';
@@ -208,6 +214,11 @@ function align(browser, name) {
     return browser.evaluate(`__MT__.align('${name}')`);
 }
 
+/** Read every tab body as the cascade paints it, plus the strip's answer. */
+function bodyView(browser) {
+    return browser.evaluate('__MT__.bodyView()');
+}
+
 /** Paint or clear the sentinel over the harness document. */
 function setSentinel(browser, color) {
     const argument = color === null ? 'null' : `'${color}'`;
@@ -361,6 +372,7 @@ async function captureTab(input) {
     });
 
     assertLayout({ tab, measurement: await align(browser, tab.id) });
+    assertVisibleBody({ tab, view: await bodyView(browser), expected: TABS.length });
     const strip = await browser.evaluate('__MT__.strip()');
     const path = join(context.outDir, `panel-${tab.id}.png`);
     await browser.capture(path, { full: false });
@@ -376,11 +388,18 @@ async function captureTab(input) {
     return { id: tab.id, path, size: verified.size, diff: verified.diff, probeFraction, image: verified.image };
 }
 
-/** Capture the whole panel at its full scroll height, strip included. */
+/**
+ * Capture the whole panel at its full scroll height, strip included.
+ *
+ * The tab is selected first: the six tab captures leave the last one active,
+ * and only one body is in the layout now, so measuring any other body would
+ * measure a box that is not there.
+ */
 async function captureFull(input) {
     const { browser, context, tab, probeColor } = input;
 
     await browser.setViewport({ width: context.width, height: SANITY_HEIGHT });
+    await activateTab({ browser, tab, refs: context.refs });
     await align(browser, tab.id);
     const before = await measure(browser, tab.id);
 
@@ -398,6 +417,7 @@ async function captureFull(input) {
     });
 
     const path = join(context.outDir, 'panel-full.png');
+    assertVisibleBody({ tab, view: await bodyView(browser), expected: TABS.length });
     await browser.capture(path, { full: true });
 
     const verified = verifyDelivered({

@@ -39,6 +39,9 @@ const MIN_BODY_TEXT = 200;
 /** Fixture answer for a route the harness knows no body for. */
 const HTTP_NOT_FOUND = 404;
 
+/** Selector for the strip's selected pill, wherever a read needs it. */
+const SELECTED_TAB = '[role="tab"][aria-selected="true"]';
+
 /** The wire name the protocol version travels under. */
 const VERSION_KEY = 'v';
 
@@ -276,7 +279,7 @@ function onMessage(event) {
 /** The tab the strip reports as selected, or null before the shell mounts. */
 function activeTab() {
     const panel = panelDoc();
-    const active = panel === null ? null : panel.querySelector('[role="tab"][aria-selected="true"]');
+    const active = panel === null ? null : panel.querySelector(SELECTED_TAB);
 
     return active === null ? null : active.textContent.trim();
 }
@@ -336,11 +339,10 @@ function measure(name) {
 /**
  * Scroll the region so the named body starts at the region's top edge.
  *
- * The shell sets `hidden` on the inactive bodies and `panel/index.html` paints
- * `[data-body] { display: flex }`, which beats the UA's `[hidden]` rule — so
- * every mounted body stays in the layout and the region scrolls through all of
- * them. Selecting a tab does not scroll; the harness does, which is what makes
- * one screenshot show one tab.
+ * With `[data-body][hidden] { display: none }` in `panel/index.html` only the
+ * active body is in the layout, so this lands at 0 straight away; the scroll
+ * still runs because a body that outgrows the region (a `--full` capture, a
+ * viewport left short by an earlier tab) has to be brought up by hand.
  *
  * @param name - Tab id to bring to the top of the region.
  * @returns The measurement after the scroll, or null if the body is missing.
@@ -363,6 +365,41 @@ function align(name) {
     region.scrollTop = Math.min(target, maxScroll);
 
     return measure(name);
+}
+
+/**
+ * Every tab body as the cascade paints it, plus the strip's own answer.
+ *
+ * The DOM alone cannot say a body is out of the layout — `hidden` is an
+ * *intent*, and an author `display` rule outranks the UA sheet, which is
+ * exactly how six stacked bodies slipped through every DOM-based test. This
+ * reads `getComputedStyle` for each body, so "visible" here means "has a box",
+ * and it pairs each body with the tab element its `aria-labelledby` points at
+ * so a caller can prove the body on screen belongs to the tab that was asked
+ * for.
+ *
+ * @returns `{ active, selectedId, bodies }`, or null before the panel loads.
+ */
+function bodyView() {
+    const panel = panelDoc();
+    if (panel === null) {
+        return null;
+    }
+
+    const selected = panel.querySelector(SELECTED_TAB);
+    const bodies = [...panel.querySelectorAll('[data-body]')].map((body) => ({
+        id: body.getAttribute('data-body'),
+        hidden: body.hasAttribute('hidden'),
+        display: panel.defaultView.getComputedStyle(body).display,
+        labelledBy: body.getAttribute('aria-labelledby'),
+        height: Math.round(body.getBoundingClientRect().height),
+    }));
+
+    return {
+        active: activeTab(),
+        selectedId: selected === null ? null : selected.id,
+        bodies,
+    };
 }
 
 /** One tab button's box in page pixels, plus whether the strip selects it. */
@@ -391,7 +428,7 @@ function strip() {
         return { tabs: [], activeColor: null };
     }
 
-    const active = panel.querySelector('[role="tab"][aria-selected="true"]');
+    const active = panel.querySelector(SELECTED_TAB);
 
     return {
         tabs: [...panel.querySelectorAll('[role="tab"]')].map(stripBox),
@@ -488,6 +525,7 @@ globalThis.__MT__ = {
     activeTab,
     measure,
     align,
+    bodyView,
     strip,
     sentinel,
     stretch,
