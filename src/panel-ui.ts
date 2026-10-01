@@ -26,6 +26,7 @@ import {
 import { repaintPrerequisites } from './prerequisites.ts';
 import { repaintBindingsPane } from './bindings-ui.ts';
 import type { PanelRuntime, PanelState } from './panel-state.ts';
+import { mountStyledText } from './style.ts';
 
 /** Callbacks the mounted controls invoke. */
 export interface PanelHandlers {
@@ -129,7 +130,7 @@ export function mountProjectPicker(input: {
     // FR-070: the same "Not listed?" line the binding picker shows, so the
     // routes to register a project are readable from either picker without
     // leaving the panel. Constant copy, so it is painted once, not repainted.
-    mountText(group, { text: notListedGuidance() });
+    mountStyledText(group, { className: 'mt-prose', text: notListedGuidance() });
 
     return { projectSelect, projectStatus, projectDetail, projectRefresh, projectCopy };
 }

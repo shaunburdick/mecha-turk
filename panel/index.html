@@ -212,6 +212,10 @@
                 font-size: 0.8125rem;
                 line-height: 1.5;
                 color: var(--mt-dim);
+                /* Prose keeps a measure on a rail: a 110-character line is
+                   a desktop line, and the eye has to travel back across the
+                   whole panel to find the next one. */
+                max-width: 74ch;
             }
 
             /* A controls row: filters, paging, and the read-state line. */
@@ -260,10 +264,19 @@
                 flex-direction: column;
             }
 
+            /*
+             * Definition rows stack by default: the label sits above its
+             * value, which is how a right-hand rail is read. The key *column*
+             * is an enhancement rather than the starting point — block 2 adds
+             * one from 640px up, and below that line the row keeps stacking,
+             * because the host's own default panel measures 500–715px (the
+             * width evidence lives with `DEFAULT_WIDTH` in `tools/visual/
+             * shot.js`).
+             */
             .mt-def {
                 display: grid;
-                grid-template-columns: minmax(0, var(--mt-key-width)) minmax(0, 1fr);
-                column-gap: var(--mt-space-3);
+                grid-template-columns: minmax(0, 1fr);
+                row-gap: 2px;
                 padding: var(--mt-space-2) 0;
                 border-top: 1px solid color-mix(in srgb, var(--mt-line) 45%, transparent);
             }
@@ -294,8 +307,6 @@
 
             .mt-key {
                 min-width: 0;
-                font-size: 0.8125rem;
-                line-height: 1.45;
                 color: var(--mt-dim);
             }
 
@@ -307,6 +318,22 @@
             .mt-key--mono {
                 font-family: var(--mt-mono);
                 font-size: 0.75rem;
+            }
+
+            /*
+             * The stacked row's label (the default): a small tracked line
+             * over its value — the shape a form field has, which is what a
+             * definition row becomes on a rail. `.mt-def .mt-key`
+             * out-specifies the `--strong`/`--mono` modifiers for size and
+             * weight, exactly as the old 560px query did, but never touches
+             * colour: `--strong` still darkens its key and `--mono` still
+             * brings the family. Block 2 restores the columnar type at 640px.
+             */
+            .mt-def .mt-key {
+                font-size: 0.6875rem;
+                line-height: 1.4;
+                font-weight: 700;
+                letter-spacing: 0.05em;
             }
 
             .mt-val {
@@ -351,10 +378,15 @@
              * Settings: field, value, and shape as one row per declared member.
              * ---------------------------------------------------------------- */
 
+            /*
+             * Settings is one column on a rail — label, control, bounds, in
+             * that order, stacked — and it keeps no header over a stack it
+             * cannot line up. The three-column table and its header are a
+             * wide-viewport enhancement (block 2, at 900px), never a shape
+             * the layout has to fall *out* of when the panel is narrow.
+             */
             .mt-head--settings {
-                column-gap: var(--mt-space-3);
-                padding: 0 0 var(--mt-space-1);
-                grid-template-columns: minmax(0, 18rem) minmax(0, 1fr) minmax(0, 15rem);
+                display: none;
             }
 
             .mt-grid {
@@ -363,15 +395,18 @@
             }
 
             /*
-             * Each SDK field lays its own label, control, and note out as the
+             * Each SDK field lays its label, control, and note out as the
              * three columns the header names — the wrapper is a flex column
              * precisely so the header and the rows are siblings that only have
              * to agree on the template, never on their children's index.
+             *
+             * By default there is one column: a rail stacks, and the header
+             * above it is hidden (block 2 brings both back at 900px).
              */
             .mt-grid > .oc-sdk-field,
             .mt-grid > .oc-sdk-select {
                 display: grid;
-                grid-template-columns: minmax(0, 18rem) minmax(0, 1fr) minmax(0, 15rem);
+                grid-template-columns: minmax(0, 1fr);
                 column-gap: var(--mt-space-3);
                 row-gap: var(--mt-space-1);
                 align-items: start;
@@ -513,17 +548,38 @@
             }
 
             /*
-             * Dispatches: the SDK row lays out as lead(64px) · main(1fr) ·
-             * badge · meta, so the header mirrors that arithmetic — the age
-             * column is pinned in both (below) and the state label is
-             * right-aligned so its edge lands on the badge's edge.
+             * Dispatches, stacked (the default): the subject *is* the row, so
+             * the header gives it a full-width line of its own and drops
+             * Trigger / State / Age onto the second line — where
+             * `.mt-list--dispatches` puts them when it restacks the row. All
+             * four labels stay in the DOM; the grid areas choose only which
+             * line each one stands on, so State's right edge still lands on
+             * the badge's and Age's on the meta column's. Block 2 folds the
+             * areas back into one line at 900px.
              */
             .mt-head--dispatches {
                 grid-template-columns: 64px minmax(0, 1fr) max-content 4.5rem;
+                grid-template-areas:
+                    'subject subject subject subject'
+                    'trigger . state age';
+                row-gap: var(--mt-space-1);
             }
 
-            .mt-head--dispatches > :nth-child(3),
+            .mt-head--dispatches > :nth-child(1) {
+                grid-area: trigger;
+            }
+
+            .mt-head--dispatches > :nth-child(2) {
+                grid-area: subject;
+            }
+
+            .mt-head--dispatches > :nth-child(3) {
+                grid-area: state;
+                text-align: right;
+            }
+
             .mt-head--dispatches > :nth-child(4) {
+                grid-area: age;
                 text-align: right;
             }
 
@@ -554,15 +610,46 @@
              * (2026-10-01 review). Inside a `.mt-list` the subtitle wraps
              * instead: these lists are evidence the operator reads, and a cut
              * that happens to land mid-word tells them less than the second
-             * line does. The narrow rail (760px, 560px) takes the same rule —
-             * that is the width where a second line pays for itself — and the
-             * title and age columns are untouched, so the header still lines
-             * up over its columns.
+             * line does. Nothing here moves a cell — it only lets a cell take
+             * more than one line, so the header keeps lining up over its
+             * columns.
              */
             .mt-list .oc-sdk-row-sub {
                 white-space: normal;
                 overflow: visible;
                 text-overflow: clip;
+            }
+
+            /*
+             * A dispatch row, stacked (the default): the subject — title,
+             * then the diagnosis that explains it — takes the first line at
+             * full width, and trigger, state, and age share the line under
+             * it. Before this rule the subject sat *between* a 64px trigger,
+             * a state chip, and the age column, so every title in the list
+             * truncated to its first few words (`#117 Review: split the
+             * polli…`) while the diagnosis below it had room to wrap — the
+             * defect this wave exists to fix (product-owner order 2026-10-01).
+             *
+             * `order` moves the subject visually, never in the DOM: a screen
+             * reader still meets trigger → subject → state → age, the row is
+             * still one focus stop, and the header above lays its four labels
+             * onto the same two lines. The badge rides `margin-left: auto` to
+             * the age column's edge — the right edge the header's State cell
+             * holds — because on the second line no `1fr` cell is left to
+             * push it there. Block 2 folds the row back into columns at
+             * 900px, where a subject line has the width to spare.
+             */
+            .mt-list--dispatches .oc-sdk-row {
+                flex-wrap: wrap;
+            }
+
+            .mt-list--dispatches .oc-sdk-row-main {
+                order: -1;
+                flex: 1 0 100%;
+            }
+
+            .mt-list--dispatches .oc-sdk-badge {
+                margin-left: auto;
             }
 
             /* ---------------------------------------------------------------- *
@@ -584,28 +671,99 @@
                 max-width: 72ch;
             }
 
-            /* The settings grid cannot hold three columns on a narrow rail. */
-            @media (max-width: 760px) {
+            /*
+             * The Accounts custody disclaimer is four long paragraphs
+             * written as one `pre-line` paragraph; without a cap they run
+             * the full panel width (~110 characters at the default capture
+             * size) and read as a wall. `--mt-key-width`'s cousin: the cap
+             * is a measure, not a truncation — the copy wraps, unchanged.
+             */
+            [data-accounts-disclaimer] p {
+                max-width: 74ch;
+            }
+
+        </style>
+
+        <!--
+            Block 2 — width regimes.
+
+            Everything above *is* the rail layout: definition rows stacked,
+            Settings one column with no header over it, a dispatch row whose
+            subject owns its first line. These rules only ever add structure
+            when the panel is wide enough to hold it, so a narrow viewport
+            never has to fall out of a wide design — it gets the design that
+            was drawn for it.
+
+            Both thresholds come from the same evidence as the capture widths
+            (see DEFAULT_WIDTH in `tools/visual/shot.js`): the host's default
+            panel measures 500–715px and is resizable to 1400. 640 is where a
+            key column beside its value still leaves the value the majority of
+            the line; 900 is where `18rem | 1fr | 15rem` and a four-column
+            dispatch row both fit without starving the middle column.
+        -->
+        <style>
+            @media (min-width: 640px) {
+                /* Definition rows gain their key column. The `:not` keeps a
+                   note row — prose with nothing to label — spanning the
+                   whole row, which is what it does at every width. */
+                .mt-def:not(.mt-def--note) {
+                    grid-template-columns: minmax(0, var(--mt-key-width)) minmax(0, 1fr);
+                    column-gap: var(--mt-space-3);
+                    row-gap: 0;
+                }
+
+                /* ...and the label stops reading like a stacked heading and
+                   reads like a key again: the columnar type, with both
+                   modifiers restored (the stacked rule out-specifies them). */
+                .mt-def .mt-key {
+                    font-size: 0.8125rem;
+                    line-height: 1.45;
+                    font-weight: 400;
+                    letter-spacing: normal;
+                }
+
+                .mt-def .mt-key--strong {
+                    font-weight: 600;
+                }
+
+                .mt-def .mt-key--mono {
+                    font-size: 0.75rem;
+                }
+            }
+
+            @media (min-width: 900px) {
+                /* Settings: the three-column table and the header naming it. */
                 .mt-head--settings {
-                    display: none;
+                    display: grid;
+                    column-gap: var(--mt-space-3);
+                    padding: 0 0 var(--mt-space-1);
+                    grid-template-columns: minmax(0, 18rem) minmax(0, 1fr) minmax(0, 15rem);
                 }
 
                 .mt-grid > .oc-sdk-field,
                 .mt-grid > .oc-sdk-select {
-                    grid-template-columns: minmax(0, 1fr);
-                }
-            }
-
-            /* Narrow rail: the key column stacks above its value. */
-            @media (max-width: 560px) {                .mt-def {
-                    grid-template-columns: minmax(0, 1fr);
-                    row-gap: 2px;
+                    grid-template-columns: minmax(0, 18rem) minmax(0, 1fr) minmax(0, 15rem);
                 }
 
-                .mt-key {
-                    font-size: 0.6875rem;
-                    font-weight: 700;
-                    letter-spacing: 0.05em;
+                /* Dispatches: the header's two lines fold into one, over the
+                   four columns the areas already name. */
+                .mt-head--dispatches {
+                    grid-template-areas: 'trigger subject state age';
+                    row-gap: 0;
+                }
+
+                /* ...and the row folds back beside its chips. */
+                .mt-list--dispatches .oc-sdk-row {
+                    flex-wrap: nowrap;
+                }
+
+                .mt-list--dispatches .oc-sdk-row-main {
+                    order: 0;
+                    flex: 1 1 auto;
+                }
+
+                .mt-list--dispatches .oc-sdk-badge {
+                    margin-left: 0;
                 }
             }
         </style>

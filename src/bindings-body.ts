@@ -284,7 +284,8 @@ function mountAddForm(input: MountInputs): Form {
     const mentionToken = mountBindingMention(input);
     const projectSelect = mountProjectSelect(input);
     // FR-038's "Not listed?" affordance: constant copy, no handle to keep.
-    mountText(input.pane, { text: notListedGuidance() });
+    // Prose, so it keeps a measure on a rail (`.mt-prose` caps it at 72ch).
+    mountStyledText(input.pane, { className: 'mt-prose', text: notListedGuidance() });
     const checks = mountTriggerChecks(input);
     const worktree = mountSelect(
         input.pane,

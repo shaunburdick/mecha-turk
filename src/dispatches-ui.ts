@@ -161,7 +161,7 @@ function mountDispatchesList(input: MountInputs): Pick<DispatchesBoard, Dispatch
     const { pane, rt, handlers } = input;
     const { dispatches: runs } = rt.state;
     const grid = pane.ownerDocument.createElement('div');
-    grid.className = 'mt-list';
+    grid.className = 'mt-list mt-list--dispatches';
     pane.append(grid);
 
     return {
