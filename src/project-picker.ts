@@ -124,6 +124,28 @@ export function pickerOptions(picker: ProjectPickerState): SelectOption[] {
 }
 
 /**
+ * Narrow the picker's options for the binding form's project select.
+ *
+ * Only a `ready` snapshot produces options — a loading or failed list would
+ * offer projects the host may no longer hold. Unlike {@link pickerOptions}
+ * these carry no directory hint, because the form's row already names the
+ * repository and the id.
+ *
+ * @param picker - Project picker state.
+ * @returns The options, only when a ready list is loaded.
+ */
+export function formProjectOptions(picker: ProjectPickerState): SelectOption[] {
+    if (picker.status !== 'ready') {
+        return [];
+    }
+
+    return picker.projects.map((project) => ({
+        id: project.id,
+        label: `${project.name} · ${project.id}`,
+    }));
+}
+
+/**
  * Derive the picker's status line.
  *
  * A dynamic note (a failure detail, a copy confirmation) wins over the text

@@ -27,7 +27,6 @@ import type {
     CheckboxHandle,
     ListHandle,
     SelectHandle,
-    SelectOption,
     TextHandle,
     TextFieldHandle,
 } from '@openchamber/sdk/ui';
@@ -44,8 +43,11 @@ import {
     worktreeFieldView,
 } from './bindings-editor.ts';
 import type { BindingActions } from './bindings-editor.ts';
-import { notListedGuidance } from './project-picker.ts';
+import { formProjectOptions, notListedGuidance } from './project-picker.ts';
 import { bindingRows, selectedBindingDetail } from './bindings-rows.ts';
+import { mountDetailChips, TRIGGER_ASSIGNMENT, TRIGGER_MENTION, TRIGGER_REVIEW } from './bindings-chips.ts';
+import type { DetailChips } from './bindings-chips.ts';
+import { createBlock, mountColumnHead, mountStyledText } from './style.ts';
 
 /** The pane handle: the mounted element and every repaint handle it needs. */
 export interface BindingsPane {
@@ -87,6 +89,8 @@ export interface BindingsPane {
     readonly note: TextHandle;
     /** Wrapper around the selected binding's own line (005 FR-053). */
     readonly detailBox: HTMLElement;
+    /** Chip row over that line: the binding's state and its triggers. */
+    readonly detailChips: DetailChips;
     /** State, created/updated stamps, and scan of the selected binding. */
     readonly selectedDetail: TextHandle;
     /** The starting-prompt field and its save control (005 FR-051). */
@@ -152,6 +156,15 @@ export const MENTION_SCAN_NOTE = 'Issue bodies and comments that @mention the bo
 
 /** Note under the review-request checkbox (M7). */
 export const REVIEW_SCAN_NOTE = 'Pull requests that ask the account to review open a dispatch.';
+
+/** Heading above the bindings list and the selected row's own facts. */
+const LIST_HEADING = 'Bindings';
+
+/** Heading above the form that creates or edits one binding. */
+const EDITOR_HEADING = 'Binding editor';
+
+/** The list's column labels, in the order the SDK row lays its cells out. */
+const LIST_COLUMNS: readonly string[] = ['State', 'Repository and project', 'Pending'];
 
 /**
  * Compose the pane's one status line.
@@ -219,16 +232,22 @@ interface Form {
  * @returns The board handles.
  */
 function mountBindingsBoard(input: MountInputs): Board {
-    const status = mountText(input.pane, { text: composeStatus(input.rt.state.bindings) });
-    const list = mountList(input.pane, {
+    const { pane, rt, handlers } = input;
+    const text = composeStatus(rt.state.bindings);
+    const status = mountStyledText(pane, { className: 'mt-lede', text });
+    const grid = pane.ownerDocument.createElement('div');
+    grid.className = 'mt-list';
+    pane.append(grid);
+    mountColumnHead(grid, { modifier: 'mt-head--bindings', cells: LIST_COLUMNS });
+    const list = mountList(grid, {
         items: [],
         ariaLabel: 'Bindings',
         emptyText: 'No binding yet — add one below or refresh.',
-        onSelect: (id: string) => input.handlers.selectBinding(id),
+        onSelect: (id: string) => handlers.selectBinding(id),
     });
     const refresh = mountButton(
-        input.pane,
-        { label: 'Refresh bindings', variant: 'secondary', onClick: input.handlers.refresh },
+        pane,
+        { label: 'Refresh bindings', variant: 'secondary', onClick: handlers.refresh },
     );
     return { status, bindingsList: list, refreshBindings: refresh };
 }
@@ -275,18 +294,18 @@ function mountTriggerChecks(input: MountInputs): {
     readonly reviewRequest: CheckboxHandle;
 } {
     const assignment = mountCheckbox(input.pane, {
-        label: 'Assignment',
+        label: TRIGGER_ASSIGNMENT,
         checked: input.rt.state.bindings.triggerAssignment,
         onChange: (checked) => input.handlers.setAssignment(checked),
     });
     const mention = mountCheckbox(input.pane, {
-        label: 'Mention',
+        label: TRIGGER_MENTION,
         description: MENTION_SCAN_NOTE,
         checked: input.rt.state.bindings.triggerMention,
         onChange: (checked) => input.handlers.setMention(checked),
     });
     const reviewRequest = mountCheckbox(input.pane, {
-        label: 'Review request',
+        label: TRIGGER_REVIEW,
         description: REVIEW_SCAN_NOTE,
         checked: input.rt.state.bindings.triggerReviewRequest,
         onChange: (checked) => input.handlers.setReviewRequest(checked),
@@ -348,10 +367,12 @@ function disposeBindingsBody(input: {
     readonly prompt: BindingPromptControls;
     /** Wrapper around the selected binding's own line. */
     readonly detailBox: HTMLElement;
+    /** Chip row over that line. */
+    readonly detailChips: DetailChips;
     /** The selected binding's state, stamps, and scan. */
     readonly selectedDetail: TextHandle;
 }): void {
-    const { pane, board, form, prompt, detailBox, selectedDetail } = input;
+    const { pane, board, form, prompt, detailBox, detailChips, selectedDetail } = input;
     const handles = [
         board.status,
         board.bindingsList,
@@ -373,9 +394,32 @@ function disposeBindingsBody(input: {
     }
 
     disposeBindingPrompt(prompt);
+    detailChips.dispose();
     selectedDetail.dispose();
     detailBox.remove();
     pane.remove();
+}
+
+/**
+ * Mount the selected row's own facts: its wrapper, its chips, its line.
+ *
+ * @param parent - The block body these facts describe rows of.
+ * @returns The wrapper, the chip row, and the detail line.
+ */
+function mountSelectedDetail(parent: HTMLElement): {
+    readonly detailBox: HTMLElement;
+    readonly detailChips: DetailChips;
+    readonly selectedDetail: TextHandle;
+} {
+    const detailBox = parent.ownerDocument.createElement('div');
+    detailBox.hidden = true;
+    parent.append(detailBox);
+
+    return {
+        detailBox,
+        detailChips: mountDetailChips(detailBox),
+        selectedDetail: mountText(detailBox, { text: '' }),
+    };
 }
 
 /**
@@ -400,18 +444,20 @@ export function mountBindingsBody(input: {
     const pane = root.ownerDocument.createElement('div');
     root.append(pane);
 
-    const board = mountBindingsBoard({ rt, pane, handlers });
+    // Two blocks: what is bound (and the selected row's own facts), then the
+    // form that creates or edits one binding.
+    const listBlock = createBlock(pane, { heading: LIST_HEADING });
+    const editorBlock = createBlock(pane, { heading: EDITOR_HEADING });
+
+    const board = mountBindingsBoard({ rt, pane: listBlock.body, handlers });
     // The selected row's own facts sit between the list and the form: they
     // describe *this* binding, and the form below is where it is changed
     // (FR-053 — state, created/updated stamps, per-binding scan line).
-    const detailBox = pane.ownerDocument.createElement('div');
-    detailBox.hidden = true;
-    pane.append(detailBox);
-    const selectedDetail = mountText(detailBox, { text: '' });
-    const form = mountAddForm({ rt, pane, handlers });
+    const { detailBox, detailChips, selectedDetail } = mountSelectedDetail(listBlock.body);
+    const form = mountAddForm({ rt, pane: editorBlock.body, handlers });
     // Mounted last so the field that carries the operator's instruction sits
     // at the end of the form it belongs to, with its own save control.
-    const prompt = mountBindingPrompt({ rt, pane, handlers });
+    const prompt = mountBindingPrompt({ rt, pane: editorBlock.body, handlers });
 
     return {
         pane,
@@ -433,28 +479,11 @@ export function mountBindingsBody(input: {
         cancelEdit: form.actions.cancel,
         note: form.note,
         detailBox,
+        detailChips,
         selectedDetail,
         prompt,
-        dispose: () => disposeBindingsBody({ pane, board, form, prompt, detailBox, selectedDetail }),
+        dispose: () => disposeBindingsBody({ pane, board, form, prompt, detailBox, detailChips, selectedDetail }),
     };
-}
-
-/**
- * Narrow the project picker's options for the add form's select.
- *
- * @param rt - Panel runtime.
- * @returns The options, only when a ready list is loaded.
- */
-function pickerOptionsFor(rt: PanelRuntime): SelectOption[] {
-    const { projects } = rt.state;
-    if (projects.status !== 'ready') {
-        return [];
-    }
-
-    return projects.projects.map((project) => ({
-        id: project.id,
-        label: `${project.name} · ${project.id}`,
-    }));
 }
 
 /**
@@ -478,7 +507,7 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
     });
     repaintBindingMention(rt, view.mentionToken);
     view.projectSelect.update({
-        options: pickerOptionsFor(rt),
+        options: formProjectOptions(rt.state.projects),
         value: bindings.repoProjectSelection,
         disabled: bindings.status !== 'ready',
     });
@@ -500,5 +529,6 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
     const detail = selectedBindingDetail(bindings);
     view.detailBox.hidden = detail === null;
     view.selectedDetail.update({ text: detail ?? '' });
+    view.detailChips.paint(bindings);
     repaintBindingPrompt(rt, view.prompt);
 }

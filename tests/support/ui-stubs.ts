@@ -111,6 +111,7 @@ export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
         cancelEdit: stubHandle(),
         note: stubHandle(),
         detailBox: paneBody,
+        detailChips: { paint: (): void => undefined, dispose: (): void => undefined },
         selectedDetail: stubHandle(),
         prompt: { field: stubHandle(), save: stubHandle() },
         pane: paneBody,
