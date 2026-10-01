@@ -12,6 +12,13 @@
  * the pane, and every service-supplied string reaches the DOM through those
  * primitives' `textContent` writes (panel-service contract §3 invariant 11).
  *
+ * The pane is three blocks — the set, the selection, the trail — and the
+ * middle one follows Accounts' rule: a control that acts on a selection
+ * cannot exist without one, so **Selected dispatch** hides as a whole block,
+ * its `h2` included, rather than standing as a heading over an empty region.
+ * The outcome note therefore lives at the foot of the *set* block, where the
+ * status line's *see the note* still finds it while nothing is selected.
+ *
  * The three operator actions mount as **groups that show and hide**: the SDK
  * buttons have no "absent" state of their own, so each group wraps its buttons
  * in an element whose `hidden` flag is the "no control here" the affordance
@@ -72,6 +79,8 @@ export interface DispatchesBoard {
     readonly refreshDispatches: ButtonHandle;
     /** Open the selected run's issue in the operator's browser. */
     readonly openDispatch: ButtonHandle;
+    /** The whole Selected dispatch block — heading included — hidden with no row open. */
+    readonly selectedBox: HTMLElement;
     /** Wrapper around the retry control, hidden when no state accepts one. */
     readonly retryRunBox: HTMLElement;
     /** Requeue the selected run through `POST …/retry`. */
@@ -425,6 +434,9 @@ export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard)
     });
     board.refreshDispatches.update({ disabled: runs.status === 'loading' });
     board.openDispatch.update({ disabled: selected === null, label: labelFor(OPEN_ISSUE_LABEL) });
+    // The block itself goes first: with no row open its heading would promise
+    // a selection the panel does not have (the Accounts rule, module note).
+    board.selectedBox.hidden = selected === null;
     board.retryRunBox.hidden = affordance?.action !== 'retry';
     board.retryRun.update({ disabled: runs.busy, label: labelFor(RETRY_LABEL) });
     board.requeueRunBox.hidden = affordance?.action !== 'requeue';
@@ -470,6 +482,8 @@ export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
     // says, which slice of it is on screen, and the rows themselves; then the
     // controls the selection opens; then the trail a row leaves behind.
     const set = createBlock(pane, { heading: DISPATCHES_HEADING });
+    // No lede, so `selected.body` *is* the block element: hiding it takes its
+    // heading with it, which is exactly how Accounts' detail block behaves.
     const selected = createBlock(pane, { heading: SELECTED_HEADING });
     const trail = createBlock(pane, { heading: AUDIT_HEADING });
 
@@ -478,11 +492,14 @@ export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
     mountColumnHead(set.body, { modifier: 'mt-head--dispatches', cells: LIST_COLUMNS });
     const list = mountDispatchesList({ pane: set.body, rt, handlers });
     const shared = mountSharedActions({ pane: set.body, handlers });
+    // The outcome note closes the *set* block, the way Accounts closes its
+    // list block: it carries read failures as well as action outcomes, so it
+    // must survive a selection the panel does not have (see the module note).
+    const note = mountStyledText(set.body, { className: 'mt-lede', text: runs.note });
 
     const transitions = mountTransitions({ pane: selected.body, handlers });
     const resolutions = mountResolutions({ pane: selected.body, rt, handlers });
     const detail = mountRowDetail({ pane: selected.body, rt, handlers });
-    const note = mountStyledText(selected.body, { className: 'mt-lede', text: runs.note });
 
     const audit = mountAuditView({ pane: trail.body, rt, handlers });
     const agent = mountAgentNotice(pane, runs);
@@ -490,6 +507,7 @@ export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
         ...head,
         ...list,
         ...shared,
+        selectedBox: selected.body,
         ...transitions,
         ...resolutions,
         controls: combineControls(paging, detail),
