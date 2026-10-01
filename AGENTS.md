@@ -165,14 +165,14 @@ network — those checks are operator-gated and recorded in the spec (see
 | `settings-actions.ts` | The Settings effects: the read, the whole-document write (arm first when it deletes), discard, cancel, and staged defaults — each taking the repaint it triggers so the two modules never import each other (006 T-019, T-020, T-022) |
 | `settings-mount.ts` | The Settings regions outside the rows: the read row, the failure notice, the source/rows region, the save bar with its armed-confirmation box and its two hidden-until-needed boxes, and the view's single dispose path (006 T-020, T-022; 005 FR-017) |
 | `settings-tab.ts` | The Settings body: the one `GET /v1/config` read, the save flow, the failure and audit-warning rendering, and the projection-driven rows (005 FR-078, FR-039; 006 FR-010–FR-015, T-018, T-020, T-023, T-024) |
-| `about-tab.ts` | The About body: the single version read from the service health answer (no panel-side literal), the static identity and posture copy, and the read-only Diagnostics section (005 FR-074–FR-077) |
+| `about-tab.ts` | The About body: name, the one-line description, the single version read from the service health answer (no panel-side literal), the repository link through `host.openUrl`, and the Diagnostics disclosure (005 FR-074–FR-077; 2026-10-01 scrub) |
+| `about-diagnostics.ts` | The read-only Diagnostics record that disclosure reveals: schema versions, the phase line, and the ledger tail as `#seq · kind · time` text (005 FR-075, FR-076) |
 | `audit-view.ts` | One run's audit history under its correlation id, rendered as text (never markup) |
 | `agent-verify.ts` | Post-dispatch `openSession()` agent read-back, reported to the service (warn-only) |
 | `handoff*.ts` / `account*.ts` / `consent*.ts` | One-shot token handoff, consent gate, credential-free account mirror |
 | `accounts-rows.ts` / `accounts-tab.ts` | The Accounts tab: every FR-062 row word (lifecycle, connection, scope matrix, remediation, binding count) as pure functions, plus the body's mounts, repaint, and single read |
 | `accounts-actions.ts` | The tab's writes: two-step removal with the `force=1` cascade the arm stated, the rotation arm the handoff routes on, and the display-name PUT that never applies a value the service did not confirm |
 | `storage-write.ts` | Guarded storage writes |
-| `vocabulary.ts` | The operator-facing vocabulary mapping and the two shapes it renders as — the one home for the retired nouns the L1 scan exempts (005 FR-029) |
 
 ## Module map (service, `service/`)
 

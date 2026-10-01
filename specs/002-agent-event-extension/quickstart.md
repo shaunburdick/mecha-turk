@@ -36,7 +36,7 @@ Expect: 0 lint errors/warnings (zero suppressions — no `eslint-disable`, no `@
 2. Approval dialog shows `sessions`, `prompt`, `service`. Read the local-service line (*"a separate program with your full user access"*) and choose **Allow and enable**.
 3. Open the **Mecha Turk** rail panel. It opens on **Status**: the honest projection (service, polling, accounts, bindings, agent pin) with the **Setup prerequisites** section beneath it — six lines (Default Agent pin, OpenChamber running, desktop-or-web surface, GitHub token scopes, registered project per binding, service-capability approval), each rendered *met*, *not met*, or **not checkable by the panel**, each with its own remediation, and any checkable-and-unmet item also raises a notice above the tabs. The Default Agent pin reads **not checkable** on purpose (the panel cannot read that setting), so §0 step 2 remains the operator's own action; verification still reads the pin back after every dispatch and warns when a session reports another agent.
 
-   The strip has six tabs, in order: **Status** (the overview and prerequisites above), **Dispatches** (every queued, running, and finished dispatch, with paging and filters), **Bindings** (the repositories you watch, plus the project picker and the add form), **Accounts** (the GitHub accounts, their scope, and the add form), **Settings** (the single configuration input for the whole service configuration), and **About** (identity, the data directory, and read-only diagnostics).
+   The strip has six tabs, in order: **Status** (the overview and prerequisites above), **Dispatches** (every queued, running, and finished dispatch, with paging and filters), **Bindings** (the repositories you watch, plus the project picker and the add form), **Accounts** (the GitHub accounts, their scope, and the add form), **Settings** (the single configuration input for the whole service configuration), and **About** (name, version, description, the repository link, and read-only diagnostics behind a disclosure).
 
 ## 4. First run (happy path, ~5 minutes)
 
@@ -124,7 +124,7 @@ runs, and what survives it**; raising a limit deletes nothing, and the panel
 says so.
 
 The configuration lives in `config.json` in the service store (`0600`, under
-the data directory **About** names), so it is operator-backable: you can back
+the data directory **Status** names), so it is operator-backable: you can back
 it up or hand-edit it, and a document that fails validation is set aside and
 the documented defaults take over, with the tab saying exactly that. Nothing
 is configured through an environment file, an environment variable, or an

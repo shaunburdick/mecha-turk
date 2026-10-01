@@ -1,6 +1,12 @@
 /**
- * The About tab (005 T-028; FR-074–FR-077, FR-029, AC-132, AC-133, AC-134,
- * SC-109).
+ * The About tab (005 T-028 as re-cut by the 2026-10-01 product-owner scrub;
+ * FR-074–FR-077, AC-132, AC-133, AC-134, SC-109).
+ *
+ * The tab is now **name, version, description, repository link**, with the
+ * read-only Diagnostics record behind a disclosure — the vocabulary mapping,
+ * the cleanup posture, the release posture, and the data-directory line left
+ * the page (and `src/vocabulary.ts` left the tree with them), so the suite
+ * asserts their absence as well as the four things that stayed.
  *
  * The tab has one hard rule with two halves, so the suite leads with both:
  *
@@ -27,16 +33,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { healthRoute, SERVICE_VERSION } from '../service/routes/health.ts';
 import { EVIDENCE_SCHEMA_VERSION } from '../src/evidence.ts';
-import {
-    dataDirLine,
-    ledgerLines,
-    phaseRecordLine,
-    versionLine,
-} from '../src/about-tab.ts';
+import { openRepository, toggleDiagnostics, versionLine } from '../src/about-tab.ts';
+import { ledgerLines, phaseRecordLine } from '../src/about-diagnostics.ts';
 import type { AboutTabState } from '../src/about-tab.ts';
-import { VOCABULARY_HEADING, VOCABULARY_ITEMS, VOCABULARY_SHORT_FORM } from '../src/vocabulary.ts';
 import { HEALTH_PATH } from '../src/service-calls.ts';
-import { parseStatusView } from '../src/status-document.ts';
 import { findSecretLeak } from '../src/redaction.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
@@ -99,7 +99,7 @@ const VERSION_SHAPED = /(?<![\d.])\d+\.\d+\.\d+(?![\d.])/;
 
 /** The version line an unread tab shows before the first health answer. */
 function unreadState(): AboutTabState {
-    return { phase: 'idle', at: null, problem: null, version: null };
+    return { phase: 'idle', at: null, problem: null, version: null, diagnosticsOpen: false, repoProblem: null };
 }
 
 /** The health answer this build's own service gives (contract §0). */
@@ -125,6 +125,8 @@ interface AboutMount {
     readonly created: readonly FakeElement[];
     /** Every request the tab made, in order. */
     readonly requests: readonly GuestRequest[];
+    /** Every URL the host was asked to open, in order. */
+    readonly opened: string[];
     /** Every string the SDK mounts were handed, in order. */
     readonly strings: readonly string[];
 }
@@ -140,9 +142,12 @@ async function mountAbout(input: {
     readonly answer?: (request: GuestRequest) => GuestRequestResult | Promise<GuestRequestResult>;
     /** State to arrange before the body mounts. */
     readonly setup?: (rt: PanelRuntime) => void;
+    /** What `host.openUrl` does; a rejection exercises the refusal line. */
+    readonly openUrl?: (url: string) => Promise<void>;
 }): Promise<AboutMount> {
     mounts.log.length = 0;
     const requests: GuestRequest[] = [];
+    const opened: string[] = [];
     const host = fakeHost({
         serviceRequest: async (request) => {
             requests.push(request);
@@ -150,6 +155,10 @@ async function mountAbout(input: {
             return input.answer === undefined
                 ? { status: DEFAULT_STATUS, body: DEFAULT_BODY }
                 : await input.answer(request);
+        },
+        openUrl: async (url) => {
+            opened.push(url);
+            await input.openUrl?.(url);
         },
     });
     const rt = createTestRuntime(host);
@@ -173,6 +182,7 @@ async function mountAbout(input: {
         dispose,
         created: dom.created,
         requests,
+        opened,
         strings: mounts.log.flatMap((entry) => {
             const { props } = entry;
             if (typeof props === 'string') {
@@ -218,23 +228,23 @@ function ledgerRowsIn(strings: readonly string[]): readonly string[] {
 }
 
 /**
- * The titles of the list the last mount rendered — the vocabulary mapping.
+ * The props the last call to one primitive received — what is on screen now.
  *
- * `view.strings` reads only the **top-level** string props of a mount, and a
- * list's titles live one level down inside `items`, so they need their own
- * read.
- *
- * @returns The entries in paint order.
+ * @param key - The primitive's name (`mountButton`, `mountText`, …).
+ * @param match - Selects the call by its own props.
+ * @returns Those props, or `undefined` when nothing matched.
  */
-function mountedVocabulary(): readonly string[] {
-    const last = mounts.log.filter((entry) => entry.key === 'mountList').at(-1);
-    if (last === undefined) {
-        return [];
-    }
+function lastProps(
+    key: string,
+    match: (props: Record<string, unknown>) => boolean,
+): Record<string, unknown> | undefined {
+    const calls = mounts.log
+        .filter((entry) => entry.key === key || entry.key === `${key}:update`)
+        .map((entry) => entry.props)
+        .filter((props): props is Record<string, unknown> => typeof props === 'object' && props !== null)
+        .filter(match);
 
-    const props = last.props as { readonly items?: readonly { readonly title?: string }[] };
-
-    return (props.items ?? []).map((item) => item.title ?? '');
+    return calls[calls.length - 1];
 }
 
 /** Correlation id the ledger fixtures carry. */
@@ -342,7 +352,7 @@ describe('an unreachable service keeps the static content (AC-132, AC-134, FR-07
         view.dispose();
     });
 
-    it('keeps every static statement and names what could not be read', async () => {
+    it('keeps the identity content and names what could not be read', async () => {
         const view = await mountAbout({
             answer: () => {
                 throw new Error('connection refused');
@@ -350,43 +360,20 @@ describe('an unreachable service keeps the static content (AC-132, AC-134, FR-07
         });
         const text = view.strings.join('\n');
 
+        // Name, version, description, repository link — the whole page after
+        // the 2026-10-01 scrub.
         expect(text).toContain('About');
-        expect(text).toContain('Mecha Turk — panel id: mecha-turk');
-        expect(text).toContain('Version source: the local service');
-        expect(text).toContain('not read yet — the Status tab');
-        // The mapping renders as its heading (one prose line) plus its list
-        // entries — `view.strings` reads only the top-level string props of a
-        // mount, and a list's titles live one level down inside `items`.
-        expect(text).toContain(VOCABULARY_HEADING);
-        expect(mountedVocabulary()).toEqual(VOCABULARY_ITEMS);
-        // …and the two still reassemble the one constant byte for byte.
-        expect([VOCABULARY_HEADING, ...VOCABULARY_ITEMS.map((entry) => `- ${entry}`)].join('\n'))
-            .toBe(VOCABULARY_SHORT_FORM);
-        expect(text).toContain('never removes them');
-        expect(text).toContain("OpenChamber's own Sessions and Worktrees surfaces");
-        expect(text).toContain('pre-release');
+        expect(text).toContain('Mecha Turk');
+        expect(text).toContain('watches the GitHub repositories you bind');
+        expect(text).toContain('Repository: [https://github.com/shaunburdick/mecha-turk]');
         expect(text).toContain('Diagnostics (read-only)');
         expect(text).toContain('Version could not be read: service unreachable');
+        // The four statements the scrub removed, gone from every paint.
+        expect(text).not.toContain('Vocabulary (what the renames mean)');
+        expect(text).not.toContain('Cleanup:');
+        expect(text).not.toContain('Release posture');
+        expect(text).not.toContain('Data directory');
         view.dispose();
-    });
-});
-
-describe('the data directory comes from the status projection (FR-075, FR-076)', () => {
-    it('shows the directory once the projection is held, and names it as what to back up', () => {
-        const doc = parseStatusView(STATUS_BODY);
-        expect(doc).not.toBeNull();
-
-        const rt = createTestRuntime(fakeHost());
-        rt.state.statusTab.doc = doc;
-
-        expect(dataDirLine(rt)).toBe(`Data directory: ${DATA_DIR} — this is the directory to back up.`);
-    });
-
-    it('says plainly that it has not been read when no projection is held', () => {
-        const rt = createTestRuntime(fakeHost());
-
-        expect(dataDirLine(rt)).toContain('not read yet');
-        expect(dataDirLine(rt)).not.toContain('/');
     });
 });
 
@@ -410,15 +397,16 @@ describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)'
         view.dispose();
     });
 
-    it('offers one display-only list, no select, and no control but the re-read (FR-084)', async () => {
+    it('offers no list, no select, and no input — only the two controls (FR-084)', async () => {
         const view = await mountAbout({ answer: healthyService });
         const keys = mounts.log.map((entry) => entry.key);
 
-        // Exactly one list — the vocabulary mapping — and its rows are
-        // definitions, never a selection the tab acts on.
-        expect(keys.filter((key) => key === 'mountList')).toHaveLength(1);
+        // The scrub removed the vocabulary list, so nothing on this page
+        // selects or inputs: the re-read control and the Diagnostics
+        // disclosure are the whole control set.
+        expect(keys).not.toContain('mountList');
         expect(keys).not.toContain('mountSelect');
-        expect(keys.filter((key) => key === 'mountButton')).toHaveLength(1);
+        expect(keys.filter((key) => key === 'mountButton')).toHaveLength(2);
         expect(view.created.map((element) => element.tagName)).not.toContain('input');
         view.dispose();
     });
@@ -463,11 +451,87 @@ describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)'
     });
 });
 
-describe('the short vocabulary mapping ships with the tab (FR-029)', () => {
-    it('renders the retired nouns as a mapping, not as the product\'s own words', () => {
-        expect(VOCABULARY_SHORT_FORM).toContain('Dispatches');
-        expect(VOCABULARY_SHORT_FORM).toContain('Bindings');
-        expect(VOCABULARY_SHORT_FORM).toContain('earlier builds called it Runs');
-        expect(VOCABULARY_SHORT_FORM).toContain('earlier builds called it Repositories');
+/** The repository address the About tab links to (2026-10-01 scrub). */
+const REPOSITORY_URL = 'https://github.com/shaunburdick/mecha-turk';
+
+/** The disclosure control's two labels; the label is the state (FR-083). */
+const SHOW_LABEL = 'Diagnostics';
+
+/** The disclosure control's label while the record is open. */
+const HIDE_LABEL = 'Hide diagnostics';
+
+describe('the repository link opens through the host (2026-10-01 scrub)', () => {
+    it('renders the address as a link wired to the SDK text path', async () => {
+        const view = await mountAbout({ answer: healthyService });
+        const link = lastProps(
+            'mountText',
+            (props) => typeof props.text === 'string' && String(props.text).startsWith('Repository: '),
+        );
+
+        expect(link?.text).toBe(`Repository: [${REPOSITORY_URL}](${REPOSITORY_URL})`);
+        expect(typeof link?.onOpenUrl).toBe('function');
+        view.dispose();
+    });
+
+    it('hands the URL to host.openUrl and keeps the page where it is', async () => {
+        const view = await mountAbout({ answer: healthyService });
+
+        await openRepository(view.rt, REPOSITORY_URL);
+        view.dispose();
+
+        expect(view.opened).toEqual([REPOSITORY_URL]);
+        expect(view.rt.state.aboutTab.repoProblem).toBeNull();
+    });
+
+    it('lands a host refusal on the link line instead of swallowing it (FR-003)', async () => {
+        const view = await mountAbout({
+            answer: healthyService,
+            openUrl: () => Promise.reject(new Error('HOST_REJECTED')),
+        });
+
+        await openRepository(view.rt, REPOSITORY_URL);
+        const note = view.rt.state.aboutTab.repoProblem;
+        view.dispose();
+
+        expect(note).toContain('The repository link could not be opened');
+        expect(note).toContain('HOST_REJECTED');
+        expect(note).toContain('Copy the address above instead.');
+    });
+});
+
+describe('Diagnostics sits behind a disclosure (2026-10-01 scrub)', () => {
+    it('starts closed, opens on its control, and its label says which it is', async () => {
+        const view = await mountAbout({ answer: healthyService });
+        const controlLabel = (): unknown => lastProps(
+            'mountButton',
+            (props) => props.label === SHOW_LABEL || props.label === HIDE_LABEL,
+        )?.label;
+
+        expect(view.rt.state.aboutTab.diagnosticsOpen).toBe(false);
+        expect(controlLabel()).toBe(SHOW_LABEL);
+
+        toggleDiagnostics(view.rt);
+        expect(view.rt.state.aboutTab.diagnosticsOpen).toBe(true);
+        expect(controlLabel()).toBe(HIDE_LABEL);
+
+        toggleDiagnostics(view.rt);
+        expect(view.rt.state.aboutTab.diagnosticsOpen).toBe(false);
+        expect(controlLabel()).toBe(SHOW_LABEL);
+        view.dispose();
+    });
+
+    it('mounts the record either way, so closing it hides nothing the page owes (FR-075)', async () => {
+        const view = await mountAbout({
+            answer: healthyService,
+            setup: (rt) => {
+                rt.state.ledger.entries.push(phaseEntry());
+            },
+        });
+        const text = view.strings.join('\n');
+        view.dispose();
+
+        expect(text).toContain('Evidence schema: ');
+        expect(view.strings.some((line) => line.startsWith('#2 · '))).toBe(true);
+        expect(text).toContain('read-only; this tab writes nothing.');
     });
 });

@@ -55,7 +55,7 @@ The rail panel has one strip with six tabs, in order:
 | **Bindings** | The repositories you watch, the project picker with its *not listed?* guidance, and the add form |
 | **Accounts** | Every GitHub account with its lifecycle, connection, and scope matrix, plus the add form: consent → PAT → optional expected GitHub login |
 | **Settings** | The **single configuration input** for the whole service configuration: one editable row per field — value, unit, bounds or format, and the line saying when a change takes effect — plus save, discard, the two-step confirmation before a retention limit is lowered, and restore defaults |
-| **About** | Product identity, the panel id, the version read from the service, the data directory to back up, the vocabulary list, and read-only diagnostics |
+| **About** | The product name, the version read from the service, a one-line description of the tool, the repository link, and the read-only diagnostics behind a disclosure |
 
 ### Configuration
 
@@ -77,7 +77,7 @@ because trimming is real and has no undo. Raising a limit deletes nothing, and
 the panel says so too.
 
 The configuration lives in `config.json` in the service store (`0600`, under
-the data directory **About** names), so it is operator-backable; a hand-edited
+the data directory **Status** names), so it is operator-backable; a hand-edited
 document that fails validation is set aside and the documented defaults take
 over, and the tab says exactly that. Nothing is configured through an
 environment file, an environment variable, or a manifest setting:

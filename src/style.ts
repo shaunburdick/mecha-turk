@@ -21,7 +21,7 @@
  */
 
 import { mountText } from '@openchamber/sdk/ui';
-import type { TextHandle } from '@openchamber/sdk/ui';
+import type { TextHandle, TextProps } from '@openchamber/sdk/ui';
 
 /** Separator between a label and its value in the copy the tabs already print. */
 export const KEY_SEPARATOR = ': ';
@@ -112,6 +112,14 @@ export interface CellInput {
     readonly className: string;
     /** The cell's text, exactly as the tab's copy module produced it. */
     readonly text: string;
+    /**
+     * Where an http(s) link in the text goes when it is activated.
+     *
+     * A sandboxed iframe cannot open a link itself, so the SDK text path
+     * hands the href here instead of navigating; the tab forwards it to
+     * `host.openUrl`. Absent on the cells that never render a link.
+     */
+    readonly onOpenUrl?: (url: string) => void;
 }
 
 /** Inputs for {@link definitionRow}. */
@@ -143,6 +151,22 @@ function styleWrapper(parent: HTMLElement, className: string): HTMLElement {
 }
 
 /**
+ * Hand the SDK text path the cell's text and, when it carries one, its link
+ * handler.
+ *
+ * The props object is built rather than spread so `update({ text })` on a
+ * repaint keeps working exactly as it did before links had anywhere to go.
+ *
+ * @param input - The cell's text and its optional link handler.
+ * @returns The props `mountText` takes.
+ */
+function withLinkHandler(input: CellInput): TextProps {
+    return input.onOpenUrl === undefined
+        ? { text: input.text }
+        : { text: input.text, onOpenUrl: input.onOpenUrl };
+}
+
+/**
  * Mount a styled cell whose text still travels through the SDK.
  *
  * The wrapper exists purely to carry a class: `mountText` renders into a node
@@ -155,7 +179,7 @@ function styleWrapper(parent: HTMLElement, className: string): HTMLElement {
  */
 export function mountCell(parent: HTMLElement, input: CellInput): Cell {
     const wrapper = styleWrapper(parent, input.className);
-    const handle = mountText(wrapper, { text: input.text });
+    const handle = mountText(wrapper, withLinkHandler(input));
 
     return {
         update: (text) => handle.update({ text }),
@@ -179,7 +203,7 @@ export function mountCell(parent: HTMLElement, input: CellInput): Cell {
  * @returns The SDK text handle a repaint updates.
  */
 export function mountStyledText(parent: HTMLElement, input: CellInput): TextHandle {
-    return mountText(styleWrapper(parent, input.className), { text: input.text });
+    return mountText(styleWrapper(parent, input.className), withLinkHandler(input));
 }
 
 /** Inputs for {@link mountColumnHead}. */

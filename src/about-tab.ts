@@ -1,6 +1,15 @@
 /**
- * The About tab: static identity plus the read-only Diagnostics section
- * (005 T-028; FR-074–FR-077, FR-029, AC-132–AC-134, SC-109).
+ * The About tab: identity, the single version, and Diagnostics behind a
+ * disclosure (005 T-028 as re-cut by the 2026-10-01 product-owner scrub;
+ * FR-074–FR-077, AC-132–AC-134, SC-109).
+ *
+ * The page is deliberately small — **name, version, description, repository
+ * link** — because that is all an About page is asked for. The four
+ * statements the scrub removed (the vocabulary mapping, the cleanup posture,
+ * the release posture, and the data-directory line) either have a tab that
+ * owns them or say nothing the operator can act on; the vocabulary block's
+ * own module (`vocabulary.ts`) went with it, so the L1 scan
+ * (`tests/vocabulary.test.ts`) now exempts nothing.
  *
  * **The version has exactly one source.** It is read from the service's own
  * health answer (`GET /health` serves `SERVICE_VERSION`, which mirrors
@@ -11,33 +20,33 @@
  * source, instead of synthesising a plausible number (FR-074, NFR-112).
  * `tests/about-tab.test.ts` pins the path constant to the route the service
  * registers and scans `src/` for version-shaped literals, so neither half of
- * that rule can rot.
+ * that rule can rot. The static half — the name, the description, and the
+ * repository link — renders with or without the service (FR-078).
  *
- * The static half — product name, panel id, data directory and its backup
- * statement, the short vocabulary mapping, the manual-cleanup posture, and
- * the release posture — renders with or without the service (FR-078).
+ * **The repository link goes through the host.** A sandboxed iframe cannot
+ * open a link itself, so the SDK text path hands every http(s) click to
+ * `onOpenUrl`, which forwards it to `host.openUrl` — the opener the panel
+ * already uses for a dispatch's source link. A refusal lands on the link's
+ * own line rather than being swallowed (FR-003).
  *
- * **Diagnostics is read-only by design** (FR-075): it shows the ledger as
- * `#seq · kind · time` lines, the two schema versions, and the phase record.
- * It deliberately renders **no entry detail**, so an account identifier, a
- * prompt, a fingerprint, or a filesystem path has no way into this section
- * (FR-076), and it offers nothing that writes — the spike-era phase writer
- * left with the tab it lived on (FR-011).
+ * **Diagnostics is read-only and closed by default** (FR-075): a disclosure
+ * control reveals the ledger as `#seq · kind · time` lines, the two schema
+ * versions, and the phase record. It deliberately renders **no entry detail**,
+ * so an account identifier, a prompt, a fingerprint, or a filesystem path has
+ * no way into this section (FR-076), and it offers nothing that writes — the
+ * spike-era phase writer left with the tab it lived on (FR-011).
  */
 
-import { mountBanner, mountButton, mountList } from '@openchamber/sdk/ui';
-import type { BannerHandle, ButtonHandle, ListHandle, TextHandle } from '@openchamber/sdk/ui';
-import { EVIDENCE_SCHEMA_VERSION } from './evidence.ts';
+import { mountBanner, mountButton } from '@openchamber/sdk/ui';
+import type { BannerHandle, ButtonHandle, TextHandle } from '@openchamber/sdk/ui';
 import { parseJsonObject } from './json.ts';
 import { nowIso } from './ids.ts';
-import { LEDGER_SCHEMA_VERSION, ledgerTail } from './ledger.ts';
 import { HEALTH_PATH, serviceGet } from './service-calls.ts';
+import { describeError } from './session.ts';
+import { redact } from './redaction.ts';
 import { createBlock, mountStyledText } from './style.ts';
-import { VOCABULARY_HEADING, VOCABULARY_LIST_ITEMS } from './vocabulary.ts';
+import { ledgerLines, mountDiagnostics, phaseRecordLine } from './about-diagnostics.ts';
 import type { PanelRuntime } from './panel-state.ts';
-
-/** The panel id the manifest declares (`AGENTS.md` invariant 4). */
-const PANEL_ID = 'mecha-turk';
 
 /** The product name the manifest declares. */
 const PRODUCT_NAME = 'Mecha Turk';
@@ -48,20 +57,28 @@ const VERSION_UNREACHABLE = 'unknown (service unreachable)';
 /** What About shows before the first health answer lands (contract §2). */
 const VERSION_UNREAD = 'Version: not yet read';
 
-/** How many ledger lines the diagnostics section shows, newest first. */
-const VISIBLE_ENTRIES = 25;
-
-/** Start offset of the time part inside an RFC 3339 timestamp. */
-const TIME_START = 11;
-
-/** End offset of the time part inside an RFC 3339 timestamp. */
-const TIME_END = 19;
-
 /** Heading above the identity block. */
 const ABOUT_HEADING = 'About';
 
 /** Heading above the read-only record (FR-075). */
 const DIAGNOSTICS_HEADING = 'Diagnostics (read-only)';
+
+/** The disclosure control while the record is closed. */
+const DIAGNOSTICS_SHOW = 'Diagnostics';
+
+/** The disclosure control while the record is open (state as text, FR-083). */
+const DIAGNOSTICS_HIDE = 'Hide diagnostics';
+
+/** Where this project's source lives — the one link the page carries. */
+const REPOSITORY_URL = 'https://github.com/shaunburdick/mecha-turk';
+
+/** The link line: address and target are the same URL, so it is readable. */
+const REPOSITORY_LINE = `Repository: [${REPOSITORY_URL}](${REPOSITORY_URL})`;
+
+/** The one-line description of the tool (2026-10-01 scrub: name, version, this). */
+const DESCRIPTION =
+    'Mecha Turk watches the GitHub repositories you bind — issues assigned to you, review requests, ' +
+    'and mentions — and opens an OpenChamber session for each discovery.';
 
 /** What the re-read control is called; also the failure notice's retry. */
 const RETRY_LABEL = 'Retry version read';
@@ -69,33 +86,14 @@ const RETRY_LABEL = 'Retry version read';
 /** Title of the failure notice, whatever the failure was. */
 const FAILURE_TITLE = 'Version not read';
 
-/** The version's source, stated so a failure has somewhere to point (FR-074). */
-const VERSION_SOURCE =
-    "Version source: the local service's health answer. This panel carries no version of its own.";
-
-/** The manual-cleanup posture, naming the surfaces that perform it (FR-077). */
-const CLEANUP_POSTURE =
-    'Cleanup: Mecha Turk creates sessions and worktrees and never removes them — the platform exposes ' +
-    "no deletion API to extensions. Remove them from OpenChamber's own Sessions and Worktrees surfaces.";
-
-/** The release posture, without a version literal of any kind (FR-075). */
-const RELEASE_POSTURE =
-    'Release posture: pre-release. This extension has not reached its first stable release, and a ' +
-    'version bump is a product-owner decision, never a side effect of an update.';
-
-/** The data-directory line while no status document has been read (FR-078). */
-const DATA_DIR_UNREAD =
-    "Data directory: not read yet — the Status tab's service block reports it, and this tab shows it here.";
-
-/** What the ledger section says when this mount has recorded nothing. */
-const LEDGER_EMPTY = 'No ledger entries yet.';
-
 /**
  * Where the About tab's version read stands (FR-019, FR-074).
  *
  * `version` is deliberately separate from `phase`: a failed re-read keeps the
  * version that did land (and the read line marks it stale) rather than
- * replacing a real answer with the unreachable copy.
+ * replacing a real answer with the unreachable copy. `diagnosticsOpen` is the
+ * disclosure's own state, and `repoProblem` is the link's refusal, if the
+ * host ever sent one.
  */
 export interface AboutTabState {
     /** Read phase: nothing yet, in flight, landed, or refused. */
@@ -106,6 +104,10 @@ export interface AboutTabState {
     problem: string | null;
     /** The version the service answered, or `null` when it never did. */
     version: string | null;
+    /** Whether the Diagnostics disclosure is open (2026-10-01 scrub). */
+    diagnosticsOpen: boolean;
+    /** Why the repository link could not be opened; `null` otherwise. */
+    repoProblem: string | null;
 }
 
 /**
@@ -114,20 +116,24 @@ export interface AboutTabState {
  * @returns The state before the first read.
  */
 export function initialAboutTab(): AboutTabState {
-    return { phase: 'idle', at: null, problem: null, version: null };
+    return { phase: 'idle', at: null, problem: null, version: null, diagnosticsOpen: false, repoProblem: null };
 }
 
 /** The mounted About tab: the handles a repaint updates, plus disposal. */
 export interface AboutTabUi {
     /** Body root this view mounted into. */
     readonly pane: HTMLElement;
-    /** Product name and the panel id it installs under (FR-075). */
+    /** The product name (FR-075). */
     readonly identity: TextHandle;
     /** The single version line (FR-074). */
     readonly version: TextHandle;
-    /** The version's one source, stated statically (FR-074). */
-    readonly versionSource: TextHandle;
-    /** The tab's only control: an explicit re-read of the health answer. */
+    /** The one-line description of the tool. */
+    readonly description: TextHandle;
+    /** The repository link, opened through the host. */
+    readonly repoLink: TextHandle;
+    /** The link's refusal line, empty until there is one (FR-003). */
+    readonly repoNote: TextHandle;
+    /** The tab's version control: an explicit re-read of the health answer. */
     readonly retry: ButtonHandle;
     /** One line of read state: idle, loading, landed, or failed with a cause. */
     readonly readLine: TextHandle;
@@ -135,14 +141,10 @@ export interface AboutTabUi {
     readonly failureBox: HTMLElement;
     /** Failure notice naming what could not be read and from where (FR-078). */
     readonly failure: BannerHandle;
-    /** The data directory, and the statement that it is what to back up. */
-    readonly dataDir: TextHandle;
-    /** The short vocabulary mapping (FR-029), rendered as its own list. */
-    readonly vocabulary: ListHandle;
-    /** The manual-cleanup posture (FR-077). */
-    readonly cleanup: TextHandle;
-    /** The release posture (FR-075). */
-    readonly release: TextHandle;
+    /** The disclosure control that reveals Diagnostics (2026-10-01 scrub). */
+    readonly diagnosticsToggle: ButtonHandle;
+    /** Wrapper around the Diagnostics block, hidden until the control opens it. */
+    readonly diagnosticsBox: HTMLElement;
     /** The two schema versions this build ships (FR-075). */
     readonly schemas: TextHandle;
     /** The phase record, read-only (FR-075). */
@@ -151,16 +153,6 @@ export interface AboutTabUi {
     readonly ledger: TextHandle;
     /** Remove every node and handle this view mounted (FR-017). */
     readonly dispose: () => void;
-}
-
-/**
- * Format an RFC 3339 timestamp as `HH:MM:SS`.
- *
- * @param iso - Timestamp to format.
- * @returns The time slice, or the raw value when it is too short.
- */
-function formatTime(iso: string): string {
-    return iso.length > TIME_END ? iso.slice(TIME_START, TIME_END) : iso;
 }
 
 /**
@@ -210,62 +202,6 @@ export function readStateLine(slice: AboutTabState): string {
 }
 
 /**
- * The data-directory line, from the status projection the panel already
- * holds (FR-075, FR-076: this is the only path About may show).
- *
- * @param rt - Panel runtime whose status document the line reads.
- * @returns The line naming the directory, or its honest *not read* form.
- */
-export function dataDirLine(rt: PanelRuntime): string {
-    const { doc } = rt.state.statusTab;
-    if (doc === null) {
-        return DATA_DIR_UNREAD;
-    }
-
-    return `Data directory: ${doc.service.dataDir} — this is the directory to back up.`;
-}
-
-/**
- * The phase record, read-only (FR-075).
- *
- * @param rt - Panel runtime whose ledger the line reads.
- * @returns The last recorded phase, or that there is none yet.
- */
-export function phaseRecordLine(rt: PanelRuntime): string {
-    const phase = [...rt.state.ledger.entries].reverse().find((entry) => entry.kind === 'phase');
-    if (phase === undefined) {
-        return 'Phase record: none recorded yet.';
-    }
-
-    return `Phase record: ${phase.phase ?? 'unknown'} at ${phase.at} — read-only; this tab writes nothing.`;
-}
-
-/**
- * The ledger as text: sequence, kind, and time, newest first (FR-075).
- *
- * Entry **detail is deliberately not rendered**: it is free-form text the
- * panel recorded about a dispatch, and FR-076 keeps this section free of
- * account identifiers, prompts, fingerprints, and paths.
- *
- * @param rt - Panel runtime whose ledger the lines read.
- * @returns The lines, or the empty-state sentence.
- */
-export function ledgerLines(rt: PanelRuntime): string {
-    const entries = ledgerTail(rt.state.ledger, VISIBLE_ENTRIES);
-    if (entries.length === 0) {
-        return LEDGER_EMPTY;
-    }
-
-    return entries
-        .map((entry) => {
-            const what = entry.kind === 'phase' ? `phase: ${entry.phase ?? 'unknown'}` : entry.kind;
-
-            return `#${entry.seq} · ${what} · ${formatTime(entry.at)}`;
-        })
-        .join('\n');
-}
-
-/**
  * Repaint the About tab from state (FR-019, FR-074, FR-075).
  *
  * Nothing runs when the tab has never been activated: the state still
@@ -283,6 +219,7 @@ export function repaintAboutTab(rt: PanelRuntime): void {
     const loading = slice.phase === 'loading';
 
     ui.version.update({ text: versionLine(slice) });
+    ui.repoNote.update({ text: slice.repoProblem ?? '' });
     ui.readLine.update({ text: readStateLine(slice) });
     ui.retry.update({ disabled: loading, loading });
     ui.failureBox.hidden = slice.phase !== 'failed';
@@ -296,9 +233,49 @@ export function repaintAboutTab(rt: PanelRuntime): void {
         });
     }
 
-    ui.dataDir.update({ text: dataDirLine(rt) });
+    ui.diagnosticsBox.hidden = !slice.diagnosticsOpen;
+    ui.diagnosticsToggle.update({ label: slice.diagnosticsOpen ? DIAGNOSTICS_HIDE : DIAGNOSTICS_SHOW });
     ui.phaseRecord.update({ text: phaseRecordLine(rt) });
     ui.ledger.update({ text: ledgerLines(rt) });
+}
+
+/**
+ * Flip the Diagnostics disclosure (2026-10-01 scrub).
+ *
+ * One named action rather than an inline closure, so the control's own
+ * behaviour is testable without reaching through mount props: closed by
+ * default, opened by its control, and its label says which it currently is
+ * (FR-083).
+ *
+ * @param rt - Panel runtime whose About state the control flips.
+ */
+export function toggleDiagnostics(rt: PanelRuntime): void {
+    rt.state.aboutTab.diagnosticsOpen = !rt.state.aboutTab.diagnosticsOpen;
+    repaintAboutTab(rt);
+}
+
+/**
+ * Open the repository link through the host, and say so when it refuses.
+ *
+ * `host.openUrl` is the opener the panel already uses for a dispatch's source
+ * link, so the About page reaches for the same one — no capability, no
+ * invented navigation, no anchor that could unload the panel. A refusal lands
+ * on the link's own line rather than being swallowed (FR-003, FR-085).
+ *
+ * @param rt - Panel runtime.
+ * @param url - The href the operator activated.
+ */
+export async function openRepository(rt: PanelRuntime, url: string): Promise<void> {
+    try {
+        await rt.host.openUrl(url);
+        rt.state.aboutTab.repoProblem = null;
+    } catch (cause) {
+        rt.state.aboutTab.repoProblem = redact(
+            `The repository link could not be opened: ${describeError(cause)}. Copy the address above instead.`,
+        );
+    }
+
+    repaintAboutTab(rt);
 }
 
 /**
@@ -367,29 +344,39 @@ export async function loadVersion(rt: PanelRuntime): Promise<void> {
 }
 
 /**
- * Mount the heading, the identity line, the version line, and its source
- * (FR-074, FR-075).
+ * Mount the identity block: name, version, description, and the repository
+ * link with its refusal line (FR-074, FR-075, 2026-10-01 scrub).
  *
  * @param input - Runtime whose read state paints the version, and the pane.
- * @returns The four handles.
+ * @returns The five handles.
  */
 function mountHeader(input: {
     /** Runtime whose read state the version line renders. */
     readonly rt: PanelRuntime;
-    /** Pane the four mount into. */
+    /** Pane the identity mounts into. */
     readonly pane: HTMLElement;
 }): {
     readonly identity: TextHandle;
     readonly version: TextHandle;
-    readonly versionSource: TextHandle;
+    readonly description: TextHandle;
+    readonly repoLink: TextHandle;
+    readonly repoNote: TextHandle;
 } {
-    const { pane } = input;
-    // `.mt-prose` on all three: without it these three measured their own edge.
-    const identity = mountStyledText(pane, { className: 'mt-prose', text: `${PRODUCT_NAME} — panel id: ${PANEL_ID}` });
-    const version = mountStyledText(pane, { className: 'mt-prose', text: versionLine(input.rt.state.aboutTab) });
-    const versionSource = mountStyledText(pane, { className: 'mt-prose', text: VERSION_SOURCE });
+    const { pane, rt } = input;
+    // `.mt-prose` on all of them: without it these measured their own edge.
+    const identity = mountStyledText(pane, { className: 'mt-prose', text: PRODUCT_NAME });
+    const version = mountStyledText(pane, { className: 'mt-prose', text: versionLine(rt.state.aboutTab) });
+    const description = mountStyledText(pane, { className: 'mt-prose', text: DESCRIPTION });
+    const repoLink = mountStyledText(pane, {
+        className: 'mt-prose',
+        text: REPOSITORY_LINE,
+        onOpenUrl: (url) => {
+            void openRepository(rt, url);
+        },
+    });
+    const repoNote = mountStyledText(pane, { className: 'mt-lede', text: rt.state.aboutTab.repoProblem ?? '' });
 
-    return { identity, version, versionSource };
+    return { identity, version, description, repoLink, repoNote };
 }
 
 /**
@@ -438,70 +425,30 @@ function mountRetryRow(input: {
 }
 
 /**
- * Mount the data directory and the three static statements (FR-075, FR-077).
+ * Create the disclosure: the control, and the wrapper it reveals.
  *
- * @param input - Runtime whose status document the directory line reads, and
- *   the pane the four mount into.
- * @returns The four handles.
- */
-function mountStatements(input: {
-    /** Runtime whose status document the directory line reads. */
-    readonly rt: PanelRuntime;
-    /** Pane the statements mount into. */
-    readonly pane: HTMLElement;
-}): {
-    readonly dataDir: TextHandle;
-    readonly vocabulary: ListHandle;
-    readonly cleanup: TextHandle;
-    readonly release: TextHandle;
-} {
-    const dataDir = mountStyledText(input.pane, { className: 'mt-prose', text: dataDirLine(input.rt) });
-
-    // The heading stays prose; the entries become rows so a wrapped line lands
-    // under its own first word, not under the hand-typed `- ` marker (FR-029).
-    mountStyledText(input.pane, { className: 'mt-prose', text: VOCABULARY_HEADING });
-    const vocabulary = mountList(input.pane, {
-        items: [...VOCABULARY_LIST_ITEMS],
-        ariaLabel: VOCABULARY_HEADING,
-        onSelect: () => {
-            // Display-only: the rows are definitions, not a selection.
-        },
-    });
-
-    return {
-        dataDir,
-        vocabulary,
-        cleanup: mountStyledText(input.pane, { className: 'mt-prose', text: CLEANUP_POSTURE }),
-        release: mountStyledText(input.pane, { className: 'mt-prose', text: RELEASE_POSTURE }),
-    };
-}
-
-/**
- * Mount the read-only Diagnostics block (FR-075, FR-076).
+ * The control sits outside the wrapper so opening and closing is one
+ * `hidden` write on one element, and its label states which of the two it
+ * currently is (FR-083: state as text, never colour alone).
  *
- * @param input - Runtime whose ledger the block reads, and the pane.
- * @returns The four handles.
+ * @param pane - Pane the disclosure mounts into.
+ * @param onClick - What activating the control does.
+ * @returns The control and the wrapper around the Diagnostics block.
  */
-function mountDiagnostics(input: {
-    /** Runtime whose ledger the block renders. */
-    readonly rt: PanelRuntime;
-    /** Pane the block mounts into. */
-    readonly pane: HTMLElement;
-}): {
-    readonly schemas: TextHandle;
-    readonly phaseRecord: TextHandle;
-    readonly ledger: TextHandle;
+function mountDisclosure(pane: HTMLElement, onClick: () => void): {
+    readonly toggle: ButtonHandle;
+    readonly box: HTMLElement;
 } {
-    const schemas = mountStyledText(input.pane, {
-        className: 'mt-prose',
-        text: `Evidence schema: ${EVIDENCE_SCHEMA_VERSION} · Ledger schema: ${LEDGER_SCHEMA_VERSION}`,
-    });
+    const row = pane.ownerDocument.createElement('div');
+    row.className = 'mt-toolbar';
+    pane.append(row);
+    const toggle = mountButton(row, { label: DIAGNOSTICS_SHOW, variant: 'outline', onClick });
 
-    return {
-        schemas,
-        phaseRecord: mountStyledText(input.pane, { className: 'mt-prose', text: phaseRecordLine(input.rt) }),
-        ledger: mountStyledText(input.pane, { className: 'mt-prose', text: ledgerLines(input.rt) }),
-    };
+    const box = pane.ownerDocument.createElement('div');
+    box.hidden = true;
+    pane.append(box);
+
+    return { toggle, box };
 }
 
 /**
@@ -512,24 +459,24 @@ function mountDiagnostics(input: {
 function disposeAbout(ui: AboutTabUi): void {
     ui.identity.dispose();
     ui.version.dispose();
-    ui.versionSource.dispose();
+    ui.description.dispose();
+    ui.repoLink.dispose();
+    ui.repoNote.dispose();
     ui.retry.dispose();
     ui.readLine.dispose();
     ui.failure.dispose();
-    ui.dataDir.dispose();
-    ui.vocabulary.dispose();
-    ui.cleanup.dispose();
-    ui.release.dispose();
+    ui.diagnosticsToggle.dispose();
     ui.schemas.dispose();
     ui.phaseRecord.dispose();
     ui.ledger.dispose();
     ui.failureBox.remove();
+    ui.diagnosticsBox.remove();
     ui.pane.remove();
 }
 
 /**
- * Mount the About tab: identity, version, the one re-read control, the three
- * static statements, and the read-only Diagnostics block (FR-074, FR-075).
+ * Mount the About tab: the identity block, the one re-read control, and the
+ * Diagnostics disclosure (FR-074, FR-075).
  *
  * @param input - Runtime and the body container the shell created.
  * @returns The mounted view.
@@ -544,22 +491,33 @@ export function mountAboutTab(input: {
     const pane = body.ownerDocument.createElement('div');
     body.append(pane);
 
-    // Two blocks: what this panel is, then the record it keeps about itself.
-    // The first carries the tab title (one rule across the six tabs).
+    // The identity block carries the tab title (one rule across the six
+    // tabs); Diagnostics is its own block, behind the disclosure.
     const about = createBlock(pane, { heading: ABOUT_HEADING, title: true });
-    const record = createBlock(pane, { heading: DIAGNOSTICS_HEADING });
-
     const header = mountHeader({ rt, pane: about.body });
     const retryRow = mountRetryRow({ rt, pane: about.body });
-    const statements = mountStatements({ rt, pane: about.body });
+    const disclosure = mountDisclosure(pane, (): void => {
+        toggleDiagnostics(rt);
+    });
+    const record = createBlock(disclosure.box, { heading: DIAGNOSTICS_HEADING });
     const diagnostics = mountDiagnostics({ rt, pane: record.body });
 
     const ui: AboutTabUi = {
         pane,
-        ...header,
-        ...retryRow,
-        ...statements,
-        ...diagnostics,
+        identity: header.identity,
+        version: header.version,
+        description: header.description,
+        repoLink: header.repoLink,
+        repoNote: header.repoNote,
+        retry: retryRow.retry,
+        readLine: retryRow.readLine,
+        failureBox: retryRow.failureBox,
+        failure: retryRow.failure,
+        diagnosticsToggle: disclosure.toggle,
+        diagnosticsBox: disclosure.box,
+        schemas: diagnostics.schemas,
+        phaseRecord: diagnostics.phaseRecord,
+        ledger: diagnostics.ledger,
         dispose: (): void => {
             about.dispose();
             record.dispose();
