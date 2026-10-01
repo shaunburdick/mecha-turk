@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Mecha Turk design harness</title>
+        <style>
+            html,
+            body {
+                margin: 0;
+                height: 100%;
+                position: relative;
+                background: #7a828e;
+                font-family: system-ui, sans-serif;
+            }
+
+            /* The frame fills the viewport: the harness page *is* the panel. */
+            .frame {
+                display: block;
+                width: 100%;
+                height: 100%;
+                border: 0;
+                background: #f6f7f9;
+            }
+
+            /*
+             * Freshness sentinel — see "Visual verification" in AGENTS.md.
+             *
+             * `host.js` covers the document with a per-capture colour right
+             * before a throwaway probe screenshot, which is how `shot.js`
+             * proves the capture path returns *this* frame rather than the
+             * previous one. It is absolutely positioned, so it never moves the
+             * layout, and it toggles `display` directly — never the `hidden`
+             * attribute, whose UA `display: none` any author `display` rule
+             * would beat (the exact defect `panel/index.html` shows today).
+             */
+            #sentinel {
+                position: absolute;
+                inset: 0;
+                z-index: 2147483647;
+                display: none;
+                background: #000000;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="sentinel"></div>
+        <!--
+            Hosted exactly as OpenChamber hosts it: an iframe whose parent is
+            not itself (`connectHost()` rejects when `parent === self`), aimed
+            at the shipped `panel/index.html`.
+
+            The frame carries `data-src`, not `src`. Module scripts are deferred
+            and iframes are not, so `host.js` sets the real source once the
+            fixtures have landed — otherwise the guest's `hello` could outrun
+            the parent's `message` listener and the panel would wait forever.
+        -->
+        <iframe
+            id="panel"
+            class="frame"
+            title="Mecha Turk panel"
+            data-src="../../panel/index.html"
+        ></iframe>
+        <script type="module" src="./host.js"></script>
+    </body>
+</html>

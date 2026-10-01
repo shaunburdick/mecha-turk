@@ -1,0 +1,704 @@
+{
+    "status": {
+        "service": {
+            "status": "ok",
+            "uptimeMs": 28933000,
+            "dataDir": "/home/agent/.config/openchamber/mecha-turk",
+            "schemaVersion": 3,
+            "storage": {
+                "writable": true
+            }
+        },
+        "accounts": [
+            {
+                "numericUserId": "77331",
+                "login": "octocat-mt",
+                "connectionState": "connected",
+                "rate": {
+                    "remaining": 4912,
+                    "limit": 5000,
+                    "resetAt": "2026-09-30T21:00:00Z",
+                    "usedLastHour": 12
+                },
+                "streams": []
+            },
+            {
+                "numericUserId": "331468173",
+                "login": "prompt-it-so",
+                "connectionState": "needs reconnection",
+                "rate": {
+                    "remaining": null,
+                    "limit": null,
+                    "resetAt": null,
+                    "usedLastHour": 0
+                },
+                "streams": []
+            }
+        ],
+        "repositories": [
+            {
+                "bindingId": "bnd_status_1",
+                "repository": "acme/widget",
+                "projectId": "prj_42",
+                "accountLogin": "octocat-mt",
+                "active": true,
+                "lastScanAt": "2026-09-30T19:58:00.000Z",
+                "lastError": null,
+                "pendingCount": 2,
+                "readable": true
+            },
+            {
+                "bindingId": "bnd_status_2",
+                "repository": "acme/api",
+                "projectId": "prj_42",
+                "accountLogin": "octocat-mt",
+                "active": true,
+                "lastScanAt": "2026-09-30T19:58:00.000Z",
+                "lastError": "rate limit reached: 41 requests remaining in this window",
+                "pendingCount": 0,
+                "readable": true
+            },
+            {
+                "bindingId": "bnd_status_3",
+                "repository": "internal/cli",
+                "projectId": "",
+                "accountLogin": "prompt-it-so",
+                "active": false,
+                "lastScanAt": null,
+                "lastError": null,
+                "pendingCount": 0,
+                "readable": true
+            }
+        ],
+        "agentPin": {
+            "expectedAgent": "project-manager",
+            "lastVerification": {
+                "observedAgent": "project-manager",
+                "expectedAgent": "project-manager",
+                "ok": true,
+                "at": "2026-09-30T18:04:11.000Z"
+            }
+        },
+        "polling": {
+            "intervalMs": 60000,
+            "nextPollAt": "2026-10-01T03:31:50.630Z",
+            "paused": false,
+            "pausedReason": ""
+        },
+        "surface": {
+            "supported": true
+        }
+    },
+    "config": {
+        "config": {
+            "intervalMs": 60000,
+            "overlapMs": 600000,
+            "perPage": 30,
+            "retryMaxAttempts": 5,
+            "retryBaseMs": 5000,
+            "retryMaxMs": 60000,
+            "auditRetentionDays": 365,
+            "auditMaxEntries": 50000,
+            "excerptRetentionDays": 30,
+            "leaseMs": 120000,
+            "resultDeadlineMs": 120000,
+            "logLevel": "info",
+            "expectedAgent": "project-manager"
+        },
+        "fields": [
+            {
+                "name": "intervalMs",
+                "kind": "integer",
+                "unit": "milliseconds",
+                "min": 15000,
+                "max": 300000,
+                "default": 60000,
+                "takesEffect": "next-cycle"
+            },
+            {
+                "name": "overlapMs",
+                "kind": "integer",
+                "unit": "milliseconds",
+                "min": 60000,
+                "max": 7200000,
+                "default": 600000,
+                "takesEffect": "next-cycle"
+            },
+            {
+                "name": "perPage",
+                "kind": "integer",
+                "unit": "items per page",
+                "min": 1,
+                "max": 30,
+                "default": 30,
+                "takesEffect": "next-cycle"
+            },
+            {
+                "name": "retryMaxAttempts",
+                "kind": "integer",
+                "unit": "attempts",
+                "min": 1,
+                "max": 10,
+                "default": 5,
+                "takesEffect": "next-cycle"
+            },
+            {
+                "name": "retryBaseMs",
+                "kind": "integer",
+                "unit": "milliseconds",
+                "min": 1000,
+                "max": 60000,
+                "default": 5000,
+                "takesEffect": "next-cycle"
+            },
+            {
+                "name": "retryMaxMs",
+                "kind": "integer",
+                "unit": "milliseconds",
+                "min": 5000,
+                "max": 300000,
+                "default": 60000,
+                "takesEffect": "next-cycle"
+            },
+            {
+                "name": "auditRetentionDays",
+                "kind": "integer",
+                "unit": "days",
+                "min": 7,
+                "max": 3650,
+                "default": 180,
+                "takesEffect": "next-cycle"
+            },
+            {
+                "name": "auditMaxEntries",
+                "kind": "integer",
+                "unit": "entries",
+                "min": 1000,
+                "max": 1000000,
+                "default": 50000,
+                "takesEffect": "next-cycle"
+            },
+            {
+                "name": "excerptRetentionDays",
+                "kind": "integer",
+                "unit": "days",
+                "min": 1,
+                "max": 365,
+                "default": 30,
+                "takesEffect": "next-cycle"
+            },
+            {
+                "name": "leaseMs",
+                "kind": "integer",
+                "unit": "milliseconds",
+                "min": 30000,
+                "max": 600000,
+                "default": 120000,
+                "takesEffect": "next-cycle"
+            },
+            {
+                "name": "resultDeadlineMs",
+                "kind": "integer",
+                "unit": "milliseconds",
+                "min": 30000,
+                "max": 600000,
+                "default": 120000,
+                "takesEffect": "next-cycle"
+            },
+            {
+                "name": "logLevel",
+                "kind": "enum",
+                "unit": null,
+                "values": [
+                    "debug",
+                    "info",
+                    "warn",
+                    "error"
+                ],
+                "default": "info",
+                "takesEffect": "immediate"
+            },
+            {
+                "name": "expectedAgent",
+                "kind": "string",
+                "unit": null,
+                "format": "letters, digits, and . _ - @ : / (a single token, no spaces)",
+                "maxLength": 80,
+                "default": "project-manager",
+                "takesEffect": "next-dispatch"
+            }
+        ],
+        "source": "stored",
+        "defaultsApplied": [],
+        "undisplayed": [],
+        "unreadable": []
+    },
+    "bindings": {
+        "bindings": [
+            {
+                "bindingId": "bnd_1",
+                "accountNumericUserId": "77331",
+                "accountLogin": "octocat-mt",
+                "repository": "acme/widget",
+                "projectId": "prj_42",
+                "worktreeOption": "none",
+                "triggers": {
+                    "assignment": true,
+                    "mention": true,
+                    "reviewRequest": true
+                },
+                "state": "active",
+                "createdAt": "2026-09-12T09:14:00.000Z",
+                "updatedAt": "2026-09-30T19:58:00.000Z"
+            },
+            {
+                "bindingId": "bnd_2",
+                "accountNumericUserId": "77331",
+                "accountLogin": "octocat-mt",
+                "repository": "acme/api",
+                "projectId": "prj_42",
+                "worktreeOption": "none",
+                "triggers": {
+                    "assignment": true,
+                    "mention": false,
+                    "reviewRequest": true
+                },
+                "state": "active",
+                "createdAt": "2026-09-12T09:14:00.000Z",
+                "updatedAt": "2026-09-30T19:58:00.000Z"
+            },
+            {
+                "bindingId": "bnd_3",
+                "accountNumericUserId": "331468173",
+                "accountLogin": "prompt-it-so",
+                "repository": "internal/cli",
+                "projectId": "prj_77",
+                "worktreeOption": "none",
+                "triggers": {
+                    "assignment": true,
+                    "mention": true,
+                    "reviewRequest": false
+                },
+                "state": "disabled",
+                "createdAt": "2026-09-12T09:14:00.000Z",
+                "updatedAt": "2026-09-30T19:58:00.000Z"
+            }
+        ],
+        "status": []
+    },
+    "accounts": {
+        "accounts": [
+            {
+                "numericUserId": "77331",
+                "login": "octocat-mt",
+                "displayName": "Mecha Turk bot",
+                "state": "active",
+                "connectionState": "connected",
+                "verifiedAt": "2026-09-30T19:58:00.000Z",
+                "scopeCheck": {
+                    "checkedAt": "2026-09-30T19:58:00.000Z",
+                    "results": {
+                        "metadata": "ok",
+                        "issues": "ok",
+                        "pull-requests": "ok",
+                        "contents": "ok"
+                    }
+                }
+            },
+            {
+                "numericUserId": "331468173",
+                "login": "prompt-it-so",
+                "displayName": null,
+                "state": "active",
+                "connectionState": "needs reconnection",
+                "verifiedAt": "2026-09-30T19:58:00.000Z",
+                "scopeCheck": {
+                    "checkedAt": "2026-09-30T19:58:00.000Z",
+                    "results": {
+                        "metadata": "ok",
+                        "issues": "ok",
+                        "pull-requests": "ok",
+                        "contents": "ok"
+                    }
+                }
+            }
+        ]
+    },
+    "events": {
+        "events": [
+            {
+                "id": "mt-run-a1",
+                "correlationId": "mt-run-a1",
+                "kind": "assignment",
+                "repository": "acme/widget",
+                "issueNumber": 412,
+                "issueTitle": "Tighten the dispatch ledger write path so a refused row cannot half-land",
+                "issueUrl": "https://github.com/acme/widget/issues/412",
+                "state": "dispatched",
+                "stateReason": "the session is running; its result, or the lease expiring, decides what happens next",
+                "runKey": "github|77331|acme/widget|issue|412|0",
+                "ordinal": 0,
+                "attempt": 1,
+                "attachmentId": "mt-run-a1",
+                "projectId": "prj_42",
+                "worktreeOption": "none",
+                "leaseExpiresAt": "2026-10-01T03:35:05.631Z",
+                "resultDeadlineAt": null,
+                "sourceReferences": [],
+                "referenceCount": 0,
+                "referencesTruncated": false,
+                "referencesNotRetained": 0,
+                "session": {
+                    "sessionId": "ses_01J9ZQ4M7K",
+                    "attachmentId": "mt-run-a1",
+                    "dispatchedAt": "2026-09-30T19:58:00.000Z"
+                },
+                "verification": null,
+                "detectedAt": "2026-09-30T19:58:00.000Z",
+                "claimedAt": "2026-09-30T19:58:00.000Z",
+                "dispatchedAt": "2026-09-30T19:58:00.000Z",
+                "dispatchResult": null,
+                "bindingId": "bnd_1",
+                "headSha": null,
+                "baseRef": null,
+                "promptPresent": false,
+                "promptFingerprint": null,
+                "promptLength": null
+            },
+            {
+                "id": "mt-run-a2",
+                "correlationId": "mt-run-a2",
+                "kind": "assignment",
+                "repository": "acme/widget",
+                "issueNumber": 409,
+                "issueTitle": "Rate budget accounting for the scan window",
+                "issueUrl": "https://github.com/acme/widget/issues/409",
+                "state": "pending",
+                "stateReason": "waiting for a panel — there is nothing to retry until it fails or a guard refuses it",
+                "runKey": "github|77331|acme/widget|issue|409|1",
+                "ordinal": 1,
+                "attempt": 1,
+                "attachmentId": "mt-run-a2",
+                "projectId": "prj_42",
+                "worktreeOption": "none",
+                "leaseExpiresAt": null,
+                "resultDeadlineAt": null,
+                "sourceReferences": [],
+                "referenceCount": 0,
+                "referencesTruncated": false,
+                "referencesNotRetained": 0,
+                "session": null,
+                "verification": null,
+                "detectedAt": "2026-09-30T19:58:00.000Z",
+                "claimedAt": null,
+                "dispatchedAt": null,
+                "dispatchResult": null,
+                "bindingId": "bnd_1",
+                "headSha": null,
+                "baseRef": null,
+                "promptPresent": false,
+                "promptFingerprint": null,
+                "promptLength": null
+            },
+            {
+                "id": "mt-run-a3",
+                "correlationId": "mt-run-a3",
+                "kind": "assignment",
+                "repository": "acme/api",
+                "issueNumber": 118,
+                "issueTitle": "Regenerate the OpenAPI client after the 4.2 contract change",
+                "issueUrl": "https://github.com/acme/api/issues/118",
+                "state": "failed",
+                "stateReason": "the session reported a different agent than the configured baseline",
+                "runKey": "github|77331|acme/api|issue|118|2",
+                "ordinal": 2,
+                "attempt": 3,
+                "attachmentId": "mt-run-a3",
+                "projectId": "prj_42",
+                "worktreeOption": "none",
+                "leaseExpiresAt": null,
+                "resultDeadlineAt": null,
+                "sourceReferences": [],
+                "referenceCount": 0,
+                "referencesTruncated": false,
+                "referencesNotRetained": 0,
+                "session": {
+                    "sessionId": "ses_01J9ZN8Q1P",
+                    "attachmentId": "mt-run-a3",
+                    "dispatchedAt": "2026-09-30T19:58:00.000Z"
+                },
+                "verification": {
+                    "observedAgent": "claude-opus-4-6",
+                    "expectedAgent": "project-manager",
+                    "ok": false,
+                    "note": "the session reported another agent"
+                },
+                "detectedAt": "2026-09-30T19:58:00.000Z",
+                "claimedAt": "2026-09-30T19:58:00.000Z",
+                "dispatchedAt": "2026-09-30T19:58:00.000Z",
+                "dispatchResult": null,
+                "bindingId": "bnd_1",
+                "headSha": null,
+                "baseRef": null,
+                "promptPresent": false,
+                "promptFingerprint": null,
+                "promptLength": null
+            },
+            {
+                "id": "mt-run-a4",
+                "correlationId": "mt-run-a4",
+                "kind": "review-request",
+                "repository": "acme/api",
+                "issueNumber": 117,
+                "issueTitle": "Review: split the polling adapter out of the scan loop",
+                "issueUrl": "https://github.com/acme/api/issues/117",
+                "state": "blocked:blocked-project",
+                "stateReason": "prj_99 is not a registered OpenChamber project",
+                "runKey": "github|77331|acme/api|issue|117|3",
+                "ordinal": 3,
+                "attempt": 1,
+                "attachmentId": "mt-run-a4",
+                "projectId": "prj_42",
+                "worktreeOption": "none",
+                "leaseExpiresAt": null,
+                "resultDeadlineAt": null,
+                "sourceReferences": [],
+                "referenceCount": 0,
+                "referencesTruncated": false,
+                "referencesNotRetained": 0,
+                "session": null,
+                "verification": null,
+                "detectedAt": "2026-09-30T19:58:00.000Z",
+                "claimedAt": null,
+                "dispatchedAt": null,
+                "dispatchResult": null,
+                "bindingId": "bnd_1",
+                "headSha": null,
+                "baseRef": null,
+                "promptPresent": false,
+                "promptFingerprint": null,
+                "promptLength": null
+            },
+            {
+                "id": "mt-run-a5",
+                "correlationId": "mt-run-a5",
+                "kind": "mention",
+                "repository": "internal/cli",
+                "issueNumber": 27,
+                "issueTitle": "@mecha-turk please re-run the release dry run",
+                "issueUrl": "https://github.com/internal/cli/issues/27",
+                "state": "blocked:blocked-binding",
+                "stateReason": "the binding is disabled",
+                "runKey": "github|77331|internal/cli|issue|27|4",
+                "ordinal": 4,
+                "attempt": 1,
+                "attachmentId": "mt-run-a5",
+                "projectId": "prj_42",
+                "worktreeOption": "none",
+                "leaseExpiresAt": null,
+                "resultDeadlineAt": null,
+                "sourceReferences": [],
+                "referenceCount": 0,
+                "referencesTruncated": false,
+                "referencesNotRetained": 0,
+                "session": null,
+                "verification": null,
+                "detectedAt": "2026-09-30T19:58:00.000Z",
+                "claimedAt": null,
+                "dispatchedAt": null,
+                "dispatchResult": null,
+                "bindingId": "bnd_1",
+                "headSha": null,
+                "baseRef": null,
+                "promptPresent": false,
+                "promptFingerprint": null,
+                "promptLength": null
+            },
+            {
+                "id": "mt-run-a6",
+                "correlationId": "mt-run-a6",
+                "kind": "assignment",
+                "repository": "acme/widget",
+                "issueNumber": 401,
+                "issueTitle": "Docs: document the retention passes and what survives them",
+                "issueUrl": "https://github.com/acme/widget/issues/401",
+                "state": "claimed",
+                "stateReason": "reported by the service",
+                "runKey": "github|77331|acme/widget|issue|401|5",
+                "ordinal": 5,
+                "attempt": 1,
+                "attachmentId": "mt-run-a6",
+                "projectId": "prj_42",
+                "worktreeOption": "none",
+                "leaseExpiresAt": "2026-10-01T03:32:35.631Z",
+                "resultDeadlineAt": null,
+                "sourceReferences": [],
+                "referenceCount": 0,
+                "referencesTruncated": false,
+                "referencesNotRetained": 0,
+                "session": null,
+                "verification": null,
+                "detectedAt": "2026-09-30T19:58:00.000Z",
+                "claimedAt": "2026-09-30T19:58:00.000Z",
+                "dispatchedAt": null,
+                "dispatchResult": null,
+                "bindingId": "bnd_1",
+                "headSha": null,
+                "baseRef": null,
+                "promptPresent": false,
+                "promptFingerprint": null,
+                "promptLength": null
+            },
+            {
+                "id": "mt-run-a7",
+                "correlationId": "mt-run-a7",
+                "kind": "assignment",
+                "repository": "acme/api",
+                "issueNumber": 112,
+                "issueTitle": "Backfill the audit chain after the trim oscillation fix",
+                "issueUrl": "https://github.com/acme/api/issues/112",
+                "state": "unconfirmed",
+                "stateReason": "the session started but no read-back has landed yet",
+                "runKey": "github|77331|acme/api|issue|112|6",
+                "ordinal": 6,
+                "attempt": 2,
+                "attachmentId": "mt-run-a7",
+                "projectId": "prj_42",
+                "worktreeOption": "none",
+                "leaseExpiresAt": null,
+                "resultDeadlineAt": null,
+                "sourceReferences": [],
+                "referenceCount": 0,
+                "referencesTruncated": false,
+                "referencesNotRetained": 0,
+                "session": {
+                    "sessionId": "ses_01J9ZM6H8D",
+                    "attachmentId": "mt-run-a7",
+                    "dispatchedAt": "2026-09-30T19:58:00.000Z"
+                },
+                "verification": {
+                    "observedAgent": "project-manager",
+                    "expectedAgent": "project-manager",
+                    "ok": true,
+                    "note": null
+                },
+                "detectedAt": "2026-09-30T19:58:00.000Z",
+                "claimedAt": "2026-09-30T19:58:00.000Z",
+                "dispatchedAt": "2026-09-30T19:58:00.000Z",
+                "dispatchResult": null,
+                "bindingId": "bnd_1",
+                "headSha": null,
+                "baseRef": null,
+                "promptPresent": false,
+                "promptFingerprint": null,
+                "promptLength": null
+            },
+            {
+                "id": "mt-run-a8",
+                "correlationId": "mt-run-a8",
+                "kind": "assignment",
+                "repository": "acme/widget",
+                "issueNumber": 398,
+                "issueTitle": "Drop the legacy repository picker from the panel shell",
+                "issueUrl": "https://github.com/acme/widget/issues/398",
+                "state": "dead-lettered",
+                "stateReason": "the lease expired before a result arrived",
+                "runKey": "github|77331|acme/widget|issue|398|7",
+                "ordinal": 7,
+                "attempt": 1,
+                "attachmentId": "mt-run-a8",
+                "projectId": "prj_42",
+                "worktreeOption": "none",
+                "leaseExpiresAt": null,
+                "resultDeadlineAt": null,
+                "sourceReferences": [],
+                "referenceCount": 0,
+                "referencesTruncated": false,
+                "referencesNotRetained": 0,
+                "session": null,
+                "verification": null,
+                "detectedAt": "2026-09-30T19:58:00.000Z",
+                "claimedAt": "2026-09-30T19:58:00.000Z",
+                "dispatchedAt": "2026-09-30T19:58:00.000Z",
+                "dispatchResult": null,
+                "bindingId": "bnd_1",
+                "headSha": null,
+                "baseRef": null,
+                "promptPresent": false,
+                "promptFingerprint": null,
+                "promptLength": null
+            }
+        ],
+        "page": {
+            "limit": 25,
+            "nextCursor": null,
+            "hasMore": false,
+            "total": 8,
+            "snapshotAt": "2026-09-30T19:58:00.000Z",
+            "filter": {
+                "bindingId": null,
+                "state": null
+            }
+        }
+    },
+    "audit": {
+        "entries": [
+            {
+                "seq": 41,
+                "timestamp": "2026-09-30T19:58:00.000Z",
+                "correlationId": "mt-run-a3",
+                "eventType": "run.dispatched",
+                "actorSource": "panel",
+                "decision": "accepted",
+                "reason": null,
+                "details": {
+                    "attempt": 3,
+                    "bindingId": "bnd_1"
+                }
+            },
+            {
+                "seq": 40,
+                "timestamp": "2026-09-30T19:58:00.000Z",
+                "correlationId": "mt-run-a3",
+                "eventType": "run.verified",
+                "actorSource": "panel",
+                "decision": "refused",
+                "reason": "the session reported another agent",
+                "details": {
+                    "observedAgent": "claude-opus-4-6"
+                }
+            },
+            {
+                "seq": 39,
+                "timestamp": "2026-09-30T19:58:00.000Z",
+                "correlationId": "mt-run-a4",
+                "eventType": "run.blocked",
+                "actorSource": "panel",
+                "decision": "blocked",
+                "reason": "prj_99 is not a registered OpenChamber project",
+                "details": {}
+            }
+        ]
+    },
+    "health": {
+        "status": "ok",
+        "version": "0.0.1"
+    },
+    "pending": {
+        "events": []
+    },
+    "projects": {
+        "kind": "projects",
+        "state": "ready",
+        "projects": [
+            {
+                "id": "prj_42",
+                "name": "mecha-turk"
+            },
+            {
+                "id": "prj_77",
+                "name": "internal-cli"
+            }
+        ]
+    }
+}
