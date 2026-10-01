@@ -34,6 +34,13 @@ import type { DispatchesState, PanelRuntime } from './panel-state.ts';
 /** Select id that means "no filter" in both filter selects. */
 const ALL_FILTERS = 'all';
 
+/**
+ * Class words of the one toolbar the paging and filter controls share:
+ * `.mt-toolbar` wraps them, `--controls` bottom-aligns a bare button against
+ * a label-over-control select instead of centering it in the taller of the two.
+ */
+const CONTROLS_TOOLBAR_CLASS = 'mt-toolbar mt-toolbar--controls';
+
 /** Label of the correlation-id copy control (FR-049). */
 const COPY_CORRELATION_LABEL = 'Copy correlation id';
 
@@ -144,9 +151,12 @@ export interface DispatchesControls extends PagingControls, RowDetail {
 /**
  * Create a wrapping row the controls mount into.
  *
- * Shared with `dispatches-ui.ts`'s action groups so the pane's controls all
- * lay out the same way: a flex row that wraps instead of scrolling on the
- * narrowest frame the host allows (FR-082).
+ * `dispatches-ui.ts` takes it for the groups that **show and hide**: the SDK
+ * buttons have no "absent" state, so each group needs an element whose own
+ * `hidden` flag is the "no control here" (FR-041, FR-074), and a row that
+ * wraps survives the narrowest frame the host allows (FR-082). The
+ * always-visible paging and filter row does not come from here — it is one
+ * `.mt-toolbar mt-toolbar--controls` instead (2026-10-01 review).
  *
  * @param pane - The pane root.
  * @returns The row element the controls mount into.
@@ -353,45 +363,46 @@ function filterValue(id: string): string | null {
 export function mountDispatchesControls(input: DispatchControlsInput): PagingControls {
     const { pane, rt, handlers } = input;
     const { dispatches: runs, bindings } = rt.state;
-    // Both are *metadata about the set on screen*, not body copy, so they
-    // take the same dim treatment as the status lede above them rather than
-    // printing at full ink and out-ranking it (product-owner review
-    // 2026-10-01).
+    // Metadata about the set on screen, so both take the dim treatment the
+    // status lede above them already carries instead of printing at full ink
+    // and out-ranking it (product-owner review 2026-10-01).
     const rangeLine = mountStyledText(pane, { className: 'mt-lede', text: dispatchRangeLine(runs) });
-    const filterLine = mountStyledText(pane, {
-        className: 'mt-lede',
-        text: activeFilterLine(runs, bindings.bindings),
-    });
+    const filterLine = mountStyledText(pane, { className: 'mt-lede', text: activeFilterLine(runs, bindings.bindings) });
 
-    const paging = createControlGroup(pane);
-    const previousPage = mountButton(paging, {
+    // One wrapping, bottom-aligned row rather than two bare groups: two
+    // `createControlGroup` divs separated by the block's own 8px gap read as
+    // two orphaned clumps with no more space between them than *inside* one.
+    const toolbar = pane.ownerDocument.createElement('div');
+    toolbar.className = CONTROLS_TOOLBAR_CLASS;
+    pane.append(toolbar);
+
+    const previousPage = mountButton(toolbar, {
         label: 'Previous page',
         variant: 'outline',
         onClick: handlers.previousPage,
     });
-    const nextPage = mountButton(paging, { label: 'Next page', variant: 'outline', onClick: handlers.nextPage });
-    const pageSize = mountSelect(paging, {
+    const nextPage = mountButton(toolbar, { label: 'Next page', variant: 'outline', onClick: handlers.nextPage });
+    const pageSize = mountSelect(toolbar, {
         label: 'Rows per page',
         value: String(runs.page.limit),
         options: pageSizeOptions(),
         onChange: (id) => handlers.setPageLimit(Number(id)),
     });
 
-    const filters = createControlGroup(pane);
-    const bindingFilter = mountSelect(filters, {
+    const bindingFilter = mountSelect(toolbar, {
         label: 'Binding',
         value: runs.filters.bindingId ?? ALL_FILTERS,
         options: bindingFilterOptions(bindings.bindings),
         searchable: true,
         onChange: (id) => handlers.setBindingFilter(filterValue(id)),
     });
-    const stateFilter = mountSelect(filters, {
+    const stateFilter = mountSelect(toolbar, {
         label: 'State',
         value: runs.filters.state ?? ALL_FILTERS,
         options: stateFilterOptions(),
         onChange: (id) => handlers.setStateFilter(filterValue(id)),
     });
-    const clearFilters = mountButton(filters, {
+    const clearFilters = mountButton(toolbar, {
         label: 'Clear filters',
         variant: 'ghost',
         onClick: handlers.clearFilters,
