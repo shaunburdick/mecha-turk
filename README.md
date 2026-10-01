@@ -50,10 +50,10 @@ The rail panel has one strip with six tabs, in order:
 
 | Tab | What it is for |
 | --- | --- |
-| **Status** | The honest projection — service, polling, accounts, bindings, agent pin — plus the **Setup prerequisites** section: six lines, each *met*, *not met*, or **not checkable by the panel**, each with its own remediation, with any checkable-and-unmet item raised as a notice above the tabs |
+| **Status** | The honest projection — service, polling, accounts, bindings, agent pin — plus the **Setup prerequisites** section: five lines, each *met*, *not met*, or **not checkable by the panel**, each with its own remediation, with any checkable-and-unmet item raised as a notice above the tabs |
 | **Dispatches** | Every queued, running, and finished dispatch, newest first, with cursor paging and server-side filters by binding and by state; each row carries its state, its reason line, its correlation id, its source references, and the controls that move it (open, retry, resolve, return to waiting, audit history) |
 | **Bindings** | The repositories you watch, the project picker with its *not listed?* guidance, and the add form |
-| **Accounts** | Every GitHub account with its lifecycle, connection, and scope matrix, plus the add form: consent → PAT → optional expected GitHub login |
+| **Accounts** | Every GitHub account with its lifecycle, connection, and scope matrix, plus the add form: paste PAT → connect, under the always-visible Accounts disclaimer, with the optional expected GitHub login |
 | **Settings** | The **single configuration input** for the whole service configuration: one editable row per field — value, unit, bounds or format, and the line saying when a change takes effect — plus save, discard, the two-step confirmation before a retention limit is lowered, and restore defaults |
 | **About** | The product name, the version read from the service, a one-line description of the tool, the repository link, and the read-only diagnostics behind a disclosure |
 
@@ -168,8 +168,12 @@ settings carry over, and you re-approve only if the new version asks for more.
 1. **Register your projects** in OpenChamber (command palette → *Add
    project*) — one per repository you intend to bind.
 2. **Add a GitHub account** — panel → **Accounts** tab:
-   - A consent step appears first (an allowed service has your full user
-     access; the step exists so you accept it knowingly).
+   - The Accounts section carries a **static disclaimer** under the account
+     list: your token goes to the local service (sandbox-advisory — an
+     allowed service has your full user access), is stored outside
+     extension storage at file permissions and **unencrypted on disk**, and
+     the connection is recorded in the audit as an occurrence only. It is
+     always visible — there is nothing to accept or decline.
    - Paste a fine-grained, read-only PAT. The token exists only in transit:
      it is never written to panel state, storage, logs, or the audit trail.
    - Optionally type an **expected GitHub login** — the per-account constraint
@@ -184,11 +188,10 @@ settings carry over, and you re-approve only if the new version asks for more.
      (mentions default to `@<your login>`, case-insensitive)
    - Save. Polling starts within one interval.
 4. **Read the panel's setup prerequisites** — the **Status** tab shows a
-   **Setup prerequisites** section covering the six things a first dispatch
+   **Setup prerequisites** section covering the five things a first dispatch
    needs:
    the Default Agent pin, OpenChamber running, the desktop-or-web surface,
-   the GitHub token scopes, a registered project per binding, and
-   service-capability approval with the in-panel consent step. Each line has
+   the GitHub token scopes, and a registered project per binding. Each line has
    its own state — *met*, *not met*, or **not checkable by the panel** — and
    its own remediation. The Default Agent pin is reported as not checkable
    because the panel genuinely cannot read that setting, and any checkable
@@ -339,7 +342,7 @@ through OpenChamber's own surfaces.
 | --- | --- | --- |
 | `NO_SERVICE` | The `service` capability wasn't approved | Settings → Extensions → review permissions |
 | `SERVICE_FAILED` | The service crashed or wasn't ready within 15 s | Retry from **Status**; check the store path's permissions |
-| Handoff refused | Consent or capability gate | Complete the consent step / approve capabilities |
+| Handoff refused | The storage pre-flight failed, or the service/GitHub refused the token | Read the on-screen reason: fix store permissions (`storage-unavailable`), approve capabilities (`NO_SERVICE`), or paste a fresh PAT (`credential-rejected`) |
 | A dispatch shows `project "<id>" is not registered` | The project was removed from OpenChamber after binding | Register the project again, then trigger the work for a fresh event |
 | Warning: dispatched, but the session agent was `\<x\>` | Default Agent ≠ expected agent | Set Session Defaults → Default Agent (warn-only — the session still runs) |
 | `storage-unavailable` | Data dir not writable | Fix permissions on `~/.config/openchamber/mecha-turk` |
