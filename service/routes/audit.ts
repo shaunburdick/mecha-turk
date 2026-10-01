@@ -14,7 +14,7 @@
  *
  * - **The filter is a string equality, never a derivation.** A run's
  *   correlation id matches byte for byte (FR-051), so a non-run row — poll,
- *   checkpoint, consent, `account.*` — can never match a run id by construction
+ *   checkpoint, legacy `consent`, `account.*` — can never match a run id by construction
  *   (FR-052), and a near-miss (different case, a prefix, a stray space, an
  *   empty value) matches nothing rather than something close. The value is
  *   compared exactly as it arrived: an **absent** parameter widens the read to

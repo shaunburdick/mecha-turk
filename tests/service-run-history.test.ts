@@ -22,7 +22,6 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../src/consent.ts';
 import { findSecretLeak } from '../src/redaction.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { projectRunHistory } from '../service/poll/run-history-project.ts';
@@ -198,7 +197,7 @@ async function startSeededService(options: { readonly registered?: boolean } = {
         const registered = await service.call(VERIFY_PATH, {
             method: 'POST',
             headers: jsonHeaders(),
-            body: JSON.stringify({ token: REGISTERED_TOKEN, consentVersion: CONSENT_VERSION }),
+            body: JSON.stringify({ token: REGISTERED_TOKEN }),
         });
         if (registered.status !== 201) {
             throw new Error(`the fixture credential did not register: ${registered.status}`);

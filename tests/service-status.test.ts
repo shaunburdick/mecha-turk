@@ -19,7 +19,6 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../src/consent.ts';
 import { BINDINGS_FILE } from '../service/bindings.ts';
 import { DEFAULT_CONFIG } from '../service/config.ts';
 import { RUNS_FILE } from '../service/poll/runs.ts';
@@ -160,7 +159,7 @@ async function registerAccount(service: TestService): Promise<void> {
     const response = await service.call(VERIFY_PATH, {
         method: 'POST',
         headers: headers([['content-type', 'application/json']]),
-        body: JSON.stringify({ token: REGISTERED_TOKEN, consentVersion: CONSENT_VERSION }),
+        body: JSON.stringify({ token: REGISTERED_TOKEN }),
     });
 
     expect(response.status).toBe(201);

@@ -1,11 +1,15 @@
 /**
  * Rendering-contract tests for the one-shot handoff (task T-009,
- * token-handoff §1.1/§2 step ①, panel-service §3 invariant 11).
+ * token-handoff §2 step ①, panel-service §3 invariant 11).
  *
  * The render step is a pure mapping from state onto a view, so these tests
- * drive it with the recording double: the consent copy must arrive verbatim,
- * the input must stay gated on consent **and** a writable pre-flight, and no
- * rendered string may carry a credential. The DOM adapter itself is checked
+ * drive it with the recording double: the input must stay gated on a writable
+ * pre-flight, and no
+ * rendered string may carry a credential. (The consent-copy-verbatim and
+ * consent-gate cases this file used to pin went out with the Accept/Decline
+ * dialog on 2026-10-01 — 002 v1.9.0 — where the copy lives on as the static
+ * Accounts disclaimer pinned in `tests/disclaimer.test.ts`.) The DOM adapter
+ * itself is checked
  * by a static scan — it must write through `textContent`/`setAttribute` only
  * and must pin `type="password"` with `autocomplete="new-password"` — and
  * (review F-E) that sink scan now covers **every** module under
@@ -28,23 +32,16 @@ import {
     lifecycleCopy,
     rotationStatement,
 } from '../src/accounts-rows.ts';
+import { ACCOUNTS_DISCLAIMER_PARAGRAPHS } from '../src/accounts-disclaimer.ts';
 import { bindingRows } from '../src/bindings-rows.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import {
-    acceptConsentAndRepaint,
     handoffInputEnabled,
     refreshHandoff,
     renderHandoff,
 } from '../src/accounts-ui.ts';
-import {
-    CONSENT_COPY_V1,
-    CONSENT_STORAGE_KEY,
-    CONSENT_VERSION,
-    restoreStoredConsent,
-} from '../src/consent.ts';
 import { ACCOUNTS_STORAGE_KEY } from '../src/account-mirror.ts';
 import type { ScopeResult } from '../src/account-mirror.ts';
-import { STORAGE_REFUSAL } from '../src/handoff-copy.ts';
 import { initialBindings } from '../src/panel-state.ts';
 import type { BindingsTabState, PanelRuntime } from '../src/panel-state.ts';
 import type { PanelHandlers } from '../src/panel-ui.ts';
@@ -62,7 +59,7 @@ import {
 } from './support/handoff.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
-import { createStorageDouble, createTestRuntime, fakeHost } from './support/panel.ts';
+import { createTestRuntime, fakeHost } from './support/panel.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -111,40 +108,27 @@ const HTML_SINKS: readonly RegExp[] = [
 function expectNoCredentialInStrings(strings: readonly string[]): void {
     expect(strings.join('\n')).not.toContain(PANEL_TOKEN);
 }
-describe('rendering (contract §1.1, §4 rule 5, SEC-17)', () => {
-    it('renders CONSENT_COPY_V1 verbatim into the consent step', () => {
+describe('rendering (contract §4 rule 5, SEC-17)', () => {
+    it('carries no consent member in the view the render step writes (002 v1.9.0)', () => {
         const record = recordingView();
 
-        renderHandoff(
-            { ...initialState(), consentGiven: false },
-            record.view,
-        );
+        renderHandoff(initialState(), record.view);
 
-        expect(record.consentText).toBe(CONSENT_COPY_V1);
-        expect(record.consentShown).toBe(true);
+        // The dialog's writers left the view with the dialog itself.
+        expect(Object.keys(record.view)).not.toContain('setConsentText');
+        expect(Object.keys(record.view)).not.toContain('showConsent');
         expectNoCredentialInStrings(record.rendered);
     });
 
-    it('hides the consent step once the current copy is accepted', () => {
-        const record = recordingView();
-
-        renderHandoff({ ...initialState(), consentGiven: true }, record.view);
-
-        expect(record.consentShown).toBe(false);
-    });
-
-    it('enables the credential input only after consent and a writable pre-flight', () => {
+    it('enables the credential input only after a writable pre-flight', () => {
         const base = initialState();
         const record = recordingView();
 
-        expect(handoffInputEnabled({ ...base, consentGiven: true })).toBe(false);
-        expect(handoffInputEnabled({ ...base, storageWritable: true })).toBe(false);
-        expect(
-            handoffInputEnabled({ ...base, consentGiven: true, storageWritable: true }),
-        ).toBe(true);
-        expect(handoffInputEnabled({ ...base, consentGiven: true, storageWritable: true, busy: true })).toBe(false);
+        expect(handoffInputEnabled(base)).toBe(false);
+        expect(handoffInputEnabled({ ...base, storageWritable: true })).toBe(true);
+        expect(handoffInputEnabled({ ...base, storageWritable: true, busy: true })).toBe(false);
 
-        renderHandoff({ ...base, consentGiven: true, storageWritable: true }, record.view);
+        renderHandoff({ ...base, storageWritable: true }, record.view);
         expect(record.tokenEnabled).toBe(true);
         expect(record.submitEnabled).toBe(true);
     });
@@ -215,155 +199,14 @@ describe('silent account adoption (MVP blocker 2)', () => {
         expect(host.rt.state.handoff.connected).toEqual({ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN });
         expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
         expect(host.record.pasteVisible).toBe(false);
-        // The paste row stays hidden (the service already holds the
-        // account), but the consent step is **not** hidden by connection —
-        // it is the step the service-capability prerequisite reads, and an
-        // install that can never accept it could never clear that notice.
-        expect(host.record.consentShown).toBe(true);
+        // The paste row stays hidden because the service already holds the
+        // account; the disclaimer beneath the Accounts list has no visibility
+        // rule at all — it is always there (002 v1.9.0).
         // The adoption rewrote the mirror the reinstall deleted, so the
         // next mount adopts from storage without touching the service.
         const mirrored = host.storage.values.get(ACCOUNTS_STORAGE_KEY);
         expect(mirrored).toBeDefined();
         expect(JSON.stringify(mirrored)).toContain(CONNECTED_ID);
-    });
-});
-
-describe('accepting the consent step (MVP blocker: Accept did not stick)', () => {
-    it('persists the mirror and hides the consent card after Accept', async () => {
-        // No stored mirror: this install has not encountered the copy yet.
-        const host = await scriptedRuntime(
-            () => ({ status: 200, body: STATUS_BODY }),
-            {},
-        );
-
-        await acceptConsentAndRepaint(host.rt);
-
-        expect(host.storage.values.get(CONSENT_STORAGE_KEY)).toMatchObject({ version: CONSENT_VERSION });
-        expect(host.rt.state.handoff.consentGiven).toBe(true);
-        // Working storage: the card is gone for this mount and the mirror
-        // the re-consent gate reads at submit time now exists.
-        expect(host.record.consentShown).toBe(false);
-        expect(host.record.note).toBe('');
-    });
-
-    it('keeps the consent card and names the storage refusal when the write fails', async () => {
-        const storage = createStorageDouble({});
-        const host = fakeHost({
-            storage: {
-                ...storage.storage,
-                set: async () => {
-                    throw new Error('storage offline');
-                },
-            },
-        });
-        const rt = createTestRuntime(host);
-        const record = recordingView();
-        rt.handoffView = record.view;
-
-        await acceptConsentAndRepaint(rt);
-
-        // Fail closed and show it: no mirror stored, no pretend-accepted
-        // state, and the operator sees why the card is still there.
-        expect(storage.values.has(CONSENT_STORAGE_KEY)).toBe(false);
-        expect(rt.state.handoff.consentGiven).toBe(false);
-        expect(record.consentShown).toBe(true);
-        expect(record.note).toBe(STORAGE_REFUSAL);
-        // The pasted-token gate stays shut without a stored mirror, so the
-        // input can never appear while the consent step is unresolved.
-        expect(handoffInputEnabled(rt.state.handoff)).toBe(false);
-    });
-
-    it('re-accepting after a refused write retries the mirror write', async () => {
-        const storage = createStorageDouble({});
-        let refused = true;
-        const host = fakeHost({
-            storage: {
-                ...storage.storage,
-                set: async (key, value) => {
-                    if (refused) {
-                        throw new Error('storage offline');
-                    }
-                    await storage.storage.set(key, value);
-                },
-            },
-        });
-        const rt = createTestRuntime(host);
-        const record = recordingView();
-        rt.handoffView = record.view;
-
-        await acceptConsentAndRepaint(rt);
-        expect(rt.state.handoff.consentGiven).toBe(false);
-
-        refused = false;
-        await acceptConsentAndRepaint(rt);
-
-        expect(rt.state.handoff.consentGiven).toBe(true);
-        expect(storage.values.get(CONSENT_STORAGE_KEY)).toMatchObject({ version: CONSENT_VERSION });
-        expect(record.consentShown).toBe(false);
-    });
-});
-
-describe('restoring accepted consent at mount (remount must not re-ask)', () => {
-    it('sets consentGiven from the current stored mirror before the first repaint', async () => {
-        const host = await scriptedRuntime(
-            () => ({ status: 200, body: STATUS_BODY }),
-            { [CONSENT_STORAGE_KEY]: { givenAt: GIVEN_AT, version: CONSENT_VERSION } },
-        );
-
-        await restoreStoredConsent(host.rt);
-        refreshHandoff(host.rt);
-
-        expect(host.rt.state.handoff.consentGiven).toBe(true);
-        expect(host.record.consentShown).toBe(false);
-    });
-
-    it('treats a missing, stale, or unreadable mirror as no consent', async () => {
-        const absent = createTestRuntime(fakeHost({ storage: createStorageDouble({}).storage }));
-        await restoreStoredConsent(absent);
-        expect(absent.state.handoff.consentGiven).toBe(false);
-
-        const stale = createTestRuntime(
-            fakeHost({
-                storage: createStorageDouble({ [CONSENT_STORAGE_KEY]: { givenAt: GIVEN_AT, version: 0 } }).storage,
-            }),
-        );
-        await restoreStoredConsent(stale);
-        expect(stale.state.handoff.consentGiven).toBe(false);
-
-        const broken = createTestRuntime(
-            fakeHost({
-                storage: {
-                    get: async () => {
-                        throw new Error('storage unavailable');
-                    },
-                    set: () => Promise.resolve(),
-                    delete: () => Promise.resolve(),
-                    keys: async () => [],
-                },
-            }),
-        );
-        await restoreStoredConsent(broken);
-        expect(broken.state.handoff.consentGiven).toBe(false);
-
-        // Repaint from the broken read: the card shows, with no crash.
-        const record = recordingView();
-        broken.handoffView = record.view;
-        refreshHandoff(broken);
-        expect(record.consentShown).toBe(true);
-    });
-
-    it('leaves the gate exactly as the stored mirror says, not the memory', async () => {
-        // An in-memory "true" from a previous mount must not survive when the
-        // stored mirror says otherwise — the mirror is the durable record.
-        const host = await scriptedRuntime(
-            () => ({ status: 200, body: STATUS_BODY }),
-            {},
-        );
-        host.rt.state.handoff.consentGiven = true;
-
-        await restoreStoredConsent(host.rt);
-
-        expect(host.rt.state.handoff.consentGiven).toBe(false);
     });
 });
 
@@ -521,25 +364,14 @@ function mountAccountsTab(setup?: (rt: PanelRuntime) => void): {
 }
 
 /**
- * Whether the consent card is **showing** on a mounted group (002 FR-008).
- *
- * The copy is written into its node whether the card shows or not — the
- * adapter hides the *container* — so visibility is read from the box, never
- * from the presence of the text.
+ * Whether the Accounts disclaimer is **mounted** on the Accounts body, and
+ * what its text says (002 FR-008 as re-cut at v1.9.0).
  *
  * @param created - Every element the mount created.
- * @returns `true` while the operator would be asked again, `undefined` when
- *   the card was not mounted at all.
+ * @returns The disclaimer container, or `undefined` when nothing mounted one.
  */
-function consentCardVisible(created: readonly FakeElement[]): boolean | undefined {
-    const copy = created.find((node) => node.textContent === CONSENT_COPY_V1);
-    if (copy === undefined) {
-        return undefined;
-    }
-
-    const box = created.find((node) => node.children.includes(copy));
-
-    return box !== undefined && !box.hidden;
+function mountedDisclaimer(created: readonly FakeElement[]): FakeElement | undefined {
+    return created.find((node) => node.attribute('data-accounts-disclaimer') !== null);
 }
 
 /**
@@ -744,26 +576,44 @@ describe('T-024 the Accounts tab copy and secret posture (FR-020, FR-067, AC-129
     });
 });
 
-describe('T-025 opening the Accounts tab does not re-request consent (002 FR-008, FR-061)', () => {
-    it('keeps the consent card hidden for an install that already accepted', () => {
-        const { rt, dispose, created } = mountAccountsTab((runtime): void => {
-            runtime.state.handoff.consentGiven = true;
-        });
-        dispose();
-
-        expect(consentCardVisible(created)).toBe(false);
-        // Consent governs the *first* handoff only: the paste row is open and
-        // the accepted flag survives the navigation untouched.
-        expect(rt.state.handoff.consentGiven).toBe(true);
-        expect(rt.handoffView).not.toBeNull();
-    });
-
-    it('still shows the card for an install that has never accepted this copy', () => {
+describe('the Accounts tab carries a static disclaimer instead of a consent dialog (002 v1.9.0)', () => {
+    it('mounts the disclaimer beneath the Accounts section, always visible', () => {
         const { rt, dispose, created } = mountAccountsTab();
         dispose();
 
-        expect(consentCardVisible(created)).toBe(true);
-        expect(rt.state.handoff.consentGiven).toBe(false);
+        const disclaimer = mountedDisclaimer(created);
+        expect(disclaimer).toBeDefined();
+        expect(disclaimer?.hidden).toBe(false);
+        expect(disclaimer?.attribute('data-accounts-disclaimer')).toBe('informational');
+        // The fake document keeps `textContent` per node, so the copy is read
+        // from the paragraph inside the container rather than recomputed.
+        const text = disclaimer?.children.map((child) => child.textContent).join('\n\n') ?? '';
+        for (const paragraph of ACCOUNTS_DISCLAIMER_PARAGRAPHS) {
+            expect(text).toContain(paragraph);
+        }
+
+        expect(rt.handoffView).not.toBeNull();
+    });
+
+    it('offers no Accept, Decline, or any other button with it', () => {
+        const { dispose, created } = mountAccountsTab();
+        dispose();
+
+        const labels = created
+            .filter((node) => node.tagName === 'button')
+            .map((node) => node.textContent);
+
+        expect(labels).not.toContain('Accept and continue');
+        expect(labels).not.toContain('Decline');
+        // The one credential-path button that remains is the submit control.
+        expect(labels).toContain('Connect account');
+    });
+
+    it('keeps no consent state on the runtime the tab mounts (002 v1.9.0)', () => {
+        const { rt, dispose } = mountAccountsTab();
+        dispose();
+
+        expect(Object.keys(rt.state.handoff)).not.toContain('consentGiven');
     });
 });
 

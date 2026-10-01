@@ -223,18 +223,10 @@ var auditCaches = new WeakMap;
 async function seedAuditCache(store) {
   const entries = await readAuditEntries(store);
   let nextSeq = 1;
-  const consentVersions = new Set;
   for (const entry of entries) {
     nextSeq = Math.max(nextSeq, entry.seq + 1);
-    if (entry.eventType !== "consent") {
-      continue;
-    }
-    const { version } = entry.details;
-    if (typeof version === "number" && Number.isInteger(version)) {
-      consentVersions.add(version);
-    }
   }
-  return { nextSeq, consentVersions, writeChain: Promise.resolve() };
+  return { nextSeq, writeChain: Promise.resolve() };
 }
 function auditCacheFor(store) {
   let cached = auditCaches.get(store);
@@ -251,18 +243,6 @@ function inWriteChain(cache, task) {
   const run = cache.writeChain.then(task, task);
   cache.writeChain = run;
   return run;
-}
-async function claimConsentVersion(store, version) {
-  const cache = await auditCacheFor(store);
-  if (cache.consentVersions.has(version)) {
-    return false;
-  }
-  cache.consentVersions.add(version);
-  return true;
-}
-async function releaseConsentVersion(store, version) {
-  const cache = await auditCacheFor(store).catch(() => null);
-  cache?.consentVersions.delete(version);
 }
 function serializeAudit(store, task) {
   return auditCacheFor(store).then((cache) => inWriteChain(cache, task));
@@ -4020,55 +4000,6 @@ function createRequestHandler(deps) {
     });
   };
 }
-// src/consent-copy.json
-var consent_copy_default = {
-  version: 1,
-  paragraphs: [
-    "Mecha Turk wants to send a GitHub token to a local service.",
-    "This local service is allowed but sandbox-advisory: Phase 1 does not enforce an OS sandbox; an allowed service has your full user access — it can run any command and read or write any file your user can.",
-    "Your GitHub token is sent over the loopback proxy to this service and stored outside OpenChamber extension storage, protected by file permissions you can back up. It is stored unencrypted (plaintext) on disk, readable by anything running as your user.",
-    "Consent is recorded in the service audit as an occurrence only — a version and a time, never the token."
-  ]
-};
-
-// src/consent.ts
-var CONSENT_VERSION = consent_copy_default.version;
-var CONSENT_COPY_PARAGRAPHS = consent_copy_default.paragraphs;
-var CONSENT_COPY_V1 = CONSENT_COPY_PARAGRAPHS.join(`
-
-`);
-
-// service/consent.ts
-function checkConsent(body) {
-  const raw = body.consentVersion;
-  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < CONSENT_VERSION) {
-    return { ok: false };
-  }
-  return { ok: true, version: raw };
-}
-function consentRequiredResponse() {
-  return errorResponse(STATUS.validation, {
-    code: "consent-required",
-    message: "consent needs renewing — review and accept the handoff notice again"
-  });
-}
-async function recordConsentOccurrence(store, version) {
-  if (!await claimConsentVersion(store, version)) {
-    return;
-  }
-  try {
-    await appendAudit(store, {
-      eventType: "consent",
-      actorSource: "panel",
-      entity: { kind: "service", id: "consent" },
-      reason: "operator accepted the handoff consent",
-      details: { version, givenAt: nowIso() }
-    });
-  } catch (error) {
-    await releaseConsentVersion(store, version);
-    throw error;
-  }
-}
 
 // service/routes/credential.ts
 var TOKEN_MAX_CHARS = 4096;
@@ -4108,36 +4039,22 @@ function parseCredentialBody(raw, allowExpectedLogin) {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return {
       ok: false,
-      consentVersion: null,
       response: validationResponse([{ field: "body", remediation: "send a JSON object" }])
     };
   }
   const body = raw;
-  const consent = checkConsent(body);
-  if (!consent.ok) {
-    return { ok: false, consentVersion: null, response: consentRequiredResponse() };
-  }
   const read = readToken2(body.token);
   const issues = [...read.issues, ...allowExpectedLogin ? expectedLoginIssues(body.expectedLogin) : []];
   if (issues.length > 0 || read.token === undefined) {
-    return { ok: false, consentVersion: consent.version, response: validationResponse(issues) };
+    return { ok: false, response: validationResponse(issues) };
   }
   return {
     ok: true,
     credential: {
       token: read.token,
-      consentVersion: consent.version,
       expectedLogin: allowExpectedLogin && typeof body.expectedLogin === "string" ? body.expectedLogin : null
     }
   };
-}
-async function acceptCredentialRequest(input) {
-  const parsed = parseCredentialBody(input.body, input.allowExpectedLogin);
-  const consentVersion = parsed.ok ? parsed.credential.consentVersion : parsed.consentVersion;
-  if (consentVersion !== null) {
-    await recordConsentOccurrence(input.store, consentVersion);
-  }
-  return parsed.ok ? { ok: true, credential: parsed.credential } : { ok: false, response: parsed.response };
 }
 function capabilityLabel(reason) {
   const capability = reason.slice(SCOPE_MISSING_PREFIX.length);
@@ -4346,11 +4263,7 @@ async function persistRotation(input) {
   };
 }
 async function prepareRotation(input) {
-  const parsed = await acceptCredentialRequest({
-    store: input.store,
-    body: input.body,
-    allowExpectedLogin: false
-  });
+  const parsed = parseCredentialBody(input.body, false);
   if (!parsed.ok) {
     return { ok: false, response: parsed.response };
   }
@@ -7692,7 +7605,7 @@ async function handleVerify(context, request) {
   if (store === null) {
     return storageUnavailableResponse();
   }
-  const parsed = await acceptCredentialRequest({ store, body: request.body, allowExpectedLogin: true });
+  const parsed = parseCredentialBody(request.body, true);
   if (!parsed.ok) {
     return parsed.response;
   }

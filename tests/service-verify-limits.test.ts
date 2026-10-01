@@ -2,13 +2,12 @@
  * Credential handoff tests (task T-007): identity rules, throttles, and the
  * registered-token secret scans (contract §3 invariants 9–10, NFR-004).
  *
- * The happy path, consent gate, and GitHub classification live in
+ * The happy path and GitHub classification live in
  * `tests/service-verify.test.ts`; both suites share the harness in
  * `tests/support/verify.ts`.
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../src/consent.ts';
 import { ACCOUNT_PATH, ACCOUNT_TOKEN_PATH } from '../service/routes/accounts.ts';
 import { VERIFY_MAX_ATTEMPTS } from '../service/throttle.ts';
 import type { VerifyOutcome } from '../service/github.ts';
@@ -88,7 +87,7 @@ describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {
         for (const extra of malformed) {
             const response = await postVerify(
                 service,
-                JSON.stringify({ ...extra, consentVersion: CONSENT_VERSION }),
+                JSON.stringify({ ...extra }),
             );
             const error = await errorOf(response);
             expect(response.status).toBe(422);
@@ -103,7 +102,7 @@ describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {
 
         const response = await postVerify(
             service,
-            JSON.stringify({ token: REGISTERED_TOKEN, consentVersion: CONSENT_VERSION, expectedLogin: 12 }),
+            JSON.stringify({ token: REGISTERED_TOKEN, expectedLogin: 12 }),
         );
         const error = await errorOf(response);
 
@@ -230,7 +229,7 @@ describe('secret containment (NFR-004, contract §3 assertion)', () => {
         responses.push(await rejected.text());
         const malformed = await postVerify(
             service,
-            JSON.stringify({ token: REGISTERED_TOKEN, consentVersion: CONSENT_VERSION, expectedLogin: 1 }),
+            JSON.stringify({ token: REGISTERED_TOKEN, expectedLogin: 1 }),
         );
         responses.push(await malformed.text());
         const status = await service.call('/v1/status');

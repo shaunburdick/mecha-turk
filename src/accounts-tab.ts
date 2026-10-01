@@ -2,7 +2,9 @@
  * The Accounts body (005 FR-060–FR-069, T-024).
  *
  * The account custody surface, relocated onto its own tab: the one-shot
- * handoff group (the flow itself unchanged — FR-061) above the credential-free
+ * handoff group (paste → connect, with the static disclaimer the consent
+ * dialog was replaced by mounted under the Accounts list — 002 FR-008 as
+ * re-cut at v1.9.0) above the credential-free
  * account list the service answers with, and one detail line for the row the
  * operator has open. The list is rendered from `GET /v1/accounts` through
  * [`accounts-rows.ts`](./accounts-rows.ts), which owns every word of it; this
@@ -19,11 +21,11 @@
 import { mountButton, mountList, mountText, mountTextField } from '@openchamber/sdk/ui';
 import type { ButtonHandle, ListHandle, TextHandle, TextFieldHandle } from '@openchamber/sdk/ui';
 import {
-    acceptConsentAndRepaint,
     mountHandoffDom,
     refreshHandoff,
     submitHandoffAndRepaint,
 } from './accounts-ui.ts';
+import { mountAccountsDisclaimer } from './accounts-disclaimer.ts';
 import {
     armAccountRemoval,
     editAccounts,
@@ -31,7 +33,6 @@ import {
     saveDisplayName,
     toggleRotation,
 } from './accounts-actions.ts';
-import { declineHandoffConsent } from './handoff.ts';
 import { loadBindings } from './bindings.ts';
 import { accountRows, armLabel, detailText } from './accounts-rows.ts';
 import { mountDetailChips } from './accounts-chips.ts';
@@ -183,11 +184,14 @@ export function repaintAccountsBody(rt: PanelRuntime, view: AccountsBody): void 
 }
 
 /**
- * Mount the relocated one-shot handoff group (FR-060, FR-061).
+ * Mount the relocated one-shot handoff group (FR-060, FR-061 as re-cut by
+ * 002 v1.9.0).
  *
- * The flow is relocated, not redesigned: the same consent gate, storage
- * pre-flight, and one-shot paste the panel has always run, now pointed at
- * the container the shell created for the Accounts tab.
+ * Paste → connect, and nothing between them: the Accept/Decline step is gone
+ * (product-owner order 2026-10-01), with the storage pre-flight and the
+ * one-shot paste the panel has always run, now pointed at the container the
+ * shell created for the Accounts tab. The substance the consent copy carried
+ * is the static disclaimer mounted beneath the Accounts list.
  *
  * @param rt - Panel runtime whose handoff state the group renders.
  * @param pane - Pane root the group mounts into.
@@ -196,13 +200,6 @@ function mountHandoffGroup(rt: PanelRuntime, pane: HTMLElement): void {
     rt.handoffView = mountHandoffDom({
         root: pane,
         handlers: {
-            accept: (): void => {
-                void acceptConsentAndRepaint(rt);
-            },
-            decline: (): void => {
-                declineHandoffConsent(rt);
-                refreshHandoff(rt);
-            },
             submit: (token: string, expectedLogin: string): void => {
                 void submitHandoffAndRepaint(rt, { token, expectedLogin });
             },
@@ -224,7 +221,8 @@ interface ListBoard {
 }
 
 /**
- * Mount the status line, the list, its refresh, and the note.
+ * Mount the status line, the list, its refresh, the note, and the static
+ * disclaimer beneath them (002 FR-008 as re-cut at v1.9.0).
  *
  * @param input - Runtime, pane root, and the callbacks the controls invoke.
  * @returns The handles the body carries.
@@ -254,6 +252,10 @@ function mountListBoard(input: {
         { label: 'Refresh accounts', variant: 'secondary', onClick: input.handlers.refresh },
     );
     const note = mountText(input.pane, { text: input.rt.state.accounts.note });
+    // The disclaimer sits beneath the Accounts list: always visible, purely
+    // informational, and mounted once with the block it lives in — it has no
+    // state to repaint and no control to wire.
+    mountAccountsDisclaimer(input.pane);
 
     return { status, list, refreshAccounts, note };
 }

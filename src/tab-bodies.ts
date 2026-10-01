@@ -27,8 +27,10 @@ import type { TabDisposer, TabSpec } from './tabs.ts';
  * The Accounts body: the handoff group, the account list, and one detail
  * line (FR-060, FR-061, FR-062).
  *
- * The flow is relocated, not redesigned — same consent gate, same storage
- * pre-flight, same two-step refusal — and the list is the credential-free DTO
+ * The flow is relocated with the same storage
+ * pre-flight and the same two-step refusal (the consent gate it used to open
+ * with was removed by product-owner order on 2026-10-01, 002 v1.9.0) — and
+ * the list is the credential-free DTO
  * the service answers with. Only this body's own handles are disposed here:
  * the handoff view stays owned by the panel root, exactly as before.
  *

@@ -30,7 +30,6 @@ export const HOST_COPY: ReadonlyMap<string, string> = new Map([
 
 /** Service error codes the credential routes can answer (contract §4). */
 export const SERVICE_COPY: ReadonlyMap<string, string> = new Map([
-    ['consent-required', 'Consent needs renewing — review and accept the handoff notice again.'],
     ['account-rejected', 'The token belongs to a different account than the one expected.'],
     ['credential-rejected', 'GitHub rejected this token — create a fresh PAT and paste it again.'],
     ['duplicate-account', 'This GitHub account is already registered — rotate its token instead.'],
@@ -59,9 +58,6 @@ export const REASON_COPY: ReadonlyMap<string, string> = new Map([
     ],
     ['scope-missing:contents', 'This token is missing the Contents scope — update the token, then paste it again.'],
 ]);
-
-/** Shown when the consent step has not been accepted for the current copy. */
-export const CONSENT_REFUSAL = 'Accept the handoff notice before adding an account.';
 
 /** Shown when the service reported an unwritable store (F10). */
 export const STORAGE_REFUSAL = 'Setup is incomplete: the service storage is not writable.';

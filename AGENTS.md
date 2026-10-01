@@ -115,7 +115,7 @@ assertions. No test may require a live OpenChamber instance, a real PAT, or
 network — those checks are operator-gated and recorded in the spec (see
 `specs/002-agent-event-extension/tasks.md`). Contract fixtures live in
 `specs/002-agent-event-extension/contracts/` and are read by tests
-(`tests/consent.test.ts`) — don't delete them.
+(`tests/disclaimer.test.ts`) — don't delete them.
 
 ## Module map (panel, `src/`)
 
@@ -155,7 +155,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `dispatch-record.ts` | `mecha-turk:dispatches`: the durable attempt record, written between the host call and its report and acknowledged on its own 2xx |
 | `claim-service.ts` | Claim and run-history body parsers (strict: an unknown state refuses the body) |
 | `reconcile.ts` | Mount-time re-report of every unacknowledged attempt, before the first claim (bounded, warns visibly) |
-| `prerequisites.ts` / `prerequisite-records.ts` | The six first-run prerequisites: the mounted section (block, cards, state chips, FR-073 notice) and the pure derivation that answers each one `met` / `not-met` / `not-checkable` with its detail and remediation line |
+| `prerequisites.ts` / `prerequisite-records.ts` | The five first-run prerequisites: the mounted section (block, cards, state chips, FR-073 notice) and the pure derivation that answers each one `met` / `not-met` / `not-checkable` with its detail and remediation line |
 | `status-document.ts` / `status-lines.ts` / `status-tab.ts` | The `GET /v1/status` document parsed fail closed and the read state that holds it; the Status tab's operator-facing copy as pure functions; and the tab's mount, repaint, and single read |
 | `settings-rows.ts` | The Settings tab's row builder: one row per projected descriptor plus one per undocumented member — name, unit-or-*none*, bounds-or-format, value, and class words, every one of them from the wire (005's bounds stand-in retired by 006 T-018) |
 | `settings-schema.ts` | Fail-closed reader for `GET /v1/config`'s envelope: the closed descriptor union, plus the `unreadable` and `undisplayed` flags (006 T-017; FR-021, FR-027, FR-028) |
@@ -169,7 +169,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `about-diagnostics.ts` | The read-only Diagnostics record that disclosure reveals: schema versions, the phase line, and the ledger tail as `#seq · kind · time` text (005 FR-075, FR-076) |
 | `audit-view.ts` | One run's audit history under its correlation id, rendered as text (never markup) |
 | `agent-verify.ts` | Post-dispatch `openSession()` agent read-back, reported to the service (warn-only) |
-| `handoff*.ts` / `account*.ts` / `consent*.ts` | One-shot token handoff, consent gate, credential-free account mirror |
+| `handoff*.ts` / `account*.ts` | One-shot token handoff (paste → connect; no consent step since 002 v1.9.0), the always-visible Accounts disclaimer (`accounts-disclaimer.ts`), silent adoption, and the credential-free account mirror |
 | `accounts-rows.ts` / `accounts-tab.ts` | The Accounts tab: every FR-062 row word (lifecycle, connection, scope matrix, remediation, binding count) as pure functions, plus the body's mounts, repaint, and single read |
 | `accounts-actions.ts` | The tab's writes: two-step removal with the `force=1` cascade the arm stated, the rotation arm the handoff routes on, and the display-name PUT that never applies a value the service did not confirm |
 | `storage-write.ts` | Guarded storage writes |
@@ -179,7 +179,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | Module | Responsibility |
 | --- | --- |
 | `main.ts` / `server.ts` / `http.ts` | Entry, loopback HTTP server, routing, body/size caps |
-| `auth.ts` / `consent.ts` | Extension grant + consent gates on every call |
+| `auth.ts` | Extension grant + the bearer gate on every call |
 | `accounts/` | Durable account model, credential files, startup reconcile |
 | `bindings.ts` / `bindings-read.ts` | Whole-file bindings store (validated, capped) + the read path: quarantine-reason capture and the prompt-change observation funnel |
 | `prompt.ts` / `prompt-audit.ts` | The starting-prompt domain (four refusals, `mtp-` fingerprint, run snapshot) and the per-store chain that writes exactly one `binding.prompt-updated` row per change |

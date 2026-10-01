@@ -1,5 +1,5 @@
 /**
- * The six first-run prerequisites as pure records (003 FR-071–FR-073).
+ * The five first-run prerequisites as pure records (003 FR-071–FR-073).
  *
  * Everything here is a function of panel state and nothing else: no mount, no
  * host call, no storage, no persistence — the derivation runs on read so the
@@ -11,7 +11,7 @@
  *
  * Three states only (FR-072): `met`, `not-met`, `not-checkable` — and a
  * prerequisite the panel cannot verify says so rather than displaying a
- * reassuring state it did not check. Two of the six are permanently not
+ * reassuring state it did not check. Two of the five are permanently not
  * checkable, deliberately:
  *
  * - The **Default Agent pin** no documented API exposes: it becomes knowable
@@ -25,21 +25,24 @@
  *   names the consequence instead of asserting a check.
  *
  * What is checkable is checked fail-closed: absent scope evidence reads as no
- * evidence, a binding without a project id is unmet, an unaccepted consent
- * step is unmet.
+ * evidence, and a binding without a project id is unmet.
+ *
+ * The sixth item this list used to carry — *Service capability approval*,
+ * derived from the in-panel consent step — was **removed** by product-owner
+ * order on 2026-10-01 together with the consent dialog it read (002 FR-008 as
+ * re-cut at v1.9.0; 005 v1.7.0 records the prerequisite's retirement).
  */
 
 import type { Tone } from '@openchamber/sdk/ui';
 import { DEFAULT_EXPECTED_AGENT } from './config.ts';
 import { PROJECT_REGISTRATION_ROUTES } from './project-picker.ts';
 import type { PanelState } from './panel-state.ts';
-import type { HandoffState } from './handoff.ts';
 import type { PanelAccount, PanelBinding } from './bindings-service.ts';
 
 /** The three states FR-072 allows, and nothing else. */
 export type PrerequisiteState = 'met' | 'not-met' | 'not-checkable';
 
-/** The six prerequisites FR-071 names, as stable identifiers. */
+/** The five prerequisites FR-071 names after 005 v1.7.0, as stable identifiers. */
 export type PrerequisiteId =
     /** Session Defaults → Default Agent pin (002 prerequisite 1). */
     | 'default-agent'
@@ -50,9 +53,7 @@ export type PrerequisiteId =
     /** Required GitHub token scopes, with no write scopes (002 prerequisite 4). */
     | 'token-scopes'
     /** A registered OpenChamber project per binding (002 prerequisite 5). */
-    | 'registered-project'
-    /** Service capability approval plus the in-panel consent step (002 prerequisite 6). */
-    | 'service-capability';
+    | 'registered-project';
 
 /** One prerequisite: what it is, where it stands, and how to satisfy it. */
 export interface Prerequisite {
@@ -75,7 +76,6 @@ const IDS = {
     desktopOrWeb: 'desktop-or-web',
     tokenScopes: 'token-scopes',
     registeredProject: 'registered-project',
-    serviceCapability: 'service-capability',
 } as const;
 
 /** Operator-facing titles, written once each so copy cannot drift apart. */
@@ -85,7 +85,6 @@ const TITLES = {
     desktopOrWeb: 'Desktop or web surface',
     tokenScopes: 'GitHub token scopes',
     registeredProject: 'Registered project per binding',
-    serviceCapability: 'Service capability approval',
 } as const;
 
 /**
@@ -315,75 +314,14 @@ function registeredProjectPerBinding(bindings: readonly PanelBinding[]): Prerequ
 }
 
 /**
- * Service-capability approval, observed through the three facts the panel can
- * actually see: the in-panel consent step (FR-008), whether the local service
- * has ever answered a status read at all, and whether that answer reported a
- * writable store. The order is 005 FR-073's fail-closed order: an unaccepted
- * consent step is *not met* (the panel holds the mirror and can prove its
- * absence), while anything the panel could not observe is *not checkable* —
- * a service that never answered is not a service whose store was found
- * unwritable (NFR-112).
+ * Derive all five prerequisites from the panel's current state.
  *
- * @param handoff - The one-shot handoff's state, which carries all three signals.
- * @returns The prerequisite for the service half of the setup.
- */
-function serviceCapability(handoff: HandoffState): Prerequisite {
-    const title = TITLES.serviceCapability;
-
-    if (!handoff.consentGiven) {
-        return {
-            id: IDS.serviceCapability,
-            title,
-            state: STATE_NOT_MET,
-            detail: 'The in-panel consent step for the token handoff has not been accepted.',
-            remediation:
-                'Open Accounts and accept the consent step; approve the ' +
-                'service capability in Settings → Extensions if the host asks.',
-        };
-    }
-
-    if (!handoff.serviceAnswered) {
-        return {
-            id: IDS.serviceCapability,
-            title,
-            state: STATE_NOT_CHECKABLE,
-            detail: 'The panel has not had an answer from the local service yet.',
-            remediation:
-                'Keep the service capability approved in Settings → Extensions; the first status ' +
-                'read confirms it here.',
-        };
-    }
-
-    if (!handoff.storageWritable) {
-        return {
-            id: IDS.serviceCapability,
-            title,
-            state: STATE_NOT_MET,
-            detail: 'The local service answered, but its store is not writable.',
-            remediation:
-                'Fix the store permissions under ~/.config/openchamber/mecha-turk/ (0700 directories, ' +
-                '0600 files), then refresh.',
-        };
-    }
-
-    return {
-        id: IDS.serviceCapability,
-        title,
-        state: STATE_MET,
-        detail: 'The local service answered the panel status read with a writable store.',
-        remediation: 'Keep the service capability approved; polling and dispatch stop if it is withdrawn.',
-    };
-}
-
-/**
- * Derive all six prerequisites from the panel's current state.
- *
- * Pure and synchronous: the same state always answers the same six records,
+ * Pure and synchronous: the same state always answers the same five records,
  * which is what makes the section testable without a host and impossible to
  * leave stale.
  *
  * @param state - Panel state to read.
- * @returns The six prerequisites, in FR-071's order.
+ * @returns The five prerequisites, in FR-071's order.
  */
 export function derivePrerequisites(state: PanelState): readonly Prerequisite[] {
     return [
@@ -392,6 +330,5 @@ export function derivePrerequisites(state: PanelState): readonly Prerequisite[] 
         desktopOrWebSurface(),
         tokenScopes(state.bindings.accounts),
         registeredProjectPerBinding(state.bindings.bindings),
-        serviceCapability(state.handoff),
     ];
 }

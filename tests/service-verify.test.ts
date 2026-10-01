@@ -1,22 +1,22 @@
 /**
  * Credential handoff tests (task T-007, contract §2.2 and §3 invariants 8–10):
- * happy path, the consent gate, and GitHub classification.
+ * happy path and GitHub classification.
  *
  * The shared harness in `tests/support/verify.ts` starts the real service
  * with the real GitHub *client* over a fake `fetch` (T-007's "fake fetch");
  * the throttles, identity rules, and secret scans live in
- * `tests/service-verify-limits.test.ts`.
+ * `tests/service-verify-limits.test.ts`. The consent gate this file used to
+ * pin was removed by product-owner order on 2026-10-01 (002 v1.9.0): the
+ * route now refuses on body shape alone, before any network call.
  */
 
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../src/consent.ts';
 import { ACCOUNTS_DIR } from '../service/accounts/store.ts';
 import {
     ACCOUNT_ID,
     ACCOUNT_LOGIN,
-    CONSENT_REQUIRED,
     OAUTH_SCOPES_HEADER,
     PERMISSION_BASE,
     RETRY_AFTER,
@@ -70,30 +70,17 @@ describe('POST /v1/accounts/verify — happy path', () => {
         expect(dirStat.mode % PERMISSION_BASE).toBe(0o700);
     });
 
-    it('records exactly one consent occurrence and one account.verified row', async () => {
+    it('records exactly one account.verified row per accepted handoff', async () => {
         const { service } = await startWithGitHub({ user: USER_OK });
 
         await postVerify(service, verifyBody(REGISTERED_TOKEN));
 
         const rows = await auditRows(service);
-        expect(rows.map((row) => row.eventType)).toEqual(['consent', 'account.verified']);
-        const consent = rows[0];
-        expect(consent?.details.version).toBe(CONSENT_VERSION);
-        expect(typeof consent?.details.givenAt).toBe('string');
+        expect(rows.map((row) => row.eventType)).toEqual(['account.verified']);
+        expect(rows[0]?.details.login).toBe(ACCOUNT_LOGIN);
     });
 
-    it('records the consent occurrence exactly once across replays', async () => {
-        const { service } = await startWithGitHub({ user: { status: 401 } });
-
-        await postVerify(service, verifyBody(REGISTERED_TOKEN));
-        await postVerify(service, verifyBody('different-but-invalid'));
-        await postVerify(service, verifyBody(REGISTERED_TOKEN));
-
-        const rows = await auditRows(service);
-        expect(rows.filter((row) => row.eventType === 'consent')).toHaveLength(1);
-    });
-
-    it('records exactly one consent row and unique sequence numbers when two verifies race (W2-2)', async () => {
+    it('keeps sequence numbers unique when two verifies race (W2-2)', async () => {
         const { service } = await startWithGitHub({ user: USER_OK });
 
         const [first, second] = await Promise.all([
@@ -102,10 +89,6 @@ describe('POST /v1/accounts/verify — happy path', () => {
         ]);
 
         const rows = await auditRows(service);
-        const consent = rows.filter((row) => row.eventType === 'consent');
-        expect(consent).toHaveLength(1);
-        expect(consent[0]?.details.version).toBe(CONSENT_VERSION);
-
         const seqs = rows.map((row) => row.seq);
         expect(new Set(seqs).size).toBe(seqs.length);
 
@@ -137,48 +120,29 @@ describe('POST /v1/accounts/verify — happy path', () => {
     });
 });
 
-describe('POST /v1/accounts/verify — consent gate (§1.2, invariant 8)', () => {
-    it('refuses a request without consentVersion before any GitHub call', async () => {
+describe('POST /v1/accounts/verify — no consent gate (002 v1.9.0, owner order 2026-10-01)', () => {
+    it('verifies a body carrying no consentVersion at all', async () => {
         const { service, github } = await startWithGitHub({ user: USER_OK });
 
         const response = await postVerify(service, JSON.stringify({ token: REGISTERED_TOKEN }));
-        const error = await errorOf(response);
 
-        expect(response.status).toBe(422);
-        expect(error.code).toBe(CONSENT_REQUIRED);
-        expect(github.calls).toHaveLength(0);
-        expect(await auditRows(service)).toHaveLength(0);
+        expect(response.status).toBe(201);
+        expect(github.calls.map((call) => call.path)).toEqual(['/user', '/rate_limit']);
     });
 
-    it('refuses a consent version below the current copy', async () => {
-        const { service, github } = await startWithGitHub({ user: USER_OK });
+    it('ignores the stale consentVersion an older panel build still sends', async () => {
+        const { service } = await startWithGitHub({ user: USER_OK });
 
         const response = await postVerify(
             service,
-            JSON.stringify({ token: REGISTERED_TOKEN, consentVersion: CONSENT_VERSION - 1 }),
+            JSON.stringify({ token: REGISTERED_TOKEN, consentVersion: 1 }),
         );
-        const error = await errorOf(response);
 
-        expect(response.status).toBe(422);
-        expect(error.code).toBe(CONSENT_REQUIRED);
-        expect(github.calls).toHaveLength(0);
-    });
-
-    it('never answers 2xx without a current consentVersion', async () => {
-        const { service } = await startWithGitHub({ user: USER_OK });
-        const bodies = [
-            JSON.stringify({ token: REGISTERED_TOKEN }),
-            JSON.stringify({ token: REGISTERED_TOKEN, consentVersion: 'one' }),
-            JSON.stringify({ token: REGISTERED_TOKEN, consentVersion: 0.5 }),
-            JSON.stringify({ token: REGISTERED_TOKEN, consentVersion: -1 }),
-        ];
-
-        for (const body of bodies) {
-            const response = await postVerify(service, body);
-            const error = await errorOf(response);
-            expect(response.status).toBe(422);
-            expect(error.code).toBe(CONSENT_REQUIRED);
-        }
+        expect(response.status).toBe(201);
+        // Nothing about the removed gate is recorded: the trail carries the
+        // connection and nothing else.
+        const rows = await auditRows(service);
+        expect(rows.map((row) => row.eventType)).toEqual(['account.verified']);
     });
 });
 

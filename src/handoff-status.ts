@@ -79,11 +79,6 @@ export function hostErrorCode(error: unknown): string | null {
 /**
  * Run the `GET /v1/status` pre-flight that gates the token input (F10).
  *
- * The run's outcome is recorded honestly either way: `serviceAnswered` is
- * set only when a usable status body actually arrived, so a refused or
- * unreadable read leaves the panel able to say *not checkable* instead of
- * describing an answer it never got (005 FR-073).
- *
  * @param rt - Panel runtime.
  * @returns The parsed snapshot, or `null` when the service could not answer.
  */
@@ -95,7 +90,6 @@ export async function preflightHandoff(rt: PanelRuntime): Promise<StatusSnapshot
         rt.state.handoff.note = HOST_COPY.get(hostErrorCode(error) ?? '') ?? UNKNOWN_FAILURE;
     }
 
-    rt.state.handoff.serviceAnswered = snapshot !== null;
     rt.state.handoff.storageWritable = snapshot?.storageWritable ?? false;
     rt.state.handoff.knownAccountIds = snapshot?.accounts.map((account) => account.numericUserId) ?? [];
     if (snapshot === null && rt.state.handoff.note === '') {

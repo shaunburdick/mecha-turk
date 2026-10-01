@@ -1,24 +1,24 @@
 /**
- * Panel one-shot handoff tests (task T-009, token-handoff §2/§5, FR-007/FR-008).
+ * Panel one-shot handoff tests (task T-009, token-handoff §2/§5, FR-007).
  *
  * Every path drives the real orchestration through a scripted `serviceRequest`
  * double (shared via `tests/support/handoff.ts`) and asserts the contract's
- * panel-side promises: the consent refusal path (AC-002), the `finally`-clear
+ * panel-side promises: the `finally`-clear
  * of the credential on success **and on every failure class F1–F16**, the
- * storage-write secret scan (AC-001), the F10 pre-flight gate, the F4 status
- * re-read, and the re-consent rule when a stored version is older than the
- * current one. Rendering itself lives in `tests/accounts-ui.test.ts`.
+ * storage-write secret scan (AC-001), the F10 pre-flight gate, and the F4 status
+ * re-read. (The consent refusal path and the re-consent rule this file used to
+ * pin went out with the Accept/Decline dialog on 2026-10-01 — 002 v1.9.0.)
+ * Rendering itself lives in `tests/accounts-ui.test.ts`.
  */
 
 import { HostRequestError } from '@openchamber/sdk';
-import type { HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
+import type { HostRequestErrorCode } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
 import { handoffInputEnabled, submitHandoffAndRepaint } from '../src/accounts-ui.ts';
-import { CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../src/consent.ts';
-import { VERIFY_PATH, acceptHandoffConsent } from '../src/handoff.ts';
+import { VERIFY_PATH } from '../src/handoff.ts';
 import { ACCOUNTS_STORAGE_KEY } from '../src/account-mirror.ts';
 import { STATUS_PATH, preflightHandoff } from '../src/handoff-status.ts';
-import { CONSENT_REFUSAL, STORAGE_REFUSAL } from '../src/handoff-copy.ts';
+import { STORAGE_REFUSAL } from '../src/handoff-copy.ts';
 import { ACCOUNTS_PATH, BINDINGS_PATH } from '../src/service-calls.ts';
 import { tick } from './support/panel.ts';
 import {
@@ -37,40 +37,8 @@ import {
 /** Catalog code the `422 credential-rejected` refusals answer with (§4). */
 const CREDENTIAL_REJECTED = 'credential-rejected';
 
-describe('consent gate (AC-002, contract §1)', () => {
-    it('refuses the handoff before any request when no consent was given', async () => {
-        const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }), {});
-
-        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
-
-        expect(host.requests).toHaveLength(0);
-        expect(host.record.note).toBe(CONSENT_REFUSAL);
-        expectNoCredential(host);
-    });
-
-    it('refuses again when the stored consent version is older than the current copy', async () => {
-        const stale: JsonValue = { givenAt: GIVEN_AT, version: CONSENT_VERSION - 1 };
-        const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }), {
-            [CONSENT_STORAGE_KEY]: stale,
-        });
-
-        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
-
-        expect(host.requests).toHaveLength(0);
-        expect(host.record.note).toBe(CONSENT_REFUSAL);
-        expectNoCredential(host);
-    });
-
-    it('records the acceptance mirror with the current version', async () => {
-        const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }), {});
-
-        await acceptHandoffConsent(host.rt);
-
-        expect(host.storage.values.get(CONSENT_STORAGE_KEY)).toMatchObject({ version: CONSENT_VERSION });
-        expect(host.rt.state.handoff.consentGiven).toBe(true);
-    });
-
-    it('sends the credential once with the current consentVersion', async () => {
+describe('no consent step remains between the paste and the request (002 v1.9.0)', () => {
+    it('sends the credential straight through the pre-flight, once', async () => {
         const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
 
         await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
@@ -86,8 +54,21 @@ describe('consent gate (AC-002, contract §1)', () => {
         ]);
         const posted = host.requests[1];
         const body = JSON.parse(posted?.body ?? '{}') as Record<string, unknown>;
-        expect(body.consentVersion).toBe(CONSENT_VERSION);
         expect(body.token).toBe(PANEL_TOKEN);
+        // The removed gate's field is gone from the wire the panel sends.
+        expect(Object.hasOwn(body, 'consentVersion')).toBe(false);
+        expectNoCredential(host);
+    });
+
+    it('holds no consent state or consent storage of its own', async () => {
+        const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
+
+        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
+
+        const stateKeys = Object.keys(host.rt.state.handoff);
+
+        expect(stateKeys).not.toContain('consentGiven');
+        expect([...host.storage.values.keys()]).not.toContain('consent');
     });
 });
 
@@ -107,7 +88,6 @@ describe('successful handoff (contract §2 steps ⑧⑨)', () => {
                 scopeCheck: { checkedAt: GIVEN_AT, results: scopeResults('ok') },
             },
         ]);
-        expect(host.storage.values.has(CONSENT_STORAGE_KEY)).toBe(true);
         expectNoCredential(host);
     });
 
@@ -117,7 +97,6 @@ describe('successful handoff (contract §2 steps ⑧⑨)', () => {
         await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(handoffInputEnabled(host.rt.state.handoff)).toBe(true);
-        expect(host.record.consentShown).toBe(false);
     });
 });
 
@@ -279,15 +258,16 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
         }
     });
 
-    it('drops the stored consent when the service answers consent-required (§1.2)', async () => {
+    it('falls back to the catalogue copy for a code the catalogue no longer carries (consent-required)', async () => {
+        // The service stopped answering `consent-required` on 2026-10-01; an
+        // answer with that code (a stale build, a hostile caller) must land on
+        // the unknown-code copy rather than on copy this repository removed.
         const envelope = JSON.stringify({ error: { code: 'consent-required', message: 'fixed' } });
         const host = await scriptedRuntime(serviceScript({ status: 422, body: envelope }));
 
         await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
-        expect(host.record.note).toContain('Consent needs renewing');
-        expect(host.storage.values.has(CONSENT_STORAGE_KEY)).toBe(false);
-        expect(host.rt.state.handoff.consentGiven).toBe(false);
+        expect(host.record.note).toBe('The handoff failed — paste the token again.');
         expectNoCredential(host);
     });
 });
@@ -325,10 +305,7 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
         expect(host.rt.state.handoff.connected).toEqual({ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN });
         expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
         expect(host.record.note).toBe(`This GitHub account is already registered — connected as ${CONNECTED_LOGIN}.`);
-        expect(host.record.consentShown).toBe(false);
         expect(host.record.pasteVisible).toBe(false);
-        // Consent governs NEW token handoff only: the stored mirror survives.
-        expect(host.storage.values.has(CONSENT_STORAGE_KEY)).toBe(true);
         // The mirror was rewritten for the account the mirror lost.
         expect(host.storage.values.get(ACCOUNTS_STORAGE_KEY)).toEqual([
             { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, state: 'active', scopeCheck: null },

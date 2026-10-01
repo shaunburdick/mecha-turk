@@ -13,10 +13,9 @@
  * the fake models only the surface the adapter touches and has no HTML sink.
  */
 
-import type { GuestRequest, GuestRequestResult, HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
+import type { GuestRequest, GuestRequestResult, HostRequestErrorCode } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
 import { mountHandoffDom, refreshHandoff, submitHandoffAndRepaint } from '../src/accounts-ui.ts';
-import { CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../src/consent.ts';
 import { VERIFY_PATH, currentHandoffToken } from '../src/handoff.ts';
 import type { HandoffHandlers } from '../src/accounts-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
@@ -25,7 +24,6 @@ import type { FakeElement } from './support/dom.ts';
 import {
     CONNECTED_ID,
     CONNECTED_LOGIN,
-    CURRENT_CONSENT,
     PANEL_TOKEN,
     VERIFY_BODY,
     serviceScript,
@@ -49,7 +47,6 @@ const SERVICE_FAILURES: readonly (readonly [number, string])[] = [
     [409, 'duplicate-account'],
     [422, 'credential-rejected'],
     [422, 'account-rejected'],
-    [422, 'consent-required'],
     [429, 'rate-limited'],
     [401, 'unauthorized'],
     [400, 'invalid-json'],
@@ -71,8 +68,6 @@ interface ExitSpec {
     readonly verify: GuestRequestResult | { readonly throws: HostRequestErrorCode };
     /** Optional status body for the pre-flight (and the F4 re-read). */
     readonly status?: string;
-    /** Initial `host.storage`; `{}` models a consentless install (F11). */
-    readonly initial?: Readonly<Record<string, JsonValue>>;
 }
 
 /** A mounted handoff group over the fake document, plus its runtime. */
@@ -108,7 +103,7 @@ interface MountedHandoff {
  */
 async function mountHandoff(spec: ExitSpec): Promise<MountedHandoff> {
     const handler = serviceScript(spec.verify, spec.status);
-    const storage = createStorageDouble(spec.initial ?? { [CONSENT_STORAGE_KEY]: CURRENT_CONSENT });
+    const storage = createStorageDouble({});
     const requests: GuestRequest[] = [];
     const host = fakeHost({
         storage: storage.storage,
@@ -122,8 +117,6 @@ async function mountHandoff(spec: ExitSpec): Promise<MountedHandoff> {
     const dom = fakeDom();
     let pending: Promise<void> | undefined;
     const handlers: HandoffHandlers = {
-        accept: (): void => undefined,
-        decline: (): void => undefined,
         submit: (token: string, expectedLogin: string): void => {
             pending = submitHandoffAndRepaint(rt, { token, expectedLogin });
         },
@@ -159,8 +152,8 @@ async function mountHandoff(spec: ExitSpec): Promise<MountedHandoff> {
 }
 
 /**
- * Assemble every exit the input must be cleared for: success, the consent and
- * storage refusals, each host transport code, and each service refusal code.
+ * Assemble every exit the input must be cleared for: success, the
+ * storage refusal, each host transport code, and each service refusal code.
  *
  * @returns The exit specifications, in reading order.
  */
@@ -168,7 +161,6 @@ function exitSpecs(): ExitSpec[] {
     const success: ExitSpec = { name: 'a successful handoff', verify: { status: 201, body: VERIFY_BODY } };
     const specs: ExitSpec[] = [
         success,
-        { ...success, name: 'a consent refusal', initial: {} },
         { ...success, name: 'an unwritable-storage refusal', status: UNWRITABLE_STATUS },
     ];
     for (const code of HOST_FAILURES) {
@@ -253,68 +245,32 @@ function verifyBody(mounted: MountedHandoff): Record<string, unknown> | undefine
 /** Attribute the SDK paints every button variant from. */
 const VARIANT_ATTRIBUTE = 'data-variant';
 
-/** The consent step a {@link mountHandoff} run created, as its nodes. */
-interface MountedConsent {
-    /** The step's own container: copy, then the decisions toolbar. */
-    readonly box: FakeElement;
-    /** The toolbar the two decisions share, beneath the copy. */
-    readonly decisions: FakeElement;
-    /** The primary decision. */
-    readonly accept: FakeElement;
-    /** The secondary decision. */
-    readonly decline: FakeElement;
-}
-
-/**
- * Read the consent step out of the nodes one mount created.
- *
- * @param mounted - The group under test.
- * @returns The step's container, toolbar, and both decisions.
- */
-function consentStep(mounted: MountedHandoff): MountedConsent {
-    const box = mounted.created.find((node) => node.className === 'mt-stack');
-    const decisions = mounted.created.find((node) => node.className === 'mt-toolbar');
-    const accept = mounted.created.find(
-        (node) => node.tagName === 'button' && node.textContent === 'Accept and continue',
-    );
-    const decline = mounted.created.find(
-        (node) => node.tagName === 'button' && node.textContent === 'Decline',
-    );
-    if (box === undefined || decisions === undefined || accept === undefined || decline === undefined) {
-        throw new Error('the consent step did not mount its container, toolbar, and two decisions');
-    }
-
-    return { box, decisions, accept, decline };
-}
-
-describe('the consent decisions read as controls, not as prose (2026-10-01 review)', () => {
-    it('gives every decision a real SDK variant, so none paints as bare text', async () => {
+describe('the group carries a submit control and no consent dialog (002 v1.9.0)', () => {
+    it('gives the submit button a real SDK variant, so it does not paint as bare text', async () => {
         const mounted = await mountHandoff({
-            name: 'the consent decisions',
+            name: 'the submit variant',
             verify: { status: 201, body: VERIFY_BODY },
         });
-        const { accept, decline } = consentStep(mounted);
 
         // The SDK paints every variant from `[data-variant="…"]`; without the
         // attribute the button keeps only its transparent base border.
-        expect(accept.attribute(VARIANT_ATTRIBUTE)).toBe('default');
-        expect(decline.attribute(VARIANT_ATTRIBUTE)).toBe('outline');
         expect(mounted.submit.attribute(VARIANT_ATTRIBUTE)).toBe('default');
     });
 
-    it('mounts both decisions beneath the copy rather than beside it', async () => {
+    it('mounts neither an Accept nor a Decline decision anywhere in the group', async () => {
         const mounted = await mountHandoff({
-            name: 'the consent layout',
+            name: 'the missing consent dialog',
             verify: { status: 201, body: VERIFY_BODY },
         });
-        const { box, decisions, accept, decline } = consentStep(mounted);
 
-        // One column: the canonical copy first, one wrapping toolbar under it.
-        expect(box.children.map((child) => child.tagName)).toEqual(['p', 'div']);
-        expect(box.children[1]).toBe(decisions);
-        expect(decisions.children).toEqual([accept, decline]);
-        // The copy is the step's first child, never a sibling of a button.
-        expect(box.children[0]?.className).toBe('oc-sdk-field-note');
+        const labels = mounted.created
+            .filter((node) => node.tagName === 'button')
+            .map((node) => node.textContent);
+
+        expect(labels).toEqual(['Connect account']);
+        // The two-node consent container (copy, then decisions) is gone too.
+        expect(mounted.created.some((node) => node.className === 'mt-stack')).toBe(false);
+        expect(mounted.created.some((node) => node.className === 'mt-toolbar')).toBe(false);
     });
 });
 
@@ -421,7 +377,8 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
         // The constraint never travels on a rotation: the route replaces a
         // credential for an account that is already identified.
         expect(String(request?.body)).not.toContain('expectedLogin');
-        expect(String(request?.body)).toContain(CONSENT_VERSION);
+        // …and neither does the removed consent gate's field (002 v1.9.0).
+        expect(String(request?.body)).not.toContain('consentVersion');
         // The arm clears and the retention promise is what the note reports.
         expect(mounted.rt.state.accounts.rotateArmed).toBeNull();
         expect(mounted.rt.state.accounts.note).toContain('retained');

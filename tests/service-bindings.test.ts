@@ -17,7 +17,6 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../src/consent.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
 import { BINDINGS_FILE } from '../service/bindings.ts';
 import { promptFingerprint } from '../service/prompt.ts';
@@ -90,7 +89,7 @@ async function startWithAccount(): Promise<TestService> {
     const registered = await service.call(VERIFY_PATH, {
         method: 'POST',
         headers: jsonHeaders(),
-        body: JSON.stringify({ token: REGISTERED_TOKEN, consentVersion: CONSENT_VERSION }),
+        body: JSON.stringify({ token: REGISTERED_TOKEN }),
     });
     expect(registered.status).toBe(201);
 

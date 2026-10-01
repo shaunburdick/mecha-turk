@@ -41,11 +41,11 @@ import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import type { CredentialRequest } from './credential.ts';
 import {
-    acceptCredentialRequest,
     accountRejectedResponse,
     credentialRejectedResponse,
     githubRateLimitedResponse,
     guardCredentialRoute,
+    parseCredentialBody,
     throttleRefusal,
     upstreamUnavailableResponse,
 } from './credential.ts';
@@ -337,11 +337,7 @@ async function prepareRotation(input: {
         readonly response: HttpResponse;
     }
 > {
-    const parsed = await acceptCredentialRequest({
-        store: input.store,
-        body: input.body,
-        allowExpectedLogin: false,
-    });
+    const parsed = parseCredentialBody(input.body, false);
     if (!parsed.ok) {
         return { ok: false, response: parsed.response };
     }

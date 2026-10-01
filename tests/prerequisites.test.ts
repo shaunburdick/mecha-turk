@@ -20,13 +20,11 @@ import {
     prerequisiteStateLabel,
     repaintPrerequisites,
 } from '../src/prerequisites.ts';
-import { acceptConsentAndRepaint } from '../src/accounts-ui.ts';
-import { preflightHandoff } from '../src/handoff-status.ts';
 import { parseAccountsBody } from '../src/bindings-service.ts';
 import type { PanelBinding } from '../src/bindings-service.ts';
 import type { PanelState } from '../src/panel-state.ts';
 import type { Prerequisite, PrerequisiteId } from '../src/prerequisites.ts';
-import { createStorageDouble, createTestRuntime, fakeHost } from './support/panel.ts';
+import { createTestRuntime, fakeHost } from './support/panel.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 
@@ -35,7 +33,7 @@ import type { FakeElement } from './support/dom.ts';
  * in the production API (the same trade `tests/tabs.test.ts` makes for
  * `mountTabs`): the real primitives call the global `document`, which the
  * Node suite does not have, and the notice's `hidden` flag is exactly what the
- * consent-nag regression has to observe. These doubles model only the
+ * unmet-item regression has to observe. These doubles model only the
  * `Handle` contract — `update` repaints one text node, `dispose` removes it.
  */
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
@@ -108,7 +106,6 @@ const IDS = {
     desktopOrWeb: 'desktop-or-web',
     tokenScopes: 'token-scopes',
     registeredProject: 'registered-project',
-    serviceCapability: 'service-capability',
 } as const;
 
 /** The three states FR-072 allows. */
@@ -117,14 +114,16 @@ const NOT_MET = 'not-met';
 const NOT_CHECKABLE = 'not-checkable';
 const ALLOWED_STATES = [MET, NOT_MET, NOT_CHECKABLE] as const;
 
-/** The six identifiers FR-071 names, in the order the section renders them. */
+/** The token-scope prerequisite's title, which the notice copy carries verbatim. */
+const SCOPES_TITLE = 'GitHub token scopes';
+
+/** The five identifiers FR-071 names after 005 v1.7.0, in render order. */
 const PREREQUISITE_IDS: readonly PrerequisiteId[] = [
     IDS.defaultAgent,
     IDS.openchamberRunning,
     IDS.desktopOrWeb,
     IDS.tokenScopes,
     IDS.registeredProject,
-    IDS.serviceCapability,
 ];
 
 /** The account the fixtures bind and connect. */
@@ -161,8 +160,8 @@ const HOST_METHODS: readonly string[] = [
 ];
 
 /**
- * A fresh install's panel state: no settings snapshot, no accounts, no
- * bindings, and no consent yet.
+ * A fresh install's panel state: no settings snapshot, no accounts, and no
+ * bindings.
  *
  * @returns The runtime state the derivation reads.
  */
@@ -194,8 +193,7 @@ function bindingWith(projectId: string): PanelBinding {
 
 /**
  * A configured install's panel state: host answered, one connected account
- * with a readable matrix, one bound repository, consent given, service
- * answering with a writable store.
+ * with a readable matrix, and one bound repository under its project.
  *
  * @returns The runtime state the derivation reads.
  */
@@ -206,9 +204,6 @@ function configuredState(): PanelState {
         { numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, displayName: null, usable: true, scope: VERDICT_OK },
     ];
     state.bindings.bindings = [bindingWith('prj_42')];
-    state.handoff.consentGiven = true;
-    state.handoff.serviceAnswered = true;
-    state.handoff.storageWritable = true;
 
     return state;
 }
@@ -245,11 +240,11 @@ function prerequisiteOf(state: PanelState, id: PrerequisiteId): Prerequisite {
 }
 
 describe('first-run prerequisites (FR-071, AC-122)', () => {
-    it('renders all six on a fresh install, each with a state and a remediation', () => {
+    it('renders all five on a fresh install, each with a state and a remediation', () => {
         const items = derivePrerequisites(freshState());
 
         expect(items.map((item) => item.id)).toEqual(PREREQUISITE_IDS);
-        expect(items).toHaveLength(6);
+        expect(items).toHaveLength(5);
         for (const item of items) {
             expect(ALLOWED_STATES).toContain(item.state);
             expect(item.title.trim()).not.toBe('');
@@ -286,7 +281,11 @@ describe('first-run prerequisites (FR-071, AC-122)', () => {
 
         expect(prerequisiteOf(state, IDS.registeredProject).state).toBe(MET);
         expect(prerequisiteOf(state, IDS.tokenScopes).state).toBe(NOT_MET);
-        expect(prerequisiteOf(state, IDS.serviceCapability).state).toBe(NOT_MET);
+        // The retired service-capability item is gone for good: no state can
+        // derive it any more (002 v1.9.0, 005 v1.7.0).
+        const ids = derivePrerequisites(state).map((item) => item.id);
+
+        expect(ids).not.toContain('service-capability');
     });
 
     it('sees an unregistered project on a binding as unmet', () => {
@@ -298,35 +297,6 @@ describe('first-run prerequisites (FR-071, AC-122)', () => {
         expect(project.detail).toContain('no registered project');
         expect(project.remediation).toContain('command palette');
         expect(project.remediation).toMatch(/never creates a project/);
-    });
-
-    it('sees the consent step it has not taken as unmet, and an answered service as met', () => {
-        const state = configuredState();
-        state.handoff.consentGiven = false;
-
-        expect(prerequisiteOf(state, IDS.serviceCapability).state).toBe(NOT_MET);
-
-        state.handoff.consentGiven = true;
-        state.handoff.serviceAnswered = false;
-        expect(prerequisiteOf(state, IDS.serviceCapability).state).toBe(NOT_CHECKABLE);
-
-        state.handoff.serviceAnswered = true;
-        expect(prerequisiteOf(state, IDS.serviceCapability).state).toBe(MET);
-    });
-
-    it('says not checkable — never not met — when the service has never answered (FR-073)', () => {
-        // Consent accepted, pre-flight attempted, no usable answer: the panel
-        // cannot observe the capability, so it must not report the store as
-        // unwritable (it never saw the store) and must not raise the notice.
-        const state = configuredState();
-        state.handoff.serviceAnswered = false;
-        state.handoff.storageWritable = false;
-
-        const item = prerequisiteOf(state, IDS.serviceCapability);
-        expect(item.state).toBe(NOT_CHECKABLE);
-        expect(item.detail).toContain('not had an answer');
-        expect(item.remediation).toContain('Settings → Extensions');
-        expect(prerequisiteNotice(derivePrerequisites(state))).toBeNull();
     });
 
     it('checks OpenChamber running only once the host has answered', () => {
@@ -360,15 +330,16 @@ describe('the unmet notice outside the section (FR-073)', () => {
 
         expect(notice).not.toBeNull();
         expect(notice?.title).toBe('Setup prerequisites need attention');
-        expect(notice?.body).toContain('GitHub token scopes');
+        expect(notice?.body).toContain(SCOPES_TITLE);
         expect(notice?.body).toContain(PREREQUISITES_HEADING);
     });
 
-    it('raises it for a fresh install, whose scopes and consent are genuinely unmet', () => {
+    it('raises it for a fresh install, whose scopes are genuinely unmet', () => {
         const notice = prerequisiteNotice(derivePrerequisites(freshState()));
 
-        expect(notice?.body).toContain('GitHub token scopes');
-        expect(notice?.body).toContain('Service capability approval');
+        expect(notice?.body).toContain(SCOPES_TITLE);
+        // The removed prerequisite's title must never ride back into the copy.
+        expect(notice?.body).not.toContain('Service capability approval');
     });
 
     it('never raises it for met or not-checkable items', () => {
@@ -385,39 +356,32 @@ describe('the unmet notice outside the section (FR-073)', () => {
     });
 });
 
-/** Status body the pre-flight reads as a healthy service with a writable store. */
-const ANSWERED_STATUS_BODY = '{"service":{"storage":{"writable":true}},"accounts":[]}';
-
-/** Status body an unreachable or still-spawning service never produces. */
-const UNANSWERED_STATUS_BODY = '{"error":{"code":"unavailable"}}';
-
 /**
  * Bring a runtime's state to the point where the *only* thing left to
- * satisfy is the service-capability line: host answered, one usable account
- * with an all-ok matrix, one bound repository with a project.
+ * satisfy is the token-scope line: host answered, one usable account with a
+ * missing verdict, one bound repository with a project.
  *
  * @param rt - Runtime whose bindings state is configured.
  */
-function configureForConsent(rt: ReturnType<typeof createTestRuntime>): void {
+function configureForNotice(rt: ReturnType<typeof createTestRuntime>): void {
     rt.state.settings = {};
     rt.state.bindings.accounts = [
-        { numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, displayName: null, usable: true, scope: VERDICT_OK },
+        { numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, displayName: null, usable: true, scope: VERDICT_MISSING },
     ];
     rt.state.bindings.bindings = [bindingWith('prj_42')];
 }
 
 /**
- * Mount the FR-073 notice over a configured runtime.
+ * Mount the FR-073 notice over a runtime with one unmet checkable item.
  *
- * @param host - Host double the runtime runs against.
  * @returns The runtime and the notice wrapper the mount appended.
  */
-function mountedNotice(host: ReturnType<typeof fakeHost>): {
+function mountedNotice(): {
     readonly rt: ReturnType<typeof createTestRuntime>;
     readonly box: FakeElement;
 } {
-    const rt = createTestRuntime(host);
-    configureForConsent(rt);
+    const rt = createTestRuntime(fakeHost());
+    configureForNotice(rt);
     const dom = fakeDom();
     mountPrerequisiteNotice({ rt, parent: dom.root });
     const box = (dom.root as unknown as FakeElement).children[0];
@@ -428,50 +392,32 @@ function mountedNotice(host: ReturnType<typeof fakeHost>): {
     return { rt, box };
 }
 
-describe('the consent nag clears on a correct acceptance (owner review 2026-09-30)', () => {
-    it('accept → the prerequisite turns met and the banner hides', async () => {
-        const storage = createStorageDouble({});
-        const host = fakeHost({
-            storage: storage.storage,
-            serviceRequest: async (request) =>
-                request.path === '/v1/status'
-                    ? { status: 200, body: ANSWERED_STATUS_BODY }
-                    : { status: 200, body: '{"accounts":[]}' },
-        });
-        const { rt, box } = mountedNotice(host);
-        await preflightHandoff(rt);
+describe('the mounted notice tracks the derivation (FR-073, owner review 2026-09-30)', () => {
+    it('shows the banner for unmet scopes and hides it once the evidence lands', () => {
+        const { rt, box } = mountedNotice();
 
-        // The unaccepted consent step is what is raising the banner today.
-        expect(prerequisiteOf(rt.state, IDS.serviceCapability).state).toBe(NOT_MET);
+        // The missing scope verdict is what raises the banner at mount.
         expect(box.hidden).toBe(false);
+        expect(prerequisiteNotice(derivePrerequisites(rt.state))).not.toBeNull();
 
-        await acceptConsentAndRepaint(rt);
+        // The account's matrix comes back all-ok on the next read.
+        rt.state.bindings.accounts = [
+            { numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, displayName: null, usable: true, scope: VERDICT_OK },
+        ];
+        repaintPrerequisites(rt);
 
-        // The whole point: the acceptance is observed, not just stored.
-        expect(prerequisiteOf(rt.state, IDS.serviceCapability).state).toBe(MET);
+        // The observation is what clears it — nothing to accept anywhere.
         expect(prerequisiteNotice(derivePrerequisites(rt.state))).toBeNull();
         expect(box.hidden).toBe(true);
     });
 
-    it('accept → an unobservable service reads not checkable and the banner still hides', async () => {
-        const storage = createStorageDouble({});
-        const host = fakeHost({
-            storage: storage.storage,
-            serviceRequest: async () => ({ status: 503, body: UNANSWERED_STATUS_BODY }),
-        });
-        const { rt, box } = mountedNotice(host);
-        await preflightHandoff(rt);
+    it('keeps the banner up while the unmet item stays unmet', () => {
+        const { rt, box } = mountedNotice();
+
+        repaintPrerequisites(rt);
+
         expect(box.hidden).toBe(false);
-
-        await acceptConsentAndRepaint(rt);
-
-        // The panel cannot see the capability, so it must not claim it is
-        // unmet — and a not-checkable item never raises the notice (FR-073).
-        const item = prerequisiteOf(rt.state, IDS.serviceCapability);
-        expect(item.state).toBe(NOT_CHECKABLE);
-        expect(item.remediation.trim()).not.toBe('');
-        expect(prerequisiteNotice(derivePrerequisites(rt.state))).toBeNull();
-        expect(box.hidden).toBe(true);
+        expect(prerequisiteNotice(derivePrerequisites(rt.state))?.body).toContain(SCOPES_TITLE);
     });
 });
 

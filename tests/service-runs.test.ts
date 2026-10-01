@@ -25,7 +25,6 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../src/consent.ts';
 import { EVENTS_FILE, createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { readRunsDocument } from '../service/poll/runs.ts';
 import { createPollingView } from '../service/poll/view.ts';
@@ -148,7 +147,7 @@ async function startWithAccount(): Promise<TestService> {
     const registered = await service.call(VERIFY_PATH, {
         method: 'POST',
         headers: jsonHeaders(),
-        body: JSON.stringify({ token: REGISTERED_TOKEN, consentVersion: CONSENT_VERSION }),
+        body: JSON.stringify({ token: REGISTERED_TOKEN }),
     });
     expect(registered.status).toBe(201);
 

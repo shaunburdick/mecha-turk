@@ -1,13 +1,13 @@
 /**
  * The first-run setup-prerequisites section (003 FR-071–FR-073, closing 002's
- * FR-038 conformance gap): six prerequisites, each with a state and its own
+ * FR-038 conformance gap): five prerequisites, each with a state and its own
  * remediation line, derived on read from panel state — never persisted, never
  * fetched, never able to configure anything (spec `## Key Entities`: this
  * surface is read-only reporting).
  *
  * Three states only (FR-072): `met`, `not-met`, `not-checkable` — and a
  * prerequisite the panel cannot verify says so rather than displaying a
- * reassuring state it did not check. Two of the six are permanently not
+ * reassuring state it did not check. Two of the five are permanently not
  * checkable, deliberately:
  *
  * - The **Default Agent pin** no documented API exposes: it becomes knowable
@@ -21,8 +21,8 @@
  *   names the consequence instead of asserting a check.
  *
  * What is checkable is checked fail-closed: absent scope evidence reads as no
- * evidence, a binding without a project id is unmet, an unaccepted consent
- * step is unmet. Every checkable `not-met` also raises a banner **outside**
+ * evidence, a binding without a project id is unmet. Every checkable
+ * `not-met` also raises a banner **outside**
  * the section (FR-073); a `met` item never does.
  *
  * Rendering follows the DispatchesBoard shape: SDK primitives mounted into a
@@ -57,7 +57,7 @@ export interface PrerequisiteNotice {
     readonly body: string;
 }
 
-/** Heading above the six lines. */
+/** Heading above the five lines. */
 export const PREREQUISITES_HEADING = 'Setup prerequisites';
 
 /**
@@ -118,7 +118,7 @@ interface PrereqCard {
     dispose(): void;
 }
 
-/** The section as it mounts: a block, its heading, and its six cards. */
+/** The section as it mounts: a block, its heading, and its five cards. */
 interface SectionSurface {
     /** The block surface, disposed with the cards inside it. */
     readonly block: Block;
@@ -136,7 +136,7 @@ interface SectionSurface {
 interface PrerequisitesSurface {
     /** Notice above the tab strip, absent until {@link mountPrerequisiteNotice}. */
     notice?: NoticeSurface;
-    /** The six-line section, absent until {@link mountPrerequisitesSection}. */
+    /** The five-line section, absent until {@link mountPrerequisitesSection}. */
     section?: SectionSurface;
 }
 
@@ -162,7 +162,7 @@ function surfaceFor(rt: PanelRuntime): PrerequisitesSurface {
 }
 
 /**
- * Repaint the notice and the six lines from the current state.
+ * Repaint the notice and the five lines from the current state.
  *
  * Nothing happens on a runtime with no mounted surface, which is what lets
  * every state change route through `refresh` without knowing what is on
@@ -269,7 +269,7 @@ function mountPrereqCard(parent: HTMLElement, item: Prerequisite): PrereqCard {
 }
 
 /**
- * Mount the six-card section inside the Status body: one block so the
+ * Mount the five-card section inside the Status body: one block so the
  * heading and its cards read as one thing, one card per prerequisite because
  * each repaints from its own record.
  *

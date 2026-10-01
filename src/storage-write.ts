@@ -1,8 +1,8 @@
 /**
  * Write-through persistence behind the redaction guard.
  *
- * One small helper shared by the handoff consent mirror and the account
- * mirror: every value is checked to be plain JSON and scanned for
+ * One small helper shared by the account mirror: every value is checked to be
+ * plain JSON and scanned for
  * secret-shaped material before `host.storage.set` is called. The write
  * outcome — not the wish — is what callers record: a refused write returns
  * `false` so state can fail closed on screen.

@@ -13,7 +13,6 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../src/consent.ts';
 import { ACCOUNTS_DIR, BINDINGS_FILE } from '../service/accounts/store.ts';
 import {
     ACCOUNTS_PATH,
@@ -150,7 +149,7 @@ async function startService(script: GitHubScript, dataDir?: string): Promise<Tes
  * @returns The serialized request body.
  */
 function credentialBody(token: string): string {
-    return JSON.stringify({ token, consentVersion: CONSENT_VERSION });
+    return JSON.stringify({ token });
 }
 
 /**
@@ -342,24 +341,6 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
 
         expect(response.status).toBe(422);
         expect(error.error?.code).toBe('account-rejected');
-        expect(await readFile(accountFile, 'utf8')).toBe(before);
-    });
-
-    it('requires a current consentVersion before anything is written', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
-        const accountFile = join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
-        const before = await readFile(accountFile, 'utf8');
-
-        const response = await service.call(ACCOUNT_TOKEN_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID)), {
-            method: 'POST',
-            headers: jsonHeaders(),
-            body: JSON.stringify({ token: `${REGISTERED_TOKEN}-rotated` }),
-        });
-        const error = (await response.json()) as { error?: { code?: string } };
-
-        expect(response.status).toBe(422);
-        expect(error.error?.code).toBe('consent-required');
         expect(await readFile(accountFile, 'utf8')).toBe(before);
     });
 

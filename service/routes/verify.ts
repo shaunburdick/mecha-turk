@@ -3,7 +3,7 @@
  * steps ④–⑦, contract §2.2).
  *
  * Order is the contract's, and each step refuses before the next one runs:
- * storage availability → body shape → consent gate → throttle slot → GitHub
+ * storage availability → body shape → throttle slot → GitHub
  * `/user` (15 s abort, service-owned `fetch`) → identity rules (case-insensitive
  * `expectedLogin` fail-closed, duplicate id `409`) → persist → respond. The
  * credential file is written **only after `/user` succeeds** and the success
@@ -27,12 +27,12 @@ import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import type { CredentialRequest } from './credential.ts';
 import {
-    acceptCredentialRequest,
     accountRejectedResponse,
     credentialRejectedResponse,
     duplicateAccountResponse,
     githubRateLimitedResponse,
     guardCredentialRoute,
+    parseCredentialBody,
     throttleRefusal,
     upstreamUnavailableResponse,
 } from './credential.ts';
@@ -281,7 +281,7 @@ async function handleVerify(context: RouteContext, request: RouteRequest): Promi
         return storageUnavailableResponse();
     }
 
-    const parsed = await acceptCredentialRequest({ store, body: request.body, allowExpectedLogin: true });
+    const parsed = parseCredentialBody(request.body, true);
     if (!parsed.ok) {
         return parsed.response;
     }

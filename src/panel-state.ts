@@ -172,7 +172,7 @@ export interface PanelState {
     status: PanelStatus;
     /** Whether an action is running; blocks concurrent dispatches. */
     busy: boolean;
-    /** One-shot handoff state: consent, storage pre-flight, and outcome. */
+    /** One-shot handoff state: storage pre-flight and outcome. */
     handoff: HandoffState;
     /** Repository bindings as the Bindings tab reads and edits them (M3). */
     bindings: BindingsTabState;

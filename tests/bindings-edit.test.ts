@@ -18,7 +18,6 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../src/consent.ts';
 import { createBindingsHandlers } from '../src/bindings-mount.ts';
 import { saveEditedBinding, startEditingBinding } from '../src/bindings-edit.ts';
 import { readDraft } from '../src/bindings.ts';
@@ -132,7 +131,7 @@ async function startWithAccount(): Promise<TestService> {
     const registered = await service.call(VERIFY_PATH, {
         method: 'POST',
         headers: jsonHeaders(),
-        body: JSON.stringify({ token: REGISTERED_TOKEN, consentVersion: CONSENT_VERSION }),
+        body: JSON.stringify({ token: REGISTERED_TOKEN }),
     });
     expect(registered.status).toBe(201);
 

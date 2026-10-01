@@ -22,7 +22,6 @@ import { applyHostReady } from '@openchamber/sdk/ui';
 import { applyBindingsMode, loadInitialBindings } from './bindings-mode.ts';
 import { preflightAndRepaint } from './accounts-ui.ts';
 import { parseProjectId } from './config.ts';
-import { restoreStoredConsent } from './consent.ts';
 import { restoreStoredEvidence } from './evidence.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { analyzeLastCloseGap, buildMountContext, LIFECYCLE_EXPERIMENT_PLAN } from './lifecycle.ts';
@@ -309,11 +308,6 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
     if (rt.disposed) {
         return;
     }
-
-    // The accepted-consent mirror must land before the first handoff repaint:
-    // a panel that remounted after accepting must not re-ask for §1.1 consent.
-    // It only flips one state flag, so the dispose check above covers it too.
-    await restoreStoredConsent(rt);
 
     applySettings(rt, context.settings);
     void loadProjects(rt);

@@ -328,7 +328,7 @@ describe('the Status tab renders structure instead of loose lines', () => {
         const cards = dom.created.filter((node) => node.className === 'mt-card');
 
         expect(rows.length).toBeGreaterThanOrEqual(14);
-        expect(cards).toHaveLength(6);
+        expect(cards).toHaveLength(5);
     });
 
     it('paints the three prerequisite states as toned chips carrying the state', async () => {
@@ -337,7 +337,7 @@ describe('the Status tab renders structure instead of loose lines', () => {
             (entry) => entry.props as { readonly label?: string; readonly tone?: string },
         );
 
-        expect(badges.length).toBeGreaterThanOrEqual(6);
+        expect(badges.length).toBeGreaterThanOrEqual(5);
         for (const tone of ['success', 'error', 'neutral']) {
             expect(badges.some((badge) => badge.tone === tone), `no chip carries the ${tone} tone`).toBe(true);
         }

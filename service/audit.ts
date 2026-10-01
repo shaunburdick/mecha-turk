@@ -10,15 +10,15 @@
  * makes "no token material in audit" executable rather than promised
  * (contract §4 rule 2).
  *
- * Sequence numbers and the recorded-consent set are seeded from the file
+ * Sequence numbers are seeded from the file
  * **once per store handle** and then counted in memory, and appends run
  * through a per-store chain — a write never re-reads the trail it is
  * extending (review M6, mandatory before the Wave 4 poller appends rows on
  * every tick).
  *
  * The **correlation-indexed read API** still belongs to task T-027 and is not
- * here; this module ships the write path — consent occurrences,
- * `account.verified`/`rejected`/`error`/`rotated`, and every row the run and
+ * here; this module ships the write path — `account.verified`/
+ * `rejected`/`error`/`rotated`, and every row the run and
  * dispatch layers append. Retention trimming, added by 006, lives in
  * `audit-trim.ts` and does **not** rewrite this module: it joins this module's
  * chain through {@link serializeAudit} and composes its row through
@@ -75,7 +75,7 @@ export interface AuditEntry {
     readonly timestamp: string;
     /** Correlation id tying this entry to the rest of the chain (NFR-007). */
     readonly correlationId: string;
-    /** Event vocabulary name, e.g. `consent` or `account.verified`. */
+    /** Event vocabulary name, e.g. `account.verified` or `binding.disabled`. */
     readonly eventType: string;
     /** Who caused the event: `panel`, `service`, or `operator`. */
     readonly actorSource: string;
@@ -305,8 +305,6 @@ export async function readAuditEntries(store: ServiceStore): Promise<readonly Au
 interface AuditCache {
     /** Next sequence number to assign; seeded once from the file, then counted in memory. */
     nextSeq: number;
-    /** Consent versions already on disk, plus claims held by in-flight writes. */
-    readonly consentVersions: Set<number>;
     /** Previous write's outcome, so the next one runs only after it settles. */
     writeChain: Promise<unknown>;
 }
@@ -316,7 +314,7 @@ interface AuditCache {
  *
  * A `WeakMap` keyed by the handle is the ownership unit: a restarted service
  * opens a fresh handle and re-seeds from disk, while every write through the
- * same handle shares one counter and one consent set. Wave 4 appends an audit
+ * same handle shares one counter. Wave 4 appends an audit
  * row on every poll — without this cache each append would re-read the whole
  * trail to rediscover the last `seq`, so the write cost would grow with the
  * file's own history (review M6: seed once, increment in memory).
@@ -326,28 +324,23 @@ const auditCaches = new WeakMap<ServiceStore, Promise<AuditCache>>();
 /**
  * Read the trail once and derive the values later writes count from.
  *
+ * Every stored line counts toward the next `seq` — including the legacy
+ * `consent` rows builds before 2026-10-01 wrote, which no writer emits any
+ * more but which remain ordinary, readable history.
+ *
  * @param store - Open store.
- * @returns The seeded cache: first free `seq` and the recorded consent set.
+ * @returns The seeded cache: the first free `seq`.
  * @throws {StorageUnavailableError} When the trail cannot be read — a write
  *   that cannot establish its own sequence number must fail, not guess.
  */
 async function seedAuditCache(store: ServiceStore): Promise<AuditCache> {
     const entries = await readAuditEntries(store);
     let nextSeq = 1;
-    const consentVersions = new Set<number>();
     for (const entry of entries) {
         nextSeq = Math.max(nextSeq, entry.seq + 1);
-        if (entry.eventType !== 'consent') {
-            continue;
-        }
-
-        const { version } = entry.details;
-        if (typeof version === 'number' && Number.isInteger(version)) {
-            consentVersions.add(version);
-        }
     }
 
-    return { nextSeq, consentVersions, writeChain: Promise.resolve() };
+    return { nextSeq, writeChain: Promise.resolve() };
 }
 
 /**
@@ -393,52 +386,6 @@ function inWriteChain<T>(cache: AuditCache, task: () => Promise<T>): Promise<T> 
     cache.writeChain = run;
 
     return run;
-}
-
-/**
- * Claim the right to write the consent occurrence for one version (W2-2).
- *
- * The lookup and the claim happen in the same synchronous step after the seed
- * resolves, so two concurrent credential requests carrying the same
- * `consentVersion` cannot both decide to write: exactly one consent row exists
- * per version even when the requests race (contract §1.2, panel-service §3
- * invariant 8).
- *
- * @param store - Open store holding the audit trail.
- * @param version - Consent version being recorded.
- * @returns `true` when this caller owns the write; `false` when the version is
- *   already recorded or another writer holds the claim right now.
- * @throws {StorageUnavailableError} When the trail cannot be read to seed the
- *   claim set.
- */
-export async function claimConsentVersion(store: ServiceStore, version: number): Promise<boolean> {
-    const cache = await auditCacheFor(store);
-    if (cache.consentVersions.has(version)) {
-        return false;
-    }
-
-    cache.consentVersions.add(version);
-
-    return true;
-}
-
-/**
- * Release a consent claim whose write failed, so a later request can retry it.
- *
- * Only a claim this caller won is ever released — a version seeded from the
- * file was never claimed and must stay in the set. Best-effort: when the
- * trail is unreadable the failed write has already surfaced the storage
- * failure, and the next claim re-seeds from disk anyway.
- *
- * @param store - Open store holding the audit trail.
- * @param version - Version whose write did not reach disk.
- */
-export async function releaseConsentVersion(store: ServiceStore, version: number): Promise<void> {
-    // Best-effort by design (see the doc comment): if the trail cannot even
-    // be read, the failed write has already surfaced the storage failure and
-    // the next claim re-seeds from disk.
-    const cache = await auditCacheFor(store).catch(() => null);
-    cache?.consentVersions.delete(version);
 }
 
 /**
