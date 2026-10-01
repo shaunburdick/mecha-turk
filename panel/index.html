@@ -340,7 +340,8 @@
 
             .mt-head {
                 display: grid;
-                column-gap: var(--mt-space-3);
+                /* The SDK row's own gap, so a header cell sits over its column. */
+                column-gap: var(--mt-space-2);
                 padding: 0 var(--mt-space-2) var(--mt-space-1);
                 font-size: 0.6875rem;
                 font-weight: 700;
@@ -349,8 +350,28 @@
                 border-bottom: 1px solid color-mix(in srgb, var(--mt-line) 60%, transparent);
             }
 
+            /*
+             * Dispatches: the SDK row lays out as lead(64px) · main(1fr) ·
+             * badge · meta, so the header mirrors that arithmetic — the age
+             * column is pinned in both (below) and the state label is
+             * right-aligned so its edge lands on the badge's edge.
+             */
             .mt-head--dispatches {
-                grid-template-columns: 4.5rem minmax(0, 1fr) 7.5rem 4.5rem;
+                grid-template-columns: 64px minmax(0, 1fr) max-content 4.5rem;
+            }
+
+            .mt-head--dispatches > :nth-child(3),
+            .mt-head--dispatches > :nth-child(4) {
+                text-align: right;
+            }
+
+            /* The list the header labels, so its rows can be pinned to match. */
+            .mt-list .oc-sdk-row-meta {
+                flex: 0 0 4.5rem;
+                text-align: right;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
 
             /* ---------------------------------------------------------------- *
@@ -377,10 +398,6 @@
                 .mt-def {
                     grid-template-columns: minmax(0, 1fr);
                     row-gap: 2px;
-                }
-
-                .mt-head--dispatches {
-                    grid-template-columns: minmax(0, 1fr) 5.5rem;
                 }
 
                 .mt-key {

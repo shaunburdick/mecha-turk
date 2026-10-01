@@ -21,6 +21,7 @@
  */
 
 import { mountText } from '@openchamber/sdk/ui';
+import type { TextHandle } from '@openchamber/sdk/ui';
 
 /** Separator between a label and its value in the copy the tabs already print. */
 export const KEY_SEPARATOR = ': ';
@@ -73,6 +74,8 @@ export interface Cell {
 export interface Block {
     /** Body element; rows, cards, and controls append into this. */
     readonly body: HTMLElement;
+    /** The muted description line under the heading, or `null` when there is none. */
+    readonly lede: Cell | null;
     /** Remove the block and every handle mounted inside the caller's rows. */
     dispose(): void;
 }
@@ -122,6 +125,22 @@ export interface DefInput {
 }
 
 /**
+ * Create the styled wrapper a text handle renders inside.
+ *
+ * @param parent - Element to append the wrapper into.
+ * @param className - Class words for the wrapper.
+ * @returns The wrapper element.
+ */
+function styleWrapper(parent: HTMLElement, className: string): HTMLElement {
+    const document = parent.ownerDocument;
+    const wrapper = document.createElement('div');
+    wrapper.className = className;
+    parent.append(wrapper);
+
+    return wrapper;
+}
+
+/**
  * Mount a styled cell whose text still travels through the SDK.
  *
  * The wrapper exists purely to carry a class: `mountText` renders into a node
@@ -133,11 +152,7 @@ export interface DefInput {
  * @returns The handle a repaint updates.
  */
 export function mountCell(parent: HTMLElement, input: CellInput): Cell {
-    const document = parent.ownerDocument;
-    const wrapper = document.createElement('div');
-    wrapper.className = input.className;
-    parent.append(wrapper);
-
+    const wrapper = styleWrapper(parent, input.className);
     const handle = mountText(wrapper, { text: input.text });
 
     return {
@@ -147,6 +162,57 @@ export function mountCell(parent: HTMLElement, input: CellInput): Cell {
             wrapper.remove();
         },
     };
+}
+
+/**
+ * Mount a styled line whose handle stays the SDK's own `TextHandle`.
+ *
+ * The same wrapper trick as {@link mountCell}, kept for the tabs whose board
+ * interfaces already type their lines as `TextHandle` — a redesign may move
+ * where a sentence sits, but it should not force every `.update({ text })`
+ * call site to change shape with it.
+ *
+ * @param parent - Element to append the wrapper into.
+ * @param input - Class words and the line's text.
+ * @returns The SDK text handle a repaint updates.
+ */
+export function mountStyledText(parent: HTMLElement, input: CellInput): TextHandle {
+    return mountText(styleWrapper(parent, input.className), { text: input.text });
+}
+
+/** Inputs for {@link mountColumnHead}. */
+export interface ColumnHeadInput {
+    /** Class words naming the grid this header labels (for example `mt-head--dispatches`). */
+    readonly modifier: string;
+    /** One label per column, in column order. */
+    readonly cells: readonly string[];
+}
+
+/**
+ * Mount the header row above a column grid: one label per column.
+ *
+ * The labels are the tab's own constant copy, so they are written with
+ * `textContent` like a heading rather than mounted — and because the grid is
+ * a grid, each label is exactly one cell wide, which is what lets the eye
+ * line a column of values up under it.
+ *
+ * @param parent - Element to append the header into, directly above its grid.
+ * @param input - The grid's modifier and its column labels.
+ * @returns The header element (constant text, so it owns no handle).
+ */
+export function mountColumnHead(parent: HTMLElement, input: ColumnHeadInput): HTMLElement {
+    const document = parent.ownerDocument;
+    const head = document.createElement('div');
+    head.className = `mt-head ${input.modifier}`;
+    for (const cell of input.cells) {
+        const label = document.createElement('span');
+        label.textContent = cell;
+        head.append(label);
+    }
+
+    parent.append(head);
+
+    return head;
 }
 
 /**
@@ -171,12 +237,9 @@ export function createBlock(parent: HTMLElement, input: BlockInput): Block {
     heading.textContent = input.heading;
     block.append(heading);
 
+    const lede = input.lede === undefined ? null : mountCell(block, { className: 'mt-lede', text: input.lede });
     let body = block;
-    if (input.lede !== undefined) {
-        const lede = document.createElement('p');
-        lede.className = 'mt-lede';
-        lede.textContent = input.lede;
-        block.append(lede);
+    if (lede !== null) {
         const stack = document.createElement('div');
         stack.className = 'mt-group';
         block.append(stack);
@@ -187,6 +250,7 @@ export function createBlock(parent: HTMLElement, input: BlockInput): Block {
 
     return {
         body,
+        lede,
         dispose: () => block.remove(),
     };
 }

@@ -50,6 +50,7 @@ import {
     rowActionLabel,
 } from './dispatches-controls.ts';
 import type { DispatchesControls } from './dispatches-controls.ts';
+import { createBlock, mountColumnHead, mountStyledText } from './style.ts';
 
 /** Inputs the runs section's mounts share (runtime, pane root, handlers). */
 interface MountInputs {
@@ -63,8 +64,6 @@ interface MountInputs {
 
 /** The runs half of the pane: heading, list, actions, and notes. */
 export interface DispatchesBoard {
-    /** Heading above the section. */
-    readonly dispatchesHeading: TextHandle;
     /** Status line: idle, loading, ready with a count, or unavailable. */
     readonly dispatchesStatus: TextHandle;
     /** One row per recent event, newest first. */
@@ -110,28 +109,32 @@ export interface DispatchesBoard {
 }
 
 /** Board members the heading half owns. */
-type DispatchesHeadKeys = 'dispatchesHeading' | 'dispatchesStatus';
+type DispatchesHeadKeys = 'dispatchesStatus';
 
 /** Board members the list itself owns. */
 type DispatchesListKeys = 'dispatchesList';
 
+/** Heading above the controls that act on the row the operator selected. */
+const SELECTED_HEADING = 'Selected dispatch';
+
+/** Heading above the audit trail a selected row opens. */
+const AUDIT_HEADING = 'Audit trail';
+
+/** The list's column labels, in the order the SDK row lays its cells out. */
+const LIST_COLUMNS: readonly string[] = ['Trigger', 'Subject', 'State', 'Age'];
+
 /**
- * Mount the heading and the status line.
- *
- * Split from the list so the range line and the filters can sit between what
- * the tab *says* and what it *shows*: an operator reads which set is on
- * screen, and which filters describe it, before reading the rows (FR-042,
- * FR-043).
+ * Mount the status line that says which set is on screen (FR-042).
  *
  * @param input - Pane root and runtime.
- * @returns The two handles the heading half needs.
+ * @returns The status handle.
  */
 function mountDispatchesHead(input: Pick<MountInputs, 'pane' | 'rt'>): Pick<DispatchesBoard, DispatchesHeadKeys> {
     const { pane, rt } = input;
+    const text = dispatchesStatusText(rt.state.dispatches);
 
     return {
-        dispatchesHeading: mountText(pane, { text: DISPATCHES_HEADING }),
-        dispatchesStatus: mountText(pane, { text: dispatchesStatusText(rt.state.dispatches) }),
+        dispatchesStatus: mountStyledText(pane, { className: 'mt-lede', text }),
     };
 }
 
@@ -148,9 +151,12 @@ function mountDispatchesHead(input: Pick<MountInputs, 'pane' | 'rt'>): Pick<Disp
 function mountDispatchesList(input: MountInputs): Pick<DispatchesBoard, DispatchesListKeys> {
     const { pane, rt, handlers } = input;
     const { dispatches: runs } = rt.state;
+    const grid = pane.ownerDocument.createElement('div');
+    grid.className = 'mt-list';
+    pane.append(grid);
 
     return {
-        dispatchesList: mountList(pane, {
+        dispatchesList: mountList(grid, {
             items: dispatchRows(runs),
             ariaLabel: 'Dispatches',
             emptyText: dispatchEmptyText(runs),
@@ -285,7 +291,7 @@ function mountAuditView(input: MountInputs): Pick<
         disabled: true,
         onClick: handlers.loadAudit,
     });
-    const auditStatus = mountText(pane, { text: auditStatusText(audit) });
+    const auditStatus = mountStyledText(pane, { className: 'mt-lede', text: auditStatusText(audit) });
     const auditBox = pane.ownerDocument.createElement('div');
     auditBox.style.marginTop = '8px';
     auditBox.hidden = true;
@@ -334,7 +340,6 @@ function mountAgentNotice(
  */
 export function disposeDispatchesBoard(board: DispatchesBoard): void {
     const handles = [
-        board.dispatchesHeading,
         board.dispatchesStatus,
         board.dispatchesList,
         board.refreshDispatches,
@@ -459,20 +464,27 @@ export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard)
  * @returns The runs handles the pane repaints through.
  */
 export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
-    const { pane, rt } = input;
+    const { pane, rt, handlers } = input;
     const { dispatches: runs } = rt.state;
-    // Mount order is DOM order: what the tab says, the controls that say which
-    // slice of the set is on screen and under which filters, then the rows
-    // those controls describe — and the selected row's detail after them.
-    const head = mountDispatchesHead(input);
-    const paging = mountDispatchesControls(input);
-    const list = mountDispatchesList(input);
-    const shared = mountSharedActions(input);
-    const transitions = mountTransitions(input);
-    const resolutions = mountResolutions(input);
-    const detail = mountRowDetail(input);
-    const note = mountText(pane, { text: runs.note });
-    const audit = mountAuditView(input);
+    // Three blocks, in the order an operator reads them: the set — what it
+    // says, which slice of it is on screen, and the rows themselves; then the
+    // controls the selection opens; then the trail a row leaves behind.
+    const set = createBlock(pane, { heading: DISPATCHES_HEADING });
+    const selected = createBlock(pane, { heading: SELECTED_HEADING });
+    const trail = createBlock(pane, { heading: AUDIT_HEADING });
+
+    const head = mountDispatchesHead({ pane: set.body, rt });
+    const paging = mountDispatchesControls({ pane: set.body, rt, handlers });
+    mountColumnHead(set.body, { modifier: 'mt-head--dispatches', cells: LIST_COLUMNS });
+    const list = mountDispatchesList({ pane: set.body, rt, handlers });
+    const shared = mountSharedActions({ pane: set.body, handlers });
+
+    const transitions = mountTransitions({ pane: selected.body, handlers });
+    const resolutions = mountResolutions({ pane: selected.body, rt, handlers });
+    const detail = mountRowDetail({ pane: selected.body, rt, handlers });
+    const note = mountStyledText(selected.body, { className: 'mt-lede', text: runs.note });
+
+    const audit = mountAuditView({ pane: trail.body, rt, handlers });
     const agent = mountAgentNotice(pane, runs);
     const board: DispatchesBoard = {
         ...head,
