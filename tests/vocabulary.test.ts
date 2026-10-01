@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { VOCABULARY_SHORT_FORM } from '../src/about-tab.ts';
+import { VOCABULARY_HEADING, VOCABULARY_ITEMS, VOCABULARY_LINES, VOCABULARY_SHORT_FORM } from '../src/vocabulary.ts';
 import { RESOLVE_LABEL, RETRY_LABEL, RETURN_LABEL } from '../src/dispatches-rows.ts';
 import { AUDIT_BUTTON_LABEL } from '../src/audit-view.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
@@ -24,9 +24,10 @@ import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
  *    be satisfied by over-renaming the domain vocabulary away;
  * 4. `AGENTS.md`'s panel module map must list every file `src/` actually holds;
  * 5. **the L1 half (T-029)**: the six tabs' rendered output and `README.md`
- *    carry neither retired noun *as a noun*, with exactly one exemption — the
- *    short mapping list, which is supposed to contain them (FR-029) — and test
- *    names follow their subject's layer (FR-028).
+ *    carry neither retired noun *as a noun*, with exactly one exempt source —
+ *    the short mapping list and the lines it renders as, which are supposed to
+ *    contain them (FR-029) — and test names follow their subject's layer
+ *    (FR-028).
  *
  * The L1 scan reads what the tabs actually handed the SDK, recursively, so a
  * tab label or a list row title counts as much as a headline does.
@@ -524,6 +525,21 @@ function withoutMappingSection(text: string): string {
     return kept.join('\n');
 }
 
+/**
+ * The one exempt source in the L1 scan: the mapping, and every string the tab
+ * derives from it to render it as a list.
+ *
+ * Every entry comes from `VOCABULARY_SHORT_FORM` — the constant stays the only
+ * literal in `src/` that carries the retired nouns (FR-029) — so widening the
+ * exemption's *shape* for the list rendering does not widen what it covers:
+ * any other rendered string containing a retired noun still fails the scan.
+ *
+ * @returns The strings the scan skips, and nothing else.
+ */
+function vocabularyExemption(): ReadonlySet<string> {
+    return new Set([VOCABULARY_SHORT_FORM, VOCABULARY_HEADING, ...VOCABULARY_LINES, ...VOCABULARY_ITEMS]);
+}
+
 describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', () => {
     it('mounts all six tabs, so the scan is not vacuous', async () => {
         const strings = await renderedSixTabs();
@@ -536,7 +552,8 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
 
     it('renders no retired noun in any of the six tabs', async () => {
         const rendered = await renderedSixTabs();
-        const strings = rendered.filter((text) => text !== VOCABULARY_SHORT_FORM);
+        const exempt = vocabularyExemption();
+        const strings = rendered.filter((text) => !exempt.has(text));
 
         expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], strings.join('\n'))).toEqual([]);
     });
@@ -544,7 +561,12 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
     it('shows the short mapping list in About, retired words and all (FR-029)', async () => {
         const strings = await renderedSixTabs();
 
-        expect(strings).toContain(VOCABULARY_SHORT_FORM);
+        // The mapping reaches the operator as its heading plus its entries —
+        // the list rendering of the one constant below.
+        expect(strings).toContain(VOCABULARY_HEADING);
+        for (const entry of VOCABULARY_ITEMS) {
+            expect(strings).toContain(entry);
+        }
         // The exemption is not vacuous: the mapping really does carry them.
         expect(hits(CAPITAL_NOUNS, VOCABULARY_SHORT_FORM).length).toBeGreaterThan(0);
         expect(VOCABULARY_SHORT_FORM).toContain('Dispatches');

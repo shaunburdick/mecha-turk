@@ -238,19 +238,31 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
  * counts the bindings the runtime holds — true only until the next refresh
  * tick, which is exactly how long a first frame is allowed to lie.
  *
- * @param rt - Panel runtime.
- * @param root - The body container `mountTabShell` created for `bindings`.
+ * @param input - Runtime, the body container `mountTabShell` created for
+ *   `bindings`, and the mount that opens the first block.
  */
-export function mountBindingsTabBody(rt: PanelRuntime, root: HTMLElement): void {
-    const view = mountBindingsBody({ root, rt, handlers: createBindingsHandlers(rt) });
+export function mountBindingsTabBody(input: {
+    /** Panel runtime the body repaints for. */
+    readonly rt: PanelRuntime;
+    /** The body container `mountTabShell` created for `bindings`. */
+    readonly root: HTMLElement;
+    /** Anything the tab mounts inside the first block, before this pane. */
+    readonly mountFirst?: (into: HTMLElement) => void;
+}): void {
+    const view = mountBindingsBody({
+        root: input.root,
+        rt: input.rt,
+        handlers: createBindingsHandlers(input.rt),
+        ...(input.mountFirst === undefined ? {} : { mountFirst: input.mountFirst }),
+    });
     // The bundle gate greps the built panel for this attribute: a string
     // literal that only ships when this pane is wired (identifier names are
     // minified away, so a marker must ride live code). It also names the pane
     // for the operator's DOM inspector.
     view.pane.setAttribute('data-mount', 'mountBindingsBody');
-    rt.bindingsUi = view;
+    input.rt.bindingsUi = view;
     // Paint what the runtime already knows, before anything is read: the
     // status line mounts composed from state, but the list does not, and the
     // two must never disagree on the first frame.
-    repaintBindingsPane(rt, view);
+    repaintBindingsPane(input.rt, view);
 }

@@ -39,7 +39,7 @@ import {
     applyStageDefaults,
 } from './settings-actions.ts';
 import { mountSettingsRows, settingsRows, takeEffectWords, updateSettingsRows } from './settings-rows.ts';
-import { mountStyledText } from './style.ts';
+import { createBlock } from './style.ts';
 import {
     AUDIT_MISSING_LINE,
     EDITABLE_BODY,
@@ -483,16 +483,21 @@ export function mountSettingsTab(input: {
     const pane = body.ownerDocument.createElement('div');
     body.append(pane);
 
-    const heading = mountStyledText(pane, { className: 'mt-heading mt-heading--title', text: SETTINGS_HEADING });
-    const banner = mountBanner(pane, { tone: 'info', title: READ_ONLY_TITLE, body: READ_ONLY_BODY });
+    // One rule across the six tabs (2026-10-01 review): the tab title is the
+    // first block's heading, and the tab's controls live inside that block —
+    // the banner, the re-read row, and the failure notice all mount into it
+    // instead of floating unboxed above the configuration grid.
+    const titleBlock = createBlock(pane, { heading: SETTINGS_HEADING, title: true });
+    const { heading } = titleBlock;
+    const banner = mountBanner(titleBlock.body, { tone: 'info', title: READ_ONLY_TITLE, body: READ_ONLY_BODY });
     const controls = mountReadControls({
-        pane,
+        pane: titleBlock.body,
         onRefresh: (): void => {
             void loadSettings(rt);
         },
         readLineText: readStateLine(rt.state.settingsTab),
     });
-    const notice = mountFailureNotice(pane);
+    const notice = mountFailureNotice(titleBlock.body);
     const region = mountRowRegion(pane);
     const controlsRegion = mountControlRegion({
         pane,

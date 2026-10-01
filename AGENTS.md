@@ -169,6 +169,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `accounts-rows.ts` / `accounts-tab.ts` | The Accounts tab: every FR-062 row word (lifecycle, connection, scope matrix, remediation, binding count) as pure functions, plus the body's mounts, repaint, and single read |
 | `accounts-actions.ts` | The tab's writes: two-step removal with the `force=1` cascade the arm stated, the rotation arm the handoff routes on, and the display-name PUT that never applies a value the service did not confirm |
 | `storage-write.ts` | Guarded storage writes |
+| `vocabulary.ts` | The operator-facing vocabulary mapping and the two shapes it renders as — the one home for the retired nouns the L1 scan exempts (005 FR-029) |
 
 ## Module map (service, `service/`)
 

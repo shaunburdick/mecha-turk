@@ -116,8 +116,17 @@ function mountBindingsBody(input: {
     readonly handlers: PanelHandlers;
 }): () => void {
     const { rt, body, handlers } = input;
-    rt.pickerUi = mountProjectPicker({ rt, root: body, handlers });
-    mountBindingsTabBody(rt, body);
+    mountBindingsTabBody({
+        rt,
+        root: body,
+        // The picker opens the tab's first block rather than floating above
+        // it: one rule across the six tabs — the tab title is the first
+        // block's heading, and the controls live inside that block
+        // (2026-10-01 review).
+        mountFirst: (into) => {
+            rt.pickerUi = mountProjectPicker({ rt, root: into, handlers });
+        },
+    });
 
     return () => {
         const picker = rt.pickerUi;

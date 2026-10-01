@@ -4,11 +4,12 @@
  * The copy this tab prints lives in [`status-lines.ts`](./status-lines.ts)
  * and the document it prints from in
  * [`status-document.ts`](./status-document.ts); this module owns only the
- * handles and the read that feeds them. Two blocking notices sit above the
- * sections because they are facts rather than rows: an unsupported surface
- * (FR-036) and an unwritable data directory (FR-035), whose copy names the
- * consequence — the token handoff pre-flight fails, so an account cannot be
- * added.
+ * handles and the read that feeds them. The tab opens with one title block
+ * whose heading is the tab title, and the two blocking notices sit inside it
+ * above the refresh control because they are facts rather than rows: an
+ * unsupported surface (FR-036) and an unwritable data directory (FR-035),
+ * whose copy names the consequence — the token handoff pre-flight fails, so an
+ * account cannot be added.
  *
  * The read is explicit (FR-014): the panel reads it once at mount and the
  * tab offers a refresh; activating the already-active tab reads nothing. A
@@ -58,6 +59,15 @@ const BINDINGS_HEADING = 'Bindings';
 /** Heading above the agent-pin block (FR-033). */
 const AGENT_PIN_HEADING = 'Agent pin';
 
+/**
+ * The tab title: the heading of the block every Status control lives in.
+ *
+ * One rule across the six tabs (product-owner review 2026-10-01) — the tab
+ * title is the first block's heading, and the controls sit inside that block
+ * rather than floating in the body above it.
+ */
+const OVERVIEW_HEADING = 'Status';
+
 /** Label treatment for the two groups whose subjects are identifiers. */
 const SUBJECT_KEY_CLASS = 'mt-key--mono';
 
@@ -97,6 +107,8 @@ export interface StatusNotice {
 
 /** What the Status body mounts, and what a repaint updates. */
 export interface StatusTabUi {
+    /** The first block: the tab title over the two notices and the controls. */
+    readonly overview: Block;
     /** Unsupported-surface notice, hidden while the surface supports a service (FR-036). */
     readonly unsupported: StatusNotice;
     /** Blocking storage notice, hidden while the data directory is writable (FR-035). */
@@ -391,25 +403,29 @@ export function mountStatusTab(input: {
     readonly parent: HTMLElement;
 }): StatusTabUi {
     const { rt, parent } = input;
-    // Top of the tab, in FR-036's order: the blocking facts come before
-    // anything that could read as a healthy row.
+    // One rule across the six tabs (2026-10-01 review): the tab title is the
+    // first block's heading, and the tab's controls live inside that block.
+    // The two blocking notices go in with them, in FR-036's own order — the
+    // blocking facts still come before anything that could read as healthy.
+    const overview = createBlock(parent, { heading: OVERVIEW_HEADING, title: true });
     const unsupported = mountNotice({
-        parent,
+        parent: overview.body,
         tone: 'warning',
         title: 'Unsupported surface',
         body: 'OpenChamber cannot run a local service here, so polling, custody, and the relay are not operating.',
         hidden: true,
     });
     const storageBlocked = mountNotice({
-        parent,
+        parent: overview.body,
         tone: 'error',
         title: 'Storage is not writable',
         body: 'The token handoff pre-flight fails, so no account can be added until the data directory accepts writes.',
         hidden: true,
     });
-    const controls = mountControls(rt, parent);
+    const controls = mountControls(rt, overview.body);
 
     const ui: StatusTabUi = {
+        overview,
         unsupported,
         storageBlocked,
         ...controls,
@@ -442,6 +458,7 @@ export function disposeStatusTab(rt: PanelRuntime): void {
     ui.storageBlocked.box.remove();
     ui.refreshButton.dispose();
     ui.readLine.dispose();
+    ui.overview.dispose();
     disposeRowGroup(ui.service);
     disposeRowGroup(ui.polling);
     disposeRowGroup(ui.accounts);

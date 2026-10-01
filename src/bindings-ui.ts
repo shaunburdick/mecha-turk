@@ -439,24 +439,24 @@ export function mountBindingsBody(input: {
     readonly rt: PanelRuntime;
     /** Handlers the controls invoke. */
     readonly handlers: BindingsPaneHandlers;
+    /** Anything that opens the first block ahead of this pane — FR-038's picker. */
+    readonly mountFirst?: (into: HTMLElement) => void;
 }): MountedPane {
     const { root, rt, handlers } = input;
     const pane = root.ownerDocument.createElement('div');
     root.append(pane);
 
-    // Two blocks: what is bound (and the selected row's own facts), then the
-    // form that creates or edits one binding.
-    const listBlock = createBlock(pane, { heading: LIST_HEADING });
+    // Two blocks, and the first carries the tab title: one rule across the six
+    // tabs — the tab title is the first block's heading, controls live in it.
+    const listBlock = createBlock(pane, { heading: LIST_HEADING, title: true });
     const editorBlock = createBlock(pane, { heading: EDITOR_HEADING });
 
+    input.mountFirst?.(listBlock.body);
     const board = mountBindingsBoard({ rt, pane: listBlock.body, handlers });
-    // The selected row's own facts sit between the list and the form: they
-    // describe *this* binding, and the form below is where it is changed
-    // (FR-053 — state, created/updated stamps, per-binding scan line).
+    // The selected row's own facts sit between the list and the form (FR-053).
     const { detailBox, detailChips, selectedDetail } = mountSelectedDetail(listBlock.body);
     const form = mountAddForm({ rt, pane: editorBlock.body, handlers });
-    // Mounted last so the field that carries the operator's instruction sits
-    // at the end of the form it belongs to, with its own save control.
+    // Mounted last: the operator's instruction ends the form it belongs to.
     const prompt = mountBindingPrompt({ rt, pane: editorBlock.body, handlers });
 
     return {

@@ -25,14 +25,15 @@
  * left with the tab it lived on (FR-011).
  */
 
-import { mountBanner, mountButton, mountText } from '@openchamber/sdk/ui';
-import type { BannerHandle, ButtonHandle, TextHandle } from '@openchamber/sdk/ui';
+import { mountBanner, mountButton, mountList } from '@openchamber/sdk/ui';
+import type { BannerHandle, ButtonHandle, ListHandle, TextHandle } from '@openchamber/sdk/ui';
 import { EVIDENCE_SCHEMA_VERSION } from './evidence.ts';
 import { parseJsonObject } from './json.ts';
 import { nowIso } from './ids.ts';
 import { LEDGER_SCHEMA_VERSION, ledgerTail } from './ledger.ts';
 import { HEALTH_PATH, serviceGet } from './service-calls.ts';
 import { createBlock, mountStyledText } from './style.ts';
+import { VOCABULARY_HEADING, VOCABULARY_LIST_ITEMS } from './vocabulary.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
 /** The panel id the manifest declares (`AGENTS.md` invariant 4). */
@@ -71,20 +72,6 @@ const FAILURE_TITLE = 'Version not read';
 /** The version's source, stated so a failure has somewhere to point (FR-074). */
 const VERSION_SOURCE =
     "Version source: the local service's health answer. This panel carries no version of its own.";
-
-/**
- * The vocabulary mapping in short form (FR-029).
- *
- * One exported string on purpose: it is the **only** place the retired nouns
- * may appear in rendered output, so the L1 vocabulary scan
- * (`tests/vocabulary.test.ts`) exempts exactly this value and nothing else.
- * The full table lives in `README.md`.
- */
-export const VOCABULARY_SHORT_FORM =
-    'Vocabulary (what the renames mean):\n' +
-    '- Dispatches — the unit of work a binding queues (earlier builds called it Runs).\n' +
-    '- Bindings — the watched-repository configuration (earlier builds called it Repositories).\n' +
-    '- Kept as they are: run, attempt, and the run. / binding. audit prefixes (domain words).';
 
 /** The manual-cleanup posture, naming the surfaces that perform it (FR-077). */
 const CLEANUP_POSTURE =
@@ -150,8 +137,8 @@ export interface AboutTabUi {
     readonly failure: BannerHandle;
     /** The data directory, and the statement that it is what to back up. */
     readonly dataDir: TextHandle;
-    /** The short vocabulary mapping (FR-029). */
-    readonly vocabulary: TextHandle;
+    /** The short vocabulary mapping (FR-029), rendered as its own list. */
+    readonly vocabulary: ListHandle;
     /** The manual-cleanup posture (FR-077). */
     readonly cleanup: TextHandle;
     /** The release posture (FR-075). */
@@ -397,9 +384,10 @@ function mountHeader(input: {
     readonly versionSource: TextHandle;
 } {
     const { pane } = input;
-    const identity = mountText(pane, { text: `${PRODUCT_NAME} — panel id: ${PANEL_ID}` });
-    const version = mountText(pane, { text: versionLine(input.rt.state.aboutTab) });
-    const versionSource = mountText(pane, { text: VERSION_SOURCE });
+    // `.mt-prose` on all three: without it these three measured their own edge.
+    const identity = mountStyledText(pane, { className: 'mt-prose', text: `${PRODUCT_NAME} — panel id: ${PANEL_ID}` });
+    const version = mountStyledText(pane, { className: 'mt-prose', text: versionLine(input.rt.state.aboutTab) });
+    const versionSource = mountStyledText(pane, { className: 'mt-prose', text: VERSION_SOURCE });
 
     return { identity, version, versionSource };
 }
@@ -463,15 +451,26 @@ function mountStatements(input: {
     readonly pane: HTMLElement;
 }): {
     readonly dataDir: TextHandle;
-    readonly vocabulary: TextHandle;
+    readonly vocabulary: ListHandle;
     readonly cleanup: TextHandle;
     readonly release: TextHandle;
 } {
     const dataDir = mountStyledText(input.pane, { className: 'mt-prose', text: dataDirLine(input.rt) });
 
+    // The heading stays prose; the entries become rows so a wrapped line lands
+    // under its own first word, not under the hand-typed `- ` marker (FR-029).
+    mountStyledText(input.pane, { className: 'mt-prose', text: VOCABULARY_HEADING });
+    const vocabulary = mountList(input.pane, {
+        items: [...VOCABULARY_LIST_ITEMS],
+        ariaLabel: VOCABULARY_HEADING,
+        onSelect: () => {
+            // Display-only: the rows are definitions, not a selection.
+        },
+    });
+
     return {
         dataDir,
-        vocabulary: mountStyledText(input.pane, { className: 'mt-prose', text: VOCABULARY_SHORT_FORM }),
+        vocabulary,
         cleanup: mountStyledText(input.pane, { className: 'mt-prose', text: CLEANUP_POSTURE }),
         release: mountStyledText(input.pane, { className: 'mt-prose', text: RELEASE_POSTURE }),
     };
@@ -546,7 +545,8 @@ export function mountAboutTab(input: {
     body.append(pane);
 
     // Two blocks: what this panel is, then the record it keeps about itself.
-    const about = createBlock(pane, { heading: ABOUT_HEADING });
+    // The first carries the tab title (one rule across the six tabs).
+    const about = createBlock(pane, { heading: ABOUT_HEADING, title: true });
     const record = createBlock(pane, { heading: DIAGNOSTICS_HEADING });
 
     const header = mountHeader({ rt, pane: about.body });

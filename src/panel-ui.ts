@@ -26,6 +26,7 @@ import {
 import { repaintPrerequisites } from './prerequisites.ts';
 import { repaintBindingsPane } from './bindings-ui.ts';
 import type { PanelRuntime, PanelState } from './panel-state.ts';
+import { mountStyledText } from './style.ts';
 
 /** Callbacks the mounted controls invoke. */
 export interface PanelHandlers {
@@ -148,7 +149,10 @@ export function mountProjectPicker(input: {
  */
 export function mountPanelFraming(root: HTMLElement): PanelUi {
     const banner = mountBanner(root, { tone: 'info', title: 'Mecha Turk', body: 'Waiting for the host.' });
-    const summary = mountText(root, { text: 'Starting…' });
+    // The summary is framing, not content: it sits above the tab strip on
+    // every tab, so it takes the same dim treatment the tabs give their own
+    // ledes rather than reading as a headline in full ink (2026-10-01 review).
+    const summary = mountStyledText(root, { className: 'mt-lede', text: 'Starting…' });
 
     return { banner, summary };
 }

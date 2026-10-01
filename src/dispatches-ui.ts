@@ -480,8 +480,9 @@ export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
     const { dispatches: runs } = rt.state;
     // Three blocks, in the order an operator reads them: the set — what it
     // says, which slice of it is on screen, and the rows themselves; then the
-    // controls the selection opens; then the trail a row leaves behind.
-    const set = createBlock(pane, { heading: DISPATCHES_HEADING });
+    // controls the selection opens; then the trail a row leaves behind. The
+    // first carries the tab title (one rule across the six tabs, 2026-10-01).
+    const set = createBlock(pane, { heading: DISPATCHES_HEADING, title: true });
     // No lede, so `selected.body` *is* the block element: hiding it takes its
     // heading with it, which is exactly how Accounts' detail block behaves.
     const selected = createBlock(pane, { heading: SELECTED_HEADING });

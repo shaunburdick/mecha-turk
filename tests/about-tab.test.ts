@@ -28,13 +28,13 @@ import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { healthRoute, SERVICE_VERSION } from '../service/routes/health.ts';
 import { EVIDENCE_SCHEMA_VERSION } from '../src/evidence.ts';
 import {
-    VOCABULARY_SHORT_FORM,
     dataDirLine,
     ledgerLines,
     phaseRecordLine,
     versionLine,
 } from '../src/about-tab.ts';
 import type { AboutTabState } from '../src/about-tab.ts';
+import { VOCABULARY_HEADING, VOCABULARY_ITEMS, VOCABULARY_SHORT_FORM } from '../src/vocabulary.ts';
 import { HEALTH_PATH } from '../src/service-calls.ts';
 import { parseStatusView } from '../src/status-document.ts';
 import { findSecretLeak } from '../src/redaction.ts';
@@ -217,6 +217,26 @@ function ledgerRowsIn(strings: readonly string[]): readonly string[] {
     return strings.filter((text) => text.startsWith('#'));
 }
 
+/**
+ * The titles of the list the last mount rendered — the vocabulary mapping.
+ *
+ * `view.strings` reads only the **top-level** string props of a mount, and a
+ * list's titles live one level down inside `items`, so they need their own
+ * read.
+ *
+ * @returns The entries in paint order.
+ */
+function mountedVocabulary(): readonly string[] {
+    const last = mounts.log.filter((entry) => entry.key === 'mountList').at(-1);
+    if (last === undefined) {
+        return [];
+    }
+
+    const props = last.props as { readonly items?: readonly { readonly title?: string }[] };
+
+    return (props.items ?? []).map((item) => item.title ?? '');
+}
+
 /** Correlation id the ledger fixtures carry. */
 const CORRELATION = 'mt-correlation';
 
@@ -334,7 +354,14 @@ describe('an unreachable service keeps the static content (AC-132, AC-134, FR-07
         expect(text).toContain('Mecha Turk — panel id: mecha-turk');
         expect(text).toContain('Version source: the local service');
         expect(text).toContain('not read yet — the Status tab');
-        expect(text).toContain(VOCABULARY_SHORT_FORM);
+        // The mapping renders as its heading (one prose line) plus its list
+        // entries — `view.strings` reads only the top-level string props of a
+        // mount, and a list's titles live one level down inside `items`.
+        expect(text).toContain(VOCABULARY_HEADING);
+        expect(mountedVocabulary()).toEqual(VOCABULARY_ITEMS);
+        // …and the two still reassemble the one constant byte for byte.
+        expect([VOCABULARY_HEADING, ...VOCABULARY_ITEMS.map((entry) => `- ${entry}`)].join('\n'))
+            .toBe(VOCABULARY_SHORT_FORM);
         expect(text).toContain('never removes them');
         expect(text).toContain("OpenChamber's own Sessions and Worktrees surfaces");
         expect(text).toContain('pre-release');
@@ -383,11 +410,13 @@ describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)'
         view.dispose();
     });
 
-    it('offers no list, no selection, and no control but the re-read (FR-084)', async () => {
+    it('offers one display-only list, no select, and no control but the re-read (FR-084)', async () => {
         const view = await mountAbout({ answer: healthyService });
         const keys = mounts.log.map((entry) => entry.key);
 
-        expect(keys).not.toContain('mountList');
+        // Exactly one list — the vocabulary mapping — and its rows are
+        // definitions, never a selection the tab acts on.
+        expect(keys.filter((key) => key === 'mountList')).toHaveLength(1);
         expect(keys).not.toContain('mountSelect');
         expect(keys.filter((key) => key === 'mountButton')).toHaveLength(1);
         expect(view.created.map((element) => element.tagName)).not.toContain('input');
