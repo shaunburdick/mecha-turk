@@ -384,10 +384,11 @@
              * cannot line up. The three-column table and its header are a
              * wide-viewport enhancement (block 2, at 900px), never a shape
              * the layout has to fall *out* of when the panel is narrow.
+             *
+             * The rule that hides the header is declared after `.mt-head`
+             * (below), where source order can settle the cascade — see the
+             * note there for why its position is the whole fix.
              */
-            .mt-head--settings {
-                display: none;
-            }
 
             .mt-grid {
                 display: flex;
@@ -545,6 +546,24 @@
                 letter-spacing: 0.07em;
                 color: var(--mt-dim);
                 border-bottom: 1px solid color-mix(in srgb, var(--mt-line) 60%, transparent);
+            }
+
+            /*
+             * The Settings header, narrow: gone, because the stack it would
+             * label has one column — three labels over it read as orphaned
+             * words, not as a table's head (the 560px frame, 2026-10-01
+             * review).
+             *
+             * Its *position* is the fix. `.mt-head` and `.mt-head--settings`
+             * weigh the same (0,1,0), so the later declaration wins; back in
+             * the Settings section this rule lost to `.mt-head`'s `display`
+             * and never took effect. Declared after the base rule it now wins
+             * by source order — no `!important` — and block 2's
+             * `display: grid` at 900px is later still, so the header comes
+             * back at the width that has three columns to hang it over.
+             */
+            .mt-head--settings {
+                display: none;
             }
 
             /*

@@ -15,6 +15,9 @@
  * - **Hidden** — an element the shell hid is out of the layout, whichever
  *   author rule would otherwise paint it (`.mt-block`, the SDK's button, or an
  *   inline `style.display`).
+ * - **The width regimes** — the Settings header is `none` over the
+ *   one-column rail and a grid only under the 900px query, which is the
+ *   answer source order gives and not the one the 560px frame got.
  * - **The strip contract** — the layout rules the A3 pass pinned are still in
  *   `panel/index.html`, because a redesign that squeezes the tab strip is a
  *   redesign that broke the panel.
@@ -194,6 +197,23 @@ function withoutHidingRules(source: readonly StyleRule[], selectors: readonly st
     return source.filter((rule) => !rule.selectors.some((selector) => selectors.includes(selector)));
 }
 
+/** The Settings header's modifier, which the narrow default and the wide return share. */
+const SETTINGS_HEAD_SELECTOR = '.mt-head--settings';
+
+/**
+ * The stylesheet with the Settings header's narrow default stripped.
+ *
+ * This is the reading a non-vacuity case falls back to: with the rule gone
+ * `.mt-head`'s `display: grid` is the only declaration left, so a narrow
+ * assertion that still answered `none` would be asserting nothing.
+ *
+ * @param rules - The rules to filter.
+ * @returns Every rule but the unguarded one, in their original order.
+ */
+function withoutNarrowDefault(rules: readonly StyleRule[]): readonly StyleRule[] {
+    return rules.filter((rule) => !(rule.media === null && rule.selectors.includes(SETTINGS_HEAD_SELECTOR)));
+}
+
 /**
  * The service's answers: one status document, and nothing else.
  *
@@ -316,6 +336,91 @@ describe('the list surfaces carry the header rows their columns hang from', () =
         for (const [modifier, cells] of HEADER_CELLS) {
             expect(cellsOf(modifier), modifier).toEqual(cells);
         }
+    });
+});
+
+/**
+ * Settings is one column on a rail, and a header over it would only stack
+ * three labels the rows below cannot line up under — so the header is a
+ * wide-viewport enhancement, hidden until the query block 2 declares the
+ * `18rem | 1fr | 15rem` return under.
+ *
+ * The 560px frame caught the opposite: `Field` / `Value` / `Shape and
+ * default` painted as three orphaned words over the single column, because
+ * `.mt-head--settings` used to be declared *before* `.mt-head` at equal
+ * specificity (0,1,0) and the later `display: grid` won. What is pinned here
+ * is therefore the cascade's answer at each width — the fix is the rule's
+ * position, so a later equal-specificity rule that undoes it again is caught
+ * here rather than in a screenshot.
+ */
+describe('the Settings header is hidden over the single-column rail', () => {
+    /** The `@media` prelude block 2 declares the three-column return under. */
+    const WIDE = '@media (min-width: 900px)';
+
+    /** The header as `src/settings-mount.ts` mounts it: two class words. */
+    const settingsHead: ProbeElement = {
+        tag: 'div',
+        classes: ['mt-head', 'mt-head--settings'],
+        position: 1,
+        childCount: 3,
+    };
+
+    /**
+     * Resolve the header's `display` under one set of media.
+     *
+     * @param media - The media preludes in force.
+     * @returns The winning declaration, or null when none declares `display`.
+     */
+    function settingsHeadDisplay(media: ReadonlySet<string>): string | null {
+        return cascadedDisplay({ rules: PANEL_RULES, element: settingsHead, media });
+    }
+
+    it('reads the narrow default and the wide return as two distinct rules', () => {
+        const narrow = PANEL_RULES.filter(
+            (rule) => rule.media === null && rule.selectors.includes(SETTINGS_HEAD_SELECTOR),
+        );
+        const wide = PANEL_RULES.filter(
+            (rule) => rule.media === WIDE && rule.selectors.includes(SETTINGS_HEAD_SELECTOR),
+        );
+
+        expect(narrow, 'the unguarded narrow default').toHaveLength(1);
+        expect(wide, 'the guarded wide return').toHaveLength(1);
+        expect(mediaVariants(PANEL_RULES).some((media) => media.has(WIDE))).toBe(true);
+        expect(mediaVariants(PANEL_RULES).some((media) => !media.has(WIDE))).toBe(true);
+    });
+
+    it('gives it `none` under every reading that carries no wide return', () => {
+        for (const media of mediaVariants(PANEL_RULES)) {
+            if (media.has(WIDE)) {
+                continue;
+            }
+
+            const reading = [...media].join(', ');
+
+            expect(settingsHeadDisplay(media), `settings head at ${reading === '' ? 'the rail' : reading}`).toBe(
+                'none',
+            );
+        }
+    });
+
+    it('gives it a grid under every reading that carries the wide return', () => {
+        for (const media of mediaVariants(PANEL_RULES)) {
+            if (!media.has(WIDE)) {
+                continue;
+            }
+
+            expect(settingsHeadDisplay(media), `settings head at ${[...media].join(', ')}`).toBe('grid');
+        }
+    });
+
+    it('would not be hidden if the narrow default were stripped', () => {
+        const without = withoutNarrowDefault(PANEL_RULES);
+
+        expect(without).toHaveLength(PANEL_RULES.length - 1);
+        expect(
+            cascadedDisplay({ rules: without, element: settingsHead, media: NO_MEDIA }),
+            'the header the stripped sheet would paint',
+        ).toBe('grid');
     });
 });
 
