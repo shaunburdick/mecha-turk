@@ -234,10 +234,23 @@ describe('AC-136 / SC-108 one loop and one session across a mid-flight switch', 
             expect(rt.state.relay.timer).toBe(armed);
 
             // The switch happens while that first tick is still in flight —
-            // the case AC-136 is about — so nothing below waits for it first.
+            // the case AC-136 is about. Arming runs the first tick up to its
+            // first await synchronously, and nothing between the arm and here
+            // yields, so the tick is provably mid-flight while the tabs
+            // switch; the assertion pins that precondition instead of leaving
+            // it to the comment.
             rt.shell?.activate('settings');
             rt.shell?.activate('dispatches');
-            for (let attempt = 0; attempt < 100 && loop.sessions.length === 0; attempt += 1) {
+            expect(rt.state.relay.inFlight).toBe(true);
+
+            // Wait on the loop's own completion signal rather than a fixed
+            // tick budget: `pollRelay` sets `inFlight` before its first await
+            // and clears it in its `finally`, so once this loop exits the
+            // armed first tick has fully finished — however many event-loop
+            // turns (or milliseconds, under load) it needed. A tick that
+            // never finishes still fails through the test timeout instead of
+            // masquerading as "never dispatched".
+            while (rt.state.relay.inFlight) {
                 await tick();
             }
 
