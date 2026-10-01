@@ -26,7 +26,6 @@ import {
 import { repaintPrerequisites } from './prerequisites.ts';
 import { repaintBindingsPane } from './bindings-ui.ts';
 import type { PanelRuntime, PanelState } from './panel-state.ts';
-import { mountStyledText } from './style.ts';
 
 /** Callbacks the mounted controls invoke. */
 export interface PanelHandlers {
@@ -38,12 +37,10 @@ export interface PanelHandlers {
     readonly copyProjectId: () => void;
 }
 
-/** The root framing: the banner and the one-line summary. */
+/** The root framing: the banner above the prerequisite and tab strip. */
 export interface PanelUi {
     /** Status banner. */
     banner: BannerHandle;
-    /** Context summary line. */
-    summary: TextHandle;
 }
 
 /** The project picker's handles; they live inside the Bindings tab body. */
@@ -138,92 +135,23 @@ export function mountProjectPicker(input: {
 }
 
 /**
- * Mount the panel's root framing: the banner and the one-line summary.
+ * Mount the panel's root framing: the banner above the tab strip.
  *
- * These two are what the panel root keeps that is *not* a tab (plan §The
- * shell): the banner is the read-state framing every tab shares, so it mounts
- * once above the strip and never moves.
+ * The banner is the read-state framing every tab shares, so it mounts once
+ * above the strip and never moves (plan §The shell). The root carries
+ * **nothing else** that is not a tab: the context summary line the panel used
+ * to print here (`bindings: … · accounts: … · identity: … · ledger: …`) was
+ * removed by the 2026-10-01 product-owner review — every fact it carried
+ * already has a tab that owns it, and a second home for a fact is a second
+ * place it can drift from.
  *
  * @param root - Panel root element from `panel/index.html`.
- * @returns The two handles the repaint path updates.
+ * @returns The one handle the repaint path updates.
  */
 export function mountPanelFraming(root: HTMLElement): PanelUi {
     const banner = mountBanner(root, { tone: 'info', title: 'Mecha Turk', body: 'Waiting for the host.' });
-    // The summary is framing, not content: it sits above the tab strip on
-    // every tab, so it takes the same dim treatment the tabs give their own
-    // ledes rather than reading as a headline in full ink (2026-10-01 review).
-    const summary = mountStyledText(root, { className: 'mt-lede', text: 'Starting…' });
 
-    return { banner, summary };
-}
-
-/**
- * Build the identity segment of the one-line context summary.
- *
- * Only the **service** account identifies a scan: it is the credential the
- * poll loop and the relay act under, so the line names it and nothing else.
- * The legacy host-integration login and the spike's configured-match verdict
- * are gone with the card settings and the single-repo path (002 FR-041), so
- * there is no second identity to report and no wording left that could call
- * an operating panel "not authenticated".
- *
- * @param state - Panel state.
- * @returns The `identity: …` segment of the summary.
- */
-function identityLine(state: PanelState): string {
-    const { connected } = state.handoff;
-
-    return connected === null ? 'identity: no service account yet' : `identity: ${connected.login} (service)`;
-}
-
-/**
- * Build the bindings segment of the summary (FR-020: the panel says
- * *bindings*, never *repositories*).
- *
- * @param state - Panel state.
- * @returns The `bindings: …` segment of the summary.
- */
-function bindingsLine(state: PanelState): string {
-    const rows = state.bindings.bindings;
-    if (rows.length === 0) {
-        return 'bindings: none yet';
-    }
-
-    const enabled = rows.filter((row) => row.state === 'active').length;
-
-    return `bindings: ${rows.length} (${enabled} enabled)`;
-}
-
-/**
- * Build the accounts segment of the summary (FR-030).
- *
- * @param state - Panel state.
- * @returns The `accounts: …` segment of the summary.
- */
-function accountsLine(state: PanelState): string {
-    const rows = state.bindings.accounts;
-
-    return rows.length === 0 ? 'accounts: none yet' : `accounts: ${rows.length}`;
-}
-
-/**
- * Build the one-line context summary.
- *
- * Four segments, each a fact the panel actually holds: what is bound, how
- * many accounts back it, which service account acts, and how much ledger the
- * mount has written. The spike-era `repository:` and `match:` segments are
- * gone with the single-repo path (002 FR-041), so nothing here can describe a
- * configuration the product no longer has.
- *
- * Exported so each segment's truthfulness can be asserted without a live DOM.
- *
- * @param state - Panel state.
- * @returns Plain text describing bindings, accounts, identity, and the ledger.
- */
-export function summarizeState(state: PanelState): string {
-    const storage = `ledger: generation ${state.ledger.panelGeneration}, ${state.ledger.entries.length} entries`;
-
-    return [bindingsLine(state), accountsLine(state), identityLine(state), storage].join(' · ');
+    return { banner };
 }
 
 /**
@@ -269,7 +197,6 @@ export function refresh(rt: PanelRuntime): void {
     if (ui !== null) {
         const { state } = rt;
         ui.banner.update({ tone: state.status.tone, title: state.status.title, body: state.status.body });
-        ui.summary.update({ text: summarizeState(state) });
     }
 
     const { bindingsUi, dispatchesUi, pickerUi, accountsUi } = rt;

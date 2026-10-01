@@ -56,12 +56,11 @@ export function stubHandle<P>(): Handle<P> & { readonly paints: () => number } {
  * without it; the framing tests need the opposite — a UI that lets `refresh`
  * run all the way to the banner without a real DOM.
  *
- * @returns The root framing stub: banner and summary.
+ * @returns The root framing stub: the banner.
  */
 export function stubPanelUi(): PanelUi {
     return {
         banner: stubHandle(),
-        summary: stubHandle(),
     };
 }
 
