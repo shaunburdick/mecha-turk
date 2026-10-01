@@ -81,6 +81,26 @@
                 gap: var(--mt-gap);
             }
 
+            /*
+             * Exactly one body is in the layout; the other five are out of it.
+             *
+             * `src/tabs.ts` paints the shell by writing the `hidden` attribute
+             * onto the five bodies that are not active — but the UA sheet's
+             * `[hidden] { display: none }` is origin-weak, so the author rule
+             * above (0,1,0) beats it outright and every body stayed `flex`.
+             * The region's `scrollHeight` then summed all six, a tab click
+             * moved only the pill, and `npm run shot` photographed a scroll
+             * position rather than a selection.
+             *
+             * Two attribute selectors score (0,2,0): they outrank the rule
+             * above whatever the order, they outrank the UA sheet on origin
+             * alone, and they cannot match anything but a body the shell has
+             * actually marked hidden.
+             */
+            [data-body][hidden] {
+                display: none;
+            }
+
             /* ---------------------------------------------------------------- *
              * Blocks: every logical group gets a heading and its own surface.
              * ---------------------------------------------------------------- */

@@ -28,9 +28,12 @@ import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import { loadStatus } from '../src/status-tab.ts';
 import type { PanelHandlers } from '../src/panel-ui.ts';
+import { cascadedDisplay } from './support/cascade.ts';
+import type { ProbeElement } from './support/cascade.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeDom } from './support/dom.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { mediaVariants, parseStylesheet, styleText } from './support/stylesheet.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -314,5 +317,103 @@ describe('the Status tab renders structure instead of loose lines', () => {
         }
 
         expect(badges.map((badge) => badge.label)).toContain('not checkable by the panel');
+    });
+});
+
+/**
+ * The shell paints with the `hidden` attribute; only the cascade can take a
+ * body out of the layout. The defect the screenshot harness caught was here:
+ * the author rule `[data-body] { display: flex }` outranks the UA sheet's
+ * `[hidden]`, so all six bodies stayed in the region, its `scrollHeight` summed
+ * them, and a tab click moved only the pill. The fake DOM this suite mounts
+ * into computes no styles, so these assertions read the shipped stylesheet and
+ * resolve it instead — and the last case proves the fence is not vacuous.
+ */
+describe('exactly one tab body is in the layout', () => {
+    const html = readFileSync(resolve(import.meta.dirname, '../panel/index.html'), 'utf8');
+    const rules = parseStylesheet(styleText(html));
+
+    /** The region the six bodies hang from, as `src/tabs.ts` builds it. */
+    const region: ProbeElement = {
+        tag: 'div',
+        attributes: Object.fromEntries([['data-body-region', 'true']]),
+        childCount: TAB_IDS.length,
+    };
+
+    /**
+     * One body container: classless, so only attribute selectors can reach it.
+     *
+     * @param input - Which body, and whether the shell marked it hidden.
+     * @returns The element the cascade is asked about.
+     */
+    function bodyProbe(input: { readonly id: string; readonly hidden: boolean }): ProbeElement {
+        const attributes: Record<string, string> = { role: 'tabpanel' };
+        attributes['data-body'] = input.id;
+
+        if (input.hidden) {
+            attributes.hidden = '';
+        }
+
+        return {
+            tag: 'div',
+            classes: [],
+            attributes,
+            position: 1,
+            childCount: TAB_IDS.length,
+            parent: region,
+        };
+    }
+
+    /**
+     * Resolve one body's `display` under one set of media.
+     *
+     * @param input - The body id, whether it is hidden, and the media in force.
+     * @returns The winning `display`, or null when no rule declares one.
+     */
+    function displayOf(input: {
+        readonly id: string;
+        readonly hidden: boolean;
+        readonly media: ReadonlySet<string>;
+    }): string | null {
+        return cascadedDisplay({
+            rules,
+            element: bodyProbe({ id: input.id, hidden: input.hidden }),
+            media: input.media,
+        });
+    }
+
+    it('parses a real stylesheet rather than a fragment of one', () => {
+        expect(rules.length).toBeGreaterThan(30);
+        expect(mediaVariants(rules).length).toBeGreaterThan(1);
+    });
+
+    it('takes every hidden body out of the layout, under every media reading', () => {
+        for (const media of mediaVariants(rules)) {
+            for (const id of TAB_IDS) {
+                const joined = [...media].join(', ');
+                const reading = joined === '' ? 'no media' : joined;
+
+                expect(displayOf({ id, hidden: true, media }), `${id} hidden at ${reading}`).toBe('none');
+            }
+        }
+    });
+
+    it('leaves the active body in it, as the flex stack the shell needs', () => {
+        for (const media of mediaVariants(rules)) {
+            expect(displayOf({ id: 'status', hidden: false, media }), 'status shown').toBe('flex');
+        }
+    });
+
+    it('would fail against the stylesheet as it was before the fix', () => {
+        const without = rules.filter((rule) => !rule.selectors.includes('[data-body][hidden]'));
+
+        expect(without).toHaveLength(rules.length - 1);
+        expect(
+            cascadedDisplay({
+                rules: without,
+                element: bodyProbe({ id: 'settings', hidden: true }),
+                media: new Set<string>(),
+            }),
+        ).toBe('flex');
     });
 });
