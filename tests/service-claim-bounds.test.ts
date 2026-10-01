@@ -62,6 +62,42 @@ const ACCOUNT_ID = '77331';
 const LOG_LINES: string[] = [];
 const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
 
+/**
+ * Time budget for the two-full-reference-run proof, sized to its measured
+ * workload rather than vitest's 5-second default (same treatment as
+ * SC-101's `TRIALS_BUDGET_MS` in `crash-permutations.test.ts`).
+ *
+ * The body's cost is fixture construction through the **real** enqueue path,
+ * measured per phase on an idle machine (2026-10-01, 4 cores):
+ *
+ * - `seed(2)` ≈ 5.5 ms; each `joinFullReferenceList(199)` ≈ 58–109 ms;
+ *   `claim()` ≈ 5 ms; assertions < 1 ms → **145–190 ms total** (n = 8).
+ * - Why a join costs that: each `joinFullReferenceList` appends 398 audit
+ *   rows — 796 of the 802 this body writes — each a separate
+ *   open+append+**fsync**+close at a measured 0.133 ms/append (50 appends =
+ *   6.64 ms), plus full-document reads/writes of `runs.json` (125 KB) and
+ *   `events.json` (485 KB) on every enqueue. The audit trail alone is ≈106 ms.
+ * - Under load (8 CPU burners on 4 cores, trapped and capped): 238–385 ms
+ *   isolated (n = 5); 230–304 ms inside the full 101-file suite (suite 22.8 s
+ *   vs 9.5 s idle) — i.e. CPU contention inflates the body only ≈2.4×.
+ *
+ * CI run 36922150968 crossed 5000 ms while a sibling run of the same commit
+ * passed: ≥13× the worst locally loaded observation, and it takes those 796
+ * sequential fsyncs averaging ≈6.3 ms (≈47× the measured idle 0.133 ms) to
+ * reach — runner-side storage queueing, not CPU, and not reproducible with
+ * CPU-only load here.
+ *
+ * The work cannot be made cheaper without changing what the test measures:
+ * the answer's excerpt text and title come from `events.json` delivery rows
+ * (`projectReferences` reads `deliveries.get(...)?.issueBodyExcerpt`), so the
+ * fixture must go through `enqueueEvents`, which writes two fsync'd audit rows
+ * per delivery. 30 s ≈ 6× the observed CI failure and the same
+ * order-of-magnitude margin SC-101 chose — and it binds **this test only**:
+ * the other 1652 keep the 5-second default, so a real regression there still
+ * fails loudly.
+ */
+const FULL_REFERENCE_BUDGET_MS = 30_000;
+
 let tempRoot = '';
 let dataDir = '';
 let store: ServiceStore;
@@ -186,7 +222,7 @@ describe('T-039 the answer is bounded and the page is complete', () => {
         // is bounded, and that is what brings the page under the ceiling.
         expect(result.runs.every((run) => run.sourceReferences.length === MAX_SOURCE_REFERENCES)).toBe(true);
         expect(result.deferred).toBe(0);
-    });
+    }, FULL_REFERENCE_BUDGET_MS);
 
     it('answers 200 within the ceiling for 300 single-reference runs', async () => {
         await seed(300);
