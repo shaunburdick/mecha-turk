@@ -34,7 +34,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
-import { readServiceEnv, ServiceEnvError } from '../service/env.ts';
+import { readServiceEnv } from '../service/env.ts';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
@@ -395,21 +395,5 @@ describe('FR-092 / AC-153: exactly one operator input per field, the interval be
         // The row builder itself knows nothing about the panel cadence: it
         // mounts one control per projected descriptor and no other (FR-014).
         expect(trackedText('src/settings-rows.ts')).not.toContain('pollIntervalMs');
-    });
-});
-
-describe('FR-004: the manifest identity and capability posture are unchanged', () => {
-    it('declares exactly the two capabilities and no service permissions', () => {
-        const { contributes } = manifest().openchamber;
-
-        expect(contributes.capabilities).toEqual(['sessions', 'prompt']);
-        expect('permissions' in contributes.service).toBe(false);
-    });
-
-    it('keeps the environment reader as the single fail-closed gate', () => {
-        // The reader exists, refuses, and is the only place the pair is read —
-        // so "exits naming the variable" is a property of one function.
-        expect(typeof readServiceEnv).toBe('function');
-        expect(new ServiceEnvError('x').name).toBe('ServiceEnvError');
     });
 });

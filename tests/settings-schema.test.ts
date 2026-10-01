@@ -79,33 +79,39 @@ describe('the reader accepts the document the service actually sends (T-017)', (
 });
 
 describe('every malformed envelope shape refuses (T-017, FR-003)', () => {
-    it('refuses bodies that are not an envelope at all', () => {
-        expect(parseConfigEnvelope('not json')).toBeNull();
-        expect(parseConfigEnvelope('[]')).toBeNull();
-        expect(parseConfigEnvelope('{"config":{}')).toBeNull();
-        expect(parseConfigEnvelope('{"fields":[],"source":"stored","defaultsApplied":[]}')).toBeNull();
-        expect(parseConfigEnvelope('{"config":{},"source":"stored","defaultsApplied":[]}')).toBeNull();
-        expect(parseConfigEnvelope('{"config":{},"fields":[],"defaultsApplied":[]}')).toBeNull();
-        expect(parseConfigEnvelope('{"config":{},"fields":[],"source":"stored"}')).toBeNull();
-    });
+    it('refuses every body, source, descriptor, and member shape this build will not read', () => {
+        const notAnEnvelope: readonly string[] = [
+            'not json',
+            '[]',
+            '{"config":{}',
+            '{"fields":[],"source":"stored","defaultsApplied":[]}',
+            '{"config":{},"source":"stored","defaultsApplied":[]}',
+            '{"config":{},"fields":[],"defaultsApplied":[]}',
+            '{"config":{},"fields":[],"source":"stored"}',
+        ];
+        for (const body of notAnEnvelope) {
+            expect(parseConfigEnvelope(body), `not an envelope: ${body.slice(0, 40)}`).toBeNull();
+        }
 
-    it('refuses a source outside the documented set', () => {
-        expect(parseConfigEnvelope(envelopeBody({ source: 'from-the-future' }))).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ source: null }))).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ source: 7 }))).toBeNull();
-    });
+        for (const source of ['from-the-future', null, 7]) {
+            expect(
+                parseConfigEnvelope(envelopeBody({ source })),
+                `source ${JSON.stringify(source)} is outside the documented set`,
+            ).toBeNull();
+        }
 
-    it('refuses a descriptor whose kind or class this build does not know', () => {
         const base = configSchema()[0];
         expect(base).toBeDefined();
+        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...base, kind: 'float' }] })), 'an unknown kind')
+            .toBeNull();
+        expect(
+            parseConfigEnvelope(envelopeBody({ fields: [{ ...base, takesEffect: 'someday' }] })),
+            'an unknown take-effect class',
+        ).toBeNull();
+        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...base, name: 42 }] })), 'a non-text name')
+            .toBeNull();
+        expect(parseConfigEnvelope(envelopeBody({ fields: ['intervalMs'] })), 'a bare field name').toBeNull();
 
-        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...base, kind: 'float' }] }))).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...base, takesEffect: 'someday' }] }))).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...base, name: 42 }] }))).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ fields: ['intervalMs'] }))).toBeNull();
-    });
-
-    it('refuses a descriptor missing a member its kind requires', () => {
         const integer = configSchema().find((descriptor) => descriptor.kind === 'integer');
         const enumeration = configSchema().find((descriptor) => descriptor.kind === 'enum');
         const text = configSchema().find((descriptor) => descriptor.kind === 'string');
@@ -113,25 +119,53 @@ describe('every malformed envelope shape refuses (T-017, FR-003)', () => {
         expect(enumeration).toBeDefined();
         expect(text).toBeDefined();
 
-        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...integer, min: undefined }] }))).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...integer, unit: null }] }))).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...enumeration, values: 'info' }] }))).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...enumeration, unit: 'levels' }] }))).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...text, maxLength: '80' }] }))).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...text, format: null }] }))).toBeNull();
-    });
+        expect(
+            parseConfigEnvelope(envelopeBody({ fields: [{ ...integer, min: undefined }] })),
+            'an integer without min',
+        ).toBeNull();
+        expect(
+            parseConfigEnvelope(envelopeBody({ fields: [{ ...integer, unit: null }] })),
+            'an integer without unit',
+        ).toBeNull();
+        expect(
+            parseConfigEnvelope(envelopeBody({ fields: [{ ...enumeration, values: 'info' }] })),
+            'an enum without its value list',
+        ).toBeNull();
+        expect(
+            parseConfigEnvelope(envelopeBody({ fields: [{ ...enumeration, unit: 'levels' }] })),
+            'an enum without its unit',
+        ).toBeNull();
+        expect(
+            parseConfigEnvelope(envelopeBody({ fields: [{ ...text, maxLength: '80' }] })),
+            'a string with a text maxLength',
+        ).toBeNull();
+        expect(
+            parseConfigEnvelope(envelopeBody({ fields: [{ ...text, format: null }] })),
+            'a string without its format',
+        ).toBeNull();
 
-    it('refuses members it cannot type as a *document*, and lists them as values it cannot type', () => {
-        expect(parseConfigEnvelope(envelopeBody({ config: { intervalMs: 'soon' }, fields: [] }))).not.toBeNull();
-        expect(parseConfigEnvelope('{"config":[],"fields":[],"source":"stored","defaultsApplied":[]}')).toBeNull();
-        expect(parseConfigEnvelope('{"config":"nope","fields":[],"source":"stored","defaultsApplied":[]}')).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ defaultsApplied: [1, 2] }))).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ defaultsApplied: 'expectedAgent' }))).toBeNull();
+        expect(
+            parseConfigEnvelope(envelopeBody({ config: { intervalMs: 'soon' }, fields: [] })),
+            'a member it cannot type still reads as a document',
+        ).not.toBeNull();
+        expect(
+            parseConfigEnvelope('{"config":[],"fields":[],"source":"stored","defaultsApplied":[]}'),
+            'an array document',
+        ).toBeNull();
+        expect(
+            parseConfigEnvelope('{"config":"nope","fields":[],"source":"stored","defaultsApplied":[]}'),
+            'a text document',
+        ).toBeNull();
+        expect(parseConfigEnvelope(envelopeBody({ defaultsApplied: [1, 2] })), 'numeric filled keys').toBeNull();
+        expect(
+            parseConfigEnvelope(envelopeBody({ defaultsApplied: 'expectedAgent' })),
+            'a text filled-keys member',
+        ).toBeNull();
     });
 });
 
 describe('vocabulary this reader has no reason to interpret passes through verbatim (FR-021)', () => {
-    it('keeps an accepted value this build does not recognise, un-mapped', () => {
+    it('keeps an unknown enum value and an unknown filled-key name as themselves', () => {
         const enumeration = configSchema().find((descriptor) => descriptor.kind === 'enum');
         expect(enumeration).toBeDefined();
         const withFutureLevel = configSchema().map((descriptor) =>
@@ -151,12 +185,9 @@ describe('vocabulary this reader has no reason to interpret passes through verba
         // The unknown name is the service's own; it is rendered as itself, and
         // nothing maps it onto a level this build happens to know.
         expect(level.values).toContain('trace');
-    });
 
-    it('keeps a filled-key name it does not know, rather than dropping it', () => {
-        const envelope = read(envelopeBody({ defaultsApplied: ['aFieldFromTheFuture'] }));
-
-        expect(envelope.defaultsApplied).toEqual(['aFieldFromTheFuture']);
+        const unknownKey = read(envelopeBody({ defaultsApplied: ['aFieldFromTheFuture'] }));
+        expect(unknownKey.defaultsApplied).toEqual(['aFieldFromTheFuture']);
     });
 });
 

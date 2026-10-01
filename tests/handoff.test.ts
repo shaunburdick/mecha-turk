@@ -163,16 +163,16 @@ describe('host transport failures (F1–F4, F16, panel-service §1)', () => {
         ['BAD_PATH', 'Malformed request path'],
     ];
 
-    for (const [code, phrase] of HOST_FAILURES) {
-        it(`clears the credential and surfaces copy for ${code}`, async () => {
+    it('clears the credential and surfaces copy for every host transport failure', async () => {
+        for (const [code, phrase] of HOST_FAILURES) {
             const host = await scriptedRuntime(serviceScript({ throws: code }));
 
             await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
-            expect(host.record.note).toContain(phrase);
+            expect(host.record.note, `${code} copy`).toContain(phrase);
             expectNoCredential(host);
-        });
-    }
+        }
+    });
 
     it('re-reads /v1/status after a timeout and adopts the account that appeared (F4)', async () => {
         const appeared = JSON.stringify({
@@ -215,17 +215,17 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
         [502, 'upstream-unavailable', 'could not be reached'],
     ];
 
-    for (const [status, code, phrase] of SERVICE_FAILURES) {
-        it(`clears the credential and surfaces copy for ${code}`, async () => {
+    it('clears the credential and surfaces copy for every service refusal', async () => {
+        for (const [status, code, phrase] of SERVICE_FAILURES) {
             const envelope = JSON.stringify({ error: { code, message: 'contract-fixed' } });
             const host = await scriptedRuntime(serviceScript({ status, body: envelope }));
 
             await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
-            expect(host.record.note).toContain(phrase);
+            expect(host.record.note, `${code} copy`).toContain(phrase);
             expectNoCredential(host);
-        });
-    }
+        }
+    });
 
     it('renders reason-specific copy for a credential rejection (AC-003)', async () => {
         const envelope = JSON.stringify({

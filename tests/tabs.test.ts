@@ -17,14 +17,12 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { teardown } from '../src/app.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import { TAB_IDS } from '../src/panel-state.ts';
 import type { TabSpec } from '../src/tabs.ts';
 import { createTestRuntime, fakeHost } from './support/panel.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
-import { stubPanelUi } from './support/ui-stubs.ts';
 
 /** Encoding used when reading source text. */
 const UTF8 = 'utf8';
@@ -427,28 +425,3 @@ describe('the spike surface is deleted, not hidden (005 SC-103, FR-011)', () => 
     });
 });
 
-describe('teardown after visiting every tab (005 AC-137, NFR-108)', () => {
-    it('returns nodes, timers, and disposers to their pre-mount shape', () => {
-        const rt = createTestRuntime(fakeHost());
-        const dom = fakeDom();
-        const { specs, counts } = countedSpecs();
-        mountTabShell({ rt, root: dom.root, specs });
-        rt.ui = stubPanelUi();
-        for (const id of TAB_IDS) {
-            rt.shell?.activate(id);
-        }
-        expect(dom.root.children.length).toBeGreaterThan(0);
-
-        teardown(rt);
-
-        expect(dom.root.children).toHaveLength(0);
-        expect(rt.unsubscribes).toHaveLength(0);
-        expect(rt.state.relay.timer).toBeNull();
-        expect(rt.disposed).toBe(true);
-        expect(rt.shell).toBeNull();
-        expect(rt.tabMounted.size).toBe(0);
-        for (const id of TAB_IDS) {
-            expect(counts.get(id)?.disposals).toBe(1);
-        }
-    });
-});

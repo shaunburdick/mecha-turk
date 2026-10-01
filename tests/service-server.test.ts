@@ -278,20 +278,22 @@ describe('bearer authentication on every wave-1 route', () => {
         { method: GET_METHOD, path: STATUS_PATH },
     ];
 
-    for (const route of routes) {
-        it(`refuses ${route.method} ${route.path} with a missing or wrong token`, async () => {
-            const service = await startServiceForTest();
+    it('refuses every wave-1 route with a missing or wrong token, byte-identically', async () => {
+        const service = await startServiceForTest();
+
+        for (const route of routes) {
             const missing = await fetch(`${service.baseUrl}${route.path}`, { method: route.method });
             const wrong = await fetch(`${service.baseUrl}${route.path}`, {
                 method: route.method,
                 headers: { authorization: `${BEARER_PREFIX}${WRONG_TOKEN}` },
             });
 
-            expect(missing.status).toBe(401);
-            expect(wrong.status).toBe(401);
-            expect(await wrong.text()).toBe(await missing.text());
-        });
-    }
+            expect(missing.status, `${route.method} ${route.path} missing token`).toBe(401);
+            expect(wrong.status, `${route.method} ${route.path} wrong token`).toBe(401);
+            expect(await wrong.text(), `${route.method} ${route.path} refusal body`)
+                .toBe(await missing.text());
+        }
+    });
 });
 
 describe('GET /health', () => {

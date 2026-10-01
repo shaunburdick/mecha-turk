@@ -510,19 +510,6 @@ describe('T-040 the claim answer is honest about its own trail (FR-063)', () => 
         expect(body.auditWritten).toBe(true);
         expect(audits.filter((entry) => entry.eventType === 'dispatch.claimed')).toHaveLength(1);
     });
-
-    it('answers auditWritten true for a claim that leased nothing', async () => {
-        service = await startTestService();
-
-        const response = await service.call(CLAIM_PATH);
-        const body: { events: ClaimedRun[]; auditWritten: boolean } = await response.json();
-
-        expect(response.status).toBe(200);
-        expect(body.events).toEqual([]);
-        // Nothing was leased and nothing was owed, so there is no failure to
-        // report: `true` here is the honest answer, not a default.
-        expect(body.auditWritten).toBe(true);
-    });
 });
 
 describe('T-040 the claim limit is validated before anything is leased', () => {

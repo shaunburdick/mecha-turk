@@ -17,8 +17,6 @@
  * their pure builders and their state, never through a browser.
  */
 
-import { readFileSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadStatus } from '../src/status-tab.ts';
 import {
@@ -373,11 +371,9 @@ describe('parseStatusView (fail closed, AGENTS invariant 8)', () => {
         expect(view.supported).toBe(true);
     });
 
-    it('refuses a body that is not JSON', () => {
-        expect(parseStatusView('not json')).toBeNull();
-    });
+    it('refuses every malformed document shape rather than defaulting any of it', () => {
+        expect(parseStatusView('not json'), 'a body that is not JSON').toBeNull();
 
-    it('refuses a document that is missing a required member', () => {
         for (const member of ['service', 'accounts', 'repositories', 'polling', 'agentPin', 'surface']) {
             const document = statusFixture();
             const partial: Record<string, unknown> = {};
@@ -387,31 +383,27 @@ describe('parseStatusView (fail closed, AGENTS invariant 8)', () => {
                 }
             }
 
-            expect(parseStatusView(bodyOf(partial))).toBeNull();
+            expect(parseStatusView(bodyOf(partial)), `a document missing ${member}`).toBeNull();
         }
-    });
 
-    it('refuses a partially typed service block rather than defaulting it', () => {
-        expect(parseStatusView(bodyOf(withMember('service', serviceFixture({ uptimeMs: 'a while' }))))).toBeNull();
-    });
+        expect(
+            parseStatusView(bodyOf(withMember('service', serviceFixture({ uptimeMs: 'a while' })))),
+            'a partially typed service block',
+        ).toBeNull();
 
-    it('refuses an account row whose rate block is incomplete', () => {
         const rate: StatusRateView = { remaining: null, usedLastHour: 0 } as unknown as StatusRateView;
-        const document = withMember('accounts', [accountFixture({ rate })]);
+        expect(
+            parseStatusView(bodyOf(withMember('accounts', [accountFixture({ rate })]))),
+            'an account row with an incomplete rate block',
+        ).toBeNull();
 
-        expect(parseStatusView(bodyOf(document))).toBeNull();
-    });
+        expect(
+            parseStatusView(bodyOf(withMember('repositories', [bindingFixture({ readable: 'yes' })]))),
+            'a binding row whose flags are not booleans',
+        ).toBeNull();
 
-    it('refuses a binding row whose flags are not booleans', () => {
-        const document = withMember('repositories', [bindingFixture({ readable: 'yes' })]);
-
-        expect(parseStatusView(bodyOf(document))).toBeNull();
-    });
-
-    it('refuses a verification member of an unknown shape', () => {
-        const document = withMember('agentPin', agentPinFixture({ lastVerification: { somethingElse: true } }));
-
-        expect(parseStatusView(bodyOf(document))).toBeNull();
+        const brokenPin = withMember('agentPin', agentPinFixture({ lastVerification: { somethingElse: true } }));
+        expect(parseStatusView(bodyOf(brokenPin)), 'a verification member of an unknown shape').toBeNull();
     });
 
     it('reads the three verification shapes it does know', () => {
@@ -709,31 +701,6 @@ describe('the tab read state (FR-019)', () => {
         expect(readStateLine({ ...idle, phase: 'loading' })).toBe('Status: reading…');
         expect(readStateLine({ ...idle, phase: PHASE_LOADED, at: 'T1' })).toBe('Status: read at T1.');
     });
-
-    it('says plainly that there is nothing when a first read fails', () => {
-        const failed: StatusTabState = { ...idle, phase: PHASE_FAILED, problem: PROBLEM_503 };
-        const line = readStateLine(failed);
-
-        expect(line).toContain('could not be read');
-        expect(line).toContain(PROBLEM_503);
-        expect(line).toContain('Nothing has been read yet');
-    });
-
-    it('marks the retained document stale when a later read fails', () => {
-        const stale: StatusTabState = {
-            ...idle,
-            phase: PHASE_FAILED,
-            at: 'T1',
-            problem: PROBLEM_503,
-            stale: true,
-            doc: viewOf(statusFixture()),
-        };
-        const line = readStateLine(stale);
-
-        expect(line).toContain('could not be re-read');
-        expect(line).toContain('may be stale');
-        expect(line).toContain('T1');
-    });
 });
 
 describe('loadStatus', () => {
@@ -765,6 +732,7 @@ describe('loadStatus', () => {
         expect(slice.doc).toBeNull();
         expect(slice.stale).toBe(false);
         expect(slice.problem).toContain('503');
+        expect(readStateLine(slice)).toContain('could not be read');
         expect(readStateLine(slice)).toContain('Nothing has been read yet');
     });
 
@@ -778,7 +746,10 @@ describe('loadStatus', () => {
         expect(slice.phase).toBe(PHASE_FAILED);
         expect(slice.stale).toBe(true);
         expect(slice.doc).not.toBeNull();
+        expect(readStateLine(slice)).toContain('could not be re-read');
         expect(readStateLine(slice)).toContain('may be stale');
+        expect(slice.at, 'the retained stamp stays on screen').not.toBeNull();
+        expect(readStateLine(slice)).toContain(slice.at ?? '');
     });
 
     it('fails the read when the document will not parse, and keeps the previous one', async () => {
@@ -856,14 +827,6 @@ describe('hostile strings stay text (FR-080)', () => {
         const rows = accountLines(viewOf(withMember('accounts', [account])));
 
         expect(rows[0]).toContain(HOSTILE);
-    });
-
-    it('keeps every status surface free of an HTML sink', () => {
-        for (const file of ['status-tab.ts', 'status-lines.ts', 'status-document.ts']) {
-            const source = readFileSync(resolvePath(import.meta.dirname, '..', 'src', file), 'utf8');
-            expect(source).not.toContain('innerHTML');
-            expect(source).not.toContain('insertAdjacentHTML');
-        }
     });
 });
 

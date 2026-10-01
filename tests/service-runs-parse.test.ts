@@ -420,8 +420,10 @@ describe('fail-closed document and row validation', () => {
         },
     ];
 
-    it.each(broken)('refuses $name', ({ document }) => {
-        expect(parseRunsDocument(document)).toBeNull();
+    it('refuses every malformed document in the table', () => {
+        for (const { name, document } of broken) {
+            expect(parseRunsDocument(document), `must refuse: ${name}`).toBeNull();
+        }
     });
 
     it('refuses a row whose lease, reservation, session, or verification is malformed', () => {

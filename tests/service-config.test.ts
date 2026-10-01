@@ -191,13 +191,15 @@ describe('ServiceConfig validation', () => {
         expect(result).toEqual({ ok: true, config: DEFAULT_CONFIG });
     });
 
-    it.each(OUT_OF_BOUNDS)('rejects $field = $value with a named remediation', ({ field, value }) => {
-        const result = validateConfig({ ...DEFAULT_CONFIG, [field]: value });
+    it('rejects every out-of-bounds value with a named remediation', () => {
+        for (const { field, value } of OUT_OF_BOUNDS) {
+            const result = validateConfig({ ...DEFAULT_CONFIG, [field]: value });
 
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            const issue = result.issues.find((candidate) => candidate.field === field);
-            expect(issue?.remediation).toContain(field);
+            expect(result.ok, `${field} = ${String(value)} must be refused`).toBe(false);
+            if (!result.ok) {
+                const issue = result.issues.find((candidate) => candidate.field === field);
+                expect(issue?.remediation, `${field} remediation must name the field`).toContain(field);
+            }
         }
     });
 
@@ -495,17 +497,20 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
         },
     ];
 
-    it.each(REFUSALS)('refuses a value $case with its own remediation and no echo', ({ value, remediation }) => {
-        const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: value });
+    it('refuses each documented bad value with its own remediation and no echo', () => {
+        for (const { case: shape, value, remediation } of REFUSALS) {
+            const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: value });
 
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
-            expect(issue?.remediation).toBe(remediation);
-            expect(issue?.remediation).not.toContain('    ');
-            const submitted = value.trim();
-            if (submitted !== '') {
-                expect(JSON.stringify(result.issues)).not.toContain(submitted);
+            expect(result.ok, `${shape} must be refused`).toBe(false);
+            if (!result.ok) {
+                const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
+                expect(issue?.remediation, `${shape} remediation`).toBe(remediation);
+                expect(issue?.remediation, `${shape} must not echo whitespace`).not.toContain('    ');
+                const submitted = value.trim();
+                if (submitted !== '') {
+                    expect(JSON.stringify(result.issues), `${shape} must not echo the value`)
+                        .not.toContain(submitted);
+                }
             }
         }
     });

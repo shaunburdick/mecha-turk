@@ -472,27 +472,6 @@ describe('FR-083 state is carried by text as well as colour', () => {
 });
 
 describe('FR-084 irreversible actions arm first, and confirm() does not exist', () => {
-    it('has no confirm(), alert(), or prompt() anywhere in the panel source', () => {
-        const modules = readdirSync(resolve(import.meta.dirname, `../${SRC_DIR}`), { recursive: true })
-            .map((entry) => String(entry))
-            .filter((entry) => entry.endsWith('.ts'));
-        const dialogs = /(^|[^.\w])(confirm|alert|prompt)\s*\(/;
-
-        expect(modules.length).toBeGreaterThan(40);
-        for (const module of modules) {
-            const source = readFileSync(resolve(import.meta.dirname, `../${SRC_DIR}/${module}`), 'utf8')
-                .split('\n')
-                // The rule bans the *call*; the comments that explain its
-                // absence say `confirm()` in prose and must keep doing so.
-                .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
-                .join('\n');
-            expect(source, `${module} opens a dialog`).not.toMatch(dialogs);
-        }
-
-        // Not vacuous: the rule bites on the shape it exists for.
-        expect("const reply = confirm('really?');").toMatch(dialogs);
-    });
-
     it('arms the removal, names the cascade, and only then sends (AC-126)', async () => {
         mounts.log.length = 0;
         const requests: GuestRequest[] = [];

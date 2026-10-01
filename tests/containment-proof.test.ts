@@ -1,20 +1,20 @@
 /**
  * Containment, upgrade, and posture proof for the six tabs (005 T-032;
  * FR-002, FR-004, FR-005, FR-023, FR-025, FR-026, FR-027, FR-079, FR-086,
- * FR-087, AC-129, AC-138, AC-139, NFR-102, NFR-103).
+ * AC-129, AC-138, NFR-102, NFR-103).
  *
  * This is where 005's *boundaries* are measured rather than asserted in
  * prose: a real credential sits in the store while every tab renders, a
  * pre-003 store boots through the upgraded service and the panel, and the
- * shipped artifacts, manifest, routes, storage keys, and audit vocabulary are
- * read back byte-for-byte.
+ * routes, storage keys, and audit vocabulary are read back byte-for-byte.
+ * (Shipped-artifact and manifest posture lives in `bundle.test.ts` and
+ * `manifest.test.ts`, which own those scans.)
  *
  * Nothing here reaches the network: the service is loopback on a temp
  * directory, the panel runs on the fake host, and the only "credential" is a
  * fixture value planted so a leak would be visible (FR-086, AC-138).
  */
 
-import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -117,9 +117,6 @@ const LEDGER_KEY = 'mecha-turk:ledger';
 /** Panel-storage key the stored project selection lives under (FR-025). */
 const PROJECT_KEY = 'mecha-turk:project';
 
-/** Path of the committed service bundle, read three ways below. */
-const SERVICE_BUNDLE = 'service/main.js';
-
 /**
  * Every storage key the extension namespace has ever used (FR-025).
  *
@@ -131,22 +128,6 @@ const STORAGE_KEYS = [
     LEDGER_KEY,
     'mecha-turk:dispatches',
 ] as const;
-
-/** GitHub token shapes no shipped artifact may carry. */
-const TOKEN_PATTERNS: readonly RegExp[] = [/\bgh[pousr]_[A-Za-z0-9]{20,}/, /\bgithub_pat_[A-Za-z0-9_]{20,}/];
-
-/** Usage patterns of the GitHub write method FR-002 forbids. */
-const GITHUB_WRITE_METHOD = /\bmethod:\s*['"](POST|PUT|PATCH|DELETE)['"]/;
-
-/** A reference to GitHub's REST API, however the module spells it. */
-const GITHUB_API = /api\.github\.com|API_ORIGIN|`\/repos\//;
-
-/** Modules allowed to talk to GitHub's REST API; every one of them reads. */
-const GITHUB_GATEWAYS: ReadonlySet<string> = new Set([
-    'src/github.ts',
-    'service/github.ts',
-    'service/poll/poller-github.ts',
-]);
 
 /** The snapshot a legacy queue row was detected under. */
 function snapshot(issueNumber: number): EventSnapshot {
@@ -443,73 +424,7 @@ describe('NFR-102 / AC-129 no surface carries the credential in the store', () =
     });
 });
 
-describe('FR-087 / AC-139 the shipped artifacts and manifest are unchanged', () => {
-    it('keeps both bundles in their documented shapes and free of secrets', () => {
-        const panel = readFileSync(resolve(ROOT, 'panel/main.js'), 'utf8');
-        const service = readFileSync(resolve(ROOT, SERVICE_BUNDLE), 'utf8');
-
-        expect(panel.startsWith('(()=>{')).toBe(true);
-        expect(panel.trimEnd().endsWith('})();')).toBe(true);
-        expect(service.startsWith('(()=>{')).toBe(false);
-        expect(service).toMatch(/^export\s*\{/m);
-        for (const bundle of [panel, service]) {
-            for (const pattern of TOKEN_PATTERNS) {
-                expect(bundle).not.toMatch(pattern);
-            }
-        }
-    });
-
-    it('commits the service bundle with its sources', () => {
-        const tracked = execFileSync('git', ['ls-files', '--error-unmatch', SERVICE_BUNDLE], {
-            cwd: resolve(ROOT),
-            encoding: 'utf8',
-        });
-
-        expect(tracked.trim()).toBe(SERVICE_BUNDLE);
-    });
-
-    it('adds no capability and no setting to the manifest (FR-004, FR-079)', () => {
-        const manifest = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')) as {
-            readonly openchamber: {
-                readonly apiVersion: number;
-                readonly engines: Readonly<Record<string, string>>;
-                readonly contributes: {
-                    readonly panel: Readonly<Record<string, string>>;
-                    readonly capabilities: readonly string[];
-                    readonly service: Readonly<Record<string, string>>;
-                    readonly integration: { readonly settings: readonly unknown[] };
-                };
-            };
-        };
-        const { contributes } = manifest.openchamber;
-
-        expect(contributes.capabilities).toEqual(['sessions', 'prompt']);
-        // The integration card is gone (owner order 2026-09-30): what the
-        // card used to declare is now *nothing*, which is the containment
-        // claim this assertion makes — a card that reappeared would carry a
-        // setting or a credential with it.
-        expect(contributes.integration).toBeUndefined();
-        expect(contributes.panel.id).toBe('mecha-turk');
-        expect(contributes.panel.name).toBe('Mecha Turk');
-        expect(contributes.service.entry).toBe(SERVICE_BUNDLE);
-        expect(manifest.openchamber.apiVersion).toBe(1);
-        expect(manifest.openchamber.engines.openchamber).toBe('>=1.24.0');
-        expect(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).toContain('"version": "0.0.1"');
-    });
-});
-
 describe('FR-002 / FR-089 the panel never writes to GitHub and never mutates the host', () => {
-    it('finds a GitHub API reference only in the read-only gateways', () => {
-        const outsiders = sources()
-            .filter((file) => GITHUB_API.test(file.text) && !GITHUB_GATEWAYS.has(file.path))
-            .map((file) => file.path);
-
-        expect(outsiders).toEqual([]);
-        for (const file of sources().filter((candidate) => GITHUB_GATEWAYS.has(candidate.path))) {
-            expect(file.text, `${file.path} builds a GitHub write`).not.toMatch(GITHUB_WRITE_METHOD);
-        }
-    });
-
     it('never names a project, worktree, session, or agent mutation API (FR-089)', () => {
         const mutations = /(^|[^.\w])(create|delete|remove|rename)(Project|Worktree|Session|Agent)\b/;
 

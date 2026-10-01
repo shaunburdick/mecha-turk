@@ -23,37 +23,29 @@ const AUTH_HEADER = 'Authorization: Bearer 0123456789abcdef0123456789abcdef';
 const AUTH_LABEL = 'authorization-header';
 
 describe('findSecretLeak', () => {
-    it('detects a classic GitHub token', () => {
-        expect(findSecretLeak(`the value is ${CLASSIC_TOKEN} in transit`)).toBe('github-token-classic');
+    it('detects each shipped secret shape under its own label', () => {
+        const detected: readonly (readonly [string, string])[] = [
+            [`the value is ${CLASSIC_TOKEN} in transit`, 'github-token-classic'],
+            [FINE_GRAINED_TOKEN, 'github-token-fine-grained'],
+            [AUTH_HEADER, AUTH_LABEL],
+            [`Bearer ${'c'.repeat(TOKEN_BODY)}`, 'bearer-credential'],
+        ];
+
+        for (const [text, label] of detected) {
+            expect(findSecretLeak(text), label).toBe(label);
+        }
     });
 
-    it('detects a fine-grained GitHub token', () => {
-        expect(findSecretLeak(FINE_GRAINED_TOKEN)).toBe('github-token-fine-grained');
-    });
-
-    it('detects an Authorization header', () => {
-        expect(findSecretLeak(AUTH_HEADER)).toBe(AUTH_LABEL);
-    });
-
-    it('detects a long bearer credential', () => {
-        expect(findSecretLeak(`Bearer ${'c'.repeat(TOKEN_BODY)}`)).toBe('bearer-credential');
-    });
-
-    it('leaves ordinary ledger text alone', () => {
-        expect(findSecretLeak('poll inspected 12 issues; matched 1')).toBeNull();
-    });
-
-    it('ignores short prefixes that are not credentials', () => {
-        expect(findSecretLeak('ghp_short')).toBeNull();
+    it('leaves ordinary text and short non-credential prefixes alone', () => {
+        expect(findSecretLeak('poll inspected 12 issues; matched 1'), 'ordinary text').toBeNull();
+        expect(findSecretLeak('ghp_short'), 'a short prefix').toBeNull();
     });
 });
 
 describe('assertRedacted', () => {
-    it('passes clean text', () => {
+    it('passes clean text and throws without echoing the secret', () => {
         expect(() => assertRedacted('ledger', 'generation 2, 4 entries')).not.toThrow();
-    });
 
-    it('throws a RedactionError whose message never echoes the secret', () => {
         expect(() => assertRedacted('evidence record', `body ${CLASSIC_TOKEN}`)).toThrow(RedactionError);
 
         let message = '';
@@ -69,31 +61,22 @@ describe('assertRedacted', () => {
 });
 
 describe('redact', () => {
-    it('replaces secret-shaped material with a labelled placeholder', () => {
+    it('replaces every secret-shaped run with a labelled placeholder, and keeps clean text whole', () => {
         expect(redact(`token=${CLASSIC_TOKEN}`)).toBe('token=[redacted:github-token-classic]');
-    });
 
-    it('replaces every token in a string, not just the first', () => {
         const second = `ghp_${'z'.repeat(TOKEN_BODY)}`;
         const redacted = redact(`first=${CLASSIC_TOKEN} second=${second}`);
-
         expect(redacted).toBe('first=[redacted:github-token-classic] second=[redacted:github-token-classic]');
         expect(redacted).not.toContain(CLASSIC_TOKEN);
         expect(redacted).not.toContain(second);
-    });
 
-    it('replaces every bearer credential in a string, not just the first', () => {
-        const first = `Bearer ${'c'.repeat(TOKEN_BODY)}`;
-        const second = `Bearer ${'d'.repeat(TOKEN_BODY)}`;
-        const redacted = redact(`${first} then ${second}`);
-        const placeholders = redacted.split('[redacted:bearer-credential]');
+        const firstBearer = `Bearer ${'c'.repeat(TOKEN_BODY)}`;
+        const secondBearer = `Bearer ${'d'.repeat(TOKEN_BODY)}`;
+        const bearers = redact(`${firstBearer} then ${secondBearer}`);
+        expect(bearers.split('[redacted:bearer-credential]')).toHaveLength(3);
+        expect(bearers).not.toContain('cccc');
+        expect(bearers).not.toContain('dddd');
 
-        expect(placeholders).toHaveLength(3);
-        expect(redacted).not.toContain('cccc');
-        expect(redacted).not.toContain('dddd');
-    });
-
-    it('keeps clean text unchanged', () => {
         expect(redact('issue #7 assigned')).toBe('issue #7 assigned');
     });
 });
@@ -109,7 +92,7 @@ describe('findSecretLeak on global patterns', () => {
 });
 
 describe('stripCredentialKeys', () => {
-    it('drops credential-named keys regardless of case', () => {
+    it('drops credential-named keys regardless of case, and keeps the rest', () => {
         const stripped = stripCredentialKeys({
             token: CLASSIC_TOKEN,
             pat: CLASSIC_TOKEN,
@@ -118,13 +101,10 @@ describe('stripCredentialKeys', () => {
             apiKey: 'y',
             login: 'mecha-bot',
             count: 3,
+            tokenCount: 2,
         });
 
-        expect(stripped).toEqual({ login: 'mecha-bot', count: 3 });
-    });
-
-    it('keeps an unrelated key whose name merely contains a credential word', () => {
-        expect(stripCredentialKeys({ tokenCount: 2 })).toEqual({ tokenCount: 2 });
+        expect(stripped).toEqual({ login: 'mecha-bot', count: 3, tokenCount: 2 });
     });
 });
 

@@ -274,36 +274,31 @@ function bodyFor(operation: OperationFixture): Record<string, unknown> {
 }
 
 describe('T-015 every wave-3 route is registered and answers its method', () => {
-    for (const operation of RUN_OPERATIONS) {
-        it(`serves POST ${operation.path} for ${operation.name}`, async () => {
-            const service = await startServiceForTest();
+    it('serves every operation on its own path, and refuses a wrong method with 405 and Allow', async () => {
+        const service = await startServiceForTest();
 
-            const response = await service.call(bound(operation.path), {
-                method: 'POST',
-                headers: jsonHeaders(),
-                body: JSON.stringify(bodyFor(operation)),
-            });
-
+        for (const operation of RUN_OPERATIONS) {
             // Not 404 (unregistered), not 405 (wrong method), not 422 (a body
             // that never reached the operation), and not 500 (a handler that
             // threw on a path it does not own). The body is the one §1–§8 name
             // for this operation, so the handler runs to its own first verdict:
             // the route exists, the run does not, and `404 unknown-run` is the
             // honest answer the contract names.
-            expect(response.status).toBe(404);
-            expect(await codeOf(response)).toBe(UNKNOWN_RUN);
-        });
+            const served = await service.call(bound(operation.path), {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify(bodyFor(operation)),
+            });
+            expect(served.status, `${operation.name} must answer POST on ${operation.path}`).toBe(404);
+            expect(await codeOf(served), `${operation.name} must answer unknown-run`).toBe(UNKNOWN_RUN);
 
-        it(`refuses a wrong method on ${operation.path} with 405 and Allow`, async () => {
-            const service = await startServiceForTest();
-
-            const response = await service.call(bound(operation.path), { method: WRONG_METHOD });
-
-            expect(response.status).toBe(405);
-            expect(response.headers.get('allow')).toBe('POST');
-            expect(await codeOf(response)).toBe('method-not-allowed');
-        });
-    }
+            const wrong = await service.call(bound(operation.path), { method: WRONG_METHOD });
+            expect(wrong.status, `${operation.name} must refuse ${WRONG_METHOD} with 405`).toBe(405);
+            expect(wrong.headers.get('allow'), `${operation.name} Allow header`).toBe('POST');
+            expect(await codeOf(wrong), `${operation.name} must answer method-not-allowed`)
+                .toBe('method-not-allowed');
+        }
+    });
 
     it('runs every handler, not just the path guard (FR-051)', async () => {
         const service = await startServiceForTest();
@@ -421,21 +416,22 @@ describe('T-015 authentication runs before routing, unchanged', () => {
         ...READ_ROUTES,
     ];
 
-    for (const probe of probes) {
-        it(`refuses ${probe.method} ${probe.path} (${probe.name}) with a missing or wrong token`, async () => {
-            const service = await startServiceForTest();
+    it('refuses every run and read route with a missing or wrong token, byte-identically', async () => {
+        const service = await startServiceForTest();
+
+        for (const probe of probes) {
             const missing = await fetch(`${service.baseUrl}${probe.path}`, { method: probe.method });
             const wrong = await fetch(`${service.baseUrl}${probe.path}`, {
                 method: probe.method,
                 headers: { authorization: `${BEARER}wrong-wrong-wrong-wrong` },
             });
 
-            expect(missing.status).toBe(401);
-            expect(wrong.status).toBe(401);
+            expect(missing.status, `${probe.name} must refuse a missing token`).toBe(401);
+            expect(wrong.status, `${probe.name} must refuse a wrong token`).toBe(401);
             // Byte-identical across both, and across every route: no route oracle.
-            expect(await wrong.text()).toBe(await missing.text());
-        });
-    }
+            expect(await wrong.text(), `${probe.name} refusal body must match`).toBe(await missing.text());
+        }
+    });
 
     it('answers an invented path with the same 401 a real one gets', async () => {
         const service = await startServiceForTest();

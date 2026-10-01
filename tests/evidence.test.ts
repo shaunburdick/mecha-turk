@@ -51,29 +51,19 @@ describe('buildEvidence', () => {
         expect(Object.keys(evidence)).toHaveLength(EVIDENCE_FIELD_COUNT);
     });
 
-    it('rejects a non-GitHub issue URL', () => {
-        const foreign = { ...validInput(), issueUrl: 'https://example.com/issue/12' };
-        expect(() => buildEvidence(foreign)).toThrow(EvidenceError);
-    });
+    it('rejects every malformed input shape the contract refuses', () => {
+        const malformed: readonly (readonly [string, EvidenceInput])[] = [
+            ['a non-GitHub issue URL', { ...validInput(), issueUrl: 'https://example.com/issue/12' }],
+            ['a non-positive issue number', { ...validInput(), issueNumber: 0 }],
+            ['an empty login', { ...validInput(), authenticatedLogin: '  ' }],
+            ['an empty correlation id', { ...validInput(), correlationId: '' }],
+            ['a timestamp that is not RFC 3339', { ...validInput(), detectedAt: 'yesterday' }],
+            ['a non-positive panel generation', { ...validInput(), panelGeneration: 0 }],
+        ];
 
-    it('rejects a non-positive issue number', () => {
-        expect(() => buildEvidence({ ...validInput(), issueNumber: 0 })).toThrow(EvidenceError);
-    });
-
-    it('rejects an empty login', () => {
-        expect(() => buildEvidence({ ...validInput(), authenticatedLogin: '  ' })).toThrow(EvidenceError);
-    });
-
-    it('rejects an empty correlation id', () => {
-        expect(() => buildEvidence({ ...validInput(), correlationId: '' })).toThrow(EvidenceError);
-    });
-
-    it('rejects a timestamp that is not RFC 3339', () => {
-        expect(() => buildEvidence({ ...validInput(), detectedAt: 'yesterday' })).toThrow(EvidenceError);
-    });
-
-    it('rejects a non-positive panel generation', () => {
-        expect(() => buildEvidence({ ...validInput(), panelGeneration: 0 })).toThrow(EvidenceError);
+        for (const [shape, input] of malformed) {
+            expect(() => buildEvidence(input), shape).toThrow(EvidenceError);
+        }
     });
 });
 
@@ -96,62 +86,50 @@ describe('evidence serialization', () => {
         expect(() => assertEvidenceRedacted(evidence)).not.toThrow();
     });
 
-    it('rejects a stored record under a different schema version', () => {
-        const stored: JsonValue = { ...buildEvidence(validInput()), schemaVersion: 'other' };
-        expect(readEvidence(stored)).toBeNull();
-    });
+    it('rejects a stored record this build must not read', () => {
+        const wrongVersion: JsonValue = { ...buildEvidence(validInput()), schemaVersion: 'other' };
+        expect(readEvidence(wrongVersion), 'a foreign schema version').toBeNull();
 
-    it('rejects a stored record that is missing a required field', () => {
         const partial: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
         delete partial.detectedAt;
-        expect(readEvidence(partial)).toBeNull();
-    });
+        expect(readEvidence(partial), 'a record missing a required field').toBeNull();
 
-    it('rejects a stored value that is not an object', () => {
-        expect(readEvidence('not-an-object')).toBeNull();
-        expect(readEvidence()).toBeNull();
-        expect(readEvidence(null)).toBeNull();
+        expect(readEvidence('not-an-object'), 'a string').toBeNull();
+        expect(readEvidence(), 'an absent value').toBeNull();
+        expect(readEvidence(null), 'null').toBeNull();
     });
 });
 
 describe('readEvidence validation', () => {
-    it('rejects a field whose type does not match the contract', () => {
-        const stored: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
-        stored.repository = 42;
-        expect(readEvidence(stored)).toBeNull();
-    });
+    it('rejects every stored field the contract refuses', () => {
+        const mutations: readonly (readonly [string, (stored: Record<string, JsonValue>) => void])[] = [
+            ['a field whose type does not match the contract', (stored) => {
+                stored.repository = 42;
+            }],
+            ['an empty string field', (stored) => {
+                stored.correlationId = '   ';
+            }],
+            ['a trigger that is not the configured rule', (stored) => {
+                stored.trigger = 'manual';
+            }],
+            ['an issue id that is not a number', (stored) => {
+                stored.issueId = 'issue-12';
+            }],
+            ['an issue url that is not a GitHub issue URL', (stored) => {
+                stored.issueUrl = 'https://example.com/acme/widget/issues/12';
+            }],
+            ['a fractional panel generation', (stored) => {
+                stored.panelGeneration = 1.5;
+            }],
+            ['a negative panel generation', (stored) => {
+                stored.panelGeneration = -1;
+            }],
+        ];
 
-    it('rejects an empty string field', () => {
-        const stored: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
-        stored.correlationId = '   ';
-        expect(readEvidence(stored)).toBeNull();
-    });
-
-    it('rejects a trigger that is not the configured rule', () => {
-        const stored: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
-        stored.trigger = 'manual';
-        expect(readEvidence(stored)).toBeNull();
-    });
-
-    it('rejects an issue id that is not a number', () => {
-        const stored: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
-        stored.issueId = 'issue-12';
-        expect(readEvidence(stored)).toBeNull();
-    });
-
-    it('rejects an issue url that is not a GitHub issue URL', () => {
-        const stored: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
-        stored.issueUrl = 'https://example.com/acme/widget/issues/12';
-        expect(readEvidence(stored)).toBeNull();
-    });
-
-    it('rejects a panel generation that is not a positive integer', () => {
-        const fractional: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
-        fractional.panelGeneration = 1.5;
-        expect(readEvidence(fractional)).toBeNull();
-
-        const negative: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
-        negative.panelGeneration = -1;
-        expect(readEvidence(negative)).toBeNull();
+        for (const [shape, mutate] of mutations) {
+            const stored: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
+            mutate(stored);
+            expect(readEvidence(stored), shape).toBeNull();
+        }
     });
 });

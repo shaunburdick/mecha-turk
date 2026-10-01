@@ -470,14 +470,6 @@ describe('account scope evidence (FR-071, fail-closed parsing)', () => {
 });
 
 describe('no new host capability (NFR-110, AGENTS invariant 3)', () => {
-    it('declares exactly sessions and prompt in the manifest', () => {
-        const manifest = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')) as {
-            readonly openchamber?: { readonly contributes?: { readonly capabilities?: readonly string[] } };
-        };
-
-        expect(manifest.openchamber?.contributes?.capabilities).toEqual(['sessions', 'prompt']);
-    });
-
     it('makes no host call of its own', () => {
         const source = readFileSync(resolve(ROOT, 'src/prerequisites.ts'), 'utf8');
 

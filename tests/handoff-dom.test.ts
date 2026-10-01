@@ -176,8 +176,8 @@ function exitSpecs(): ExitSpec[] {
 }
 
 describe('credential input clearing (contract §2 step ⑧, FR-007)', () => {
-    for (const spec of exitSpecs()) {
-        it(`empties the input after ${spec.name}`, async () => {
+    it('empties the input after every exit: success, storage refusal, and each failure class', async () => {
+        for (const spec of exitSpecs()) {
             const mounted = await mountHandoff(spec);
 
             mounted.input.value = PANEL_TOKEN;
@@ -185,19 +185,20 @@ describe('credential input clearing (contract §2 step ⑧, FR-007)', () => {
 
             // Capture-time write-through: the paste is read and the input is
             // emptied before the request is even in flight.
-            expect(mounted.input.value).toBe('');
+            expect(mounted.input.value, `${spec.name}: input must clear at capture`).toBe('');
 
             // A value that reappears mid-flight must still be gone when the
             // handoff settles — this is the `finally` half of step ⑧.
             mounted.input.value = PANEL_TOKEN;
             await mounted.submitted();
 
-            expect(mounted.input.value).toBe('');
-            expect(mounted.rt.state.handoff.busy).toBe(false);
-            expect(currentHandoffToken()).toBeUndefined();
-            expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
-        });
-    }
+            expect(mounted.input.value, `${spec.name}: input must clear on settle`).toBe('');
+            expect(mounted.rt.state.handoff.busy, `${spec.name}: busy must clear`).toBe(false);
+            expect(currentHandoffToken(), `${spec.name}: token must be forgotten`).toBeUndefined();
+            expect(mounted.renderedText(), `${spec.name}: rendered text must carry no token`)
+                .not.toContain(PANEL_TOKEN);
+        }
+    });
 });
 
 describe('hostile service-supplied strings (invariant 11, M5a)', () => {

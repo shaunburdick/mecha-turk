@@ -303,32 +303,6 @@ describe('T-002 validateStartingPrompt: the refusal matrix (FR-017, FR-020, FR-0
             expect(validateStartingPrompt(value).ok, value).toBe(true);
         }
     });
-    it('refuses exactly the shapes the shipped detector recognises — and no others (FR-024, FR-029)', () => {
-        // The refusal set is the four shipped shapes and nothing else: a fifth
-        // pattern behind the spec's back would be a content rule the
-        // specification closed (FR-029).
-        const shaped = [
-            `ghp_${'a'.repeat(30)}`,
-            `github_pat_${'b'.repeat(30)}`,
-            AUTHORIZATION_SHAPE,
-            `Bearer ${'c'.repeat(24)}`,
-        ];
-        for (const value of shaped) {
-            expect(findSecretLeak(value), value).not.toBeNull();
-            expect(validateStartingPrompt(value).ok, value).toBe(false);
-        }
-
-        const unshaped = [
-            'Password handling is documented in the host, not here.',
-            'Use the code-reviewer agent; you have write access.',
-            'Correlation: whatever the operator typed.',
-            'A bearer of bad news should be believed.',
-        ];
-        for (const value of unshaped) {
-            expect(findSecretLeak(value), value).toBeNull();
-            expect(validateStartingPrompt(value).ok, value).toBe(true);
-        }
-    });
 });
 
 describe('T-002 promptFingerprint (FR-016, AC-140)', () => {

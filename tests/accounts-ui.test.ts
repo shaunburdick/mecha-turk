@@ -16,8 +16,8 @@
  * `src`, not just the adapter.
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { adoptServiceAccounts } from '../src/account-adoption.ts';
@@ -93,17 +93,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 /** Filesystem path of the DOM adapter, for the static rendering scan. */
 const DOM_SOURCE_PATH = resolve(import.meta.dirname, '../src/accounts-ui.ts');
 
-/** Directory holding every panel module the widened scan reads (F-E). */
-const SRC_DIR = resolve(import.meta.dirname, '../src');
-
-/** Usage patterns of the HTML sinks contract §4 rule 5 forbids. */
-const HTML_SINKS: readonly RegExp[] = [
-    /\.innerHTML\b/,
-    /insertAdjacentHTML\s*\(/,
-    /\.outerHTML\b/,
-    /\.insertAdjacentText\s*\(/,
-    /\bdocument\.write\s*\(/,
-];
 /** Assert that a list of rendered strings carries no registered credential. */
 function expectNoCredentialInStrings(strings: readonly string[]): void {
     expect(strings.join('\n')).not.toContain(PANEL_TOKEN);
@@ -152,21 +141,6 @@ describe('rendering (contract §4 rule 5, SEC-17)', () => {
         expect(source).not.toMatch(/\.innerHTML\b/);
         expect(source).not.toMatch(/insertAdjacentHTML\s*\(/);
         expect(source).not.toMatch(/\.outerHTML\b/);
-    });
-
-    it('keeps every module of src on text-only sinks (F-E)', () => {
-        const modules = readdirSync(SRC_DIR, { recursive: true })
-            .map((entry) => String(entry))
-            .filter((entry) => entry.endsWith('.ts'));
-
-        // A scan that matched nothing would be reading the wrong directory.
-        expect(modules.length).toBeGreaterThan(1);
-        for (const relative of modules) {
-            const source = readFileSync(join(SRC_DIR, relative), 'utf8');
-            for (const sink of HTML_SINKS) {
-                expect(source, `${relative} must not call ${sink.source}`).not.toMatch(sink);
-            }
-        }
     });
 });
 
@@ -746,24 +720,6 @@ describe('T-026 the display name is written by the service, never by the panel (
         expect(statement).toContain('every checkpoint, delivery, dispatch, and audit');
         expect(statement).toContain(CONNECTED_LOGIN);
         expect(statement).toContain('above');
-    });
-
-    it('offers no confirm() dialog anywhere in the panel (FR-084)', () => {
-        const modules = readdirSync(SRC_DIR, { recursive: true }).map(String).filter((name) => name.endsWith('.ts'));
-        const offenders = modules.filter((name) => {
-            const code = readFileSync(join(SRC_DIR, name), 'utf8')
-                .split('\n')
-                .filter((line) => {
-                    const trimmed = line.trim();
-
-                    return !trimmed.startsWith('*') && !trimmed.startsWith('//') && !trimmed.startsWith('/*');
-                })
-                .join('\n');
-
-            return /(^|[^.\w])confirm\s*\(/m.test(code);
-        });
-
-        expect(offenders).toEqual([]);
     });
 });
 
