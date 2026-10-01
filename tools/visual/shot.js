@@ -3,10 +3,12 @@
  *
  * `npm run shot` (or `node tools/visual/shot.js <tab> …`) boots the shipped
  * `panel/index.html` inside the offline harness, walks the six tabs, and
- * writes `/tmp/opencode/panel-<tab>.png` plus one `panel-full.png` at the
- * panel's full scroll height. Nothing under `panel/`, `src/`, or `service/`
- * is touched: this is a tool for looking at the shipped bundle, not a part of
- * it.
+ * writes `screenshots/panel-<tab>.png` plus one `panel-full.png` at the
+ * panel's full scroll height. `screenshots/` is the repo-root folder the
+ * operator opens (it is git-ignored, and `--out DIR` overrides it), so a
+ * capture lands where it can be looked at rather than in a temp directory.
+ * Nothing under `panel/`, `src/`, or `service/` is touched: this is a tool
+ * for looking at the shipped bundle, not a part of it.
  *
  * ## Why every capture is verified twice
  *
@@ -108,14 +110,18 @@ const BOOT_POLL_MS = 200;
 /** How many times `openHarness` re-navigates if the wrong page answers. */
 const OPEN_ATTEMPTS = 3;
 
-/** Where captures land, unless `--out` says otherwise. */
-const DEFAULT_OUT_DIR = '/tmp/opencode';
+/**
+ * Where captures land, unless `--out` says otherwise: the repo-root
+ * `screenshots/` folder, git-ignored so a run's images never enter the index.
+ */
+const DEFAULT_OUT_DIR = join(import.meta.dirname, '..', '..', 'screenshots');
 
 /** Usage the `--help` flag prints. */
 const USAGE = [
     'usage: node tools/visual/shot.js [tab …] [--out DIR] [--width PX] [--max-height PX]',
     `       tabs: ${TABS.map((entry) => entry.id).join(', ')} (default: all six)`,
     '       flags: --no-full (skip panel-full.png), --session NAME, --help',
+    '       default --out: screenshots/ at the repository root (git-ignored)',
 ].join('\n');
 
 /** Report a line on stdout — `no-console` rules out the shortcut. */

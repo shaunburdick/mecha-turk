@@ -42,7 +42,7 @@ npm run verify    # build -> lint -> typecheck -> test — THE gate, run before 
 npm run build     # bundles panel/main.js (IIFE) + service/main.js (ESM)
 npm test          # vitest, offline (563 tests)
 npm run format    # eslint --fix
-npm run shot      # screenshot all six panel tabs into /tmp/opencode/panel-<tab>.png
+npm run shot      # screenshot all six panel tabs into screenshots/panel-<tab>.png
 ```
 
 ### Visual verification
@@ -51,9 +51,11 @@ npm run shot      # screenshot all six panel tabs into /tmp/opencode/panel-<tab>
 `panel/index.html` inside the offline harness in `tools/visual/` — a mock host
 bridge, fixture answers, and a no-cache loopback server — then writes one PNG
 per tab at 1400px wide (height following the tab's content) plus
-`panel-full.png` at full scroll height. It runs offline, needs `agent-browser`
-on PATH, takes about a minute, and never touches `panel/`, `src/`, or
-`service/`. Every image is decoded and proven current before it is published:
+`panel-full.png` at full scroll height, into the repo-root `screenshots/`
+folder (git-ignored; `--out DIR` overrides it). It runs offline, needs
+`agent-browser` on PATH, takes about a minute, and never touches `panel/`,
+`src/`, or `service/`. Every image is decoded and proven current before it is
+published:
 a sentinel colour painted and read back before each capture, the selected
 tab's strip fill measured in the pixels, and a diff against the frame before
 it. A run that does not verify exits non-zero instead of leaving a stale

@@ -56,8 +56,16 @@ describe('the visual capture tooling stays wired up', () => {
     it('keeps captures out of the repository', () => {
         const ignore = readFileSync(resolve(ROOT, '.gitignore'), 'utf8');
 
+        expect(ignore).toContain('screenshots/');
         expect(ignore).toContain('tools/visual/*.png');
         expect(ignore).toContain('/panel-*.png');
+    });
+
+    it('defaults captures to the repo-root screenshots folder', () => {
+        const tool = readFileSync(resolve(ROOT, 'tools/visual/shot.js'), 'utf8');
+
+        expect(tool).toContain("'screenshots'");
+        expect(tool).not.toContain('/tmp/opencode');
     });
 
     it('is documented for the agent that comes next', () => {
@@ -65,5 +73,7 @@ describe('the visual capture tooling stays wired up', () => {
 
         expect(agents).toContain('npm run shot');
         expect(agents).toContain('tools/visual/');
+        expect(agents).toContain('screenshots/');
+        expect(agents).not.toContain('/tmp/opencode');
     });
 });
