@@ -34,8 +34,17 @@ export const AUDIT_BUTTON_LABEL = 'Audit history';
 /** Rows one press renders; the route clamps `limit` well below its ceiling. */
 export const AUDIT_ROW_LIMIT = 100;
 
-/** Status line before the operator has asked for anything. */
-export const AUDIT_IDLE_STATUS = 'No audit history loaded yet — press Audit history.';
+/**
+ * Status line before the operator has asked for anything.
+ *
+ * It names the **precondition** rather than the button: `Audit history` is
+ * disabled until a dispatch row is selected (`dispatches-ui.ts` repaints it
+ * from `selected === null`), so the old "press Audit history" told the
+ * operator to click a control the same screen was refusing to enable
+ * (product-owner review 2026-10-01).
+ */
+export const AUDIT_IDLE_STATUS =
+    'No audit history loaded yet — select a dispatch, then press Audit history.';
 
 /** Status line for a run the trail says nothing about (a 200 with no rows). */
 export const AUDIT_EMPTY_STATUS = 'The audit trail holds no rows for this run yet.';

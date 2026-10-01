@@ -23,6 +23,7 @@ import {
     accountDetail,
     accountRows,
     accountTitle,
+    bindingsPhrase,
     connectionPhrase,
     lifecycleCopy,
     rotationStatement,
@@ -619,6 +620,31 @@ describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
         expect(detail).not.toContain('scope: ok');
     });
 
+    it('reads the connection word Status prints instead of calling it unknown (FR-003)', () => {
+        // `needs reconnection` reaches the panel from the accounts mirror and
+        // the status projection alike, and `status-lines.ts` prints it
+        // verbatim — so Accounts must not answer *unknown connection state*
+        // for a word its sibling tab renders as fact.
+        expect(connectionPhrase(accountFixture({ connectionState: 'needs reconnection' })))
+            .toBe('needs reconnection');
+
+        // A word neither surface has ever carried is still refused, not guessed.
+        expect(connectionPhrase(accountFixture({ connectionState: 'mystery' })))
+            .toBe('unknown connection state: mystery');
+    });
+
+    it("counts an account's bindings with a noun that matches the count (FR-062)", () => {
+        expect(bindingsPhrase(0)).toBe('0 bindings');
+        expect(bindingsPhrase(1)).toBe('1 binding');
+        expect(bindingsPhrase(4)).toBe('4 bindings');
+
+        const account = accountFixture({});
+        const detail = accountDetail(accountsState({ accounts: [account] }), account);
+
+        expect(detail).toContain('0 bindings');
+        expect(detail).not.toContain('1 bindings');
+    });
+
     it('shows every binding an unusable account backs as unable to poll (FR-063)', () => {
         const binding: PanelBinding = {
             bindingId: 'bnd-1',
@@ -658,7 +684,11 @@ describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
         const [row] = accountRows(state);
 
         expect(row?.meta).toBe('1');
-        expect(accountDetail(state, account)).toContain('1 bindings');
+        // The count and its noun agree: "1 bindings" was the defect both the
+        // row subtitle and the detail line carried (2026-10-01 review).
+        expect(accountDetail(state, account)).toContain('1 binding');
+        expect(accountDetail(state, account)).not.toContain('1 bindings');
+        expect(row?.subtitle).toContain('1 binding');
         expect(accountTitle(account)).toBe(CONNECTED_LOGIN);
     });
 });

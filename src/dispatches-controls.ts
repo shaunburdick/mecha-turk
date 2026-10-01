@@ -22,10 +22,11 @@
  * where they were.
  */
 
-import { mountButton, mountList, mountSelect, mountText } from '@openchamber/sdk/ui';
+import { mountButton, mountList, mountSelect } from '@openchamber/sdk/ui';
 import type { ButtonHandle, ListHandle, ListItem, SelectHandle, SelectOption, TextHandle } from '@openchamber/sdk/ui';
 import { DISPATCH_PAGE_SIZES } from './dispatch-page.ts';
 import { DISPATCHES_EMPTY_TEXT, selectedRun, stateLabel, utcStamp } from './dispatches-rows.ts';
+import { mountStyledText } from './style.ts';
 import type { PanelBinding } from './bindings-service.ts';
 import type { RunReference, RunRow } from './dispatches-service.ts';
 import type { DispatchesState, PanelRuntime } from './panel-state.ts';
@@ -352,8 +353,15 @@ function filterValue(id: string): string | null {
 export function mountDispatchesControls(input: DispatchControlsInput): PagingControls {
     const { pane, rt, handlers } = input;
     const { dispatches: runs, bindings } = rt.state;
-    const rangeLine = mountText(pane, { text: dispatchRangeLine(runs) });
-    const filterLine = mountText(pane, { text: activeFilterLine(runs, bindings.bindings) });
+    // Both are *metadata about the set on screen*, not body copy, so they
+    // take the same dim treatment as the status lede above them rather than
+    // printing at full ink and out-ranking it (product-owner review
+    // 2026-10-01).
+    const rangeLine = mountStyledText(pane, { className: 'mt-lede', text: dispatchRangeLine(runs) });
+    const filterLine = mountStyledText(pane, {
+        className: 'mt-lede',
+        text: activeFilterLine(runs, bindings.bindings),
+    });
 
     const paging = createControlGroup(pane);
     const previousPage = mountButton(paging, {

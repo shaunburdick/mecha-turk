@@ -122,6 +122,16 @@ export function lifecycleCopy(account: PanelAccount): LifecycleCopy {
 /**
  * Read one connection state's words (FR-062, NFR-112).
  *
+ * The four states FR-062 names render verbatim, and so does **needs
+ * reconnection**: both the status projection and the accounts mirror have
+ * been seen carrying that word (the offline fixtures model it), and the
+ * Status tab already prints whatever the service reported
+ * (`status-lines.ts`). Calling a word the operator can read on the sibling
+ * tab *unknown* is the worse lie — so it joins the known set and gets the
+ * warning tone beside it, while any word **outside** the set still reads
+ * `unknown connection state: <raw>` rather than being mapped to a friendly
+ * guess (FR-003).
+ *
  * @param account - One credential-free account.
  * @returns The connection phrase, including an unreported or unknown one.
  */
@@ -136,10 +146,25 @@ export function connectionPhrase(account: PanelAccount): string {
         case 'auth-failed':
         case 'rate-limited':
         case 'offline':
+        case 'needs reconnection':
             return connectionState;
         default:
             return `unknown connection state: ${connectionState}`;
     }
+}
+
+/**
+ * How many bindings an account backs, as the rows print it (FR-062).
+ *
+ * One place, because `1 bindings` appeared twice and a count that disagrees
+ * with its own noun is the kind of detail an operator stops trusting the
+ * rest of the row over (product-owner review 2026-10-01).
+ *
+ * @param count - How many stored bindings name this account.
+ * @returns The count with its noun, singular when the count is one.
+ */
+export function bindingsPhrase(count: number): string {
+    return `${count} ${count === 1 ? 'binding' : 'bindings'}`;
 }
 
 /**
@@ -210,7 +235,7 @@ export function accountRow(bindings: BindingsTabState, account: PanelAccount): L
         parts.push(`error: ${account.errorReason}`);
     }
 
-    parts.push(`${bindingsBacked(bindings, account)} bindings`);
+    parts.push(bindingsPhrase(bindingsBacked(bindings, account)));
 
     return {
         id: account.numericUserId,
@@ -251,7 +276,7 @@ export function accountDetail(bindings: BindingsTabState, account: PanelAccount)
         connectionPhrase(account),
         verifiedPhrase(account),
         scopePhrase(account),
-        `${bindingsBacked(bindings, account)} bindings`,
+        bindingsPhrase(bindingsBacked(bindings, account)),
     ];
     if (account.state === 'error' && typeof account.errorReason === 'string') {
         parts.push(`error: ${account.errorReason}`);
@@ -294,10 +319,9 @@ export function rotationStatement(login: string): string {
  */
 export function removalStatement(bindings: BindingsTabState, account: PanelAccount): string {
     const count = bindingsBacked(bindings, account);
-    const bindingsWord = count === 1 ? 'binding' : 'bindings';
 
     return (
-        `Remove ${account.login}? ${count} ${bindingsWord} will be disabled — they stay in the `
+        `Remove ${account.login}? ${bindingsPhrase(count)} will be disabled — they stay in the `
         + 'list with that reason, and nothing is deleted.'
     );
 }

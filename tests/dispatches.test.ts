@@ -455,7 +455,9 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
         expect(dispatchesStatusText(runsState({ status: 'error' }))).toContain('see the note');
         expect(dispatchesStatusText(runsState({ status: 'ready' }))).toBe(DISPATCHES_EMPTY_STATUS);
         expect(dispatchesStatusText(runsState({ status: 'ready', rows: [runFixture()] }))).toBe(
-            '1 dispatch · newest first · select a row to open or retry',
+            // The count is the range line's to state (FR-042); this lede
+            // carries the order and the selection hint only.
+            'newest first · select a row to open or retry',
         );
         expect(DISPATCHES_EMPTY_TEXT).toBe('No dispatches yet.');
     });
@@ -1127,6 +1129,10 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
 
     it('starts idle, says so, and resets with the selection (FR-053)', async () => {
         expect(auditStatusText(initialAuditHistory())).toBe(AUDIT_IDLE_STATUS);
+        // The control is disabled while nothing is selected, so the idle line
+        // names the precondition instead of pointing at a button the same
+        // screen refuses to enable (2026-10-01 review).
+        expect(AUDIT_IDLE_STATUS).toContain('select a dispatch');
         expect(auditStatusText(auditState({ status: 'ready' }))).toBe(AUDIT_EMPTY_STATUS);
         expect(auditStatusText(auditState({ status: 'loading' }))).toContain('Reading');
 

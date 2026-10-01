@@ -474,9 +474,12 @@ export function dispatchesStatusText(runs: DispatchesState): string {
         return DISPATCHES_EMPTY_STATUS;
     }
 
-    const noun = runs.rows.length === 1 ? 'dispatch' : 'dispatches';
-
-    return `${runs.rows.length} ${noun} · newest first · ${DISPATCHES_SELECT_HINT}`;
+    // No count here: the range line immediately below carries it, and FR-042
+    // requires *that* line to state the set's total ("N dispatches in this
+    // set", or "total unavailable"). Printing the same figure twice was the
+    // duplication the 2026-10-01 review found, so the lede keeps the order
+    // and the selection hint and nothing the next line already says.
+    return `newest first · ${DISPATCHES_SELECT_HINT}`;
 }
 
 /**
