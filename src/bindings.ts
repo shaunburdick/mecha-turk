@@ -3,7 +3,8 @@
  *
  * The service owns the durable bindings file; this tab reads, edits, and
  * re-grants it whole. This module owns the **add** flow (repository, account,
- * project, triggers, worktree option), the list reads, the enable/disable
+ * project, triggers, worktree option, and the starting prompt that travels
+ * with the rest of the draft), the list reads, the enable/disable
  * toggle, and removal — plus the draft itself, whose reader
  * ({@link readDraft}) the **edit** flow in [`bindings-edit.ts`](./bindings-edit.ts)
  * shares. Every write is the same `PUT /v1/bindings` whole-file grant;
@@ -20,6 +21,7 @@ import { newCorrelationId, nowIso } from './ids.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import { armRelayForBindings, grantBindings } from './bindings-grant.ts';
+import { promptRefusal } from './bindings-prompt.ts';
 import {
     ACCOUNTS_PATH,
     BINDINGS_PATH,
@@ -446,6 +448,15 @@ export function reloadBindingsAfterConnect(rt: PanelRuntime): void {
  * surface the success note reports from — while a refused one leaves the
  * editor open with the draft the operator can correct.
  *
+ * The starting prompt rides this write the way it rides the edit save: one
+ * form, one primary control, the prompt alongside the rest (005 `## Clarifications`
+ * row 33), so 004 FR-014's two rules hold in add mode too. A field the
+ * operator never touched omits the member — for a brand-new row that means
+ * the binding is created prompt-less, and every *other* row's stored prompt
+ * is preserved by the same omission — while a touched one travels with it,
+ * an explicit empty value included. A refusal the prompt caused lands on the
+ * field it belongs to (FR-052) rather than being left to the tab's note.
+ *
  * @param rt - Panel runtime.
  */
 export async function bindRepository(rt: PanelRuntime): Promise<void> {
@@ -458,14 +469,24 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
         return;
     }
 
+    const prompt = bindings.startingPromptDirty
+        ? { bindingId: draft.bindingId, startingPrompt: bindings.startingPromptInput }
+        : undefined;
     const answer = await grantBindings({
         rt,
         bindings: [...bindings.bindings, draft],
         note: `Bound ${draft.repository} to ${draft.accountLogin}.`,
+        ...(prompt === undefined ? {} : { prompt }),
     });
     resetCoveredDraft(bindings, draft.repository);
     if (answer.ok) {
         bindings.editorOpen = false;
+        bindings.startingPromptDirty = false;
+        bindings.startingPromptError = null;
+        bindings.startingPromptInput = '';
+    } else {
+        const refusal = promptRefusal(answer);
+        bindings.startingPromptError = refusal === null ? null : redact(refusal);
     }
 
     refresh(rt);

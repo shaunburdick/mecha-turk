@@ -110,17 +110,30 @@ export function mountBindingPrompt(input: {
  * remediation — and the service's copy never echoes what was submitted, so it
  * can be shown verbatim (FR-085).
  *
+ * Two different questions get two different answers here, and conflating them
+ * is what made the field dead in add mode:
+ *
+ * - **the helper follows the selection** — before a row is selected the field
+ *   says so, which is the copy an operator sees whether the editor was opened
+ *   by a row click or by *New binding*;
+ * - **the input follows the editor** — a form the operator has open is
+ *   typeable in both modes. *New binding* selects no row *by design* (the
+ *   add form's own signal throughout), so keying `disabled` off the selection
+ *   disabled the field exactly where it was being used, leaving it rendered
+ *   but unfocusable.
+ *
  * @param rt - Panel runtime.
  * @param controls - The mounted field.
  */
 export function repaintBindingPrompt(rt: PanelRuntime, controls: BindingPromptControls): void {
     const state = rt.state.bindings;
-    const editable = state.selectedBinding !== null && state.status !== 'loading';
-    const help = state.startingPromptError ?? (editable ? PROMPT_HELPER : PROMPT_IDLE);
+    const selected = state.selectedBinding !== null && state.status !== 'loading';
+    const help = state.startingPromptError ?? (selected ? PROMPT_HELPER : PROMPT_IDLE);
+    const typeable = state.editorOpen && state.status !== 'loading';
 
     controls.field.update({
         value: state.startingPromptInput,
-        disabled: !editable,
+        disabled: !typeable,
         helper: help,
     });
 }
