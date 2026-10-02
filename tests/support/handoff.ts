@@ -12,7 +12,6 @@
 import type { GuestRequest, GuestRequestResult, HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
 import { HostRequestError } from '@openchamber/sdk';
 import { expect } from 'vitest';
-import { CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../../src/consent.ts';
 import { currentHandoffToken } from '../../src/handoff.ts';
 import { STATUS_PATH } from '../../src/handoff-status.ts';
 import type { HandoffState } from '../../src/handoff.ts';
@@ -33,11 +32,8 @@ export const CONNECTED_LOGIN = 'octocat-mt';
 /** Numeric id the fixture identity carries. */
 export const CONNECTED_ID = '77331';
 
-/** Acceptance timestamp used by the consent fixtures. */
+/** Fixture timestamp used by the handoff fixtures. */
 export const GIVEN_AT = '2026-09-27T00:00:00.000Z';
-
-/** A current consent mirror for the fixtures. */
-export const CURRENT_CONSENT: JsonValue = { givenAt: GIVEN_AT, version: CONSENT_VERSION };
 
 /** Body answering the pre-flight with a writable store and no accounts. */
 export const STATUS_BODY = JSON.stringify({ service: { storage: { writable: true } }, accounts: [] });
@@ -73,10 +69,6 @@ export interface RecordingView {
     readonly view: HandoffView;
     /** Every non-empty string the render step produced, for secret scans. */
     readonly rendered: string[];
-    /** Consent copy as rendered. */
-    consentText: string;
-    /** Whether the consent step is visible. */
-    consentShown: boolean;
     /** Whether the credential input accepts typing. */
     tokenEnabled: boolean;
     /** The credential input's current value. */
@@ -85,7 +77,7 @@ export interface RecordingView {
     note: string;
     /** The connected line, when one is shown. */
     connected: string | null;
-    /** Whether the paste row (consent field, credential input, submit) shows. */
+    /** Whether the paste row (credential input and submit) shows. */
     pasteVisible: boolean;
     /** Whether the submit button is enabled. */
     submitEnabled: boolean;
@@ -101,13 +93,6 @@ export interface RecordingView {
 export function recordingView(): RecordingView {
     const record: RecordingView = {
         view: {
-            setConsentText: (text: string): void => {
-                record.consentText = text;
-                record.rendered.push(text);
-            },
-            showConsent: (show: boolean): void => {
-                record.consentShown = show;
-            },
             setTokenEnabled: (enabled: boolean): void => {
                 record.tokenEnabled = enabled;
             },
@@ -135,8 +120,6 @@ export function recordingView(): RecordingView {
             },
         },
         rendered: [],
-        consentText: '',
-        consentShown: true,
         tokenEnabled: false,
         tokenValue: '',
         note: '',
@@ -170,7 +153,7 @@ export interface ScriptedHost {
  */
 export async function scriptedRuntime(
     handler: (request: GuestRequest, index: number) => GuestRequestResult | Promise<GuestRequestResult>,
-    initial: Readonly<Record<string, JsonValue>> = { [CONSENT_STORAGE_KEY]: CURRENT_CONSENT },
+    initial: Readonly<Record<string, JsonValue>> = {},
 ): Promise<ScriptedHost> {
     const storage = createStorageDouble(initial);
     const requests: GuestRequest[] = [];
@@ -245,9 +228,7 @@ export function expectNoCredential(host: ScriptedHost): void {
 /** Empty handoff state, for building render inputs in the tests. */
 export function initialState(): HandoffState {
     return {
-        consentGiven: false,
         storageWritable: false,
-        preflighted: false,
         knownAccountIds: [],
         connected: null,
         note: '',

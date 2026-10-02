@@ -5,10 +5,7 @@
  * `events.json` until the panel carries them into a `host.startSession()`
  * dispatch. One JSON file holds the whole queue; dedupe is by the event's own
  * deterministic `id` (one assignment on one issue can only ever produce one
- * event), a claim is a state flip with a stamp, and a dispatch is terminal.
- * This is the deliberately simple replacement for the contract's long-poll/
- * lease relay (§2.4) — the MVP cut trades leases and run keys for a queue one
- * panel reads through two routes.
+ * event), and a dispatch is terminal.
  *
  * The row schema and its validator live beside this module in
  * `events-parse.ts` (the read side of the same contract). A queue file that
@@ -17,24 +14,57 @@
  * so the assignments the lost queue carried are re-detected on the next
  * pass instead of silently dropped.
  *
- * MVP-DEBT: retention beyond the dispatched tail and delivery leases are
- * contract §2.4 machinery still deferred; the Slice-2 runs history
- * (`GET /v1/events`) and its retry (`POST /v1/events/:id/retry`) read and
- * reset this queue in place instead of adding a second store.
+ * **What changed in 003 (T-001–T-006).** A delivery is no longer the unit of
+ * dispatch — the **run** is (data-model §1, §2.2) — and this module no longer
+ * performs the claim itself. What it does now is:
+ *
+ * - **enqueue through the run layer**: a fresh delivery either opens a run or
+ *   joins an open one (FR-011), on the same chain `runs.json` shares, writing
+ *   `runs.json` first and `events.json` second so a crash between the two
+ *   self-heals on re-detect (research §R4);
+ * - **write the forward link** `runCorrelationId` on the rows it enqueues, and
+ *   carry the `subjectType` captured at detection, while leaving the legacy
+ *   lifecycle fields (`state`, `claimedAt`, `dispatchedAt`, `dispatchResult`)
+ *   frozen — a post-003 row carries none of them, and that absence is what
+ *   tells the two vocabularies apart on read (FR-012);
+ * - **prune run-linked rows** when their bounded terminal run is evicted, so
+ *   `events.json` cannot outlive the run that explains it (T-037).
+ *
+ * **The legacy queue's terminal mutations were removed** (T-043g). The two
+ * routes they served, `POST /v1/events/:id/dispatched` and `…/retry`, were
+ * re-addressed to the run by 003's wire delta ("Addressed by the run, not the
+ * delivery"), and are answered by [`dispatch.ts`](../routes/dispatch.ts) and
+ * [`run-ops.ts`](../routes/run-ops.ts) against `runs.json`. `markEventDispatched`
+ * and `retryEvent` had no caller and a second vocabulary for the same facts —
+ * one import away from re-creating the state-flip path 003 closed — so they are
+ * gone. Nothing here writes the frozen lifecycle fields any more; `GET
+ * /v1/events` keeps *reading* them from rows the shipped build wrote until 003
+ * T-016 replaces that projection.
  */
 
 import { basename, join } from 'node:path';
 import { newCorrelationId, nowIso } from '../../src/ids.ts';
 import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
+import type { PromptSnapshot } from '../prompt.ts';
 import type { ServiceStore } from '../store/index.ts';
-import { parseStoredEvent, parseStoredEvents } from './events-parse.ts';
+import { EVENTS_FILE, parseStoredEvent, parseStoredEvents } from './events-parse.ts';
+import { recordEnqueueAudits } from './events-enqueue-audit.ts';
+import { applyEnqueue } from './runs-join.ts';
+import { inQueueChain, readRunsDocument, writeRunsDocument } from './runs-document.ts';
 import { readScanState, serializeScan, writeScanState } from './scan.ts';
-import type { EventKind, EventState, QueuedEvent } from './events-parse.ts';
+import type { EventKind, EventState, QueuedEvent, SubjectType } from './events-parse.ts';
 import type { BindingScanState } from './scan.ts';
 
-/** Store file holding the event queue. */
-export const EVENTS_FILE = 'events.json';
+/** Store file holding the event queue (declared beside the row schema). */
+export { EVENTS_FILE, subjectTypeOf } from './events-parse.ts';
+
+/**
+ * Re-exported: the chain every queue mutation serializes on has exactly one
+ * import path, so a rewriting pass (006's excerpt trim) joins the *same* slot
+ * an enqueue does instead of keeping a second chain that could race it.
+ */
+export { inQueueChain };
 
 /** How many dispatched events stay in the file for dedupe and history. */
 export const MAX_DISPATCHED_EVENTS = 500;
@@ -43,7 +73,7 @@ export const MAX_DISPATCHED_EVENTS = 500;
 export { parseStoredEvent, parseStoredEvents };
 
 /** Row types re-exported alongside them for the routes and the scan loop. */
-export type { EventKind, EventState, QueuedEvent };
+export type { EventKind, EventState, QueuedEvent, SubjectType };
 
 /** Re-exported: this module stays the one import path for the queue's writer. */
 export { buildEventId, createEvent } from './events-write.ts';
@@ -57,23 +87,29 @@ export type {
 } from './events-write.ts';
 
 /**
- * In-flight chain the queue's mutations serialize onto (the `audit.ts`
- * write-chain pattern), so a scan tick and the relay routes never interleave
- * one another's read-modify-write.
- */
-const queueChain: { write: Promise<unknown> } = { write: Promise.resolve() };
-
-/**
- * Serialize one queue mutation.
+ * The one rule for "this **legacy** row is finished" — used by the
+ * dispatched-tail cap, and by 006's excerpt retention pass as the first half
+ * of its eligibility rule (006 FR-057, plan D6).
  *
- * @param task - The work to chain.
- * @returns Whatever `task` produced.
+ * A row is terminal exactly when it carries the shipped `dispatched` state:
+ * such a row answers `409` to a retry and can never re-enter the queue, so
+ * neither its tail position nor its payload text is reachable again. Extracting
+ * the predicate rather than restating `state === 'dispatched'` in a second
+ * module is what keeps the tail cap and the excerpt pass from ever disagreeing
+ * about a legacy row.
+ *
+ * A row with no `state` at all (everything 003 enqueues) is **not** terminal by
+ * this rule: its truth lives on the run, and this predicate has no business
+ * reading it. 003 froze the field, so the tail cap leaves those rows to the
+ * run-eviction prune beside it, and the excerpt pass reads the linked run's
+ * state itself (`poll/excerpt-trim.ts`) rather than asking this function to
+ * guess.
+ *
+ * @param event - One stored queue row.
+ * @returns `true` only for a row in the terminal `dispatched` state.
  */
-function inQueueChain<T>(task: () => Promise<T>): Promise<T> {
-    const run = queueChain.write.then(task, task);
-    queueChain.write = run;
-
-    return run;
+export function isDispatchedTerminal(event: QueuedEvent): boolean {
+    return event.state === 'dispatched';
 }
 
 /**
@@ -85,9 +121,14 @@ function inQueueChain<T>(task: () => Promise<T>): Promise<T> {
  * @param events - The queue to store.
  * @returns The array to write.
  */
-function serializedQueue(events: readonly QueuedEvent[]): QueuedEvent[] {
-    const live = events.filter((event) => event.state !== 'dispatched');
-    const dispatched = events.filter((event) => event.state === 'dispatched').slice(-MAX_DISPATCHED_EVENTS);
+function serializedQueue(events: readonly QueuedEvent[], retainedRunIds?: ReadonlySet<string>): QueuedEvent[] {
+    const retained = retainedRunIds === undefined
+        ? events
+        : events.filter((event) => event.state !== undefined
+            || event.runCorrelationId === undefined
+            || retainedRunIds.has(event.runCorrelationId));
+    const live = retained.filter((event) => !isDispatchedTerminal(event));
+    const dispatched = retained.filter((event) => isDispatchedTerminal(event)).slice(-MAX_DISPATCHED_EVENTS);
 
     return [...live, ...dispatched];
 }
@@ -318,23 +359,57 @@ export async function readEvents(input: {
     }
 }
 
+/** Perform one serialized enqueue, preserving run-before-delivery durability. */
+async function enqueueWithinChain(input: {
+    readonly store: ServiceStore;
+    readonly log: ServiceLogger;
+    readonly incoming: readonly QueuedEvent[];
+    readonly prompt?: PromptSnapshot | null;
+}): Promise<readonly QueuedEvent[]> {
+    const existing = await readQueue(input);
+    const known = new Set(existing.map((event) => event.id));
+    const fresh = input.incoming.filter((event) => {
+        if (known.has(event.id)) {
+            return false;
+        }
+
+        known.add(event.id);
+        return true;
+    });
+    if (fresh.length === 0) {
+        return [];
+    }
+
+    const document = await readRunsDocument(input);
+    const outcome = applyEnqueue({
+        document,
+        deliveries: fresh,
+        now: nowIso(),
+        ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+    });
+    const appended = fresh.map((event) => {
+        const runCorrelationId = outcome.links.get(event.id);
+        return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
+    });
+    const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
+    await input.store.writeJson(
+        EVENTS_FILE,
+        serializedQueue([...existing, ...appended], new Set(persistedRuns.runs.map((run) => run.correlationId))),
+    );
+    // Creation audits are backed by intents in runs.json; draining after both
+    // durable state writes closes the crash window without changing audit row
+    // vocabulary or rolling back either state file.
+    await readRunsDocument(input);
+    await recordEnqueueAudits({ ...input, outcome, appended });
+
+    return appended;
+}
+
 /**
- * Append events to the queue, skipping every id already recorded in any
- * state — the deterministic event id is the dedupe key, so this one check is
- * the whole of deduplication. The check reads *every* row still in the file,
- * pending, in-flight, and dispatched alike, so a replay (a first scan, or a
- * recovery reset that cleared `lastScanAt`) re-enqueues nothing the queue can
- * still see.
- *
- * MVP-DEBT: `serializedQueue` retains only the newest `MAX_DISPATCHED_EVENTS`
- * (500) dispatched rows, so an issue dispatched longer ago than that has been
- * evicted from the file — a later replay can enqueue it once more. That
- * eviction is the only gap in this dedupe (acceptable for the MVP bar: a
- * queue loss discards the whole file anyway); a durable dedupe index belongs
- * with the contract §2.4 retention machinery on the Slice 2 debt list.
+ * Append events with delivery-id deduplication and one atomic run/queue chain.
  *
  * @param input - Open store and freshly detected events.
- * @returns The events that were actually appended.
+ * @returns The events that were actually appended, linked to their run.
  */
 export async function enqueueEvents(input: {
     /** Open store. */
@@ -343,135 +418,16 @@ export async function enqueueEvents(input: {
     readonly log: ServiceLogger;
     /** Fresh events this scan produced. */
     readonly incoming: readonly QueuedEvent[];
+    /**
+     * The scanning binding's prompt snapshot (004 FR-015), carried beside the
+     * events the same binding produced `projectId`/`worktreeOption` for.
+     *
+     * **No field is added to the delivery rows** — the text persists in
+     * exactly two places, the binding and this run snapshot (004 FR-053) — so
+     * `buildEventId`, dedupe, and the NDJSON event contract are untouched.
+     */
+    readonly prompt?: PromptSnapshot | null;
 }): Promise<readonly QueuedEvent[]> {
-    return await inQueueChain(async () => {
-        const existing = await readQueue(input);
-        const known = new Set(existing.map((event) => event.id));
-        const appended = input.incoming.filter((event) => !known.has(event.id));
-        if (appended.length === 0) {
-            return [];
-        }
-
-        await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended]));
-
-        return appended;
-    });
+    return await inQueueChain(async () => await enqueueWithinChain(input));
 }
 
-/**
- * Claim every pending event for the panel.
- *
- * @param input - Open store, the claim stamp, and a logger.
- * @returns The events the panel now owns.
- */
-export async function claimPendingEvents(input: {
-    /** Open store. */
-    readonly store: ServiceStore;
-    /** Claim stamp. */
-    readonly claimedAt: string;
-    /** Logger. */
-    readonly log: ServiceLogger;
-}): Promise<QueuedEvent[]> {
-    return await inQueueChain(async () => {
-        const events = await readQueue(input);
-        const pending = events.filter((event) => event.state === 'pending');
-        const claim = (event: QueuedEvent): QueuedEvent => ({
-            ...event,
-            state: 'in-flight' as const,
-            claimedAt: input.claimedAt,
-        });
-        if (pending.length === 0) {
-            return [];
-        }
-
-        const claimedIds = new Set(pending.map((event) => event.id));
-        const claimed = events.map((event) => (claimedIds.has(event.id) ? claim(event) : event));
-        await input.store.writeJson(EVENTS_FILE, serializedQueue(claimed));
-
-        return pending.map(claim);
-    });
-}
-
-/**
- * Mark one event dispatched (terminal) by its id.
- *
- * @param input - Open store, the id, the result summary, and a logger.
- * @returns The event as it now stands, or `null` when the id was not in the
- *   queue at all or was already marked (idempotent re-posts).
- */
-export async function markEventDispatched(input: {
-    /** Open store. */
-    readonly store: ServiceStore;
-    /** Event id. */
-    readonly eventId: string;
-    /** Result summary: the session id or the failure text. */
-    readonly result: string | null;
-    /** Logger. */
-    readonly log: ServiceLogger;
-}): Promise<QueuedEvent | null> {
-    return await inQueueChain(async () => {
-        const events = await readQueue(input);
-        const match = events.find((event) => event.id === input.eventId);
-        if (match === undefined || match.state === 'dispatched') {
-            return null;
-        }
-
-        const dispatched: QueuedEvent = {
-            ...match,
-            state: 'dispatched' as const,
-            dispatchedAt: nowIso(),
-            dispatchResult: input.result,
-        };
-        const remaining = events.map((event) => (event.id === input.eventId ? dispatched : event));
-        await input.store.writeJson(EVENTS_FILE, serializedQueue(remaining));
-
-        return dispatched;
-    });
-}
-
-/** What one retry request found the event in. */
-export type RetryOutcome = 'reset' | 'dispatched' | 'unknown';
-
-/**
- * Return one event to the pending queue for another dispatch.
- *
- * The operator's "dispatch failed → retry" control (M8) posts here. An event
- * the panel claimed but never answered (`in-flight`) goes back to `pending`
- * with its claim stamp cleared; an event already waiting (`pending`) is left
- * exactly as it is — both answer `reset`, so the route answers `200` either
- * way. A terminal event answers `dispatched` (the route turns that into
- * `409`), and an id the queue never held answers `unknown` (`404`).
- *
- * @param input - Open store, the id, and a logger.
- * @returns What the id resolves to.
- */
-export async function retryEvent(input: {
-    /** Open store. */
-    readonly store: ServiceStore;
-    /** Event id. */
-    readonly eventId: string;
-    /** Logger. */
-    readonly log: ServiceLogger;
-}): Promise<RetryOutcome> {
-    return await inQueueChain(async () => {
-        const events = await readQueue(input);
-        const match = events.find((event) => event.id === input.eventId);
-        if (match === undefined) {
-            return 'unknown';
-        }
-
-        if (match.state === 'pending') {
-            return 'reset';
-        }
-
-        if (match.state === 'dispatched') {
-            return 'dispatched';
-        }
-
-        const reset = (event: QueuedEvent): QueuedEvent =>
-            event.id === input.eventId ? { ...event, state: 'pending' as const, claimedAt: null } : event;
-        await input.store.writeJson(EVENTS_FILE, serializedQueue(events.map(reset)));
-
-        return 'reset';
-    });
-}

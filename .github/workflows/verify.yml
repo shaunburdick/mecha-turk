@@ -1,0 +1,73 @@
+# The repository's own gate, as a check: `npm ci`, then `npm run verify`
+# (build -> lint -> typecheck -> test; see package.json "scripts" and the
+# Commands section of AGENTS.md). One job, one step sequence — this is a
+# gate, not a pipeline. Action versions are pinned to commit SHAs; the
+# `# vX.Y.Z` comment keeps them readable.
+name: CI
+
+# Both triggers answer to the default branch: `pull_request` checks a PR
+# into it, `push` checks the branch itself. Feature branches are not named
+# — a PR carries its own checks, and the branch is deleted when its PR is
+# squash-merged.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# Read-only by design: this workflow never pushes, comments, or uploads,
+# so it gets nothing but the ability to read the repository.
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing in this job talks to git over the network, so the token
+          # is never written into the workspace's git configuration.
+          persist-credentials: false
+
+      # package.json engines.node is ">=20.19.0" — a floor, not a chosen
+      # release. Node 24 is the major this suite is verified green on, and
+      # setup-node resolves '24' to its newest patch release.
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          # One line: cache npm's download cache keyed on package-lock.json,
+          # so `npm ci` re-downloads nothing on a warm run.
+          cache: npm
+
+      # `npm run build` shells out to `bunx openchamber-guest-bundle`, which
+      # runs @openchamber/sdk's TypeScript entry (scripts/bundle-guest.ts)
+      # out of node_modules/.bin — without bun the first step of
+      # `npm run verify` fails, so bun is a hard requirement of the gate.
+      - name: Set up bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          # The version is pinned in the repository, not in this workflow:
+          # `.bun-version` at the repo root holds `1.3.14`, the release
+          # `npm run verify` is green on, and this input reads that file
+          # (setup-bun's documented `bun-version-file` input).
+          bun-version-file: '.bun-version'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the repository gate
+        run: npm run verify
+
+      # AGENTS.md invariant 1, enforced by CI instead of by review: OpenChamber
+      # never compiles TypeScript, so `panel/main.js` and `service/main.js`
+      # ship exactly as committed and must match their sources byte-for-byte.
+      # The step above rebuilds both of them; if the rebuild leaves a tracked
+      # file dirty, the commit forgot the bundle its source requires (or the
+      # bundle drifted from the source it claims to come from). Non-zero exit
+      # fails the gate — and this workflow only reads, so nothing is pushed.
+      - name: Assert the committed bundles match their sources
+        run: git diff --exit-code

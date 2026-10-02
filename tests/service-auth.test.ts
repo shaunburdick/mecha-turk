@@ -26,14 +26,17 @@ const UNKNOWN_PATH = '/v1/does-not-exist';
 /** Service running for the current test, drained after it. */
 let running: TestService | null = null;
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork1 = async (): Promise<void> => {
     if (running === null) {
         return;
     }
 
     await running.shutdown();
     running = null;
-});
+};
+
+afterEach(afterEachWork1);
 
 /**
  * Start a service instance and register it for cleanup.
@@ -59,35 +62,40 @@ function withBearer(service: TestService, authorization: string): Promise<Respon
 }
 
 describe('invariant 1 — byte-identical refusals (SEC-09)', () => {
-    it('refuses a same-length wrong-value credential with the reference 401', async () => {
-        const service = await startServiceForTest();
-        const reference = await fetch(`${service.baseUrl}${HEALTH_PATH}`);
-        // Equal *byte* length to the real token: a length probe sees nothing.
-        const sameLength = 'x'.repeat(service.token.length);
-        expect(sameLength.length).toBe(service.token.length);
-        expect(sameLength).not.toBe(service.token);
+    it('refuses a same-length wrong-value credential with th… (+1 cases)', async () => {
+        // case: refuses a same-length wrong-value credential with the reference 401
+        {
+            const service = await startServiceForTest();
+            const reference = await fetch(`${service.baseUrl}${HEALTH_PATH}`);
+            // Equal *byte* length to the real token: a length probe sees nothing.
+            const sameLength = 'x'.repeat(service.token.length);
+            expect(sameLength.length).toBe(service.token.length);
+            expect(sameLength).not.toBe(service.token);
 
-        const attempt = await withBearer(service, `${BEARER_PREFIX}${sameLength}`);
-        const body = await attempt.text();
+            const attempt = await withBearer(service, `${BEARER_PREFIX}${sameLength}`);
+            const body = await attempt.text();
 
-        expect(reference.status).toBe(401);
-        expect(attempt.status).toBe(401);
-        expect(body).toBe(await reference.text());
-        expect(body).not.toContain(sameLength);
-        expect(body).not.toContain(service.token);
-    });
-
-    it('refuses wrong values of every other length the same way', async () => {
-        const service = await startServiceForTest();
-        const reference = await fetch(`${service.baseUrl}${HEALTH_PATH}`);
-        const referenceBody = await reference.text();
-        const wrongValues = ['x'.repeat(service.token.length + 1), 'x'.repeat(4), ''];
-
-        for (const wrong of wrongValues) {
-            const attempt = await withBearer(service, `${BEARER_PREFIX}${wrong}`);
-
+            expect(reference.status).toBe(401);
             expect(attempt.status).toBe(401);
-            expect(await attempt.text()).toBe(referenceBody);
+            expect(body).toBe(await reference.text());
+            expect(body).not.toContain(sameLength);
+            expect(body).not.toContain(service.token);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses wrong values of every other length the same way
+        {
+            const service = await startServiceForTest();
+            const reference = await fetch(`${service.baseUrl}${HEALTH_PATH}`);
+            const referenceBody = await reference.text();
+            const wrongValues = ['x'.repeat(service.token.length + 1), 'x'.repeat(4), ''];
+
+            for (const wrong of wrongValues) {
+                const attempt = await withBearer(service, `${BEARER_PREFIX}${wrong}`);
+
+                expect(attempt.status).toBe(401);
+                expect(await attempt.text()).toBe(referenceBody);
+            }
         }
     });
 });

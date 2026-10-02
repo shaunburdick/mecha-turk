@@ -73,61 +73,67 @@ function serializeFailure(ledger: SpikeLedger): Error {
 }
 
 describe('serializeLedger size gate', () => {
-    it('measures the ledger in UTF-8 bytes the way the host does', () => {
-        const ledger = wideLedger();
-        const json = JSON.stringify(ledger);
+    it('measures the ledger in UTF-8 bytes the way the host … (+1 cases)', () => {
+        // case: measures the ledger in UTF-8 bytes the way the host does
+        {
+            const ledger = wideLedger();
+            const json = JSON.stringify(ledger);
 
-        expect(json.length).toBeLessThan(GUEST_STORAGE_VALUE_BYTES);
-        expect(utf8ByteLength(json)).toBeGreaterThan(GUEST_STORAGE_VALUE_BYTES);
-        expect(() => serializeLedger(ledger)).toThrow('byte host.storage value limit');
-    });
+            expect(json.length).toBeLessThan(GUEST_STORAGE_VALUE_BYTES);
+            expect(utf8ByteLength(json)).toBeGreaterThan(GUEST_STORAGE_VALUE_BYTES);
+            expect(() => serializeLedger(ledger)).toThrow('byte host.storage value limit');
+        }
+        // case: leaves a ledger that already fits untouched
+        {
+            const repair = fitLedgerToByteBudget(emptyLedger());
 
-    it('leaves a ledger that already fits untouched', () => {
-        const repair = fitLedgerToByteBudget(emptyLedger());
-
-        expect(repair.evicted).toBe(0);
-        expect(repair.ledger.entries).toHaveLength(0);
-        expect(utf8ByteLength(JSON.stringify(repair.ledger))).toBeLessThanOrEqual(LEDGER_BYTE_BUDGET);
+            expect(repair.evicted).toBe(0);
+            expect(repair.ledger.entries).toHaveLength(0);
+            expect(utf8ByteLength(JSON.stringify(repair.ledger))).toBeLessThanOrEqual(LEDGER_BYTE_BUDGET);
+        }
     });
 });
 
 describe('repairLedger', () => {
-    it('drops the oldest entries until the ledger fits the byte budget', () => {
-        const ledger = wideLedger();
-        const repair = repairLedger({ ledger, cause: serializeFailure(ledger) });
+    it('drops the oldest entries until the ledger fits the b… (+2 cases)', () => {
+        // case: drops the oldest entries until the ledger fits the byte budget
+        {
+            const ledger = wideLedger();
+            const repair = repairLedger({ ledger, cause: serializeFailure(ledger) });
 
-        expect(repair?.evicted).toBeGreaterThan(0);
-        expect(repair?.quarantined).toBe(0);
-        expect(repair?.ledger.entries.length).toBeLessThan(ledger.entries.length);
-        expect(repair?.ledger.entries.at(-1)).toEqual(ledger.entries.at(-1));
-        expect(repair?.ledger.correlationId).toBe(ledger.correlationId);
-        expect(repair?.ledger.panelGeneration).toBe(ledger.panelGeneration);
-        expect(() => serializeLedger(repair?.ledger ?? ledger)).not.toThrow();
-        expect(utf8ByteLength(JSON.stringify(repair?.ledger ?? ledger))).toBeLessThanOrEqual(LEDGER_BYTE_BUDGET);
-    });
+            expect(repair?.evicted).toBeGreaterThan(0);
+            expect(repair?.quarantined).toBe(0);
+            expect(repair?.ledger.entries.length).toBeLessThan(ledger.entries.length);
+            expect(repair?.ledger.entries.at(-1)).toEqual(ledger.entries.at(-1));
+            expect(repair?.ledger.correlationId).toBe(ledger.correlationId);
+            expect(repair?.ledger.panelGeneration).toBe(ledger.panelGeneration);
+            expect(() => serializeLedger(repair?.ledger ?? ledger)).not.toThrow();
+            expect(utf8ByteLength(JSON.stringify(repair?.ledger ?? ledger))).toBeLessThanOrEqual(LEDGER_BYTE_BUDGET);
+        }
+        // case: quarantines only the entry that trips the redaction gate
+        {
+            const token = `ghp_${'a'.repeat(TOKEN_BODY)}`;
+            let ledger = emptyLedger();
+            ledger = appendEntry(ledger, { at: T0, kind: 'poll', detail: { inspected: 3 } });
+            ledger = appendEntry(ledger, { at: T0, kind: 'error', detail: { note: token } });
+            const failure = serializeFailure(ledger);
+            expect(failure).toBeInstanceOf(RedactionError);
 
-    it('quarantines only the entry that trips the redaction gate', () => {
-        const token = `ghp_${'a'.repeat(TOKEN_BODY)}`;
-        let ledger = emptyLedger();
-        ledger = appendEntry(ledger, { at: T0, kind: 'poll', detail: { inspected: 3 } });
-        ledger = appendEntry(ledger, { at: T0, kind: 'error', detail: { note: token } });
-        const failure = serializeFailure(ledger);
-        expect(failure).toBeInstanceOf(RedactionError);
+            const repair = repairLedger({ ledger, cause: failure });
 
-        const repair = repairLedger({ ledger, cause: failure });
+            expect(repair?.quarantined).toBe(1);
+            expect(repair?.evicted).toBe(0);
+            expect(repair?.ledger.entries).toHaveLength(ledger.entries.length);
+            expect(repair?.ledger.entries.at(-1)?.kind).toBe('error');
+            expect(repair?.ledger.entries.at(-1)?.detail.note).toBe('[redacted:github-token-classic]');
+            expect(repair?.ledger.entries.at(-2)?.detail.inspected).toBe(3);
+            expect(() => serializeLedger(repair?.ledger ?? ledger)).not.toThrow();
+        }
+        // case: reports no repair when the failure is one it cannot fix
+        {
+            const repair = repairLedger({ ledger: emptyLedger(), cause: new Error('host refused the write') });
 
-        expect(repair?.quarantined).toBe(1);
-        expect(repair?.evicted).toBe(0);
-        expect(repair?.ledger.entries).toHaveLength(ledger.entries.length);
-        expect(repair?.ledger.entries.at(-1)?.kind).toBe('error');
-        expect(repair?.ledger.entries.at(-1)?.detail.note).toBe('[redacted:github-token-classic]');
-        expect(repair?.ledger.entries.at(-2)?.detail.inspected).toBe(3);
-        expect(() => serializeLedger(repair?.ledger ?? ledger)).not.toThrow();
-    });
-
-    it('reports no repair when the failure is one it cannot fix', () => {
-        const repair = repairLedger({ ledger: emptyLedger(), cause: new Error('host refused the write') });
-
-        expect(repair).toBeNull();
+            expect(repair).toBeNull();
+        }
     });
 });

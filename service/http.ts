@@ -18,8 +18,16 @@ const MAX_TARGET_CHARS = 2_000;
 /** Longest request body accepted, in characters (contract §1). */
 export const REQUEST_BODY_MAX_CHARS = 60_000;
 
-/** Longest serialized response accepted (`GUEST_REQUEST_RESPONSE_MAX`). */
-const RESPONSE_BODY_MAX_CHARS = 256_000;
+/**
+ * Longest serialized response accepted (`GUEST_REQUEST_RESPONSE_MAX`).
+ *
+ * Exported because a route that *builds* a list must bound it against this
+ * ceiling itself rather than discover the ceiling at write time: a list that is
+ * only discovered to be too large has already taken its side effects (the claim
+ * route's leases are the case that matters — contract §1 requires pagination,
+ * never truncation).
+ */
+export const RESPONSE_BODY_MAX_CHARS = 256_000;
 
 /** Content type written on every response. */
 export const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';

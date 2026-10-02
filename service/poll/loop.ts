@@ -28,20 +28,27 @@
  */
 
 import { repositoryLabel } from '../../src/config.ts';
-import { newCorrelationId } from '../../src/ids.ts';
-import { appendAudit } from '../audit.ts';
 import { DEFAULT_CONFIG, CONFIG_FILE, configFromStore, parseStoredConfig } from '../config.ts';
 import { readAccount } from '../accounts/store.ts';
-import { readBindings } from '../bindings.ts';
+import { readBindings } from '../bindings-read.ts';
+import { promptSnapshotOf } from '../prompt.ts';
+import { runRetentionPasses } from '../retention.ts';
+import type { ServiceConfig } from '../config.ts';
 import type { BindingRecord } from '../bindings.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { createEvent, enqueueEvents, readEvents } from './events.ts';
 import type { QueuedEvent } from './events.ts';
-import type { GitHubIssuePoller, PollFailure, PollIssue } from './poller-github.ts';
+import type { GitHubIssuePoller, ListPace, PollFailure, PollIssue } from './poller-github.ts';
 import { readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
 import type { ScanState } from './scan.ts';
 import { bodyExcerptOf, collectTriggerEvents, repositoryRefOf, updatedInWindow } from './triggers.ts';
+import { windowFor } from './window.ts';
+
+// The window rule lives beside its own rationale in `window.ts`; the loop
+// re-exports it so `windowFor` keeps one import path for the cycle and for
+// the suites that drive it.
+export { windowFor };
 
 /** Short machine reasons a scan was skipped, logged instead of upstream text. */
 export type ScanSkip = 'missing-account' | 'inactive-account' | 'auth-failed' | 'rate-limited' | 'offline' | 'upstream';
@@ -86,12 +93,38 @@ interface ScanContext {
     readonly log: ServiceLogger;
     /** GitHub poller. */
     readonly poller: GitHubIssuePoller;
+    /**
+     * The configuration this cycle runs on — read **once** at the boundary
+     * (006 FR-055, FR-057–FR-059's "one read, once per cycle").
+     *
+     * The window, the page size, and the retry ladder all take their values
+     * from here, which is why one save changes all of them at the same
+     * boundary and why no consumer can see a half-updated configuration.
+     */
+    readonly config: ServiceConfig;
+    /** Page size and retry ladder derived from `config`, carried on every list call. */
+    readonly pace: ListPace;
+}
+
+/** Scheduler state the status projection reads; see [`view.ts`](./view.ts). */
+export interface PollLoopState {
+    /** Whether `stop()` has been called on this loop. */
+    readonly stopped: boolean;
+    /** Epoch milliseconds of the next armed cycle, or `null` when none is armed. */
+    readonly nextPollAtMs: number | null;
 }
 
 /** Handle to the running poll loop. */
 export interface PollLoop {
     /** Cancel the pending cycle; an in-flight cycle finishes on its own. */
     stop(): void;
+    /**
+     * Read the scheduler's own state; never mutates it.
+     *
+     * The status projection reads the loop through this reader rather than
+     * keeping a second copy of the schedule it could drift from (005 FR-031).
+     */
+    state(): PollLoopState;
 }
 
 /** Return the caught value's error name alone; never one word of the cause (SEC-11). */
@@ -112,13 +145,44 @@ export async function currentIntervalMs(store: ServiceStore | null, log: Service
     }
 
     try {
-        const config = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
+        const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
 
         return config.intervalMs;
     } catch (cause) {
         log.warn('poll interval read failed', { errorKind: describeKind(cause) });
 
         return DEFAULT_CONFIG.intervalMs;
+    }
+}
+
+/**
+ * Read the configuration this cycle runs on — **once**, at the boundary
+ * (006 FR-055, FR-057–FR-059).
+ *
+ * A read that throws degrades to the documented defaults with one warn line,
+ * exactly as {@link currentIntervalMs} already does, so one unreadable
+ * document stops no cycle and no binding (invariant 8).
+ *
+ * @param input - Store and logger for this cycle.
+ * @returns The effective configuration for the whole cycle.
+ */
+async function readCycleConfig(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+}): Promise<ServiceConfig> {
+    try {
+        const { config } = configFromStore(
+            await input.store.readJson(CONFIG_FILE, parseStoredConfig),
+            input.log,
+        );
+
+        return config;
+    } catch (cause) {
+        input.log.warn('cycle configuration read failed', { errorKind: describeKind(cause) });
+
+        return DEFAULT_CONFIG;
     }
 }
 
@@ -138,40 +202,18 @@ function watchesAnything(binding: BindingRecord): boolean {
 }
 
 /**
- * The window the next scan opens from: the last completed scan's stamp when
- * there is one, else `null` — no `since` filter at all, a full replay.
- *
- * A binding that has never completed a scan (`lastScanAt: null` in its slot,
- * or no slot at all) replays every open issue on its next scan instead of
- * opening a baseline at `createdAt`: pre-binding assignments must work
- * (product decision, 2026-09-28), so an issue assigned before the binding
- * existed is still detected. A recovery reset writes the same `null`, so the
- * reset replays too — the same contract, and deterministic event ids keep
- * both replays duplicate-free.
- *
- * @param binding - Binding being scanned.
- * @param scanned - Scan state read at cycle start.
- * @returns The recorded stamp, or `null` for an unbounded (replay) window.
- */
-export function windowFor(binding: BindingRecord, scanned: ScanState): string | null {
-    const recorded = scanned.bindings[binding.bindingId];
-
-    return recorded !== undefined && recorded.lastScanAt !== null ? recorded.lastScanAt : null;
-}
-
-/**
  * Decide whether one issue is an assignment the binding should react to.
  *
- * Pull requests are skipped (review requests belong to the M7 trigger),
- * closed issues are skipped, and the assignment must name the bound
- * account's login.
+ * Closed subjects are skipped, and the assignment must name the bound
+ * account's login. Pull-request assignment and review triggers can
+ * both fire; the run layer coalesces them using the same PR subject key.
  *
  * @param issue - Normalized issue.
  * @param bindingLogin - The bound account's login.
  * @returns `true` when the issue is an open issue assigned to that account.
  */
 export function isIssueAssignment(issue: PollIssue, bindingLogin: string): boolean {
-    if (issue.state !== 'open' || issue.isPullRequest) {
+    if (issue.state !== 'open') {
         return false;
     }
 
@@ -194,37 +236,6 @@ function skipOf(outcome: PollFailure): ScanSkip {
     }
 
     return outcome.detail === 'timeout' || outcome.detail === 'offline' ? 'offline' : 'upstream';
-}
-
-/**
- * Record one detection in the audit trail.
- *
- * @param deps - Store and logger for the audit and its failures.
- * @param event - The event that was enqueued.
- */
-async function recordDetection(deps: ScanContext, event: QueuedEvent): Promise<void> {
-    try {
-        await appendAudit(deps.store, {
-            eventType: 'delivery.detected',
-            actorSource: 'service',
-            entity: { kind: 'delivery', id: event.id },
-            decision: null,
-            reason: `${event.kind} trigger matched a binding`,
-            correlationId: newCorrelationId(),
-            details: {
-                bindingId: event.bindingId,
-                repository: event.repository,
-                kind: event.kind,
-            },
-        });
-    } catch (cause) {
-        // The queue file is the durable record; the audit row is an extra
-        // guard whose failure is logged, not escalated to the cycle.
-        deps.log.warn('detection audit row could not be appended', {
-            eventId: event.id,
-            errorKind: describeKind(cause),
-        });
-    }
 }
 
 /**
@@ -272,6 +283,7 @@ function eventsForBinding(input: {
                 },
                 triggerNote: 'Issue assigned to the bound account',
                 detectedAt: input.detectedAt,
+                subjectType: issue.isPullRequest ? 'pull_request' : 'issue',
             }),
         );
     }
@@ -335,6 +347,7 @@ async function collectScanEvents(input: {
             owner: repository.owner,
             name: repository.name,
             since: windowStart,
+            pace: deps.pace,
         })
         : { kind: 'ok' as const, issues: [] as readonly PollIssue[] };
     if (issues.kind !== 'ok') {
@@ -343,6 +356,7 @@ async function collectScanEvents(input: {
 
     const collected = await collectTriggerEvents({
         poller: deps.poller, token, binding, login, windowStart, detectedAt, issues: issues.issues,
+        pace: deps.pace,
     });
     if (!collected.ok) {
         return { ok: false, skipped: skipOf(collected.failure) };
@@ -387,7 +401,9 @@ async function scanBinding(input: {
     const listed = await collectScanEvents({
         deps,
         binding,
-        windowStart: windowFor(binding, scanned),
+        // The window this cycle opens is widened by the overlap the cycle's
+        // own configuration declared (006 FR-059(a)).
+        windowStart: windowFor({ binding, scanned, overlapMs: deps.config.overlapMs }),
         detectedAt,
         token: account.credential.token,
         login: account.login === '' ? binding.accountLogin : account.login,
@@ -400,12 +416,11 @@ async function scanBinding(input: {
         store: deps.store,
         log: deps.log,
         incoming: listed.events,
-    });
-    for (const event of appended) {
-        await recordDetection({ ...deps }, event);
-    }
-
-    return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
+        // The same binding object that produced `projectId`/`worktreeOption`
+        // for these events is the one this snapshot comes from, so the three
+        // cannot disagree (004 FR-015: "at the same moment").
+        prompt: promptSnapshotOf(binding),
+    });    return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
 }
 
 /**
@@ -418,13 +433,20 @@ async function scanBinding(input: {
 async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promise<void> {
     await serializeScan(async () => {
         const state = await readScanState(deps);
+        const prior = state.bindings[scan.bindingId];
+        // FR-058 (006): a scan that did not complete **retains** the checkpoint
+        // it already had — it neither advances past data that was never
+        // durably represented nor clears to a full replay. The next successful
+        // scan re-covers the failed period through `lastScanAt − overlapMs`.
+        // The queue-recovery reset remains the one path that clears the stamp.
+        const retained = scan.windowFrom ?? (prior?.lastScanAt ?? null);
         await writeScanState({
             store: deps.store,
             state: withBindingScanState({
                 state,
                 bindingId: scan.bindingId,
                 slot: {
-                    lastScanAt: scan.windowFrom,
+                    lastScanAt: retained,
                     lastError: scan.skipped,
                 },
             }),
@@ -442,12 +464,50 @@ async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promi
  * @param deps - Store, logger, and poller.
  * @returns The cycle outcome.
  */
+/**
+ * Read this cycle's configuration and narrow the dependencies around it.
+ *
+ * One read, once per cycle (006 FR-055, FR-057–FR-059): the window, the page
+ * size, and the retry ladder all take their values from this one document and
+ * keep them for the whole cycle, so a single save changes all of them at the
+ * same boundary and no consumer sees a half-updated configuration.
+ *
+ * @param input - Store, logger, and poller; the store is already known open.
+ * @returns The context every binding in this cycle is scanned under.
+ */
+async function cycleContext(input: {
+    /** Open store; the null check lives at the cycle's own entry. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+    /** GitHub poller. */
+    readonly poller: GitHubIssuePoller;
+}): Promise<ScanContext> {
+    const config = await readCycleConfig({ store: input.store, log: input.log });
+    const pace: ListPace = {
+        perPage: config.perPage,
+        retry: {
+            maxAttempts: config.retryMaxAttempts,
+            baseMs: config.retryBaseMs,
+            maxMs: config.retryMaxMs,
+        },
+    };
+
+    return { store: input.store, log: input.log, poller: input.poller, config, pace };
+}
+
 export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     if (deps.store === null) {
         return { bindings: [], enqueued: 0 };
     }
 
-    const context: ScanContext = { store: deps.store, log: deps.log, poller: deps.poller };
+    const context = await cycleContext({ store: deps.store, log: deps.log, poller: deps.poller });
+    // 006 FR-055(b)/FR-057: both retention passes run at the cycle boundary,
+    // on the configuration this cycle already read — the boundary adds no
+    // second read, and a save takes effect here rather than at the write
+    // (FR-047). Nothing below may throw because a pass failed: each one is
+    // guarded inside `runRetentionPasses`.
+    await runRetentionPasses({ store: context.store, log: context.log, config: context.config });
     // Health pass before this cycle reads its windows: a queue file that has
     // to be quarantined clears every binding's `lastScanAt` inside that read,
     // so the scan-state read below must see the cleared slots rather than

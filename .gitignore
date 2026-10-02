@@ -2,9 +2,10 @@
 node_modules/
 
 # Local secrets and environment files — credentials never enter source control.
+# There is no template to except any more: 006 FR-091 removed `.env.example`,
+# the two surviving service variables are host-set, and no `.env` file ships.
 .env
 .env.*
-!.env.example
 
 # Test/coverage output. The committed guest bundles (panel/main.js, the panel
 # IIFE, and service/main.js, the service ESM) are intentionally committed:
@@ -22,3 +23,11 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Screenshot output from `npm run shot` (tools/visual) lands in the repo-root
+# `screenshots/` folder, visible to the operator but never committed; `--out`
+# can point anywhere else. The older temp/repo-root paths stay covered so a
+# stray capture cannot enter the index either.
+screenshots/
+tools/visual/*.png
+/panel-*.png

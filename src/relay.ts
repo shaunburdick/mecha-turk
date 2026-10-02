@@ -1,344 +1,133 @@
 /**
- * Panel event relay (M4 re-cut): poll the service for claimed relay events
- * and hand each one to the documented `host.startSession()` dispatch.
+ * Panel event relay (003 T-021): claim runs, run them through the gates, and
+ * hand each one to exactly one `host.startSession()` call.
  *
- * The loop reuses the spike's dispatch machinery — `resolveProject`,
- * `buildBoundedContext`, `buildStartSessionRequest`, and the start-session
- * summary — but the source of truth is the *binding* the service snapshot
- * carried, not the operator settings: a repository binding is the reason a
- * relay event exists. One-dispatch-per-mount keeps an event id honest
- * across re-polls; the ledger records every attempt.
+ * This module owns the **loop** — what a tick claims, which attempts this mount
+ * has already made, and when polling starts. The steps of one attempt live in
+ * the two modules it drives:
  *
- * MVP-DEBT: no re-fetch of the issue source between the claim and the
- * dispatch. The service detected the assignment seconds ago; the "source
- * changed" guard of the spike flow is re-built in Slice 2 if the loop turns
- * out to need it.
+ * ```text
+ * relay.ts          claim → handled key → gates → attempt
+ * relay-gates.ts    binding + project guards → POST …/blocked → POST …/reserve
+ * relay-attempt.ts  host.startSession → record → POST …/dispatched → ack → verify
+ * ```
  *
- * After a dispatch the relay also (M8) refreshes the runs history the Runs
+ * Four rules hold for the whole tick:
+ *
+ * - **Nothing is dispatched that was not offered claimed** (FR-035): the only
+ *   source of work is this tick's own claim answer, and an entry whose lease
+ *   will not parse is unreadable rather than dispatchable — the guard keys off
+ *   `lease`, never off `state`, which only records the state the run was
+ *   *offered* in.
+ * - **No `host.startSession()` after any refusal** (FR-028's panel half): a
+ *   refused guard, a refused reserve, or an unreadable authorization each end
+ *   the attempt before the host is called.
+ * - **The handled list is keyed `correlationId#attempt`** (FR-034): a failed
+ *   result report never clears an entry and never authorizes a re-dispatch; a
+ *   new lease and attempt arrive under a different key and are free to proceed.
+ * - **A claim answer may be partial** (contract `claim-lease.md`): the service
+ *   paginates, so a short answer is not "everything that was waiting". The
+ *   panel simply polls again on its own clock, and `status.pendingCount` is the
+ *   honest "more is waiting" signal the loop never second-guesses.
+ *
+ * After a report the relay also (M8) refreshes the runs history the Dispatches
  * section renders and (M9) reads back the dispatched session's agent —
  * warn-only, see `agent-verify.ts`.
  */
 
-import type { GuestProject } from '@openchamber/sdk';
-import { verifyAgentAfterDispatch } from './agent-verify.ts';
-import { parseWorktreeOption, repositoryLabel } from './config.ts';
-import type { RepositoryRef, WorktreeSelection } from './config.ts';
-import { nowIso } from './ids.ts';
-import { appendEntryAndPersist } from './panel-actions.ts';
 import { refresh } from './panel-ui.ts';
-import { redact } from './redaction.ts';
-import { parsePendingBody } from './repos-service.ts';
-import type { RelayEvent } from './repos-service.ts';
-import { loadRuns } from './runs.ts';
-import { EVENTS_PENDING_PATH, dispatchedPath, serviceGet, servicePost } from './service-calls.ts';
+import { parsePendingBody } from './claim-service.ts';
+import type { ClaimAnswer, ClaimedRun } from './claim-service.ts';
+import { EVENTS_PENDING_PATH, serviceGet } from './service-calls.ts';
 import {
-    buildBoundedContext,
-    buildStartSessionRequest,
-    resolveProject,
-    summarizeStartSessionResult,
-} from './session.ts';
+    RELAY_POLL_INTERVAL_MS,
+    abandonReservation,
+    guardRun,
+    refuseWithBlocked,
+    reserveRun,
+    stillRunning,
+} from './relay-gates.ts';
+import { closeAttempt, startRunSession } from './relay-attempt.ts';
+import { nowIso } from './ids.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** How often the relay polls the service, in milliseconds. */
-export const RELAY_POLL_INTERVAL_MS = 10_000;
-
-/** Ledger kind the relay records its results under (same kind the spike uses). */
-const RELAY_LEDGER_KIND = 'session';
-
-/** Problem string recorded when a start made no session and named no cause. */
-const NO_SESSION_PROBLEM = 'no-session';
-
-/** Problem string recorded when the binding vanished before the dispatch. */
-const BINDING_MISSING_PROBLEM = 'binding-missing-at-dispatch';
+export { RELAY_POLL_INTERVAL_MS };
 
 /**
- * Whether the mount is still alive mid-tick.
+ * The handled-list key for one offered attempt (FR-034).
  *
- * A function call, so the type analyzer never narrows a check past it.
+ * Keyed by correlation id **and** attempt, so the service handing the same run
+ * back under a new lease and a new attempt is a new key — and a failed report
+ * under the old one is not a licence to dispatch it again.
+ *
+ * @param run - The offered run.
+ * @returns `"<correlationId>#<attempt>"`.
+ */
+export function handledKey(run: Pick<ClaimedRun, 'correlationId' | 'attempt'>): string {
+    return `${run.correlationId}#${run.attempt}`;
+}
+
+/**
+ * Run one offered run's dispatch attempt end to end; never throws.
+ *
+ * Each gate ends the attempt on its own refusal, and every one of them ends it
+ * **before** `host.startSession()` is reachable — which is the panel half of
+ * FR-028's impossibility requirement.
+ *
+ * @param input - Runtime and the run to try.
+ */
+async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: ClaimedRun }): Promise<void> {
+    const { rt, run } = input;
+    const verdict = await guardRun(rt, run);
+    if (verdict.kind === 'interrupted') {
+        return;
+    }
+
+    if (verdict.kind === 'refused') {
+        await refuseWithBlocked({ rt, run, failure: verdict.failure });
+
+        return;
+    }
+
+    const reserved = await reserveRun(rt, run);
+    if (reserved === null) {
+        return;
+    }
+
+    if (!stillRunning(rt)) {
+        await abandonReservation({ rt, run, token: reserved.dispatchToken });
+
+        return;
+    }
+
+    const started = await startRunSession({ rt, run, project: verdict.project });
+    await closeAttempt({ rt, run, token: reserved.dispatchToken, started });
+}
+
+/**
+ * Dispatch one claimed run; never throws.
+ *
+ * The dispatch guard is one observed handoff per `correlationId#attempt` per
+ * mount (FR-034), so a re-poll can never double-start the same attempt,
+ * whatever the service did — and a failed report never clears the entry, so it
+ * can never become a licence to dispatch it again.
  *
  * @param rt - Panel runtime.
- * @returns `true` while the panel is alive.
+ * @param run - The run to dispatch.
  */
-function stillRunning(rt: PanelRuntime): boolean {
-    return rt.disposed === false;
-}
-
-/**
- * Split one `owner/name` repository label into its reference.
- *
- * @param label - The `owner/name` string.
- * @returns The reference.
- */
-function splitRepository(label: string): RepositoryRef {
-    const index = label.indexOf('/');
-    if (index < 0) {
-        return { owner: label, name: '' };
-    }
-
-    return { owner: label.slice(0, index), name: label.slice(index + 1) };
-}
-
-/** One dispatch outcome the panel reports to the service. */
-interface DispatchOutcome {
-    /** Created session id, when the host made one. */
-    readonly sessionId?: string;
-    /** Problem text the panel recorded otherwise. */
-    readonly problem?: string;
-}
-
-/**
- * Report one dispatch result to the service; never throws.
- *
- * @param input - Runtime, the claimed event, and the outcome.
- */
-async function reportDispatch(input: {
-    /** Panel runtime. */
-    readonly rt: PanelRuntime;
-    /** The claimed event. */
-    readonly event: RelayEvent;
-    /** The result: a session or a problem. */
-    readonly outcome: DispatchOutcome;
-}): Promise<void> {
-    const { rt, event, outcome } = input;
-    const body = JSON.stringify(
-        outcome.sessionId === undefined ? { problem: outcome.problem } : { sessionId: outcome.sessionId },
-    );
-
-    const report = await servicePost({
-        serviceRequest: rt.host.serviceRequest,
-        path: dispatchedPath(event.eventId),
-        body,
-    });
-    if (!stillRunning(rt)) {
+export async function dispatchClaimedRun(rt: PanelRuntime, run: ClaimedRun): Promise<void> {
+    const key = handledKey(run);
+    if (rt.disposed || rt.state.relay.dispatching || rt.state.busy || rt.state.relay.handled.includes(key)) {
         return;
     }
 
-    if (!report.ok) {
-        rt.state.repos.note = report.problem;
-    }
-
-    // The runs history follows every dispatch report (M8): whatever the
-    // service stored for this event — session id or problem — is what the
-    // operator should see on the row next, without a manual refresh.
-    void loadRuns(rt);
-}
-
-/**
- * Append one `session` kind entry carrying a problem, then repaint.
- *
- * @param input - Runtime, event, and the entry detail.
- */
-function recordProblemEntry(input: {
-    /** Panel runtime. */
-    readonly rt: PanelRuntime;
-    /** The event the entry belongs to. */
-    readonly event: RelayEvent;
-    /** Scalar detail for the entry. */
-    readonly detail: Record<string, string>;
-}): void {
-    const { rt, event, detail } = input;
-    appendEntryAndPersist(rt, {
-        at: nowIso(),
-        kind: RELAY_LEDGER_KIND,
-        correlationId: event.eventId,
-        detail,
-    });
-}
-
-/**
- * Record one blocked event's miss and mark the event dispatched (drained).
- *
- * Nothing in the mount can re-open the target — a binding that vanished or a
- * project the host no longer lists — so the event is terminal, and the
- * problem is recorded on both the ledger and the service queue.
- *
- * @param input - Runtime, event, problem, and the skip note.
- */
-async function recordMiss(input: {
-    /** Panel runtime. */
-    readonly rt: PanelRuntime;
-    /** The event the cycle could not dispatch. */
-    readonly event: RelayEvent;
-    /** The blocking problem. */
-    readonly problem: string;
-}): Promise<void> {
-    const { rt, event, problem } = input;
-    if (problem === BINDING_MISSING_PROBLEM) {
-        rt.state.repos.note = redact(`Event ${event.eventId} has no binding left in this tab — skipped.`);
-    }
-
-    recordProblemEntry({
-        rt,
-        event,
-        detail: {
-            eventId: event.eventId,
-            repository: event.repository,
-            issueId: String(event.issueNumber),
-            problem,
-        },
-    });
-    await reportDispatch({ rt, event, outcome: { problem } });
-}
-
-/** One claimed event paired with the project its binding named. */
-interface StartInputs {
-    /** Panel runtime. */
-    readonly rt: PanelRuntime;
-    /** The claimed event. */
-    readonly event: RelayEvent;
-    /** Project the host confirmed. */
-    readonly project: GuestProject;
-}
-
-/**
- * Build the start-session request one claimed event maps into.
- *
- * @param input - Runtime, event, and resolved project.
- * @returns The request exactly as the host will receive it.
- */
-function eventRequestOf(input: StartInputs): ReturnType<typeof buildStartSessionRequest> {
-    const { rt, event } = input;
-    const worktree: WorktreeSelection = parseWorktreeOption(event.worktreeOption) ?? { kind: 'none' };
-    const issue = {
-        issueNumber: event.issueNumber,
-        title: event.issueTitle,
-        url: event.issueUrl,
-        state: 'open' as const,
-        body: event.issueBodyExcerpt === '' ? null : event.issueBodyExcerpt,
-        assignees: [event.accountLogin],
-        isPullRequest: false,
-    };
-    const context = buildBoundedContext({
-        repository: event.repository,
-        issue,
-        authenticatedLogin: event.accountLogin,
-        correlationId: event.eventId,
-    });
-
-    return buildStartSessionRequest({
-        config: {
-            repository: splitRepository(event.repository),
-            expectedLogin: event.accountLogin,
-            projectId: event.projectId,
-            worktree,
-            pollIntervalMs: RELAY_POLL_INTERVAL_MS,
-        },
-        // MVP-DEBT: the relay borrows the spike's evidence schema, so the
-        // trigger literal stays the spike's; the relay's own framing lives in
-        // the PM context line and the ledger entry.
-        evidence: {
-            schemaVersion: 'extension-spike-1',
-            repository: event.repository,
-            issueId: String(event.issueNumber),
-            issueUrl: event.issueUrl,
-            trigger: 'configured-match',
-            authenticatedLogin: event.accountLogin,
-            correlationId: event.eventId,
-            detectedAt: event.detectedAt,
-            panelGeneration: rt.state.ledger.panelGeneration,
-        },
-        issue,
-        context,
-    });
-}
-
-/**
- * Build the request one claimed event maps into and send it to the host.
- *
- * @param input - Runtime, event, and resolved project.
- */
-async function startForEvent(input: StartInputs): Promise<void> {
-    const { rt, event, project } = input;
-    const request = eventRequestOf(input);
-    const summary = summarizeStartSessionResult(await rt.host.startSession(request));
-    if (!stillRunning(rt)) {
-        return;
-    }
-
-    appendEntryAndPersist(rt, {
-        at: nowIso(),
-        kind: RELAY_LEDGER_KIND,
-        correlationId: event.eventId,
-        detail: {
-            eventId: event.eventId,
-            repository: repositoryLabel(splitRepository(event.repository)),
-            projectId: project.id,
-            worktreeOption: event.worktreeOption,
-            trigger: event.triggerNote,
-            ...summary,
-        },
-    });
-    const outcome = summary.sessionId === null
-        ? ({ problem: String(summary.failure ?? NO_SESSION_PROBLEM) } as DispatchOutcome)
-        : ({ sessionId: String(summary.sessionId) } as DispatchOutcome);
-    await reportDispatch({ rt, event, outcome });
-
-    // M9: the run's record reaches the service first, then the agent that
-    // actually answered is read back. A dispatch that created no session
-    // has nothing to verify, so verification skips gracefully there.
-    if (outcome.sessionId !== undefined && stillRunning(rt)) {
-        await verifyAgentAfterDispatch({ rt, event, sessionId: outcome.sessionId });
-    }
-}
-
-/** One cycle's dispatch attempt bundle, before the resolution. */
-interface TryInputs {
-    /** Panel runtime. */
-    readonly rt: PanelRuntime;
-    /** The claimed event. */
-    readonly event: RelayEvent;
-}
-
-/**
- * Run one event's dispatch attempt, or record the miss that blocked it.
- *
- * @param input - Runtime and the event to try.
- */
-async function tryDispatch(input: TryInputs): Promise<void> {
-    const { rt, event } = input;
-    const binding = rt.state.repos.bindings.find((candidate) => candidate.bindingId === event.bindingId) ?? null;
-    if (binding === null) {
-        await recordMiss({ rt, event, problem: BINDING_MISSING_PROBLEM });
-
-        return;
-    }
-
-    const project = await resolveProject(rt.host, event.projectId);
-    if (!stillRunning(rt)) {
-        return;
-    }
-
-    if (!project.ok) {
-        await recordMiss({ rt, event, problem: project.problem });
-
-        return;
-    }
-
-    await startForEvent({ rt, event, project: project.project });
-}
-
-/**
- * Dispatch one claimed event; never throws.
- *
- * The dispatch guard is one observed handoff per event id per mount, so a
- * re-poll can never double-start the same event, whatever the service did.
- *
- * @param rt - Panel runtime.
- * @param event - The event to dispatch.
- */
-export async function dispatchQueuedEvent(rt: PanelRuntime, event: RelayEvent): Promise<void> {
-    const dispositioned = rt.state.relay.handled.includes(event.eventId);
-    if (rt.disposed || rt.state.relay.dispatching || rt.state.busy || dispositioned) {
-        return;
-    }
-
-    rt.state.relay.handled = [...rt.state.relay.handled, event.eventId];
+    rt.state.relay.handled = [...rt.state.relay.handled, key];
     rt.state.relay.dispatching = true;
     rt.state.busy = true;
     refresh(rt);
 
     try {
-        await tryDispatch({ rt, event });
+        await tryDispatch({ rt, run });
     } finally {
         rt.state.relay.dispatching = false;
         rt.state.busy = false;
@@ -347,23 +136,38 @@ export async function dispatchQueuedEvent(rt: PanelRuntime, event: RelayEvent): 
 }
 
 /**
- * Claim one batch of events from the service.
+ * Claim one batch of runs from the service.
+ *
+ * The answer is bounded and paginated (contract `claim-lease.md`): a short
+ * answer is not "everything that was waiting", so this reader never concludes
+ * anything about work it was not offered — `status.pendingCount` carries that
+ * signal, and the loop simply claims again on its own clock.
  *
  * @param rt - Panel runtime.
- * @returns The claimed events, or `null` when the service refused.
+ * @returns The claim answer, or `null` when the service refused or answered
+ *   something this build must not act on.
  */
-async function claimEvents(rt: PanelRuntime): Promise<readonly RelayEvent[] | null> {
+async function claimRuns(rt: PanelRuntime): Promise<ClaimAnswer | null> {
     const fetched = await serviceGet({ serviceRequest: rt.host.serviceRequest, path: EVENTS_PENDING_PATH });
     if (!fetched.ok || !stillRunning(rt)) {
         return null;
     }
 
     const parsed = parsePendingBody(fetched.body);
-    if (parsed !== null) {
-        rt.state.repos.statusRows = parsed.status;
+    if (parsed === null) {
+        rt.state.bindings.note = 'The service answered a claim the panel could not read — nothing was dispatched.';
+
+        return null;
     }
 
-    return parsed === null ? null : parsed.events;
+    rt.state.bindings.statusRows = parsed.status;
+    if (!parsed.auditWritten && parsed.runs.length > 0) {
+        const leased = parsed.runs.length;
+        rt.state.bindings.note = `The service leased ${leased} run(s) but could not record every claim row —`
+            + ' the audit trail is short one row per run it named.';
+    }
+
+    return parsed;
 }
 
 /**
@@ -378,10 +182,10 @@ export async function pollRelay(rt: PanelRuntime): Promise<void> {
 
     rt.state.relay.inFlight = true;
     try {
-        const claim = await claimEvents(rt);
+        const claim = await claimRuns(rt);
         if (claim !== null && stillRunning(rt)) {
-            for (const event of claim) {
-                await dispatchQueuedEvent(rt, event);
+            for (const run of claim.runs) {
+                await dispatchClaimedRun(rt, run);
             }
         }
 
@@ -397,6 +201,13 @@ export async function pollRelay(rt: PanelRuntime): Promise<void> {
 /**
  * Arm the relay loop: one immediate poll, then the interval.
  *
+ * Mount-time reconciliation settles first (FR-025): while it is running this
+ * call only records the intent, and reconciliation releases it once every
+ * outstanding attempt has been re-reported. That makes "no claim before
+ * reconciliation" a property of the arm itself rather than of whichever call
+ * site happens to reach here first — there are three of them (connection,
+ * mount-time bindings, every later read or grant).
+ *
  * The timer is unref'd, so it never keeps an idle process alive; teardown
  * clears it through {@link stopRelayPolling}.
  *
@@ -404,6 +215,12 @@ export async function pollRelay(rt: PanelRuntime): Promise<void> {
  */
 export function startRelayPolling(rt: PanelRuntime): void {
     if (rt.relayArmed || rt.disposed) {
+        return;
+    }
+
+    if (!rt.reconcileSettled) {
+        rt.relayArmPending = true;
+
         return;
     }
 
@@ -416,6 +233,26 @@ export function startRelayPolling(rt: PanelRuntime): void {
     }
 
     void pollRelay(rt);
+}
+
+/**
+ * Open the reconcile gate and release whatever arming it deferred (FR-025).
+ *
+ * The gate is what makes "no claim before reconciliation" a property of the
+ * arm rather than of the call site that happens to reach it first: any of the
+ * three arming sites may ask while `app.ts` is still re-reporting outstanding
+ * attempts, and each one only records its intent until this runs.
+ *
+ * @param rt - Panel runtime.
+ */
+export function settleReconciliation(rt: PanelRuntime): void {
+    rt.reconcileSettled = true;
+    if (!rt.relayArmPending || rt.disposed) {
+        return;
+    }
+
+    rt.relayArmPending = false;
+    startRelayPolling(rt);
 }
 
 /**

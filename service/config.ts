@@ -4,7 +4,8 @@
  *
  * The bounds come from the spec and plan (FR-017 interval 15,000–300,000 ms
  * default 60,000; overlap 1–120 min default 10 min; FR-020 `per_page ≤ 30`;
- * retention defaults from the spec's Configuration Model). Validation is
+ * retention defaults from the spec's Configuration Model; FR-031's lease and
+ * result deadline 30,000–600,000 ms, default 120,000 — T-008). Validation is
  * deliberately *additive-reporting*: every bad field is collected in one pass
  * so `PUT /v1/config` can answer 422 with a complete list instead of failing
  * one field at a time, and remediation names the field and its accepted
@@ -13,10 +14,18 @@
  *
  * `PUT` is a full replacement: the body must be a complete `ServiceConfig`
  * with no unknown keys, so a typo'd or hand-invented field is refused rather
- * than silently ignored.
+ * than silently ignored. The *read* is deliberately more forgiving in exactly
+ * one direction — a document written before a field existed takes that
+ * field's default instead of being quarantined (T-008) — because a strict read
+ * would set aside every configuration an operator already had.
+ *
+ * The automatic requeue budget is deliberately **not** a field here: 003
+ * v1.3.0 and 006's `## Deferred` record that decision, and the bound lives in
+ * the run store as a module constant.
  */
 
 import { findSecretLeak } from '../src/redaction.ts';
+import { expectedAgentIssue } from './config-agent.ts';
 import { isRecord } from './json.ts';
 import type { JsonReadResult } from './store/index.ts';
 import type { LogLevel, ServiceLogger } from './log.ts';
@@ -27,8 +36,23 @@ export const CONFIG_FILE = 'config.json';
 /** Longest unknown field name echoed back before it is elided. */
 const MAX_ECHOED_FIELD_CHARS = 64;
 
-/** Every log level the service accepts, in increasing severity. */
-const LOG_LEVELS = new Set<string>(['debug', 'info', 'warn', 'error']);
+/**
+ * Every log level the service accepts, in increasing severity.
+ *
+ * The ordered tuple is the single declaration of *which* levels exist;
+ * {@link LOG_LEVELS} is derived from it for membership tests and
+ * {@link configSchema} projects it as an enum descriptor's `values`, so a
+ * level added here changes the validator and the wire together.
+ *
+ * Exported for one reader besides the projection: 005's Settings-tab
+ * cross-check (`tests/settings-rows.test.ts`) asserts the panel's row
+ * declaration matches the service's own enum set, so a level added here fails
+ * the build instead of printing a stale set to the operator (005 research Q1).
+ */
+export const LOG_LEVEL_VALUES = ['debug', 'info', 'warn', 'error'] as const satisfies readonly LogLevel[];
+
+/** Membership view of {@link LOG_LEVEL_VALUES}, used by the validator. */
+export const LOG_LEVELS = new Set<string>(LOG_LEVEL_VALUES);
 
 /** Validated, fully-populated service configuration. */
 export interface ServiceConfig {
@@ -50,8 +74,37 @@ export interface ServiceConfig {
     readonly auditMaxEntries: number;
     /** How long payload excerpts are kept, in days. */
     readonly excerptRetentionDays: number;
+    /**
+     * How long a claim's lease is valid (FR-031, plan D9).
+     *
+     * The claim stamps `expiresAt = now + leaseMs` on the service clock, and
+     * the sweep requeues a run whose lease expired with no reservation. Also
+     * halves into the sweep cadence.
+     */
+    readonly leaseMs: number;
+    /**
+     * How long an authorized attempt has to report its result (FR-023, plan D9).
+     *
+     * `starting` runs past this deadline become `unconfirmed`; the value is
+     * armed onto the run at reservation time, not read at the deadline.
+     */
+    readonly resultDeadlineMs: number;
     /** Structured-log verbosity. */
     readonly logLevel: LogLevel;
+    /**
+     * Comparison baseline 002 FR-029 evaluates the observed agent against
+     * after every dispatch (006 FR-100).
+     *
+     * The service only serves it — `GET /v1/config` hands the value to the
+     * panel, which posts it with each verification read-back. The value is a
+     * single token (never credential-shaped), trimmed on write, and **empty is
+     * a first-class value**: it is the documented *no baseline configured*
+     * state, in which verification records the observed agent and compares
+     * nothing (002 FR-029 as amended at v1.10.0; 006 FR-100(b)(c) as amended
+     * at v1.5.0). The documented default is the empty string, so a fresh store
+     * starts with no baseline rather than presuming one.
+     */
+    readonly expectedAgent: string;
 }
 
 /** One rejected field with the action that would fix it. */
@@ -68,14 +121,21 @@ export type ConfigValidation =
     | { readonly ok: false; readonly issues: readonly ConfigIssue[] };
 
 /** Inclusive bounds of one numeric field, with the unit its range is in. */
-interface NumericBounds {
+export interface NumericBounds {
     readonly min: number;
     readonly max: number;
     readonly unit: string;
 }
 
-/** Bounds for every numeric field; the validation messages read from here. */
-const NUMERIC_BOUNDS = {
+/**
+ * Bounds for every numeric field; the validation messages read from here.
+ *
+ * Exported for one reader only: 005's Settings-tab cross-check
+ * (`tests/settings-rows.test.ts`) pins the panel's row declaration to these
+ * bounds and units, so a bound changed here fails the build instead of
+ * printing a stale number to the operator (005 research Q1).
+ */
+export const NUMERIC_BOUNDS = {
     intervalMs: { min: 15_000, max: 300_000, unit: 'milliseconds' },
     overlapMs: { min: 60_000, max: 7_200_000, unit: 'milliseconds' },
     perPage: { min: 1, max: 30, unit: 'items per page' },
@@ -85,6 +145,8 @@ const NUMERIC_BOUNDS = {
     auditRetentionDays: { min: 7, max: 3_650, unit: 'days' },
     auditMaxEntries: { min: 1_000, max: 1_000_000, unit: 'entries' },
     excerptRetentionDays: { min: 1, max: 365, unit: 'days' },
+    leaseMs: { min: 30_000, max: 600_000, unit: 'milliseconds' },
+    resultDeadlineMs: { min: 30_000, max: 600_000, unit: 'milliseconds' },
 } as const satisfies Record<string, NumericBounds>;
 
 /** One of the numeric fields above. */
@@ -104,7 +166,13 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     auditRetentionDays: 180,
     auditMaxEntries: 50_000,
     excerptRetentionDays: 30,
+    leaseMs: 120_000,
+    resultDeadlineMs: 120_000,
     logLevel: 'info',
+    // Blank, not a name: the documented default is *no baseline configured*
+    // (006 FR-100(b) as amended at v1.5.0 — "not everyone is going to use
+    // project-manager").
+    expectedAgent: '',
 };
 
 /**
@@ -190,11 +258,15 @@ function unknownFieldIssue(key: string): ConfigIssue {
 /**
  * Recognise a defined configuration field.
  *
+ * The documented field set *is* the default document's key set, so a field
+ * cannot be declared in one place and forgotten here (006 FR-020: one
+ * declaration, read twice).
+ *
  * @param key - Key from the request body.
- * @returns `true` for `logLevel` or any numeric field above.
+ * @returns `true` for any key {@link DEFAULT_CONFIG} carries.
  */
 function isKnownField(key: string): boolean {
-    return key === 'logLevel' || Object.hasOwn(NUMERIC_BOUNDS, key);
+    return Object.hasOwn(DEFAULT_CONFIG, key);
 }
 
 /**
@@ -216,6 +288,7 @@ function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
         });
     }
 
+    issues.push(...expectedAgentIssue(raw.expectedAgent));
     issues.push(...retryOrderIssue(raw));
     for (const key of Object.keys(raw)) {
         if (!isKnownField(key)) {
@@ -262,6 +335,26 @@ function readLogLevel(raw: Record<string, unknown>): LogLevel {
 }
 
 /**
+ * Read the validated agent name.
+ *
+ * The stored value is the **trimmed** one, so a save/load round trip is
+ * stable and the audit `from`/`to` pair records the value as it stands
+ * (006 data-model §1.3).
+ *
+ * @param raw - Document that already passed {@link validateConfig}.
+ * @returns The stored baseline.
+ * @throws {Error} When the value is missing; see {@link readNumber}.
+ */
+function readExpectedAgent(raw: Record<string, unknown>): string {
+    const value = raw.expectedAgent;
+    if (typeof value !== 'string') {
+        throw new Error('validated configuration is missing expectedAgent');
+    }
+
+    return value.trim();
+}
+
+/**
  * Assemble the typed configuration once every field has been checked.
  *
  * @param raw - Document that produced no issues.
@@ -278,7 +371,10 @@ function buildConfig(raw: Record<string, unknown>): ServiceConfig {
         auditRetentionDays: readNumber(raw, 'auditRetentionDays'),
         auditMaxEntries: readNumber(raw, 'auditMaxEntries'),
         excerptRetentionDays: readNumber(raw, 'excerptRetentionDays'),
+        leaseMs: readNumber(raw, 'leaseMs'),
+        resultDeadlineMs: readNumber(raw, 'resultDeadlineMs'),
         logLevel: readLogLevel(raw),
+        expectedAgent: readExpectedAgent(raw),
     };
 }
 
@@ -304,41 +400,97 @@ export function validateConfig(raw: unknown): ConfigValidation {
     return { ok: true, config: buildConfig(raw) };
 }
 
+/** One read of the stored document: the parsed config plus its provenance. */
+export interface StoredConfigRead {
+    /** The document, with every documented key it lacked filled in. */
+    readonly config: ServiceConfig;
+    /** Documented keys this read filled from {@link DEFAULT_CONFIG}, in declaration order. */
+    readonly defaultsApplied: readonly string[];
+}
+
+/** Where a resolved configuration came from — the contract's `source` member. */
+export type ConfigSource = 'stored' | 'default' | 'quarantined';
+
+/** One resolved store read: the effective document and its provenance. */
+export interface ConfigRead {
+    /** The document the caller should treat as effective. */
+    readonly config: ServiceConfig;
+    /** Which read produced it; `default` and `quarantined` both serve defaults. */
+    readonly source: ConfigSource;
+    /** Documented keys the stored file lacked; always `[]` unless `source` is `stored`. */
+    readonly defaultsApplied: readonly string[];
+}
+
 /**
- * Store-side validator: accept only a fully valid document.
+ * Store-side validator: accept a valid document, filling every documented key
+ * the file predates.
  *
  * A hand-edited `config.json` that fails validation is quarantined by the
  * store (never fail-stuck) and the service answers with defaults until the
- * operator PUTs a valid document.
+ * operator PUTs a valid document. A document that is merely *older* than this
+ * build must not be treated that way: a missing **documented** key is filled
+ * from {@link DEFAULT_CONFIG} and reported, so schema evolution never costs an
+ * operator their other values — while an unknown key, a bad value, or a
+ * non-object still quarantines exactly as before (006 FR-100(b), data-model §2;
+ * 003 T-008's shared upgrade path).
+ *
+ * The write path is deliberately stricter: `PUT` stays a full replacement, so
+ * a body missing a field is a refusal with a remediation, never a silent
+ * default (FR-040, FR-041).
  *
  * @param raw - Parsed stored document.
- * @returns The typed config, or `null` to trigger quarantine.
+ * @returns The typed config plus the keys this read filled, or `null` to
+ *   trigger quarantine.
  */
-export function parseStoredConfig(raw: unknown): ServiceConfig | null {
-    const validation = validateConfig(raw);
+export function parseStoredConfig(raw: unknown): StoredConfigRead | null {
+    if (!isRecord(raw)) {
+        return null;
+    }
 
-    return validation.ok ? validation.config : null;
+    const filled: Record<string, unknown> = { ...raw };
+    const defaultsApplied: string[] = [];
+    for (const field of Object.keys(DEFAULT_CONFIG) as readonly (keyof ServiceConfig)[]) {
+        if (!Object.hasOwn(filled, field)) {
+            filled[field] = DEFAULT_CONFIG[field];
+            defaultsApplied.push(field);
+        }
+    }
+
+    const validation = validateConfig(filled);
+
+    return validation.ok ? { config: validation.config, defaultsApplied } : null;
 }
 
 /**
  * Resolve the effective configuration from a store read.
  *
+ * The three answers the contract's `source` member distinguishes come out of
+ * the read itself, so the quarantine fact reaches the panel without a second
+ * read (006 contract §3).
+ *
  * @param result - Outcome of reading `config.json`.
  * @param log - Logger used when a stored document had to be set aside.
- * @returns The stored configuration, or the defaults.
+ * @returns The effective document, where it came from, and which documented
+ *   keys this read filled (always `[]` unless `source` is `stored`).
  */
-export function configFromStore(result: JsonReadResult<ServiceConfig>, log: ServiceLogger): ServiceConfig {
+export function configFromStore(result: JsonReadResult<StoredConfigRead>, log: ServiceLogger): ConfigRead {
     if (result.status === 'ok') {
-        return result.value;
+        return {
+            config: result.value.config,
+            source: 'stored',
+            defaultsApplied: result.value.defaultsApplied,
+        };
     }
 
     if (result.status === 'quarantined') {
         log.warn('stored configuration was unusable and has been set aside', {
             quarantinePath: result.quarantinePath,
         });
+
+        return { config: DEFAULT_CONFIG, source: 'quarantined', defaultsApplied: [] };
     }
 
-    return DEFAULT_CONFIG;
+    return { config: DEFAULT_CONFIG, source: 'default', defaultsApplied: [] };
 }
 
 /**

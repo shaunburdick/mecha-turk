@@ -22,10 +22,10 @@ export const ACCOUNTS_STORAGE_KEY = 'accounts';
 const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] as const;
 
 /** One FR-010 capability name (contract §2 step ⑥). */
-type ScopeCapability = (typeof SCOPE_CAPABILITIES)[number];
+export type ScopeCapability = (typeof SCOPE_CAPABILITIES)[number];
 
 /** Result recorded for one capability: `ok`, `missing`, or `unknown` (FR-010). */
-type ScopeResult = 'ok' | 'missing' | 'unknown';
+export type ScopeResult = 'ok' | 'missing' | 'unknown';
 
 /** FR-010 scope matrix as the account mirror records it (contract §3, review M1). */
 export interface ScopeMirror {

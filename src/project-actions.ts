@@ -19,10 +19,16 @@
 
 import type { JsonValue } from '@openchamber/sdk';
 import { parseProjectId } from './config.ts';
-import { applyProjectSnapshot, selectedProjectId } from './project-picker.ts';
+import {
+    applyProjectSnapshot,
+    isSelectableProject,
+    projectRefusalReason,
+    selectedProjectId,
+} from './project-picker.ts';
 import { refresh } from './panel-ui.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import { redact } from './redaction.ts';
+import { repaintStatusTab } from './status-tab.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
 
@@ -38,7 +44,7 @@ export const PROJECT_STORAGE_KEY = 'mecha-turk:project';
 export type StoredSelectionRead =
     /** The key was read; `projectId` is `null` when nothing is stored. */
     | { readonly ok: true; readonly projectId: string | null }
-    /** The host refused the read; the panel falls back to the integration setting. */
+    /** The host refused the read; the panel keeps the in-memory selection and reports why. */
     | { readonly ok: false; readonly problem: string };
 
 /** Outcome of writing the project selection to extension storage. */
@@ -53,8 +59,10 @@ export type StoredSelectionWrite =
  *
  * Anything the host cannot confirm — a refusal, a non-string value, an id
  * that fails {@link parseProjectId} — reads as "no selection", which keeps
- * configuration resolution falling back to the `project-id` setting instead of
- * trusting an unreadable value.
+ * configuration resolution honest instead of trusting an unreadable value.
+ * The card's `project-id` setting is gone (002 FR-041), so a null here is
+ * genuinely "no project chosen" and the panel says so rather than falling
+ * back to a setting that no longer exists.
  *
  * @param host - Host client, restricted to the storage surface.
  * @returns The stored id, `null` when none is stored, or the read problem.
@@ -149,13 +157,17 @@ export async function loadProjects(rt: PanelRuntime): Promise<void> {
     }
 
     refresh(rt);
+    // FR-038's Status guidance reads this list, and the Status tab repaints
+    // only on its own reads — so a list that lands after the status document
+    // refreshes that one line as well.
+    repaintStatusTab(rt);
 }
 
 /**
  * Copy the effective project id to the host clipboard.
  *
- * The panel has no settings write API, so this is how an operator takes the id
- * to Settings → Integrations when they would rather configure it there.
+ * The panel has no settings write API, so this is how an operator takes the
+ * id over to a binding's project field when they would rather paste it.
  *
  * @param rt - Panel runtime.
  */
@@ -193,12 +205,34 @@ export async function copyProjectId(rt: PanelRuntime): Promise<void> {
  * @param id - Project id the caller asked to select.
  */
 export function rejectProjectSelection(rt: PanelRuntime, id: string): void {
-    const { projects } = rt.state;
-    const reason =
-        projects.status === 'ready' && projects.projects.length > 0
-            ? `Project "${id}" is not in the loaded list; reload the projects and pick again.`
-            : 'No project list is loaded; reload the projects and pick one.';
+    rt.state.projects.note = redact(projectRefusalReason(rt.state.projects, id));
+    refresh(rt);
+}
 
-    rt.state.projects.note = redact(reason);
+/**
+ * Adopt the project the operator picked for a binding's draft, or refuse it.
+ *
+ * The binding form is where FR-070's recoverable state lives: the draft only
+ * ever holds an id the *currently loaded* list contains, so a stale option, a
+ * scripted click, or a list that has not arrived yet can never become a
+ * binding's dispatch target. A refusal changes nothing — the draft keeps
+ * whatever registered project it already held (usually none), `readDraft`
+ * therefore keeps refusing to submit, and the binding never leaves the
+ * recoverable `project_missing` path for a project the host did not confirm.
+ *
+ * @param rt - Panel runtime.
+ * @param id - Project id the select reported.
+ */
+export function selectBindingProject(rt: PanelRuntime, id: string): void {
+    const { bindings, projects } = rt.state;
+    const candidate = parseProjectId(id);
+    if (candidate === null || !isSelectableProject(projects, candidate)) {
+        bindings.note = redact(projectRefusalReason(projects, id));
+        refresh(rt);
+        return;
+    }
+
+    bindings.repoProjectSelection = candidate;
+    bindings.note = '';
     refresh(rt);
 }

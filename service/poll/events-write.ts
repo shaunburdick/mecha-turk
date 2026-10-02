@@ -13,7 +13,7 @@
  * or the same review request must produce the same bytes on every scan.
  */
 
-import type { QueuedEvent } from './events-parse.ts';
+import type { QueuedEvent, SubjectType } from './events-parse.ts';
 
 /** Fields every trigger's detection snapshot carries. */
 interface BaseEventSnapshot {
@@ -44,6 +44,14 @@ interface BaseEventSnapshot {
     readonly triggerNote: string;
     /** Detection stamp. */
     readonly detectedAt: string;
+    /**
+     * Whether the subject is an issue or a pull request, captured from the
+     * listing's `isPullRequest` at detection so the run key's subject type is
+     * truthful. Omitted by older fixtures, which read as the trigger kind's
+     * own shape (a review is always a pull request; every other kind falls
+     * back to `issue`).
+     */
+    readonly subjectType?: SubjectType;
 }
 
 /** An assignment the bound account picked up (M1). */
@@ -169,10 +177,32 @@ function baseRefOf(snapshot: EventSnapshot): string | null {
 }
 
 /**
- * Assemble one queued event from a fresh detection.
+ * Read the subject shape one snapshot carries, defaulting the way a row
+ * written before the run layer reads (data-model §2.1).
  *
  * @param snapshot - Detection inputs.
- * @returns A fresh event in `pending` state.
+ * @returns The subject shape this row stores.
+ */
+function subjectTypeOfSnapshot(snapshot: EventSnapshot): SubjectType {
+    if (snapshot.subjectType !== undefined) {
+        return snapshot.subjectType;
+    }
+
+    return snapshot.kind === 'review' ? 'pull_request' : 'issue';
+}
+
+/**
+ * Assemble one queued event from a fresh detection.
+ *
+ * The row carries **no legacy lifecycle fields**: `state`, `claimedAt`,
+ * `dispatchedAt`, and `dispatchResult` belong to the shipped three-state
+ * queue, and a row 003 enqueues gets its state from the run it joins
+ * (data-model §2.1 — still parsed as migration input, never written again by
+ * a fresh detection). `runCorrelationId` is added by the enqueue pass, which
+ * is the only place the ordinal — and therefore the run — is known.
+ *
+ * @param snapshot - Detection inputs.
+ * @returns A fresh delivery row.
  */
 export function createEvent(snapshot: EventSnapshot): QueuedEvent {
     const separatorIndex = snapshot.repository.indexOf('/');
@@ -195,10 +225,7 @@ export function createEvent(snapshot: EventSnapshot): QueuedEvent {
         baseRef: baseRefOf(snapshot),
         triggerNote: snapshot.triggerNote,
         detectedAt: snapshot.detectedAt,
-        state: 'pending' as const,
-        claimedAt: null,
-        dispatchedAt: null,
-        dispatchResult: null,
+        subjectType: subjectTypeOfSnapshot(snapshot),
     };
 
     return {

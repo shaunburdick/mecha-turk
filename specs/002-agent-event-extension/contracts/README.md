@@ -10,11 +10,13 @@
 
 ## Supersession pointers (what 001 left behind, and where it now lives)
 
+> **Historical-path note (2026-09-28, cleanup review).** The `specs/001-agent-event-orchestrator/` directory was **removed** in commit `110c0a2` when `README.md` and `AGENTS.md` shipped. Every `001/…` path below is a **stamped provenance citation, not a live link** — recover any of them with `git show 110c0a2^:specs/001-agent-event-orchestrator/<file>`. Live replacements: the event schema → [events-carry-forward.md](./events-carry-forward.md); the platform research → `../spec.md` `## Research and Platform Decisions` plus `../research.md` §R1–§R7; the production data model → `../data-model.md`; the spike contracts (`openchamber.md`, `config.md`, `daemon-deferred.md`) → **evidence only**, with their surviving amendments summarised in `../plan.md` and `../spec.md`.
+
 | 001 artifact | Status for 002 |
 | --- | --- |
-| `001/contracts/events.md` | **Reference schema, carried forward** — see events-carry-forward.md |
-| `001/contracts/openchamber.md` | Spike-gate contract, **evidence only**; its amendments 1–4 (camelCase fields, `prompt` capability, kebab-case setting ids, project-picker precedence) remain in force for 002's panel. Production manifest/session flow is defined by 002 `plan.md` + panel-service.md §2.4 |
-| `001/contracts/config.md` | Deferred daemon YAML — **not used**; production config = service `config.json` + manifest integration settings (panel-service.md §2.1) |
-| `001/contracts/daemon-deferred.md` | Boundary stays deferred; unchanged |
-| `001/research.md` §a/§b | Canonical platform research — cited, never re-researched; new findings only in 002 `research.md` |
-| `001/data-model.md` (daemon tables) | Historical; production model is 002 `data-model.md` |
+| `001/contracts/events.md` | **Reference schema, carried forward** — see events-carry-forward.md. *File removed 2026-09-28; v1 recoverable from git history at `110c0a2^`* |
+| `001/contracts/openchamber.md` | Spike-gate contract, **evidence only**; its amendments 1–4 (camelCase fields, `prompt` capability, kebab-case setting ids, project-picker precedence) remain in force for 002's panel. Production manifest/session flow is defined by 002 `plan.md` + panel-service.md §2.4. *File removed 2026-09-28* |
+| `001/contracts/config.md` | Deferred daemon YAML — **not used**; production config = service `config.json` only, plus bindings and accounts — and, since the 2026-09-28 cleanup, **no other configuration surface at all**: there is no environment-file configuration (006 FR-090, FR-091), and since 2026-09-30 there is **no manifest card either** (002 FR-011 re-cut at v1.8.0; the card that briefly carried only `expected-agent` under 002 FR-041 was removed with the install-time credential). The "manifest integration settings" half of the old wording here is superseded by those requirements. *File removed 2026-09-28* |
+| `001/contracts/daemon-deferred.md` | Boundary stays deferred; unchanged. *File removed 2026-09-28* |
+| `001/research.md` §a/§b | Canonical platform research — cited, never re-researched; new findings only in 002 `research.md`. *File removed 2026-09-28; the findings that bind 002 are restated in `../spec.md`'s research table and FR numbers* |
+| `001/data-model.md` (daemon tables) | Historical; production model is 002 `data-model.md`. *File removed 2026-09-28* |

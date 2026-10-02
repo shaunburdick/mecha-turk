@@ -24,44 +24,6 @@
                 "sessions",
                 "prompt"
             ],
-            "integration": {
-                "name": "GitHub (token)",
-                "description": "Optional, non-authoritative GitHub token card (FR-011): shows a connected-login badge and backs one read-only identity diagnostic. Never used for polling, discovery, or dispatch — service accounts are the credential path. The token stays with OpenChamber and never reaches the panel.",
-                "token": {
-                    "apiOrigin": "https://api.github.com",
-                    "account": {
-                        "path": "/user",
-                        "name": "login"
-                    },
-                    "scheme": "bearer"
-                },
-                "settings": [
-                    {
-                        "id": "repository",
-                        "label": "Repository (owner/name)"
-                    },
-                    {
-                        "id": "expected-login",
-                        "label": "Expected GitHub login (validation only, optional)"
-                    },
-                    {
-                        "id": "expected-agent",
-                        "label": "Expected session agent (default: project-manager)"
-                    },
-                    {
-                        "id": "project-id",
-                        "label": "OpenChamber project ID"
-                    },
-                    {
-                        "id": "worktree-option",
-                        "label": "Worktree option (none | generated | new:branch-name)"
-                    },
-                    {
-                        "id": "poll-interval-ms",
-                        "label": "Poll interval in milliseconds (15000-300000)"
-                    }
-                ]
-            },
             "service": {
                 "entry": "service/main.js",
                 "runtime": "host"
@@ -76,6 +38,7 @@
         "format:check": "eslint .",
         "lint": "eslint .",
         "typecheck": "tsc --noEmit",
+        "shot": "node tools/visual/shot.js",
         "test": "vitest run",
         "test:watch": "vitest",
         "verify": "npm run build && npm run lint && npm run typecheck && npm run test"

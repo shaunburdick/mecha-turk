@@ -1,17 +1,18 @@
 /**
- * Shared plumbing for the two credential routes: body parsing, the consent
- * gate, throttled execution, and the classified error responses they share
- * (token-handoff §2, panel-service §2.2/§4).
+ * Shared plumbing for the two credential routes: body parsing, throttled
+ * execution, and the classified error responses they share (token-handoff
+ * §2, panel-service §2.2/§4).
  *
  * Everything here obeys two rules without exception. **Shape before
- * network**: a malformed body or a missing consent version is refused before
- * a single GitHub call is made. **Field + remediation only**: no received
- * value — least of all the token — ever appears in a response body, a log
- * line, or an audit row (SEC-11, contract §4 rule 6).
+ * network**: a malformed body is refused before a single GitHub call is made
+ * (the in-panel consent gate this module used to run alongside that rule was
+ * removed by product-owner order on 2026-10-01 — token-handoff §1.2). **Field
+ * + remediation only**: no received value — least of all the token — ever
+ * appears in a response body, a log line, or an audit row (SEC-11, contract
+ * §4 rule 6).
  */
 
 import { newCorrelationId } from '../../src/ids.ts';
-import { checkConsent, consentRequiredResponse, recordConsentOccurrence } from '../consent.ts';
 import {
     errorResponse,
     STATUS,
@@ -22,7 +23,6 @@ import {
 import { StorageUnavailableError } from '../store/index.ts';
 import type { RejectReason, ScopeCapability } from '../github.ts';
 import type { FieldIssue, HttpResponse } from '../http.ts';
-import type { ServiceStore } from '../store/index.ts';
 import type { RouteContext, RouteHandler, RouteRequest } from './types.ts';
 
 /** Longest token a handoff may carry (contract §2 step ⑤). */
@@ -38,8 +38,6 @@ const SCOPE_MISSING_PREFIX = 'scope-missing:';
 export interface CredentialRequest {
     /** The presented token; never logged, echoed, or persisted outside custody. */
     readonly token: string;
-    /** Consent version the panel asserted; already validated. */
-    readonly consentVersion: number;
     /** Operator-supplied expected login, or `null` when unconstrained. */
     readonly expectedLogin: string | null;
 }
@@ -47,18 +45,7 @@ export interface CredentialRequest {
 /** Result of parsing a credential-route body. */
 export type CredentialBodyResult =
     | { readonly ok: true; readonly credential: CredentialRequest }
-    | {
-        readonly ok: false;
-        /**
-         * The consent version the request carried, when it was current —
-         * `null` when the body was not an object or consent itself failed.
-         * Callers record the occurrence before answering a refusal, so a
-         * request that *did* carry a current version always leaves exactly
-         * one consent row (§1.2, invariant 8).
-         */
-        readonly consentVersion: number | null;
-        readonly response: HttpResponse;
-    };
+    | { readonly ok: false; readonly response: HttpResponse };
 
 /**
  * Read the `token` field: its type first, then the §2 step ⑤ shape rules
@@ -111,11 +98,12 @@ function expectedLoginIssues(raw: unknown): readonly FieldIssue[] {
 }
 
 /**
- * Parse a credential-route body: record shape → consent gate → field shape.
+ * Parse a credential-route body: record shape → field shape.
  *
- * Consent is checked before the token fields on purpose: invariant 8 says no
- * request without a current `consentVersion` may ever reach the network or
- * the store, whatever else is wrong with it.
+ * The refusal is decided before any network call for its own sake —
+ * invariant 8's consent half was removed with the gate on 2026-10-01, but
+ * "shape before network" still means a body that cannot be a handoff never
+ * reaches GitHub or the store.
  *
  * @param raw - Parsed request body (possibly `undefined`).
  * @param allowExpectedLogin - `true` for verify, `false` for rotation.
@@ -125,63 +113,24 @@ export function parseCredentialBody(raw: unknown, allowExpectedLogin: boolean): 
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
         return {
             ok: false,
-            consentVersion: null,
             response: validationResponse([{ field: 'body', remediation: 'send a JSON object' }]),
         };
     }
 
     const body = raw as Record<string, unknown>;
-    const consent = checkConsent(body);
-    if (!consent.ok) {
-        return { ok: false, consentVersion: null, response: consentRequiredResponse() };
-    }
-
     const read = readToken(body.token);
     const issues = [...read.issues, ...(allowExpectedLogin ? expectedLoginIssues(body.expectedLogin) : [])];
     if (issues.length > 0 || read.token === undefined) {
-        return { ok: false, consentVersion: consent.version, response: validationResponse(issues) };
+        return { ok: false, response: validationResponse(issues) };
     }
 
     return {
         ok: true,
         credential: {
             token: read.token,
-            consentVersion: consent.version,
             expectedLogin: allowExpectedLogin && typeof body.expectedLogin === 'string' ? body.expectedLogin : null,
         },
     };
-}
-
-/**
- * Parse a credential body **and** record its consent occurrence (§1.2).
- *
- * The occurrence is written for every request that carried a current
- * `consentVersion`, even when the rest of the body is refused — invariant 8
- * says such a request records exactly one consent row, and the token-shape
- * refusal that follows changes nothing about that. Requests without a current
- * version record nothing at all: there is no valid consent to record.
- *
- * @param input - Store, parsed request body, and the route's field set.
- * @returns The credential request, or the refusal to answer with.
- */
-export async function acceptCredentialRequest(input: {
-    /** Open store holding the audit trail. */
-    readonly store: ServiceStore;
-    /** Parsed request body (possibly `undefined`). */
-    readonly body: unknown;
-    /** `true` for verify (`expectedLogin` allowed), `false` for rotation. */
-    readonly allowExpectedLogin: boolean;
-}): Promise<
-    | { readonly ok: true; readonly credential: CredentialRequest }
-    | { readonly ok: false; readonly response: HttpResponse }
-> {
-    const parsed = parseCredentialBody(input.body, input.allowExpectedLogin);
-    const consentVersion = parsed.ok ? parsed.credential.consentVersion : parsed.consentVersion;
-    if (consentVersion !== null) {
-        await recordConsentOccurrence(input.store, consentVersion);
-    }
-
-    return parsed.ok ? { ok: true, credential: parsed.credential } : { ok: false, response: parsed.response };
 }
 
 /**

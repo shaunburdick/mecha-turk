@@ -83,7 +83,6 @@ export function hostErrorCode(error: unknown): string | null {
  * @returns The parsed snapshot, or `null` when the service could not answer.
  */
 export async function preflightHandoff(rt: PanelRuntime): Promise<StatusSnapshot | null> {
-    rt.state.handoff.preflighted = true;
     let snapshot: StatusSnapshot | null = null;
     try {
         snapshot = parseStatus(await rt.host.serviceRequest({ method: 'GET', path: STATUS_PATH }));

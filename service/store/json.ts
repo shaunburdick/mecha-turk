@@ -18,13 +18,20 @@ import { dirname, join } from 'node:path';
 import { parseJsonText } from '../json.ts';
 import { DATA_FILE_MODE, ensureDir } from './dir.ts';
 import { StorageUnavailableError } from './errors.ts';
-import { readTextFile, removeIfPresent } from './files.ts';
+import { isMissingFile, readTextFile, removeIfPresent } from './files.ts';
 
 /** Marks a file that was set aside because it could not be understood. */
 const QUARANTINE_MARKER = '.corrupt-';
 
-/** Suffix distinguishing an in-flight write from its committed target. */
-const TEMP_SUFFIX = '.tmp';
+/**
+ * Suffix distinguishing an in-flight write from its committed target.
+ *
+ * Exported so the line-file writer in `ndjson.ts` builds the *same* temp name
+ * this writer does — one spelling, one debris pattern for the startup sweep
+ * (`isTempDebris`), and no second guess about the shape an interrupted write
+ * leaves behind.
+ */
+export const TEMP_SUFFIX = '.tmp';
 
 /** Indentation used so store files stay readable for the operator. */
 const JSON_INDENT = 2;
@@ -73,16 +80,32 @@ export async function writeSyncedTempFile(tempPath: string, text: string): Promi
  * Rename an unusable file aside and report where it went.
  *
  * @param filePath - Absolute path of the file to quarantine.
- * @returns The quarantine outcome carrying the new path.
- * @throws {StorageUnavailableError} When the rename fails, because a file the
- *   service cannot read *and* cannot set aside means the store is unusable —
- *   that is a storage failure to surface, not a state to keep retrying.
+ * @returns The quarantine outcome carrying the new path, or plain absence when
+ *   the file was already gone by the time the rename ran.
+ * @throws {StorageUnavailableError} When the rename fails for any reason other
+ *   than that disappearance, because a file the service cannot read *and*
+ *   cannot set aside means the store is unusable — that is a storage failure to
+ *   surface, not a state to keep retrying.
  */
-async function quarantine(filePath: string): Promise<QuarantinedOutcome> {
+async function quarantine(
+    filePath: string,
+): Promise<QuarantinedOutcome | { readonly status: 'absent' }> {
     const quarantinePath = `${filePath}${QUARANTINE_MARKER}${Date.now()}-${randomUUID()}`;
     try {
         await fs.rename(filePath, quarantinePath);
     } catch (error) {
+        // Two readers can reject the same document at the same moment — the
+        // poll cycle reading the configuration while an operator's request
+        // reads it, say — and whichever renames second finds the file already
+        // gone under the winner's name. That is absence, not failure: the
+        // evidence exists, this reader simply reports what it now sees, and a
+        // request is never answered `503 storage-unavailable` because it lost
+        // a race it did not need to win (FR-039: absence and failure are
+        // different facts, and only the second is a setup error).
+        if (isMissingFile(error)) {
+            return { status: 'absent' };
+        }
+
         throw new StorageUnavailableError(`unusable store file cannot be set aside: ${filePath}`, error);
     }
 

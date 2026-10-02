@@ -13,13 +13,19 @@
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { reconcileInterruptedAccounts } from './accounts/reconcile.ts';
+import { CONFIG_FILE, configFromStore, parseStoredConfig } from './config.ts';
 import { createGitHubVerifier } from './github.ts';
+import { runRetentionAtOpen } from './retention.ts';
 import type { GitHubIssuePoller } from './poll/poller-github.ts';
 import { LOOPBACK_HOST } from './http.ts';
 import { createRequestHandler } from './pipeline.ts';
 import { ROUTES } from './routes/index.ts';
+import { startSweep, sweepOnce } from './poll/sweep.ts';
 import { startPollLoop, createDefaultPoller } from './poll/timer.ts';
+import { createPollingView } from './poll/view.ts';
+import type { SweepLoop, SweepOutcome } from './poll/sweep.ts';
 import type { PollLoop } from './poll/timer.ts';
+import type { PollingViewSlot } from './poll/view.ts';
 import { openStore, SERVICE_SCHEMA_VERSION, StorageUnavailableError } from './store/index.ts';
 import { createVerifyThrottle } from './throttle.ts';
 import type { ReconcileSummary } from './accounts/reconcile.ts';
@@ -79,6 +85,23 @@ export interface ServiceHandle {
      * before asserting on post-crash account states.
      */
     readonly reconciled: Promise<ReconcileSummary>;
+    /**
+     * Settles with the boot sweep's outcome.
+     *
+     * The sweep is awaited *before* the listener binds (FR-032), so by the time
+     * a port is reachable a stranded claim has already been recovered; this
+     * promise is the observable form of that ordering, and answers an empty
+     * summary when the store was unusable.
+     */
+    readonly swept: Promise<SweepOutcome>;
+    /**
+     * Poll loop handle, or `null` when there was no store to poll with.
+     *
+     * Exposed so an operator tool — and the status tests — can stop the
+     * scheduler without closing the listener, which is the only way to read a
+     * genuinely *stopped* loop off `GET /v1/status` (005 AC-103).
+     */
+    readonly poll: PollLoop | null;
     /** Drain in-flight requests and close the listener; safe to call twice. */
     shutdown(): Promise<void>;
 }
@@ -91,8 +114,13 @@ interface HandleParts {
     readonly dataDir: string;
     readonly port: number;
     readonly reconciled: Promise<ReconcileSummary>;
+    readonly swept: Promise<SweepOutcome>;
     /** Poll loop handle, or `null` when there was no store to poll with. */
     readonly poll?: PollLoop | null;
+    /** Lease/deadline sweep handle, or `null` when there was no store. */
+    readonly sweep?: SweepLoop | null;
+    /** Scheduler view the status route reads; observes `poll` above. */
+    readonly polling: PollingViewSlot;
 }
 
 /**
@@ -113,6 +141,33 @@ async function openStoreSafe(options: StartServiceOptions): Promise<ServiceStore
         options.log.error('store unavailable', { dataDir: options.dataDir, error: error.message });
 
         return null;
+    }
+}
+
+/**
+ * Adopt the stored `logLevel` once the store is open (006 FR-033, D12).
+ *
+ * The threshold moves *before* the listener binds, so boot-time lines after
+ * this point — the sweep, the poll loop, every route — are judged at the
+ * operator's configured level with no restart. A store that could not be
+ * opened, or a configuration that could not be read, keeps the construction
+ * level: a level change is never a reason to fail a start.
+ *
+ * @param store - Open store, or `null` when the directory was unusable.
+ * @param log - Logger whose threshold is moved.
+ */
+async function adoptStoredLogLevel(store: ServiceStore | null, log: ServiceLogger): Promise<void> {
+    if (store === null) {
+        return;
+    }
+
+    try {
+        const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
+        log.setLevel(config.logLevel);
+    } catch (cause) {
+        log.warn('stored log level read failed', {
+            errorKind: cause instanceof Error ? cause.name : typeof cause,
+        });
     }
 }
 
@@ -205,19 +260,28 @@ interface ShutdownInput {
     readonly state: PipelineState;
     /** Poll loop to stop first, or `null` when none was started. */
     readonly poll: PollLoop | null;
+    /** Sweep timer to stop with the poll loop, or `null` when none started. */
+    readonly sweep: SweepLoop | null;
+    /** Scheduler view to mark as stopping before the loop is cancelled. */
+    readonly polling: PollingViewSlot;
 }
 
 /**
  * Drain and close a server.
  *
- * The poll loop (M1) stops first so a scheduled cycle cannot race one of its
- * writes against the drain's persistence window.
+ * The poll loop (M1) and the dispatch sweep stop first, so a scheduled cycle
+ * cannot race one of its writes against the drain's persistence window. The
+ * scheduler view is marked *stopping* before the loop is cancelled, so a status
+ * document answered during the drain names the shutdown instead of guessing at
+ * one of the other paused reasons (005 FR-031).
  *
- * @param input - The listener, the drain counter, and the poll loop.
+ * @param input - The listener, the drain counter, the poll loop, and the sweep.
  */
 async function performShutdown(input: ShutdownInput): Promise<void> {
-    const { server, state, poll } = input;
+    const { server, state, poll, sweep, polling } = input;
+    polling.beginShutdown();
     poll?.stop();
+    sweep?.stop();
     const closed = new Promise<void>((resolve) => {
         server.close(() => {
             resolve();
@@ -239,7 +303,13 @@ async function performShutdown(input: ShutdownInput): Promise<void> {
 function createHandle(parts: HandleParts): ServiceHandle {
     let closing: Promise<void> | null = null;
     const shutdown = (): Promise<void> => {
-        closing ??= performShutdown({ server: parts.server, state: parts.state, poll: parts.poll ?? null });
+        closing ??= performShutdown({
+            server: parts.server,
+            state: parts.state,
+            poll: parts.poll ?? null,
+            sweep: parts.sweep ?? null,
+            polling: parts.polling,
+        });
 
         return closing;
     };
@@ -249,6 +319,8 @@ function createHandle(parts: HandleParts): ServiceHandle {
         dataDir: parts.dataDir,
         store: parts.store,
         reconciled: parts.reconciled,
+        swept: parts.swept,
+        poll: parts.poll ?? null,
         shutdown,
     };
 }
@@ -283,6 +355,99 @@ function startReconciliation(input: {
 }
 
 /**
+ * Recover stranded claims before the first claim can be served (FR-032).
+ *
+ * The pass is **awaited** here, between opening the store and binding the
+ * listener: a panel that closed mid-dispatch must find its work already
+ * waiting again when it reconnects, and a run whose lease expired while the
+ * service was down must never be offered under a lease that is already stale.
+ * A failure is logged and answered with an empty summary rather than thrown —
+ * an unreadable store is a degraded start (the routes answer `503`), not a
+ * process that refuses to boot.
+ *
+ * @param input - Open store, or `null` when the directory is unusable.
+ * @param log - Structured logger.
+ * @returns The pass's completion promise.
+ */
+function startBootSweep(input: {
+    /** Open store, or `null` when the directory is unusable. */
+    readonly store: ServiceStore | null;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+}): Promise<SweepOutcome> {
+    if (input.store === null) {
+        return Promise.resolve({ recoveries: [], auditWritten: true });
+    }
+
+    return sweepOnce({ store: input.store, log: input.log }).catch((error: unknown) => {
+        input.log.warn('boot sweep failed', { errorKind: error instanceof Error ? error.name : typeof error });
+
+        return { recoveries: [], auditWritten: false };
+    });
+}
+
+/**
+ * Start the two schedulers this instance owns.
+ *
+ * The poll loop starts first and is observed into the status route's view
+ * before the listener can serve a request, so no read of `GET /v1/status`
+ * can find a scheduler it cannot see (005 FR-031).
+ *
+ * @param input - Store, logger, GitHub issue poller, and the view to observe.
+ * @returns The two handles; each is `null` when there was no store to run one.
+ */
+function startSchedulers(input: {
+    /** Open store, or `null` when the data directory is unusable. */
+    readonly store: ServiceStore | null;
+    /** Structured logger both schedulers write through. */
+    readonly log: ServiceLogger;
+    /** GitHub issue poller for the M1 loop. */
+    readonly poller: GitHubIssuePoller;
+    /** Status view the poll loop publishes its state into. */
+    readonly polling: PollingViewSlot;
+}): { readonly poll: PollLoop | null; readonly sweep: SweepLoop | null } {
+    const { store, log, poller, polling } = input;
+    // M1 loop (MVP re-cut): the timer starts only when a store exists, so a
+    // degraded start does not poll. The default interval (60 s) is the
+    // contract default; `PUT /v1/config` retunes the next cycle.
+    const poll = store === null ? null : startPollLoop({ store, log, poller });
+    polling.observe(poll);
+    // The lease/deadline sweep keeps running on its own unref'd timer, at
+    // half the shorter of the two configured durations.
+    const sweep = store === null ? null : startSweep({ store, log });
+
+    return { poll, sweep };
+}
+
+/**
+ * Build the route context every handler is handed.
+ *
+ * @param input - Start options plus the store, verifier, and scheduler view.
+ * @returns The context bound to this instance.
+ */
+function buildContext(input: {
+    /** Start options carrying the data directory and logger. */
+    readonly options: StartServiceOptions;
+    /** Open store, or `null` when the directory was unusable. */
+    readonly store: ServiceStore | null;
+    /** Verifier for the credential routes and startup reconciliation. */
+    readonly github: GitHubVerifier;
+    /** Scheduler view the status route reads. */
+    readonly polling: PollingViewSlot;
+}): RouteContext {
+    return {
+        store: input.store,
+        dataDir: input.options.dataDir,
+        startedAt: Date.now(),
+        log: input.options.log,
+        schemaVersion: SERVICE_SCHEMA_VERSION,
+        github: input.github,
+        throttle: createVerifyThrottle(),
+        polling: input.polling.view,
+    };
+}
+
+/**
  * Start the loopback service.
  *
  * @param options - Environment, data directory, and logger.
@@ -292,31 +457,36 @@ function startReconciliation(input: {
  */
 export async function startService(options: StartServiceOptions): Promise<ServiceHandle> {
     const store = await openStoreSafe(options);
+    // FR-033/FR-037 (006): the stored level is in force from here on, so the
+    // first line this instance writes after the store opens is judged at the
+    // configured threshold — the whole `immediate` promise, before `listen`.
+    await adoptStoredLogLevel(store, options.log);
+    // 006 FR-055(a)/FR-057: both retention passes run once here, still before
+    // the listener accepts, so a saved limit is in force from the first start
+    // after it was acknowledged. A configuration write runs neither (FR-047).
+    await runRetentionAtOpen({ store, log: options.log });
     const github = options.github ?? createGitHubVerifier();
     const state: PipelineState = { inFlight: 0 };
-    const context: RouteContext = {
-        store,
-        dataDir: options.dataDir,
-        startedAt: Date.now(),
-        log: options.log,
-        schemaVersion: SERVICE_SCHEMA_VERSION,
-        github,
-        throttle: createVerifyThrottle(),
-    };
+    // The scheduler view exists before the context so every route can hold a
+    // stable reference; the loop is observed into it below, before the first
+    // request can be served (no await sits between `listen` and that call).
+    const polling = createPollingView();
+    const context = buildContext({ options, store, github, polling });
     const deps: PipelineDeps = { env: options.env, context, routes: ROUTES, log: options.log, state };
     const server = createServer(createRequestHandler(deps));
+    // FR-032: the sweep runs at service start, before the server accepts a
+    // claim, so a restart recovers stranded claims with no operator action.
+    const swept = await startBootSweep({ store, log: options.log });
     await listen(server, options.env.port);
     // Reconciliation runs after the listener is up: an upstream call must
     // never hold the host's readiness probe hostage (F16 readiness is about
     // *this* process answering, not about GitHub being reachable).
     const reconciled = startReconciliation({ store, github, log: options.log });
-    // M1 loop (MVP re-cut): the timer starts only when a store exists, so a
-    // degraded start does not poll. The default interval (60 s) is the
-    // contract default; `PUT /v1/config` retunes the next cycle.
-    const poll = store === null ? null : startPollLoop({
+    const { poll, sweep } = startSchedulers({
         store,
         log: options.log,
-        poller: options.poller ?? createDefaultPoller(),
+        poller: options.poller ?? createDefaultPoller(options.log),
+        polling,
     });
 
     return createHandle({
@@ -326,6 +496,9 @@ export async function startService(options: StartServiceOptions): Promise<Servic
         dataDir: options.dataDir,
         port: boundPort(server),
         reconciled,
+        swept: Promise.resolve(swept),
         poll,
+        sweep,
+        polling,
     });
 }

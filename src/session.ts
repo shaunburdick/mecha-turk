@@ -19,7 +19,9 @@ import type {
     StartSessionResult,
 } from '@openchamber/sdk';
 import type { SpikeConfig, WorktreeSelection } from './config.ts';
-import type { SpikeEvidence } from './evidence.ts';
+import { BEGIN_UNTRUSTED, END_UNTRUSTED, defuseDelimiters, renderBlocks } from './context-blocks.ts';
+import type { ContextBlock } from './context-blocks.ts';
+import type { PromptReference } from './prompt.ts';import type { SpikeEvidence } from './evidence.ts';
 import type { GitHubIssue } from './github.ts';
 import type { LedgerDetail, SpikeLedger } from './ledger.ts';
 
@@ -52,23 +54,34 @@ export type SpikeHost = Pick<
     | 'dispose'
 >;
 
-/** Maximum characters of bounded context sent as the session's first message. */
-export const CONTEXT_MAX_CHARS = 4_000;
-
-/** Maximum characters of the issue body excerpt embedded in the context. */
-export const BODY_EXCERPT_MAX_CHARS = 1_200;
+/** Maximum characters of bounded context sent as the session's first message (FR-014: ≤12,000 per dispatch). */
+export const CONTEXT_MAX_CHARS = 12_000;
 
 /** Line separator used by the bounded context. */
 const NEWLINE = '\n';
 
-/** Marker appended when the untrusted excerpt itself had to be cut. */
-const EXCERPT_ELLIPSIS = '…';
+/** Re-exported: the context builder stays the one import path for these. */
+export { SOURCE_EXCERPT_MAX_CHARS } from './context-blocks.ts';
 
-/** Opening delimiter of the untrusted issue text (FR-026). */
-const BEGIN_UNTRUSTED = '--- BEGIN UNTRUSTED ISSUE TEXT (truncated) ---';
-
-/** Closing delimiter of the untrusted issue text (FR-026). */
-const END_UNTRUSTED = '--- END UNTRUSTED ISSUE TEXT ---';
+/**
+ * One source reference the dispatch context quotes (FR-014).
+ *
+ * Everything on it is untrusted or service-projected source material: it is
+ * copied into the delimited block, never interpreted, and never allowed to
+ * alter the frame around it.
+ */
+export interface ContextSource {
+    /** Where it matched: `assignment`, `body`, `comment:<id>`, or `review`. */
+    readonly origin: string;
+    /** Trigger kind the reference was detected under. */
+    readonly kind: 'assignment' | 'mention' | 'review';
+    /** RFC 3339 detection stamp. */
+    readonly detectedAt: string;
+    /** Canonical link back to the source. */
+    readonly url: string;
+    /** Bounded untrusted excerpt. */
+    readonly excerpt: string;
+}
 
 /**
  * Render a human-readable error without echoing provider payloads.
@@ -124,39 +137,35 @@ export async function resolveProject(
 }
 
 /**
- * Trim the untrusted issue body into the character budget.
- *
- * @param body - Untrusted issue body.
- * @param budget - Characters left for the excerpt once the frame is counted.
- * @returns The body when it fits, an ellipsised truncation, or `''` when even
- * the marker does not fit.
- */
-function fitExcerpt(body: string, budget: number): string {
-    if (body.length <= budget) {
-        return body;
-    }
-
-    if (budget <= EXCERPT_ELLIPSIS.length) {
-        return '';
-    }
-
-    return `${body.slice(0, budget - EXCERPT_ELLIPSIS.length)}${EXCERPT_ELLIPSIS}`;
-}
-
-/**
  * Build the bounded first-message context for a dispatched session.
  *
- * Issue text is untrusted source material (FR-026), so it is wrapped in
- * explicit markers and truncated before it can dominate the prompt. The budget
- * is spent on the excerpt, never on the frame: truncating a long body can shorten
- * the quotation but can never cut the closing delimiter, because both markers
- * are counted before the excerpt is trimmed. The context never contains the
- * token or any Authorization material.
+ * Source text is untrusted (FR-026), so every source is quoted inside one
+ * explicit delimited block and bounded before it can dominate the prompt.
+ * Three guarantees hold at once, which is the whole point of the shape:
  *
- * @param input - Repository, issue, identity, and correlation inputs.
+ * - **Both limits, at once (FR-014).** Each excerpt is capped by
+ *   {@link SOURCE_EXCERPT_MAX_CHARS} and the whole context by `maxChars`
+ *   ({@link CONTEXT_MAX_CHARS} = 12,000 by default), frame and closing
+ *   delimiter included — true for any mix, because every character the
+ *   renderer emits is subtracted from one running budget.
+ * - **Nothing is dropped silently.** A cut source carries `… [truncated]`, a
+ *   source that did not fit carries the omission marker, and sources the
+ *   budget could not list are named by a roll-up line whose length was
+ *   reserved before the first block ran. The frame states how many references
+ *   the run has, so the count of what was quoted checks against the total.
+ * - **Source text cannot reach past the delimiters.** Markers are elided out
+ *   of every untrusted string before quoting and before any truncation, so a
+ *   cut can never reassemble one.
+ *
+ * The budget is spent on the sources, never on the frame: the frame is
+ * counted in full first, so a shortened quotation can never cut the closing
+ * delimiter. The context never contains a token or Authorization material.
+ *
+ * @param input - Repository, issue, identity, correlation, and the run's sources.
  * @returns Context truncated to `maxChars` characters, markers intact.
  */
-export function buildBoundedContext(input: {
+/** Everything one bounded context is built from. */
+export interface BoundedContextInput {
     /** `owner/name` of the repository. */
     readonly repository: string;
     /** Matched issue. */
@@ -165,30 +174,59 @@ export function buildBoundedContext(input: {
     readonly authenticatedLogin: string;
     /** Correlation identifier for this dispatch. */
     readonly correlationId: string;
+    /**
+     * The run's source references (FR-014), in join order.
+     *
+     * Absent — or empty — quotes the issue body alone, which is the shape the
+     * legacy single-source dispatch and every non-run caller use.
+     */
+    readonly sources?: readonly ContextSource[];
     /** Optional character budget; defaults to {@link CONTEXT_MAX_CHARS}. */
     readonly maxChars?: number;
-}): string {
+    /**
+     * Characters already spoken for by the operator's prompt block and its
+     * blank line, reserved **before** the excerpt budget is sized (004 FR-035)
+     * — so the excerpt is what shortens, never the prompt. See
+     * {@link promptBlockChars} in `prompt.ts`.
+     */
+    readonly reservedChars?: number;
+}
+
+export function buildBoundedContext(input: BoundedContextInput): string {
     const maxChars = input.maxChars ?? CONTEXT_MAX_CHARS;
+    const reservedChars = Math.max(input.reservedChars ?? 0, 0);
+    const sources = input.sources ?? [];
+    const blocks: ContextBlock[] = sources.length > 0
+        ? sources.map((source) => ({
+            head: `${source.origin} · ${source.kind} · ${source.detectedAt} · ${source.url}`,
+            excerpt: source.excerpt,
+        }))
+        : [{ head: null, excerpt: input.issue.body ?? '' }];
     const frame = [
         'Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).',
         `Correlation: ${input.correlationId}`,
         `Repository: ${input.repository}`,
-        `Issue #${input.issue.issueNumber}: ${input.issue.title}`,
-        `URL: ${input.issue.url}`,
+        `Issue #${input.issue.issueNumber}: ${defuseDelimiters(input.issue.title)}`,
+        `URL: ${defuseDelimiters(input.issue.url)}`,
         `Machine account: ${input.authenticatedLogin}`,
         'Rule: configured-match — open issue assigned to the authenticated machine account.',
+        `Source references: ${blocks.length}`,
         BEGIN_UNTRUSTED,
     ].join(NEWLINE);
 
-    // Two separators frame the excerpt: one after the frame, one before the
-    // closing delimiter. Both count against the budget or the result overruns
-    // `maxChars` by exactly the separator that was forgotten.
-    const separators = NEWLINE + NEWLINE;
-    const overhead = frame.length + separators.length + END_UNTRUSTED.length;
-    const budget = Math.min(Math.max(maxChars - overhead, 0), BODY_EXCERPT_MAX_CHARS);
-    const excerpt = fitExcerpt(input.issue.body ?? '', budget);
+    // The frame, the newline that follows it, the newline before the closing
+    // delimiter, and the delimiter itself are counted before any source is
+    // rendered, so the rendered block can never overrun `maxChars` by exactly
+    // the separator that was forgotten. The prompt's reservation is subtracted
+    // here too: it is part of the same budget, and it is spent first (004 FR-035).
+    const available = Math.max(
+        maxChars - reservedChars - frame.length - NEWLINE.length * 2 - END_UNTRUSTED.length,
+        0,
+    );
+    const rendered = renderBlocks({ blocks, available });
+    const body = rendered.length > 0 ? `${NEWLINE}${rendered.join(NEWLINE + NEWLINE)}${NEWLINE}` : '';
 
-    return `${frame}${NEWLINE}${excerpt}${NEWLINE}${END_UNTRUSTED}`;
+    return `${frame}${body}${END_UNTRUSTED}`;
 }
 
 /**
@@ -209,8 +247,20 @@ function worktreeValue(selection: WorktreeSelection): GuestSessionWorktree | und
     return { kind: 'new', name: selection.name };
 }
 
+/** The reference a request carries when no prompt was set (004 FR-032). */
+const NO_PROMPT: PromptReference = { promptPresent: false, promptFingerprint: null, promptLength: null };
+
 /**
  * Build the documented `host.startSession()` request for a matched issue.
+ *
+ * **Attachment identity (FR-029).** The request's `id` is the attachment
+ * identifier OpenChamber's own session list shows, and it is the run's
+ * correlation identifier — derived deterministically from it, so one copyable
+ * string finds both the session and the audit chain. It is read from the
+ * evidence record rather than passed in beside it precisely so `id` and
+ * `data.correlationId` cannot drift apart: the relay puts the run's
+ * `mt-run-…` correlation id in the evidence record, and every other caller
+ * keeps whatever correlation id its own record already carries.
  *
  * @param input - Configuration, evidence, issue, and bounded context.
  * @returns The request exactly as it will be sent to the host.
@@ -224,12 +274,22 @@ export function buildStartSessionRequest(input: {
     readonly issue: GitHubIssue;
     /** Bounded first-message context. */
     readonly context: string;
+    /**
+     * The prompt reference for the machine-readable `data` (004 FR-037).
+     *
+     * Omitted by the spike path, which has no run and therefore no prompt;
+     * the unset triple is written either way, so the member set is constant
+     * across every request this panel builds.
+     */
+    readonly prompt?: PromptReference;
 }): StartSessionRequest {
     const worktree = worktreeValue(input.config.worktree);
+    const attachmentId = input.evidence.correlationId;
+    const prompt = input.prompt ?? NO_PROMPT;
 
     return {
         providerId: 'mecha-turk',
-        id: `issue-${input.issue.issueNumber}`,
+        id: attachmentId,
         title: input.issue.title.slice(0, GUEST_ATTACH_TITLE_MAX),
         url: input.issue.url.slice(0, GUEST_ATTACH_URL_MAX),
         kind: 'issue',
@@ -237,11 +297,15 @@ export function buildStartSessionRequest(input: {
         projectId: input.config.projectId,
         data: {
             schemaVersion: input.evidence.schemaVersion,
-            correlationId: input.evidence.correlationId,
+            correlationId: attachmentId,
             repository: input.evidence.repository,
             issueId: input.evidence.issueId,
             detectedAt: input.evidence.detectedAt,
             panelGeneration: input.evidence.panelGeneration,
+            // The reference, never a second copy of the instruction (004 FR-037).
+            promptPresent: prompt.promptPresent,
+            promptFingerprint: prompt.promptFingerprint,
+            promptLength: prompt.promptLength,
         },
         ...(worktree === undefined ? {} : { worktree }),
     };

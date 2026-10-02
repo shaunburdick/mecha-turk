@@ -1,63 +1,84 @@
-import { describe, expect, it, vi } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
+import { describe, expect, it } from 'vitest';
 import type { GuestProjectsSnapshot, JsonValue } from '@openchamber/sdk';
 import {
     applySettings,
-    handleConnection,
     handlePagehide,
     loadLedger,
     selectProject,
     teardown,
 } from '../src/app.ts';
+import { loadInitialBindings } from '../src/bindings-mode.ts';
 import { EVIDENCE_STORAGE_KEY, serializeEvidence } from '../src/evidence.ts';
 import { parseJsonValue } from '../src/json.ts';
 import { LEDGER_STORAGE_KEY, readLedger } from '../src/ledger.ts';
-import { startPolling, stopPolling } from '../src/panel-actions.ts';
 import { createPanelRuntime } from '../src/panel-state.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { PROJECT_STORAGE_KEY } from '../src/project-actions.ts';
-import type { PanelBinding } from '../src/repos-service.ts';
+import { selectedProjectId } from '../src/project-picker.ts';
+import type { PanelBinding } from '../src/bindings-service.ts';
 import {
     FIXTURE_TIMESTAMP,
-    INTERVAL_MS,
-    ISSUE_LIST_PATH,
+    IDLE_UNSUBSCRIBE,
     LOGIN,
-    NO_ISSUES,
     PROJECT_DIR,
     PROJECT_ID,
     REPOSITORY,
-    countingRequest,
     createStorageDouble,
     createTestRuntime,
     fakeHost,
     fakeWindow,
     testConfig,
     testEvidence,
+    tick,
 } from './support/panel.ts';
-
-/** Interval a settings change switches the running poll timer to. */
-const SHORT_INTERVAL_MS = 30_000;
 
 /** Second registered project used by the picker tests. */
 const OTHER_ID = 'prj_7';
 
-/**
- * Build the complete settings record the spike accepts.
- *
- * The manifest's setting ids are kebab-case, so they travel as string values
- * in a tuple list rather than as object property names — the same convention
- * `tests/config.test.ts` uses.
- *
- * @param intervalMs - Poll interval to publish.
- * @returns Settings ready for {@link applySettings}.
- */
-function completeSettings(intervalMs: number): Readonly<Record<string, string>> {
-    const entries: readonly (readonly [string, string])[] = [
-        ['repository', REPOSITORY],
-        ['project-id', PROJECT_ID],
-        ['worktree-option', 'generated'],
-        ['poll-interval-ms', String(intervalMs)],
-    ];
+/** Banner a panel with no dispatch context shows (002 FR-041). */
+const WAITING_FOR_BINDING = 'Waiting for a binding';
 
+/**
+ * Collect every panel-source line that still *calls* machinery the
+ * product-owner sweep retired (2026-09-30): the single-repo poll starters,
+ * the poll itself, the integration card's `/user` identity diagnostic, and
+ * the connection handler that drove them. The card, its badge, and its
+ * diagnostic are gone, so any call site here is a regression rather than a
+ * dormant path — the identifiers no longer even exist to be called.
+ *
+ * @returns One `file: line` entry per call site found under `src/`.
+ */
+function retiredSpikeCallers(): readonly string[] {
+    const root = resolvePath(import.meta.dirname, '..');
+    const callSite = /\b(?:startPolling|restartPolling|runPoll|ensureIdentity|handleConnection|onConnection)\s*\(/;
+    const modules = readdirSync(resolvePath(root, 'src'), { recursive: true }).map(String);
+    const callers: string[] = [];
+    for (const name of modules.filter((entry) => entry.endsWith('.ts'))) {
+        const lines = readFileSync(resolvePath(root, 'src', name), 'utf8').split('\n');
+        for (const line of lines) {
+            if (callSite.test(line)) {
+                callers.push(`${name}: ${line.trim()}`);
+            }
+        }
+    }
+
+    return callers;
+}
+
+/**
+ * Build a settings record.
+ *
+ * The manifest declares zero settings (002 FR-041), so a record is an inert
+ * snapshot: it exists on the runtime only as the "the host is ready" marker
+ * prerequisites reads. These helpers keep that fact visible in the tests that
+ * feed one.
+ *
+ * @param entries - Setting id and value pairs, if any.
+ * @returns A settings record ready for {@link applySettings}.
+ */
+function settingsOf(entries: readonly (readonly [string, string])[] = []): Readonly<Record<string, string>> {
     return Object.fromEntries(entries);
 }
 
@@ -92,7 +113,10 @@ describe('teardown', () => {
         });
         const runtime = createPanelRuntime(host, frame.window);
         runtime.state.config = testConfig();
-        runtime.state.login = LOGIN;
+        // The one loop the panel owns at teardown is the relay's (FR-018);
+        // arm it by hand so "no timer survives teardown" is about the loop
+        // that actually exists rather than a retired one.
+        runtime.state.relay.timer = setInterval(IDLE_UNSUBSCRIBE, 60_000);
         const fired: string[] = [];
         runtime.pagehideListener = () => {
             fired.push('pagehide');
@@ -102,8 +126,6 @@ describe('teardown', () => {
             () => released.push('projects'),
             () => released.push('sessions'),
         );
-        startPolling(runtime);
-        expect(runtime.pollTimer).not.toBeNull();
 
         teardown(runtime);
         teardown(runtime);
@@ -111,7 +133,7 @@ describe('teardown', () => {
         expect(released).toEqual(['projects', 'sessions']);
         expect(fired).toHaveLength(0);
         expect(runtime.unsubscribes).toHaveLength(0);
-        expect(runtime.pollTimer).toBeNull();
+        expect(runtime.state.relay.timer).toBeNull();
         expect(runtime.pagehideListener).toBeNull();
         expect(runtime.disposed).toBe(true);
         expect(frame.removed).toEqual(['remove:pagehide']);
@@ -154,113 +176,106 @@ describe('handlePagehide', () => {
 });
 
 describe('applySettings', () => {
-    it('stops a running poll loop when the settings are incomplete', async () => {
-        vi.useFakeTimers();
-        const counting = countingRequest({ [ISSUE_LIST_PATH]: NO_ISSUES });
-        const runtime = createTestRuntime(fakeHost({ request: counting.request }));
+    it('records the snapshot and waits for a binding when no… (+2 cases)', () => {
+        // case: records the snapshot and waits for a binding when none is active
+        {
+            const runtime = createTestRuntime(fakeHost());
 
-        try {
-            startPolling(runtime);
-            await vi.advanceTimersByTimeAsync(0);
-            expect(runtime.pollTimer).not.toBeNull();
+            applySettings(runtime, settingsOf());
 
-            applySettings(runtime, { repository: '' });
+            // 002 FR-041: the card declares zero settings, so the snapshot is a
+            // readiness marker and never a configuration source.
+            expect(runtime.state.settings).toEqual({});
+            expect(runtime.state.config).toBeNull();
+            expect(runtime.state.status.tone).toBe('info');
+            expect(runtime.state.status.title).toBe(WAITING_FOR_BINDING);
+        }
+        // case: takes no configuration from a record that still carries the card ids
+        {
+            const runtime = createTestRuntime(fakeHost());
+            const cardShaped = settingsOf([
+                ['repository', REPOSITORY],
+                ['project-id', PROJECT_ID],
+                ['worktree-option', 'generated'],
+                ['poll-interval-ms', '45000'],
+                ['expected-login', LOGIN],
+                ['expected-agent', 'planner'],
+            ]);
+
+            applySettings(runtime, cardShaped);
 
             expect(runtime.state.config).toBeNull();
-            expect(runtime.pollTimer).toBeNull();
-            expect(runtime.state.status.title).toBe('Configuration incomplete');
-        } finally {
-            stopPolling(runtime);
-            vi.useRealTimers();
+            expect(runtime.state.status.title).toBe(WAITING_FOR_BINDING);
         }
-    });
+        // case: does not block while a binding is active
+        {
+            const runtime = createTestRuntime(fakeHost());
+            runtime.state.bindings.bindings = [activeBinding()];
+            runtime.state.bindingsActive = 1;
 
-    it('restarts a running poll loop when the interval changes', async () => {
-        vi.useFakeTimers();
-        const counting = countingRequest({ [ISSUE_LIST_PATH]: NO_ISSUES });
-        const runtime = createTestRuntime(fakeHost({ request: counting.request }));
+            // No `repository` setting at all: the retired legacy parse would have
+            // refused with "repository must be owner/name…", but the binding is
+            // authoritative and always was.
+            applySettings(runtime, settingsOf([['project-id', PROJECT_ID]]));
 
-        try {
-            startPolling(runtime);
-            await vi.advanceTimersByTimeAsync(0);
-            expect(counting.calls()).toBe(1);
-
-            applySettings(runtime, completeSettings(SHORT_INTERVAL_MS));
-
-            expect(runtime.state.config?.pollIntervalMs).toBe(SHORT_INTERVAL_MS);
-            await vi.advanceTimersByTimeAsync(SHORT_INTERVAL_MS);
-            expect(counting.calls()).toBe(2);
-            await vi.advanceTimersByTimeAsync(SHORT_INTERVAL_MS);
-            expect(counting.calls()).toBe(3);
-        } finally {
-            stopPolling(runtime);
-            vi.useRealTimers();
+            expect(runtime.state.status.tone).toBe('info');
+            expect(runtime.state.status.body).toBe('1 binding(s) active; legacy single-repo settings ignored');
+            expect(runtime.state.config).not.toBeNull();
+            expect(runtime.state.config?.repository).toEqual({ owner: 'acme', name: 'widget' });
+            expect(runtime.state.config?.projectId).toBe(PROJECT_ID);
+            expect(runtime.state.config?.worktree).toEqual({ kind: 'generated' });
         }
-    });
-
-    it('does not block on a missing repository setting while a binding is active', () => {
-        const runtime = createTestRuntime(fakeHost());
-        runtime.state.repos.bindings = [activeBinding()];
-        runtime.state.bindingsActive = 1;
-
-        // No `repository` setting at all: the legacy parse would refuse with
-        // "repository must be owner/name…", but the binding is authoritative.
-        const settings = Object.fromEntries([['project-id', PROJECT_ID]]);
-        applySettings(runtime, settings);
-
-        expect(runtime.state.status.tone).toBe('info');
-        expect(runtime.state.status.title).toBe('Bindings active');
-        expect(runtime.state.status.body).toBe('1 binding(s) active; legacy single-repo settings ignored');
-        expect(runtime.state.config).not.toBeNull();
-        expect(runtime.state.config?.repository).toEqual({ owner: 'acme', name: 'widget' });
-        expect(runtime.state.config?.projectId).toBe(PROJECT_ID);
-        expect(runtime.state.config?.worktree).toEqual({ kind: 'generated' });
     });
 });
 
-describe('handleConnection (FR-011 optional integration card)', () => {
-    it('steers the unconnected banner to the service-account flow, not the integration card', () => {
-        const runtime = createTestRuntime(fakeHost());
+describe('the install-time GitHub card is retired, not dormant (owner order 2026-09-30)', () => {
+    it('keeps the retired card, poll, and connection machine… (+1 cases)', async () => {
+        // case: keeps the retired card, poll, and connection machinery unreachable from panel source
+        {
+            expect(retiredSpikeCallers()).toEqual([]);
+        }
+        // case: arms the relay from the bindings read, which needs no connection event
+        {
+            const runtime = createTestRuntime(fakeHost());
+            runtime.state.bindings.bindings = [activeBinding()];
+            runtime.state.bindings.status = 'ready';
 
-        handleConnection(runtime, false);
+            await loadInitialBindings(runtime);
+            await tick();
 
-        // The card is optional and non-authoritative: the banner still stops
-        // the legacy single-repo loop, but it points at the account flow the
-        // product actually polls under.
-        expect(runtime.state.connected).toBe(false);
-        expect(runtime.pollTimer).toBeNull();
-        expect(runtime.state.status.tone).toBe('warning');
-        expect(runtime.state.status.title).toBe('No account connected');
-        expect(runtime.state.status.body).toContain('Repositories → Poll as account');
-        expect(runtime.state.status.body).toContain('optional GitHub (token) integration card');
-        expect(runtime.state.status.body).not.toContain('Settings → Integrations');
+            expect(runtime.relayArmed).toBe(true);
+            expect(runtime.state.relay.timer).not.toBeNull();
+        }
     });
 });
 
 describe('loadLedger on remount', () => {
-    it('restores the stored evidence record so a reopened panel can dispatch', async () => {
-        const evidence = serializeEvidence(testEvidence());
-        const storage = createStorageDouble({ [EVIDENCE_STORAGE_KEY]: parseJsonValue(evidence) });
-        const runtime = createTestRuntime(fakeHost({ storage: storage.storage }));
-        expect(runtime.state.evidence).toBeNull();
+    it('restores the stored evidence record so a reopened pa… (+1 cases)', async () => {
+        // case: restores the stored evidence record so a reopened panel can dispatch
+        {
+            const evidence = serializeEvidence(testEvidence());
+            const storage = createStorageDouble({ [EVIDENCE_STORAGE_KEY]: parseJsonValue(evidence) });
+            const runtime = createTestRuntime(fakeHost({ storage: storage.storage }));
+            expect(runtime.state.evidence).toBeNull();
 
-        await loadLedger(runtime, FIXTURE_TIMESTAMP);
+            await loadLedger(runtime, FIXTURE_TIMESTAMP);
 
-        expect(runtime.state.evidence).toEqual(testEvidence());
-        expect(runtime.state.ledger.panelGeneration).toBe(1);
-        expect(runtime.state.ledger.entries.at(-1)?.phase).toBe('mounted');
-        expect(storage.values.has(LEDGER_STORAGE_KEY)).toBe(true);
-    });
+            expect(runtime.state.evidence).toEqual(testEvidence());
+            expect(runtime.state.ledger.panelGeneration).toBe(1);
+            expect(runtime.state.ledger.entries.at(-1)?.phase).toBe('mounted');
+            expect(storage.values.has(LEDGER_STORAGE_KEY)).toBe(true);
+        }
+        // case: refuses a stored evidence record that does not match the contract
+        {
+            const broken: JsonValue = { schemaVersion: 'extension-spike-1', repository: 42 };
+            const storage = createStorageDouble({ [EVIDENCE_STORAGE_KEY]: broken });
+            const runtime = createTestRuntime(fakeHost({ storage: storage.storage }));
 
-    it('refuses a stored evidence record that does not match the contract', async () => {
-        const broken: JsonValue = { schemaVersion: 'extension-spike-1', repository: 42 };
-        const storage = createStorageDouble({ [EVIDENCE_STORAGE_KEY]: broken });
-        const runtime = createTestRuntime(fakeHost({ storage: storage.storage }));
+            await loadLedger(runtime, FIXTURE_TIMESTAMP);
 
-        await loadLedger(runtime, FIXTURE_TIMESTAMP);
-
-        expect(runtime.state.evidence).toBeNull();
-        expect(runtime.state.ledger.entries.at(-1)?.phase).toBe('mounted');
+            expect(runtime.state.evidence).toBeNull();
+            expect(runtime.state.ledger.entries.at(-1)?.phase).toBe('mounted');
+        }
     });
 });
 
@@ -275,77 +290,77 @@ const TWO_PROJECTS: GuestProjectsSnapshot = {
 };
 
 /**
- * Load the complete settings record and mark the picker list as loaded.
+ * Mark the picker list as loaded, with the host's settings snapshot recorded.
  *
  * @param runtime - Runtime under test.
  */
 function configureWithLoadedProjects(runtime: PanelRuntime): void {
-    applySettings(runtime, completeSettings(INTERVAL_MS));
+    applySettings(runtime, settingsOf());
     runtime.state.projects.status = 'ready';
     runtime.state.projects.projects = TWO_PROJECTS.projects;
 }
 
 describe('project selection', () => {
-    it('resolves the project id from the restored panel selection', () => {
-        const runtime = createTestRuntime(fakeHost());
-        runtime.state.projectSelection = OTHER_ID;
+    it('records the restored panel selection as this mount’s… (+3 cases)', async () => {
+        // case: records the restored panel selection as this mount’s choice
+        {
+            const runtime = createTestRuntime(fakeHost());
+            runtime.state.projectSelection = OTHER_ID;
 
-        applySettings(runtime, completeSettings(INTERVAL_MS));
+            applySettings(runtime, settingsOf());
 
-        expect(runtime.state.config?.projectId).toBe(OTHER_ID);
-        expect(runtime.state.status.body).toContain('projectId from the panel picker');
-    });
+            expect(runtime.state.projectSelection).toBe(OTHER_ID);
+            expect(selectedProjectId(runtime.state)).toBe(OTHER_ID);
+            // 002 FR-041: settings resolve nothing, so no config appears from one.
+            expect(runtime.state.config).toBeNull();
+        }
+        // case: adopts a pick and stores it
+        {
+            const storage = createStorageDouble();
+            const runtime = createTestRuntime(
+                fakeHost({ storage: storage.storage, listProjects: async () => TWO_PROJECTS }),
+            );
+            configureWithLoadedProjects(runtime);
 
-    it('adopts a pick, stores it, and re-resolves the config', async () => {
-        const storage = createStorageDouble();
-        const runtime = createTestRuntime(
-            fakeHost({ storage: storage.storage, listProjects: async () => TWO_PROJECTS }),
-        );
-        configureWithLoadedProjects(runtime);
-        expect(runtime.state.config?.projectId).toBe(PROJECT_ID);
+            await selectProject(runtime, OTHER_ID);
 
-        await selectProject(runtime, OTHER_ID);
+            expect(runtime.state.projectSelection).toBe(OTHER_ID);
+            expect(storage.values.get(PROJECT_STORAGE_KEY)).toBe(OTHER_ID);
+        }
+        // case: refuses a pick from outside the loaded list and stores nothing
+        {
+            const storage = createStorageDouble();
+            const runtime = createTestRuntime(
+                fakeHost({ storage: storage.storage, listProjects: async () => TWO_PROJECTS }),
+            );
+            configureWithLoadedProjects(runtime);
 
-        expect(runtime.state.projectSelection).toBe(OTHER_ID);
-        expect(runtime.state.config?.projectId).toBe(OTHER_ID);
-        expect(storage.values.get(PROJECT_STORAGE_KEY)).toBe(OTHER_ID);
-        expect(runtime.state.projects.note).toContain('stored for the next mount');
-    });
+            await selectProject(runtime, 'prj_invented');
 
-    it('refuses a pick from outside the loaded list and stores nothing', async () => {
-        const storage = createStorageDouble();
-        const runtime = createTestRuntime(
-            fakeHost({ storage: storage.storage, listProjects: async () => TWO_PROJECTS }),
-        );
-        configureWithLoadedProjects(runtime);
-
-        await selectProject(runtime, 'prj_invented');
-
-        expect(runtime.state.projectSelection).toBeNull();
-        expect(runtime.state.config?.projectId).toBe(PROJECT_ID);
-        expect(storage.values.has(PROJECT_STORAGE_KEY)).toBe(false);
-        expect(runtime.state.projects.note).toContain('prj_invented');
-    });
-
-    it('keeps the pick in memory when the storage write is refused', async () => {
-        const storage = createStorageDouble();
-        const runtime = createTestRuntime(
-            fakeHost({
-                storage: {
-                    ...storage.storage,
-                    set: async () => {
-                        throw new Error('storage offline');
+            expect(runtime.state.projectSelection).toBeNull();
+            expect(storage.values.has(PROJECT_STORAGE_KEY)).toBe(false);
+            expect(runtime.state.projects.note).toContain('prj_invented');
+        }
+        // case: keeps the pick in memory when the storage write is refused
+        {
+            const storage = createStorageDouble();
+            const runtime = createTestRuntime(
+                fakeHost({
+                    storage: {
+                        ...storage.storage,
+                        set: async () => {
+                            throw new Error('storage offline');
+                        },
                     },
-                },
-                listProjects: async () => TWO_PROJECTS,
-            }),
-        );
-        configureWithLoadedProjects(runtime);
+                    listProjects: async () => TWO_PROJECTS,
+                }),
+            );
+            configureWithLoadedProjects(runtime);
 
-        await selectProject(runtime, OTHER_ID);
+            await selectProject(runtime, OTHER_ID);
 
-        expect(runtime.state.projectSelection).toBe(OTHER_ID);
-        expect(runtime.state.config?.projectId).toBe(OTHER_ID);
-        expect(runtime.state.projects.note).toContain('for this session only');
+            expect(runtime.state.projectSelection).toBe(OTHER_ID);
+        }
     });
 });
+

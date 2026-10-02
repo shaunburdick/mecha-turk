@@ -1,52 +1,37 @@
 /**
- * Panel application for the extension spike.
+ * Panel application for the extension.
  *
- * The app wires the documented host surface to one bounded flow: parse the
- * operator settings, authenticate through `host.request()`, poll one
- * repository for one configured-match issue, persist a redacted evidence
- * record, dispatch one `host.startSession()` call, verify host-owned project,
- * worktree, and session state, and keep a redacted ledger in `host.storage`.
+ * The app wires the documented host surface to one bounded flow: record the
+ * host's settings snapshot, follow the service's bindings and event relay,
+ * dispatch exactly one `host.startSession()` per claimed run, verify
+ * host-owned project, worktree, and session state, and keep a redacted
+ * ledger in `host.storage`.
+ *
+ * Configuration resolution is **bindings-authoritative only** (002 FR-041):
+ * the integration card declares zero settings, so nothing here parses
+ * `ctx.settings` into a repository, project, interval, or expected login.
  *
  * Every lifecycle transition the experiment needs (mounted, closed, paused,
- * removed, server-switch) is recorded explicitly; polling never survives the
- * frame because the frame is the only thing running it. Each step is a module
- * level function over the shared runtime so no single function hides the
- * whole flow.
+ * removed, server-switch) is recorded explicitly; the frame is the only thing
+ * running, so nothing survives it. Each step is a module level function over
+ * the shared runtime so no single function hides the whole flow.
  */
 
 import type { HostReadyContext, JsonValue } from '@openchamber/sdk';
 import { applyHostReady } from '@openchamber/sdk/ui';
 import { applyBindingsMode, loadInitialBindings } from './bindings-mode.ts';
-import {
-    acceptConsentAndRepaint,
-    mountHandoffDom,
-    preflightAndRepaint,
-    refreshHandoff,
-    submitHandoffAndRepaint,
-} from './accounts-ui.ts';
-import { parseExpectedAgent, parseProjectId, parseSpikeConfig, repositoryLabel } from './config.ts';
-import { restoreStoredConsent } from './consent.ts';
+import { preflightAndRepaint } from './accounts-ui.ts';
+import { parseProjectId } from './config.ts';
 import { restoreStoredEvidence } from './evidence.ts';
-import { declineHandoffConsent } from './handoff.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { analyzeLastCloseGap, buildMountContext, LIFECYCLE_EXPERIMENT_PLAN } from './lifecycle.ts';
 import { createLedger, LEDGER_STORAGE_KEY, readLedger, recordPhase } from './ledger.ts';
 import type { LedgerDetail } from './ledger.ts';
-import {
-    appendEntryAndPersist,
-    ensureIdentity,
-    markPhase,
-    persistLedger,
-    restartPolling,
-    runPoll,
-    startPolling,
-    stopPolling,
-    verifyHost,
-} from './panel-actions.ts';
-import { startDispatch } from './panel-dispatch.ts';
+import { appendEntryAndPersist, persistLedger } from './panel-actions.ts';
+import { mountPrerequisiteNotice, disposePrerequisites } from './prerequisites.ts';
 import { createPanelRuntime, setStatus } from './panel-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
-import { mountPanelUi, refresh } from './panel-ui.ts';
+import { mountPanelFraming, refresh } from './panel-ui.ts';
 import type { PanelHandlers } from './panel-ui.ts';
 import { isSelectableProject } from './project-picker.ts';
 import {
@@ -57,9 +42,12 @@ import {
     storeProjectSelection,
 } from './project-actions.ts';
 import { redact } from './redaction.ts';
-import { mountReposSection } from './repos-mount.ts';
-import { startRelayPolling } from './relay.ts';
-import { loadRuns } from './runs.ts';
+import { reconcileDispatchAttempts } from './reconcile.ts';
+import { settleReconciliation, stopRelayPolling } from './relay.ts';
+import { loadDispatches } from './dispatches.ts';
+import { loadStatus } from './status-tab.ts';
+import { mountTabShell } from './tabs.ts';
+import { tabSpecs } from './tab-bodies.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
 
@@ -80,80 +68,44 @@ export interface SpikeApp {
 }
 
 /**
- * Apply operator settings from the host.
+ * Apply the host's settings snapshot.
  *
- * The project id inside the parsed config already carries the panel picker's
- * precedence over the `project-id` integration setting, because the stored
- * selection is handed to `parseSpikeConfig` here. The raw snapshot is kept on
- * the runtime so a later selection can re-run exactly this resolution instead
- * of re-implementing it.
+ * Since 002 FR-041 emptied `contributes.integration.settings`, the snapshot
+ * carries **zero** declared settings: there is no single-repo configuration
+ * to parse and no card id to read, so this function no longer resolves a
+ * config at all. What it still does is (a) record the snapshot — prerequisites
+ * reads it as the "the host is ready" marker — and (b) re-apply
+ * bindings-authoritative mode when a binding already supplies the dispatch
+ * context, so a settings event can never demote a configured panel.
  *
- * When the service reports at least one enabled repository binding, the
- * settings take a back seat entirely: the panel switches to bindings mode
- * (see {@link applyBindingsMode}), where the first enabled binding is the
- * authoritative dispatch context and the legacy single-repo demand can no
- * longer block the banner (MVP blocker 1).
+ * The legacy branch that parsed `repository` / `project-id` /
+ * `worktree-option` / `poll-interval-ms` / `expected-login` is **retired, not
+ * kept as a fallback** (002 FR-041(a)): bindings are the only configuration
+ * resolution mode, and a panel with no binding says it is waiting for one
+ * instead of naming a setting the manifest no longer declares.
  *
- * Exported so the settings flow — including the poll-timer restart when
- * `pollIntervalMs` changes while polling runs — can be exercised directly by
- * the orchestration tests; the panel itself reaches this through the
- * `onSettings` subscription registered in {@link createSpikeApp}.
+ * Exported so the settings flow can be exercised directly by the
+ * orchestration tests; the panel itself reaches this through the `onSettings`
+ * subscription registered in {@link createSpikeApp}.
  *
  * @param rt - Panel runtime.
- * @param settings - Values from `ctx.settings`.
+ * @param settings - Values from `ctx.settings` (an empty record in practice).
  */
 export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string, string>>): void {
     rt.state.settings = settings;
-    // The expected agent (M9) is read before either configuration mode
-    // diverges: bindings-authoritative mode derives `state.config` from a
-    // binding and never re-parses the settings, so this line is the one
-    // place both modes agree on the value the verification compares against.
-    rt.state.expectedAgent = parseExpectedAgent(settings);
     if (rt.state.bindingsActive > 0) {
         applyBindingsMode(rt);
         refresh(rt);
         return;
     }
 
-    const result = parseSpikeConfig(settings, rt.state.projectSelection);
-    if (!result.ok) {
-        rt.state.config = null;
-        stopPolling(rt);
-        setStatus(rt, { tone: 'error', title: 'Configuration incomplete', body: result.problems.join('; ') });
-        refresh(rt);
-        return;
-    }
-
-    const previous = rt.state.config;
-    rt.state.config = result.config;
-    const notes = result.notes.length > 0 ? ` (${result.notes.join('; ')})` : '';
-    const label = repositoryLabel(result.config.repository);
-    const body = `${label} → project ${result.config.projectId}${notes}`;
-    setStatus(rt, { tone: 'info', title: 'Configuration loaded', body });
-    if (rt.state.connected && rt.state.login === null) {
-        void ensureIdentity(rt);
-    }
-
-    if (previous !== null && previous.pollIntervalMs !== result.config.pollIntervalMs) {
-        restartPolling(rt);
-    }
-
+    rt.state.config = null;
+    setStatus(rt, {
+        tone: 'info',
+        title: 'Waiting for a binding',
+        body: 'Dispatch context comes from a binding; the integration card declares no settings.',
+    });
     refresh(rt);
-}
-
-/**
- * Re-run configuration resolution with the selection the picker holds now.
- *
- * Nothing happens until a settings snapshot has arrived: before `onReady`
- * there is nothing to re-parse, and the selection itself is already recorded,
- * so the first snapshot picks it up on its own.
- *
- * @param rt - Panel runtime.
- */
-function reapplySettings(rt: PanelRuntime): void {
-    if (rt.state.settings !== null) {
-        applySettings(rt, rt.state.settings);
-    }
 }
 
 /**
@@ -161,11 +113,11 @@ function reapplySettings(rt: PanelRuntime): void {
  *
  * The id must come from the list the host just loaded, so a stale or invented
  * value can never reach the dispatch path. It is then persisted to extension
- * storage — integration settings are read-only from the panel in SDK 1.24.2 —
- * and configuration is re-resolved through {@link applySettings} so there is
- * exactly one precedence rule for `projectId`. A refused write keeps the
- * in-memory selection for this mount and says so on the picker line; either
- * way the panel fails closed until a valid id is resolved.
+ * storage — integration settings are read-only from the panel in SDK 1.24.2,
+ * and since 002 FR-041 there are none to write anyway — and recorded on the
+ * runtime as this mount's selection. A refused write keeps the in-memory
+ * selection for this mount and says so on the picker line; either way the
+ * panel fails closed until a valid id is resolved.
  *
  * Exported for the orchestration tests, which drive the picker without a DOM.
  *
@@ -180,7 +132,6 @@ export async function selectProject(rt: PanelRuntime, id: string): Promise<void>
     }
 
     rt.state.projectSelection = candidate;
-    reapplySettings(rt);
 
     const write = await storeProjectSelection(rt.host, candidate);
     if (rt.disposed) {
@@ -190,62 +141,6 @@ export async function selectProject(rt: PanelRuntime, id: string): Promise<void>
     rt.state.projects.note = write.ok
         ? `Selected project ${candidate}; stored for the next mount.`
         : redact(`Selected project ${candidate} for this session only: ${write.problem}`);
-    refresh(rt);
-}
-
-/**
- * React to integration connection changes.
- *
- * The declared GitHub (token) integration card is optional and
- * non-authoritative (FR-011): the panel is fully functional with it
- * unconnected, because polling and dispatch run on the *service* accounts
- * under Repositories → Poll as account. The unconnected banner therefore
- * points at that account flow instead of steering the operator to a
- * credential surface the product does not need — and it mentions the card
- * only where the card is genuinely load-bearing: the legacy single-repo
- * spike path, whose identity check is the one read that still rides
- * `host.request()`'s integration credential.
- *
- * Exported so the orchestration tests can assert the banner copy without a
- * live host subscription.
- *
- * @param rt - Panel runtime.
- * @param connected - Whether the host reports a connected token.
- */
-export function handleConnection(rt: PanelRuntime, connected: boolean): void {
-    rt.state.connected = connected;
-    if (!connected) {
-        stopPolling(rt);
-        const body =
-            'Add one under Repositories → Poll as account — service accounts drive polling and dispatch. ' +
-            'The optional GitHub (token) integration card is only needed for the legacy single-repo identity check.';
-        setStatus(rt, { tone: 'warning', title: 'No account connected', body });
-        refresh(rt);
-        return;
-    }
-
-    if (rt.state.bindingsActive > 0) {
-        // Bindings mode: the relay is the loop, so the legacy identity check
-        // and single-repo poll loop stay out of the way.
-        applyBindingsMode(rt);
-        startRelayPolling(rt);
-        refresh(rt);
-        return;
-    }
-
-    if (rt.state.config === null) {
-        const body = 'Waiting for repository, project, and worktree settings.';
-        setStatus(rt, { tone: 'info', title: 'Connected', body });
-        refresh(rt);
-        return;
-    }
-
-    if (rt.state.login === null) {
-        void ensureIdentity(rt);
-    } else {
-        startPolling(rt);
-    }
-
     refresh(rt);
 }
 
@@ -317,7 +212,10 @@ export function teardown(rt: PanelRuntime): void {
     }
 
     rt.disposed = true;
-    stopPolling(rt);
+    // The relay is root-owned (plan D2), so this is where its loop stops: a
+    // torn-down panel must leave no surviving timer behind (FR-017, SC-108),
+    // and nothing else in the teardown path knows the loop exists.
+    stopRelayPolling(rt);
     if (rt.pagehideListener !== null) {
         rt.panelWindow.removeEventListener('pagehide', rt.pagehideListener);
         rt.pagehideListener = null;
@@ -337,18 +235,24 @@ export function teardown(rt: PanelRuntime): void {
         rt.ui = null;
     }
 
+    // Mounted outside `ui`, so nothing above would release them.
+    disposePrerequisites(rt);
+
     if (rt.handoffView !== null) {
         rt.handoffView.dispose();
         rt.handoffView = null;
     }
 
-    if (rt.reposSection !== null) {
-        // The pane handle removes its body; the shared tab strip removes its
-        // own node and listeners through `tabs.dispose`.
-        rt.reposSection.repos.tabs.dispose();
-        rt.reposSection.repos.dispose();
-        rt.reposSection = null;
+    if (rt.shell !== null) {
+        // One path for all six bodies: each disposer it registered runs in
+        // strip order, then the strip itself removes (FR-017, NFR-108).
+        rt.shell.dispose();
     }
+
+    rt.bindingsUi = null;
+    rt.dispatchesUi = null;
+    rt.pickerUi = null;
+    rt.aboutUi = null;
 
     rt.host.dispose();
 }
@@ -375,41 +279,88 @@ export function handlePagehide(rt: PanelRuntime): void {
 }
 
 /**
- * First-time start, driven by `onReady`.
+ * Whether the frame was torn down while the last await was in flight.
+ *
+ * A function call rather than a bare `rt.disposed` read: the analyzer narrows
+ * that property across an `await` and calls a second direct check unreachable,
+ * while the frame really can go away between two awaits — and carrying on would
+ * reconcile, claim, and dispatch from a disposed panel.
+ *
+ * @param rt - Panel runtime.
+ * @returns `true` once the mount has been torn down.
+ */
+function tornDown(rt: PanelRuntime): boolean {
+    return rt.disposed;
+}
+
+/**
+ * Mount the panel: restore, configure, read, reconcile, repaint.
  *
  * @param rt - Panel runtime.
  * @param context - Ready snapshot from the host.
  */
-async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
+async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
     await loadLedger(rt, nowIso());
     // The stored selection must land before the first `applySettings`: it is
-    // the input config resolution uses for this mount. The restore self-guards
+    // the picker's starting point for this mount. The restore self-guards
     // after its own await, so one dispose check after both awaits is enough.
     await restoreProjectSelection(rt);
     if (rt.disposed) {
         return;
     }
 
-    // The accepted-consent mirror must land before the first handoff repaint:
-    // a panel that remounted after accepting must not re-ask for §1.1 consent.
-    // It only flips one state flag, so the dispose check above covers it too.
-    await restoreStoredConsent(rt);
-
     applySettings(rt, context.settings);
-    handleConnection(rt, context.connection.connected);
     void loadProjects(rt);
     // Bindings land before the handoff pre-flight so the banner reflects
-    // them and the relay is armed for the operator's loop test.
-    void loadInitialBindings(rt);
+    // them and the relay is armed for the operator's loop test. Awaited
+    // rather than fired: it is the one mount-time read that writes a banner
+    // of its own, and reconciliation's warning has to be the last one this
+    // mount writes (a warning that later reads as "Configuration loaded"
+    // would be a silent skip in a prettier font).
+    await loadInitialBindings(rt);
+    if (tornDown(rt)) {
+        return;
+    }
+
     // The runs history is read on mount too (M8), beside the bindings it
     // sits under: one GET /v1/events that fails here lands on the runs
     // note line instead of an empty area nobody can explain.
-    void loadRuns(rt);
+    void loadDispatches(rt);
+    // The Status tab's projection is read at mount as well, so the tab the
+    // panel opens on answers its one question immediately; its own refresh
+    // control is the explicit re-read (FR-014, FR-019).
+    void loadStatus(rt);
     // The handoff input stays disabled until this pre-flight proves the
     // service storage is writable (F10/SEC-08); a failed pre-flight leaves
     // the reason on screen instead of a usable credential field.
     void preflightAndRepaint(rt);
+
+    // FR-025: every attempt this panel recorded and has not seen acknowledged
+    // is re-reported here — bounded, idempotent, and never silently skipped.
+    // The relay cannot claim before this returns, because the gate is still
+    // closed and every arming site defers to it.
+    await reconcileDispatchAttempts(rt);
     refresh(rt);
+}
+
+/**
+ * First-time start, driven by `onReady`.
+ *
+ * The reconcile gate closes before anything that could arm the relay and opens
+ * only after every outstanding attempt has been re-reported (FR-025), in a
+ * `finally` so no mount path can leave the relay unarmed — or armed ahead of
+ * its own reconciliation.
+ *
+ * @param rt - Panel runtime.
+ * @param context - Ready snapshot from the host.
+ */
+async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
+    rt.reconcileSettled = false;
+    try {
+        await mountPanel(rt, context);
+    } finally {
+        settleReconciliation(rt);
+    }
 }
 
 /**
@@ -438,11 +389,6 @@ function registerHostListeners(rt: PanelRuntime, root: HTMLElement): void {
                 applySettings(rt, settings);
             }
         }),
-        host.onConnection((connection) => {
-            if (!rt.disposed) {
-                handleConnection(rt, connection.connected);
-            }
-        }),
         host.onSessionLifecycle((event) => {
             if (rt.disposed) {
                 return;
@@ -467,33 +413,17 @@ export function createSpikeApp(options: SpikeAppOptions): SpikeApp {
     const { host, root, panelWindow } = options;
     const rt = createPanelRuntime(host, panelWindow);
     const handlers: PanelHandlers = {
-        poll: () => void runPoll(rt),
-        dispatch: () => void startDispatch(rt),
-        verify: () => void verifyHost(rt),
-        mark: () => void markPhase(rt),
         refreshProjects: () => void loadProjects(rt),
         selectProject: (id) => void selectProject(rt, id),
         copyProjectId: () => void copyProjectId(rt),
     };
 
-    rt.reposSection = mountReposSection(rt, root);
-    rt.ui = mountPanelUi(rt, { root: rt.reposSection.spike, handlers });
-    rt.handoffView = mountHandoffDom({
-        root: rt.reposSection.spike,
-        handlers: {
-            accept: () => {
-                void acceptConsentAndRepaint(rt);
-            },
-            decline: () => {
-                declineHandoffConsent(rt);
-                refreshHandoff(rt);
-            },
-            submit: (token) => {
-                void submitHandoffAndRepaint(rt, token);
-            },
-        },
-    });
-    refreshHandoff(rt);
+    // Above the tab strip on purpose: FR-036 and FR-037 need the notice region
+    // outside every section, and the banner is read-state framing that belongs
+    // to the whole panel rather than to one tab.
+    mountPrerequisiteNotice({ rt, parent: root });
+    rt.ui = mountPanelFraming(root);
+    mountTabShell({ rt, root, specs: tabSpecs(rt, handlers) });
     rt.pagehideListener = () => handlePagehide(rt);
     panelWindow.addEventListener('pagehide', rt.pagehideListener);
     registerHostListeners(rt, root);

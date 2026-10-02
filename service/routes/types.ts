@@ -12,6 +12,7 @@ import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import type { GitHubVerifier } from '../github.ts';
 import type { VerifyThrottle } from '../throttle.ts';
+import type { PollingView } from '../poll/view.ts';
 
 /** One parsed request handed to a route handler. */
 export interface RouteRequest {
@@ -47,6 +48,13 @@ export interface RouteContext {
     readonly github: GitHubVerifier;
     /** Verify throttle shared by the credential routes (SEC-04). */
     readonly throttle: VerifyThrottle;
+    /**
+     * Read-only view of the live poll scheduler (005 FR-031).
+     *
+     * The status route reports the loop's own state through it instead of a
+     * literal the running process would contradict.
+     */
+    readonly polling: PollingView;
 }
 
 /** A route handler: two parameters, no socket or environment access. */

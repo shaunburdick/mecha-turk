@@ -15,7 +15,41 @@
 
 import type { GuestProject, GuestProjectsSnapshot } from '@openchamber/sdk';
 import type { SelectOption } from '@openchamber/sdk/ui';
-import type { PanelState, ProjectPickerState } from './panel-state.ts';
+import type { PanelState } from './panel-state.ts';
+
+/** Lifecycle of the project picker's project list. */
+export type ProjectPickerStatus =
+    /** Nothing requested yet; the picker shows its idle text. */
+    | 'idle'
+    /** `host.listProjects()` is in flight. */
+    | 'loading'
+    /** The host answered with a usable snapshot. */
+    | 'ready'
+    /** The host refused, failed, or reported an error snapshot. */
+    | 'error';
+
+/** Project picker state carried by the panel runtime. */
+export interface ProjectPickerState {
+    /** Where the last `host.listProjects()` call got to. */
+    status: ProjectPickerStatus;
+    /** Projects the host reported; retained across a failed refresh. */
+    projects: readonly GuestProject[];
+    /** Operator-facing note about the picker, already redacted. */
+    note: string;
+}
+
+/**
+ * Create the empty picker state shown before the first `listProjects()` call.
+ *
+ * Lives with the picker rather than with the shared runtime state because it
+ * *is* picker state: the lifecycle above, the retained list, and the note are
+ * what `pickerNote`, `pickerPlaceholder`, and `applyProjectSnapshot` read.
+ *
+ * @returns The initial project picker state.
+ */
+export function initialProjectPicker(): ProjectPickerState {
+    return { status: 'idle', projects: [], note: '' };
+}
 
 /** Note shown before the first `host.listProjects()` call. */
 const IDLE_NOTE = 'Projects have not been loaded yet.';
@@ -34,6 +68,23 @@ const UNAVAILABLE_PLACEHOLDER = 'Projects unavailable';
 
 /** Trigger text shown before any project list has been requested. */
 const SELECT_PLACEHOLDER = 'Select a project';
+
+/** Label of the picker's "not listed" affordance (002 FR-014, 003 FR-070). */
+export const NOT_LISTED_LABEL = 'Not listed?';
+
+/**
+ * The manual ways OpenChamber registers a project, in the order the operator
+ * meets them.
+ *
+ * The extension has no project-creation call anywhere (FR-070, AC-121), so
+ * these three routes are the *only* way a project comes to exist — naming
+ * them is the whole affordance.
+ */
+export const PROJECT_REGISTRATION_ROUTES: readonly string[] = [
+    'command palette → Add project',
+    'the sidebar + button',
+    'the folder browser',
+];
 
 /**
  * Describe one host project as a picker option.
@@ -70,6 +121,28 @@ export function pickerOptions(picker: ProjectPickerState): SelectOption[] {
     }
 
     return picker.projects.map(projectOption);
+}
+
+/**
+ * Narrow the picker's options for the binding form's project select.
+ *
+ * Only a `ready` snapshot produces options — a loading or failed list would
+ * offer projects the host may no longer hold. Unlike {@link pickerOptions}
+ * these carry no directory hint, because the form's row already names the
+ * repository and the id.
+ *
+ * @param picker - Project picker state.
+ * @returns The options, only when a ready list is loaded.
+ */
+export function formProjectOptions(picker: ProjectPickerState): SelectOption[] {
+    if (picker.status !== 'ready') {
+        return [];
+    }
+
+    return picker.projects.map((project) => ({
+        id: project.id,
+        label: `${project.name} · ${project.id}`,
+    }));
 }
 
 /**
@@ -123,6 +196,48 @@ export function pickerPlaceholder(picker: ProjectPickerState): string {
 }
 
 /**
+ * Explain why a selection outside the loaded list was refused.
+ *
+ * One wording for both pickers (the spike's dispatch target and the binding
+ * form's dispatch project), so an operator who sees the line once recognises
+ * it the second time. Nothing changes when a selection is refused: without a
+ * confirmed id the dispatch — and the binding draft — stay exactly as they
+ * were, which is what keeps a binding in its recoverable `project_missing`
+ * state until a registered project is chosen (FR-070).
+ *
+ * @param picker - Project picker state.
+ * @param id - Project id the caller asked to select.
+ * @returns The operator-facing refusal line.
+ */
+export function projectRefusalReason(picker: ProjectPickerState, id: string): string {
+    return picker.status === 'ready' && picker.projects.length > 0
+        ? `Project "${id}" is not in the loaded list; reload the projects and pick again.`
+        : 'No project list is loaded; reload the projects and pick one.';
+}
+
+/**
+ * The "Not listed?" guidance the pickers show (FR-070, AC-121).
+ *
+ * Rendered as ordinary text inside the panel, so the routes are reachable
+ * without leaving the panel — the operator reads them at the moment they
+ * discover the gap instead of being sent to a document. The copy states the
+ * three registration routes, that the extension never creates a project, and
+ * what stays recoverable in the meantime.
+ *
+ * @returns The guidance line, ending with the never-creates rule.
+ */
+export function notListedGuidance(): string {
+    const routes = PROJECT_REGISTRATION_ROUTES.join(', ');
+
+    return (
+        `${NOT_LISTED_LABEL} OpenChamber registers projects, not this extension: ` +
+        `${routes} — then reload the projects and pick it here. ` +
+        'Until a registered project is chosen the binding stays in its recoverable ' +
+        '`project_missing` state; the extension never creates one.'
+    );
+}
+
+/**
  * Decide whether an id may be selected right now.
  *
  * Selection requires a `ready` list that actually contains the id, so a stale
@@ -138,10 +253,13 @@ export function isSelectableProject(picker: ProjectPickerState, id: string): boo
 }
 
 /**
- * The project id the panel currently resolves, from either source.
+ * The project id the panel currently resolves.
+ *
+ * The picker's stored selection wins; otherwise the binding-derived dispatch
+ * context supplies one. Since 002 FR-041 there is no third source.
  *
  * @param state - Panel state.
- * @returns The panel-picker selection, else the configured id, else `null`.
+ * @returns The panel-picker selection, else the binding's id, else `null`.
  */
 export function selectedProjectId(state: PanelState): string | null {
     return state.projectSelection ?? state.config?.projectId ?? null;
@@ -151,8 +269,10 @@ export function selectedProjectId(state: PanelState): string | null {
  * Render the selected project id and where it came from.
  *
  * The id is shown verbatim so the operator can read it back into the
- * `project-id` integration setting if they configure the spike that way;
- * the source line makes the precedence rule visible instead of surprising.
+ * binding's project field; the source line makes the precedence visible
+ * instead of surprising. Since 002 FR-041 emptied the integration card there
+ * are exactly two answers: the operator's own picker selection, or the
+ * binding that already carries a project.
  *
  * @param state - Panel state.
  * @returns One line describing the effective selection.
@@ -163,7 +283,7 @@ export function describeProjectSelection(state: PanelState): string {
         return 'No project selected — dispatch stays blocked until one is.';
     }
 
-    const source = state.projectSelection !== null ? 'panel picker' : 'integration setting';
+    const source = state.projectSelection !== null ? 'panel picker' : 'binding';
     return `Selected project: ${selected} (from the ${source}).`;
 }
 

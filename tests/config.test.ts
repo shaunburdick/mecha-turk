@@ -1,349 +1,139 @@
+/**
+ * Unit tests for `src/config.ts`'s surviving readers.
+ *
+ * 002 FR-041 emptied `contributes.integration.settings`, so this file no
+ * longer drives `parseSpikeConfig`, `resolveProjectId`, or
+ * `parseExpectedAgent` — those readers are deleted, not bypassed. What is
+ * left are the value parsers (repository, worktree option, project id) and
+ * the two documented defaults a missing configuration falls back to, and
+ * every describe below drives one of those. Each parser is one table-driven
+ * test: the accepted shapes and the refused ones, with the shape named on
+ * every assertion so a refusal still says which input broke.
+ */
+
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_CONFIG } from '../service/config.ts';
 import {
     DEFAULT_EXPECTED_AGENT,
     DEFAULT_POLL_INTERVAL_MS,
-    MAX_POLL_INTERVAL_MS,
-    MIN_POLL_INTERVAL_MS,
     formatWorktreeOption,
-    parseExpectedAgent,
+    parseProjectId,
     parseRepository,
-    parseSpikeConfig,
     parseWorktreeOption,
     repositoryLabel,
-    resolveProjectId,
 } from '../src/config.ts';
-import type { SpikeSettings } from '../src/config.ts';
-
-/** Login the settings fixture expects from the token. */
-const LOGIN = 'mecha-bot';
-
-/** Project id the settings fixture targets. */
-const PROJECT_ID = 'prj_123';
-
-/** Repository string shared by the settings fixture and the assertions. */
-const REPOSITORY = 'acme/widget';
 
 /** Project id the panel picker's stored selection supplies. */
 const PANEL_PICK = 'prj_panel';
 
-/** Setting id of the project field declared in the manifest. */
-const PROJECT_SETTING_ID = 'project-id';
-
 /** Owner of {@link REPOSITORY}. */
 const OWNER = 'acme';
+
+/** Repository string shared by the fixtures and the assertions. */
+const REPOSITORY = 'acme/widget';
 
 /** Name of {@link REPOSITORY}. */
 const WIDGET = 'widget';
 
-/** Worktree option used by the settings fixture. */
+/** Worktree option used by the worktree fixture. */
 const GENERATED = 'generated';
 
-/** Setting id of the poll interval field declared in the manifest. */
-const INTERVAL_ID = 'poll-interval-ms';
+/** Setting ids the manifest once declared and no reader consults any more. */
+const RETIRED_CARD_IDS = [
+    'repository',
+    'expected-login',
+    'project-id',
+    'worktree-option',
+    'poll-interval-ms',
+    'expected-agent',
+] as const;
 
-/** Setting id of the expected-agent field declared in the manifest (M9). */
-const AGENT_SETTING_ID = 'expected-agent';
-
-/** A deliberate poll interval inside the supported range. */
-const VALID_INTERVAL_MS = 45000;
-
-/**
- * The setting ids declared in the manifest; the SDK requires them to match its
- * kebab-case `PANEL_ID` pattern, so they travel as data rather than as object
- * property names in this codebase.
- */
-type SettingId = 'repository' | 'expected-login' | 'project-id' | 'worktree-option' | 'poll-interval-ms';
-
-/** The complete, valid settings record for the spike. */
-const VALID_ENTRIES: readonly (readonly [SettingId, string])[] = [
-    ['repository', REPOSITORY],
-    ['expected-login', LOGIN],
-    [PROJECT_SETTING_ID, PROJECT_ID],
-    ['worktree-option', GENERATED],
-    [INTERVAL_ID, String(VALID_INTERVAL_MS)],
-];
-
-/**
- * Build a settings record from entry pairs.
- *
- * @param entries - Setting id and value pairs.
- * @returns A settings record ready for {@link parseSpikeConfig}.
- */
-function settingsOf(entries: readonly (readonly [string, string])[]): SpikeSettings {
-    return Object.fromEntries(entries);
-}
-
-/**
- * Build a settings record with one value replaced.
- *
- * @param base - Starting settings.
- * @param override - Setting id and replacement value pair.
- * @returns A new settings record.
- */
-function withSetting(base: SpikeSettings, override: readonly [string, string]): SpikeSettings {
-    return Object.fromEntries([...Object.entries(base), override]);
-}
-
-/**
- * The complete, valid settings record for the spike.
- *
- * @returns Settings every happy-path assertion starts from.
- */
-function validSettings(): SpikeSettings {
-    return settingsOf(VALID_ENTRIES);
-}
-
-/** Number deliberately above the poll interval ceiling. */
-const TOO_FAST = 1000;
-
-/** Number deliberately below the poll interval ceiling. */
-const TOO_SLOW = 600000;
+/** Reader names 002 FR-041(a) retires from `src/config.ts`. */
+const RETIRED_READERS = ['parseSpikeConfig', 'resolveProjectId', 'parseExpectedAgent'] as const;
 
 describe('parseRepository', () => {
-    it('accepts owner/name', () => {
+    it('accepts owner/name and refuses every other shape', () => {
         expect(parseRepository(REPOSITORY)).toEqual({ owner: 'acme', name: 'widget' });
-    });
-
-    it('rejects a missing name', () => {
-        expect(parseRepository('acme')).toBeNull();
-    });
-
-    it('rejects extra path segments', () => {
-        expect(parseRepository('acme/widget/extra')).toBeNull();
-    });
-
-    it('rejects characters GitHub does not allow', () => {
-        expect(parseRepository('acme/my widget')).toBeNull();
+        expect(parseRepository('acme'), 'a missing name').toBeNull();
+        expect(parseRepository('acme/widget/extra'), 'extra path segments').toBeNull();
+        expect(parseRepository('acme/my widget'), 'characters GitHub does not allow').toBeNull();
     });
 });
 
 describe('parseWorktreeOption', () => {
-    it('treats an empty value as none', () => {
-        expect(parseWorktreeOption('')).toEqual({ kind: 'none' });
-    });
-
-    it('accepts the explicit none keyword', () => {
-        expect(parseWorktreeOption('none')).toEqual({ kind: 'none' });
-    });
-
-    it('accepts a generated worktree', () => {
-        expect(parseWorktreeOption(GENERATED)).toEqual({ kind: 'generated' });
-    });
-
-    it('accepts a named new worktree', () => {
-        expect(parseWorktreeOption('new:feature-spike')).toEqual({ kind: 'new', name: 'feature-spike' });
-    });
-
-    it('rejects a named worktree with unsafe characters', () => {
-        expect(parseWorktreeOption('new:bad name')).toBeNull();
-    });
-
-    it('rejects a path-shaped name that contains a separator', () => {
-        expect(parseWorktreeOption('new:feature/spike')).toBeNull();
-    });
-
-    it('rejects a name that references a parent path', () => {
-        expect(parseWorktreeOption('new:..')).toBeNull();
-        expect(parseWorktreeOption('new:spike..branch')).toBeNull();
-    });
-
-    it('rejects an unknown keyword', () => {
-        expect(parseWorktreeOption('sometimes')).toBeNull();
-    });
-});
-
-describe('parseSpikeConfig', () => {
-    it('parses a complete settings record', () => {
-        const result = parseSpikeConfig(validSettings());
-
-        expect(result.ok).toBe(true);
-        if (result.ok) {
-            expect(result.config.repository).toEqual({ owner: OWNER, name: WIDGET });
-            expect(result.config.expectedLogin).toBe(LOGIN);
-            expect(result.config.projectId).toBe(PROJECT_ID);
-            expect(result.config.worktree).toEqual({ kind: 'generated' });
-            expect(result.config.pollIntervalMs).toBe(VALID_INTERVAL_MS);
-            expect(result.notes).toEqual([]);
-        }
-    });
-
-    it('blocks when the repository is missing', () => {
-        const settings = withSetting(validSettings(), ['repository', '']);
-        const result = parseSpikeConfig(settings);
-
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            expect(result.problems.join(' ')).toContain('owner/name');
-        }
-    });
-
-    it('blocks when the project reference is missing', () => {
-        const settings = withSetting(validSettings(), [PROJECT_SETTING_ID, '  ']);
-        const result = parseSpikeConfig(settings);
-
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            expect(result.problems.join(' ')).toContain('projectId');
-        }
-    });
-
-    it('blocks when the worktree option is malformed', () => {
-        const settings = withSetting(validSettings(), ['worktree-option', 'perhaps']);
-        const result = parseSpikeConfig(settings);
-
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            expect(result.problems.join(' ')).toContain('worktreeOption');
-        }
-    });
-
-    it('defaults the poll interval when it is unset', () => {
-        const settings = withSetting(validSettings(), [INTERVAL_ID, '']);
-        const result = parseSpikeConfig(settings);
-
-        expect(result.ok).toBe(true);
-        if (result.ok) {
-            expect(result.config.pollIntervalMs).toBe(DEFAULT_POLL_INTERVAL_MS);
-        }
-    });
-
-    it('falls back to the default and notes it when the interval is not a number', () => {
-        const settings = withSetting(validSettings(), [INTERVAL_ID, 'soon']);
-        const result = parseSpikeConfig(settings);
-
-        expect(result.ok).toBe(true);
-        if (result.ok) {
-            expect(result.config.pollIntervalMs).toBe(DEFAULT_POLL_INTERVAL_MS);
-            expect(result.notes.join(' ')).toContain('not a number');
-        }
-    });
-
-    it('clamps an interval that is faster than the floor', () => {
-        const settings = withSetting(validSettings(), [INTERVAL_ID, String(TOO_FAST)]);
-        const result = parseSpikeConfig(settings);
-
-        expect(result.ok).toBe(true);
-        if (result.ok) {
-            expect(result.config.pollIntervalMs).toBe(MIN_POLL_INTERVAL_MS);
-            expect(result.notes.join(' ')).toContain('clamped');
-        }
-    });
-
-    it('clamps an interval that is slower than the ceiling', () => {
-        const settings = withSetting(validSettings(), [INTERVAL_ID, String(TOO_SLOW)]);
-        const result = parseSpikeConfig(settings);
-
-        expect(result.ok).toBe(true);
-        if (result.ok) {
-            expect(result.config.pollIntervalMs).toBe(MAX_POLL_INTERVAL_MS);
-        }
-    });
-
-    it('treats an empty expected login as no expectation', () => {
-        const settings = withSetting(validSettings(), ['expected-login', '']);
-        const result = parseSpikeConfig(settings);
-
-        expect(result.ok).toBe(true);
-        if (result.ok) {
-            expect(result.config.expectedLogin).toBeNull();
-        }
-    });
-});
-
-describe('parseSpikeConfig project id precedence', () => {
-    it('prefers the panel selection over the integration setting', () => {
-        const result = parseSpikeConfig(validSettings(), PANEL_PICK);
-
-        expect(result.ok).toBe(true);
-        if (result.ok) {
-            expect(result.config.projectId).toBe(PANEL_PICK);
-            expect(result.notes.join(' ')).toContain('projectId from the panel picker');
-        }
-    });
-
-    it('falls back to the integration setting when nothing is selected', () => {
-        const result = parseSpikeConfig(validSettings(), null);
-
-        expect(result.ok).toBe(true);
-        if (result.ok) {
-            expect(result.config.projectId).toBe(PROJECT_ID);
-            expect(result.notes).toEqual([]);
-        }
-    });
-
-    it('falls back to the integration setting when the stored selection is malformed', () => {
-        for (const malformed of ['   ', 'bad\nid', 'x'.repeat(200)]) {
-            const result = parseSpikeConfig(validSettings(), malformed);
-
-            expect(result.ok).toBe(true);
-            if (result.ok) {
-                expect(result.config.projectId).toBe(PROJECT_ID);
-            }
-        }
-    });
-
-    it('accepts a panel selection when the integration setting is empty', () => {
-        const settings = withSetting(validSettings(), [PROJECT_SETTING_ID, '']);
-        const result = parseSpikeConfig(settings, PANEL_PICK);
-
-        expect(result.ok).toBe(true);
-        if (result.ok) {
-            expect(result.config.projectId).toBe(PANEL_PICK);
-        }
-    });
-
-    it('blocks when neither source holds a project id', () => {
-        const settings = withSetting(validSettings(), [PROJECT_SETTING_ID, '']);
-        const result = parseSpikeConfig(settings, null);
-
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            expect(result.problems.join(' ')).toContain('projectId');
-        }
-    });
-});
-
-describe('resolveProjectId', () => {
-    it('reports which source supplied the id', () => {
-        expect(resolveProjectId(PANEL_PICK, PROJECT_ID)).toEqual({
-            projectId: PANEL_PICK,
-            source: 'panel-picker',
+    it('reads every accepted option and refuses every unsafe one', () => {
+        expect(parseWorktreeOption(''), 'empty').toEqual({ kind: 'none' });
+        expect(parseWorktreeOption('none'), 'the explicit none keyword').toEqual({ kind: 'none' });
+        expect(parseWorktreeOption(GENERATED), 'a generated worktree').toEqual({ kind: 'generated' });
+        expect(parseWorktreeOption('new:feature-spike'), 'a named new worktree').toEqual({
+            kind: 'new',
+            name: 'feature-spike',
         });
-        expect(resolveProjectId(null, PROJECT_ID)).toEqual({
-            projectId: PROJECT_ID,
-            source: 'integration-setting',
-        });
-        expect(resolveProjectId(null, '')).toEqual({ projectId: null, source: null });
+        expect(parseWorktreeOption('new:bad name'), 'unsafe characters').toBeNull();
+        expect(parseWorktreeOption('new:feature/spike'), 'a path separator').toBeNull();
+        expect(parseWorktreeOption('new:..'), 'a parent reference').toBeNull();
+        expect(parseWorktreeOption('new:spike..branch'), 'an embedded parent reference').toBeNull();
+        expect(parseWorktreeOption('sometimes'), 'an unknown keyword').toBeNull();
+    });
+});
+
+describe('parseProjectId', () => {
+    /**
+     * The panel picker's stored `mecha-turk:project` selection is the **only**
+     * source (002 FR-041(a); 005 data-model §storage). The `project-id`
+     * integration setting that used to be the fallback is gone with the card,
+     * so this reader alone decides: a panel that never picked a project
+     * resolves to `null` and says so instead of reading a dead setting.
+     */
+    it('accepts the stored selection and refuses every unusable one', () => {
+        expect(parseProjectId(PANEL_PICK)).toBe(PANEL_PICK);
+        expect(parseProjectId(`  ${PANEL_PICK}  `), 'surrounding whitespace').toBe(PANEL_PICK);
+        expect(parseProjectId(null), 'an absent selection').toBeNull();
+        expect(parseProjectId(''), 'a blank selection').toBeNull();
+        expect(parseProjectId('   '), 'a whitespace selection').toBeNull();
+        expect(parseProjectId('bad\nid'), 'a control character').toBeNull();
+        expect(parseProjectId('x'.repeat(200)), 'an id past the documented cap').toBeNull();
+    });
+});
+
+describe('retired card-settings readers', () => {
+    it('exports neither the retired readers nor the emptied card’s setting ids', async () => {
+        const exported = Object.keys(await import('../src/config.ts'));
+
+        for (const retired of RETIRED_READERS) {
+            expect(exported, `${retired} must stay deleted`).not.toContain(retired);
+        }
+
+        for (const id of RETIRED_CARD_IDS) {
+            expect(exported, `${id} must stay undeclared`).not.toContain(id);
+        }
     });
 });
 
 describe('rendering helpers', () => {
-    it('formats a worktree selection back into its setting syntax', () => {
+    it('formats a worktree selection back to its option syntax and labels a repository', () => {
         expect(formatWorktreeOption({ kind: 'none' })).toBe('none');
         expect(formatWorktreeOption({ kind: 'generated' })).toBe('generated');
         expect(formatWorktreeOption({ kind: 'new', name: 'feature-x' })).toBe('new:feature-x');
-    });
-
-    it('labels a repository as owner/name', () => {
         expect(repositoryLabel({ owner: OWNER, name: WIDGET })).toBe(REPOSITORY);
     });
 });
 
-describe('parseExpectedAgent (M9)', () => {
-    it('defaults to project-manager when the setting is unset or blank', () => {
-        expect(parseExpectedAgent({})).toBe(DEFAULT_EXPECTED_AGENT);
-        expect(parseExpectedAgent({ [AGENT_SETTING_ID]: '   ' })).toBe(DEFAULT_EXPECTED_AGENT);
-        expect(DEFAULT_EXPECTED_AGENT).toBe('project-manager');
-    });
-
-    it('uses the operator’s configured agent, trimmed', () => {
-        expect(parseExpectedAgent({ [AGENT_SETTING_ID]: '  planner  ' })).toBe('planner');
-    });
-
-    it('never blocks: an empty value still yields a comparable agent', () => {
-        const result = parseExpectedAgent({ repository: REPOSITORY });
-
-        expect(result).toBe(DEFAULT_EXPECTED_AGENT);
-        expect(result).not.toBe('');
+describe('documented defaults', () => {
+    /**
+     * 002 FR-029 as amended (v1.10.0) and 006 FR-100(b) as amended (v1.5.0):
+     * the baseline default is **blank**, so a missing or unreadable
+     * `expectedAgent` on `GET /v1/config` resolves to *no baseline to compare
+     * against* and the outcome records why (`defaulted` / `unset`). The
+     * product owner's order, verbatim: "Default Agent pin should default to
+     * blank, not everyone is going to use project-manager." FR-017's default
+     * cadence is pinned the same way, matched by the service configuration.
+     */
+    it('pins the agent fallback and the poll cadence to their documented values', () => {
+        expect(DEFAULT_EXPECTED_AGENT).toBe('');
+        expect(DEFAULT_POLL_INTERVAL_MS).toBe(60_000);
+        // The panel's fallback and the service's default are one value: a
+        // fresh store and a failed read answer the same blank baseline.
+        expect(DEFAULT_EXPECTED_AGENT).toBe(DEFAULT_CONFIG.expectedAgent);
     });
 });

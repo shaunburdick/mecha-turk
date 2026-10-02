@@ -13,6 +13,13 @@
  * uninstall and on host quit, the service drains in-flight requests, persists
  * through the store's atomic writes, and exits; a watchdog forces the exit if
  * something keeps the loop alive past the drain window.
+ *
+ * Starting the service also starts its two timers, and the ordering between
+ * them and the listener is the dispatch-recovery guarantee (003 FR-032): the
+ * lease/deadline sweep runs **once before the HTTP server accepts a claim**, so
+ * a claim stranded by a crash or a restart is already recovered when a panel
+ * reconnects, and the sweep then keeps its own unref'd timer. Both timers are
+ * unref'd and both stop on shutdown.
  */
 
 import { resolve } from 'node:path';

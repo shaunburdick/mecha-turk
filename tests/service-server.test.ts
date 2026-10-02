@@ -82,14 +82,17 @@ const BAD_REQUEST_LINE = '400 Bad Request';
 /** Service registered for cleanup after the current test. */
 let running: TestService | null = null;
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork1 = async (): Promise<void> => {
     if (running === null) {
         return;
     }
 
     await running.shutdown();
     running = null;
-});
+};
+
+afterEach(afterEachWork1);
 
 /**
  * Start a service instance and register it for cleanup.
@@ -180,93 +183,114 @@ function nonLoopbackAddress(): string | null {
 }
 
 describe('service environment', () => {
-    it('reads the documented port and token', () => {
-        const env = readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: VALID_TOKEN });
+    it('reads the documented port and token (+3 cases)', async () => {
+        // case: reads the documented port and token
+        {
+            const env = readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: VALID_TOKEN });
 
-        expect(env.port).toBe(8123);
-        expect(env.token).toBe(VALID_TOKEN);
-    });
-
-    it('refuses to start without a token of the documented length', () => {
-        expect(() => readServiceEnv({ [PORT_KEY]: '8123' })).toThrow(ServiceEnvError);
-        expect(() => readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: 'short' })).toThrow(
-            new RegExp(`${TOKEN_KEY} must be at least`),
-        );
-    });
-
-    it('enforces the 32-character floor without echoing the value (SEC-02a)', () => {
-        const belowFloor = 'b'.repeat(TOKEN_FLOOR - 1);
-        const atFloor = 'c'.repeat(TOKEN_FLOOR);
-
-        expect(() => readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: belowFloor })).toThrow(ServiceEnvError);
-        try {
-            readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: belowFloor });
-        } catch (error) {
-            expect(error).toBeInstanceOf(ServiceEnvError);
-            expect((error as Error).message).not.toContain(belowFloor);
+            expect(env.port).toBe(8123);
+            expect(env.token).toBe(VALID_TOKEN);
         }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses to start without a token of the documented length
+        {
+            expect(() => readServiceEnv({ [PORT_KEY]: '8123' })).toThrow(ServiceEnvError);
+            expect(() => readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: 'short' })).toThrow(
+                new RegExp(`${TOKEN_KEY} must be at least`),
+            );
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: enforces the 32-character floor without echoing the value (SEC-02a)
+        {
+            const belowFloor = 'b'.repeat(TOKEN_FLOOR - 1);
+            const atFloor = 'c'.repeat(TOKEN_FLOOR);
 
-        expect(readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: atFloor }).token).toBe(atFloor);
-    });
+            expect(() => readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: belowFloor })).toThrow(ServiceEnvError);
+            try {
+                readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: belowFloor });
+            } catch (error) {
+                expect(error).toBeInstanceOf(ServiceEnvError);
+                expect((error as Error).message).not.toContain(belowFloor);
+            }
 
-    it('refuses a port that is not an in-range integer', () => {
-        expect(() => readServiceEnv({ [PORT_KEY]: 'http', [TOKEN_KEY]: VALID_TOKEN })).toThrow(ServiceEnvError);
-        expect(() => readServiceEnv({ [PORT_KEY]: '70000', [TOKEN_KEY]: VALID_TOKEN })).toThrow(ServiceEnvError);
+            expect(readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: atFloor }).token).toBe(atFloor);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses a port that is not an in-range integer
+        {
+            expect(() => readServiceEnv({ [PORT_KEY]: 'http', [TOKEN_KEY]: VALID_TOKEN })).toThrow(ServiceEnvError);
+            expect(() => readServiceEnv({ [PORT_KEY]: '70000', [TOKEN_KEY]: VALID_TOKEN })).toThrow(ServiceEnvError);
+        }
     });
 });
 
 describe('bearer authentication', () => {
-    it('refuses a request with no Authorization header', async () => {
-        const service = await startServiceForTest();
+    it('refuses a request with no Authorization header (+4 cases)', async () => {
+        // case: refuses a request with no Authorization header
+        {
+            const service = await startServiceForTest();
 
-        const response = await fetch(`${service.baseUrl}${HEALTH_PATH}`);
+            const response = await fetch(`${service.baseUrl}${HEALTH_PATH}`);
 
-        expect(response.status).toBe(401);
-        expect(await errorOf(response)).toEqual({ code: 'unauthorized', message: 'service authentication failed' });
-    });
+            expect(response.status).toBe(401);
+            expect(await errorOf(response)).toEqual({ code: 'unauthorized', message: 'service authentication failed' });
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses a wrong token
+        {
+            const service = await startServiceForTest();
 
-    it('refuses a wrong token', async () => {
-        const service = await startServiceForTest();
+            const response = await fetch(`${service.baseUrl}${HEALTH_PATH}`, {
+                headers: { authorization: `${BEARER_PREFIX}${WRONG_TOKEN}` },
+            });
 
-        const response = await fetch(`${service.baseUrl}${HEALTH_PATH}`, {
-            headers: { authorization: `${BEARER_PREFIX}${WRONG_TOKEN}` },
-        });
-
-        expect(response.status).toBe(401);
-    });
-
-    it('refuses non-bearer schemes and bare prefixes', async () => {
-        const service = await startServiceForTest();
-        const candidates = ['Basic dXNlcjpwYXNz', `${BEARER_PREFIX}`, `${BEARER_PREFIX} `];
-
-        for (const authorization of candidates) {
-            const response = await fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization } });
             expect(response.status).toBe(401);
         }
-    });
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses non-bearer schemes and bare prefixes
+        {
+            const service = await startServiceForTest();
+            const candidates = ['Basic dXNlcjpwYXNz', `${BEARER_PREFIX}`, `${BEARER_PREFIX} `];
 
-    it('answers every authentication failure with byte-identical content', async () => {
-        const service = await startServiceForTest();
-        const responses = await Promise.all([
-            fetch(`${service.baseUrl}${HEALTH_PATH}`),
-            fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization: `${BEARER_PREFIX}nope-nope-nope` } }),
-            fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization: 'Basic abc123' } }),
-            fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization: `${BEARER_PREFIX}` } }),
-        ]);
-        const bodies = await Promise.all(responses.map(async (response) => await response.text()));
+            for (const authorization of candidates) {
+                const response = await fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization } });
+                expect(response.status).toBe(401);
+            }
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: answers every authentication failure with byte-identical content
+        {
+            const service = await startServiceForTest();
+            const responses = await Promise.all([
+                fetch(`${service.baseUrl}${HEALTH_PATH}`),
+                fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: {
+                    authorization: `${BEARER_PREFIX}nope-nope-nope` } }),
+                fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization: 'Basic abc123' } }),
+                fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization: `${BEARER_PREFIX}` } }),
+            ]);
+            const bodies = await Promise.all(responses.map(async (response) => await response.text()));
 
-        expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401]);
-        expect(new Set(bodies).size).toBe(1);
-        const contentTypes = responses.map((response) => response.headers.get('content-type'));
-        expect(contentTypes.every((type) => type?.startsWith('application/json') === true)).toBe(true);
-    });
+            expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401]);
+            expect(new Set(bodies).size).toBe(1);
+            const contentTypes = responses.map((response) => response.headers.get('content-type'));
+            expect(contentTypes.every((type) => type?.startsWith('application/json') === true)).toBe(true);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: accepts the token the service was started with
+        {
+            const service = await startServiceForTest();
 
-    it('accepts the token the service was started with', async () => {
-        const service = await startServiceForTest();
+            const response = await service.call(HEALTH_PATH);
 
-        const response = await service.call(HEALTH_PATH);
-
-        expect(response.status).not.toBe(401);
+            expect(response.status).not.toBe(401);
+        }
     });
 });
 
@@ -278,71 +302,100 @@ describe('bearer authentication on every wave-1 route', () => {
         { method: GET_METHOD, path: STATUS_PATH },
     ];
 
-    for (const route of routes) {
-        it(`refuses ${route.method} ${route.path} with a missing or wrong token`, async () => {
-            const service = await startServiceForTest();
+    it('refuses every wave-1 route with a missing or wrong token, byte-identically', async () => {
+        const service = await startServiceForTest();
+
+        for (const route of routes) {
             const missing = await fetch(`${service.baseUrl}${route.path}`, { method: route.method });
             const wrong = await fetch(`${service.baseUrl}${route.path}`, {
                 method: route.method,
                 headers: { authorization: `${BEARER_PREFIX}${WRONG_TOKEN}` },
             });
 
-            expect(missing.status).toBe(401);
-            expect(wrong.status).toBe(401);
-            expect(await wrong.text()).toBe(await missing.text());
-        });
-    }
+            expect(missing.status, `${route.method} ${route.path} missing token`).toBe(401);
+            expect(wrong.status, `${route.method} ${route.path} wrong token`).toBe(401);
+            expect(await wrong.text(), `${route.method} ${route.path} refusal body`)
+                .toBe(await missing.text());
+        }
+    });
 });
 
 describe('GET /health', () => {
-    it('answers the host readiness probe with the documented body', async () => {
-        const service = await startServiceForTest();
+    it('answers the host readiness probe with the documented… (+1 cases)', async () => {
+        // case: answers the host readiness probe with the documented body
+        {
+            const service = await startServiceForTest();
 
-        const response = await service.call(HEALTH_PATH);
+            const response = await service.call(HEALTH_PATH);
 
-        expect(response.status).toBe(200);
-        expect(response.headers.get('content-type')).toContain('application/json');
-        expect(await response.json()).toEqual({
-            status: 'ok',
-            version: SERVICE_VERSION,
-            schemaVersion: SERVICE_SCHEMA_VERSION,
-        });
-    });
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toContain('application/json');
+            expect(await response.json()).toEqual({
+                status: 'ok',
+                version: SERVICE_VERSION,
+                schemaVersion: SERVICE_SCHEMA_VERSION,
+            });
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: reports the version the extension package declares
+        {
+            const manifest = JSON.parse(readFileSync(PACKAGE_PATH, 'utf8')) as { version?: string };
 
-    it('reports the version the extension package declares', () => {
-        const manifest = JSON.parse(readFileSync(PACKAGE_PATH, 'utf8')) as { version?: string };
-
-        expect(SERVICE_VERSION).toBe(manifest.version);
+            expect(SERVICE_VERSION).toBe(manifest.version);
+        }
     });
 });
 
 describe('method and path validation', () => {
-    it('refuses a method the route table does not declare', async () => {
-        const service = await startServiceForTest();
+    it('refuses a method the route table does not declare (+3 cases)', async () => {
+        // case: refuses a method the route table does not declare
+        {
+            const service = await startServiceForTest();
 
-        const response = await service.call(HEALTH_PATH, { method: UNUSED_METHOD });
-        const failure = await errorOf(response);
+            const response = await service.call(HEALTH_PATH, { method: UNUSED_METHOD });
+            const failure = await errorOf(response);
 
-        expect(response.status).toBe(405);
-        expect(response.headers.get('allow')).toBe(GET_METHOD);
-        expect(failure.code).toBe('method-not-allowed');
-    });
+            expect(response.status).toBe(405);
+            expect(response.headers.get('allow')).toBe(GET_METHOD);
+            expect(failure.code).toBe('method-not-allowed');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses an unknown path with not-found
+        {
+            const service = await startServiceForTest();
 
-    it('refuses an unknown path with not-found', async () => {
-        const service = await startServiceForTest();
+            const response = await service.call('/v1/does-not-exist');
+            const failure = await errorOf(response);
 
-        const response = await service.call('/v1/does-not-exist');
-        const failure = await errorOf(response);
+            expect(response.status).toBe(404);
+            expect(failure.code).toBe('not-found');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses absolute-form and protocol-relative targets
+        {
+            const service = await startServiceForTest();
+            const targets = [`http://evil.example${HEALTH_PATH}`, `//evil.example${HEALTH_PATH}`];
 
-        expect(response.status).toBe(404);
-        expect(failure.code).toBe('not-found');
-    });
+            for (const target of targets) {
+                const reply = await rawExchange({
+                    port: service.handle.port,
+                    requestText: rawBodyRequest({ target, token: service.token, body: '' }),
+                });
 
-    it('refuses absolute-form and protocol-relative targets', async () => {
-        const service = await startServiceForTest();
-        const targets = [`http://evil.example${HEALTH_PATH}`, `//evil.example${HEALTH_PATH}`];
+                expect(reply).toContain(BAD_REQUEST_LINE);
+                expect(reply).toContain('bad-path');
+            }
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses a request target longer than the documented cap
+        {
+            const service = await startServiceForTest();
+            const target = `/${'a'.repeat(2_001)}`;
 
-        for (const target of targets) {
             const reply = await rawExchange({
                 port: service.handle.port,
                 requestText: rawBodyRequest({ target, token: service.token, body: '' }),
@@ -352,80 +405,77 @@ describe('method and path validation', () => {
             expect(reply).toContain('bad-path');
         }
     });
-
-    it('refuses a request target longer than the documented cap', async () => {
-        const service = await startServiceForTest();
-        const target = `/${'a'.repeat(2_001)}`;
-
-        const reply = await rawExchange({
-            port: service.handle.port,
-            requestText: rawBodyRequest({ target, token: service.token, body: '' }),
-        });
-
-        expect(reply).toContain(BAD_REQUEST_LINE);
-        expect(reply).toContain('bad-path');
-    });
 });
 
 describe('request body limits', () => {
-    it('refuses a body over the documented character cap', async () => {
-        const service = await startServiceForTest();
-        const body = 'x'.repeat(REQUEST_BODY_MAX_CHARS + 1);
+    it('refuses a body over the documented character cap (+1 cases)', async () => {
+        // case: refuses a body over the documented character cap
+        {
+            const service = await startServiceForTest();
+            const body = 'x'.repeat(REQUEST_BODY_MAX_CHARS + 1);
 
-        const reply = await rawExchange({
-            port: service.handle.port,
-            requestText: rawBodyRequest({ target: HEALTH_PATH, token: service.token, body }),
-        });
+            const reply = await rawExchange({
+                port: service.handle.port,
+                requestText: rawBodyRequest({ target: HEALTH_PATH, token: service.token, body }),
+            });
 
-        expect(reply).toContain('413');
-        expect(reply).toContain('payload-too-large');
-    });
+            expect(reply).toContain('413');
+            expect(reply).toContain('payload-too-large');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses a body that is not valid JSON
+        {
+            const service = await startServiceForTest();
 
-    it('refuses a body that is not valid JSON', async () => {
-        const service = await startServiceForTest();
+            const reply = await rawExchange({
+                port: service.handle.port,
+                requestText: rawBodyRequest({
+                    target: HEALTH_PATH,
+                    token: service.token,
+                    body: '{"intervalMs": 60_00',
+                }),
+            });
 
-        const reply = await rawExchange({
-            port: service.handle.port,
-            requestText: rawBodyRequest({
-                target: HEALTH_PATH,
-                token: service.token,
-                body: '{"intervalMs": 60_00',
-            }),
-        });
-
-        expect(reply).toContain(BAD_REQUEST_LINE);
-        expect(reply).toContain('invalid-json');
+            expect(reply).toContain(BAD_REQUEST_LINE);
+            expect(reply).toContain('invalid-json');
+        }
     });
 });
 
 describe('request logging', () => {
-    it('logs the path and status but never the query string', async () => {
-        const service = await startServiceForTest();
+    it('logs the path and status but never the query string (+1 cases)', async () => {
+        // case: logs the path and status but never the query string
+        {
+            const service = await startServiceForTest();
 
-        await service.call(`${HEALTH_PATH}?access_token=${TOKEN_SHAPED_VALUE}`);
-        await waitFor(() => service.logLines.some((line) => line.includes('"path"')));
+            await service.call(`${HEALTH_PATH}?access_token=${TOKEN_SHAPED_VALUE}`);
+            await waitFor(() => service.logLines.some((line) => line.includes('"path"')));
 
-        const logged = service.logLines.join('');
-        expect(logged).toContain(`"path":"${HEALTH_PATH}"`);
-        expect(logged).toContain('"status":200');
-        expect(logged).not.toContain('access_token');
-        expect(logged).not.toContain(service.token);
-    });
+            const logged = service.logLines.join('');
+            expect(logged).toContain(`"path":"${HEALTH_PATH}"`);
+            expect(logged).toContain('"status":200');
+            expect(logged).not.toContain('access_token');
+            expect(logged).not.toContain(service.token);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: redacts secret-shaped values before they reach the sink
+        {
+            const captured: string[] = [];
+            const log = createLogger({
+                level: 'debug',
+                sink: (line) => {
+                    captured.push(line);
+                },
+            });
 
-    it('redacts secret-shaped values before they reach the sink', () => {
-        const captured: string[] = [];
-        const log = createLogger({
-            level: 'debug',
-            sink: (line) => {
-                captured.push(line);
-            },
-        });
+            log.info('diagnostic', { detail: TOKEN_SHAPED_VALUE });
 
-        log.info('diagnostic', { detail: TOKEN_SHAPED_VALUE });
-
-        const logged = captured.join('');
-        expect(logged).toContain('[redacted:github-token-classic]');
-        expect(logged).not.toContain(TOKEN_SHAPED_VALUE);
+            const logged = captured.join('');
+            expect(logged).toContain('[redacted:github-token-classic]');
+            expect(logged).not.toContain(TOKEN_SHAPED_VALUE);
+        }
     });
 });
 
@@ -444,58 +494,63 @@ describe('loopback binding', () => {
 });
 
 describe('graceful shutdown', () => {
-    it('drains an in-flight request before the listener closes', async () => {
-        const service = await startServiceForTest();
-        const body = '{"note":"drained"}';
-        const split = Math.ceil(body.length / 2);
-        const request = [
-            `GET ${HEALTH_PATH} HTTP/1.1`,
-            'Host: localhost',
-            `Authorization: ${BEARER_PREFIX}${service.token}`,
-            `Content-Length: ${Buffer.byteLength(body)}`,
-            'Connection: close',
-            '',
-            '',
-        ].join('\r\n');
-        const socket = connect(service.handle.port, HOST);
-        let reply = '';
-        const ended = new Promise<void>((resolve) => {
-            socket.once('end', () => {
-                resolve();
+    it('drains an in-flight request before the listener clos… (+1 cases)', async () => {
+        // case: drains an in-flight request before the listener closes
+        {
+            const service = await startServiceForTest();
+            const body = '{"note":"drained"}';
+            const split = Math.ceil(body.length / 2);
+            const request = [
+                `GET ${HEALTH_PATH} HTTP/1.1`,
+                'Host: localhost',
+                `Authorization: ${BEARER_PREFIX}${service.token}`,
+                `Content-Length: ${Buffer.byteLength(body)}`,
+                'Connection: close',
+                '',
+                '',
+            ].join('\r\n');
+            const socket = connect(service.handle.port, HOST);
+            let reply = '';
+            const ended = new Promise<void>((resolve) => {
+                socket.once('end', () => {
+                    resolve();
+                });
             });
-        });
-        socket.on('data', (chunk: Buffer) => {
-            reply += chunk.toString('utf8');
-        });
-        await new Promise<void>((resolve) => {
-            socket.once('connect', () => {
-                resolve();
+            socket.on('data', (chunk: Buffer) => {
+                reply += chunk.toString('utf8');
             });
-        });
-        socket.write(`${request}${body.slice(0, split)}`);
-        await delay(SETTLE_MS);
+            await new Promise<void>((resolve) => {
+                socket.once('connect', () => {
+                    resolve();
+                });
+            });
+            socket.write(`${request}${body.slice(0, split)}`);
+            await delay(SETTLE_MS);
 
-        const shutdown = service.handle.shutdown();
-        const outcome = await Promise.race([
-            shutdown.then(() => 'closed' as const),
-            delay(SETTLE_MS * 4).then(() => 'draining' as const),
-        ]);
+            const shutdown = service.handle.shutdown();
+            const outcome = await Promise.race([
+                shutdown.then(() => 'closed' as const),
+                delay(SETTLE_MS * 4).then(() => 'draining' as const),
+            ]);
 
-        expect(outcome).toBe('draining');
-        socket.write(body.slice(split));
-        await ended;
-        expect(reply).toContain('200 OK');
+            expect(outcome).toBe('draining');
+            socket.write(body.slice(split));
+            await ended;
+            expect(reply).toContain('200 OK');
 
-        await shutdown;
-        await expect(fetch(service.baseUrl)).rejects.toThrow();
-    });
+            await shutdown;
+            await expect(fetch(service.baseUrl)).rejects.toThrow();
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: treats repeated shutdown calls as one close
+        {
+            const service = await startServiceForTest();
 
-    it('treats repeated shutdown calls as one close', async () => {
-        const service = await startServiceForTest();
+            await Promise.all([service.handle.shutdown(), service.handle.shutdown()]);
+            await service.handle.shutdown();
 
-        await Promise.all([service.handle.shutdown(), service.handle.shutdown()]);
-        await service.handle.shutdown();
-
-        await expect(fetch(service.baseUrl)).rejects.toThrow();
+            await expect(fetch(service.baseUrl)).rejects.toThrow();
+        }
     });
 });

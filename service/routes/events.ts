@@ -1,46 +1,64 @@
 /**
- * The event relay (MVP task M2 — re-cut 2026-09-27).
+ * The event relay routes (003; MVP tasks M2/M8 re-cut 2026-09-27).
  *
- * `GET /v1/events/pending` hands the panel every queued event and flips them
- * in-flight with one stamp — the cheap claim, where the event id *is* the
- * claim. `POST /v1/events/:id/dispatched` marks one claimed event done and
- * stores the panel's own summary for the operator's record. Re-posting the
- * same dispatch is idempotent at the route level: the second post finds the
- * event already terminal and answers the same 200 shape.
+ * `GET /v1/events/pending` is no longer the MVP cut's bare state flip. It
+ * **claims runs**: every run the service alone finds waiting moves `pending →
+ * claimed` under a fresh lease (id, attempt, issue stamp, expiry, holder), and
+ * the answer is the run projection the contract lists, bounded and paginated so
+ * a lease is never written for a run the answer cannot carry (FR-030, FR-037,
+ * T-039). The lease is a fencing token, not a capability — the service's bearer
+ * token is the only authentication gate — and the sweep recovers an expired
+ * lease with no panel action.
  *
- * Slice 2 adds the runs history this MVP cut deferred: `GET /v1/events`
- * projects every event — pending, in-flight, and dispatched alike — newest
- * detected first without claiming anything, and `POST /v1/events/:id/retry`
- * hands one non-dispatched event back to the pending queue (M8's "dispatch
- * failed → retry").
+ * `GET /v1/events` projects **runs** — the widened history row of
+ * [contracts/run-history-audit.md](../../specs/003-dispatch-integrity/contracts/run-history-audit.md)
+ * §1: state and reason, run key, ordinal, attempt, attachment id, the
+ * snapshotted target, lease expiry, source references with their counting
+ * members, session pointer, verification outcome — newest detected first,
+ * capped, without claiming anything (T-016). The projection itself lives in
+ * [`run-history-project.ts`](../poll/run-history-project.ts) beside the claim's,
+ * so this file stays a route; the delivery queue is read only for the members a
+ * run does not store (title, canonical link, PR coordinates).
  *
- * The same `GET` response carries the per-binding scan status the panel's
- * status line renders, because the panel polls this route on its own clock
- * and the status has no other surface yet (the contract's `/v1/status`
- * repositories section is a later wave).
+ * **The two delivery-scoped mutations this file used to hold are gone.** 003's
+ * wire delta addresses a dispatch outcome and an operator retry **by the run, not
+ * the delivery** (`contracts/dispatch-authorization.md`): a post-003 delivery
+ * carries no lifecycle field of its own — its truth lives on the run
+ * (data-model §2.1) — so `POST /v1/events/:eventId/dispatched` could only ever
+ * answer `404` for real work, and `POST /v1/events/:eventId/retry` had nothing to
+ * reset. They are answered instead by [`dispatch.ts`](./dispatch.ts) and
+ * [`run-ops.ts`](./run-ops.ts), under `/v1/events/:correlationId/…`.
  *
- * MVP-DEBT: this surface replaces contract §2.4's long-poll/lease relay for
- * the MVP cut — no run keys, no lease table; a panel that claims an event and
- * dies before dispatching leaves it in the queue file where the operator can
- * see it, and the next delivery is expected from the re-grant. Contracts
- * amend in Slice 2 only if the loop survives.
+ * The same `GET /v1/events/pending` response carries the per-binding scan status
+ * the panel's status line renders, because the panel polls this route on its
+ * own clock and the status has no other surface yet (the contract's
+ * `/v1/status` repositories section is 005's work). Its `pendingCount` counts
+ * runs, not deliveries (T-040a).
  */
 
-import { nowIso } from '../../src/ids.ts';
-import { readBindings } from '../bindings.ts';
-import {
-    claimPendingEvents,
-    markEventDispatched,
-    readEvents,
-    retryEvent,
-} from '../poll/events.ts';
+import { readBindings } from '../bindings-read.ts';
+import { MAX_CLAIMED_RUNS } from '../poll/claim-bounds.ts';
+import { claimPendingRuns, holderOf } from '../poll/claim.ts';
+import { readEvents } from '../poll/events.ts';
+import { projectRunHistory } from '../poll/run-history-project.ts';
+import { previewRunsDocument } from '../poll/runs-document.ts';
 import { readScanState } from '../poll/scan.ts';
 import type { BindingRecord } from '../bindings.ts';
-import type { EventKind, EventState, QueuedEvent } from '../poll/events.ts';
-import { errorResponse, STATUS, storageUnavailableResponse } from '../http.ts';
+import type { QueuedEvent } from '../poll/events.ts';
+import type { RunHistoryRow } from '../poll/run-history-project.ts';
+import { STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
 import type { ServiceStore } from '../store/index.ts';
 import type { ServiceLogger } from '../log.ts';
+import {
+    MAX_PAGE_SIZE,
+    afterBoundary,
+    buildEventPage,
+    encodeBoundary,
+    listQueryOf,
+    matchesFilters,
+    newestFirst,
+} from './events-page.ts';
 import type { Route, RouteContext, RouteRequest } from './types.ts';
 
 /** Path the panel polls for queued events. */
@@ -49,17 +67,14 @@ export const EVENTS_PENDING_PATH = '/v1/events/pending';
 /** Path of the runs history: every event, every state, newest detected first. */
 export const EVENTS_PATH = '/v1/events';
 
-/** Path pattern the operator retries one non-dispatched event through. */
-export const EVENT_RETRY_PATH = '/v1/events/:eventId/retry';
-
-/** Path pattern the panel reports one dispatch through. */
-export const EVENT_DISPATCHED_PATH = '/v1/events/:eventId/dispatched';
-
-/** How many events the runs history answers with (newest detected first). */
-export const MAX_LISTED_EVENTS = 100;
-
-/** Longest event id accepted on a dispatch path; ids are built, never parsed. */
-const MAX_EVENT_ID_CHARS = 200;
+/**
+ * How many events the runs history answered with before paging (contract §0).
+ *
+ * The shipped 100-row cap is the **maximum page size** now: the 101st
+ * dispatch is reachable through the cursor (FR-042), and this name is kept
+ * because the contract set and the tests read it.
+ */
+export const MAX_LISTED_EVENTS = MAX_PAGE_SIZE;
 
 /** Shape of a stored queue row the status reader needs. */
 type QueueRow = Pick<QueuedEvent, 'id' | 'bindingId' | 'state'>;
@@ -85,131 +100,52 @@ export interface BindingStatusRow {
 }
 
 /**
- * Read the numeric event id captured from the dispatch path.
+ * Read the claim's `limit` parameter, refusing anything over the cap.
  *
- * @param raw - Captured `:eventId` segment; the pipeline does not decode it,
- *   so reuse keep this validation tight instead of trusting an encoding.
- * @returns The id, or `null` when the segment carries no usable id.
+ * The cap is the service's, not the caller's: a limit above
+ * {@link MAX_CLAIMED_RUNS} is a request this answer could never satisfy, and
+ * answering it as though it could is exactly the T-039 failure in a new dress.
+ * Absent or unparseable values take the documented default; an out-of-range one
+ * is a client error naming the field and the fix, never the received value
+ * (SEC-10/11).
+ *
+ * @param raw - The query parameter as it arrived, or `null` when absent.
+ * @returns The page size to ask for, or `null` when it exceeds the cap.
  */
-function pathEventId(raw: string | undefined): string | null {
-    if (raw === undefined || raw === '' || raw.length > MAX_EVENT_ID_CHARS) {
+function claimLimitOf(raw: string | null): number | null {
+    if (raw === null || raw === '') {
+        return MAX_CLAIMED_RUNS;
+    }
+
+    if (!/^[0-9]{1,6}$/.test(raw)) {
         return null;
     }
 
-    return /^[A-Za-z0-9._~-]+$/.test(raw) ? raw : null;
-}
+    const limit = Number(raw);
 
-/** One event as the runs history reports it — credential-free by construction. */
-export interface EventRunRow {
-    /** Deterministic event id. */
-    readonly id: string;
-    /** Trigger kind. */
-    readonly kind: EventKind;
-    /** Repository in `owner/name` form. */
-    readonly repository: string;
-    /** Issue (or pull request) number. */
-    readonly issueNumber: number;
-    /** Issue title; untrusted source text. */
-    readonly issueTitle: string;
-    /** Canonical issue URL. */
-    readonly issueUrl: string;
-    /** Queue state. */
-    readonly state: EventState;
-    /** RFC 3339 detection stamp. */
-    readonly detectedAt: string;
-    /** Claim stamp when (or after) it was claimed, else `null`. */
-    readonly claimedAt: string | null;
-    /** Dispatch stamp once the panel answered, else `null`. */
-    readonly dispatchedAt: string | null;
-    /** Session id or the failure text the panel reported, else `null`. */
-    readonly dispatchResult: string | null;
-    /** Binding that produced the event. */
-    readonly bindingId: string;
-    /** Head SHA of a review-event pull request; absent on every other kind. */
-    readonly headSha?: string;
-    /** Base ref of that pull request; absent on every other kind. */
-    readonly baseRef?: string;
-}
-
-/**
- * Project one queue row for the runs history.
- *
- * The projection carries what a runs row reads — identity, state, stamps,
- * and the PR coordinates M7 captures — and nothing else: no account id, no
- * login, no project, no worktree option. The queue itself never holds a
- * credential, so a credential can only appear here by being projected in;
- * nothing projects one.
- *
- * @param event - Stored queue row.
- * @returns The credential-free row.
- */
-function runRowOf(event: QueuedEvent): EventRunRow {
-    return {
-        id: event.id,
-        kind: event.kind,
-        repository: event.repository,
-        issueNumber: event.issueNumber,
-        issueTitle: event.issueTitle,
-        issueUrl: event.issueUrl,
-        state: event.state,
-        detectedAt: event.detectedAt,
-        claimedAt: event.claimedAt,
-        dispatchedAt: event.dispatchedAt,
-        dispatchResult: event.dispatchResult,
-        bindingId: event.bindingId,
-        ...(event.headSha === null ? {} : { headSha: event.headSha }),
-        ...(event.baseRef === null ? {} : { baseRef: event.baseRef }),
-    };
-}
-
-/**
- * Project the runs history: newest detected first, capped.
- *
- * @param queue - Every event the queue still holds, any state.
- * @returns At most {@link MAX_LISTED_EVENTS} rows, freshest detection first.
- */
-function recentRuns(queue: readonly QueuedEvent[]): EventRunRow[] {
-    return [...queue]
-        .sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt))
-        .slice(0, MAX_LISTED_EVENTS)
-        .map(runRowOf);
-}
-
-/**
- * Read the panel's dispatch summary out of the request body.
- *
- * The panel sends `{ sessionId: string }` after a start, or
- * `{ problem: string }` when its dispatch ended in a refusal. Both shapes are
- * panel-published, so the strings are taken as-is, but the field must be
- * strings for the record to be trustworthy: any other shape reads as no
- * summary at all rather than a partial one.
- *
- * @param raw - Parsed body, or `undefined` when the request carried none.
- * @returns `[sessionId, problem]`, nullable and in this order.
- */
-function readDispatchFields(raw: unknown): readonly [string | null, string | null] {
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-        return [null, null];
-    }
-
-    const record = raw as Record<string, unknown>;
-    const sessionId = typeof record.sessionId === 'string' ? record.sessionId : null;
-    const problem = typeof record.problem === 'string' ? record.problem : null;
-
-    return [sessionId, problem];
+    return limit >= 1 && limit <= MAX_CLAIMED_RUNS ? limit : null;
 }
 
 /**
  * Read the per-binding status rows.
  *
- * One row per stored binding, built from the scan state and the queue, so
- * every route that reports status (the relay's pending answer and the
- * bindings collection) answers the panel's parser with the same shape. The
+ * One row per stored binding, built from the scan state and the **run**
+ * document, so every route that reports status (the relay's pending answer and
+ * the bindings collection) answers the panel's parser with the same shape. The
  * caller passes the bindings it already read, so one collection read never
  * happens twice inside a single request.
  *
+ * `pendingCount` counts runs in `state === 'pending'` and nothing else (T-040a).
+ * It used to count delivery rows, which is wrong in two directions after the
+ * run layer landed: a post-003 delivery carries no lifecycle state of its own,
+ * so every completed run's deliveries kept counting and the number grew with
+ * finished work while never falling below the truth. The contract promised a
+ * count derived from runs, and that is what this reads — the same document the
+ * claim answers from, so the two can never disagree.
+ *
  * @param input - Store, logger, and the bindings every row is keyed by.
  * @returns One row per binding, with scan state and pending count.
+ * @throws {StorageUnavailableError} When the run document cannot be read.
  */
 export async function readStatusRows(input: {
     /** Open store. */
@@ -219,12 +155,12 @@ export async function readStatusRows(input: {
     /** Stored bindings, as the route itself read them. */
     readonly bindings: readonly BindingRecord[];
 }): Promise<BindingStatusRow[]> {
-    const [scannedState, queue] = await Promise.all([readScanState(input), readEvents(input)]);
+    const [scannedState, runs] = await Promise.all([readScanState(input), previewRunsDocument(input)]);
 
     const counts = new Map<string, number>();
-    for (const event of queue) {
-        if (event.state === 'pending' || event.state === 'in-flight') {
-            counts.set(event.bindingId, (counts.get(event.bindingId) ?? 0) + 1);
+    for (const run of runs.runs) {
+        if (run.state === 'pending') {
+            counts.set(run.bindingId, (counts.get(run.bindingId) ?? 0) + 1);
         }
     }
 
@@ -245,167 +181,150 @@ export async function readStatusRows(input: {
 }
 
 /**
- * Answer `GET /v1/events/pending` with claimed queue events and status.
+ * Answer `GET /v1/events/pending` with claimed runs and status.
+ *
+ * The claim is a lease, not a bare state flip (FR-030): every run this page
+ * offers moves to `claimed` under a fresh lease whose expiry comes from the
+ * service's own clock, and the sweep recovers it if this panel never answers.
+ * Eligibility is the service's alone (FR-037), so a run that is not waiting —
+ * or that already produced a session — is simply absent from the answer.
+ *
+ * The answer is **bounded and paginated** (T-039): the claim leases at most
+ * `MAX_CLAIMED_RUNS` runs and at most the documented byte budget, and anything
+ * beyond that stays `pending` and unleased for the panel's next call. The
+ * status rows carry the true per-binding pending count, so a panel can see
+ * that more work is waiting without the lease burning (FR-036).
+ *
+ * `auditWritten` reports FR-063's operator-visible surfacing: `false` means the
+ * leases are durable and the `dispatch.claimed` rows are not, and the panel
+ * warns rather than implying traceability it does not have.
  *
  * @param context - Route context carrying the open store.
- * @returns `200 { events, status }`, or the documented 503.
+ * @param request - Routed request; the query may carry `holder` and `limit`.
+ * @returns `200 { events, status, auditWritten }`, or the documented 422/503.
  */
-async function handlePendingEvents(context: RouteContext): Promise<HttpResponse> {
+async function handlePendingEvents(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;
     if (store === null) {
         return storageUnavailableResponse();
     }
 
-    const claimed = await claimPendingEvents({ store, log: context.log, claimedAt: nowIso() });
+    const limit = claimLimitOf(request.url.searchParams.get('limit'));
+    if (limit === null) {
+        return validationResponse([{
+            field: 'limit',
+            remediation: `ask for at most ${MAX_CLAIMED_RUNS} runs per claim; `
+                + 'the rest stay claimable for the next call',
+        }]);
+    }
+
+    const claimed = await claimPendingRuns({
+        store,
+        log: context.log,
+        holder: holderOf(request.url.searchParams.get('holder')),
+        maxRuns: limit,
+    });
     const bindings = await readBindings({ store, log: context.log });
     const rows = await readStatusRows({ store, log: context.log, bindings });
 
-    return { status: STATUS.ok, body: { events: claimed, status: rows } };
+    return {
+        status: STATUS.ok,
+        body: { events: claimed.runs, status: rows, auditWritten: claimed.auditWritten },
+    };
 }
 
 /**
- * Answer `POST /v1/events/:eventId/dispatched` by marking one event done.
+ * Project the whole history in the retained order.
  *
- * The panel's summary (the created session id, or a problem the panel reported)
- * is stored so the operator can trace a dispatch failure without a separate
- * runs list. A re-post for an id that is already marked answers `404
- * not-found` — `markEventDispatched` waits for a dispatch result only once —
- * as does an id the queue never held, the honest answer for a stale path the
- * panel re-posted later than the queue kept it.
+ * The run document is read **first and directly**: it is the reader that runs
+ * the one-shot legacy adoption (FR-005), so a store upgraded moments ago
+ * answers with its adopted rows rather than with an empty list. An unreadable
+ * document throws `StorageUnavailableError`, which the pipeline maps to the
+ * contract's only refusal — `503 storage-unavailable` — instead of inventing an
+ * empty history a constitution-II reading would forbid.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:eventId`.
- * @returns `200 { done: true }`, or the documented refusal.
+ * @param context - Route context carrying the structured logger.
+ * @param store - Open store.
+ * @returns Every retained run's row, newest detected first with the tiebreak.
  */
-async function handleDispatchedEvent(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
-    const { store } = context;
-    if (store === null) {
-        return storageUnavailableResponse();
-    }
-
-    const eventId = pathEventId(request.params.eventId);
-    if (eventId === null) {
-        return errorResponse(STATUS.notFound, {
-            code: 'not-found',
-            message: 'the dispatch path carries no usable event id',
-        });
-    }
-
-    const [sessionId, problem] = readDispatchFields(request.body);
-    const summary = sessionId ?? problem;
-    const marked = await markEventDispatched({ store, eventId, log: context.log, result: summary });
-    if (marked === null) {
-        return errorResponse(STATUS.notFound, {
-            code: 'not-found',
-            message: 'no event with this id is waiting for a dispatch result',
-        });
-    }
-
-    if (problem !== null) {
-        context.log.warn('panel reported a dispatch problem', { eventId: marked.id, problem });
-    }
-
-    return { status: STATUS.ok, body: { done: true } };
-}
-
-/**
- * Answer `GET /v1/events` with the runs history: every queued event, in any
- * state, newest detected first.
- *
- * This is the read-only counterpart to the panel's claim route — it never
- * flips a state, so it can be polled as often as the operator likes without
- * stealing events from a live relay. The answer is the credential-free
- * {@link EventRunRow} projection, capped at {@link MAX_LISTED_EVENTS} so one
- * long queue cannot flood a screen.
- *
- * @param context - Route context carrying the open store.
- * @returns `200 { events }`, or the documented 503.
- */
-async function handleEventHistory(context: RouteContext): Promise<HttpResponse> {
-    const { store } = context;
-    if (store === null) {
-        return storageUnavailableResponse();
-    }
-
+async function projectHistory(
+    context: RouteContext,
+    store: ServiceStore,
+): Promise<readonly RunHistoryRow[]> {
+    const document = await previewRunsDocument({ store, log: context.log });
     const queue = await readEvents({ store, log: context.log });
 
-    return { status: STATUS.ok, body: { events: recentRuns(queue) } };
+    return projectRunHistory({
+        runs: document.runs,
+        deliveries: new Map(queue.map((event) => [event.id, event])),
+        // The whole projection: the cap is a page size now, not a wall (FR-042).
+        cap: document.runs.length,
+    }).sort(newestFirst);
 }
 
 /**
- * Answer `POST /v1/events/:eventId/retry` by returning one event to the
- * pending queue.
+ * Answer `GET /v1/events` with one page of the runs history (005 FR-042).
  *
- * Only a `pending` or `in-flight` event can be retried: the pending one is
- * already where a retry wants it (the answer stays `200` so a double click
- * is harmless), and the in-flight one loses its claim stamp and waits for
- * the next relay read. A dispatched event is terminal — the operator's own
- * dispatch is the record of what happened — so it answers `409` in the
- * envelope's `invalid-transition` voice, and an id the queue never held (or
- * that fell out of the dispatched tail) answers `404`.
+ * The read is read-only: it never flips a state, so it can be polled as often
+ * as the operator likes without stealing runs from a live relay. The query is
+ * validated before any document is read, the order is the retained one, and
+ * the answer carries the `page` member beside the rows.
  *
  * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:eventId`.
- * @returns `200 { retried: true }`, or the documented refusal.
+ * @param request - Routed request; the query may carry `limit`, `cursor`,
+ *   `bindingId`, and `state`.
+ * @returns `200 { events, page }`, or the documented 422/503.
  */
-async function handleRetryEvent(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
+async function handleEventHistory(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;
     if (store === null) {
         return storageUnavailableResponse();
     }
 
-    const eventId = pathEventId(request.params.eventId);
-    if (eventId === null) {
-        return errorResponse(STATUS.notFound, {
-            code: 'not-found',
-            message: 'the retry path carries no usable event id',
-        });
+    const parsed = listQueryOf(request);
+    if (!parsed.ok) {
+        return parsed.response;
     }
 
-    const outcome = await retryEvent({ store, eventId, log: context.log });
-    if (outcome === 'unknown') {
-        return errorResponse(STATUS.notFound, {
-            code: 'not-found',
-            message: 'no event with this id is in the queue',
-        });
-    }
+    const { query } = parsed;
+    const rows = await projectHistory(context, store);
 
-    if (outcome === 'dispatched') {
-        return errorResponse(STATUS.conflict, {
-            code: 'invalid-transition',
-            message: 'this event was already dispatched — a dispatched event cannot be retried',
-        });
-    }
+    const filtered = rows.filter((row) => matchesFilters(row, query));
+    const { boundary } = query;
+    const remaining = boundary === null ? filtered : filtered.filter((row) => afterBoundary(row, boundary));
+    const window = remaining.slice(0, query.limit + 1);
+    const hasMore = window.length > query.limit;
+    const events = window.slice(0, query.limit);
+    const last = events[events.length - 1];
 
-    return { status: STATUS.ok, body: { retried: true } };
+    return {
+        status: STATUS.ok,
+        body: {
+            events,
+            page: buildEventPage({
+                limit: query.limit,
+                nextCursor: hasMore && last !== undefined ? encodeBoundary(last) : null,
+                hasMore,
+                total: filtered.length,
+                snapshotAt: new Date().toISOString(),
+                filter: { bindingId: query.bindingId === '' ? null : query.bindingId, state: query.state },
+            }),
+        },
+    };
 }
 
-/** Claim and return every pending event. */
+/** Claim and return every waiting run, each under a fresh lease. */
 export const pendingEventsRoute: Route = {
     method: 'GET',
     path: EVENTS_PENDING_PATH,
-    handler: (context) => handlePendingEvents(context),
-};
-
-/** Mark one claimed event dispatched on the panel's word. */
-export const dispatchedEventRoute: Route = {
-    method: 'POST',
-    path: EVENT_DISPATCHED_PATH,
-    handler: (context, request) => handleDispatchedEvent(context, request),
+    handler: (context, request) => handlePendingEvents(context, request),
 };
 
 /** Read the runs history: every event, credential-free, newest first. */
 export const eventHistoryRoute: Route = {
     method: 'GET',
     path: EVENTS_PATH,
-    handler: (context) => handleEventHistory(context),
-};
-
-/** Return one non-dispatched event to the pending queue. */
-export const retryEventRoute: Route = {
-    method: 'POST',
-    path: EVENT_RETRY_PATH,
-    handler: (context, request) => handleRetryEvent(context, request),
+    handler: (context, request) => handleEventHistory(context, request),
 };
 
 /** Type used to note the queue shape the status row counts from. */

@@ -1,0 +1,1280 @@
+/**
+ * Runs-list tests (M8): projection → rows, reads, and the retry wiring.
+ *
+ * The runs area is the operator's only view of what the loop actually did,
+ * so these tests hold three promises: the projection the service ships
+ * renders as rows that name the trigger, issue, state, age, and dispatch
+ * result (redacted, because that field is free text); a read that fails says
+ * so without blanking what was already on screen; and a retry reaches the
+ * documented endpoint, refreshes the list, and explains a refusal in the
+ * service's own vocabulary. The row copy is pure, so none of it needs a
+ * live DOM — the same rule the binding rows live by.
+ */
+
+import { describe, expect, it } from 'vitest';
+import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
+import type { Tone } from '@openchamber/sdk/ui';
+import { createBindingsHandlers } from '../src/bindings-mount.ts';
+import { initialDispatches } from '../src/panel-state.ts';
+import { PLAIN_RUN_STATES } from '../src/run-state.ts';
+import {
+    DISPATCHES_EMPTY_STATUS,
+    runAffordance,
+    dispatchRows,
+    dispatchesStatusText,
+    selectedRun,
+    stateLabel,
+} from '../src/dispatches-rows.ts';
+import type { RunAffordance } from '../src/dispatches-rows.ts';
+import {
+    loadDispatches,
+    openDispatch,
+    requeueRun,
+    resolveNoSession,
+    resolveSessionCreated,
+    retryRun,
+    selectDispatch,
+    setSessionInput,
+} from '../src/dispatches.ts';
+import { parseDispatchesBody } from '../src/dispatches-service.ts';
+import {
+    AUDIT_EMPTY_STATUS,
+    AUDIT_IDLE_STATUS,
+    AUDIT_ROW_LIMIT,
+    auditItems,
+    auditStatusText,
+    initialAuditHistory,
+    loadAuditHistory,
+    parseAuditBody,
+} from '../src/audit-view.ts';
+import type { AuditViewState } from '../src/audit-view.ts';
+import { EVENTS_PATH, auditPath, requeuePath, resolvePath, retryPath } from '../src/service-calls.ts';
+import type { PanelRuntime, DispatchesState } from '../src/panel-state.ts';
+import type { RunReference, RunRow } from '../src/dispatches-service.ts';
+import {
+    DEFAULT_BODY,
+    DEFAULT_STATUS,
+    FIXTURE_TIMESTAMP,
+    ISSUE_URL,
+    createTestRuntime,
+    fakeHost,
+    tick,
+} from './support/panel.ts';
+
+/** One minute in milliseconds; the fixture's row age is measured in these. */
+const MINUTE_MS = 60_000;
+
+/** How old the fixture row is, so its meta reads `2m ago`. */
+const TWO_MINUTES = 2 * MINUTE_MS;
+
+/** Correlation id every fixture row shares unless a test overrides it. */
+const RUN_ID = 'mt-run-aaaabbbbccccddddeeeeffff';
+
+/** Session id the dispatched fixture row reports. */
+const SESSION_RESULT = 'ses_dispatched_1';
+
+/** State words the suites share, so no literal is repeated across them. */
+const FAILED_STATE: RunRow['state'] = 'failed';
+
+/** The fail-closed wedge state, named once for the tables and the tests. */
+const UNCONFIRMED_STATE: RunRow['state'] = 'unconfirmed';
+
+/** The parked terminal state, named once for the tables and the tests. */
+const DEAD_LETTERED_STATE: RunRow['state'] = 'dead-lettered';
+
+/** A guard-refused state naming a project the host does not list. */
+const BLOCKED_PROJECT_STATE: RunRow['state'] = 'blocked:project-missing';
+
+/** A guard-refused state naming a binding that no longer exists. */
+const BLOCKED_BINDING_STATE: RunRow['state'] = 'blocked:binding-missing';
+
+/** Agent every read-back fixture expects (and, when matched, observes). */
+const EXPECTED_AGENT = 'project-manager';
+
+/** The waiting run's projected state reason (the fixture's, and the copy's). */
+const WAITING_REASON = 'waiting for a panel';
+
+/** Body every run operation answers with when the service accepts it. */
+const ACCEPTED_BODY = '{"state":"pending"}';
+
+/** The default `GET /v1/events` key the service double answers. */
+const RUNS_GET = `GET ${EVENTS_PATH}?limit=25`;
+
+/**
+ * The `page` member a paged answer carries (005 contract §2).
+ *
+ * @param total - Size of the set the fixture models.
+ * @returns The member, ready to be spread into an answer body.
+ */
+function pageMember(total: number): Record<string, unknown> {
+    return {
+        limit: 25,
+        nextCursor: null,
+        hasMore: false,
+        total,
+        snapshotAt: FIXTURE_TIMESTAMP,
+        filter: { bindingId: null, state: null },
+    };
+}
+
+/** One answer in a service-double route table. */
+interface RouteAnswer {
+    /** HTTP status the service answers with. */
+    readonly status: number;
+    /** Response body text. */
+    readonly body: string;
+}
+
+/** Route table keyed by `METHOD path`. */
+type RouteTable = Readonly<Record<string, RouteAnswer>>;
+
+/**
+ * Build one runs row the way the service projects it.
+ *
+ * @param overrides - Fields the test changes.
+ * @returns A complete, valid row.
+ */
+function runFixture(overrides: Partial<RunRow> = {}): RunRow {
+    return {
+        id: RUN_ID,
+        correlationId: RUN_ID,
+        kind: 'assignment',
+        repository: 'acme/widget',
+        issueNumber: 7,
+        issueTitle: 'Fix the flaky test',
+        issueUrl: ISSUE_URL,
+        state: 'pending',
+        stateReason: WAITING_REASON,
+        runKey: 'github|77331|acme/widget|issue|7|0',
+        ordinal: 0,
+        attempt: 1,
+        attachmentId: RUN_ID,
+        projectId: 'prj_42',
+        worktreeOption: 'generated',
+        leaseExpiresAt: null,
+        resultDeadlineAt: null,
+        sourceReferences: [],
+        referenceCount: 0,
+        referencesTruncated: false,
+        referencesNotRetained: 0,
+        session: null,
+        verification: null,
+        detectedAt: new Date(Date.now() - TWO_MINUTES).toISOString(),
+        claimedAt: null,
+        dispatchedAt: null,
+        dispatchResult: null,
+        bindingId: 'bnd-1',
+        headSha: null,
+        baseRef: null,
+        promptPresent: false,
+        promptFingerprint: null,
+        promptLength: null,
+        ...overrides,
+    };
+}
+
+/**
+ * Build one source reference the way the service projects it (FR-013).
+ *
+ * @param overrides - Fields the test changes.
+ * @returns A complete, valid reference.
+ */
+function referenceFixture(overrides: Partial<RunReference> = {}): RunReference {
+    return {
+        deliveryId: 'evt-acme~widget~7~77331',
+        kind: 'assignment',
+        origin: 'assignment',
+        sourceUrl: ISSUE_URL,
+        detectedAt: '2026-09-28T09:00:00.000Z',
+        presentAtAuthorization: true,
+        ...overrides,
+    };
+}
+
+/**
+ * Build a Dispatches-section state around the given rows.
+ *
+ * @param overrides - Fields the test changes.
+ * @returns A complete state object.
+ */
+function runsState(overrides: Partial<DispatchesState> = {}): DispatchesState {
+    return { ...initialDispatches(), ...overrides };
+}
+
+/** Body the service answers `GET /v1/events` with for the given rows. */
+function runsBody(rows: readonly RunRow[]): string {
+    return JSON.stringify({ events: rows, page: pageMember(rows.length) });
+}
+
+/** A service double: recorded `METHOD path` calls plus a swappable table. */
+interface ServiceDouble {
+    /** `serviceRequest` member for {@link fakeHost}. */
+    readonly serviceRequest: (request: GuestRequest) => Promise<GuestRequestResult>;
+    /** Calls observed, in order, as `METHOD path`. */
+    readonly calls: readonly string[];
+    /** Bodies those calls carried, in the same order (`undefined` when none). */
+    readonly bodies: readonly (string | undefined)[];
+    /** Replace the route table, modelling the service's answer changing. */
+    readonly setRoutes: (table: RouteTable) => void;
+}
+
+/**
+ * Build a service double over a `METHOD path` → answer table.
+ *
+ * @param table - Answers keyed by `METHOD path`; anything else is the
+ *   neutral 404 the default host double answers with.
+ * @returns The double plus its recorded calls.
+ */
+function serviceDouble(table: RouteTable): ServiceDouble {
+    const calls: string[] = [];
+    const bodies: (string | undefined)[] = [];
+    let routes = table;
+
+    return {
+        calls,
+        bodies,
+        setRoutes: (next) => {
+            routes = next;
+        },
+        serviceRequest: async (request) => {
+            const key = `${request.method} ${request.path}`;
+            calls.push(key);
+            bodies.push(request.body);
+
+            return routes[key] ?? { status: DEFAULT_STATUS, body: DEFAULT_BODY };
+        },
+    };
+}
+
+/**
+ * Build a runtime whose selected run is `row`, against the given routes.
+ *
+ * @param row - The run the section holds and has selected.
+ * @param table - Route table the service answers with.
+ * @returns The runtime and its service double.
+ */
+function retryRuntime(row: RunRow, table: RouteTable): { readonly rt: PanelRuntime; readonly service: ServiceDouble } {
+    const service = serviceDouble(table);
+    const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+    rt.state.dispatches = runsState({ rows: [row], status: 'ready', selectedRun: row.id });
+
+    return { rt, service };
+}
+
+describe('parseDispatchesBody (the service projection, round-tripped)', () => {
+    it('reads every field the runs row renders from (+5 cases)', () => {
+        // case: reads every field the runs row renders from
+        {
+            const sent = runFixture({ state: 'claimed', claimedAt: '2026-09-27T10:00:00.000Z' });
+            const parsed = parseDispatchesBody(runsBody([sent]));
+
+            expect(parsed).toHaveLength(1);
+            expect(parsed?.[0]).toEqual(sent);
+        }
+        // case: keeps the optional pull-request coordinates when the service sends them
+        {
+            const fixture = runFixture({ kind: 'review', headSha: 'abc123', baseRef: 'main' });
+            const parsed = parseDispatchesBody(runsBody([fixture]));
+
+            expect(parsed?.[0]?.kind).toBe('review');
+            expect(parsed?.[0]?.headSha).toBe('abc123');
+            expect(parsed?.[0]?.baseRef).toBe('main');
+        }
+        // case: reads rows from a future build leniently on kind, strictly elsewhere
+        {
+            const unknownKind = JSON.stringify({ events: [{ ...runFixture(), kind: 'telepathy' }] });
+            expect(parseDispatchesBody(unknownKind)?.[0]?.kind).toBe('assignment');
+
+            const badState = JSON.stringify({ events: [{ ...runFixture(), state: 'telepathy' }] });
+            expect(parseDispatchesBody(badState)).toBeNull();
+            expect(parseDispatchesBody('{"events":[{"id":"half"}]}')).toBeNull();
+            expect(parseDispatchesBody('not a document')).toBeNull();
+            expect(parseDispatchesBody('{"runs":[]}')).toBeNull();
+            expect(parseDispatchesBody(runsBody([]))).toEqual([]);
+        }
+        // case: accepts all eight states, including the open blocked family
+        {
+            const states: readonly RunRow['state'][] = [
+                'pending',
+                'claimed',
+                'starting',
+                'dispatched',
+                FAILED_STATE,
+                UNCONFIRMED_STATE,
+                DEAD_LETTERED_STATE,
+                BLOCKED_PROJECT_STATE,
+                BLOCKED_BINDING_STATE,
+                'blocked:credential',
+                'blocked:policy',
+            ];
+
+            for (const state of states) {
+                expect(parseDispatchesBody(runsBody([runFixture({ state })]))?.[0]?.state).toBe(state);
+            }
+        }
+        // case: refuses the retired vocabulary and a malformed blocked reason
+        {
+            const refused = ['in-flight', 'blocked:', 'blocked:Project-Missing', 'blocked:a b', 'telepathy'];
+
+            for (const state of refused) {
+                expect(parseDispatchesBody(JSON.stringify({ events: [{ ...runFixture(), state }] }))).toBeNull();
+            }
+        }
+        // case: round-trips a full history body with references, a session, and a read-back
+        {
+            const sent = runFixture({
+                state: 'dispatched',
+                stateReason: 'session ses_dispatched_1 created',
+                referenceCount: 2,
+                sourceReferences: [
+                    {
+                        deliveryId: 'evt-1',
+                        kind: 'assignment',
+                        origin: 'assignment',
+                        sourceUrl: ISSUE_URL,
+                        detectedAt: FIXTURE_TIMESTAMP,
+                        presentAtAuthorization: true,
+                    },
+                    {
+                        deliveryId: 'evt-2',
+                        kind: 'mention',
+                        origin: 'comment:42',
+                        sourceUrl: ISSUE_URL,
+                        detectedAt: FIXTURE_TIMESTAMP,
+                        presentAtAuthorization: false,
+                    },
+                ],
+                session: { sessionId: SESSION_RESULT, attachmentId: RUN_ID, dispatchedAt: FIXTURE_TIMESTAMP },
+                verification: { observedAgent: EXPECTED_AGENT, expectedAgent: EXPECTED_AGENT, ok: true, note: null },
+                dispatchResult: SESSION_RESULT,
+                dispatchedAt: FIXTURE_TIMESTAMP,
+            });
+
+            const parsed = parseDispatchesBody(runsBody([sent]));
+
+            expect(parsed).toHaveLength(1);
+            expect(parsed?.[0]).toEqual(sent);
+        }
+    });
+
+    it('refuses counting members that do not reconcile (T-038)', () => {
+        const missing = JSON.stringify({
+            events: [{ ...runFixture(), referenceCount: 5, referencesNotRetained: 1 }],
+        });
+        expect(parseDispatchesBody(missing)).toBeNull();
+
+        const unflagged = JSON.stringify({
+            events: [{ ...runFixture({ referenceCount: 1, referencesNotRetained: 1 }), referencesTruncated: false }],
+        });
+        expect(parseDispatchesBody(unflagged)).toBeNull();
+    });
+});
+
+describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () => {
+    it('renders rows with kind, issue, state badge, relative… (+5 cases)', () => {
+        // case: renders rows with kind, issue, state badge, relative age, reason, and result
+        {
+            const rows = dispatchRows(runsState({ rows: [runFixture()], status: 'ready' }));
+
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toEqual({
+                id: RUN_ID,
+                leading: 'assign',
+                title: '#7 Fix the flaky test',
+                subtitle: 'acme/widget · waiting for a panel · not dispatched yet · prompt not set',
+                meta: '2m ago',
+                badge: { label: 'waiting', tone: 'neutral' },
+            });
+        }
+        // case: shows the dispatch result beside a dispatched row
+        {
+            const rows = dispatchRows(
+                runsState({ rows: [runFixture({
+                    state: 'dispatched', dispatchResult: SESSION_RESULT })], status: 'ready' }),
+            );
+
+            expect(rows[0]?.badge).toEqual({ label: 'dispatched', tone: 'success' });
+            expect(rows[0]?.subtitle).toContain(SESSION_RESULT);
+        }
+        // case: redacts secret-shaped text before it reaches the row
+        {
+            const rows = dispatchRows(
+                runsState({
+                    rows: [runFixture({ state: 'claimed', dispatchResult: 'problem ghp_abcdefghijklmnopqrstuvwx' })],
+                    status: 'ready',
+                }),
+            );
+
+            expect(rows[0]?.subtitle).not.toContain('ghp_abcdefghijklmnopqrstuvwx');
+            expect(rows[0]?.subtitle).toContain('[redacted:github-token-classic]');
+        }
+        // case: offers retry only where the service accepts one (T-024’s affordance table)
+        {
+            const retries = (state: RunRow['state']): boolean =>
+                runAffordance(runFixture({ state })).action === 'retry';
+            expect(retries(FAILED_STATE)).toBe(true);
+            expect(retries(BLOCKED_PROJECT_STATE)).toBe(true);
+            expect(retries(BLOCKED_BINDING_STATE)).toBe(true);
+
+            const notRetryable: readonly RunRow['state'][] = [
+                'pending',
+                'claimed',
+                'starting',
+                'dispatched',
+                UNCONFIRMED_STATE,
+                DEAD_LETTERED_STATE,
+            ];
+            for (const state of notRetryable) {
+                expect(retries(state), state).toBe(false);
+            }
+        }
+        // case: labels every state in operator vocabulary and never success-tones a failure
+        {
+            const expected: readonly (readonly [RunRow['state'], string, Tone])[] = [
+                ['pending', 'waiting', 'neutral'],
+                ['claimed', 'claimed', 'info'],
+                ['starting', 'starting', 'info'],
+                ['dispatched', 'dispatched', 'success'],
+                [FAILED_STATE, 'dispatch failed', 'warning'],
+                [UNCONFIRMED_STATE, 'unconfirmed', 'warning'],
+                [DEAD_LETTERED_STATE, DEAD_LETTERED_STATE, 'error'],
+                [BLOCKED_PROJECT_STATE, 'blocked: project-missing', 'warning'],
+                [BLOCKED_BINDING_STATE, 'blocked: binding-missing', 'warning'],
+            ];
+            for (const [state, label, tone] of expected) {
+                const rows = dispatchRows(runsState({ rows: [runFixture({ state })], status: 'ready' }));
+
+                expect(rows[0]?.badge, state).toEqual({ label, tone });
+            }
+        }
+        // case: phrases every list lifecycle state honestly
+        {
+            expect(dispatchesStatusText(runsState({ status: 'ready' }))).toBe(DISPATCHES_EMPTY_STATUS);
+            expect(dispatchesStatusText(runsState({ status: 'ready', rows: [runFixture()] }))).toBe(
+                // The count is the range line's to state (FR-042); this lede
+                // carries the order and the selection hint only.
+                'newest first · select a row to open or retry',
+            );
+        }
+    });
+});
+
+describe('T-024 honest rows (reason line, references, verification)', () => {
+    it('carries a reason line for every state the model can … (+6 cases)', () => {
+        // case: carries a reason line for every state the model can reach (FR-074)
+        {
+            const states: readonly RunRow['state'][] = [
+                'pending',
+                'claimed',
+                'starting',
+                'dispatched',
+                FAILED_STATE,
+                UNCONFIRMED_STATE,
+                DEAD_LETTERED_STATE,
+                BLOCKED_PROJECT_STATE,
+            ];
+            for (const state of states) {
+                const rows = dispatchRows(runsState({
+                    rows: [runFixture({ state, stateReason: `why the run is ${state}` })],
+                    status: 'ready',
+                }));
+
+                expect(rows[0]?.subtitle, state).toContain(`why the run is ${state}`);
+            }
+        }
+        // case: renders a hostile state reason as inert text (NFR-109)
+        {
+            const hostile = '<img src=x onerror="steal()"> <script>alert(1)</script>';
+            const rows = dispatchRows(runsState({
+                rows: [runFixture({ state: FAILED_STATE, stateReason: hostile })],
+                status: 'ready',
+            }));
+
+            // The list primitive writes the subtitle through `textContent`, so the
+            // text arrives verbatim and inert: no escaping that would hide the
+            // reason from the operator, and no path that could evaluate it.
+            expect(rows[0]?.subtitle).toBe(`acme/widget · ${hostile} · not dispatched yet · prompt not set`);
+        }
+        // case: shows one reference alone, with no "+N more" affordance (FR-015)
+        {
+            const rows = dispatchRows(runsState({
+                rows: [runFixture({ sourceReferences: [referenceFixture()], referenceCount: 1 })],
+                status: 'ready',
+            }));
+
+            expect(rows[0]?.subtitle).toBe(
+                'acme/widget · assignment 2026-09-28 09:00 · waiting for a panel · not dispatched yet'
+                    + ' · prompt not set',
+            );
+        }
+        // case: shows prompt presence, fingerprint, and length — and never the text (004 FR-052, AC-139)
+        {
+            const fingerprint = 'mtp-0123456789abcdef0123456789abcdef';
+            const set = dispatchRows(runsState({
+                rows: [runFixture({ promptPresent: true, promptFingerprint: fingerprint, promptLength: 340 })],
+                status: 'ready',
+            }));
+            expect(set[0]?.subtitle).toContain(`prompt set · ${fingerprint} · 340 chars`);
+
+            // The row never holds the instruction: there is no member for it to
+            // hold, so `host.storage` can only ever receive the reference.
+            const row = runFixture();
+            expect('promptText' in row).toBe(false);
+            expect(JSON.stringify(set)).not.toContain('promptText');
+        }
+        // case: renders a hostile fingerprint as plain text through the non-HTML path (NFR-127)
+        {
+            // The parser refuses a fingerprint outside the `mtp-` format, so this
+            // is the renderer's own posture with a value it was handed anyway.
+            const hostile = '<img src=x onerror="steal()">';
+            const rows = dispatchRows(runsState({
+                rows: [runFixture({ promptPresent: true, promptFingerprint: hostile, promptLength: 1 })],
+                status: 'ready',
+            }));
+
+            expect(rows[0]?.subtitle).toContain(hostile);
+        }
+        // case: lists every reference with kind, origin, and detection time, marking late ones (AC-101)
+        {
+            const rows = dispatchRows(runsState({
+                rows: [runFixture({
+                    sourceReferences: [
+                        referenceFixture(),
+                        referenceFixture({
+                            deliveryId: 'evt-acme~widget~7~comment',
+                            kind: 'mention',
+                            origin: 'comment:4242',
+                            detectedAt: '2026-09-28T09:05:00.000Z',
+                            presentAtAuthorization: false,
+                        }),
+                    ],
+                    referenceCount: 2,
+                })],
+                status: 'ready',
+            }));
+            const subtitle = rows[0]?.subtitle ?? '';
+
+            expect(subtitle).toContain('2 reasons · assignment 2026-09-28 09:00');
+            expect(subtitle).toContain('mention 2026-09-28 09:05 via comment:4242'
+                + ' (after authorization, may not have been seen)');
+        }
+    });
+
+    it('states the reasons the reference cap kept off the li… (+1 cases)', () => {
+        // case: states the reasons the reference cap kept off the list (T-038)
+        {
+            const rows = dispatchRows(runsState({
+                rows: [runFixture({
+                    sourceReferences: [referenceFixture()],
+                    referenceCount: 3,
+                    referencesNotRetained: 2,
+                    referencesTruncated: true,
+                })],
+                status: 'ready',
+            }));
+
+            expect(rows[0]?.subtitle).toContain(
+                '3 reasons · assignment 2026-09-28 09:00 +2 more reasons not listed',
+            );
+        }
+        // case: shows the read-back verdict and never success-tones a mismatch (FR-043, AC-125)
+        {
+            const matched = dispatchRows(runsState({
+                rows: [runFixture({
+                    state: 'dispatched',
+                    dispatchResult: SESSION_RESULT,
+                    verification: {
+                        observedAgent: EXPECTED_AGENT,
+                        expectedAgent: EXPECTED_AGENT,
+                        ok: true,
+                        note: null,
+                    },
+                })],
+                status: 'ready',
+            }))[0];
+            expect(matched?.badge).toEqual({ label: 'dispatched', tone: 'success' });
+
+            const mismatched = dispatchRows(runsState({
+                rows: [runFixture({
+                    state: 'dispatched',
+                    dispatchResult: SESSION_RESULT,
+                    verification: {
+                        observedAgent: 'researcher',
+                        expectedAgent: EXPECTED_AGENT,
+                        ok: false,
+                        note: 'agent pin drifted',
+                    },
+                })],
+                status: 'ready',
+            }))[0];
+            expect(mismatched?.badge?.tone).toBe('warning');
+
+            const unreadable = dispatchRows(runsState({
+                rows: [runFixture({
+                    state: 'dispatched',
+                    verification: { observedAgent: null, expectedAgent: EXPECTED_AGENT, ok: false, note: 'unreadable' },
+                })],
+                status: 'ready',
+            }))[0];
+            expect(unreadable?.badge?.tone).toBe('warning');
+        }
+        // case: reports a read-back against no baseline as observed, never as a mismatch (002 FR-029)
+        {
+            // `expectedAgent: ''` is the documented *no baseline configured*: the
+            // row still names the observed agent, and neither the phrase nor the
+            // badge may claim a mismatch the comparison never made.
+            const uncompared = dispatchRows(runsState({
+                rows: [runFixture({
+                    state: 'dispatched',
+                    dispatchResult: SESSION_RESULT,
+                    verification: {
+                        observedAgent: EXPECTED_AGENT,
+                        expectedAgent: '',
+                        ok: false,
+                        note: 'no baseline is configured, so nothing was compared',
+                    },
+                })],
+                status: 'ready',
+            }))[0];
+
+            expect(uncompared?.subtitle).toContain(`agent read back: ${EXPECTED_AGENT}`);
+            expect(uncompared?.subtitle).toContain('no baseline is configured');
+            expect(uncompared?.subtitle).not.toContain('mismatch');
+            // No expectation was missed, so the state keeps its own tone.
+            expect(uncompared?.badge).toEqual({ label: 'dispatched', tone: 'success' });
+        }
+    });
+});
+
+describe('runAffordance (003’s state→affordance table, FR-041/FR-033/FR-027)', () => {
+    it('names the control and its reason for the three actio… (+2 cases)', () => {
+        // case: names the control and its reason for the three actionable states
+        {
+            const failed = runAffordance(runFixture({ state: FAILED_STATE }));
+            expect(failed.action).toBe('retry');
+
+            const blocked = runAffordance(runFixture({ state: BLOCKED_PROJECT_STATE }));
+            expect(blocked.action).toBe('retry');
+            expect(blocked.reason).toContain('project-missing');
+
+            expect(runAffordance(runFixture({ state: UNCONFIRMED_STATE }))).toMatchObject({
+                action: 'resolve',
+                label: 'Resolve dispatch',
+            });
+            expect(runAffordance(runFixture({ state: DEAD_LETTERED_STATE }))).toMatchObject({
+                action: 'requeue',
+                label: 'Return to waiting',
+            });
+        }
+        // case: offers nothing — with the state’s own reason — where the service would refuse
+        {
+            const refused: readonly RunRow['state'][] = ['pending', 'claimed', 'starting', 'dispatched'];
+            for (const state of refused) {
+                const affordance = runAffordance(runFixture({ state }));
+
+                expect(affordance.action, state).toBe('none');
+                expect(affordance.label, state).toBeNull();
+                expect(affordance.reason, state).not.toBe('');
+            }
+
+            expect(runAffordance(runFixture({ state: 'pending' })).reason).toContain(WAITING_REASON);
+        }
+        // case: renders an unrecognised state raw and offers nothing
+        {
+            expect(runAffordance({ state: 'archived' })).toEqual({
+                action: 'none',
+                label: null,
+                reason: 'this dispatch reports a state the panel does not recognise — no action is offered',
+            });
+        }
+    });
+});
+
+/**
+ * SC-104: one fixture per state of 003's `## Dispatch State Model`.
+ *
+ * The table **is** the assertion: every state the model declares appears here
+ * with the label it must render and the control it must offer, and the guard
+ * below refuses the table while `PLAIN_RUN_STATES` holds a state it does not
+ * name — so a state added to 003 fails this suite until it is given a label
+ * and an affordance, which is exactly what SC-104 asks for.
+ */
+describe('SC-104 one fixture per state of the dispatch state model', () => {
+    /** Every declared state, with the label and control it must render. */
+    const TABLE: readonly {
+        readonly state: RunRow['state'];
+        readonly label: string;
+        readonly action: RunAffordance['action'];
+    }[] = [
+        { state: 'pending', label: 'waiting', action: 'none' },
+        { state: 'claimed', label: 'claimed', action: 'none' },
+        { state: 'starting', label: 'starting', action: 'none' },
+        { state: 'dispatched', label: 'dispatched', action: 'none' },
+        { state: FAILED_STATE, label: 'dispatch failed', action: 'retry' },
+        { state: UNCONFIRMED_STATE, label: 'unconfirmed', action: 'resolve' },
+        { state: DEAD_LETTERED_STATE, label: 'dead-lettered', action: 'requeue' },
+        { state: BLOCKED_PROJECT_STATE, label: 'blocked: project-missing', action: 'retry' },
+        { state: BLOCKED_BINDING_STATE, label: 'blocked: binding-missing', action: 'retry' },
+    ];
+
+    it('names a label, a reason, and a control for every dec… (+2 cases)', () => {
+        // case: names a label, a reason, and a control for every declared state
+        {
+            for (const row of TABLE) {
+                expect(stateLabel(row.state), row.state).toBe(row.label);
+
+                const affordance = runAffordance({ state: row.state });
+                expect(affordance.action, row.state).toBe(row.action);
+                expect(affordance.reason, row.state).not.toBe('');
+                // Absence is meaningful: no control means no label, never a greyed one.
+                expect(affordance.label === null, row.state).toBe(row.action === 'none');
+            }
+        }
+        // case: covers every plain state the parser accepts, so a new one fails here first
+        {
+            const named = new Set(TABLE.map((row) => row.state));
+            for (const state of PLAIN_RUN_STATES) {
+                expect(named.has(state), `003 declared ${state} and SC-104 has no row for it`).toBe(true);
+            }
+        }
+        // case: offers Retry on exactly failed and the blocked family, and Resolve only on unconfirmed
+        {
+            const retried = TABLE.filter((row) => row.action === 'retry').map((row) => row.state);
+            expect(retried).toEqual([FAILED_STATE, BLOCKED_PROJECT_STATE, BLOCKED_BINDING_STATE]);
+
+            const resolved = TABLE.filter((row) => row.action === 'resolve').map((row) => row.state);
+            expect(resolved).toEqual([UNCONFIRMED_STATE]);
+
+            for (const state of ['pending', 'dispatched', UNCONFIRMED_STATE]) {
+                expect(runAffordance({ state }).action, state).not.toBe('retry');
+            }
+
+        }
+    });
+});
+
+describe('loadDispatches (read the history without lying about failures)', () => {
+    it('lands a readable list in state and marks the section… (+4 cases)', async () => {
+        // case: lands a readable list in state and marks the section ready
+        {
+            const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) } });
+            const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+
+            await loadDispatches(rt);
+
+            expect(rt.state.dispatches.status).toBe('ready');
+            expect(rt.state.dispatches.rows).toHaveLength(1);
+            expect(rt.state.dispatches.note).toBe('');
+        }
+        // case: keeps the rows it holds and explains a refused refresh
+        {
+            const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) } });
+            const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+            await loadDispatches(rt);
+
+            service.setRoutes({
+                [RUNS_GET]: { status: 503, body: '{"error":{"code":"storage-unavailable"}}' },
+            });
+            await loadDispatches(rt);
+
+            expect(rt.state.dispatches.status).toBe('error');
+            expect(rt.state.dispatches.note).toContain('service answered 503');
+            // The rows the operator was reading survive a failed refresh.
+            expect(rt.state.dispatches.rows).toHaveLength(1);
+        }
+        // case: reports an unreadable body as unreadable instead of half-trusting it
+        {
+            const service = serviceDouble({
+                [RUNS_GET]: { status: 200, body: JSON.stringify({ events: [{ id: 'half' }], page: pageMember(1) }) },
+            });
+            const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+
+            await loadDispatches(rt);
+
+            expect(rt.state.dispatches.status).toBe('error');
+            expect(rt.state.dispatches.rows).toEqual([]);
+        }
+        // case: shows the empty state when the service has no events at all
+        {
+            const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([]) } });
+            const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+
+            await loadDispatches(rt);
+
+            expect(rt.state.dispatches.status).toBe('ready');
+            expect(rt.state.dispatches.rows).toEqual([]);
+            expect(dispatchesStatusText(rt.state.dispatches)).toBe(DISPATCHES_EMPTY_STATUS);
+            expect(dispatchRows(rt.state.dispatches)).toEqual([]);
+        }
+        // case: drops a selection whose row disappeared
+        {
+            const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([]) } });
+            const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+            rt.state.dispatches.selectedRun = RUN_ID;
+
+            await loadDispatches(rt);
+
+            expect(rt.state.dispatches.selectedRun).toBeNull();
+        }
+    });
+});
+
+describe('retryRun (POST, refresh, honest copy)', () => {
+    it('requeues the selected run, then re-reads the list (+3 cases)', async () => {
+        // case: requeues the selected run, then re-reads the list
+        {
+            // A failed run is where the service accepts a retry (T-024's table);
+            // the list re-read answers with the run back in waiting.
+            const failed = runFixture({ state: FAILED_STATE, dispatchResult: 'session-create-failed' });
+            const { rt, service } = retryRuntime(failed, {
+                [`POST ${retryPath(RUN_ID)}`]: { status: 200, body: '{"retried":true}' },
+                [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) },
+            });
+
+            await retryRun(rt);
+
+            expect(service.calls).toEqual([`POST ${retryPath(RUN_ID)}`, RUNS_GET]);
+            expect(rt.state.dispatches.note).toContain('Requeued #7');
+            expect(rt.state.dispatches.rows[0]?.state).toBe('pending');
+        }
+        // case: explains a 409 invalid-transition from the service envelope
+        {
+            // The panel's row is stale (it still looks retryable, so the POST is
+            // genuinely sent); the service knows better and answers 409.
+            const stale = runFixture({ state: FAILED_STATE });
+            const actual = runFixture({ state: 'dispatched', dispatchResult: SESSION_RESULT });
+            const { rt, service } = retryRuntime(stale, {
+                [`POST ${retryPath(RUN_ID)}`]: {
+                    status: 409,
+                    // Contract §6's own wording: the note renders it verbatim.
+                    body: '{"error":{"code":"invalid-transition",'
+                        + '"message":"already dispatched; a dispatched run cannot be retried"}}',
+                },
+                [RUNS_GET]: { status: 200, body: runsBody([actual]) },
+            });
+
+            await retryRun(rt);
+
+            expect(service.calls).toEqual([`POST ${retryPath(RUN_ID)}`, RUNS_GET]);
+            // The refresh after the refusal shows the state the service actually holds.
+            expect(rt.state.dispatches.rows[0]?.state).toBe('dispatched');
+        }
+        // case: refuses locally — without a POST — when the selected run already dispatched
+        {
+            const dispatched = runFixture({ state: 'dispatched', dispatchResult: SESSION_RESULT });
+            const { rt, service } = retryRuntime(dispatched, {
+                [RUNS_GET]: { status: 200, body: runsBody([dispatched]) },
+            });
+
+            await retryRun(rt);
+
+            expect(service.calls).toEqual([]);
+        }
+        // case: does nothing when nothing is selected
+        {
+            const service = serviceDouble({});
+            const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+            rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready' });
+
+            await retryRun(rt);
+
+            expect(service.calls).toEqual([]);
+            expect(rt.state.dispatches.note).toBe('');
+        }
+    });
+});
+
+describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
+    /** Path of the return-to-waiting operation (contract §7). */
+    const REQUEUE_POST = `POST ${requeuePath(RUN_ID)}`;
+
+    /** Path of the resolve operation (contract §8). */
+    const RESOLVE_POST = `POST ${resolvePath(RUN_ID)}`;
+
+    /** Path of the retry operation (contract §6). */
+    const RETRY_POST = `POST ${retryPath(RUN_ID)}`;
+
+    /** A route table that answers every run operation with an accepted run. */
+    function acceptedRoutes(): RouteTable {
+        return {
+            [REQUEUE_POST]: { status: 200, body: ACCEPTED_BODY },
+            [RESOLVE_POST]: { status: 200, body: ACCEPTED_BODY },
+            [RETRY_POST]: { status: 200, body: ACCEPTED_BODY },
+            [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) },
+        };
+    }
+
+    it('states the attempt reset before it sends a return-to… (+5 cases)', async () => {
+        // case: states the attempt reset before it sends a return-to-waiting (FR-033)
+        {
+            const parked = runFixture({ state: DEAD_LETTERED_STATE });
+            const { rt, service } = retryRuntime(parked, acceptedRoutes());
+
+            await requeueRun(rt);
+
+            expect(service.calls).toEqual([]);
+            expect(rt.state.dispatches.pendingAction).toBe('requeue');
+            expect(rt.state.dispatches.note).toContain('attempt count resets to 1');
+            expect(rt.state.dispatches.note).toContain('requeue budget to 0');
+
+            await requeueRun(rt);
+
+            expect(service.calls).toEqual([REQUEUE_POST, RUNS_GET]);
+            expect(JSON.parse(String(service.bodies[0]))).toEqual({ correlationId: RUN_ID, confirm: true });
+            expect(rt.state.dispatches.pendingAction).toBeNull();
+        }
+        // case: reaches the two resolutions only from unconfirmed (FR-027)
+        {
+            const waiting = runFixture({ state: 'pending' });
+            const { rt, service } = retryRuntime(waiting, acceptedRoutes());
+
+            await resolveNoSession(rt);
+            await resolveSessionCreated(rt);
+
+            expect(service.calls).toEqual([]);
+            expect(rt.state.dispatches.pendingAction).toBeNull();
+            expect(rt.state.dispatches.note).toContain(WAITING_REASON);
+        }
+        // case: states what to verify, warns, and shows the coordinates before resolving
+        {
+            const wedge = runFixture({ state: UNCONFIRMED_STATE });
+            const { rt, service } = retryRuntime(wedge, acceptedRoutes());
+
+            await resolveSessionCreated(rt);
+
+            expect(service.calls).toEqual([]);
+            const copy = rt.state.dispatches.note;
+            expect(copy).toContain('project prj_42');
+            expect(copy).toContain(RUN_ID);
+            expect(copy).toContain('OpenChamber');
+
+            // The second click is the confirmation, and it refuses to guess the id.
+            await resolveSessionCreated(rt);
+            expect(service.calls).toEqual([]);
+
+            setSessionInput(rt, 'ses_operator_found');
+            await resolveSessionCreated(rt);
+
+            expect(service.calls).toEqual([RESOLVE_POST, RUNS_GET]);
+            const body = JSON.parse(String(service.bodies[0])) as Record<string, unknown>;
+            expect(body).toMatchObject({
+                correlationId: RUN_ID,
+                decision: 'session-created',
+                sessionId: 'ses_operator_found',
+            });
+        }
+        // case: sends no-session with no session id and the guidance it showed
+        {
+            const wedge = runFixture({ state: UNCONFIRMED_STATE });
+            const { rt, service } = retryRuntime(wedge, acceptedRoutes());
+
+            await resolveNoSession(rt);
+
+            await resolveNoSession(rt);
+
+            expect(service.calls).toEqual([RESOLVE_POST, RUNS_GET]);
+            const body = JSON.parse(String(service.bodies[0])) as Record<string, unknown>;
+            expect(body.decision).toBe('no-session');
+            expect('sessionId' in body).toBe(false);
+        }
+        // case: echoes the run identity and the cause report a retry carries (contract §6)
+        {
+            const failed = runFixture({ state: FAILED_STATE });
+            const { rt, service } = retryRuntime(failed, acceptedRoutes());
+
+            await retryRun(rt);
+
+            expect(JSON.parse(String(service.bodies[0]))).toEqual({ correlationId: RUN_ID, attempt: 1 });
+
+            const guarded = runFixture({ state: BLOCKED_BINDING_STATE, attempt: 3 });
+            const second = retryRuntime(guarded, acceptedRoutes());
+            await retryRun(second.rt);
+
+            expect(JSON.parse(String(second.service.bodies[0]))).toEqual({
+                correlationId: RUN_ID,
+                attempt: 3,
+                causeCleared: true,
+            });
+
+            // A cause only the operator can assert goes with what was asserted,
+            // so the audit row says who reported it cleared.
+            const reported = runFixture({ state: 'blocked:credential' });
+            const third = retryRuntime(reported, acceptedRoutes());
+            await retryRun(third.rt);
+
+            expect(JSON.parse(String(third.service.bodies[0]))).toMatchObject({
+                correlationId: RUN_ID,
+                attempt: 1,
+                causeCleared: true,
+                causeReport: expect.stringContaining('operator confirmed'),
+            });
+        }
+        // case: renders the service verdict verbatim when an operation is refused
+        {
+            const parked = runFixture({ state: DEAD_LETTERED_STATE });
+            const verdict = 'this run is not dead-lettered; it is already waiting';
+            const { rt, service } = retryRuntime(parked, {
+                ...acceptedRoutes(),
+                [REQUEUE_POST]: {
+                    status: 409,
+                    body: `{"error":{"code":"invalid-transition","message":"${verdict}"}}`,
+                },
+            });
+
+            await requeueRun(rt);
+            await requeueRun(rt);
+
+            expect(service.calls).toEqual([REQUEUE_POST, RUNS_GET]);
+            expect(rt.state.dispatches.note).toBe(verdict);
+        }
+    });
+
+    it('gates every run operation behind one busy flag (T-025)', async () => {
+        // The double holds every answer until the test releases it, so the
+        // gate is observable while an operation is genuinely in flight.
+        const held: { release: () => void } = {
+            release: (): void => {
+                throw new Error('the gate was never armed');
+            },
+        };
+        const gate = new Promise<void>((resolve) => {
+            held.release = resolve;
+        });
+        const calls: string[] = [];
+        const rt = createTestRuntime(fakeHost({
+            serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
+                calls.push(`${request.method} ${request.path}`);
+                await gate;
+
+                return { status: 200, body: runsBody([runFixture()]) };
+            },
+        }));
+        rt.state.dispatches = runsState({
+            rows: [runFixture({ state: FAILED_STATE })],
+            status: 'ready',
+            selectedRun: RUN_ID,
+        });
+
+        const first = retryRun(rt);
+        await tick();
+        expect(rt.state.dispatches.busy).toBe(true);
+
+        // A second click while the first is in flight sends nothing.
+        await retryRun(rt);
+        expect(calls).toHaveLength(1);
+
+        held.release();
+        await first;
+
+        expect(rt.state.dispatches.busy).toBe(false);
+        expect(rt.state.dispatches.note).toContain('Requeued #7');
+    });
+});
+
+/**
+ * Build one audit entry the way the trail stores it (contract §2).
+ *
+ * @param overrides - Fields the test changes.
+ * @returns A complete, valid entry.
+ */
+function auditEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+        seq: 1,
+        timestamp: '2026-09-28T09:00:00.000Z',
+        correlationId: RUN_ID,
+        eventType: 'run.created',
+        actorSource: 'service',
+        entity: { kind: 'run', id: RUN_ID },
+        decision: null,
+        reason: 'run created from a detected delivery',
+        redaction: { redacted: false, fields: [] },
+        details: { subject: 'issue' },
+        ...overrides,
+    };
+}
+
+/** The response body the audit read answers with. */
+function auditBody(entries: readonly Record<string, unknown>[]): string {
+    return JSON.stringify({ entries });
+}
+
+/** The audit view's state around a selected fixture run. */
+function auditState(overrides: Partial<AuditViewState> = {}): AuditViewState {
+    return { ...initialAuditHistory(), ...overrides };
+}
+
+describe('T-026 audit history (keyed by the selected run, plain text)', () => {
+    /** The one request the view is allowed to make: rows for this run. */
+    const AUDIT_GET = `GET ${auditPath(RUN_ID)}`;
+
+    it('fetches by the selected row correlation id and nothi… (+5 cases)', async () => {
+        // case: fetches by the selected row correlation id and nothing else (AC-117)
+        {
+            const service = serviceDouble({
+                [AUDIT_GET]: {
+                    status: 200,
+                    body: auditBody([auditEntry(), auditEntry({
+                        seq: 2, eventType: 'dispatch.retry', decision: 'retry' })]),
+                },
+            });
+            const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+            rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+
+            await loadAuditHistory(rt);
+
+            expect(service.calls).toEqual([AUDIT_GET]);
+            expect(rt.state.dispatches.audit.status).toBe('ready');
+            expect(rt.state.dispatches.audit.correlationId).toBe(RUN_ID);
+            expect(rt.state.dispatches.audit.rows.map((row) => row.seq)).toEqual([1, 2]);
+            expect(auditStatusText(rt.state.dispatches.audit)).toContain('2 rows');
+            expect(auditStatusText(rt.state.dispatches.audit)).toContain(RUN_ID);
+
+            const items = auditItems(rt.state.dispatches.audit);
+            expect(items[0]).toEqual({
+                id: '1',
+                leading: '1',
+                title: 'run.created · service',
+                subtitle: 'run created from a detected delivery · {"subject":"issue"}',
+                meta: '2026-09-28 09:00',
+            });
+        }
+        // case: starts idle, says so, and resets with the selection (FR-053)
+        {
+            expect(auditStatusText(initialAuditHistory())).toBe(AUDIT_IDLE_STATUS);
+            // The control is disabled while nothing is selected, so the idle line
+            // names the precondition instead of pointing at a button the same
+            // screen refuses to enable (2026-10-01 review).
+            expect(auditStatusText(auditState({ status: 'ready' }))).toBe(AUDIT_EMPTY_STATUS);
+            expect(auditStatusText(auditState({ status: 'loading' }))).toContain('Reading');
+
+            const service = serviceDouble({ [AUDIT_GET]: { status: 200, body: auditBody([auditEntry()]) } });
+            const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+            const other = runFixture({
+                id: 'mt-run-bbbbccccddddeeeeffff00',
+                correlationId: 'mt-run-bbbbccccddddeeeeffff00',
+            });
+            rt.state.dispatches = runsState({ rows: [runFixture(), other], status: 'ready', selectedRun: RUN_ID });
+
+            await loadAuditHistory(rt);
+            expect(rt.state.dispatches.audit.status).toBe('ready');
+
+            selectDispatch(rt, other.id);
+
+            expect(rt.state.dispatches.audit.status).toBe('idle');
+            expect(rt.state.dispatches.audit.rows).toEqual([]);
+        }
+        // case: refuses an unreadable body instead of half-showing it (fail closed)
+        {
+            const service = serviceDouble({
+                [AUDIT_GET]: { status: 200, body: '{"entries":[{"seq":"one"}]}' },
+            });
+            const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+            rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+
+            await loadAuditHistory(rt);
+
+            expect(rt.state.dispatches.audit.status).toBe('error');
+            expect(rt.state.dispatches.audit.rows).toEqual([]);
+            expect(parseAuditBody('{"entries":[]}')).toEqual([]);
+            expect(parseAuditBody('{"nope":[]}')).toBeNull();
+        }
+        // case: renders hostile reason and details as inert text (NFR-109)
+        {
+            const hostile = auditEntry({
+                reason: '<img src=x onerror="steal()">',
+                details: { note: '<script>alert(1)</script>' },
+            });
+            const rows = parseAuditBody(auditBody([hostile]));
+
+            expect(rows).not.toBeNull();
+            const items = auditItems(auditState({ status: 'ready', correlationId: RUN_ID, rows: rows ?? [] }));
+            expect(items[0]?.subtitle).toBe('<img src=x onerror="steal()"> · {"note":"<script>alert(1)</script>"}');
+        }
+        // case: bounds the list and marks every cut (NFR-107)
+        {
+            const many = Array.from({ length: AUDIT_ROW_LIMIT + 50 }, (_value, index) => auditEntry({
+                seq: index + 1 }));
+            const rows = parseAuditBody(auditBody(many));
+
+            expect(rows).toHaveLength(AUDIT_ROW_LIMIT);
+            const items = auditItems(auditState({ status: 'ready', correlationId: RUN_ID, rows: rows ?? [] }));
+            expect(items).toHaveLength(AUDIT_ROW_LIMIT);
+
+            const loud = parseAuditBody(auditBody([auditEntry({ reason: null, details: { blob: 'x'.repeat(500) } })]));
+            const subtitle = auditItems(auditState({ status: 'ready', correlationId: RUN_ID, rows: loud ?? [] }))[0]
+                ?.subtitle ?? '';
+            expect(subtitle.endsWith('…')).toBe(true);
+            expect(subtitle.length).toBeLessThanOrEqual(161);
+        }
+        // case: warns when the service cannot be reached, and keeps nothing
+        {
+            const rt = createTestRuntime(fakeHost({
+                serviceRequest: async () => {
+                    throw new Error('ECONNREFUSED');
+                },
+            }));
+            rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+
+            await loadAuditHistory(rt);
+
+            expect(rt.state.dispatches.audit.status).toBe('error');
+            expect(rt.state.dispatches.audit.rows).toEqual([]);
+            expect(rt.state.dispatches.audit.note).toContain('unreachable');
+        }
+    });
+});
+
+describe('selection, open, and the pane handler table', () => {
+    it('selects a known row and ignores an unknown id (+3 cases)', async () => {
+        // case: selects a known row and ignores an unknown id
+        {
+            const rt = createTestRuntime(fakeHost());
+            rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready' });
+
+            selectDispatch(rt, 'evt-from-the-future');
+            expect(rt.state.dispatches.selectedRun).toBeNull();
+
+            selectDispatch(rt, RUN_ID);
+            expect(rt.state.dispatches.selectedRun).toBe(RUN_ID);
+            expect(selectedRun(rt.state.dispatches)?.issueUrl).toBe(ISSUE_URL);
+        }
+        // case: opens the selected run’s issue through the documented host call
+        {
+            const opened: string[] = [];
+            const host = fakeHost({
+                openUrl: async (url) => {
+                    opened.push(url);
+                },
+            });
+            const rt = createTestRuntime(host);
+            rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+
+            await openDispatch(rt);
+
+            expect(opened).toEqual([ISSUE_URL]);
+            expect(rt.state.dispatches.note).toBe('');
+        }
+        // case: lands an openUrl failure on the note instead of throwing
+        {
+            const host = fakeHost({ openUrl: () => Promise.reject(new Error('HOST_REJECTED')) });
+            const rt = createTestRuntime(host);
+            rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready', selectedRun: RUN_ID });
+
+            await openDispatch(rt);
+
+            expect(rt.state.dispatches.note).toContain('HOST_REJECTED');
+        }
+        // case: wires Refresh dispatches through the pane handler table to a real read
+        {
+            const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) } });
+            const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
+            const handlers = createBindingsHandlers(rt);
+
+            handlers.refreshDispatches();
+            await tick();
+
+            expect(rt.state.dispatches.status).toBe('ready');
+            expect(rt.state.dispatches.rows).toHaveLength(1);
+        }
+    });
+});

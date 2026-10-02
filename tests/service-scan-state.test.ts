@@ -38,6 +38,12 @@ const CREATED_AT = '2026-09-27T00:00:00.000Z';
 /** Stamp of a completed scan, for the "has scanned" contrast case. */
 const SCANNED_AT = '2026-09-27T06:00:00.000Z';
 
+/** Configured overlap this suite widens windows by (006 FR-059(a)). */
+const OVERLAP_MS = 600_000;
+
+/** The window a recorded stamp opens once the overlap is subtracted. */
+const WIDENED_AT = new Date(Date.parse(SCANNED_AT) - OVERLAP_MS).toISOString();
+
 /** The loop's skip reason for a credential the custody cannot use. */
 const SKIP_REASON = 'auth-failed';
 
@@ -50,15 +56,21 @@ let dataDir = '';
 /** Open store handle for the tests that read through the real store. */
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-scan-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Build a logger that records every line it is asked to write.
@@ -130,79 +142,112 @@ function stateWith(slot: { readonly lastScanAt: string | null; readonly lastErro
 }
 
 describe('parseStoredScanState (never-scanned slot, MVP fix 1)', () => {
-    it('round-trips the null lastScanAt the loop writes with its skip reason', () => {
-        // The operator's exact on-disk file, as it arrives after a JSON load.
-        const stored = { bindings: { [BINDING_ID]: { lastScanAt: null, lastError: SKIP_REASON } } };
-        const reloaded = JSON.parse(JSON.stringify(stored)) as Record<string, unknown>;
+    it('round-trips the null lastScanAt the loop writes with… (+2 cases)', async () => {
+        // case: round-trips the null lastScanAt the loop writes with its skip reason
+        {
+            // The operator's exact on-disk file, as it arrives after a JSON load.
+            const stored = { bindings: { [BINDING_ID]: { lastScanAt: null, lastError: SKIP_REASON } } };
+            const reloaded = JSON.parse(JSON.stringify(stored)) as Record<string, unknown>;
 
-        const parsed = parseStoredScanState(reloaded);
+            const parsed = parseStoredScanState(reloaded);
 
-        expect(parsed).toEqual(stored);
-        expect(parsed?.bindings[BINDING_ID]).toEqual({ lastScanAt: null, lastError: SKIP_REASON });
-    });
+            expect(parsed).toEqual(stored);
+            expect(parsed?.bindings[BINDING_ID]).toEqual({ lastScanAt: null, lastError: SKIP_REASON });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: round-trips a completed scan stamp alongside its reason
+        {
+            const stored = { bindings: { [BINDING_ID]: { lastScanAt: SCANNED_AT, lastError: null } } };
 
-    it('round-trips a completed scan stamp alongside its reason', () => {
-        const stored = { bindings: { [BINDING_ID]: { lastScanAt: SCANNED_AT, lastError: null } } };
+            expect(parseStoredScanState(stored)).toEqual(stored);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: still refuses a genuinely malformed slot so the store quarantines it
+        {
+            const malformed: readonly unknown[] = [
+                { bindings: { [BINDING_ID]: { lastScanAt: 1_758_950_400, lastError: null } } },
+                { bindings: { [BINDING_ID]: { lastScanAt: { iso: SCANNED_AT } } } },
+                { bindings: { [BINDING_ID]: { lastError: SKIP_REASON } } },
+                { bindings: { [BINDING_ID]: { lastScanAt: SCANNED_AT, lastError: 42 } } },
+                { bindings: { [BINDING_ID]: 'not-a-record' } },
+            ];
 
-        expect(parseStoredScanState(stored)).toEqual(stored);
-    });
-
-    it('still refuses a genuinely malformed slot so the store quarantines it', () => {
-        const malformed: readonly unknown[] = [
-            { bindings: { [BINDING_ID]: { lastScanAt: 1_758_950_400, lastError: null } } },
-            { bindings: { [BINDING_ID]: { lastScanAt: { iso: SCANNED_AT } } } },
-            { bindings: { [BINDING_ID]: { lastError: SKIP_REASON } } },
-            { bindings: { [BINDING_ID]: { lastScanAt: SCANNED_AT, lastError: 42 } } },
-            { bindings: { [BINDING_ID]: 'not-a-record' } },
-        ];
-
-        for (const document of malformed) {
-            expect(parseStoredScanState(document)).toBeNull();
+            for (const document of malformed) {
+                expect(parseStoredScanState(document)).toBeNull();
+            }
         }
     });
 });
 
 describe('readScanState (real store, no more per-minute quarantine files)', () => {
-    it('reads the loop-written file in place, leaving no quarantine file behind', async () => {
-        await plantScanState({ bindings: { [BINDING_ID]: { lastScanAt: null, lastError: SKIP_REASON } } });
-        const { log, lines } = capturingLogger();
+    it('reads the loop-written file in place, leaving no qua… (+1 cases)', async () => {
+        // case: reads the loop-written file in place, leaving no quarantine file behind
+        {
+            await plantScanState({ bindings: { [BINDING_ID]: { lastScanAt: null, lastError: SKIP_REASON } } });
+            const { log, lines } = capturingLogger();
 
-        const state = await readScanState({ store, log });
+            const state = await readScanState({ store, log });
 
-        expect(state.bindings[BINDING_ID]).toEqual({ lastScanAt: null, lastError: SKIP_REASON });
-        expect(await quarantined()).toEqual([]);
-        expect(lines.filter((line) => line.includes('quarantine'))).toEqual([]);
-    });
+            expect(state.bindings[BINDING_ID]).toEqual({ lastScanAt: null, lastError: SKIP_REASON });
+            expect(await quarantined()).toEqual([]);
+            expect(lines.filter((line) => line.includes('quarantine'))).toEqual([]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: quarantines a malformed file and answers an empty state instead
+        {
+            await plantScanState({ bindings: { [BINDING_ID]: { lastScanAt: 42 } } });
+            const { log, lines } = capturingLogger();
 
-    it('quarantines a malformed file and answers an empty state instead', async () => {
-        await plantScanState({ bindings: { [BINDING_ID]: { lastScanAt: 42 } } });
-        const { log, lines } = capturingLogger();
+            const state = await readScanState({ store, log });
 
-        const state = await readScanState({ store, log });
-
-        expect(state).toEqual({ bindings: {} });
-        expect(await quarantined()).toHaveLength(1);
-        expect(lines.some((line) => line.includes('unusable'))).toBe(true);
+            expect(state).toEqual({ bindings: {} });
+            expect(await quarantined()).toHaveLength(1);
+            expect(lines.some((line) => line.includes('unusable'))).toBe(true);
+        }
     });
 });
 
-describe('windowFor (never-scanned opens a replay, scanned opens incremental)', () => {
-    it('opens with no window when no scan ever completed — a full replay', () => {
-        // Product decision 2026-09-28: pre-binding assignments must work, so
-        // the first scan lists every open issue instead of a createdAt
-        // baseline that would reject an issue assigned before the binding.
-        const scanned = stateWith({ lastScanAt: null, lastError: SKIP_REASON });
+describe('windowFor (never-scanned opens a replay, scanned opens widened)', () => {
+    it('opens with no window when no scan ever completed — a… (+2 cases)', async () => {
+        // case: opens with no window when no scan ever completed — a full replay
+        {
+            // Product decision 2026-09-28: pre-binding assignments must work, so
+            // the first scan lists every open issue instead of a createdAt
+            // baseline that would reject an issue assigned before the binding.
+            const scanned = stateWith({ lastScanAt: null, lastError: SKIP_REASON });
 
-        expect(windowFor(fixtureBinding(), scanned)).toBeNull();
-    });
+            expect(windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS })).toBeNull();
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: opens at the recorded stamp minus the configured overlap (006 FR-059(a))
+        {
+            const scanned = stateWith({ lastScanAt: SCANNED_AT, lastError: null });
 
-    it('opens at the recorded stamp once a scan has completed', () => {
-        const scanned = stateWith({ lastScanAt: SCANNED_AT, lastError: null });
+            const widened = windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS });
+            expect(widened).toBe(WIDENED_AT);
+            expect(Date.parse(WIDENED_AT)).toBeLessThan(Date.parse(SCANNED_AT));
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: opens with no window for a binding the state file never mentions
+        {
+            const scanned = stateWith(null);
 
-        expect(windowFor(fixtureBinding(), scanned)).toBe(SCANNED_AT);
-    });
-
-    it('opens with no window for a binding the state file never mentions', () => {
-        expect(windowFor(fixtureBinding(), stateWith(null))).toBeNull();
+            expect(windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS })).toBeNull();
+        }
     });
 });

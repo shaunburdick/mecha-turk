@@ -4,50 +4,32 @@
  * The UI is built once from `@openchamber/sdk/ui` controls and repainted from
  * state, so `onReady` refreshes never replace a control the user is
  * interacting with. The project picker renders from the picker state alone —
- * loading, error, empty, and ready are all values, not code paths — and ledger
- * rows are rendered through {@link redact} as a last line of defence: even a
- * diagnostic string cannot render secret-shaped text.
+ * loading, error, empty, and ready are all values, not code paths — and every
+ * body repaints only while it is mounted, so a tab the operator has never
+ * opened owns no handles yet (FR-013, FR-019).
  */
 
-import { mountBanner, mountButton, mountList, mountSelect, mountText } from '@openchamber/sdk/ui';
-import type { ListItem, SelectOption } from '@openchamber/sdk/ui';
+import { mountBanner, mountButton, mountSelect, mountText } from '@openchamber/sdk/ui';
+import type { BannerHandle, ButtonHandle, SelectHandle, TextHandle } from '@openchamber/sdk/ui';
 import { refreshHandoff } from './accounts-ui.ts';
-import { repositoryLabel } from './config.ts';
-import { isLifecyclePhase, ledgerTail } from './ledger.ts';
-import type { LifecyclePhase } from './ledger.ts';
+import { repaintAccountsBody } from './accounts-tab.ts';
+import { repaintAboutTab } from './about-tab.ts';
+import { repaintDispatchesBoard } from './dispatches-ui.ts';
 import {
     describeProjectSelection,
+    notListedGuidance,
     pickerNote,
     pickerOptions,
     pickerPlaceholder,
     selectedProjectId,
 } from './project-picker.ts';
-import { redact } from './redaction.ts';
-import { repaintReposPane } from './repos-ui.ts';
-import type { PanelRuntime, PanelState, PanelUi } from './panel-state.ts';
-
-/** Number of ledger rows shown, newest first. */
-const VISIBLE_ENTRIES = 25;
-
-/** Start offset of the time part inside an RFC 3339 timestamp. */
-const TIME_START = 11;
-
-/** End offset of the time part inside an RFC 3339 timestamp. */
-const TIME_END = 19;
-
-/** Lifecycle phases the operator marks by hand because the frame cannot see them. */
-const MARKER_PHASES: readonly LifecyclePhase[] = ['paused', 'removed', 'server-switch'];
+import { repaintPrerequisites } from './prerequisites.ts';
+import { repaintBindingsPane } from './bindings-ui.ts';
+import type { PanelRuntime, PanelState } from './panel-state.ts';
+import { mountStyledText } from './style.ts';
 
 /** Callbacks the mounted controls invoke. */
 export interface PanelHandlers {
-    /** Run one poll immediately. */
-    readonly poll: () => void;
-    /** Dispatch the matched issue as one session. */
-    readonly dispatch: () => void;
-    /** Verify host-owned project/worktree/session state. */
-    readonly verify: () => void;
-    /** Record the selected lifecycle phase marker. */
-    readonly mark: () => void;
     /** Reload the project list behind the picker. */
     readonly refreshProjects: () => void;
     /** Adopt the project the operator picked in the picker. */
@@ -56,69 +38,34 @@ export interface PanelHandlers {
     readonly copyProjectId: () => void;
 }
 
-/**
- * Open the source URL of a ledger row when it has one.
- *
- * @param rt - Panel runtime.
- * @param id - Row id, which is the ledger entry sequence number.
- */
-async function openEntry(rt: PanelRuntime, id: string): Promise<void> {
-    const entry = rt.state.ledger.entries.find((candidate) => String(candidate.seq) === id);
-    const url = entry?.detail.issueUrl;
-    if (typeof url === 'string') {
-        await rt.host.openUrl(url);
-    }
+/** The root framing: the banner above the prerequisite and tab strip. */
+export interface PanelUi {
+    /** Status banner. */
+    banner: BannerHandle;
 }
 
-/**
- * Record the phase the operator selected in the picker.
- *
- * @param rt - Panel runtime.
- * @param id - Selected option id.
- */
-function selectPhase(rt: PanelRuntime, id: string): void {
-    if (!isLifecyclePhase(id)) {
-        return;
-    }
-
-    rt.pendingPhase = id;
-    rt.ui?.phaseSelect.update({ value: id });
-}
-
-/**
- * Build the options for the lifecycle phase picker.
- *
- * @returns One option per operator-markable phase.
- */
-function markerOptions(): SelectOption[] {
-    return MARKER_PHASES.map((phase) => ({ id: phase, label: phase }));
-}
-
-/**
- * Create the horizontal row that holds the action controls.
- *
- * @param root - Panel root element.
- * @returns The row element the controls mount into.
- */
-function createControlsRow(root: HTMLElement): HTMLElement {
-    const controls = root.ownerDocument.createElement('div');
-    controls.style.display = 'flex';
-    controls.style.flexWrap = 'wrap';
-    controls.style.gap = '8px';
-    controls.style.alignItems = 'flex-end';
-    root.appendChild(controls);
-
-    return controls;
+/** The project picker's handles; they live inside the Bindings tab body. */
+export interface ProjectPickerUi {
+    /** Project picker select. */
+    projectSelect: SelectHandle;
+    /** Project picker status line (loading / error / empty / note). */
+    projectStatus: TextHandle;
+    /** Selected project id, shown with its source. */
+    projectDetail: TextHandle;
+    /** Reload-projects button. */
+    projectRefresh: ButtonHandle;
+    /** Copy-the-selected-id button. */
+    projectCopy: ButtonHandle;
 }
 
 /**
  * Create the container that groups the project picker's controls.
  *
- * The picker sits above the action row because it is configuration, not an
+ * The picker sits above the form because it is configuration, not an
  * action: a control row for the select and its buttons, with the status and
  * selection lines underneath.
  *
- * @param root - Panel root element.
+ * @param root - Body element the picker mounts into.
  * @returns The group element and the control row inside it.
  */
 function createProjectGroup(root: HTMLElement): { readonly group: HTMLElement; readonly row: HTMLElement } {
@@ -138,23 +85,19 @@ function createProjectGroup(root: HTMLElement): { readonly group: HTMLElement; r
     return { group, row };
 }
 
-/** Picker handles returned by {@link mountProjectPicker}. */
-type ProjectPickerUi = Pick<
-    PanelUi,
-    'projectSelect' | 'projectStatus' | 'projectDetail' | 'projectRefresh' | 'projectCopy'
->;
-
 /**
  * Mount the project picker: list select, reload, copy, and its two lines.
  *
  * The select starts empty and disabled; `refresh` fills it in from the picker
  * state, so the loading, error, and empty states are painted from state rather
- * than from whatever the mount happened to see.
+ * than from whatever the mount happened to see. It mounts inside the Bindings
+ * body, because that is where the operator is when a project is what is
+ * missing (FR-038).
  *
- * @param input - Runtime, panel root, and the callbacks the picker invokes.
+ * @param input - Runtime, body element, and the callbacks the picker invokes.
  * @returns The picker handles used for later repaints.
  */
-function mountProjectPicker(input: {
+export function mountProjectPicker(input: {
     readonly rt: PanelRuntime;
     readonly root: HTMLElement;
     readonly handlers: PanelHandlers;
@@ -184,160 +127,48 @@ function mountProjectPicker(input: {
     });
     const projectStatus = mountText(group, { text: pickerNote(rt.state.projects) });
     const projectDetail = mountText(group, { text: describeProjectSelection(rt.state) });
+    // FR-070: the same "Not listed?" line the binding picker shows, so the
+    // routes to register a project are readable from either picker without
+    // leaving the panel. Constant copy, so it is painted once, not repainted.
+    mountStyledText(group, { className: 'mt-prose', text: notListedGuidance() });
 
     return { projectSelect, projectStatus, projectDetail, projectRefresh, projectCopy };
 }
 
 /**
- * Mount every panel control once.
+ * Mount the panel's root framing: the banner above the tab strip.
  *
- * @param rt - Panel runtime.
- * @param input - Panel root element and the callbacks wired to the actions.
- * @returns The handles used for later repaints.
+ * The banner is the read-state framing every tab shares, so it mounts once
+ * above the strip and never moves (plan §The shell). The root carries
+ * **nothing else** that is not a tab: the context summary line the panel used
+ * to print here (`bindings: … · accounts: … · identity: … · ledger: …`) was
+ * removed by the 2026-10-01 product-owner review — every fact it carried
+ * already has a tab that owns it, and a second home for a fact is a second
+ * place it can drift from.
+ *
+ * @param root - Panel root element from `panel/index.html`.
+ * @returns The one handle the repaint path updates.
  */
-export function mountPanelUi(rt: PanelRuntime, input: { root: HTMLElement; handlers: PanelHandlers }): PanelUi {
-    const { root, handlers } = input;
+export function mountPanelFraming(root: HTMLElement): PanelUi {
     const banner = mountBanner(root, { tone: 'info', title: 'Mecha Turk', body: 'Waiting for the host.' });
-    const summary = mountText(root, { text: 'Starting…' });
-    const picker = mountProjectPicker({ rt, root, handlers });
-    const controls = createControlsRow(root);
 
-    const poll = mountButton(controls, {
-        label: 'Poll now',
-        variant: 'secondary',
-        disabled: true,
-        onClick: handlers.poll,
-    });
-    const dispatch = mountButton(controls, { label: 'Start session', disabled: true, onClick: handlers.dispatch });
-    const verify = mountButton(controls, {
-        label: 'Verify host state',
-        variant: 'outline',
-        disabled: true,
-        onClick: handlers.verify,
-    });
-    const phaseSelect = mountSelect(controls, {
-        label: 'Observed phase',
-        value: rt.pendingPhase,
-        options: markerOptions(),
-        onChange: (id) => selectPhase(rt, id),
-    });
-    const mark = mountButton(controls, { label: 'Record phase', variant: 'ghost', onClick: handlers.mark });
-
-    const list = mountList(root, {
-        items: [],
-        ariaLabel: 'Spike ledger',
-        emptyText: 'No ledger entries yet.',
-        onSelect: (id) => void openEntry(rt, id),
-    });
-
-    return { banner, summary, ...picker, poll, dispatch, verify, phaseSelect, mark, list };
-}
-
-/**
- * Build the identity segment of the one-line context summary.
- *
- * Bindings mode polls under the service-side account bound to the
- * repository, so the legacy `state.login` — the host integration token — is
- * not the identity any scan runs as, and reporting it as "not authenticated"
- * while bindings poll is simply false. The line therefore names the connected
- * service login (`identity: <login> (service)`), falling back to the plain
- * `identity: service account` while nothing is connected yet. With no active
- * bindings the legacy single-repo wording is kept unchanged.
- *
- * @param state - Panel state.
- * @returns The `identity: …` segment of the summary.
- */
-function identityLine(state: PanelState): string {
-    if (state.bindingsActive > 0) {
-        const { connected } = state.handoff;
-
-        return connected === null ? 'identity: service account' : `identity: ${connected.login} (service)`;
-    }
-
-    return state.login === null ? 'identity: not authenticated' : `identity: ${state.login}`;
-}
-
-/**
- * Build the one-line context summary.
- *
- * Exported so the truthfulness of each segment (identity in bindings mode
- * above all) can be asserted without a live DOM.
- *
- * @param state - Panel state.
- * @returns Plain text describing configuration, identity, and match state.
- */
-export function summarizeState(state: PanelState): string {
-    const configured = state.config === null ? null : repositoryLabel(state.config.repository);
-    const repository = configured === null ? 'repository: not configured' : `repository: ${configured}`;
-    const match = state.match === null ? 'match: none' : `match: issue #${state.match.issueNumber}`;
-    const storage = `ledger: generation ${state.ledger.panelGeneration}, ${state.ledger.entries.length} entries`;
-
-    return [repository, identityLine(state), match, storage].join(' · ');
-}
-
-/**
- * Format an RFC 3339 timestamp as `HH:MM:SS`.
- *
- * @param iso - Timestamp to format.
- * @returns The time slice, or the raw value when it is too short.
- */
-function formatTime(iso: string): string {
-    return iso.length > TIME_END ? iso.slice(TIME_START, TIME_END) : iso;
-}
-
-/**
- * Convert recent ledger entries into list rows.
- *
- * @param state - Panel state.
- * @returns Up to {@link VISIBLE_ENTRIES} rows, newest first.
- */
-function buildListItems(state: PanelState): ListItem[] {
-    return ledgerTail(state.ledger, VISIBLE_ENTRIES).map((entry) => ({
-        id: String(entry.seq),
-        leading: entry.kind,
-        title: entry.kind === 'phase' ? `phase: ${entry.phase ?? 'unknown'}` : entry.kind,
-        subtitle: redact(JSON.stringify(entry.detail)),
-        meta: formatTime(entry.at),
-    }));
-}
-
-/**
- * Repaint the tab bodies from `repos.activeTab`.
- *
- * The shared tab strip's active state and each body's `hidden` flag are all
- * decided from `rt.state.repos.activeTab` — the switch handler only writes
- * state, and every repaint (including the first, which `mountReposSection`
- * runs before returning) applies visibility here. A runtime without the
- * mounted section (headless orchestration tests) has nothing to show.
- *
- * @param rt - Panel runtime.
- */
-export function repaintReposSection(rt: PanelRuntime): void {
-    const section = rt.reposSection;
-    if (section === null) {
-        return;
-    }
-
-    const reposShows = rt.state.repos.activeTab === 'repos';
-    section.spike.hidden = reposShows;
-    section.repos.pane.hidden = !reposShows;
-    repaintReposPane(rt, section.repos);
+    return { banner };
 }
 
 /**
  * Repaint the project picker from the picker state.
  *
  * @param state - Panel state.
- * @param ui - Mounted UI handles.
+ * @param ui - Mounted picker handles inside the Bindings body.
  */
-function refreshProjectPicker(state: PanelState, ui: PanelUi): void {
+function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
     const picker = state.projects;
     const selected = selectedProjectId(state);
 
     ui.projectSelect.update({
         options: pickerOptions(picker),
         // The picker's own value, not the effective one: a project that only
-        // the integration setting supplies has not been picked yet, and the
+        // a binding supplies has not been picked yet, and the
         // SDK select skips `onChange` when a click matches the current value —
         // so showing it here would silently block the operator from storing it.
         value: state.projectSelection,
@@ -352,9 +183,9 @@ function refreshProjectPicker(state: PanelState, ui: PanelUi): void {
 /**
  * Repaint every mounted control from the current state.
  *
- * Nothing runs on a disposed runtime; each surface repaints only when it is
- * mounted, so a runtime without the spike UI (headless tests) can still
- * repaint the Repositories tab it actually holds.
+ * Nothing runs on a disposed runtime, and each body repaints only while it is
+ * mounted: a tab the operator has never opened owns no handles yet, and the
+ * registry on `rt` is what says so (FR-013, FR-019).
  *
  * @param rt - Panel runtime.
  */
@@ -367,18 +198,30 @@ export function refresh(rt: PanelRuntime): void {
     if (ui !== null) {
         const { state } = rt;
         ui.banner.update({ tone: state.status.tone, title: state.status.title, body: state.status.body });
-        ui.summary.update({ text: summarizeState(state) });
-        ui.list.update({ items: buildListItems(state) });
-        // Bindings mode leaves this legacy control alone deliberately: the
-        // "Bindings active" banner already says the service owns polling, so
-        // the button keeps driving only the legacy single-repo loop it always
-        // did (MVP fix 4 chose the smaller change over a disabled note).
-        ui.poll.update({ disabled: !state.connected || state.config === null || rt.pollInFlight });
-        ui.dispatch.update({ disabled: state.evidence === null || state.busy, loading: state.busy });
-        ui.verify.update({ disabled: state.config === null || state.busy });
-        refreshProjectPicker(state, ui);
     }
 
-    repaintReposSection(rt);
+    const { bindingsUi, dispatchesUi, pickerUi, accountsUi } = rt;
+    if (bindingsUi !== null) {
+        repaintBindingsPane(rt, bindingsUi);
+    }
+
+    if (accountsUi !== null) {
+        repaintAccountsBody(rt, accountsUi);
+    }
+
+    if (dispatchesUi !== null) {
+        repaintDispatchesBoard(rt, dispatchesUi);
+    }
+
+    if (pickerUi !== null) {
+        refreshProjectPicker(rt.state, pickerUi);
+    }
+
+    // The About tab paints itself from state it shares with no other body:
+    // its version line is its own read, while the data directory, phase
+    // record, and ledger come from state this repaint has just refreshed.
+    repaintAboutTab(rt);
+
     refreshHandoff(rt);
+    repaintPrerequisites(rt);
 }

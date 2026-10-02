@@ -1,24 +1,24 @@
 /**
  * Audit write-path tests (task T-009n, reviews M6 and W2-2).
  *
- * The trail is append-only NDJSON whose `seq` and consent-idempotency used to
+ * The trail is append-only NDJSON whose `seq` used to
  * be rediscovered by re-reading the whole file on every write — fine for
  * Wave 2's handful of rows, an O(n²) trap for the Wave 4 poller that appends
  * on every tick. These tests pin the fix: one seed per store handle, numbers
- * counted in memory, appends serialized so `seq` stays unique and ordered,
- * and a per-version claim that makes two racing writers produce exactly one
- * consent row (contract §1.2, panel-service §3 invariant 8).
+ * counted in memory, and appends serialized so `seq` stays unique and ordered.
+ * (The per-version consent claim this file also used to pin went with the
+ * consent gate on 2026-10-01 — 002 v1.9.0 — but the seed still reads every
+ * stored line, legacy `consent` rows included, so an existing trail keeps
+ * extending without a gap.)
  */
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CONSENT_VERSION } from '../src/consent.ts';
-import { appendAudit, readAuditEntries } from '../service/audit.ts';
-import { recordConsentOccurrence } from '../service/consent.ts';
+import { appendAudit, composeAudit, readAuditEntries, serializeAudit } from '../service/audit.ts';
 import { openStore } from '../service/store/index.ts';
-import type { AuditInput } from '../service/audit.ts';
+import type { AuditEntry, AuditInput } from '../service/audit.ts';
 import type { NdjsonReadResult } from '../service/store/ndjson.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 
@@ -37,15 +37,21 @@ let tempRoot = '';
 /** Absolute data directory the store is opened on. */
 let dataDir = '';
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-audit-'));
     dataDir = join(tempRoot, 'store');
     await mkdir(dataDir, { recursive: true });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Build one audit input for the fixtures (ids only, never credential material).
@@ -86,11 +92,11 @@ function plantedLine(entry: Readonly<Record<string, unknown>>): string {
 }
 
 /**
- * Plant a two-row trail written by some earlier process.
- *
- * @param version - Consent version the planted consent row records.
+ * Plant a two-row trail written by some earlier process — the first row is a
+ * legacy `consent` entry from a build that still wrote them, so extending an
+ * existing trail is asserted against the history a real install carries.
  */
-async function plantTrail(version: number): Promise<void> {
+async function plantTrail(): Promise<void> {
     const lines = [
         plantedLine({
             seq: 7,
@@ -102,7 +108,7 @@ async function plantTrail(version: number): Promise<void> {
             decision: null,
             reason: null,
             redaction: { redacted: false, fields: [] },
-            details: { version, givenAt: '2026-09-27T00:00:00.000Z' },
+            details: { version: 1, givenAt: '2026-09-27T00:00:00.000Z' },
         }),
         plantedLine({
             seq: 8,
@@ -121,69 +127,166 @@ async function plantTrail(version: number): Promise<void> {
     await writeFile(join(dataDir, AUDIT_FILE), lines.join(''), 'utf8');
 }
 
-describe('audit sequence and consent caching (M6, W2-2)', () => {
-    it('appends without ever re-reading the audit file', async () => {
-        const store = await openStore({ dataDir });
-        const reads = countReads(store);
+describe('audit sequence and chain (M6, W2-2)', () => {
+    it('appends without ever re-reading the audit file (+2 cases)', async () => {
+        // case: appends without ever re-reading the audit file
+        {
+            const store = await openStore({ dataDir });
+            const reads = countReads(store);
 
-        const first = await appendAudit(store, sampleRow(STARTED_EVENT));
-        await recordConsentOccurrence(store, CONSENT_VERSION);
-        const third = await appendAudit(store, sampleRow(VERIFIED_EVENT));
-        await recordConsentOccurrence(store, CONSENT_VERSION); // replay: no read, no row
+            const first = await appendAudit(store, sampleRow(STARTED_EVENT));
+            const second = await appendAudit(store, sampleRow(VERIFIED_EVENT));
+            const third = await appendAudit(store, sampleRow('account.deleted'));
 
-        expect(first.seq).toBe(1);
-        expect(third.seq).toBe(3);
-        // Exactly the seed: three appends and two consent checks, one file read.
-        expect(reads.count()).toBe(1);
+            expect(first.seq).toBe(1);
+            expect(second.seq).toBe(2);
+            expect(third.seq).toBe(3);
+            // Exactly the seed: three appends, one file read.
+            expect(reads.count()).toBe(1);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: continues a trail that existed before the store opened
+        {
+            await plantTrail();
+            const store = await openStore({ dataDir });
+            const reads = countReads(store);
+
+            const appended = await appendAudit(store, sampleRow(VERIFIED_EVENT));
+
+            expect(appended.seq).toBe(9);
+            expect(reads.count()).toBe(1);
+
+            // The legacy `consent` row still reads as ordinary history, and no
+            // append after the seed touches the file read again.
+            const stored = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
+            expect(stored.match(/"eventType":"consent"/g) ?? []).toHaveLength(1);
+            await appendAudit(store, sampleRow(STARTED_EVENT));
+            expect(reads.count()).toBe(1);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: serializes concurrent appends so seq stays unique and file-ordered
+        {
+            const store = await openStore({ dataDir });
+
+            const written = await Promise.all([
+                appendAudit(store, sampleRow(STARTED_EVENT)),
+                appendAudit(store, sampleRow(VERIFIED_EVENT)),
+                appendAudit(store, sampleRow('account.deleted')),
+            ]);
+
+            expect(written.map((entry) => entry.seq)).toEqual([1, 2, 3]);
+            const stored = await readAuditEntries(store);
+            expect(stored.map((entry) => entry.seq)).toEqual([1, 2, 3]);
+        }
     });
+});
 
-    it('continues a trail that existed before the store opened', async () => {
-        await plantTrail(CONSENT_VERSION);
-        const store = await openStore({ dataDir });
-        const reads = countReads(store);
-
-        const appended = await appendAudit(store, sampleRow(VERIFIED_EVENT));
-
-        expect(appended.seq).toBe(9);
-        expect(reads.count()).toBe(1);
-
-        // The consent version seeded from that trail counts as recorded, so a
-        // replay writes nothing and still never touches the file again.
-        await recordConsentOccurrence(store, CONSENT_VERSION);
-        expect(reads.count()).toBe(1);
-        const stored = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
-        expect(stored.match(/"eventType":"consent"/g) ?? []).toHaveLength(1);
+/** Let every pending microtask plus one macrotask turn run; never sleeps. */
+async function flush(): Promise<void> {
+    await new Promise<void>((resolve) => {
+        setImmediate(resolve);
     });
+}
 
-    it('records exactly one consent row when three claims race (W2-2)', async () => {
-        const store = await openStore({ dataDir });
+/** Order markers the serialisation case asserts on; one spelling each. */
+const FIRST_START = 'first:start';
+const FIRST_END = 'first:end';
+const SECOND_RUN = 'second:run';
 
-        await Promise.all([
-            recordConsentOccurrence(store, CONSENT_VERSION),
-            recordConsentOccurrence(store, CONSENT_VERSION),
-            recordConsentOccurrence(store, CONSENT_VERSION),
-        ]);
+/**
+ * Compare two entries without the wall-clock stamp each one records.
+ *
+ * @param entry - Entry to normalise.
+ * @returns The entry with its timestamp replaced by a fixed marker.
+ */
+function stampless(entry: AuditEntry): AuditEntry {
+    return { ...entry, timestamp: 'STAMP' };
+}
 
-        const entries = await readAuditEntries(store);
-        const consent = entries.filter((entry) => entry.eventType === 'consent');
-        expect(consent).toHaveLength(1);
-        expect(consent[0]?.details.version).toBe(CONSENT_VERSION);
+describe('chain join and entry composer (006 T-011)', () => {
+    it('serialises chained tasks so the second starts only a… (+2 cases)', async () => {
+        // case: serialises chained tasks so the second starts only after the first settles
+        {
+            const store = await openStore({ dataDir });
+            const order: string[] = [];
+            let release: (() => void) | undefined;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            let markStarted: (() => void) | undefined;
+            const started = new Promise<void>((resolve) => {
+                markStarted = resolve;
+            });
 
-        const seqs = entries.map((entry) => entry.seq);
-        expect(new Set(seqs).size).toBe(seqs.length);
-    });
+            const first = serializeAudit(store, async () => {
+                order.push(FIRST_START);
+                markStarted?.();
+                await gate;
+                order.push(FIRST_END);
 
-    it('serializes concurrent appends so seq stays unique and file-ordered', async () => {
-        const store = await openStore({ dataDir });
+                return 'first';
+            });
+            const second = serializeAudit(store, async () => {
+                order.push(SECOND_RUN);
 
-        const written = await Promise.all([
-            appendAudit(store, sampleRow(STARTED_EVENT)),
-            appendAudit(store, sampleRow(VERIFIED_EVENT)),
-            appendAudit(store, sampleRow('account.deleted')),
-        ]);
+                return 'second';
+            });
 
-        expect(written.map((entry) => entry.seq)).toEqual([1, 2, 3]);
-        const stored = await readAuditEntries(store);
-        expect(stored.map((entry) => entry.seq)).toEqual([1, 2, 3]);
+            await started;
+            await flush();
+            // The first task is parked on the gate and the second has not run: it
+            // is queued behind the first on the one chain `appendAudit` uses.
+            expect(order).toEqual([FIRST_START]);
+            release?.();
+
+            expect(await Promise.all([first, second])).toEqual(['first', 'second']);
+            expect(order).toEqual([FIRST_START, FIRST_END, SECOND_RUN]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: composes the entry appendAudit would write, without writing a line
+        {
+            const composing = await openStore({ dataDir });
+            const appending = await openStore({ dataDir: join(tempRoot, 'appended-store') });
+            const input: AuditInput = { ...sampleRow(STARTED_EVENT), correlationId: 'compose-1' };
+
+            const composed = await serializeAudit(composing, async () => await composeAudit(composing, input));
+            const appended = await appendAudit(appending, input);
+
+            expect(stampless(composed)).toEqual(stampless(appended));
+            expect(composed.seq).toBe(1);
+            // The composer wrote nothing — the trail it composed for is still empty.
+            expect(await readAuditEntries(composing)).toEqual([]);
+            // …and its number is reserved, so the next append cannot reuse it.
+            const next = await appendAudit(composing, input);
+            expect(next.seq).toBe(2);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: runs the writer’s redaction pass over a composed entry
+        {
+            const store = await openStore({ dataDir });
+            const input: AuditInput = {
+                ...sampleRow(STARTED_EVENT),
+                correlationId: 'compose-redacted',
+                details: { note: 'credential ghp_1234567890123456789012345678901234' },
+            };
+
+            const composed = await serializeAudit(store, async () => await composeAudit(store, input));
+
+            expect(composed.redaction.redacted).toBe(true);
+            expect(JSON.stringify(composed)).not.toContain('ghp_');
+            expect(JSON.stringify(composed)).toContain('[redacted:github-token-classic]');
+        }
     });
 });

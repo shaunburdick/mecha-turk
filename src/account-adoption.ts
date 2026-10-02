@@ -17,12 +17,13 @@
  * core with the failed-adoption fallback copy, so the module owns one
  * adoption core plus the refusal test, and the handoff owns only the routing.
  *
- * Consent governs NEW token handoff only, so adoption asks for none, and the
- * one-shot paste path stays untouched for genuinely new tokens.
+ * Adoption asks for nothing of its own — there is no consent step left to
+ * skip (002 v1.9.0) — and the one-shot paste path stays untouched for
+ * genuinely new tokens.
  *
  * MVP-DEBT: with a usable account connected, the paste form stays hidden for
  * the whole mount — handing off a genuinely second account needs a panel
- * reload, or the repos pane's "Remove account" affordance to clear the path.
+ * reload, or the bindings pane's "Remove account" affordance to clear the path.
  * Multi-account adoption renders the first usable account.
  */
 
@@ -31,7 +32,7 @@ import { readScopeMirror, readStoredAccounts, writeAccountMirror } from './accou
 import { SERVICE_COPY, UNKNOWN_FAILURE, duplicateAdoptedLine } from './handoff-copy.ts';
 import { asRecord, parseJsonObject } from './json.ts';
 import type { PanelRuntime } from './panel-state.ts';
-import { reloadReposAfterConnect } from './repos.ts';
+import { reloadBindingsAfterConnect } from './bindings.ts';
 import { ACCOUNTS_PATH, serviceGet } from './service-calls.ts';
 
 /** Service error code that says the pasted token belongs to a held account. */
@@ -174,13 +175,12 @@ async function writeMissingMirrors(rt: PanelRuntime, usable: readonly ServiceAcc
  * Adopt the service's usable accounts the panel mirror is missing.
  *
  * Reads `GET /v1/accounts`, writes a mirror for every usable account the
- * mirror lacks, and connects the first usable one so the paste/consent form
+ * mirror lacks, and connects the first usable one so the paste form
  * is not offered for an account the service already holds. Never throws and
  * never touches the one-shot paste path: a failed read or an unreadable body
- * simply leaves the flow exactly as it was.
- *
- * Consent governs NEW token handoff only: adoption never asks for or consumes
- * consent — it connects what the service already holds.
+ * simply leaves the flow exactly as it was. There is nothing to ask the
+ * operator here: the service already holds the credential, and the consent
+ * step this flow used to skip is gone (002 v1.9.0).
  *
  * @param rt - Panel runtime.
  * @returns The adopted identity, or `null` when the service answered nothing
@@ -245,8 +245,8 @@ export async function adoptOnDuplicate(rt: PanelRuntime): Promise<AdoptedIdentit
 
     rt.state.handoff.note = duplicateAdoptedLine(adopted.login);
     // The adoption connected an account the panel mirror had lost, so the
-    // Repos tab's accounts dropdown re-reads before the operator looks at it.
-    reloadReposAfterConnect(rt);
+    // Bindings tab's accounts dropdown re-reads before the operator looks at it.
+    reloadBindingsAfterConnect(rt);
 
     return adopted;
 }

@@ -1,18 +1,43 @@
 /**
- * Service read/write side the Repos tab and the relay share (re-cut).
+ * Service read/write side the Bindings tab and the relay share (re-cut).
  *
  * One small client for the HTTP calls the panel makes over the documented
- * `host.serviceRequest()` bridge: bindings GET/PUT, event relay GET/POST,
- * and the runs history GET/POST. Status classification lives here so the tab
- * and the loop draw problems from one vocabulary (never quoting a payload).
+ * `host.serviceRequest()` bridge: bindings GET/PUT, the configuration PUT,
+ * event relay GET/POST, and the runs history GET/POST. Classification of the
+ * answer itself lives in [`service-envelope.ts`](./service-envelope.ts) — one
+ * classifier for every wrapper, so the tab and the loop draw problems from one
+ * vocabulary (never quoting a payload).
  *
  * MVP-DEBT: a long-poll cursor and lease headers are contract §2.4
  * machinery this simple client replaces for the MVP cut.
  */
 
-import type { GuestRequestResult } from '@openchamber/sdk';
 import type { SpikeHost } from './session.ts';
-import { parseJsonObject } from './json.ts';
+import type { ServiceConfigPutResult, ServiceErrorResult, ServiceResource, ServiceResult } from './service-envelope.ts';
+import {
+    configResultOf,
+    describeTransport,
+    resultOf,
+    resultWithErrorOf,
+} from './service-envelope.ts';
+
+/** The classifier's vocabulary, re-exported so one import path still serves. */
+export type {
+    ConfigIssueView,
+    ServiceConfigPutResult,
+    ServiceErrorResult,
+    ServiceResource,
+    ServiceResult,
+} from './service-envelope.ts';
+
+/**
+ * The resource every pre-006 wrapper describes, kept byte-identical.
+ *
+ * A bindings refusal still says *bindings* (006 T-016's "nothing regresses"),
+ * so the four shared wrappers pass this constant rather than each spelling the
+ * sentence's subject — one literal, one meaning.
+ */
+const LEGACY_RESOURCE: ServiceResource = 'bindings list';
 
 /** The one method the wrappers call, typed as the documented host surface. */
 export type ServiceRequester = Pick<SpikeHost, 'serviceRequest'>['serviceRequest'];
@@ -23,144 +48,70 @@ export const BINDINGS_PATH = '/v1/bindings';
 /** Path of the credential-free account collection (service contract §2.2). */
 export const ACCOUNTS_PATH = '/v1/accounts';
 
-/** Path the panel polls for queued events. */
+/** Path the panel polls for claimed runs. */
 export const EVENTS_PENDING_PATH = '/v1/events/pending';
 
-/** Path of the runs history: every event, every state, newest first (M8). */
+/**
+ * Path of the service configuration document (002 FR-029's baseline source).
+ *
+ * The panel reads it per verification to pick up `expectedAgent`; a build
+ * whose document does not carry the field falls back to the documented
+ * default with `provenance: 'defaulted'` rather than blocking the run.
+ */
+export const CONFIG_PATH = '/v1/config';
+
+/**
+ * Path of the readiness probe, which is also the About tab's version source
+ * (005 FR-074).
+ *
+ * The route the service actually registers — and the path 002's
+ * `panel-service.md` §2.1, 005 FR-074, and 005's own
+ * `contracts/about-version.md` all name once T-036's truth-repair landed —
+ * is `/health`, with no `/v1` prefix and no alias (adding one would invent a
+ * second health surface to satisfy a typo). `tests/about-tab.test.ts` pins
+ * this constant to `healthRoute.path` and pins those documents to the same
+ * string, so the two cannot drift apart in either direction.
+ */
+export const HEALTH_PATH = '/health';
+
+/** Path of the runs history: every run, every state, newest first (M8). */
 export const EVENTS_PATH = '/v1/events';
 
-/** Path pattern for one dispatch-result POST. */
-const DISPATCH_PATH_PATTERN = '/v1/events/:eventId/dispatched';
+/** Path of the correlation-filtered audit read (003 contract, run-history §2). */
+export const AUDIT_PATH = '/v1/audit';
 
-/** Path pattern for one run retry POST (M8). */
-const RETRY_PATH_PATTERN = '/v1/events/:eventId/retry';
+/**
+ * Path pattern every run-scoped operation shares (003 wire delta).
+ *
+ * The `:correlationId` segment is the **run's** correlation id (`mt-run-…`),
+ * never a delivery id: a post-003 delivery carries no lifecycle field of its
+ * own, so a delivery-addressed mutation answers `404 unknown-run`. Each helper
+ * below exists so no call site can reintroduce that shape by hand.
+ */
+const RUN_SCOPE_PATTERN = '/v1/events/:correlationId';
 
 /** Path pattern for one account resource (the delete route). */
 const ACCOUNT_DELETE_PATTERN = '/v1/accounts/:numericUserId';
 
-/** Lowest HTTP status code a service answer counts as success. */
-const STATUS_OK_MIN = 200;
+/** Path pattern of one account's token-replacement route (002 FR-012). */
+const ACCOUNT_TOKEN_PATTERN = '/v1/accounts/:numericUserId/token';
 
-/** HTTP status just past the last success code (`2xx`). */
-const STATUS_OK_MAX_EXCLUSIVE = 300;
-
-/** HTTP status the service answers with a `validation` error body. */
-const STATUS_VALIDATION = 422;
-
-/** Lowest HTTP status that carries the documented error envelope (§1). */
-const STATUS_ERROR_MIN = 400;
-
-/** Result of one service round trip through the host bridge. */
-export type ServiceResult =
-    | { readonly ok: true; readonly body: string }
-    | { readonly ok: false; readonly problem: string };
-
-/** Result of one call where the service's error code matters to the caller. */
-export type ServiceErrorResult =
-    | { readonly ok: true; readonly body: string }
-    | { readonly ok: false; readonly problem: string; readonly code: string | null };
+/** Path pattern of one account's display-name route (005 FR-066). */
+const ACCOUNT_DISPLAY_NAME_PATTERN = '/v1/accounts/:numericUserId/display-name';
 
 /**
- * Decide whether one HTTP status lands in the 2xx band.
+ * Query flag the hardened delete needs before it disables an account's
+ * bindings instead of refusing (005 FR-065).
  *
- * @param status - Status to check.
- * @returns `true` inside the band.
+ * The panel only ever sends it **after** the arm step has named the cascade,
+ * which is what makes the flag the confirmation rather than a bypass: the
+ * service's own guard writes `state: 'disabled'` on those bindings and audits
+ * each one, and the panel renders exactly that outcome.
  */
-function isOkStatus(status: number): boolean {
-    return status >= STATUS_OK_MIN && status < STATUS_OK_MAX_EXCLUSIVE;
-}
+const FORCE_DISABLE_QUERY = '?force=1';
 
-/**
- * Decide whether one HTTP status carries the documented error envelope.
- *
- * Every status from 400 up answers with `{ error: { code, ... } }`
- * (contract §1), so the extraction only needs the band boundary.
- *
- * @param status - Status to check.
- * @returns `true` inside the error band.
- */
-function isErrorStatus(status: number): boolean {
-    return status >= STATUS_ERROR_MIN;
-}
-
-/**
- * Describe one non-2xx service answer from the status alone.
- *
- * @param status - HTTP status the service answered with.
- * @returns A short, secret-free problem string.
- */
-function httpProblem(status: number): string {
-    if (status === STATUS_VALIDATION) {
-        return 'service refused the bindings list';
-    }
-
-    return `service answered ${status}`;
-}
-
-/**
- * Read the error code out of one error envelope, without trusting it.
- *
- * @param body - Response body text (unchecked).
- * @returns The envelope's code, or `null` when absent.
- */
-function envelopeCodeOf(body: string): string | null {
-    const root = parseJsonObject(body);
-    const error = root?.error;
-    if (error === null || typeof error !== 'object' || Array.isArray(error)) {
-        return null;
-    }
-
-    const { code } = error as { readonly code?: unknown };
-
-    return typeof code === 'string' ? code : null;
-}
-
-/**
- * Turn one service answer into the wrapper's result.
- *
- * @param answer - The result the host bridged back.
- * @returns The body, or a status-named problem.
- */
-function resultOf(answer: GuestRequestResult): ServiceResult {
-    if (isOkStatus(answer.status)) {
-        return { ok: true, body: answer.body };
-    }
-
-    return { ok: false, problem: httpProblem(answer.status) };
-}
-
-/**
- * Turn one service answer into the error-aware wrapper's result.
- *
- * Same as {@link resultOf}, except a refusal in the error bands also carries
- * the envelope's machine code — extracted from the body, never quoted — so a
- * caller can distinguish a documented refusal from anything else without
- * parsing the body twice.
- *
- * @param answer - The result the host bridged back.
- * @returns The body, or a problem plus the error code when one was sent.
- */
-function resultWithErrorOf(answer: GuestRequestResult): ServiceErrorResult {
-    if (isOkStatus(answer.status)) {
-        return { ok: true, body: answer.body };
-    }
-
-    const code = isErrorStatus(answer.status) ? envelopeCodeOf(answer.body) : null;
-
-    return { ok: false, problem: httpProblem(answer.status), code };
-}
-
-/**
- * Describe one transport failure without quoting host payloads.
- *
- * @param cause - Caught value.
- * @returns A short, secret-free problem string.
- */
-function describeTransport(cause: unknown): string {
-    const code = typeof cause === 'object' && cause !== null && 'code' in cause ? cause.code : null;
-
-    return typeof code === 'string' ? `service unreachable: ${code}` : 'service unreachable';
-}
+/** The path segment every account route substitutes the numeric id into. */
+const ACCOUNT_ID_SEGMENT = ':numericUserId';
 
 /**
  * Run one GET through `host.serviceRequest`.
@@ -177,17 +128,22 @@ export async function serviceGet(input: {
     try {
         const answer = await input.serviceRequest({ method: 'GET', path: input.path });
 
-        return resultOf(answer);
+        return resultOf(answer, LEGACY_RESOURCE);
     } catch (cause) {
         return { ok: false, problem: describeTransport(cause) };
     }
 }
 
 /**
- * Run one PUT through `host.serviceRequest`.
+ * Run one PUT through `host.serviceRequest`, reading the error code.
+ *
+ * The error-aware shape (same as {@link servicePost}) costs nothing for a
+ * caller that only checks `ok`, and it lets the bindings grant put the
+ * service's own field-level remediation next to the field it belongs to
+ * (005 FR-052) instead of behind a generic "the service refused".
  *
  * @param input - The host surface, path, and the JSON body text.
- * @returns The wrapper's result.
+ * @returns The wrapper's result, carrying the envelope when it sent one.
  */
 export async function servicePut(input: {
     /** Host surface. */
@@ -196,13 +152,45 @@ export async function servicePut(input: {
     readonly path: string;
     /** Serialized body. */
     readonly body: string;
-}): Promise<ServiceResult> {
+}): Promise<ServiceErrorResult> {
     try {
         const answer = await input.serviceRequest({ method: 'PUT', path: input.path, body: input.body });
 
-        return resultOf(answer);
+        return resultWithErrorOf(answer, LEGACY_RESOURCE);
     } catch (cause) {
-        return { ok: false, problem: describeTransport(cause) };
+        return { ok: false, problem: describeTransport(cause), code: null, message: null };
+    }
+}
+
+/**
+ * Write the whole configuration document, keeping the refusal's issue list.
+ *
+ * The one configuration path in the panel (006 FR-040: `PUT /v1/config` and
+ * nothing else), and the wrapper the misnamed-refusal problem was about (FR-043):
+ * the answer keeps the service's own `error.issues` **in the service's order**,
+ * so a `422` can be rendered field by field with the service's wording instead
+ * of behind one generic sentence — and its problem string names the
+ * *configuration*, never the bindings list (AC-112). A `503`, a `401`, and a
+ * transport failure reach the caller as themselves with no issues: they are not
+ * refusals of these values, and the panel must not present them as one (FR-061,
+ * FR-063).
+ *
+ * @param input - The host surface and the complete document to write.
+ * @returns The body on success; the problem, code, issues, and correlation id
+ *   on a refusal.
+ */
+export async function servicePutConfig(input: {
+    /** Host surface. */
+    readonly serviceRequest: ServiceRequester;
+    /** The complete configuration document, serialized. */
+    readonly body: string;
+}): Promise<ServiceConfigPutResult> {
+    try {
+        const answer = await input.serviceRequest({ method: 'PUT', path: CONFIG_PATH, body: input.body });
+
+        return configResultOf(answer);
+    } catch (cause) {
+        return { ok: false, problem: describeTransport(cause), code: null, issues: [], correlationId: null };
     }
 }
 
@@ -233,9 +221,9 @@ export async function servicePost(input: {
             ...(input.body === undefined ? {} : { body: input.body }),
         });
 
-        return resultWithErrorOf(answer);
+        return resultWithErrorOf(answer, LEGACY_RESOURCE);
     } catch (cause) {
-        return { ok: false, problem: describeTransport(cause), code: null };
+        return { ok: false, problem: describeTransport(cause), code: null, message: null };
     }
 }
 
@@ -259,9 +247,9 @@ export async function serviceDelete(input: {
     try {
         const answer = await input.serviceRequest({ method: 'DELETE', path: input.path });
 
-        return resultWithErrorOf(answer);
+        return resultWithErrorOf(answer, LEGACY_RESOURCE);
     } catch (cause) {
-        return { ok: false, problem: describeTransport(cause), code: null };
+        return { ok: false, problem: describeTransport(cause), code: null, message: null };
     }
 }
 
@@ -272,25 +260,140 @@ export async function serviceDelete(input: {
  * @returns The path segment to DELETE.
  */
 export function accountDeletePath(numericUserId: string): string {
-    return ACCOUNT_DELETE_PATTERN.replace(':numericUserId', numericUserId);
+    return ACCOUNT_DELETE_PATTERN.replace(ACCOUNT_ID_SEGMENT, numericUserId);
 }
 
 /**
- * Build the dispatch path for one event.
+ * Build the delete path for one account **with** the cascade the arm step
+ * already stated (005 FR-055, FR-065).
  *
- * @param eventId - The event's id.
- * @returns The path segment to POST to.
+ * @param numericUserId - GitHub numeric user id of the account to delete.
+ * @returns The path segment that disables the account's bindings, then it.
  */
-export function dispatchedPath(eventId: string): string {
-    return DISPATCH_PATH_PATTERN.replace(':eventId', eventId);
+export function accountRemovePath(numericUserId: string): string {
+    return `${accountDeletePath(numericUserId)}${FORCE_DISABLE_QUERY}`;
 }
 
 /**
- * Build the retry path for one run (M8).
+ * Build the token-replacement path for one account (002 FR-012, FR-064).
  *
- * @param eventId - The event's id.
+ * @param numericUserId - GitHub numeric user id of the account being rotated.
+ * @returns The path segment that replaces the stored credential.
+ */
+export function accountTokenPath(numericUserId: string): string {
+    return ACCOUNT_TOKEN_PATTERN.replace(ACCOUNT_ID_SEGMENT, numericUserId);
+}
+
+/**
+ * Build the display-name path for one account (005 FR-066, Gate Question 4).
+ *
+ * A narrow operation on purpose: it can change nothing but `displayName` and
+ * `updatedAt`, so a mistyped body can never reach custody.
+ *
+ * @param numericUserId - GitHub numeric user id of the account being labelled.
+ * @returns The path segment that sets the operator's display label.
+ */
+export function accountDisplayNamePath(numericUserId: string): string {
+    return ACCOUNT_DISPLAY_NAME_PATTERN.replace(ACCOUNT_ID_SEGMENT, numericUserId);
+}
+
+/**
+ * Build the path of one run-scoped operation.
+ *
+ * @param correlationId - The run's correlation id (`mt-run-…`, one segment).
+ * @param verb - The operation's suffix under `/v1/events/:correlationId/`.
  * @returns The path segment to POST to.
  */
-export function retryPath(eventId: string): string {
-    return RETRY_PATH_PATTERN.replace(':eventId', eventId);
+function runOperationPath(correlationId: string, verb: string): string {
+    return `${RUN_SCOPE_PATTERN.replace(':correlationId', correlationId)}/${verb}`;
+}
+
+/**
+ * Build the reserve path: declare intent and receive the single-use token.
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function reservePath(correlationId: string): string {
+    return runOperationPath(correlationId, 'reserve');
+}
+
+/**
+ * Build the result path: report what `host.startSession()` produced.
+ *
+ * @param correlationId - The run's correlation id (never a delivery id).
+ * @returns The path segment to POST to.
+ */
+export function dispatchedPath(correlationId: string): string {
+    return runOperationPath(correlationId, 'dispatched');
+}
+
+/**
+ * Build the abandon path: a reserved attempt that made no host call at all.
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function abandonPath(correlationId: string): string {
+    return runOperationPath(correlationId, 'abandon');
+}
+
+/**
+ * Build the block-report path: a fail-closed guard refused before any host call.
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function blockedPath(correlationId: string): string {
+    return runOperationPath(correlationId, 'blocked');
+}
+
+/**
+ * Build the retry path (M8).
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function retryPath(correlationId: string): string {
+    return runOperationPath(correlationId, 'retry');
+}
+
+/**
+ * Build the requeue path: return a dead-lettered run to waiting (FR-033).
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function requeuePath(correlationId: string): string {
+    return runOperationPath(correlationId, 'requeue');
+}
+
+/**
+ * Build the resolve path: one of FR-027's two explicit `unconfirmed` decisions.
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function resolvePath(correlationId: string): string {
+    return runOperationPath(correlationId, 'resolve');
+}
+
+/**
+ * Build the verification path: the post-dispatch agent read-back (FR-043).
+ *
+ * @param correlationId - The run's correlation id.
+ * @returns The path segment to POST to.
+ */
+export function verificationPath(correlationId: string): string {
+    return runOperationPath(correlationId, 'verification');
+}
+
+/**
+ * Build the correlation-filtered audit-read path (FR-053).
+ *
+ * @param correlationId - The run whose rows to read.
+ * @returns `GET` path carrying the filter as a query parameter.
+ */
+export function auditPath(correlationId: string): string {
+    return `${AUDIT_PATH}?correlationId=${encodeURIComponent(correlationId)}`;
 }

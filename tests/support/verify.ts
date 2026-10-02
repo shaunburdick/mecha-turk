@@ -3,7 +3,7 @@
  *
  * Every case in both suites runs the real loopback service with the real
  * GitHub *client* over a fake `fetch`, so status classification, the FR-010
- * scope matrix, the consent gate, and the throttles are exercised exactly as
+ * scope matrix, and the throttles are exercised exactly as
  * production runs them. The registered credential lives here once, because
  * both suites assert **registered-token scans**: a passing scan proves
  * structural absence rather than a lucky redaction pattern.
@@ -12,7 +12,6 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect } from 'vitest';
-import { CONSENT_VERSION } from '../../src/consent.ts';
 import { ACCOUNTS_DIR } from '../../service/accounts/store.ts';
 import { VERIFY_PATH } from '../../service/routes/verify.ts';
 import type { ScopeCapability, ScopeResult, VerifyOutcome } from '../../service/github.ts';
@@ -35,9 +34,6 @@ export const JSON_HEADERS: Record<string, string> = headerMap([['content-type', 
 
 /** The four FR-010 capabilities, in matrix order. */
 export const CAPABILITIES: readonly ScopeCapability[] = ['metadata', 'issues', 'pull-requests', 'contents'];
-
-/** Consent refusal code asserted by the gate tests (contract §4). */
-export const CONSENT_REQUIRED = 'consent-required';
 
 /** Throttle wait header asserted by the GitHub-429 tests (contract §4). */
 export const RETRY_AFTER = 'retry-after';
@@ -145,7 +141,7 @@ export async function startWithGitHub(script: GitHubScript): Promise<{ service: 
  * @returns The serialized request body.
  */
 export function verifyBody(token: string, extra: Readonly<Record<string, unknown>> = {}): string {
-    return JSON.stringify({ token, consentVersion: CONSENT_VERSION, ...extra });
+    return JSON.stringify({ token, ...extra });
 }
 
 /**

@@ -11,7 +11,53 @@
                 height: 100%;
             }
 
+            /*
+             * Layout contract (005 FR-082; product-owner review 2026-09-30).
+             *
+             * `#root` is a column flex container, and by default every child
+             * of one shrinks as content pushes back — which is exactly how a
+             * tall tab body squeezed the six-tab strip between the banner
+             * block and the content until the tabs stopped being clickable.
+             * So: no child of `#root` may give up height except the body
+             * region the shell marks (`src/tabs.ts` sets `flex: 1 1 auto`,
+             * `min-height: 0`, and `overflow-y: auto` inline, which wins over
+             * this rule). The strip, the banners, and the notice keep their
+             * natural height; the region below them is the scroller.
+             */
+            #root > * {
+                flex-shrink: 0;
+            }
+
             #root {
+                /*
+                 * Design tokens (2026-09-30 visual redesign).
+                 *
+                 * Every value is an alias of a token the host theme paints
+                 * onto `<html>` through `applyHostTheme` (the SDK writes both
+                 * its `--oc-*` aliases and the host's own `--surface-*` /
+                 * `--interactive-*` names), so light and dark follow the host
+                 * without this file knowing either palette. The right-hand
+                 * fallbacks only ever run in a frame the host never readied,
+                 * and each one is chosen to stay legible in both modes.
+                 */
+                --mt-gap: 12px;
+                --mt-pad: 14px;
+                --mt-space-1: 4px;
+                --mt-space-2: 8px;
+                --mt-space-3: 12px;
+                --mt-space-4: 16px;
+                --mt-radius: var(--radius, 8px);
+                --mt-surface: var(--oc-elevated, var(--surface-elevated, transparent));
+                --mt-sunken: var(--oc-subtle, var(--surface-subtle, transparent));
+                --mt-ink: var(--oc-fg, var(--surface-foreground, inherit));
+                --mt-dim: var(--oc-muted, var(--surface-muted-foreground, gray));
+                --mt-line: var(--oc-border, var(--interactive-border, currentColor));
+                --mt-accent: var(--oc-primary, var(--primary, currentColor));
+                --mt-font: var(--oc-font, var(--font-sans, inherit));
+                --mt-mono: var(--oc-mono, var(--font-mono, monospace));
+                --mt-hover: var(--oc-hover, var(--interactive-hover, transparent));
+                --mt-key-width: 13rem;
+
                 height: 100%;
                 padding: 12px;
                 box-sizing: border-box;
@@ -19,6 +65,725 @@
                 flex-direction: column;
                 gap: 12px;
                 overflow-y: auto;
+                font-family: var(--mt-font);
+                font-size: 0.875rem;
+                line-height: 1.45;
+                color: var(--mt-ink);
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Hidden: the element is out of the layout, whatever says otherwise.
+             * ---------------------------------------------------------------- */
+
+            /*
+             * The HTML standard's suggested rendering for `hidden` is
+             * `display: none`, and its own note warns that "because this
+             * attribute is typically implemented using CSS, it's also
+             * possible to override it using CSS" — an author rule naming a
+             * hidden element outranks the UA sheet outright. The panel writes
+             * such rules everywhere, so the suggested rendering is strengthened
+             * with `!important`: the form GitHub's Primer CSS ships, and the
+             * only form that settles the contest in one place.
+             *
+             * Three shapes painted while hidden before this rule existed:
+             *
+             *   `section.mt-block`   → `flex`       `createBlock` hands back
+             *                                       the section itself when a
+             *                                       block carries no lede, so
+             *                                       `.mt-block` names it.
+             *   `button.oc-sdk-btn`  → `inline-flex` the SDK's own sheet.
+             *   three plain Dispatches → `flex`      an inline `style.display`
+             *   control rows                           from `src/`.
+             *
+             * `!important` is the point, not decoration: importance is compared
+             * before specificity, before source order, and before the style
+             * attribute, so no *normal* author declaration — from this sheet,
+             * from the SDK's, or written inline — can reach an element the
+             * panel marked hidden.
+             *
+             * Two fences check it: `tools/visual/assert-body.js` refuses a
+             * capture whose live document still paints a `[hidden]` element,
+             * and `tests/visual-structure.test.ts` proves the cascade offline
+             * (including that the answers flip when this rule is stripped).
+             */
+            [hidden] {
+                display: none !important;
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Shell: the six tab bodies are stacks of blocks.
+             * ---------------------------------------------------------------- */
+
+            [data-body] {
+                display: flex;
+                flex-direction: column;
+                gap: var(--mt-gap);
+            }
+
+            /*
+             * Exactly one body is in the layout; the other five are out of it.
+             *
+             * `src/tabs.ts` paints the shell by writing the `hidden` attribute
+             * onto the five bodies that are not active — but the UA sheet's
+             * `[hidden] { display: none }` is origin-weak, so the author rule
+             * above (0,1,0) beats it outright and every body stayed `flex`.
+             * The region's `scrollHeight` then summed all six, a tab click
+             * moved only the pill, and `npm run shot` photographed a scroll
+             * position rather than a selection.
+             *
+             * Two attribute selectors score (0,2,0): they outrank the rule
+             * above whatever the order, they outrank the UA sheet on origin
+             * alone, and they cannot match anything but a body the shell has
+             * actually marked hidden.
+             *
+             * The `[hidden]` rule above now takes a body out of the layout as
+             * well, so the two agree rather than compete; this one stays
+             * because it states the tab-body contract where it is read, and
+             * the offline fence strips both to show the stylesheet as it was
+             * before either rule hid a body.
+             */
+            [data-body][hidden] {
+                display: none;
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Blocks: every logical group gets a heading and its own surface.
+             * ---------------------------------------------------------------- */
+
+            .mt-block {
+                display: flex;
+                flex-direction: column;
+                gap: var(--mt-space-2);
+                padding: var(--mt-pad);
+                box-sizing: border-box;
+                border: 1px solid color-mix(in srgb, var(--mt-line) 60%, transparent);
+                border-radius: var(--mt-radius);
+                background: var(--mt-surface);
+            }
+
+            .mt-block--sunken {
+                background: var(--mt-sunken);
+            }
+
+            .mt-block--flush {
+                gap: var(--mt-space-1);
+                padding: var(--mt-space-2) var(--mt-pad) var(--mt-pad);
+            }
+
+            /*
+             * A control a tab mounts straight into a block is a flex item of a
+             * column whose default `align-items` is `stretch`, so it paints as
+             * a slab the full width of the pane — and a *disabled* one, with
+             * nothing but its label to show, reads as an empty text input.
+             * Seven of them stacked in the Bindings editor is exactly how that
+             * looked (product-owner review 2026-10-01).
+             *
+             * The second selector reaches the body `createBlock` builds when a
+             * block carries a lede: the block's own children stop at the
+             * `.mt-group` wrapper, so a rule naming only the block would miss
+             * every button behind one. A run of controls that wants to share a
+             * line already sits in `.mt-toolbar`, which this never matches.
+             */
+            .mt-block > .oc-sdk-btn,
+            .mt-block > .mt-group > .oc-sdk-btn {
+                align-self: flex-start;
+            }
+
+            .mt-heading {
+                margin: 0;
+                font-family: var(--mt-font);
+                font-size: 0.6875rem;
+                font-weight: 700;
+                line-height: 1.4;
+                letter-spacing: 0.07em;
+                text-transform: none;
+                color: var(--mt-dim);
+            }
+
+            .mt-heading--title {
+                font-size: 0.9375rem;
+                font-weight: 650;
+                letter-spacing: 0;
+                color: var(--mt-ink);
+            }
+
+            .mt-lede {
+                margin: 0;
+                font-size: 0.8125rem;
+                line-height: 1.5;
+                color: var(--mt-dim);
+                /* Prose keeps a measure on a rail: a 110-character line is
+                   a desktop line, and the eye has to travel back across the
+                   whole panel to find the next one. */
+                max-width: 74ch;
+            }
+
+            /* A controls row: filters, paging, and the read-state line. */
+            .mt-toolbar {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: var(--mt-space-2);
+            }
+
+            .mt-toolbar--split {
+                justify-content: space-between;
+            }
+
+            /*
+             * A toolbar that mixes bare buttons with label-over-control
+             * selects. Centering floats a 36px button in the middle of a
+             * ~50px select stack, so "Clear filters" hangs off no line at
+             * all; bottom-aligning puts every control on one edge (the
+             * Dispatches paging and filter row, 2026-10-01 review). The
+             * button-and-a-line toolbars on Status and About keep `center`,
+             * where a caption beside a button should sit mid-height.
+             */
+            .mt-toolbar--controls {
+                align-items: flex-end;
+            }
+
+            .mt-stack {
+                display: flex;
+                flex-direction: column;
+                gap: var(--mt-space-2);
+            }
+
+            .mt-group {
+                display: flex;
+                flex-direction: column;
+                gap: var(--mt-space-3);
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Definition rows: label and value as structure, not prose.
+             * ---------------------------------------------------------------- */
+
+            .mt-defs {
+                display: flex;
+                flex-direction: column;
+            }
+
+            /*
+             * Definition rows stack by default: the label sits above its
+             * value, which is how a right-hand rail is read. The key *column*
+             * is an enhancement rather than the starting point — block 2 adds
+             * one from 640px up, and below that line the row keeps stacking,
+             * because the host's own default panel measures 500–715px (the
+             * width evidence lives with `DEFAULT_WIDTH` in `tools/visual/
+             * shot.js`).
+             */
+            .mt-def {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr);
+                row-gap: 2px;
+                padding: var(--mt-space-2) 0;
+                border-top: 1px solid color-mix(in srgb, var(--mt-line) 45%, transparent);
+            }
+
+            .mt-def:first-child {
+                padding-top: 0;
+                border-top: 0;
+            }
+
+            .mt-def:last-child {
+                padding-bottom: 0;
+            }
+
+            .mt-def--note {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .mt-def--interactive {
+                border-radius: 6px;
+                margin: 0 calc(-1 * var(--mt-space-1));
+                padding-left: var(--mt-space-1);
+                padding-right: var(--mt-space-1);
+            }
+
+            .mt-def--interactive:hover {
+                background: var(--mt-hover);
+            }
+
+            .mt-key {
+                min-width: 0;
+                color: var(--mt-dim);
+            }
+
+            .mt-key--strong {
+                color: var(--mt-ink);
+                font-weight: 600;
+            }
+
+            .mt-key--mono {
+                font-family: var(--mt-mono);
+                font-size: 0.75rem;
+            }
+
+            /*
+             * The stacked row's label (the default): a small tracked line
+             * over its value — the shape a form field has, which is what a
+             * definition row becomes on a rail. `.mt-def .mt-key`
+             * out-specifies the `--strong`/`--mono` modifiers for size and
+             * weight, exactly as the old 560px query did, but never touches
+             * colour: `--strong` still darkens its key and `--mono` still
+             * brings the family. Block 2 restores the columnar type at 640px.
+             */
+            .mt-def .mt-key {
+                font-size: 0.6875rem;
+                line-height: 1.4;
+                font-weight: 700;
+                letter-spacing: 0.05em;
+            }
+
+            .mt-val {
+                min-width: 0;
+                font-size: 0.8125rem;
+                line-height: 1.45;
+                color: var(--mt-ink);
+                font-variant-numeric: tabular-nums;
+                overflow-wrap: anywhere;
+            }
+
+            .mt-val--mono {
+                font-family: var(--mt-mono);
+                font-size: 0.75rem;
+            }
+
+            .mt-val--dim {
+                color: var(--mt-dim);
+            }
+
+            /*
+             * Cells own their text treatment.
+             *
+             * `mountText` renders into a node carrying the SDK's own `.oc-sdk`
+             * class, which sets the family, size, colour, and line-height of
+             * the *inner* node — so a treatment set on the wrapper would lose
+             * every cascade argument. These rules hand the inner node back to
+             * its cell; the SDK's link and image rules still apply inside it.
+             */
+            .mt-key .oc-sdk-text,
+            .mt-val .oc-sdk-text,
+            .mt-lede .oc-sdk-text,
+            .mt-prose .oc-sdk-text,
+            .mt-fix .oc-sdk-text,
+            .mt-card-body .oc-sdk-text,
+            .mt-heading .oc-sdk-text {
+                font: inherit;
+                color: inherit;
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Settings: field, value, and shape as one row per declared member.
+             * ---------------------------------------------------------------- */
+
+            /*
+             * Settings is one column on a rail — label, control, bounds, in
+             * that order, stacked — and it keeps no header over a stack it
+             * cannot line up. The three-column table and its header are a
+             * wide-viewport enhancement (block 2, at 900px), never a shape
+             * the layout has to fall *out* of when the panel is narrow.
+             *
+             * The rule that hides the header is declared after `.mt-head`
+             * (below), where source order can settle the cascade — see the
+             * note there for why its position is the whole fix.
+             */
+
+            .mt-grid {
+                display: flex;
+                flex-direction: column;
+            }
+
+            /*
+             * Each SDK field lays its label, control, and note out as the
+             * three columns the header names — the wrapper is a flex column
+             * precisely so the header and the rows are siblings that only have
+             * to agree on the template, never on their children's index.
+             *
+             * By default there is one column: a rail stacks, and the header
+             * above it is hidden (block 2 brings both back at 900px).
+             */
+            .mt-grid > .oc-sdk-field,
+            .mt-grid > .oc-sdk-select {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr);
+                column-gap: var(--mt-space-3);
+                row-gap: var(--mt-space-1);
+                align-items: start;
+                padding: var(--mt-space-2) 0;
+                border-top: 1px solid color-mix(in srgb, var(--mt-line) 45%, transparent);
+            }
+
+            /* A member this build declares no control for spans the row. */
+            .mt-grid > .oc-sdk-text {
+                padding: var(--mt-space-1) 0;
+                font-size: 0.8125rem;
+                color: var(--mt-dim);
+                border-top: 1px solid color-mix(in srgb, var(--mt-line) 45%, transparent);
+            }
+
+            .mt-grid > :first-child {
+                padding-top: 0;
+                border-top: 0;
+            }
+
+            /*
+             * A Settings member holds four to six characters — `1`, `3`,
+             * `info`, `project-manager` — but the SDK gives its input and its
+             * select trigger `width: 100%`, so inside the `1fr` value column
+             * they filled roughly 850px each and the 18rem label above them
+             * wrapped to two lines to keep up (2026-10-01 review). Capping
+             * the *control* leaves the template, the header, and every pinned
+             * label string exactly where they are.
+             *
+             * Both selectors name direct children of the row, so the select's
+             * fixed-position option popup — which is not part of the grid —
+             * never inherits the cap.
+             */
+            .mt-grid > .oc-sdk-field > input.oc-sdk-input,
+            .mt-grid > .oc-sdk-select > .oc-sdk-trigger {
+                max-width: 28ch;
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Chips: state as colour *and* label (005 FR-083).
+             * ---------------------------------------------------------------- */
+
+            .mt-chiprow {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: var(--mt-space-2);
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Cards: one prerequisite / one run detail as a bordered unit.
+             * ---------------------------------------------------------------- */
+
+            .mt-card {
+                display: flex;
+                flex-direction: column;
+                gap: var(--mt-space-1);
+                padding: var(--mt-space-3);
+                box-sizing: border-box;
+                border: 1px solid color-mix(in srgb, var(--mt-line) 55%, transparent);
+                border-radius: var(--mt-radius);
+                background: var(--mt-sunken);
+            }
+
+            .mt-card-head {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: space-between;
+                gap: var(--mt-space-2);
+            }
+
+            .mt-card-title {
+                margin: 0;
+                font-family: var(--mt-font);
+                font-size: 0.8125rem;
+                font-weight: 650;
+                line-height: 1.4;
+                color: var(--mt-ink);
+            }
+
+            .mt-card-body {
+                display: flex;
+                flex-direction: column;
+                gap: var(--mt-space-1);
+                font-size: 0.8125rem;
+                line-height: 1.5;
+                color: var(--mt-dim);
+            }
+
+            .mt-fix {
+                display: block;
+                padding-left: var(--mt-space-2);
+                border-left: 2px solid var(--mt-accent);
+                color: var(--mt-ink);
+            }
+
+            /* Collapsible detail: hidden until the operator asks for it. */
+            .mt-details {
+                font-size: 0.8125rem;
+                line-height: 1.5;
+            }
+
+            .mt-details > summary {
+                cursor: pointer;
+                color: var(--mt-dim);
+                font-size: 0.75rem;
+                padding: var(--mt-space-1) 0;
+            }
+
+            .mt-details > summary:hover {
+                color: var(--mt-ink);
+            }
+
+            .mt-details > summary:focus-visible {
+                outline: 2px solid var(--mt-accent);
+                outline-offset: 2px;
+                border-radius: 4px;
+            }
+
+            .mt-details[open] > summary {
+                margin-bottom: var(--mt-space-1);
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Dense list surfaces: a header row above aligned columns.
+             * ---------------------------------------------------------------- */
+
+            .mt-head {
+                display: grid;
+                /* The SDK row's own gap, so a header cell sits over its column. */
+                column-gap: var(--mt-space-2);
+                padding: 0 var(--mt-space-2) var(--mt-space-1);
+                font-size: 0.6875rem;
+                font-weight: 700;
+                letter-spacing: 0.07em;
+                color: var(--mt-dim);
+                border-bottom: 1px solid color-mix(in srgb, var(--mt-line) 60%, transparent);
+            }
+
+            /*
+             * The Settings header, narrow: gone, because the stack it would
+             * label has one column — three labels over it read as orphaned
+             * words, not as a table's head (the 560px frame, 2026-10-01
+             * review).
+             *
+             * Its *position* is the fix. `.mt-head` and `.mt-head--settings`
+             * weigh the same (0,1,0), so the later declaration wins; back in
+             * the Settings section this rule lost to `.mt-head`'s `display`
+             * and never took effect. Declared after the base rule it now wins
+             * by source order — no `!important` — and block 2's
+             * `display: grid` at 900px is later still, so the header comes
+             * back at the width that has three columns to hang it over.
+             */
+            .mt-head--settings {
+                display: none;
+            }
+
+            /*
+             * Dispatches, stacked (the default): the subject *is* the row, so
+             * the header gives it a full-width line of its own and drops
+             * Trigger / State / Age onto the second line — where
+             * `.mt-list--dispatches` puts them when it restacks the row. All
+             * four labels stay in the DOM; the grid areas choose only which
+             * line each one stands on, so State's right edge still lands on
+             * the badge's and Age's on the meta column's. Block 2 folds the
+             * areas back into one line at 900px.
+             */
+            .mt-head--dispatches {
+                grid-template-columns: 64px minmax(0, 1fr) max-content 4.5rem;
+                grid-template-areas:
+                    'subject subject subject subject'
+                    'trigger . state age';
+                row-gap: var(--mt-space-1);
+            }
+
+            .mt-head--dispatches > :nth-child(1) {
+                grid-area: trigger;
+            }
+
+            .mt-head--dispatches > :nth-child(2) {
+                grid-area: subject;
+            }
+
+            .mt-head--dispatches > :nth-child(3) {
+                grid-area: state;
+                text-align: right;
+            }
+
+            .mt-head--dispatches > :nth-child(4) {
+                grid-area: age;
+                text-align: right;
+            }
+
+            /* Bindings and Accounts: the same lead/subject arithmetic. */
+            .mt-head--bindings,
+            .mt-head--accounts {
+                grid-template-columns: 64px minmax(0, 1fr) 4.5rem;
+            }
+
+            .mt-head--bindings > :last-child,
+            .mt-head--accounts > :last-child {
+                text-align: right;
+            }
+
+            /* The list the header labels, so its rows can be pinned to match. */
+            .mt-list .oc-sdk-row-meta {
+                flex: 0 0 4.5rem;
+                text-align: right;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            /*
+             * The SDK's row subtitle is one `nowrap` line ending in an
+             * ellipsis, so a dispatch reason lost its tail — `…the session
+             * reported anoth…` — in a row that had a free line under it
+             * (2026-10-01 review). Inside a `.mt-list` the subtitle wraps
+             * instead: these lists are evidence the operator reads, and a cut
+             * that happens to land mid-word tells them less than the second
+             * line does. Nothing here moves a cell — it only lets a cell take
+             * more than one line, so the header keeps lining up over its
+             * columns.
+             */
+            .mt-list .oc-sdk-row-sub {
+                white-space: normal;
+                overflow: visible;
+                text-overflow: clip;
+            }
+
+            /*
+             * A dispatch row, stacked (the default): the subject — title,
+             * then the diagnosis that explains it — takes the first line at
+             * full width, and trigger, state, and age share the line under
+             * it. Before this rule the subject sat *between* a 64px trigger,
+             * a state chip, and the age column, so every title in the list
+             * truncated to its first few words (`#117 Review: split the
+             * polli…`) while the diagnosis below it had room to wrap — the
+             * defect this wave exists to fix (product-owner order 2026-10-01).
+             *
+             * `order` moves the subject visually, never in the DOM: a screen
+             * reader still meets trigger → subject → state → age, the row is
+             * still one focus stop, and the header above lays its four labels
+             * onto the same two lines. The badge rides `margin-left: auto` to
+             * the age column's edge — the right edge the header's State cell
+             * holds — because on the second line no `1fr` cell is left to
+             * push it there. Block 2 folds the row back into columns at
+             * 900px, where a subject line has the width to spare.
+             */
+            .mt-list--dispatches .oc-sdk-row {
+                flex-wrap: wrap;
+            }
+
+            .mt-list--dispatches .oc-sdk-row-main {
+                order: -1;
+                flex: 1 0 100%;
+            }
+
+            .mt-list--dispatches .oc-sdk-badge {
+                margin-left: auto;
+            }
+
+            /* ---------------------------------------------------------------- *
+             * Shared text treatments.
+             * ---------------------------------------------------------------- */
+
+            .mt-mono {
+                font-family: var(--mt-mono);
+                font-size: 0.75rem;
+            }
+
+            .mt-muted {
+                color: var(--mt-dim);
+            }
+
+            .mt-prose {
+                font-size: 0.8125rem;
+                line-height: 1.6;
+                max-width: 72ch;
+            }
+
+            /*
+             * The Accounts custody disclaimer is four long paragraphs
+             * written as one `pre-line` paragraph; without a cap they run
+             * the full panel width (~110 characters at the default capture
+             * size) and read as a wall. `--mt-key-width`'s cousin: the cap
+             * is a measure, not a truncation — the copy wraps, unchanged.
+             */
+            [data-accounts-disclaimer] p {
+                max-width: 74ch;
+            }
+
+        </style>
+
+        <!--
+            Block 2 — width regimes.
+
+            Everything above *is* the rail layout: definition rows stacked,
+            Settings one column with no header over it, a dispatch row whose
+            subject owns its first line. These rules only ever add structure
+            when the panel is wide enough to hold it, so a narrow viewport
+            never has to fall out of a wide design — it gets the design that
+            was drawn for it.
+
+            Both thresholds come from the same evidence as the capture widths
+            (see DEFAULT_WIDTH in `tools/visual/shot.js`): the host's default
+            panel measures 500–715px and is resizable to 1400. 640 is where a
+            key column beside its value still leaves the value the majority of
+            the line; 900 is where `18rem | 1fr | 15rem` and a four-column
+            dispatch row both fit without starving the middle column.
+        -->
+        <style>
+            @media (min-width: 640px) {
+                /* Definition rows gain their key column. The `:not` keeps a
+                   note row — prose with nothing to label — spanning the
+                   whole row, which is what it does at every width. */
+                .mt-def:not(.mt-def--note) {
+                    grid-template-columns: minmax(0, var(--mt-key-width)) minmax(0, 1fr);
+                    column-gap: var(--mt-space-3);
+                    row-gap: 0;
+                }
+
+                /* ...and the label stops reading like a stacked heading and
+                   reads like a key again: the columnar type, with both
+                   modifiers restored (the stacked rule out-specifies them). */
+                .mt-def .mt-key {
+                    font-size: 0.8125rem;
+                    line-height: 1.45;
+                    font-weight: 400;
+                    letter-spacing: normal;
+                }
+
+                .mt-def .mt-key--strong {
+                    font-weight: 600;
+                }
+
+                .mt-def .mt-key--mono {
+                    font-size: 0.75rem;
+                }
+            }
+
+            @media (min-width: 900px) {
+                /* Settings: the three-column table and the header naming it. */
+                .mt-head--settings {
+                    display: grid;
+                    column-gap: var(--mt-space-3);
+                    padding: 0 0 var(--mt-space-1);
+                    grid-template-columns: minmax(0, 18rem) minmax(0, 1fr) minmax(0, 15rem);
+                }
+
+                .mt-grid > .oc-sdk-field,
+                .mt-grid > .oc-sdk-select {
+                    grid-template-columns: minmax(0, 18rem) minmax(0, 1fr) minmax(0, 15rem);
+                }
+
+                /* Dispatches: the header's two lines fold into one, over the
+                   four columns the areas already name. */
+                .mt-head--dispatches {
+                    grid-template-areas: 'trigger subject state age';
+                    row-gap: 0;
+                }
+
+                /* ...and the row folds back beside its chips. */
+                .mt-list--dispatches .oc-sdk-row {
+                    flex-wrap: nowrap;
+                }
+
+                .mt-list--dispatches .oc-sdk-row-main {
+                    order: 0;
+                    flex: 1 1 auto;
+                }
+
+                .mt-list--dispatches .oc-sdk-badge {
+                    margin-left: 0;
+                }
             }
         </style>
     </head>

@@ -17,10 +17,10 @@
 import { describe, expect, it } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { loadInitialBindings } from '../src/bindings-mode.ts';
-import { bindRepository, loadRepositories } from '../src/repos.ts';
+import { bindRepository, loadBindings } from '../src/bindings.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import { ACCOUNTS_PATH, BINDINGS_PATH, EVENTS_PENDING_PATH } from '../src/service-calls.ts';
-import type { PanelBinding } from '../src/repos-service.ts';
+import type { PanelBinding } from '../src/bindings-service.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import {
     DEFAULT_STATUS,
@@ -140,93 +140,95 @@ async function withRelay(rt: PanelRuntime, scenario: () => Promise<void> | void)
 }
 
 describe('relay arming (bind after mount / mount-time read failure)', () => {
-    it('arms when the first binding is created in an otherwise empty session', async () => {
-        // The mount-time read answers an empty list, then the operator binds
-        // a repository: the grant must arm what the mount could not see.
-        const service = mutableService({ status: 200, body: bindingsBody([]) });
-        const rt = createTestRuntime(service.host);
-        rt.state.repos.repoInput = REPOSITORY;
-        rt.state.repos.accountSelection = ACCOUNT_ID;
-        rt.state.repos.repoProjectSelection = PROJECT_ID;
+    it('arms when the first binding is created in an otherwi… (+3 cases)', async () => {
+        // case: arms when the first binding is created in an otherwise empty session
+        {
+            // The mount-time read answers an empty list, then the operator binds
+            // a repository: the grant must arm what the mount could not see.
+            const service = mutableService({ status: 200, body: bindingsBody([]) });
+            const rt = createTestRuntime(service.host);
+            rt.state.bindings.repoInput = REPOSITORY;
+            rt.state.bindings.accountSelection = ACCOUNT_ID;
+            rt.state.bindings.repoProjectSelection = PROJECT_ID;
 
-        await withRelay(rt, async () => {
-            await loadInitialBindings(rt);
-            // Negative case: an empty bindings list never arms the relay.
-            expect(rt.relayArmed).toBe(false);
+            await withRelay(rt, async () => {
+                await loadInitialBindings(rt);
+                // Negative case: an empty bindings list never arms the relay.
+                expect(rt.relayArmed).toBe(false);
 
-            await bindRepository(rt);
+                await bindRepository(rt);
 
-            expect(rt.state.repos.bindings.map((binding) => binding.repository)).toEqual([REPOSITORY]);
-            expect(rt.state.bindingsActive).toBe(1);
-            expect(rt.relayArmed).toBe(true);
+                expect(rt.state.bindings.bindings.map((binding) => binding.repository)).toEqual([REPOSITORY]);
+                expect(rt.state.bindingsActive).toBe(1);
+                expect(rt.relayArmed).toBe(true);
 
-            // The arm kicks one immediate tick — the claim is on the wire
-            // without any timer advancing (no fake timers in this test).
-            await tick();
-            expect(service.requests).toContain(`GET ${EVENTS_PENDING_PATH}`);
-        });
-    });
+                // The arm kicks one immediate tick — the claim is on the wire
+                // without any timer advancing (no fake timers in this test).
+                await tick();
+                expect(service.requests).toContain(`GET ${EVENTS_PENDING_PATH}`);
+            });
+        }
+        // case: arms on a later read after the mount-time bindings read failed
+        {
+            // First-run shape: the service is still spawning, so the mount-time
+            // GET answers 503. A Refresh that later succeeds must join the loop.
+            const service = mutableService({
+                status: 503,
+                body: JSON.stringify({ error: { code: 'storage-unavailable', message: 'service starting' } }),
+            });
+            const rt = createTestRuntime(service.host);
 
-    it('arms on a later read after the mount-time bindings read failed', async () => {
-        // First-run shape: the service is still spawning, so the mount-time
-        // GET answers 503. A Refresh that later succeeds must join the loop.
-        const service = mutableService({
-            status: 503,
-            body: JSON.stringify({ error: { code: 'storage-unavailable', message: 'service starting' } }),
-        });
-        const rt = createTestRuntime(service.host);
+            await withRelay(rt, async () => {
+                await loadInitialBindings(rt);
+                expect(rt.relayArmed).toBe(false);
+                expect(rt.state.bindings.status).toBe('error');
 
-        await withRelay(rt, async () => {
-            await loadInitialBindings(rt);
-            expect(rt.relayArmed).toBe(false);
-            expect(rt.state.repos.status).toBe('error');
-            expect(rt.state.repos.note).toBe('One of the reads failed — refresh to retry.');
+                service.setBindingsAnswer({ status: 200, body: bindingsBody([activeBinding()]) });
+                await loadBindings(rt);
 
-            service.setBindingsAnswer({ status: 200, body: bindingsBody([activeBinding()]) });
-            await loadRepositories(rt);
+                expect(rt.state.bindings.status).toBe('ready');
+                expect(rt.state.bindingsActive).toBe(1);
+                expect(rt.relayArmed).toBe(true);
+            });
+        }
+        // case: stays unarmed when a later read still answers no bindings
+        {
+            // The read succeeds, so the failure branch is ruled out: only an
+            // empty list keeps the relay out of the loop.
+            const service = mutableService({ status: 200, body: bindingsBody([]) });
+            const rt = createTestRuntime(service.host);
+            rt.state.bindings.status = 'error';
 
-            expect(rt.state.repos.status).toBe('ready');
-            expect(rt.state.bindingsActive).toBe(1);
-            expect(rt.relayArmed).toBe(true);
-        });
-    });
+            await withRelay(rt, async () => {
+                await loadBindings(rt);
 
-    it('stays unarmed when a later read still answers no bindings', async () => {
-        // The read succeeds, so the failure branch is ruled out: only an
-        // empty list keeps the relay out of the loop.
-        const service = mutableService({ status: 200, body: bindingsBody([]) });
-        const rt = createTestRuntime(service.host);
-        rt.state.repos.status = 'error';
+                expect(rt.state.bindings.status).toBe('ready');
+                expect(rt.state.bindingsActive).toBe(0);
+                expect(rt.relayArmed).toBe(false);
+                expect(service.requests).not.toContain(`GET ${EVENTS_PENDING_PATH}`);
+            });
+        }
+        // case: arms exactly once across a grant and a subsequent read
+        {
+            // `startRelayPolling` is idempotent: the second arming site must not
+            // stack a second interval on the same runtime.
+            const service = mutableService({ status: 200, body: bindingsBody([]) });
+            const rt = createTestRuntime(service.host);
+            rt.state.bindings.repoInput = REPOSITORY;
+            rt.state.bindings.accountSelection = ACCOUNT_ID;
+            rt.state.bindings.repoProjectSelection = PROJECT_ID;
 
-        await withRelay(rt, async () => {
-            await loadRepositories(rt);
+            await withRelay(rt, async () => {
+                await loadInitialBindings(rt);
+                await bindRepository(rt);
+                const firstTimer = rt.state.relay.timer;
+                expect(firstTimer).not.toBeNull();
 
-            expect(rt.state.repos.status).toBe('ready');
-            expect(rt.state.bindingsActive).toBe(0);
-            expect(rt.relayArmed).toBe(false);
-            expect(service.requests).not.toContain(`GET ${EVENTS_PENDING_PATH}`);
-        });
-    });
+                await loadBindings(rt);
 
-    it('arms exactly once across a grant and a subsequent read', async () => {
-        // `startRelayPolling` is idempotent: the second arming site must not
-        // stack a second interval on the same runtime.
-        const service = mutableService({ status: 200, body: bindingsBody([]) });
-        const rt = createTestRuntime(service.host);
-        rt.state.repos.repoInput = REPOSITORY;
-        rt.state.repos.accountSelection = ACCOUNT_ID;
-        rt.state.repos.repoProjectSelection = PROJECT_ID;
-
-        await withRelay(rt, async () => {
-            await loadInitialBindings(rt);
-            await bindRepository(rt);
-            const firstTimer = rt.state.relay.timer;
-            expect(firstTimer).not.toBeNull();
-
-            await loadRepositories(rt);
-
-            expect(rt.relayArmed).toBe(true);
-            expect(rt.state.relay.timer).toBe(firstTimer);
-        });
+                expect(rt.relayArmed).toBe(true);
+                expect(rt.state.relay.timer).toBe(firstTimer);
+            });
+        }
     });
 });

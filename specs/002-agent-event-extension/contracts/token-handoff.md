@@ -1,16 +1,16 @@
 # Contract: Token Handoff & Credential Custody (SECURITY-GATED)
 
 **Feature**: `specs/002-agent-event-extension` · **Date**: 2026-09-27
-**Status**: **GATE G1 CLOSED (2026-09-27)** — this document (with panel-service.md) was reviewed by the `security-auditor` agent as task T-001; all findings SEC-01…SEC-17 are resolved by the T-002 amendments recorded in §8. Token-handoff, account-custody, and service-credential code may now be written **within this contract** (Wave 2: T-007 → T-008, T-009).
+**Status**: **GATE G1 CLOSED (2026-09-27)** — this document (with panel-service.md) was reviewed by the `security-auditor` agent as task T-001; all findings SEC-01…SEC-17 are resolved by the T-002 amendments recorded in §8. Token-handoff, account-custody, and service-credential code may now be written **within this contract** (Wave 2: T-007 → T-008, T-009). **Amended 2026-10-01 (002 v1.9.0)** — product-owner order removes the in-panel consent step and its service-side gate; §1, §1.1, and §1.2 are re-cut to the no-gate reality, the §1.1 block is now the accounts disclaimer, and §2/§3/§5 record the wire and vocabulary consequences. §7.1's bearer auth, §4's redaction rules, and §6's custody rules are untouched.
 
-Governing requirements: FR-006 (N-account custody flow), FR-007 (panel never retains), FR-008 (two-part security gate), FR-009 (numeric-id keying, fail-closed expected login), FR-010 (scope matrix), FR-012 (rotation without data loss), NFR-004 (zero token occurrences), AC-001–AC-004.
+Governing requirements: FR-006 (N-account custody flow), FR-007 (panel never retains), FR-008 (two-part security gate as re-cut at 002 v1.9.0: capability grant + static disclaimer), FR-009 (numeric-id keying, fail-closed expected login), FR-010 (scope matrix), FR-012 (rotation without data loss), NFR-004 (zero token occurrences), AC-001–AC-004.
 
-## 1. Approval requirements (both parts, before any token moves)
+## 1. Approval requirements (one part, before any token moves)
 
-1. **Install-time capability grant** — the manifest's implied capability set (`sessions`, `prompt`, `service`, `network`) is approved once at install (GUEST_SERVICES.md lifecycle). Without the `service` grant the first `serviceRequest` fails `NO_SERVICE` and **the handoff is refused with approval instruction; no token leaves the panel** (AC-002).
-2. **In-panel consent (FR-008)** — before the *first* handoff on this install, the panel shows a consent step rendering **`CONSENT_COPY_V1` (§1.1) verbatim**; nothing else may be shown as the consent text. Declining keeps the panel usable for health/runs display; account add stays disabled with the reason shown.
+1. **Install-time capability grant** — the manifest's capability set (`sessions`, `prompt`, plus the implied `service`; `network` left the set when the integration card was removed on 2026-09-30 — 002 FR-011 as re-cut at v1.8.0) is approved once at install (GUEST_SERVICES.md lifecycle). Without the `service` grant the first `serviceRequest` fails `NO_SERVICE` and **the handoff is refused with approval instruction; no token leaves the panel** (AC-002).
+2. **Static disclaimer (FR-008 as re-cut at 002 v1.9.0, 2026-10-01)** — in place of the Accept/Decline step this contract described at v1.0, the panel mounts **`ACCOUNTS_DISCLAIMER` (§1.1) verbatim** as a static, always-visible disclaimer beneath the Accounts section: no buttons, no state, no persistence, nothing to complete. The product owner's order — *"Pull it from the spec, get rid of the functionality from all places, burn it out of the repo. Instead we can just put a quick disclaimer under the accounts section that says the same thing."* — removed the dialog and its service-side gate together; what the routes still stand behind is §7.1's bearer auth, invariant 8's shape-before-network rule, the throttles, and §4.
 
-### 1.1 Canonical consent string — `CONSENT_COPY_V1` (single source, SEC-12)
+### 1.1 Canonical disclaimer string — `ACCOUNTS_DISCLAIMER` (single source, SEC-12)
 
 > **Mecha Turk wants to send a GitHub token to a local service.**
 >
@@ -18,36 +18,36 @@ Governing requirements: FR-006 (N-account custody flow), FR-007 (panel never ret
 >
 > Your GitHub token is sent over the loopback proxy to this service and stored outside OpenChamber extension storage, protected by file permissions you can back up. It is stored unencrypted (plaintext) on disk, readable by anything running as your user.
 >
-> Consent is recorded in the service audit as an occurrence only — a version and a time, never the token.
+> A connection is recorded in the service audit as an occurrence only — an identity and a time, never the token.
 
 Rules for this block:
 
-- **One source**: this quoted block is the *only normative* definition of the consent string in the repository (SEC-12). T-009 renders it **verbatim** (no paraphrase, no trimming, no concatenation with other copy); the machine mirror below exists so a browser-side panel can render it without shipping a Markdown file, and it may never drift from this block.
-- **Machine mirror (approved, L1/W2-5)**: `extension/src/consent-copy.json` — `{ version, paragraphs }` — is the **approved machine-readable mirror** of this block and the panel's render source. `tests/consent.test.ts` extracts *this* block and fails the build whenever the JSON mirror, the shipped string, and the contract disagree by a single character, so the mirror is verification-enforced, not convention-enforced.
+- **One source**: this quoted block is the *only normative* definition of the disclaimer string in the repository (SEC-12's rule, re-pointed when the dialog left). `mountAccountsDisclaimer` renders it **verbatim** (no paraphrase, no trimming, no concatenation with other copy); the machine mirror below exists so a browser-side panel can render it without shipping a Markdown file, and it may never drift from this block.
+- **Machine mirror (approved L1/W2-5, re-pointed 2026-10-01)**: `extension/src/accounts-disclaimer.ts` — `ACCOUNTS_DISCLAIMER_PARAGRAPHS` — is the **approved machine-readable mirror** of this block and the panel's render source. `tests/disclaimer.test.ts` extracts *this* block and fails the build whenever the mirror, the shipped string, and the contract disagree by a single character, so the mirror is verification-enforced, not convention-enforced.
 - **Sole permitted transformation (W2-5)**: Markdown `**emphasis**` markers are stripped when this block is mirrored, because the panel renders through `textContent` where those characters would appear literally. That strip is the **only** permitted transformation — never trimming, re-wrapping, re-ordering, punctuation changes, or paraphrase — and it is applied to the contract side of the comparison only.
-- **Version**: `CONSENT_VERSION = 1`. The version **bumps by +1 whenever any character of `CONSENT_COPY_V1` changes**, so a stale consent can always be told apart from a current one.
-- **Version-bump checklist**: every copy change updates **both** version fields in the same change — the `CONSENT_VERSION = N` line above **and** `version` in `consent-copy.json`. Changing the copy without bumping, or bumping one without the other, fails `tests/consent.test.ts` (its single pinned literal carries the copy *and* the version together), so copy and version cannot drift independently.
-- **Mirror**: panel state stores `{ givenAt, version }` (`host.storage` consent key); the service audit stores the occurrence `{ version, givenAt }` — never a token, never a login.
+- **No version**: the text is informational, so there is nothing to renew. The `CONSENT_VERSION = N` line, the version-bump checklist, `consent-copy.json`, and the panel's stored `{ givenAt, version }` mirror all left with the dialog on 2026-10-01 (§1.2); a copy change is pinned by `tests/disclaimer.test.ts`'s single literal instead, which carries the paragraphs together with the contract block.
+- **What the panel stores**: nothing for this text — the mount wires no button and sets no flag. The service's audit records the connection itself as an occurrence only (§2 step ⑩) — identity and time, never a token.
 
-### 1.2 Consent version enforcement (contract invariant, SEC-01)
+### 1.2 No consent gate (removed 2026-10-01, 002 v1.9.0)
 
-`consentVersion` (a **non-secret** integer naming the current copy version) is **required** in the request body of both credential routes:
+The `consentVersion` requirement this section carried — SEC-01's resolution — is **removed with the dialog it mirrored**, by the same product-owner order that replaced the step with the §1.1 disclaimer. What left, item by item:
 
-| Route | Required body |
-| --- | --- |
-| `POST /v1/accounts/verify` | `{ token, expectedLogin?, consentVersion }` |
-| `POST /v1/accounts/:numericUserId/token` | `{ token, consentVersion }` |
+| Removed | Was | Now |
+| --- | --- | --- |
+| Panel step | Accept/Decline before the first handoff, rendering `CONSENT_COPY_V1` | the static §1.1 disclaimer under the Accounts section; the flow is paste → connect |
+| Request member | `consentVersion` **required** in both credential-route bodies | bodies are `{ token, expectedLogin? }` and `{ token }`; an older panel build's `consentVersion` member is **ignored**, never refused (rolling upgrade) |
+| Service refusal | `422 consent-required` before any GitHub call | never produced; body shape is still refused before any network call (invariant 8's shape half stands) |
+| Audit event | `consent` rows `{ version, givenAt }`, exactly one per version | **the `consent` event type leaves the vocabulary** — no writer emits it any more (recorded in 002 spec.md's `## Amendment History` → v1.9.0); rows already on disk stay readable history and keep seeding `seq` |
+| Panel storage | `mecha-turk:consent` holding `{ givenAt, version }` | no consent state exists anywhere in the panel; an orphaned key from an older install is read by nothing and harmless — removed, not renamed, so no storage-namespace reset (AGENTS.md invariant 4) |
 
-- Service rejects with `422 { error: { code: 'consent-required', message } }` when `consentVersion` is absent, not an integer, or **below the service's current `CONSENT_VERSION`** (panel-service.md §4). Nothing is persisted and no GitHub call is made.
-- On acceptance the service writes a consent audit occurrence `{ version, givenAt }` **idempotently**: written when that `version` is new to the service, skipped (no duplicate row) when it already recorded it.
-- **Re-consent rule (panel side)**: a stored panel consent whose `version < CONSENT_VERSION` forces the consent step again before the next handoff — an old "yes" never covers new wording.
-- **Invariant (contract test)**: no `verify`/`token` request without a current `consentVersion` ever yields a 2xx; a request *with* the current version records exactly one consent occurrence per version (replay is a no-op), and no consent occurrence ever contains token bytes.
+- **Invariant (contract test)**: the panel sends no `consentVersion` member and the service answers no `consent-required` — `tests/handoff.test.ts` and `tests/service-verify.test.ts` pin the two halves, and an unknown code on the panel lands on the unknown-code copy rather than on copy this repository removed.
+- **What still stands between a caller and the credential routes**: §7.1's bearer authentication (verified before route resolution, constant-time), the loopback-only listener, body/size caps, shape-before-network validation, the SEC-04 throttle, §4's redaction and logging bans, and §6's custody rules. Consent was a UI-level statement, not an authentication factor; these are what gate the wire.
 
 ## 2. Exact sequence (happy path)
 
 ```
-operator pastes token  →  panel (memory only)  →  consent gate  →  serviceRequest
-   ①                              ②                   ③               ④
+operator pastes token  →  panel (memory only)  →  storage pre-flight  →  serviceRequest
+   ①                              ②                   ③                   ④
 service: verify (GitHub /user via own fetch)  →  persist credential  →  respond identity
    ⑤                                        ⑥                          ⑦
 panel: clear token (finally)  →  render "Connected as <login>"  →  audit (service-side)
@@ -58,23 +58,23 @@ panel: clear token (finally)  →  render "Connected as <login>"  →  audit (se
 | --- | --- | --- |
 | ① | Panel | Token enters a dedicated input (`type="password"`, `autocomplete="new-password"` per SEC-17 so the browser's credential manager offers to *save* rather than *autofill* an existing one; failing that, `autocomplete="off"` — never a persisted suggestion, never bound to any rendered text node elsewhere). |
 | ② | Panel | Token exists **only in a module-scoped variable** of the handoff action; it is never written to `host.storage`, the mirror, ledger entries, toasts, error strings, or `console`. Panel-side handling is **write-through**: one shot, no cache, no retry buffer. |
-| ③ | Panel | Consent gate (§1) must already be satisfied; otherwise refuse with instruction (AC-002). Also re-check `serviceStatus()`; `stopped/starting` → wait/`failed` → manual retry copy. |
-| ④ | Panel → host → service | `POST /v1/accounts/verify` body `{"token":"…","expectedLogin":"<optional>","consentVersion":1}` (≤60,000 chars; token itself is ~40–120 chars). The host proxies verbatim; nothing inspects the body (001 Q5). |
+| ③ | Panel | Storage pre-flight alone (the consent gate this step used to open with left on 2026-10-01): re-check `serviceStatus()`; `stopped/starting` → wait/`failed` → manual retry copy. The static §1.1 disclaimer is already on screen — mounted with the Accounts section, never toggled. |
+| ④ | Panel → host → service | `POST /v1/accounts/verify` body `{"token":"…","expectedLogin":"<optional>"}` (≤60,000 chars; token itself is ~40–120 chars). The host proxies verbatim; nothing inspects the body (001 Q5). A `consentVersion` member a stale panel build still adds is ignored, not refused (§1.2). |
 | ⑤ | Service | Shape-checks the token (non-empty, no whitespace, ≤4096 chars) — a malformed token is rejected **before** any network call. Calls `GET https://api.github.com/user` with `Authorization: Bearer <token>` and `X-GitHub-Api-Version: 2022-11-28`, plus free `GET /rate_limit` for budget baselining. Uses **its own `fetch`** with timeout via `AbortSignal.timeout(15000)`. |
 | ⑥ | Service | Identity rules (FR-009): key = numeric `id`; `login` stored for display; if `expectedLogin` was supplied and differs (case-insensitive) → **reject, fail closed**, nothing persisted. Duplicate `numericUserId` → `409` (offer rotate flow). Scope matrix recorded (`metadata/issues/pull-requests/contents` → `ok/missing/unknown`) from endpoint probes/status semantics — **missing scopes never downgrade silently**; they pre-block the affected streams with the capability named (FR-010). **Persist ordering (SEC-05)**: `accounts/<id>.json` is written **only after `/user` succeeds**, and the success response is written **immediately after the persist completes** — a crash in between leaves no half-registered account (see F13). File `0600`, dir `0700`, atomic temp+rename (§6) **outside `host.storage`** (default data dir, research R2). |
 | ⑦ | Service → panel | `201 { numericUserId, login, state:'active', verifiedAt, scopeCheck }`. **Response construction runs through the same redaction guard as audit writes**; a test asserts the serialized body contains no token-shaped substring. |
 | ⑧ | Panel | `finally { token = undefined; }` — the variable is cleared on **every** exit (success, 4xx, 5xx, timeout, thrown). Input field is cleared. No retry re-uses the token; a retry means the operator pastes again. |
 | ⑨ | Panel | Renders `Connected as <login>` (+ numeric id in diagnostics). Records account metadata (id/login/scope/state only) into the accounts view and the service-backed store. |
-| ⑩ | Service | Appends `account.verified` audit entry: correlation id, numeric id, login, scope results, `redaction: { redacted: false }` — **no token bytes by construction** (the writer never receives the token). Consent occurrence `{ version, givenAt }` recorded separately and idempotently (§1.2). |
+| ⑩ | Service | Appends `account.verified` audit entry: correlation id, numeric id, login, scope results, `redaction: { redacted: false }` — **no token bytes by construction** (the writer never receives the token). The `consent` occurrence this step used to write alongside it left with the gate (§1.2) — a vocabulary removal, recorded in 002's `## Amendment History`. |
 
 ## 3. What enters / clears panel state
 
 | Phase | In panel memory | In `host.storage` | In service store | In audit |
 | --- | --- | --- | --- | --- |
 | Before paste | nothing | nothing | nothing | nothing |
-| Pasted, pre-consent | token (module var) | **nothing** | nothing | nothing |
+| Pasted, pre-flight | token (module var) | **nothing** | nothing | nothing |
 | In flight | token until `finally` | **nothing** | — | — |
-| Verified | **cleared** | account mirror `{numericUserId, login, state, scopeCheck}` | `credential` (0600) + account record | `consent`, `account.verified` (no token) |
+| Verified | **cleared** | account mirror `{numericUserId, login, state, scopeCheck}` | `credential` (0600) + account record | `account.verified` (no token) |
 | Failed (any reason) | **cleared** | nothing (or prior account mirror untouched) | nothing new | `account.rejected` / `account.error` with reason class only |
 
 **Assertion (executable, NFR-004)**: a token-shaped pattern (PAT prefixes `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`; plus any value ever handed to the service, registered with the test harness) must not appear in: serialized `host.storage` writes, any panel-side error/toast/log string, any service HTTP response body, any audit line, or any run/delivery record. The scan runs across the whole suite (task T-031).
@@ -103,7 +103,7 @@ panel: clear token (finally)  →  render "Connected as <login>"  →  audit (se
 | F8 | Duplicate numeric id | `409` → panel offers rotation flow | FR-012 |
 | F9 | Network offline | `502 upstream-unavailable`, `detail` = `offline` (transport failure); a 15-second hang is `detail: 'timeout'` with timeout copy, never "check the network" (W2-7). Nothing persisted; checkpoint/rate state untouched (no account yet) | FR-024 |
 | F10 | Storage dir unwritable | `503 storage-unavailable` **before** accepting the token: pre-flight reads `GET /v1/status` → `service.storage.writable` (`/health` is deliberately store-independent, so it cannot carry this signal, SEC-08) | FR-039 |
-| F11 | Consent declined/gated | Handoff button disabled with reason; no token typed state leaves the input | FR-008 |
+| F11 | Consent declined/gated — **removed 2026-10-01** (002 v1.9.0) | Nothing: the gate is gone. The §1.1 disclaimer states the custody facts unconditionally, and the input is gated by F10's pre-flight alone | — |
 | F12 | Token pasted into wrong field/other screens | Only the handoff input accepts a credential; all other renders use redaction guard. **Named negative-path test (T-019)**: each non-handoff input, on every screen, is asserted to reject/ignore credential text — render-redaction alone is not the test (SEC-10e) | NFR-004 |
 | F13 | Crash mid-handoff (service dies around verify/persist) | The service persists only after `/user` succeeds and responds only after the persist; on **startup** any account left in `pending_handoff`/`verifying` is **re-verified or marked `error:interrupted-handoff`** (audited, `account.error`) — an account is never left in a transient state across restarts | NFR-006, SEC-05 |
 | F14 | `503 storage-unavailable` **after** submission | Nothing persisted, token cleared in `finally`, manual retry only (no loop); panel pre-checked `service.storage.writable` first (SEC-08) | FR-039 |
@@ -114,7 +114,7 @@ panel: clear token (finally)  →  render "Connected as <login>"  →  audit (se
 
 ## 6. Custody rules (steady state)
 
-- Exactly **one** copy of a token at rest: `accounts/<numericUserId>.json` (`0600`) in the service store; never duplicated into `host.storage`, backups of panel state, ledgers, or git (`.env.example` stays comment-only; `.gitignore` covers `.env*`).
+- Exactly **one** copy of a token at rest: `accounts/<numericUserId>.json` (`0600`) in the service store; never duplicated into `host.storage`, backups of panel state, ledgers, or git (the `.env.example` this rule once described as comment-only **was removed on 2026-09-28** by 006 FR-091 — it documented superseded card-typing knobs and a commented credential line, and no `.env` file of any kind ships now; `.gitignore` still covers `.env*`, so a stray one never reaches git).
 - **Atomic credential-file specifics (SEC-13)** — every store write, credential files included:
   1. the temporary file is created **inside the target directory** (never in a shared temp dir — a cross-device `rename` is not atomic) with mode **`0600` passed explicitly** (never inherited from the umask);
   2. content is written, then **`fsync`**ed;
@@ -131,12 +131,12 @@ panel: clear token (finally)  →  render "Connected as <login>"  →  audit (se
   - old token bytes are not retained anywhere (no history of secrets), and the replaced copy is gone atomically.
   *Contract test note: rotate with a different-id token → 422 + byte-identical store; rotate with a same-id token → store diff shows only credential/login/scopeCheck/verifiedAt (plus state/connectionState/errorReason when the account was not `active`, the recovery documented above).*
 - Revocation (on GitHub) + next poll → account `revoked`/`error` state, streams block with capability named, other accounts unaffected (spec Edge Case).
-- The panel's *host-managed* optional integration card (FR-011) is a **separate** credential OpenChamber owns; it is never read into panel state and never used for polling/dispatch.
+- **There is no second credential in the panel** (002 FR-011 as re-cut at v1.8.0, 2026-09-30): the host-managed integration card and its token were removed from the manifest, so this handoff is the only path by which a GitHub credential enters the product — and it lands in the service store, never in panel state, never used for polling or dispatch by any reader.
 
 ## 7. Threat notes for the reviewer (T-001 scope)
 
 1. **Loopback transit & what bearer auth actually buys (amended per SEC-07)**: the token crosses panel→host→127.0.0.1 in the request body; the host does not inspect it; TLS is not applicable on loopback. The service verifies the bearer on every route — but that only isolates **other local *users*** (and other processes that do not already hold the secret) from reaching our HTTP API. It is **not** a custody boundary against same-user code: any process running as the same user can read `OPENCHAMBER_SERVICE_TOKEN` straight out of the service's environment (`/proc/<pid>/environ`), or skip HTTP entirely and read the `0600` store from disk. **The real custody boundary is file permissions + uid separation**, not the service token; the bearer check is defence-in-depth for the network surface only.
-2. Advisory-permission service: an allowed service has full user access (GUEST_SERVICES.md); our mitigations are least-privilege *code* posture (stdlib only, read/write confined to our data dir, outbound only to `api.github.com`), audited startup, and the honest FR-008 consent copy (§1.1, including the plaintext-at-rest sentence).
+2. Advisory-permission service: an allowed service has full user access (GUEST_SERVICES.md); our mitigations are least-privilege *code* posture (stdlib only, read/write confined to our data dir, outbound only to `api.github.com`), audited startup, and the honest FR-008 disclaimer copy (§1.1, including the plaintext-at-rest sentence) — always on screen rather than accepted.
 3. Response/oracle surface: uniform byte-identical `401` body, exact `Bearer <token>` grammar (any deviation → 401 before route resolution), no timing affordances beyond `sha256` + `timingSafeEqual`, no token-derived identifiers.
 4. Backup exposure: the data dir is operator-controlled; quickstart documents that `accounts/*.json` contains plaintext credentials and must be protected like `~/.ssh`.
 5. **Platform trust assumption (SEC-16)**: this contract assumes the **host never logs or persists `serviceRequest` bodies** (which carry the token on every handoff). That property belongs to the OpenChamber platform, is **not verifiable by our tests**, and is accepted as a residual risk: if the host ever records request bodies, the token lands in host-owned storage outside everything this contract governs. Recorded honestly rather than implied away; re-evaluate if the platform documents change.
@@ -146,7 +146,7 @@ panel: clear token (finally)  →  render "Connected as <login>"  →  audit (se
 | Field | Value |
 | --- | --- |
 | Reviewer | `security-auditor` agent (task T-001) |
-| Scope | this file + `panel-service.md` + FR-008 consent copy |
+| Scope | this file + `panel-service.md` + FR-008 disclaimer copy |
 | Verdict | **PASS-with-fixes** — 2 High, 5 Medium, 7 Low, 3 Info (no Critical) |
 | Findings | SEC-01 … SEC-17 — resolution table below |
 | Resolution | **task T-002** — all findings resolved by amendment (one sanctioned code change: SEC-02a token floor 16 → 32); **no finding rejected** |
@@ -176,3 +176,5 @@ panel: clear token (finally)  →  render "Connected as <login>"  →  audit (se
 | SEC-17 | Info | `type="password"` without a pinned autocomplete attribute | **Resolved-by-amendment** — §2 step ① pins `autocomplete="new-password"` (fallback `autocomplete="off"`) on the handoff input |
 
 **Gate note**: the two binding conditions from the T-001 verdict (SEC-01, SEC-02) are both amended; the five Mediums, seven Lows, and three Infos are all resolved or acknowledged above. No finding was rejected, so G1 closes with this table (T-002).
+
+**Post-sign-off note (2026-10-01, 002 v1.9.0)**: the product owner's removal order supersedes **in part** the resolutions of **SEC-01** and **SEC-12** recorded in this table. SEC-01's `consentVersion` enforcement, `422 consent-required`, the idempotent consent occurrence, and the panel re-consent rule are all removed — §1.2 is the record of what left and of what gates the credential routes instead. SEC-12's *substance* survives: one quoted block is still the only normative copy, it is still rendered verbatim, and the mirror is still verification-enforced — but the block is now the §1.1 **disclaimer**, it carries no version, and `tests/disclaimer.test.ts` is the pin. SEC-02, SEC-03…SEC-17 are untouched.

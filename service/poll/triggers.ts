@@ -34,8 +34,8 @@ import { repositoryLabel } from '../../src/config.ts';
 import type { RepositoryRef } from '../../src/config.ts';
 import type { BindingRecord } from '../bindings.ts';
 import { createEvent } from './events.ts';
-import type { QueuedEvent } from './events.ts';
-import type { GitHubIssuePoller, PollComment, PollFailure, PollIssue, PollPull } from './poller-github.ts';
+import type { QueuedEvent, SubjectType } from './events.ts';
+import type { GitHubIssuePoller, ListPace, PollComment, PollFailure, PollIssue, PollPull } from './poller-github.ts';
 
 /** Longest body excerpt one event carries (bounded untrusted text). */
 const BODY_EXCERPT_MAX_CHARS = 600;
@@ -238,6 +238,17 @@ export function isReviewRequestPull(pull: PollPull, bindingLogin: string): boole
 }
 
 /**
+ * Translate one listing entry's `pull_request` marker into the subject shape
+ * the run key stores.
+ *
+ * @param isPullRequest - Whether GitHub listed the entry as a pull request.
+ * @returns The subject shape for the row this detection produces.
+ */
+function subjectShapeOf(isPullRequest: boolean): SubjectType {
+    return isPullRequest ? 'pull_request' : 'issue';
+}
+
+/**
  * Build one `mention` event from a comment that already matched.
  *
  * The issue's title and URL are resolved from the issue list the same scan
@@ -282,6 +293,12 @@ function mentionEvent(input: {
         },
         triggerNote: `Comment by ${commenter} on issue #${comment.issueNumber} mentioned the bound account`,
         detectedAt,
+        // The comment feed answers for issues *and* pull requests; when the
+        // same scan's issue list carried the item, its `pull_request` marker
+        // decides the run key's subject type. When it did not (a closed item,
+        // a paged-out one) the row keeps no subject type and reads as an
+        // issue, exactly as an adopted row does (data-model §2.1).
+        ...(issue === null ? {} : { subjectType: subjectShapeOf(issue.isPullRequest) }),
     });
 }
 
@@ -378,6 +395,7 @@ function bodyMentionEvents(input: {
                 },
                 triggerNote: 'mentioned in issue body',
                 detectedAt,
+                subjectType: subjectShapeOf(issue.isPullRequest),
             }),
         );
     }
@@ -433,11 +451,87 @@ function reviewEvents(input: {
                 },
                 triggerNote: `Pull request #${pull.pullNumber} requested the bound account's review`,
                 detectedAt,
+                subjectType: 'pull_request',
             }),
         );
     }
 
     return events;
+}
+
+/** Everything one binding's trigger scan is given; shared by every branch. */
+interface TriggerScanInput {
+    /** Poller the feeds are listed through. */
+    readonly poller: GitHubIssuePoller;
+    /** Account credential presented to GitHub. */
+    readonly token: string;
+    /** The binding being scanned. */
+    readonly binding: BindingRecord;
+    /** The bound account's login, as the account record reports it. */
+    readonly login: string;
+    /** Window start; `null` opens an unbounded (replay) listing. */
+    readonly windowStart: string | null;
+    /** RFC 3339 stamp pinned at cycle start. */
+    readonly detectedAt: string;
+    /** Issues the same scan listed: the body-mention scan and title lookup. */
+    readonly issues: readonly PollIssue[];
+    /** Page size and retry ladder this cycle's list calls run under (006 FR-058/FR-059). */
+    readonly pace: ListPace;
+}
+
+/**
+ * List the comment feed the mention switch asks for and collect its events,
+ * including the issue-body mentions the issue list already covers (M6).
+ *
+ * @param input - The shared scan input.
+ * @returns The events, or the list failure that ends the scan.
+ */
+async function mentionEventsOf(input: TriggerScanInput): Promise<TriggerEvents> {
+    const { poller, token, binding, login, windowStart, detectedAt, issues, pace } = input;
+    const repository = repositoryRefOf(binding);
+    const listed = await poller.listIssueComments({
+        token,
+        owner: repository.owner,
+        name: repository.name,
+        since: windowStart,
+        pace,
+    });
+    if (listed.kind !== 'ok') {
+        return { ok: false, failure: listed };
+    }
+
+    const events = [
+        // The issue-body path needs no feed of its own: the loop lists issues
+        // whenever the assignment *or* the mention switch is on.
+        ...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }),
+        ...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt }),
+    ];
+
+    return { ok: true, events };
+}
+
+/**
+ * List the review-request feed and build the events it matches (M7).
+ *
+ * @param input - The shared scan input.
+ * @returns The events, or the list failure that ends the scan.
+ */
+async function reviewRequestEvents(input: TriggerScanInput): Promise<TriggerEvents> {
+    const { poller, token, binding, login, windowStart, detectedAt, pace } = input;
+    const repository = repositoryRefOf(binding);
+    const listed = await poller.listOpenPulls({
+        token,
+        owner: repository.owner,
+        name: repository.name,
+        pace,
+    });
+    if (listed.kind !== 'ok') {
+        return { ok: false, failure: listed };
+    }
+
+    const events = reviewEvents({ binding, login, pulls: listed.pulls, windowStart, detectedAt });
+
+    return { ok: true, events };
 }
 
 /**
@@ -453,56 +547,27 @@ function reviewEvents(input: {
  * @param input - Poller, credential, binding, window, and the issue list.
  * @returns The events, or the first list failure's class for the loop's skip.
  */
-export async function collectTriggerEvents(input: {
-    /** Poller the feeds are listed through. */
-    readonly poller: GitHubIssuePoller;
-    /** Account credential presented to GitHub. */
-    readonly token: string;
-    /** The binding being scanned. */
-    readonly binding: BindingRecord;
-    /** The bound account's login, as the account record reports it. */
-    readonly login: string;
-    /** Window start; `null` opens an unbounded (replay) listing. */
-    readonly windowStart: string | null;
-    /** RFC 3339 stamp pinned at cycle start. */
-    readonly detectedAt: string;
-    /** Issues the same scan listed: the body-mention scan and title lookup. */
-    readonly issues: readonly PollIssue[];
-}): Promise<TriggerEvents> {
-    const { poller, token, binding, login, windowStart, detectedAt, issues } = input;
-    const repository = repositoryRefOf(binding);
+export async function collectTriggerEvents(input: TriggerScanInput): Promise<TriggerEvents> {
     const events: QueuedEvent[] = [];
 
-    if (binding.triggers.mention === true) {
-        // The issue-body path needs no feed of its own: the loop lists issues
-        // whenever the assignment *or* the mention switch is on.
-        events.push(...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }));
-
-        const listed = await poller.listIssueComments({
-            token,
-            owner: repository.owner,
-            name: repository.name,
-            since: windowStart,
-        });
-        if (listed.kind !== 'ok') {
-            return { ok: false, failure: listed };
+    if (input.binding.triggers.mention === true) {
+        const branch = await mentionEventsOf(input);
+        if (!branch.ok) {
+            return branch;
         }
 
-        events.push(...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt }));
+        events.push(...branch.events);
     }
 
-    if (binding.triggers.reviewRequest === true) {
-        const listed = await poller.listOpenPulls({
-            token,
-            owner: repository.owner,
-            name: repository.name,
-        });
-        if (listed.kind !== 'ok') {
-            return { ok: false, failure: listed };
+    if (input.binding.triggers.reviewRequest === true) {
+        const branch = await reviewRequestEvents(input);
+        if (!branch.ok) {
+            return branch;
         }
 
-        events.push(...reviewEvents({ binding, login, pulls: listed.pulls, windowStart, detectedAt }));
+        events.push(...branch.events);
     }
 
     return { ok: true, events };
 }
+
