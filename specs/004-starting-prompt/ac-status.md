@@ -1,12 +1,29 @@
 # Acceptance status: Per-Binding Starting Prompt (AC-130 – AC-145)
 
-**Feature**: `specs/004-starting-prompt` · **Spec**: v1.1.0 · **Recorded by**: T-016, the final gate
+**Feature**: `specs/004-starting-prompt` · **Spec**: v1.3.0 (rows recorded at the v1.2.0 evidence consolidation; v1.3.0 note below) · **Recorded by**: T-016, the final gate
 **Branch**: `003-dispatch-integrity` (004's Phase 6 runs here; feature 003 shipped on it first)
 
 Every row below is **binary** and points at the automated, offline assertion that
 proves it — fake host, real loopback service on temp directories, fixed stamps.
 No row is marked met on an aspiration: if a criterion is met only in part, or
 belongs to another feature, the status says so.
+
+> **v1.3.0 note (2026-10-02, the layered prompt — GitHub issue #10).** The rows
+> below cover AC-130 – AC-145 as consolidated at v1.2.0, and every one of them
+> remains satisfiable **unchanged**, because FR-084 guarantees byte-identity for
+> the two cases these rows test (no tier set ⇒ the pre-004 golden string;
+> binding tier alone ⇒ the single-tier golden string — oracles, not upgrade
+> promises: no build holding any of this was released, spec row 32) — the
+> layered amendment's new cases are **AC-146 – AC-151**,
+> mapped when they are implemented (Phase 5 owns the mapping, per v1.2.0's
+> record). AC-131's corpus wording gained *"and with the global and account
+> tiers unset"* — same test, wider precondition. The prompt-composition evidence
+> for a maximal prompt (AC-145's row) now measures the stacked block — body +
+> fence, the contract's definition (`contracts/layered-prompt.md` §4 rule 3) —
+> at ≤ 6,080 reserved chars (6,004 body + 76 fence), ≤ 9,080 at FR-021's
+> 3,000-per-tier ceiling; the arithmetic is 004 FR-085's. 005 v1.9.0's widened SC-105
+> (three sentinels, one count per tier value) and AC-123 are recorded in 005's
+> own status artifacts, not here.
 
 | AC | Status | Evidence |
 | --- | --- | --- |
