@@ -20,7 +20,7 @@ Everything not listed below stays as 002 specified it: bearer auth before routin
     "retryMaxAttempts": 5, "retryBaseMs": 5000, "retryMaxMs": 60000,
     "auditRetentionDays": 180, "auditMaxEntries": 50000, "excerptRetentionDays": 30,
     "logLevel": "info",
-    "expectedAgent": "project-manager"
+    "expectedAgent": ""                 // "" = no baseline configured (006 v1.5.0)
     // "leaseMs": 120000, "resultDeadlineMs": 120000  — present once 003's T-008 lands
   },
   "fields": [ /* FieldDescriptor[], §2 */ ],
@@ -52,8 +52,8 @@ A **closed discriminated union** on `kind`. The panel's parser refuses anything 
     "default": "info", "takesEffect": "immediate" },
 
   { "name": "expectedAgent", "kind": "string", "unit": null,
-    "format": "letters, digits, and . _ - @ : / (a single token, no spaces)",
-    "maxLength": 80, "default": "project-manager", "takesEffect": "next-dispatch" } ]
+    "format": "letters, digits, and . _ - @ : / (a single token, no spaces); empty means no baseline",
+    "maxLength": 80, "default": "", "takesEffect": "next-dispatch" } ]
 ```
 
 | Descriptor member | Rule |
@@ -92,11 +92,11 @@ A **closed discriminated union** on `kind`. The panel's parser refuses anything 
 - the write is atomic; a refusal leaves the stored document byte-identical (NFR-103);
 - store unavailable ⇒ `503 storage-unavailable`.
 
-**New validation this feature adds** — `expectedAgent`, in the existing voice:
+**New validation this feature adds** — `expectedAgent`, in the existing voice (v1.5.0: **empty is accepted** and means *no baseline configured*, so it needs no remediation):
 
 | Refused input | `field` | `remediation` (service-authored; the submission appears nowhere) |
 | --- | --- | --- |
-| empty after trimming | `expectedAgent` | `set expectedAgent to a non-empty agent name` |
+| absent, or not a string (the member is still required) | `expectedAgent` | `set expectedAgent to a string; leave it empty for no baseline` |
 | longer than 80 characters | `expectedAgent` | `set expectedAgent to at most 80 characters` |
 | contains a space / control character / character outside `. _ - @ : /` and alphanumerics | `expectedAgent` | `set expectedAgent to letters, digits, and . _ - @ : / with no spaces` |
 | credential-shaped (secret-shape rule) | `expectedAgent` | `set expectedAgent to an agent name, not a credential` |
@@ -188,7 +188,7 @@ These are **not** wire behaviour; they are recorded here because the wire is wha
 5. **AC-127**: an identical body ⇒ `200`, `auditWritten: true` is irrelevant to the no-op claim, and **zero** audit rows are appended.
 6. **SC-109 / AC-135 / AC-136**: one changed write ⇒ one `applied` row with one triple per changed field; one refused write ⇒ one `refused` row with `issueCount`, documented names, `<withheld>`, and no submitted value anywhere in the rendered surface or the row.
 7. **SC-110 / AC-137**: a `config.changed` row and a `dispatch.*` row carry different correlation ids; a run-filtered read excludes the configuration row.
-8. **AC-154**: empty, >80 chars, internal space, and credential-shaped `expectedAgent` values each answer `422` with `field: expectedAgent` and never appear in the body, the audit row, or a log line.
+8. **AC-154**: an absent or non-string member, >80 chars, internal space, and credential-shaped `expectedAgent` values each answer `422` with `field: expectedAgent` and never appear in the body, the audit row, or a log line — while a **blank** value answers `200` and reads back as `""` (the documented *no baseline configured*).
 9. **`source` fidelity**: absent file ⇒ `default`; valid file ⇒ `stored`; invalid file ⇒ `quarantined` **and** `defaultsApplied: []`.
-10. **Upgrade path**: a ten-field stored document ⇒ `source: 'stored'`, `defaultsApplied: ['expectedAgent']`, all ten stored values intact; `PUT` of that same body ⇒ `422` naming `expectedAgent`; after one save the file holds the complete document (data-model §2.1).
+10. **Upgrade path**: a ten-field stored document ⇒ `source: 'stored'`, `defaultsApplied: ['expectedAgent']` (filled with the **blank** default), all ten stored values intact; `PUT` of that same body ⇒ `422` naming `expectedAgent`; after one save the file holds the complete document (data-model §2.1). A document that **carries** `expectedAgent: ""` is configured, not missing: it reads back with `defaultsApplied: []` (absence, not emptiness, is what the backfill keys off).
 11. **Secret scan**: the whole envelope passes the existing secret suites with new cases and **no exemption** (NFR-102).

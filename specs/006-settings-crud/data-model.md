@@ -22,7 +22,7 @@ Everything below is a **delta** against the shipped store and wire shapes. 006 a
 | `auditMaxEntries` | number | 1,000–1,000,000 entries | 50,000 | `next-cycle` | as shipped; **consumer added by 006** |
 | `excerptRetentionDays` | number | 1–365 days | 30 | `next-cycle` | as shipped; **consumer added by 006** |
 | `logLevel` | enum `debug \| info \| warn \| error` | closed set | `info` | **`immediate`** | as shipped; **consumer added by 006** |
-| **`expectedAgent`** | **string** | non-empty after trim; ≤ 80 chars; `letters, digits, and . _ - @ : /`; credential-shaped values refused | **`project-manager`** | **`next-dispatch`** | **NEW — 006 FR-100** |
+| **`expectedAgent`** | **string** | empty allowed (= *no baseline configured*); a non-empty value: ≤ 80 chars after trim, `letters, digits, and . _ - @ : /`; credential-shaped values refused | ***(blank — no baseline configured)*** | **`next-dispatch`** | **NEW — 006 FR-100**, default blanked at v1.5.0 |
 | `leaseMs` *(after 003 T-008)* | number | 30,000–600,000 ms | 120,000 | `next-cycle` *(declared by 006, confirmable by 003)* | 003 plan D9/C14, 003 data-model §2.7 |
 | `resultDeadlineMs` *(after 003 T-008)* | number | 30,000–600,000 ms | 120,000 | `next-cycle` *(declared by 006, confirmable by 003)* | as above |
 
@@ -68,7 +68,7 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     retryMaxAttempts: 5, retryBaseMs: 5_000, retryMaxMs: 60_000,
     auditRetentionDays: 180, auditMaxEntries: 50_000, excerptRetentionDays: 30,
     logLevel: 'info',
-    expectedAgent: 'project-manager',        // NEW (FR-100(b))
+    expectedAgent: '',                        // blank: no baseline (FR-100(b), v1.5.0)
     // leaseMs: 120_000, resultDeadlineMs: 120_000  — 003's, added by 003 T-008
 };
 ```
@@ -242,7 +242,7 @@ One IO path per file kind: no trim module hand-rolls `fs` calls beside the store
 3. **Projection ≡ declaration**: mutate one bound in `NUMERIC_BOUNDS` ⇒ the projection's `min`/`max` **and** the validator's remediation string both move (SC-101); revert ⇒ both return.
 4. **Class exhaustiveness**: add a `ServiceConfig` member without a `TAKE_EFFECT` entry ⇒ `tsc --noEmit` fails (plan D2).
 5. **Histogram of record**: over 006's eleven names the projection counts **nine `next-cycle`, one `immediate`, one `next-dispatch`**, zero `restart`, zero `none` (AC-104, SC-106); in the combined tree every *extra* entry still carries a declared class (SC-107).
-6. **String-field refusals**: empty-after-trim, 81 chars, an internal space, and a PAT-shaped value each answer `422` with `field: expectedAgent`, no submitted text anywhere in the body or in the audit row (AC-154).
+6. **String-field refusals**: an absent or non-string member, 81 chars, an internal space, and a PAT-shaped value each answer `422` with `field: expectedAgent`, no submitted text anywhere in the body or in the audit row — while a **blank** value is accepted as the documented *no baseline configured* (AC-154 as amended at v1.5.0).
 7. **Trim preservation**: a seeded trail mixing all seventeen 003 event types with trimmable middle rows removes **only** unprotected rows, oldest first, keeps every survivor's `seq`, lands at or below `auditMaxEntries` including the trim row, and leaves every run chain with opener **and** outcome under the same correlation id (AC-146, SC-114).
 8. **Cap under an oversized protected set**: protected rows alone above `auditMaxEntries` ⇒ nothing protected is removed, the trail exceeds the cap, `minimalReferencesPreserved` records the excess.
 9. **Trim crash**: fail the write ⇒ the file is byte-identical to before and no `audit.trimmed` row exists.

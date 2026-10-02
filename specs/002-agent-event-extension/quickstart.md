@@ -6,7 +6,7 @@ Dev, build, test, install, and first-run verification for the production package
 ## 0. Prerequisites (operator machine)
 
 1. **OpenChamber desktop or web** running (unattended operation = "while OpenChamber is up"). VS Code/mobile do not spawn services → the panel shows the unsupported state there.
-2. **Settings → Sessions → Session Defaults → Default Agent = `project-manager`** (the only documented agent pin; enforced post-dispatch by verification).
+2. **Settings → Sessions → Session Defaults → Default Agent** — set it to **the agent your dispatches should run on** (`project-manager` is the usual choice; the extension cannot set it), and set the matching **`expectedAgent`** baseline on **Settings** so post-dispatch verification has something to compare against. With the baseline blank (the shipped default), a read-back records the observed agent and compares nothing — 002 FR-029 as amended at v1.10.0.
 3. A **registered OpenChamber project** for each repository you will bind (command palette → Add project, sidebar **+**, or folder browser — the extension cannot create projects).
 4. **GitHub fine-grained PATs**, one per account, with `Metadata: read`, `Issues: read`, `Pull requests: read` (+ `Contents: read` only if repository metadata is passed to OpenChamber). **No write scopes.** Organization approval granted where required. The Notifications API is not used.
 5. Toolchain for development: Node ≥ 20.19, npm, `bun` (for `openchamber-guest-bundle`).
@@ -43,7 +43,7 @@ Expect: 0 lint errors/warnings (zero suppressions — no `eslint-disable`, no `@
 1. **Read the disclaimer**: Accounts tab → under the account list sits the static disclaimer — your token goes to the local service (sandbox-advisory: *"an allowed service has your full user access"*), is stored outside OpenChamber extension storage at file permissions and unencrypted (plaintext) on disk, and the connection is recorded in the service audit as an occurrence only, never the token. It is always visible; there is nothing to accept or decline.
 2. **Add account**: Accounts tab → paste PAT → `Connected as <login>` with numeric id. One optional field sits beside the paste: **expected GitHub login** — the per-account constraint from FR-009, supplied where the account is created (leave it empty for no constraint). The token exists only in transit; panel state, storage, logs, and audit contain no token bytes (asserted by the secret-scan suite).
 3. **Add repository**: choose the account → choose an existing project from the picker → enable triggers (assignment / review request / mention; mention defaults to `@<login>`, case-insensitive). If the project isn't registered: `project_missing` + manual "Add project" guidance — no project is created by the extension.
-4. **Watch health**: `serviceStatus()`, per-repo last poll + checkpoint age, per-account rate usage, agent-pin status (`expected-agent` = `project-manager`).
+4. **Watch health**: `serviceStatus()`, per-repo last poll + checkpoint age, per-account rate usage, agent-pin status (the configured `expectedAgent` baseline, or *none configured*, plus the last verification).
 5. **Trigger work**: assign an issue to the account identity (or request a review / mention). Within ≤2×60 s a row appears under **Dispatches**, `host.startSession()` fires, and — **expected behavior** — the app switches to the new chat once so the panel can read `onSession().agent` (the only documented mechanism, research R3). The row becomes `dispatched` with a session link; a dispatch that made no session keeps a **Retry dispatch** button that requeues it.
 
 ### Dispatch states and what the operator does (003)
@@ -77,7 +77,7 @@ dispatch's whole trail — creation, claim, authorization, result, verification
 | V3 | Kill the service process | `SERVICE_FAILED`, durable state intact, **manual** retry only (no auto-loop) |
 | V4 | Revoke a PAT on GitHub | That account's streams block with the capability named; other accounts unaffected; no token echoed |
 | V5 | Re-dispatch protection | An already-dispatched event never creates a second session: **deterministic event ids** dedupe the queue (one assignment on one issue can only produce one event), the dispatch marks the row terminal `dispatched` (retained as one of the 500 dispatched rows kept for history), the panel handles each event id once per mount, and **Retry dispatch** answers a `dispatched` row with `409 invalid-transition` |
-| V6 | Set Default Agent to something else | Next dispatch → the **Dispatches** tab warns *"dispatched, but the session agent was '\<x\>' (expected project-manager)"* + a `session` ledger entry with `agentVerified: false` + a green banner when it *does* match. **Warn-only by M9's re-cut: the session keeps running, nothing is blocked** (the spec's `blocked:agent-mismatch` is deferred with the service-side mirror) |
+| V6 | Set Default Agent to something else (with an `expectedAgent` baseline configured) | Next dispatch → the **Dispatches** tab warns *"dispatched, but the session agent was '\<x\>' (expected \<baseline\>)"* + a `session` ledger entry with `agentVerified: false` + a green banner when it *does* match. With **no baseline configured** the read-back records the observed agent and compares nothing — the row says *agent read back … no baseline is configured* (002 v1.10.0). **Warn-only by M9's re-cut: the session keeps running, nothing is blocked** (the spec's `blocked:agent-mismatch` is deferred with the service-side mirror) |
 | V7 | Uninstall the extension | Panel storage wiped (the panel is back at the §3 first view, no checklist); **service store under `~/.config/openchamber/mecha-turk/` still present** — path printed on the **Status** tab before uninstall (live proof = task T-033) |
 | V8 | Unsupported surface (VS Code/mobile if available) | Explicit unsupported/disabled state; nothing claims to be polling |
 | V9 | Select a dispatch row → **Audit history** | The dispatch's trail appears in `seq` order under its correlation identifier — creation, claim, authorization, result, verification — credential-free and without opening a file; poll, checkpoint, and legacy consent rows are not in it (003 AC-117/AC-118) |
@@ -132,11 +132,12 @@ integration-card setting.
 
 There is no integration card any more (product-owner order, 2026-09-30), so
 nothing is configured through card fields, and the *agent-verification
-baseline* was never one: that baseline (`expectedAgent`, default
-`project-manager`) is service configuration, read by verification through
-`GET /v1/config` and falling back to the documented default when the document
-does not carry the field. The Settings tab is therefore where you both read
-and change what the service is actually using.
+baseline* was never one: that baseline (`expectedAgent`, **blank by default** —
+no baseline means no comparison) is service configuration, read by verification
+through `GET /v1/config`; when the document carries no usable value the
+read-back records the observed agent without judging it (002 v1.10.0). The
+Settings tab is therefore where you both read and change what the service is
+actually using.
 
 ## 7. Cleanup (manual only)
 

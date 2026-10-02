@@ -85,10 +85,10 @@ environment file, an environment variable, or a manifest setting:
 
 There is no integration card any more (product-owner order, 2026-09-30):
 GitHub credentials are service accounts under **Accounts**, and the
-agent-verification baseline (`expectedAgent`, default `project-manager`) is
-service configuration, not a card field — verification reads it through
-`GET /v1/config` and falls back to the documented default when the document
-does not carry it.
+agent-verification baseline (`expectedAgent`, **blank by default**: no
+baseline configured means no comparison) is service configuration, not a card
+field — verification reads it through `GET /v1/config` and, when the document
+carries no usable value, records the observed agent without judging it.
 
 ## Requirements
 
@@ -101,8 +101,10 @@ does not carry it.
   (plus `Contents: read` only if you pass repository metadata to OpenChamber).
   **No write scopes.** Organization approval where your org requires it.
 - Recommended: **Settings → Sessions → Session Defaults → Default Agent =
-  `project-manager`** — after every dispatch Mecha Turk reads back which agent
-  actually ran and warns (never blocks) if it was something else.
+  `project-manager`**, plus the matching **`expectedAgent`** baseline on
+  **Settings** — after every dispatch Mecha Turk reads back which agent
+  actually ran and warns (never blocks) if it was something else, when a
+  baseline is configured to compare against.
 
 ## Install
 
