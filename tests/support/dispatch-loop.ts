@@ -40,6 +40,7 @@ import type { ClaimedRun } from '../../src/claim-service.ts';
 import type { PanelRuntime } from '../../src/panel-state.ts';
 import type { PanelBinding } from '../../src/bindings-service.ts';
 import type { SpikeHost } from '../../src/session.ts';
+import type { GitHubIssuePoller } from '../../service/poll/poller-github.ts';
 import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceStore } from '../../service/store/index.ts';
 import {
@@ -67,6 +68,37 @@ import type { TestService } from './service.ts';
 
 /** Prefix under the system temp directory for one loop. */
 const TEMP_PREFIX = 'mecha-turk-loop-';
+
+/**
+ * Poller every loop instance's background scan runs under: empty feeds,
+ * answered without touching the network.
+ *
+ * `startService` arms its first scan cycle fire-and-forget, and
+ * {@link startDispatchLoop} documents the loop as offline *by construction*
+ * ("no bindings to poll, so the scan cycle never reaches GitHub"). A fixture
+ * that seeds an active binding — the pre-003 upgrade store — breaks that
+ * precondition: the default poller would send the cycle at `api.github.com`
+ * and write `scan-state.json` whenever GitHub answers, which is exactly when
+ * a teardown can be removing the store underneath it (the CI ENOTEMPTY).
+ * Empty, immediate answers keep that cycle on the test's own clock.
+ */
+const OFFLINE_POLLER: GitHubIssuePoller = {
+    listOpenIssues: async () => ({ kind: 'ok', issues: [] }),
+    listIssueComments: async () => ({ kind: 'ok', comments: [] }),
+    listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
+};
+
+/**
+ * Removal attempts for one loop's temp root while a straggler write lands.
+ *
+ * Each retry waits a multiple of {@link ROOT_REMOVE_RETRY_MS} longer than the
+ * last, and Node re-lists the directory on every attempt, so a file created
+ * mid-walk is collected by the next pass instead of failing the removal.
+ */
+const ROOT_REMOVE_RETRIES = 10;
+
+/** Base delay between removal attempts, in milliseconds. */
+const ROOT_REMOVE_RETRY_MS = 50;
 
 /** Stamp a fixture-aged lease reads as expired against (the service's clock). */
 const EXPIRED_LEASE_STAMP = '2000-01-01T00:00:00.000Z';
@@ -291,7 +323,17 @@ async function drainLoop(input: {
     }
 
     await input.service.shutdown();
-    await rm(input.root, { recursive: true, force: true });
+    // `shutdown()` drains in-flight requests and stops both schedulers from
+    // re-arming, but it does not await a fire-and-forget pass already in
+    // flight (the first scan cycle, startup reconciliation). `maxRetries`
+    // makes the removal re-list the tree on every ENOTEMPTY instead of
+    // failing: a straggler's file is picked up by the next attempt.
+    await rm(input.root, {
+        recursive: true,
+        force: true,
+        maxRetries: ROOT_REMOVE_RETRIES,
+        retryDelay: ROOT_REMOVE_RETRY_MS,
+    });
     LOG_LINES.length = 0;
 }
 
@@ -387,6 +429,16 @@ function mountPanel(input: {
 }
 
 /**
+ * Start one loop instance: the harness defaults plus the offline poller.
+ *
+ * @param dataDir - Store directory the instance serves.
+ * @returns The running instance.
+ */
+async function startLoopService(dataDir: string): Promise<TestService> {
+    return await startTestService({ dataDir, poller: OFFLINE_POLLER });
+}
+
+/**
  * Start one loop: a temp store and the real service serving it.
  *
  * @returns The loop, ready for fixtures and mounts.
@@ -396,7 +448,7 @@ export async function startDispatchLoop(): Promise<DispatchLoop> {
     const dataDir = join(root, 'store');
     await mkdir(dataDir, { recursive: true });
 
-    let service = await startTestService({ dataDir });
+    let service = await startLoopService(dataDir);
     const sessions: string[] = [];
     const timeline: string[] = [];
     const storage = createStorageDouble();
@@ -429,7 +481,7 @@ export async function startDispatchLoop(): Promise<DispatchLoop> {
         ageLeases: async () => await ageStoredLeases({ store: loop.store }),
         restart: async () => {
             await service.shutdown();
-            service = await startTestService({ dataDir });
+            service = await startLoopService(dataDir);
         },
         shutdown: async () => await drainLoop({ mounts, service, root }),
     };

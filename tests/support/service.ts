@@ -18,6 +18,7 @@ import { readServiceEnv } from '../../service/env.ts';
 import { createLogger } from '../../service/log.ts';
 import { startService } from '../../service/server.ts';
 import type { GitHubVerifier } from '../../service/github.ts';
+import type { GitHubIssuePoller } from '../../service/poll/poller-github.ts';
 import type { ServiceHandle } from '../../service/server.ts';
 import { offlineVerifier } from './github.ts';
 
@@ -47,6 +48,17 @@ export interface StartTestServiceOptions {
      * injects one over `createGitHubVerifier(fakeGitHub(...).fetch)`.
      */
     readonly github?: GitHubVerifier;
+    /**
+     * GitHub issue poller the background scan loop runs under.
+     *
+     * Defaults to the process `fetch`-backed poller, exactly as production
+     * does. A harness whose fixture seeds an active binding injects an
+     * offline one instead: `startService` arms its first scan cycle
+     * fire-and-forget, so with a real poller that cycle reaches GitHub and
+     * writes `scan-state.json` on a schedule no shutdown drains — the
+     * ENOTEMPTY teardown race this option exists to remove.
+     */
+    readonly poller?: GitHubIssuePoller;
 }
 
 /** A running service instance plus everything a test needs to poke it. */
@@ -63,7 +75,7 @@ export interface TestService {
     readonly handle: ServiceHandle;
     /** `fetch` with the bearer token already attached. */
     call(path: string, init?: RequestInit): Promise<Response>;
-    /** Drain the service and remove the temp directory it owned. */
+    /** Drain the service (requests and startup reconciliation) and remove the temp directory it owned. */
     shutdown(): Promise<void>;
 }
 
@@ -102,6 +114,7 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
         dataDir,
         log,
         github: options.github ?? offlineVerifier(),
+        ...(options.poller === undefined ? {} : { poller: options.poller }),
     });
     const baseUrl = `http://${HOST}:${handle.port}`;
 
@@ -118,6 +131,12 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
             }),
         shutdown: async () => {
             await handle.shutdown();
+            // `startService` starts startup reconciliation *after* the listener
+            // binds and never awaits it (readiness must not wait on GitHub),
+            // and `handle.shutdown()` does not drain it either. The harness
+            // awaits it here so a reconcile write can never land under the
+            // removal below.
+            await handle.reconciled;
             await rm(home, { recursive: true, force: true });
         },
     };
