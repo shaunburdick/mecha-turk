@@ -98,7 +98,8 @@ function scriptedLoop(state: { readonly stopped: boolean; readonly nextPollAtMs:
 /** Services this file started, shut down after every test. */
 const running: TestService[] = [];
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork1 = async (): Promise<void> => {
     while (running.length > 0) {
         const service = running.pop();
         await service?.shutdown();
@@ -108,7 +109,9 @@ afterEach(async () => {
         await rm(scratch, { recursive: true, force: true });
         scratch = null;
     }
-});
+};
+
+afterEach(afterEachWork1);
 
 /**
  * Start a service and keep it for teardown.
@@ -232,210 +235,245 @@ async function blockedDataDir(): Promise<string> {
 }
 
 describe('GET /v1/status polling is computed, never literal (005 FR-031, SC-101)', () => {
-    it('reports a running loop as running, with a future stamp and no reason (AC-102)', async () => {
-        const service = await start();
+    it('reports a running loop as running, with a future sta… (+5 cases)', async () => {
+        // case: reports a running loop as running, with a future stamp and no reason (AC-102)
+        {
+            const service = await start();
 
-        const body = await readStatus(service);
+            const body = await readStatus(service);
 
-        expect(body.polling.paused).toBe(false);
-        expect(body.polling.pausedReason).toBe('');
-        expect(body.polling.intervalMs).toBe(DEFAULT_CONFIG.intervalMs);
-        expect(body.polling.nextPollAt).not.toBeNull();
-        expect(Date.parse(body.polling.nextPollAt ?? '')).toBeGreaterThan(Date.now());
-    });
-
-    it('reports a stopped loop with no active binding as no-active-bindings (AC-103)', async () => {
-        const service = await start();
-        service.handle.poll?.stop();
-
-        const body = await readStatus(service);
-
-        expect(body.polling.paused).toBe(true);
-        expect(body.polling.nextPollAt).toBeNull();
-        expect(body.polling.pausedReason).toBe('no-active-bindings');
-    });
-
-    it('answers an unusable data directory with store-unavailable', async () => {
-        const service = await start({ dataDir: await blockedDataDir() });
-
-        const body = await readStatus(service);
-
-        expect(body.service.status).toBe('degraded');
-        expect(body.polling.paused).toBe(true);
-        expect(body.polling.nextPollAt).toBeNull();
-        expect(body.polling.pausedReason).toBe('store-unavailable');
-    });
-
-    it('names shutdown as stopping rather than guessing another reason', () => {
-        const slot = createPollingView();
-        slot.beginShutdown();
-
-        expect(slot.view.isRunning()).toBe(false);
-        expect(pausedReasonOf({
-            storeUsable: true,
-            running: slot.view.isRunning(),
-            stopping: slot.view.isStopping(),
-            activeBindings: 3,
-        })).toBe('stopping');
-    });
-
-    it('keeps the vocabulary closed and emits only its members', () => {
-        expect([...PAUSED_REASONS]).toEqual([
-            'config-incomplete',
-            'no-active-bindings',
-            'store-unavailable',
-            'stopping',
-        ]);
-        // The reader's half of the rule: an unknown code is not one of ours,
-        // so nothing in the panel may map it to a friendly guess (FR-003).
-        expect(isPausedReason('gpu-starved')).toBe(false);
-        for (const reason of PAUSED_REASONS) {
-            expect(isPausedReason(reason)).toBe(true);
+            expect(body.polling.paused).toBe(false);
+            expect(body.polling.pausedReason).toBe('');
+            expect(body.polling.intervalMs).toBe(DEFAULT_CONFIG.intervalMs);
+            expect(body.polling.nextPollAt).not.toBeNull();
+            expect(Date.parse(body.polling.nextPollAt ?? '')).toBeGreaterThan(Date.now());
         }
-    });
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: reports a stopped loop with no active binding as no-active-bindings (AC-103)
+        {
+            const service = await start();
+            service.handle.poll?.stop();
 
-    it('reports config-incomplete only when the loop is stopped behind an active binding', () => {
-        expect(pausedReasonOf({
-            storeUsable: true,
-            running: false,
-            stopping: false,
-            activeBindings: 1,
-        })).toBe('config-incomplete');
-        expect(pausedReasonOf({
-            storeUsable: true,
-            running: true,
-            stopping: false,
-            activeBindings: 4,
-        })).toBe('');
+            const body = await readStatus(service);
+
+            expect(body.polling.paused).toBe(true);
+            expect(body.polling.nextPollAt).toBeNull();
+            expect(body.polling.pausedReason).toBe('no-active-bindings');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: answers an unusable data directory with store-unavailable
+        {
+            const service = await start({ dataDir: await blockedDataDir() });
+
+            const body = await readStatus(service);
+
+            expect(body.service.status).toBe('degraded');
+            expect(body.polling.paused).toBe(true);
+            expect(body.polling.nextPollAt).toBeNull();
+            expect(body.polling.pausedReason).toBe('store-unavailable');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: names shutdown as stopping rather than guessing another reason
+        {
+            const slot = createPollingView();
+            slot.beginShutdown();
+
+            expect(slot.view.isRunning()).toBe(false);
+            expect(pausedReasonOf({
+                storeUsable: true,
+                running: slot.view.isRunning(),
+                stopping: slot.view.isStopping(),
+                activeBindings: 3,
+            })).toBe('stopping');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: keeps the vocabulary closed and emits only its members
+        {
+            expect([...PAUSED_REASONS]).toEqual([
+                'config-incomplete',
+                'no-active-bindings',
+                'store-unavailable',
+                'stopping',
+            ]);
+            // The reader's half of the rule: an unknown code is not one of ours,
+            // so nothing in the panel may map it to a friendly guess (FR-003).
+            expect(isPausedReason('gpu-starved')).toBe(false);
+            for (const reason of PAUSED_REASONS) {
+                expect(isPausedReason(reason)).toBe(true);
+            }
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: reports config-incomplete only when the loop is stopped behind an active binding
+        {
+            expect(pausedReasonOf({
+                storeUsable: true,
+                running: false,
+                stopping: false,
+                activeBindings: 1,
+            })).toBe('config-incomplete');
+            expect(pausedReasonOf({
+                storeUsable: true,
+                running: true,
+                stopping: false,
+                activeBindings: 4,
+            })).toBe('');
+        }
     });
 });
 
 describe('the scheduler view reads the loop rather than copying it (005 FR-031)', () => {
-    it('answers null while no loop has been observed', () => {
-        const slot = createPollingView();
+    it('answers null while no loop has been observed (+3 cases)', async () => {
+        // case: answers null while no loop has been observed
+        {
+            const slot = createPollingView();
 
-        expect(slot.view.isRunning()).toBe(false);
-        expect(nextPollAtOf(slot.view, DEFAULT_CONFIG.intervalMs)).toBeNull();
-    });
+            expect(slot.view.isRunning()).toBe(false);
+            expect(nextPollAtOf(slot.view, DEFAULT_CONFIG.intervalMs)).toBeNull();
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: reports the armed stamp exactly while the loop runs
+        {
+            const slot = createPollingView();
+            const at = Date.now() + 5_000;
+            slot.observe(scriptedLoop({ stopped: false, nextPollAtMs: at }));
 
-    it('reports the armed stamp exactly while the loop runs', () => {
-        const slot = createPollingView();
-        const at = Date.now() + 5_000;
-        slot.observe(scriptedLoop({ stopped: false, nextPollAtMs: at }));
+            expect(slot.view.isRunning()).toBe(true);
+            expect(nextPollAtOf(slot.view, DEFAULT_CONFIG.intervalMs)).toBe(new Date(at).toISOString());
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: falls back to the earliest possible stamp while the first cycle runs
+        {
+            const slot = createPollingView();
+            slot.observe(scriptedLoop({ stopped: false, nextPollAtMs: null }));
 
-        expect(slot.view.isRunning()).toBe(true);
-        expect(nextPollAtOf(slot.view, DEFAULT_CONFIG.intervalMs)).toBe(new Date(at).toISOString());
-    });
+            const parsed = Date.parse(nextPollAtOf(slot.view, DEFAULT_CONFIG.intervalMs) ?? '');
+            expect(parsed).toBeGreaterThan(Date.now());
+            expect(parsed).toBeLessThanOrEqual(Date.now() + DEFAULT_CONFIG.intervalMs);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: forgets the schedule the moment the loop is stopped
+        {
+            const slot = createPollingView();
+            const at = Date.now() + 1_000;
+            slot.observe(scriptedLoop({ stopped: true, nextPollAtMs: at }));
 
-    it('falls back to the earliest possible stamp while the first cycle runs', () => {
-        const slot = createPollingView();
-        slot.observe(scriptedLoop({ stopped: false, nextPollAtMs: null }));
-
-        const parsed = Date.parse(nextPollAtOf(slot.view, DEFAULT_CONFIG.intervalMs) ?? '');
-        expect(parsed).toBeGreaterThan(Date.now());
-        expect(parsed).toBeLessThanOrEqual(Date.now() + DEFAULT_CONFIG.intervalMs);
-    });
-
-    it('forgets the schedule the moment the loop is stopped', () => {
-        const slot = createPollingView();
-        const at = Date.now() + 1_000;
-        slot.observe(scriptedLoop({ stopped: true, nextPollAtMs: at }));
-
-        expect(slot.view.isRunning()).toBe(false);
-        expect(nextPollAtOf(slot.view, DEFAULT_CONFIG.intervalMs)).toBeNull();
+            expect(slot.view.isRunning()).toBe(false);
+            expect(nextPollAtOf(slot.view, DEFAULT_CONFIG.intervalMs)).toBeNull();
+        }
     });
 });
 
 describe('GET /v1/status repositories — one row per stored binding (005 FR-032, SC-102)', () => {
-    it('keeps the member named repositories (FR-026)', async () => {
-        const service = await start();
+    it('keeps the member named repositories (FR-026) (+5 cases)', async () => {
+        // case: keeps the member named repositories (FR-026)
+        {
+            const service = await start();
 
-        const body = await readStatus(service);
+            const body = await readStatus(service);
 
-        expect(Object.keys(body)).toContain('repositories');
-        expect(Array.isArray(body.repositories)).toBe(true);
-    });
+            expect(Object.keys(body)).toContain('repositories');
+            expect(Array.isArray(body.repositories)).toBe(true);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: answers a store with no bindings as an honest empty (AC-104, zero bindings)
+        {
+            const service = await start();
 
-    it('answers a store with no bindings as an honest empty (AC-104, zero bindings)', async () => {
-        const service = await start();
+            const body = await readStatus(service);
 
-        const body = await readStatus(service);
+            expect(body.repositories).toEqual([]);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: rows one binding with every member AC-104 names
+        {
+            const service = await start();
+            await plantBindings(service, [bindingRow('one')]);
 
-        expect(body.repositories).toEqual([]);
-    });
+            const body = await readStatus(service);
+            const row = body.repositories[0];
 
-    it('rows one binding with every member AC-104 names', async () => {
-        const service = await start();
-        await plantBindings(service, [bindingRow('one')]);
-
-        const body = await readStatus(service);
-        const row = body.repositories[0];
-
-        expect(body.repositories).toHaveLength(1);
-        expect(row?.bindingId).toBe('bnd_one');
-        expect(row?.repository).toBe('acme/one');
-        expect(row?.projectId).toBe('prj_42');
-        expect(row?.accountLogin).toBe(ACCOUNT_LOGIN);
-        expect(row?.active).toBe(true);
-        expect(row).toHaveProperty('lastScanAt');
-        expect(row).toHaveProperty('lastError');
-        expect(row).toHaveProperty('pendingCount');
-        expect(row?.pendingCount).toBe(0);
-        expect(row?.readable).toBe(true);
-    });
-
-    it('rows five bindings, each with its own stamp, reason, and count (AC-104)', async () => {
-        const service = await start();
-        const rows = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].map((suffix) => bindingRow(suffix));
-        await plantBindings(service, rows);
-        await plantScanState(service, Object.fromEntries([
-            ['bnd_alpha', { lastScanAt: STAMP, lastError: 'rate-limited' }],
-            ['bnd_beta', { lastScanAt: LATER_STAMP, lastError: null }],
-        ]));
-
-        const body = await readStatus(service);
-
-        expect(body.repositories).toHaveLength(5);
-        for (const row of body.repositories) {
+            expect(body.repositories).toHaveLength(1);
+            expect(row?.bindingId).toBe('bnd_one');
+            expect(row?.repository).toBe('acme/one');
+            expect(row?.projectId).toBe('prj_42');
+            expect(row?.accountLogin).toBe(ACCOUNT_LOGIN);
+            expect(row?.active).toBe(true);
             expect(row).toHaveProperty('lastScanAt');
             expect(row).toHaveProperty('lastError');
-            expect(typeof row.pendingCount).toBe('number');
-            expect(row.readable).toBe(true);
+            expect(row).toHaveProperty('pendingCount');
+            expect(row?.pendingCount).toBe(0);
+            expect(row?.readable).toBe(true);
         }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: rows five bindings, each with its own stamp, reason, and count (AC-104)
+        {
+            const service = await start();
+            const rows = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].map((suffix) => bindingRow(suffix));
+            await plantBindings(service, rows);
+            await plantScanState(service, Object.fromEntries([
+                ['bnd_alpha', { lastScanAt: STAMP, lastError: 'rate-limited' }],
+                ['bnd_beta', { lastScanAt: LATER_STAMP, lastError: null }],
+            ]));
 
-        const alpha = body.repositories.find((row) => row.bindingId === 'bnd_alpha');
-        const beta = body.repositories.find((row) => row.bindingId === 'bnd_beta');
-        expect(alpha?.lastScanAt).toBe(STAMP);
-        expect(alpha?.lastError).toBe('rate-limited');
-        expect(beta?.lastScanAt).toBe(LATER_STAMP);
-        expect(beta?.lastError).toBeNull();
-    });
+            const body = await readStatus(service);
 
-    it('marks a binding disabled by its operator as not active', async () => {
-        const service = await start();
-        await plantBindings(service, [bindingRow('off', 'disabled')]);
+            expect(body.repositories).toHaveLength(5);
+            for (const row of body.repositories) {
+                expect(row).toHaveProperty('lastScanAt');
+                expect(row).toHaveProperty('lastError');
+                expect(typeof row.pendingCount).toBe('number');
+                expect(row.readable).toBe(true);
+            }
 
-        const body = await readStatus(service);
+            const alpha = body.repositories.find((row) => row.bindingId === 'bnd_alpha');
+            const beta = body.repositories.find((row) => row.bindingId === 'bnd_beta');
+            expect(alpha?.lastScanAt).toBe(STAMP);
+            expect(alpha?.lastError).toBe('rate-limited');
+            expect(beta?.lastScanAt).toBe(LATER_STAMP);
+            expect(beta?.lastError).toBeNull();
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: marks a binding disabled by its operator as not active
+        {
+            const service = await start();
+            await plantBindings(service, [bindingRow('off', 'disabled')]);
 
-        expect(body.repositories[0]?.active).toBe(false);
-    });
+            const body = await readStatus(service);
 
-    it('rows an unreadable projection with readable false instead of omitting it (AC-105)', async () => {
-        const service = await start();
-        await plantBindings(service, [bindingRow('unreadable')]);
-        // The run document the rows are counted from cannot be read at all.
-        await writeFile(join(service.dataDir, RUNS_FILE), '{ this is not json', 'utf8');
+            expect(body.repositories[0]?.active).toBe(false);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: rows an unreadable projection with readable false instead of omitting it (AC-105)
+        {
+            const service = await start();
+            await plantBindings(service, [bindingRow('unreadable')]);
+            // The run document the rows are counted from cannot be read at all.
+            await writeFile(join(service.dataDir, RUNS_FILE), '{ this is not json', 'utf8');
 
-        const body = await readStatus(service);
-        const row: StatusRepositoryRow | undefined = body.repositories[0];
+            const body = await readStatus(service);
+            const row: StatusRepositoryRow | undefined = body.repositories[0];
 
-        expect(body.repositories).toHaveLength(1);
-        expect(row?.bindingId).toBe('bnd_unreadable');
-        expect(row?.readable).toBe(false);
-        expect(row?.lastScanAt).toBeNull();
-        expect(row?.pendingCount).toBe(0);
-        // The same unreadable document must not produce a reassuring agent pin.
-        expect(body.agentPin.lastVerification).toEqual({ available: false, reason: 'no-service-mirror' });
+            expect(body.repositories).toHaveLength(1);
+            expect(row?.bindingId).toBe('bnd_unreadable');
+            expect(row?.readable).toBe(false);
+            expect(row?.lastScanAt).toBeNull();
+            expect(row?.pendingCount).toBe(0);
+            // The same unreadable document must not produce a reassuring agent pin.
+            expect(body.agentPin.lastVerification).toEqual({ available: false, reason: 'no-service-mirror' });
+        }
     });
 
     it('refuses rather than inventing rows when the bindings themselves cannot be read', async () => {
@@ -449,53 +487,60 @@ describe('GET /v1/status repositories — one row per stored binding (005 FR-032
 });
 
 describe('GET /v1/status agentPin.lastVerification is widened (005 FR-033, AC-106)', () => {
-    it('answers null while nothing has ever been verified, never an ok-shaped object', async () => {
-        const service = await start();
+    it('answers null while nothing has ever been verified, n… (+2 cases)', async () => {
+        // case: answers null while nothing has ever been verified, never an ok-shaped object
+        {
+            const service = await start();
 
-        const body = await readStatus(service);
+            const body = await readStatus(service);
 
-        expect(body.agentPin.lastVerification).toBeNull();
-        expect(body.agentPin.expectedAgent).toBeNull();
-    });
+            expect(body.agentPin.lastVerification).toBeNull();
+            expect(body.agentPin.expectedAgent).toBeNull();
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: reports the explicit not-available marker when the runs cannot be read
+        {
+            const service = await start();
+            await writeFile(join(service.dataDir, RUNS_FILE), 'not json at all', 'utf8');
 
-    it('reports the explicit not-available marker when the runs cannot be read', async () => {
-        const service = await start();
-        await writeFile(join(service.dataDir, RUNS_FILE), 'not json at all', 'utf8');
+            const body = await readStatus(service);
 
-        const body = await readStatus(service);
+            expect(body.agentPin.lastVerification).toEqual({ available: false, reason: 'no-service-mirror' });
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: projects the freshest read-back the service holds
+        {
+            const older: RunVerification = {
+                observedAgent: OTHER_AGENT,
+                expectedAgent: EXPECTED_AGENT,
+                ok: false,
+                note: 'mismatch',
+                at: STAMP,
+            };
+            const newer: RunVerification = {
+                observedAgent: EXPECTED_AGENT,
+                expectedAgent: EXPECTED_AGENT,
+                ok: true,
+                note: null,
+                at: LATER_STAMP,
+            };
 
-        expect(body.agentPin.lastVerification).toEqual({ available: false, reason: 'no-service-mirror' });
-    });
-
-    it('projects the freshest read-back the service holds', () => {
-        const older: RunVerification = {
-            observedAgent: OTHER_AGENT,
-            expectedAgent: EXPECTED_AGENT,
-            ok: false,
-            note: 'mismatch',
-            at: STAMP,
-        };
-        const newer: RunVerification = {
-            observedAgent: EXPECTED_AGENT,
-            expectedAgent: EXPECTED_AGENT,
-            ok: true,
-            note: null,
-            at: LATER_STAMP,
-        };
-
-        expect(mostRecentVerification([{ verification: older }, { verification: newer }])).toEqual({
-            observedAgent: EXPECTED_AGENT,
-            expectedAgent: EXPECTED_AGENT,
-            ok: true,
-            at: LATER_STAMP,
-        });
-        expect(mostRecentVerification([{ verification: null }, { verification: older }])).toEqual({
-            observedAgent: OTHER_AGENT,
-            expectedAgent: EXPECTED_AGENT,
-            ok: false,
-            at: STAMP,
-        });
-        expect(mostRecentVerification([{ verification: null }])).toBeNull();
+            expect(mostRecentVerification([{ verification: older }, { verification: newer }])).toEqual({
+                observedAgent: EXPECTED_AGENT,
+                expectedAgent: EXPECTED_AGENT,
+                ok: true,
+                at: LATER_STAMP,
+            });
+            expect(mostRecentVerification([{ verification: null }, { verification: older }])).toEqual({
+                observedAgent: OTHER_AGENT,
+                expectedAgent: EXPECTED_AGENT,
+                ok: false,
+                at: STAMP,
+            });
+            expect(mostRecentVerification([{ verification: null }])).toBeNull();
+        }
     });
 });
 

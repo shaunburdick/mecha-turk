@@ -249,171 +249,180 @@ function putBody(requests: readonly GuestRequest[]): string {
 }
 
 describe('SC-105 / AC-123 the prompt is rendered exactly once across all six tabs', () => {
-    it('counts one SDK mount carrying the prompt text', () => {
-        mounts.log.length = 0;
-        const { rt, handlers } = editorRuntime();
-        // The field opens on what the service holds for the selected row —
-        // the same path the pane's own select handler takes (004 FR-012).
-        handlers.selectBinding(EDITED_ID);
-        expect(rt.state.bindings.startingPromptInput).toBe(SENTINEL);
+    it('counts one SDK mount carrying the prompt text (+1 cases)', () => {
+        // case: counts one SDK mount carrying the prompt text
+        {
+            mounts.log.length = 0;
+            const { rt, handlers } = editorRuntime();
+            // The field opens on what the service holds for the selected row —
+            // the same path the pane's own select handler takes (004 FR-012).
+            handlers.selectBinding(EDITED_ID);
+            expect(rt.state.bindings.startingPromptInput).toBe(SENTINEL);
 
-        const dom = fakeDom();
-        mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
-        for (const id of TAB_IDS) {
-            rt.shell?.activate(id);
+            const dom = fakeDom();
+            mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
+            for (const id of TAB_IDS) {
+                rt.shell?.activate(id);
+            }
+
+            const rendered = mounts.log.filter((entry) => JSON.stringify(entry.props ?? null).includes(SENTINEL));
+
+            // The count that fails at 0 (the field vanished) and at 2 (a second
+            // surface started carrying an operator instruction) alike.
+            expect(rendered).toHaveLength(1);
+            expect(rendered[0]?.key).toBe('mountTextField');
+            // Not vacuous: the six bodies really mounted, and a text field is
+            // among them rather than an empty log agreeing with itself.
+            expect(mounts.log.length).toBeGreaterThan(TAB_IDS.length);
+            expect(mounts.log.some((entry) => entry.key === 'mountTextField')).toBe(true);
+
+            rt.shell?.dispose();
         }
+        // case: shows presence and length on the row, never the text and never a fingerprint
+        {
+            const { rt } = editorRuntime();
+            const row = bindingRows(rt.state.bindings)[0];
 
-        const rendered = mounts.log.filter((entry) => JSON.stringify(entry.props ?? null).includes(SENTINEL));
-
-        // The count that fails at 0 (the field vanished) and at 2 (a second
-        // surface started carrying an operator instruction) alike.
-        expect(rendered).toHaveLength(1);
-        expect(rendered[0]?.key).toBe('mountTextField');
-        // Not vacuous: the six bodies really mounted, and a text field is
-        // among them rather than an empty log agreeing with itself.
-        expect(mounts.log.length).toBeGreaterThan(TAB_IDS.length);
-        expect(mounts.log.some((entry) => entry.key === 'mountTextField')).toBe(true);
-
-        rt.shell?.dispose();
-    });
-
-    it('shows presence and length on the row, never the text and never a fingerprint', () => {
-        const { rt } = editorRuntime();
-        const row = bindingRows(rt.state.bindings)[0];
-
-        expect(row?.subtitle).toContain(`prompt set · ${SENTINEL.length} chars`);
-        expect(row?.subtitle).not.toContain(SENTINEL);
-        expect(row?.subtitle).not.toContain('mtp-');
+            expect(row?.subtitle).toContain(`prompt set · ${SENTINEL.length} chars`);
+            expect(row?.subtitle).not.toContain(SENTINEL);
+            expect(row?.subtitle).not.toContain('mtp-');
+        }
     });
 
 });
 
 describe('004 FR-014 the save carries the prompt only where it was edited', () => {
-    it('omits the key from every row when no prompt was edited', async () => {
-        const service = echoService();
-        const rt = createTestRuntime(service.host);
-        rt.state.bindings.bindings = stateFromWire([
-            bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS }),
-            bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY, startingPrompt: PREVIOUS }),
-        ]);
-        rt.state.bindings.status = 'ready';
-        rt.state.bindings.selectedBinding = OTHER_ID;
-        const handlers = createBindingsHandlers(rt);
+    it('omits the key from every row when no prompt was edit… (+2 cases)', async () => {
+        // case: omits the key from every row when no prompt was edited
+        {
+            const service = echoService();
+            const rt = createTestRuntime(service.host);
+            rt.state.bindings.bindings = stateFromWire([
+                bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS }),
+                bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY, startingPrompt: PREVIOUS }),
+            ]);
+            rt.state.bindings.status = 'ready';
+            rt.state.bindings.selectedBinding = OTHER_ID;
+            const handlers = createBindingsHandlers(rt);
 
-        handlers.toggle();
-        await tick();
+            handlers.toggle();
+            await tick();
 
-        // Asserted on the raw body: "the key is absent" is a fact about bytes.
-        expect(putBody(service.requests)).not.toContain('startingPrompt');
-    });
+            // Asserted on the raw body: "the key is absent" is a fact about bytes.
+            expect(putBody(service.requests)).not.toContain('startingPrompt');
+        }
+        // case: sends an explicit empty value on exactly the row whose prompt was cleared
+        {
+            const service = echoService();
+            const rt = createTestRuntime(service.host);
+            rt.state.bindings.bindings = stateFromWire([
+                bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS }),
+                bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY, startingPrompt: PREVIOUS }),
+            ]);
+            rt.state.bindings.status = 'ready';
+            const handlers = createBindingsHandlers(rt);
+            handlers.selectBinding(EDITED_ID);
+            handlers.setStartingPrompt('');
 
-    it('sends an explicit empty value on exactly the row whose prompt was cleared', async () => {
-        const service = echoService();
-        const rt = createTestRuntime(service.host);
-        rt.state.bindings.bindings = stateFromWire([
-            bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS }),
-            bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY, startingPrompt: PREVIOUS }),
-        ]);
-        rt.state.bindings.status = 'ready';
-        const handlers = createBindingsHandlers(rt);
-        handlers.selectBinding(EDITED_ID);
-        handlers.setStartingPrompt('');
+            // One form, one save: the editor's primary control writes the prompt
+            // with the rest of the binding (2026-10-01 review).
+            handlers.submit();
+            await tick();
 
-        // One form, one save: the editor's primary control writes the prompt
-        // with the rest of the binding (2026-10-01 review).
-        handlers.submit();
-        await tick();
+            const raw = putBody(service.requests);
+            expect(raw).toContain('"startingPrompt":""');
+            const body = JSON.parse(raw) as { readonly bindings?: readonly Record<string, unknown>[] };
+            const rows = body.bindings ?? [];
+            expect(rows).toHaveLength(2);
+            expect(rows[0] === undefined ? false : Object.hasOwn(rows[0], 'startingPrompt')).toBe(true);
+            expect(rows[1] === undefined ? true : Object.hasOwn(rows[1], 'startingPrompt')).toBe(false);
+            expect(rt.state.bindings.startingPromptDirty).toBe(false);
+            expect(rt.state.bindings.note).toBe(SAVED_NOTE);
+            expect(rt.state.bindings.editorOpen).toBe(false);
+        }
+        // case: omits the key from the save when the field was never touched
+        {
+            const service = echoService();
+            const rt = createTestRuntime(service.host);
+            rt.state.bindings.bindings = stateFromWire([
+                bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS }),
+            ]);
+            rt.state.bindings.status = 'ready';
+            const handlers = createBindingsHandlers(rt);
+            handlers.selectBinding(EDITED_ID);
 
-        const raw = putBody(service.requests);
-        expect(raw).toContain('"startingPrompt":""');
-        const body = JSON.parse(raw) as { readonly bindings?: readonly Record<string, unknown>[] };
-        const rows = body.bindings ?? [];
-        expect(rows).toHaveLength(2);
-        expect(rows[0] === undefined ? false : Object.hasOwn(rows[0], 'startingPrompt')).toBe(true);
-        expect(rows[1] === undefined ? true : Object.hasOwn(rows[1], 'startingPrompt')).toBe(false);
-        expect(rt.state.bindings.startingPromptDirty).toBe(false);
-        expect(rt.state.bindings.note).toBe(SAVED_NOTE);
-        expect(rt.state.bindings.editorOpen).toBe(false);
-    });
+            handlers.submit();
+            await tick();
 
-    it('omits the key from the save when the field was never touched', async () => {
-        const service = echoService();
-        const rt = createTestRuntime(service.host);
-        rt.state.bindings.bindings = stateFromWire([
-            bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS }),
-        ]);
-        rt.state.bindings.status = 'ready';
-        const handlers = createBindingsHandlers(rt);
-        handlers.selectBinding(EDITED_ID);
-
-        handlers.submit();
-        await tick();
-
-        // The row still saves — the operator asked for that — but the prompt
-        // key is absent from the wire, so the service keeps what it holds
-        // (004 FR-014's omission-preserves).
-        expect(service.requests.filter((request) => request.method === 'PUT')).toHaveLength(1);
-        expect(putBody(service.requests)).not.toContain('startingPrompt');
-        expect(rt.state.bindings.note).toBe(SAVED_NOTE);
+            // The row still saves — the operator asked for that — but the prompt
+            // key is absent from the wire, so the service keeps what it holds
+            // (004 FR-014's omission-preserves).
+            expect(service.requests.filter((request) => request.method === 'PUT')).toHaveLength(1);
+            expect(putBody(service.requests)).not.toContain('startingPrompt');
+            expect(rt.state.bindings.note).toBe(SAVED_NOTE);
+        }
     });
 });
 
 describe('AC-124 a refused prompt stays in force and is never reported as saved', () => {
-    it('renders the remediation at the field and keeps the stored prompt', async () => {
-        const requests: GuestRequest[] = [];
-        const host = fakeHost({
-            serviceRequest: async (request): Promise<GuestRequestResult> => {
-                requests.push(request);
+    it('renders the remediation at the field and keeps the s… (+1 cases)', async () => {
+        // case: renders the remediation at the field and keeps the stored prompt
+        {
+            const requests: GuestRequest[] = [];
+            const host = fakeHost({
+                serviceRequest: async (request): Promise<GuestRequestResult> => {
+                    requests.push(request);
 
-                return request.method === 'PUT'
-                    ? { status: 422, body: REFUSAL }
-                    : { status: 404, body: UNROUTED };
-            },
-        });
-        const rt = createTestRuntime(host);
-        rt.state.bindings.bindings = stateFromWire([
-            bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS }),
-        ]);
-        rt.state.bindings.status = 'ready';
-        const handlers = createBindingsHandlers(rt);
-        handlers.selectBinding(EDITED_ID);
-        handlers.setStartingPrompt('ghp_A_CREDENTIAL_SHAPED_VALUE');
-        const before = JSON.stringify(rt.state.bindings.bindings);
+                    return request.method === 'PUT'
+                        ? { status: 422, body: REFUSAL }
+                        : { status: 404, body: UNROUTED };
+                },
+            });
+            const rt = createTestRuntime(host);
+            rt.state.bindings.bindings = stateFromWire([
+                bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS }),
+            ]);
+            rt.state.bindings.status = 'ready';
+            const handlers = createBindingsHandlers(rt);
+            handlers.selectBinding(EDITED_ID);
+            handlers.setStartingPrompt('ghp_A_CREDENTIAL_SHAPED_VALUE');
+            const before = JSON.stringify(rt.state.bindings.bindings);
 
-        handlers.submit();
-        await tick();
+            handlers.submit();
+            await tick();
 
-        expect(requests.some((request) => request.method === 'PUT')).toBe(true);
-        expect(JSON.stringify(rt.state.bindings.bindings)).toBe(before);
-        expect(rt.state.bindings.bindings[0]?.startingPrompt).toBe(PREVIOUS);
-        // The draft survives so the operator can fix it, rather than being
-        // silently reverted to what the service already holds.
-        expect(rt.state.bindings.startingPromptInput).toBe('ghp_A_CREDENTIAL_SHAPED_VALUE');
-        expect(rt.state.bindings.startingPromptDirty).toBe(true);
-        expect(rt.state.bindings.note).not.toContain('saved');
-    });
+            expect(requests.some((request) => request.method === 'PUT')).toBe(true);
+            expect(JSON.stringify(rt.state.bindings.bindings)).toBe(before);
+            expect(rt.state.bindings.bindings[0]?.startingPrompt).toBe(PREVIOUS);
+            // The draft survives so the operator can fix it, rather than being
+            // silently reverted to what the service already holds.
+            expect(rt.state.bindings.startingPromptInput).toBe('ghp_A_CREDENTIAL_SHAPED_VALUE');
+            expect(rt.state.bindings.startingPromptDirty).toBe(true);
+            expect(rt.state.bindings.note).not.toContain('saved');
+        }
+        // case: clears the field-level refusal once the service accepts
+        {
+            const service = echoService();
+            const rt = createTestRuntime(service.host);
+            rt.state.bindings.bindings = stateFromWire([
+                bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS }),
+            ]);
+            rt.state.bindings.status = 'ready';
+            rt.state.bindings.startingPromptError = 'startingPrompt: an older refusal';
+            const handlers = createBindingsHandlers(rt);
+            handlers.selectBinding(EDITED_ID);
+            const edited = `${PREVIOUS} Then the release notes.`;
+            handlers.setStartingPrompt(edited);
 
-    it('clears the field-level refusal once the service accepts', async () => {
-        const service = echoService();
-        const rt = createTestRuntime(service.host);
-        rt.state.bindings.bindings = stateFromWire([
-            bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS }),
-        ]);
-        rt.state.bindings.status = 'ready';
-        rt.state.bindings.startingPromptError = 'startingPrompt: an older refusal';
-        const handlers = createBindingsHandlers(rt);
-        handlers.selectBinding(EDITED_ID);
-        const edited = `${PREVIOUS} Then the release notes.`;
-        handlers.setStartingPrompt(edited);
+            handlers.submit();
+            await tick();
 
-        handlers.submit();
-        await tick();
-
-        expect(rt.state.bindings.startingPromptError).toBeNull();
-        expect(rt.state.bindings.startingPromptDirty).toBe(false);
-        // The field shows what the service stored after its own normalisation,
-        // not the draft the operator typed.
-        expect(rt.state.bindings.startingPromptInput).toBe(edited);
-        expect(rt.state.bindings.note).toBe(SAVED_NOTE);
+            expect(rt.state.bindings.startingPromptError).toBeNull();
+            expect(rt.state.bindings.startingPromptDirty).toBe(false);
+            // The field shows what the service stored after its own normalisation,
+            // not the draft the operator typed.
+            expect(rt.state.bindings.startingPromptInput).toBe(edited);
+            expect(rt.state.bindings.note).toBe(SAVED_NOTE);
+        }
     });
 });

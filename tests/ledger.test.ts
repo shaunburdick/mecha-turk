@@ -109,202 +109,224 @@ describe('createLedger', () => {
 });
 
 describe('appendEntry', () => {
-    it('assigns monotonic sequence numbers', () => {
-        let ledger = fixtureLedger();
-        ledger = appendEntry(ledger, { at: at(1), kind: 'poll', detail: { inspected: 3 } });
-        ledger = appendEntry(ledger, { at: at(2), kind: 'poll', detail: { inspected: 3 } });
+    it('assigns monotonic sequence numbers (+5 cases)', () => {
+        // case: assigns monotonic sequence numbers
+        {
+            let ledger = fixtureLedger();
+            ledger = appendEntry(ledger, { at: at(1), kind: 'poll', detail: { inspected: 3 } });
+            ledger = appendEntry(ledger, { at: at(2), kind: 'poll', detail: { inspected: 3 } });
 
-        expect(ledger.entries.map((entry) => entry.seq)).toEqual([1, 2, 3]);
-    });
-
-    it('inherits the ledger correlation id and generation when not supplied', () => {
-        const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'poll', detail: { inspected: 1 } });
-
-        expect(ledger.entries.at(-1)?.correlationId).toBe(CORRELATION);
-        expect(ledger.entries.at(-1)?.panelGeneration).toBe(1);
-    });
-
-    it('caps the ledger and drops the oldest entries first', () => {
-        let ledger = fixtureLedger();
-        const extra = MAX_LEDGER_ENTRIES * 2;
-        for (let index = 0; index < extra; index += 1) {
-            ledger = appendEntry(ledger, { at: at(index), kind: 'poll', detail: { inspected: index } });
+            expect(ledger.entries.map((entry) => entry.seq)).toEqual([1, 2, 3]);
         }
+        // case: inherits the ledger correlation id and generation when not supplied
+        {
+            const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'poll', detail: { inspected: 1 } });
 
-        expect(ledger.entries).toHaveLength(MAX_LEDGER_ENTRIES);
-        expect(ledger.entries[0]?.seq).toBeGreaterThan(1);
-        expect(ledger.entries.at(-1)?.seq).toBe(extra + 1);
-    });
+            expect(ledger.entries.at(-1)?.correlationId).toBe(CORRELATION);
+            expect(ledger.entries.at(-1)?.panelGeneration).toBe(1);
+        }
+        // case: caps the ledger and drops the oldest entries first
+        {
+            let ledger = fixtureLedger();
+            const extra = MAX_LEDGER_ENTRIES * 2;
+            for (let index = 0; index < extra; index += 1) {
+                ledger = appendEntry(ledger, { at: at(index), kind: 'poll', detail: { inspected: index } });
+            }
 
-    it('truncates over-long detail values', () => {
-        const long = 'x'.repeat(MAX_DETAIL_CHARS * 2);
-        const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'error', detail: { error: long } });
-        const detail = ledger.entries.at(-1)?.detail;
+            expect(ledger.entries).toHaveLength(MAX_LEDGER_ENTRIES);
+            expect(ledger.entries[0]?.seq).toBeGreaterThan(1);
+            expect(ledger.entries.at(-1)?.seq).toBe(extra + 1);
+        }
+        // case: truncates over-long detail values
+        {
+            const long = 'x'.repeat(MAX_DETAIL_CHARS * 2);
+            const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'error', detail: { error: long } });
+            const detail = ledger.entries.at(-1)?.detail;
 
-        expect(String(detail?.error)).toHaveLength(MAX_DETAIL_CHARS);
-    });
+            expect(String(detail?.error)).toHaveLength(MAX_DETAIL_CHARS);
+        }
+        // case: strips credential-named detail keys
+        {
+            const ledger = appendEntry(fixtureLedger(), {
+                at: at(1),
+                kind: 'error',
+                detail: { token: 'ghp_secret', error: 'boom' },
+            });
+            const detail = ledger.entries.at(-1)?.detail;
 
-    it('strips credential-named detail keys', () => {
-        const ledger = appendEntry(fixtureLedger(), {
-            at: at(1),
-            kind: 'error',
-            detail: { token: 'ghp_secret', error: 'boom' },
-        });
-        const detail = ledger.entries.at(-1)?.detail;
+            expect(detail).toEqual({ error: 'boom' });
+        }
+        // case: redacts a secret-shaped error message as the entry is appended
+        {
+            const token = `ghp_${'a'.repeat(TOKEN_BODY)}`;
+            const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'error', detail: {
+                error: `boom ${token}` } });
+            const detail = ledger.entries.at(-1)?.detail;
 
-        expect(detail).toEqual({ error: 'boom' });
-    });
-
-    it('redacts a secret-shaped error message as the entry is appended', () => {
-        const token = `ghp_${'a'.repeat(TOKEN_BODY)}`;
-        const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'error', detail: { error: `boom ${token}` } });
-        const detail = ledger.entries.at(-1)?.detail;
-
-        expect(detail?.error).toBe('boom [redacted:github-token-classic]');
-        expect(() => serializeLedger(ledger)).not.toThrow();
+            expect(detail?.error).toBe('boom [redacted:github-token-classic]');
+            expect(() => serializeLedger(ledger)).not.toThrow();
+        }
     });
 });
 
 describe('recordPhase', () => {
-    it('records every lifecycle phase the experiment requires', () => {
-        let ledger = fixtureLedger();
+    it('records every lifecycle phase the experiment require… (+1 cases)', () => {
+        // case: records every lifecycle phase the experiment requires
+        {
+            let ledger = fixtureLedger();
 
-        for (const phase of PHASES) {
-            ledger = recordPhase(ledger, { phase, at: at(1), note: phase });
+            for (const phase of PHASES) {
+                ledger = recordPhase(ledger, { phase, at: at(1), note: phase });
+            }
+
+            const recorded = ledger.entries.filter((entry) => entry.kind === 'phase').map((entry) => entry.phase);
+            expect(recorded).toEqual([MOUNTED, ...PHASES]);
         }
+        // case: round-trips every phase through serialization
+        {
+            let ledger = fixtureLedger();
+            for (const phase of PHASES) {
+                ledger = recordPhase(ledger, { phase, at: at(1) });
+            }
 
-        const recorded = ledger.entries.filter((entry) => entry.kind === 'phase').map((entry) => entry.phase);
-        expect(recorded).toEqual([MOUNTED, ...PHASES]);
-    });
-
-    it('round-trips every phase through serialization', () => {
-        let ledger = fixtureLedger();
-        for (const phase of PHASES) {
-            ledger = recordPhase(ledger, { phase, at: at(1) });
+            const restored = readLedger(parseJson(serializeLedger(ledger)));
+            expect(restored).toEqual(ledger);
         }
-
-        const restored = readLedger(parseJson(serializeLedger(ledger)));
-        expect(restored).toEqual(ledger);
     });
 });
 
 describe('serializeLedger', () => {
-    it('produces plain JSON that reads back unchanged', () => {
-        const ledger = fixtureLedger();
-        expect(readLedger(parseJson(serializeLedger(ledger)))).toEqual(ledger);
-    });
+    it('produces plain JSON that reads back unchanged (+2 cases)', () => {
+        // case: produces plain JSON that reads back unchanged
+        {
+            const ledger = fixtureLedger();
+            expect(readLedger(parseJson(serializeLedger(ledger)))).toEqual(ledger);
+        }
+        // case: passes the redaction assertion for clean content
+        {
+            expect(() => assertLedgerRedacted(fixtureLedger())).not.toThrow();
+        }
+        // case: refuses to serialize secret-shaped detail content
+        {
+            const token = `ghp_${'a'.repeat(TOKEN_BODY)}`;
+            const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'error', detail: { note: token } });
 
-    it('passes the redaction assertion for clean content', () => {
-        expect(() => assertLedgerRedacted(fixtureLedger())).not.toThrow();
-    });
-
-    it('refuses to serialize secret-shaped detail content', () => {
-        const token = `ghp_${'a'.repeat(TOKEN_BODY)}`;
-        const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'error', detail: { note: token } });
-
-        expect(() => serializeLedger(ledger)).toThrow(RedactionError);
+            expect(() => serializeLedger(ledger)).toThrow(RedactionError);
+        }
     });
 });
 
 describe('readLedger', () => {
-    it('returns null for a missing value', () => {
-        expect(readLedger()).toBeNull();
-    });
-
-    it('returns null for a foreign schema version', () => {
-        const stored = cloneAsJson(fixtureLedger());
-        stored.schemaVersion = 'other';
-        expect(readLedger(stored)).toBeNull();
-    });
-
-    it('returns null when an entry carries an unknown kind', () => {
-        const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'poll', detail: {} });
-        const stored = cloneAsJson(ledger);
-        const { entries } = stored;
-        if (Array.isArray(entries)) {
-            const first = entries.at(-1);
-            if (first !== null && typeof first === 'object' && !Array.isArray(first)) {
-                (first as Record<string, JsonValue>).kind = 'invented';
-            }
+    it('returns null for a missing value (+3 cases)', () => {
+        // case: returns null for a missing value
+        {
+            expect(readLedger()).toBeNull();
         }
-
-        expect(readLedger(stored)).toBeNull();
-    });
-
-    it('returns null when a detail value is not a scalar', () => {
-        const stored = cloneAsJson(fixtureLedger());
-        const { entries } = stored;
-        if (Array.isArray(entries)) {
-            const first = entries.at(-1);
-            if (first !== null && typeof first === 'object' && !Array.isArray(first)) {
-                (first as Record<string, JsonValue>).detail = { nested: { nope: true } };
-            }
+        // case: returns null for a foreign schema version
+        {
+            const stored = cloneAsJson(fixtureLedger());
+            stored.schemaVersion = 'other';
+            expect(readLedger(stored)).toBeNull();
         }
+        // case: returns null when an entry carries an unknown kind
+        {
+            const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'poll', detail: {} });
+            const stored = cloneAsJson(ledger);
+            const { entries } = stored;
+            if (Array.isArray(entries)) {
+                const first = entries.at(-1);
+                if (first !== null && typeof first === 'object' && !Array.isArray(first)) {
+                    (first as Record<string, JsonValue>).kind = 'invented';
+                }
+            }
 
-        expect(readLedger(stored)).toBeNull();
+            expect(readLedger(stored)).toBeNull();
+        }
+        // case: returns null when a detail value is not a scalar
+        {
+            const stored = cloneAsJson(fixtureLedger());
+            const { entries } = stored;
+            if (Array.isArray(entries)) {
+                const first = entries.at(-1);
+                if (first !== null && typeof first === 'object' && !Array.isArray(first)) {
+                    (first as Record<string, JsonValue>).detail = { nested: { nope: true } };
+                }
+            }
+
+            expect(readLedger(stored)).toBeNull();
+        }
     });
 });
 
 describe('analyzePollingGap', () => {
-    it('reports polling-stopped when no poll ran inside the gap', () => {
-        const ledger = fixtureLedger();
-        const result = analyzePollingGap({ ledger, closedAt: at(10), reopenedAt: at(40) });
+    it('reports polling-stopped when no poll ran inside the … (+3 cases)', () => {
+        // case: reports polling-stopped when no poll ran inside the gap
+        {
+            const ledger = fixtureLedger();
+            const result = analyzePollingGap({ ledger, closedAt: at(10), reopenedAt: at(40) });
 
-        expect(result.verdict).toBe('polling-stopped');
-        expect(result.pollEntriesInGap).toBe(0);
-        expect(result.gapMs).toBe(GAP_MS);
-    });
+            expect(result.verdict).toBe('polling-stopped');
+            expect(result.pollEntriesInGap).toBe(0);
+            expect(result.gapMs).toBe(GAP_MS);
+        }
+        // case: reports polling-continued when a poll ran inside the gap
+        {
+            let ledger = appendEntry(fixtureLedger(), { at: at(20), kind: 'poll', detail: { inspected: 1 } });
+            ledger = recordPhase(ledger, { phase: 'closed', at: at(10) });
+            const result = analyzePollingGap({ ledger, closedAt: at(10), reopenedAt: at(40) });
 
-    it('reports polling-continued when a poll ran inside the gap', () => {
-        let ledger = appendEntry(fixtureLedger(), { at: at(20), kind: 'poll', detail: { inspected: 1 } });
-        ledger = recordPhase(ledger, { phase: 'closed', at: at(10) });
-        const result = analyzePollingGap({ ledger, closedAt: at(10), reopenedAt: at(40) });
+            expect(result.verdict).toBe('polling-continued');
+            expect(result.pollEntriesInGap).toBe(1);
+        }
+        // case: ignores polls outside the interval
+        {
+            let ledger = appendEntry(fixtureLedger(), { at: at(5), kind: 'poll', detail: { inspected: 1 } });
+            ledger = appendEntry(ledger, { at: at(50), kind: 'poll', detail: { inspected: 1 } });
+            const result = analyzePollingGap({ ledger, closedAt: at(10), reopenedAt: at(40) });
 
-        expect(result.verdict).toBe('polling-continued');
-        expect(result.pollEntriesInGap).toBe(1);
-    });
+            expect(result.verdict).toBe('polling-stopped');
+            expect(result.pollEntriesInGap).toBe(0);
+        }
+        // case: reports no-gap when the interval is unusable
+        {
+            const ledger = fixtureLedger();
+            const result = analyzePollingGap({ ledger, closedAt: at(40), reopenedAt: at(10) });
 
-    it('ignores polls outside the interval', () => {
-        let ledger = appendEntry(fixtureLedger(), { at: at(5), kind: 'poll', detail: { inspected: 1 } });
-        ledger = appendEntry(ledger, { at: at(50), kind: 'poll', detail: { inspected: 1 } });
-        const result = analyzePollingGap({ ledger, closedAt: at(10), reopenedAt: at(40) });
-
-        expect(result.verdict).toBe('polling-stopped');
-        expect(result.pollEntriesInGap).toBe(0);
-    });
-
-    it('reports no-gap when the interval is unusable', () => {
-        const ledger = fixtureLedger();
-        const result = analyzePollingGap({ ledger, closedAt: at(40), reopenedAt: at(10) });
-
-        expect(result.verdict).toBe('no-gap');
-        expect(result.gapMs).toBe(0);
+            expect(result.verdict).toBe('no-gap');
+            expect(result.gapMs).toBe(0);
+        }
     });
 });
 
 describe('ledgerTail', () => {
-    it('returns the newest entries first', () => {
-        let ledger = fixtureLedger();
-        ledger = appendEntry(ledger, { at: at(1), kind: 'poll', detail: {} });
-        ledger = appendEntry(ledger, { at: at(2), kind: 'poll', detail: {} });
+    it('returns the newest entries first (+1 cases)', () => {
+        // case: returns the newest entries first
+        {
+            let ledger = fixtureLedger();
+            ledger = appendEntry(ledger, { at: at(1), kind: 'poll', detail: {} });
+            ledger = appendEntry(ledger, { at: at(2), kind: 'poll', detail: {} });
 
-        expect(ledgerTail(ledger, 2).map((entry) => entry.seq)).toEqual([3, 2]);
-    });
-
-    it('returns everything when asked for more than exists', () => {
-        expect(ledgerTail(fixtureLedger(), 10)).toHaveLength(1);
+            expect(ledgerTail(ledger, 2).map((entry) => entry.seq)).toEqual([3, 2]);
+        }
+        // case: returns everything when asked for more than exists
+        {
+            expect(ledgerTail(fixtureLedger(), 10)).toHaveLength(1);
+        }
     });
 });
 
 describe('isLifecyclePhase', () => {
-    it('accepts the five documented phases', () => {
-        for (const phase of ['mounted', 'closed', 'paused', 'removed', 'server-switch']) {
-            expect(isLifecyclePhase(phase)).toBe(true);
+    it('accepts the five documented phases (+1 cases)', () => {
+        // case: accepts the five documented phases
+        {
+            for (const phase of ['mounted', 'closed', 'paused', 'removed', 'server-switch']) {
+                expect(isLifecyclePhase(phase)).toBe(true);
+            }
         }
-    });
-
-    it('rejects anything else', () => {
-        expect(isLifecyclePhase('booted')).toBe(false);
-        expect(isLifecyclePhase(ISSUE_NO)).toBe(false);
+        // case: rejects anything else
+        {
+            expect(isLifecyclePhase('booted')).toBe(false);
+            expect(isLifecyclePhase(ISSUE_NO)).toBe(false);
+        }
     });
 });

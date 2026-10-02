@@ -247,139 +247,145 @@ function verifyBody(mounted: MountedHandoff): Record<string, unknown> | undefine
 const VARIANT_ATTRIBUTE = 'data-variant';
 
 describe('the group carries a submit control and no consent dialog (002 v1.9.0)', () => {
-    it('gives the submit button a real SDK variant, so it does not paint as bare text', async () => {
-        const mounted = await mountHandoff({
-            name: 'the submit variant',
-            verify: { status: 201, body: VERIFY_BODY },
-        });
+    it('gives the submit button a real SDK variant, so it do… (+1 cases)', async () => {
+        // case: gives the submit button a real SDK variant, so it does not paint as bare text
+        {
+            const mounted = await mountHandoff({
+                name: 'the submit variant',
+                verify: { status: 201, body: VERIFY_BODY },
+            });
 
-        // The SDK paints every variant from `[data-variant="…"]`; without the
-        // attribute the button keeps only its transparent base border.
-        expect(mounted.submit.attribute(VARIANT_ATTRIBUTE)).toBe('default');
-    });
+            // The SDK paints every variant from `[data-variant="…"]`; without the
+            // attribute the button keeps only its transparent base border.
+            expect(mounted.submit.attribute(VARIANT_ATTRIBUTE)).toBe('default');
+        }
+        // case: mounts neither an Accept nor a Decline decision anywhere in the group
+        {
+            const mounted = await mountHandoff({
+                name: 'the missing consent dialog',
+                verify: { status: 201, body: VERIFY_BODY },
+            });
 
-    it('mounts neither an Accept nor a Decline decision anywhere in the group', async () => {
-        const mounted = await mountHandoff({
-            name: 'the missing consent dialog',
-            verify: { status: 201, body: VERIFY_BODY },
-        });
+            const labels = mounted.created
+                .filter((node) => node.tagName === 'button')
+                .map((node) => node.textContent);
 
-        const labels = mounted.created
-            .filter((node) => node.tagName === 'button')
-            .map((node) => node.textContent);
-
-        expect(labels).toEqual(['Connect account']);
-        // The two-node consent container (copy, then decisions) is gone too.
-        expect(mounted.created.some((node) => node.className === 'mt-stack')).toBe(false);
-        expect(mounted.created.some((node) => node.className === 'mt-toolbar')).toBe(false);
+            expect(labels).toEqual(['Connect account']);
+            // The two-node consent container (copy, then decisions) is gone too.
+            expect(mounted.created.some((node) => node.className === 'mt-stack')).toBe(false);
+            expect(mounted.created.some((node) => node.className === 'mt-toolbar')).toBe(false);
+        }
     });
 });
 
 describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
-    it('mounts exactly one optional non-credential input beside the token', async () => {
-        const mounted = await mountHandoff({
-            name: 'the expected-login field',
-            verify: { status: 201, body: VERIFY_BODY },
-        });
+    it('mounts exactly one optional non-credential input bes… (+4 cases)', async () => {
+        // case: mounts exactly one optional non-credential input beside the token
+        {
+            const mounted = await mountHandoff({
+                name: 'the expected-login field',
+                verify: { status: 201, body: VERIFY_BODY },
+            });
 
-        const inputs = mounted.created.filter((node) => node.tagName === 'input');
-        expect(inputs).toHaveLength(2);
-        expect(mounted.input.attribute('type')).toBe('password');
-        expect(mounted.expected.attribute('type')).toBe('text');
-    });
+            const inputs = mounted.created.filter((node) => node.tagName === 'input');
+            expect(inputs).toHaveLength(2);
+            expect(mounted.input.attribute('type')).toBe('password');
+            expect(mounted.expected.attribute('type')).toBe('text');
+        }
+        // case: sends no expectedLogin member when the field is left empty (AC-141)
+        {
+            const mounted = await mountHandoff({
+                name: 'an empty expected login',
+                verify: { status: 201, body: VERIFY_BODY },
+            });
 
-    it('sends no expectedLogin member when the field is left empty (AC-141)', async () => {
-        const mounted = await mountHandoff({
-            name: 'an empty expected login',
-            verify: { status: 201, body: VERIFY_BODY },
-        });
+            mounted.input.value = PANEL_TOKEN;
+            mounted.submit.click();
+            await mounted.submitted();
 
-        mounted.input.value = PANEL_TOKEN;
-        mounted.submit.click();
-        await mounted.submitted();
+            expect(verifyBody(mounted)).not.toHaveProperty('expectedLogin');
+            // Both fields are emptied at capture: a constraint left behind would
+            // silently apply to the next account the operator adds, and a paste
+            // must never outlive its handoff (contract §2 step ⑧).
+            expect(mounted.expected.value).toBe('');
+            expect(mounted.input.value).toBe('');
+            expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
+        }
+        // case: sends the expected login the operator typed, trimmed
+        {
+            const mounted = await mountHandoff({
+                name: 'a typed expected login',
+                verify: { status: 201, body: VERIFY_BODY },
+            });
 
-        expect(verifyBody(mounted)).not.toHaveProperty('expectedLogin');
-        // Both fields are emptied at capture: a constraint left behind would
-        // silently apply to the next account the operator adds, and a paste
-        // must never outlive its handoff (contract §2 step ⑧).
-        expect(mounted.expected.value).toBe('');
-        expect(mounted.input.value).toBe('');
-        expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
-    });
+            mounted.input.value = PANEL_TOKEN;
+            mounted.expected.value = '  OctoCat-MT  ';
+            mounted.submit.click();
+            await mounted.submitted();
 
-    it('sends the expected login the operator typed, trimmed', async () => {
-        const mounted = await mountHandoff({
-            name: 'a typed expected login',
-            verify: { status: 201, body: VERIFY_BODY },
-        });
+            expect(verifyBody(mounted)?.expectedLogin).toBe('OctoCat-MT');
+            expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
+        }
+        // case: renders the mismatch refusal with its own copy and never the token (002 FR-009)
+        {
+            const refusal = JSON.stringify({
+                error: { code: 'account-rejected', message: 'contract-fixed' },
+            });
+            const mounted = await mountHandoff({
+                name: 'a mismatched expected login',
+                verify: { status: 422, body: refusal },
+            });
 
-        mounted.input.value = PANEL_TOKEN;
-        mounted.expected.value = '  OctoCat-MT  ';
-        mounted.submit.click();
-        await mounted.submitted();
+            mounted.input.value = PANEL_TOKEN;
+            mounted.expected.value = 'someone-else';
+            mounted.submit.click();
+            await mounted.submitted();
 
-        expect(verifyBody(mounted)?.expectedLogin).toBe('OctoCat-MT');
-        expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
-    });
-
-    it('renders the mismatch refusal with its own copy and never the token (002 FR-009)', async () => {
-        const refusal = JSON.stringify({
-            error: { code: 'account-rejected', message: 'contract-fixed' },
-        });
-        const mounted = await mountHandoff({
-            name: 'a mismatched expected login',
-            verify: { status: 422, body: refusal },
-        });
-
-        mounted.input.value = PANEL_TOKEN;
-        mounted.expected.value = 'someone-else';
-        mounted.submit.click();
-        await mounted.submitted();
-
-        expect(mounted.rt.state.handoff.note)
-            .toBe('The token belongs to a different account than the one expected.');
-        expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
-        expect(currentHandoffToken()).toBeUndefined();
-    });
-
-    it('routes the same paste to the token-replacement path once a row arms it (FR-064)', async () => {
-        const rotated = JSON.stringify({
-            numericUserId: CONNECTED_ID,
-            login: CONNECTED_LOGIN,
-            verifiedAt: '2026-09-27T00:00:00.000Z',
-        });
-        const mounted = await mountHandoff({
-            name: 'a rotation',
-            verify: { status: 200, body: rotated },
-        });
-        // A rotation is armed from a loaded row, so the account is there.
-        mounted.rt.state.bindings.accounts = [
-            {
+            expect(mounted.rt.state.handoff.note)
+                .toBe('The token belongs to a different account than the one expected.');
+            expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
+            expect(currentHandoffToken()).toBeUndefined();
+        }
+        // case: routes the same paste to the token-replacement path once a row arms it (FR-064)
+        {
+            const rotated = JSON.stringify({
                 numericUserId: CONNECTED_ID,
                 login: CONNECTED_LOGIN,
-                displayName: null,
-                usable: true,
-                state: 'active',
-            },
-        ];
+                verifiedAt: '2026-09-27T00:00:00.000Z',
+            });
+            const mounted = await mountHandoff({
+                name: 'a rotation',
+                verify: { status: 200, body: rotated },
+            });
+            // A rotation is armed from a loaded row, so the account is there.
+            mounted.rt.state.bindings.accounts = [
+                {
+                    numericUserId: CONNECTED_ID,
+                    login: CONNECTED_LOGIN,
+                    displayName: null,
+                    usable: true,
+                    state: 'active',
+                },
+            ];
 
-        mounted.rt.state.accounts.rotateArmed = CONNECTED_ID;
-        mounted.input.value = PANEL_TOKEN;
-        mounted.submit.click();
-        await mounted.submitted();
+            mounted.rt.state.accounts.rotateArmed = CONNECTED_ID;
+            mounted.input.value = PANEL_TOKEN;
+            mounted.submit.click();
+            await mounted.submitted();
 
-        const request = mounted.requests.find(
-            (candidate) => candidate.path === `/v1/accounts/${CONNECTED_ID}/token`,
-        );
-        expect(request).toBeDefined();
-        // The constraint never travels on a rotation: the route replaces a
-        // credential for an account that is already identified.
-        expect(String(request?.body)).not.toContain('expectedLogin');
-        // …and neither does the removed consent gate's field (002 v1.9.0).
-        expect(String(request?.body)).not.toContain('consentVersion');
-        // The arm clears and the retention promise is what the note reports.
-        expect(mounted.rt.state.accounts.rotateArmed).toBeNull();
-        expect(mounted.rt.state.accounts.note).toContain('retained');
-        expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
+            const request = mounted.requests.find(
+                (candidate) => candidate.path === `/v1/accounts/${CONNECTED_ID}/token`,
+            );
+            expect(request).toBeDefined();
+            // The constraint never travels on a rotation: the route replaces a
+            // credential for an account that is already identified.
+            expect(String(request?.body)).not.toContain('expectedLogin');
+            // …and neither does the removed consent gate's field (002 v1.9.0).
+            expect(String(request?.body)).not.toContain('consentVersion');
+            // The arm clears and the retention promise is what the note reports.
+            expect(mounted.rt.state.accounts.rotateArmed).toBeNull();
+            expect(mounted.rt.state.accounts.note).toContain('retained');
+            expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
+        }
     });
 });

@@ -358,292 +358,319 @@ function malformedAfterFirstRuntime(): PanelRuntime {
 }
 
 describe('parseStatusView (fail closed, AGENTS invariant 8)', () => {
-    it('reads a complete document', () => {
-        const view = viewOf(statusFixture());
+    it('reads a complete document (+2 cases)', () => {
+        // case: reads a complete document
+        {
+            const view = viewOf(statusFixture());
 
-        expect(view.service.status).toBe(HEALTH_OK);
-        expect(view.service.dataDir).toBe(DATA_DIR);
-        expect(view.accounts).toHaveLength(1);
-        expect(view.bindings).toHaveLength(1);
-        expect(view.polling.paused).toBe(false);
-        expect(view.agentPin.verification).toEqual({ kind: 'none' });
-        expect(view.supported).toBe(true);
-    });
+            expect(view.service.status).toBe(HEALTH_OK);
+            expect(view.service.dataDir).toBe(DATA_DIR);
+            expect(view.accounts).toHaveLength(1);
+            expect(view.bindings).toHaveLength(1);
+            expect(view.polling.paused).toBe(false);
+            expect(view.agentPin.verification).toEqual({ kind: 'none' });
+            expect(view.supported).toBe(true);
+        }
+        // case: refuses every malformed document shape rather than defaulting any of it
+        {
+            expect(parseStatusView('not json'), 'a body that is not JSON').toBeNull();
 
-    it('refuses every malformed document shape rather than defaulting any of it', () => {
-        expect(parseStatusView('not json'), 'a body that is not JSON').toBeNull();
-
-        for (const member of ['service', 'accounts', 'repositories', 'polling', 'agentPin', 'surface']) {
-            const document = statusFixture();
-            const partial: Record<string, unknown> = {};
-            for (const [key, value] of Object.entries(document)) {
-                if (key !== member) {
-                    partial[key] = value;
+            for (const member of ['service', 'accounts', 'repositories', 'polling', 'agentPin', 'surface']) {
+                const document = statusFixture();
+                const partial: Record<string, unknown> = {};
+                for (const [key, value] of Object.entries(document)) {
+                    if (key !== member) {
+                        partial[key] = value;
+                    }
                 }
+
+                expect(parseStatusView(bodyOf(partial)), `a document missing ${member}`).toBeNull();
             }
 
-            expect(parseStatusView(bodyOf(partial)), `a document missing ${member}`).toBeNull();
+            expect(
+                parseStatusView(bodyOf(withMember('service', serviceFixture({ uptimeMs: 'a while' })))),
+                'a partially typed service block',
+            ).toBeNull();
+
+            const rate: StatusRateView = { remaining: null, usedLastHour: 0 } as unknown as StatusRateView;
+            expect(
+                parseStatusView(bodyOf(withMember('accounts', [accountFixture({ rate })]))),
+                'an account row with an incomplete rate block',
+            ).toBeNull();
+
+            expect(
+                parseStatusView(bodyOf(withMember('repositories', [bindingFixture({ readable: 'yes' })]))),
+                'a binding row whose flags are not booleans',
+            ).toBeNull();
+
+            const brokenPin = withMember('agentPin', agentPinFixture({ lastVerification: { somethingElse: true } }));
+            expect(parseStatusView(bodyOf(brokenPin)), 'a verification member of an unknown shape').toBeNull();
         }
+        // case: reads the three verification shapes it does know
+        {
+            expect(viewOf(statusFixture()).agentPin.verification).toEqual({ kind: 'none' });
 
-        expect(
-            parseStatusView(bodyOf(withMember('service', serviceFixture({ uptimeMs: 'a while' })))),
-            'a partially typed service block',
-        ).toBeNull();
+            const unavailable = withMember(
+                'agentPin',
+                agentPinFixture({ lastVerification: { available: false, reason: NO_MIRROR } }),
+            );
+            expect(viewOf(unavailable).agentPin.verification).toEqual({ kind: 'unavailable', reason: NO_MIRROR });
 
-        const rate: StatusRateView = { remaining: null, usedLastHour: 0 } as unknown as StatusRateView;
-        expect(
-            parseStatusView(bodyOf(withMember('accounts', [accountFixture({ rate })]))),
-            'an account row with an incomplete rate block',
-        ).toBeNull();
-
-        expect(
-            parseStatusView(bodyOf(withMember('repositories', [bindingFixture({ readable: 'yes' })]))),
-            'a binding row whose flags are not booleans',
-        ).toBeNull();
-
-        const brokenPin = withMember('agentPin', agentPinFixture({ lastVerification: { somethingElse: true } }));
-        expect(parseStatusView(bodyOf(brokenPin)), 'a verification member of an unknown shape').toBeNull();
-    });
-
-    it('reads the three verification shapes it does know', () => {
-        expect(viewOf(statusFixture()).agentPin.verification).toEqual({ kind: 'none' });
-
-        const unavailable = withMember(
-            'agentPin',
-            agentPinFixture({ lastVerification: { available: false, reason: NO_MIRROR } }),
-        );
-        expect(viewOf(unavailable).agentPin.verification).toEqual({ kind: 'unavailable', reason: NO_MIRROR });
-
-        const outcome = withMember(
-            'agentPin',
-            agentPinFixture({
-                lastVerification: {
-                    observedAgent: 'planner',
-                    expectedAgent: 'project-manager',
-                    ok: false,
-                    at: STAMP,
-                },
-            }),
-        );
-        expect(viewOf(outcome).agentPin.verification).toMatchObject({ kind: 'outcome', ok: false });
+            const outcome = withMember(
+                'agentPin',
+                agentPinFixture({
+                    lastVerification: {
+                        observedAgent: 'planner',
+                        expectedAgent: 'project-manager',
+                        ok: false,
+                        at: STAMP,
+                    },
+                }),
+            );
+            expect(viewOf(outcome).agentPin.verification).toMatchObject({ kind: 'outcome', ok: false });
+        }
     });
 });
 
 describe('configuredIntervalFrom (FR-039)', () => {
-    it('reads the configured interval beside the effective one', () => {
-        expect(configuredIntervalFrom('{"config":{"intervalMs":45000}}')).toBe(45_000);
-    });
-
-    it('reports an unreadable or absent value rather than a default', () => {
-        expect(configuredIntervalFrom(EMPTY_CONFIG)).toBeNull();
-        expect(configuredIntervalFrom('{"other":1}')).toBeNull();
-        expect(configuredIntervalFrom('nonsense')).toBeNull();
+    it('reads the configured interval beside the effective o… (+1 cases)', () => {
+        // case: reads the configured interval beside the effective one
+        {
+            expect(configuredIntervalFrom('{"config":{"intervalMs":45000}}')).toBe(45_000);
+        }
+        // case: reports an unreadable or absent value rather than a default
+        {
+            expect(configuredIntervalFrom(EMPTY_CONFIG)).toBeNull();
+            expect(configuredIntervalFrom('{"other":1}')).toBeNull();
+            expect(configuredIntervalFrom('nonsense')).toBeNull();
+        }
     });
 });
 
 describe('the service block (FR-030)', () => {
-    it('reports health, uptime, location, schema, and storage', () => {
-        const lines = serviceLines(viewOf(statusFixture()));
+    it('reports health, uptime, location, schema, and storag… (+2 cases)', () => {
+        // case: reports health, uptime, location, schema, and storage
+        {
+            const lines = serviceLines(viewOf(statusFixture()));
 
-        expect(lines[1]).toBe('Uptime: 1m 1s');
-        expect(lines[2]).toBe(`Data directory: ${DATA_DIR} — this is the directory to back up`);
-        expect(lines[3]).toBe('Store schema version: 1');
-    });
+            expect(lines[1]).toBe('Uptime: 1m 1s');
+            expect(lines[2]).toBe(`Data directory: ${DATA_DIR} — this is the directory to back up`);
+            expect(lines[3]).toBe('Store schema version: 1');
+        }
+        // case: says degraded, and says the schema is unavailable rather than inventing one
+        {
+            const service = serviceFixture({
+                status: 'degraded',
+                schemaVersion: null,
+                storage: { writable: false },
+            });
+            const lines = serviceLines(viewOf(withMember('service', service)));
 
-    it('says degraded, and says the schema is unavailable rather than inventing one', () => {
-        const service = serviceFixture({
-            status: 'degraded',
-            schemaVersion: null,
-            storage: { writable: false },
-        });
-        const lines = serviceLines(viewOf(withMember('service', service)));
-
-        expect(lines[0]).toContain('degraded');
-    });
-
-    it('formats an uptime without a zero-sized segment', () => {
-        expect(formatUptime(0)).toBe('0s');
-        expect(formatUptime(3_600_000)).toBe('1h 0m 0s');
+            expect(lines[0]).toContain('degraded');
+        }
+        // case: formats an uptime without a zero-sized segment
+        {
+            expect(formatUptime(0)).toBe('0s');
+            expect(formatUptime(3_600_000)).toBe('1h 0m 0s');
+        }
     });
 });
 
 describe('the polling block (FR-031, FR-039)', () => {
-    it('reports the effective and the configured interval', () => {
-        const lines = pollingLinesFor({ intervalMs: 60_000 }, 60_000);
+    it('reports the effective and the configured interval (+3 cases)', () => {
+        // case: reports the effective and the configured interval
+        {
+            const lines = pollingLinesFor({ intervalMs: 60_000 }, 60_000);
 
-        expect(lines).toContain('Effective interval: 60,000 ms');
-        expect(lines).toContain('Configured interval: 60,000 ms');
-        expect(lines.some((line) => line.includes('differ'))).toBe(false);
-    });
+            expect(lines).toContain('Effective interval: 60,000 ms');
+            expect(lines).toContain('Configured interval: 60,000 ms');
+            expect(lines.some((line) => line.includes('differ'))).toBe(false);
+        }
+        // case: names the difference when the two intervals disagree
+        {
+            const lines = pollingLinesFor({ intervalMs: 60_000 }, 45_000);
 
-    it('names the difference when the two intervals disagree', () => {
-        const lines = pollingLinesFor({ intervalMs: 60_000 }, 45_000);
+            expect(lines.some((line) => line.includes('differ'))).toBe(true);
+            expect(lines.some((line) => line.includes('45,000 ms'))).toBe(true);
+        }
+        // case: shows a future stamp plainly and a past stamp as overdue
+        {
+            const lines = pollingLines({
+                view: viewOf(statusFixture()),
+                configured: null,
+                nowMs: Date.parse(PAST_STAMP),
+            });
+            expect(lines[3]).toBe(`Next poll: ${FUTURE_STAMP}`);
 
-        expect(lines.some((line) => line.includes('differ'))).toBe(true);
-        expect(lines.some((line) => line.includes('45,000 ms'))).toBe(true);
-    });
+            const overdue = pollingLinesFor({ nextPollAt: PAST_STAMP }, null);
+            expect(overdue.some((line) => line.includes('(overdue)'))).toBe(true);
+        }
+        // case: claims nothing while the surface cannot run a service
+        {
+            const view = viewOf(withMember('surface', { supported: false }));
+            const lines = pollingLines({ view, configured: null, nowMs: Date.now() });
 
-    it('shows a future stamp plainly and a past stamp as overdue', () => {
-        const lines = pollingLines({
-            view: viewOf(statusFixture()),
-            configured: null,
-            nowMs: Date.parse(PAST_STAMP),
-        });
-        expect(lines[3]).toBe(`Next poll: ${FUTURE_STAMP}`);
-
-        const overdue = pollingLinesFor({ nextPollAt: PAST_STAMP }, null);
-        expect(overdue.some((line) => line.includes('(overdue)'))).toBe(true);
-    });
-
-    it('claims nothing while the surface cannot run a service', () => {
-        const view = viewOf(withMember('surface', { supported: false }));
-        const lines = pollingLines({ view, configured: null, nowMs: Date.now() });
-
-        expect(lines.some((line) => line.startsWith('Polling: running'))).toBe(false);
+            expect(lines.some((line) => line.startsWith('Polling: running'))).toBe(false);
+        }
     });
 });
 
 describe('rate honesty (FR-034, AC-107)', () => {
     const unmeasured: StatusRateView = { remaining: null, limit: null, resetAt: null, usedLastHour: 0 };
 
-    it('reports an unmeasured budget as not measured yet, never as 0 of 0', () => {
-        const line = rateLine(unmeasured);
+    it('reports an unmeasured budget as not measured yet, ne… (+4 cases)', () => {
+        // case: reports an unmeasured budget as not measured yet, never as 0 of 0
+        {
+            const line = rateLine(unmeasured);
 
-        expect(line).toContain(UNMEASURED);
-        expect(line).not.toContain('0 of 0');
-        expect(line).toContain('0 used in the last hour');
-    });
+            expect(line).toContain(UNMEASURED);
+            expect(line).not.toContain('0 of 0');
+            expect(line).toContain('0 used in the last hour');
+        }
+        // case: keeps the real usage count even while the budget is unmeasured
+        {
+            expect(rateLine({ ...unmeasured, usedLastHour: 7 })).toContain('7 used in the last hour');
+        }
+        // case: reports a measured budget against its limit
+        {
+            const line = rateLine({ remaining: 4_200, limit: 5_000, resetAt: PAST_STAMP, usedLastHour: 800 });
 
-    it('keeps the real usage count even while the budget is unmeasured', () => {
-        expect(rateLine({ ...unmeasured, usedLastHour: 7 })).toContain('7 used in the last hour');
-    });
+            expect(line).toContain('800 used in the last hour of 5,000');
+            expect(line).toContain('4,200 left in this window');
+        }
+        // case: renders one account row carrying its connection state and its rate
+        {
+            const rows = accountLines(viewOf(statusFixture()));
 
-    it('reports a measured budget against its limit', () => {
-        const line = rateLine({ remaining: 4_200, limit: 5_000, resetAt: PAST_STAMP, usedLastHour: 800 });
-
-        expect(line).toContain('800 used in the last hour of 5,000');
-        expect(line).toContain('4,200 left in this window');
-    });
-
-    it('renders one account row carrying its connection state and its rate', () => {
-        const rows = accountLines(viewOf(statusFixture()));
-
-        expect(rows[0]).toBe(`${ACCOUNT} (77331) — connected · not measured yet (0 used in the last hour)`);
-    });
-
-    it('renders an honest empty when no account is connected', () => {
-        expect(accountLines(viewOf(withMember('accounts', [])))).toEqual(['No accounts connected yet.']);
+            expect(rows[0]).toBe(`${ACCOUNT} (77331) — connected · not measured yet (0 used in the last hour)`);
+        }
+        // case: renders an honest empty when no account is connected
+        {
+            expect(accountLines(viewOf(withMember('accounts', [])))).toEqual(['No accounts connected yet.']);
+        }
     });
 });
 
 describe('binding rows (FR-032, AC-104, AC-105)', () => {
-    it('reports scan, pending count, and enabled state', () => {
-        const rows = bindingLines(viewOf(statusFixture()));
+    it('reports scan, pending count, and enabled state (+4 cases)', () => {
+        // case: reports scan, pending count, and enabled state
+        {
+            const rows = bindingLines(viewOf(statusFixture()));
 
-        expect(rows[0]).toContain('acme/widget — enabled');
-        expect(rows[0]).toContain(`last scan ${STAMP}`);
-        expect(rows[0]).toContain('2 pending');
-    });
+            expect(rows[0]).toContain('acme/widget — enabled');
+            expect(rows[0]).toContain(`last scan ${STAMP}`);
+            expect(rows[0]).toContain('2 pending');
+        }
+        // case: keeps an unreadable row on the page and marks it
+        {
+            const rows = bindingLines(viewOf(withMember('repositories', [bindingFixture({ readable: false })])));
 
-    it('keeps an unreadable row on the page and marks it', () => {
-        const rows = bindingLines(viewOf(withMember('repositories', [bindingFixture({ readable: false })])));
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toContain('unreadable');
+        }
+        // case: shows the scan failure reason on the row it belongs to
+        {
+            const row = bindingFixture({ lastError: 'rate-limited' });
+            const rows = bindingLines(viewOf(withMember('repositories', [row])));
 
-        expect(rows).toHaveLength(1);
-        expect(rows[0]).toContain('unreadable');
-    });
+            expect(rows[0]).toContain('rate-limited');
+        }
+        // case: renders an honest empty when the store holds no bindings
+        {
+            expect(bindingLines(viewOf(withMember('repositories', [])))).toEqual(['No bindings yet.']);
+        }
+        // case: does not read an empty list as "you have none" when the store is degraded
+        {
+            const degraded = statusFixture({
+                service: serviceFixture({ status: 'degraded', storage: { writable: false } }),
+                accounts: [],
+                repositories: [],
+            });
 
-    it('shows the scan failure reason on the row it belongs to', () => {
-        const row = bindingFixture({ lastError: 'rate-limited' });
-        const rows = bindingLines(viewOf(withMember('repositories', [row])));
-
-        expect(rows[0]).toContain('rate-limited');
-    });
-
-    it('renders an honest empty when the store holds no bindings', () => {
-        expect(bindingLines(viewOf(withMember('repositories', [])))).toEqual(['No bindings yet.']);
-    });
-
-    it('does not read an empty list as "you have none" when the store is degraded', () => {
-        const degraded = statusFixture({
-            service: serviceFixture({ status: 'degraded', storage: { writable: false } }),
-            accounts: [],
-            repositories: [],
-        });
-
-        expect(bindingLines(viewOf(degraded))).toEqual([
-            'The binding list could not be read: the data directory is unavailable.',
-        ]);
-        expect(accountLines(viewOf(degraded))).toEqual([
-            'The account list could not be read: the data directory is unavailable.',
-        ]);
+            expect(bindingLines(viewOf(degraded))).toEqual([
+                'The binding list could not be read: the data directory is unavailable.',
+            ]);
+            expect(accountLines(viewOf(degraded))).toEqual([
+                'The account list could not be read: the data directory is unavailable.',
+            ]);
+        }
     });
 });
 
 describe('the agent pin (FR-033, AC-106)', () => {
-    it('reads not checkable before any dispatch, and names the first dispatch', () => {
-        const lines = agentPinLines(viewOf(statusFixture()));
+    it('reads not checkable before any dispatch, and names t… (+1 cases)', () => {
+        // case: reads not checkable before any dispatch, and names the first dispatch
+        {
+            const lines = agentPinLines(viewOf(statusFixture()));
 
-        expect(lines.some((line) => line.includes('ok'))).toBe(false);
-    });
-
-    it('reports a mismatch as the outcome it is', () => {
-        const agentPin = agentPinFixture({
-            expectedAgent: 'planner',
-            lastVerification: {
-                observedAgent: 'executor',
+            expect(lines.some((line) => line.includes('ok'))).toBe(false);
+        }
+        // case: reports a mismatch as the outcome it is
+        {
+            const agentPin = agentPinFixture({
                 expectedAgent: 'planner',
-                ok: false,
-                at: STAMP,
-            },
-        });
-        const lines = agentPinLines(viewOf(withMember('agentPin', agentPin)));
+                lastVerification: {
+                    observedAgent: 'executor',
+                    expectedAgent: 'planner',
+                    ok: false,
+                    at: STAMP,
+                },
+            });
+            const lines = agentPinLines(viewOf(withMember('agentPin', agentPin)));
 
-        expect(lines[1]).toContain('executor');
+            expect(lines[1]).toContain('executor');
+        }
     });
 });
 
 describe('the two blocking notices (FR-035, FR-036, AC-108, AC-109)', () => {
-    it('raises nothing for a document that is healthy', () => {
-        expect(noticeStates(viewOf(statusFixture()))).toEqual({ unsupported: false, storageBlocked: false });
-    });
+    it('raises nothing for a document that is healthy (+3 cases)', () => {
+        // case: raises nothing for a document that is healthy
+        {
+            expect(noticeStates(viewOf(statusFixture()))).toEqual({ unsupported: false, storageBlocked: false });
+        }
+        // case: raises nothing before anything has been read
+        {
+            expect(noticeStates(null)).toEqual({ unsupported: false, storageBlocked: false });
+        }
+        // case: raises the storage blocker when the data directory cannot serve writes
+        {
+            const service = serviceFixture({ storage: { writable: false } });
 
-    it('raises nothing before anything has been read', () => {
-        expect(noticeStates(null)).toEqual({ unsupported: false, storageBlocked: false });
-    });
-
-    it('raises the storage blocker when the data directory cannot serve writes', () => {
-        const service = serviceFixture({ storage: { writable: false } });
-
-        expect(noticeStates(viewOf(withMember('service', service)))).toEqual({
-            unsupported: false,
-            storageBlocked: true,
-        });
-    });
-
-    it('raises the unsupported-surface notice on a surface that cannot run a service', () => {
-        expect(noticeStates(viewOf(withMember('surface', { supported: false })))).toEqual({
-            unsupported: true,
-            storageBlocked: false,
-        });
+            expect(noticeStates(viewOf(withMember('service', service)))).toEqual({
+                unsupported: false,
+                storageBlocked: true,
+            });
+        }
+        // case: raises the unsupported-surface notice on a surface that cannot run a service
+        {
+            expect(noticeStates(viewOf(withMember('surface', { supported: false })))).toEqual({
+                unsupported: true,
+                storageBlocked: false,
+            });
+        }
     });
 });
 
 describe('the Status → picker link (FR-038)', () => {
-    it('claims nothing while the host project list has not loaded', () => {
-        expect(projectGuidanceLines(guidanceInput(guidanceBindings(), null))).toEqual([]);
-    });
+    it('claims nothing while the host project list has not l… (+2 cases)', () => {
+        // case: claims nothing while the host project list has not loaded
+        {
+            expect(projectGuidanceLines(guidanceInput(guidanceBindings(), null))).toEqual([]);
+        }
+        // case: points at the picker when a binding targets an unregistered project
+        {
+            const lines = projectGuidanceLines(guidanceInput(guidanceBindings(), ['prj_other']));
 
-    it('points at the picker when a binding targets an unregistered project', () => {
-        const lines = projectGuidanceLines(guidanceInput(guidanceBindings(), ['prj_other']));
-
-        expect(lines).toHaveLength(1);
-        // The three manual routes belong to the picker alone (FR-038).
-        expect(lines[0]).not.toContain('command palette');
-        expect(lines[0]).not.toContain('sidebar');
-    });
-
-    it('says nothing when every binding has a registered project', () => {
-        expect(projectGuidanceLines(guidanceInput(guidanceBindings(), ['prj_42']))).toEqual([]);
+            expect(lines).toHaveLength(1);
+            // The three manual routes belong to the picker alone (FR-038).
+            expect(lines[0]).not.toContain('command palette');
+            expect(lines[0]).not.toContain('sidebar');
+        }
+        // case: says nothing when every binding has a registered project
+        {
+            expect(projectGuidanceLines(guidanceInput(guidanceBindings(), ['prj_42']))).toEqual([]);
+        }
     });
 });
 
@@ -666,101 +693,104 @@ describe('loadStatus', () => {
     /** Where the in-flight gate's release lands, written from the executor. */
     const holder: { release: (() => void) | null } = { release: null };
 
-    it('lands the document and the configured interval, and stamps the tab', async () => {
-        const rt = runtimeAnswering(bodyOf(statusFixture()), '{"config":{"intervalMs":45000}}');
-        const shell = stubShell(rt);
+    it('lands the document and the configured interval, and … (+5 cases)', async () => {
+        // case: lands the document and the configured interval, and stamps the tab
+        {
+            const rt = runtimeAnswering(bodyOf(statusFixture()), '{"config":{"intervalMs":45000}}');
+            const shell = stubShell(rt);
 
-        await loadStatus(rt);
+            await loadStatus(rt);
 
-        const slice = rt.state.statusTab;
-        expect(slice.phase).toBe(PHASE_LOADED);
-        expect(slice.doc?.service.status).toBe(HEALTH_OK);
-        expect(slice.configuredIntervalMs).toBe(45_000);
-        expect(slice.at).not.toBeNull();
-        expect(shell.calls).toEqual(['noteRead:status']);
-        expect(rt.tabLastRead.get('status')).toBe(slice.at);
-    });
+            const slice = rt.state.statusTab;
+            expect(slice.phase).toBe(PHASE_LOADED);
+            expect(slice.doc?.service.status).toBe(HEALTH_OK);
+            expect(slice.configuredIntervalMs).toBe(45_000);
+            expect(slice.at).not.toBeNull();
+            expect(shell.calls).toEqual(['noteRead:status']);
+            expect(rt.tabLastRead.get('status')).toBe(slice.at);
+        }
+        // case: keeps reading the tab honest when the status read fails
+        {
+            const rt = refusingRuntime(503, PROBLEM_503);
 
-    it('keeps reading the tab honest when the status read fails', async () => {
-        const rt = refusingRuntime(503, PROBLEM_503);
+            await loadStatus(rt);
 
-        await loadStatus(rt);
+            const slice = rt.state.statusTab;
+            expect(slice.phase).toBe(PHASE_FAILED);
+            expect(slice.doc).toBeNull();
+            expect(slice.stale).toBe(false);
+            expect(slice.problem).toContain('503');
+        }
+        // case: keeps the last document and marks it stale when a re-read fails
+        {
+            const rt = flakyStatusRuntime();
 
-        const slice = rt.state.statusTab;
-        expect(slice.phase).toBe(PHASE_FAILED);
-        expect(slice.doc).toBeNull();
-        expect(slice.stale).toBe(false);
-        expect(slice.problem).toContain('503');
-    });
+            await loadStatus(rt);
+            await loadStatus(rt);
 
-    it('keeps the last document and marks it stale when a re-read fails', async () => {
-        const rt = flakyStatusRuntime();
+            const slice = rt.state.statusTab;
+            expect(slice.phase).toBe(PHASE_FAILED);
+            expect(slice.stale).toBe(true);
+            expect(slice.doc).not.toBeNull();
+            expect(slice.at, 'the retained stamp stays on screen').not.toBeNull();
+            expect(readStateLine(slice)).toContain(slice.at ?? '');
+        }
+        // case: fails the read when the document will not parse, and keeps the previous one
+        {
+            const rt = malformedAfterFirstRuntime();
 
-        await loadStatus(rt);
-        await loadStatus(rt);
+            await loadStatus(rt);
+            await loadStatus(rt);
 
-        const slice = rt.state.statusTab;
-        expect(slice.phase).toBe(PHASE_FAILED);
-        expect(slice.stale).toBe(true);
-        expect(slice.doc).not.toBeNull();
-        expect(slice.at, 'the retained stamp stays on screen').not.toBeNull();
-        expect(readStateLine(slice)).toContain(slice.at ?? '');
-    });
+            const slice = rt.state.statusTab;
+            expect(slice.phase).toBe(PHASE_FAILED);
+            expect(slice.stale).toBe(true);
+        }
+        // case: reads the configured interval as not read when that half fails
+        {
+            const rt = createTestRuntime(fakeHost({
+                serviceRequest: async (request) => {
+                    if (request.path === CONFIG_PATH) {
+                        return { status: 503, body: EMPTY_CONFIG };
+                    }
 
-    it('fails the read when the document will not parse, and keeps the previous one', async () => {
-        const rt = malformedAfterFirstRuntime();
+                    return { status: 200, body: bodyOf(statusFixture()) };
+                },
+            }));
 
-        await loadStatus(rt);
-        await loadStatus(rt);
+            await loadStatus(rt);
 
-        const slice = rt.state.statusTab;
-        expect(slice.phase).toBe(PHASE_FAILED);
-        expect(slice.stale).toBe(true);
-    });
+            expect(rt.state.statusTab.phase).toBe(PHASE_LOADED);
+            expect(rt.state.statusTab.configuredIntervalMs).toBeNull();
+        }
+        // case: refuses a second read while one is in flight
+        {
+            const gate = new Promise<void>((resolve) => {
+                holder.release = resolve;
+            });
+            let statusCalls = 0;
+            const rt = createTestRuntime(fakeHost({
+                serviceRequest: async (request) => {
+                    if (request.path !== STATUS_PATH) {
+                        return { status: 200, body: EMPTY_CONFIG };
+                    }
 
-    it('reads the configured interval as not read when that half fails', async () => {
-        const rt = createTestRuntime(fakeHost({
-            serviceRequest: async (request) => {
-                if (request.path === CONFIG_PATH) {
-                    return { status: 503, body: EMPTY_CONFIG };
-                }
+                    statusCalls += 1;
+                    await gate;
 
-                return { status: 200, body: bodyOf(statusFixture()) };
-            },
-        }));
+                    return { status: 200, body: bodyOf(statusFixture()) };
+                },
+            }));
 
-        await loadStatus(rt);
+            const first = loadStatus(rt);
+            const second = loadStatus(rt);
+            expect(rt.state.statusTab.phase).toBe('loading');
+            holder.release?.();
+            await Promise.all([first, second]);
 
-        expect(rt.state.statusTab.phase).toBe(PHASE_LOADED);
-        expect(rt.state.statusTab.configuredIntervalMs).toBeNull();
-    });
-
-    it('refuses a second read while one is in flight', async () => {
-        const gate = new Promise<void>((resolve) => {
-            holder.release = resolve;
-        });
-        let statusCalls = 0;
-        const rt = createTestRuntime(fakeHost({
-            serviceRequest: async (request) => {
-                if (request.path !== STATUS_PATH) {
-                    return { status: 200, body: EMPTY_CONFIG };
-                }
-
-                statusCalls += 1;
-                await gate;
-
-                return { status: 200, body: bodyOf(statusFixture()) };
-            },
-        }));
-
-        const first = loadStatus(rt);
-        const second = loadStatus(rt);
-        expect(rt.state.statusTab.phase).toBe('loading');
-        holder.release?.();
-        await Promise.all([first, second]);
-
-        expect(statusCalls).toBe(1);
-        expect(rt.state.statusTab.phase).toBe(PHASE_LOADED);
+            expect(statusCalls).toBe(1);
+            expect(rt.state.statusTab.phase).toBe(PHASE_LOADED);
+        }
     });
 });
 
@@ -768,19 +798,22 @@ describe('hostile strings stay text (FR-080)', () => {
     /** Markup an operator or GitHub could have put in a field. */
     const HOSTILE = '<img src=x onerror="alert(1)">';
 
-    it('passes a hostile repository through the line as literal text', () => {
-        const repository = bindingFixture({ repository: HOSTILE });
-        const rows = bindingLines(viewOf(withMember('repositories', [repository])));
+    it('passes a hostile repository through the line as lite… (+1 cases)', () => {
+        // case: passes a hostile repository through the line as literal text
+        {
+            const repository = bindingFixture({ repository: HOSTILE });
+            const rows = bindingLines(viewOf(withMember('repositories', [repository])));
 
-        expect(rows[0]).toContain(HOSTILE);
-        expect(rows[0]?.startsWith('acme/')).toBe(false);
-    });
+            expect(rows[0]).toContain(HOSTILE);
+            expect(rows[0]?.startsWith('acme/')).toBe(false);
+        }
+        // case: passes a hostile connection state through the account line
+        {
+            const account = accountFixture({ connectionState: HOSTILE });
+            const rows = accountLines(viewOf(withMember('accounts', [account])));
 
-    it('passes a hostile connection state through the account line', () => {
-        const account = accountFixture({ connectionState: HOSTILE });
-        const rows = accountLines(viewOf(withMember('accounts', [account])));
-
-        expect(rows[0]).toContain(HOSTILE);
+            expect(rows[0]).toContain(HOSTILE);
+        }
     });
 });
 

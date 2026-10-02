@@ -358,81 +358,84 @@ function mountedListItems(): readonly { readonly title?: string; readonly subtit
 }
 
 describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
-    it('renders each of the six lifecycle states against each of the four connection states', () => {
-        for (const state of LIFECYCLE_STATES) {
-            for (const connection of CONNECTION_STATES) {
-                const account = accountFixture({
-                    state,
-                    connectionState: connection,
-                    errorReason: state === 'error' ? AUTH_FAILED : null,
-                });
-                const detail = accountDetail(accountsState({ accounts: [account] }), account);
+    it('renders each of the six lifecycle states against eac… (+5 cases)', () => {
+        // case: renders each of the six lifecycle states against each of the four connection states
+        {
+            for (const state of LIFECYCLE_STATES) {
+                for (const connection of CONNECTION_STATES) {
+                    const account = accountFixture({
+                        state,
+                        connectionState: connection,
+                        errorReason: state === 'error' ? AUTH_FAILED : null,
+                    });
+                    const detail = accountDetail(accountsState({ accounts: [account] }), account);
 
-                expect(detail).toContain(LIFECYCLE_LABELS.get(state));
-                expect(detail).toContain(connection);
-                expect(detail).toContain(`id ${CONNECTED_ID}`);
+                    expect(detail).toContain(LIFECYCLE_LABELS.get(state));
+                    expect(detail).toContain(connection);
+                    expect(detail).toContain(`id ${CONNECTED_ID}`);
+                }
             }
         }
-    });
+        // case: tells pending_handoff apart from an interrupted handoff while sharing the way out (FR-068)
+        {
+            const pending = lifecycleCopy(accountFixture({ state: 'pending_handoff' }));
+            const interrupted = lifecycleCopy(
+                accountFixture({ state: 'error', errorReason: 'interrupted-handoff' }),
+            );
 
-    it('tells pending_handoff apart from an interrupted handoff while sharing the way out (FR-068)', () => {
-        const pending = lifecycleCopy(accountFixture({ state: 'pending_handoff' }));
-        const interrupted = lifecycleCopy(
-            accountFixture({ state: 'error', errorReason: 'interrupted-handoff' }),
-        );
-
-        expect(pending.label).not.toBe(interrupted.label);
-        expect(interrupted.label).toContain('interrupted-handoff');
-        expect(pending.remediation).toBe(HANDOFF_REMEDIATION);
-        expect(interrupted.remediation).toBe(HANDOFF_REMEDIATION);
-    });
-
-    it('gives every bad state a remediation and a good one none (FR-063)', () => {
-        for (const state of ['rejected', 'revoked', 'error']) {
-            expect(lifecycleCopy(accountFixture({ state })).remediation).not.toBeNull();
+            expect(pending.label).not.toBe(interrupted.label);
+            expect(interrupted.label).toContain('interrupted-handoff');
+            expect(pending.remediation).toBe(HANDOFF_REMEDIATION);
+            expect(interrupted.remediation).toBe(HANDOFF_REMEDIATION);
         }
+        // case: gives every bad state a remediation and a good one none (FR-063)
+        {
+            for (const state of ['rejected', 'revoked', 'error']) {
+                expect(lifecycleCopy(accountFixture({ state })).remediation).not.toBeNull();
+            }
 
-        expect(lifecycleCopy(accountFixture({ state: 'active' })).remediation).toBeNull();
-        // An unknown state is its own words, never a mapped guess (FR-003).
-        expect(lifecycleCopy(accountFixture({ state: 'something-new' })).label)
-            .toBe('unknown state: something-new');
-    });
+            expect(lifecycleCopy(accountFixture({ state: 'active' })).remediation).toBeNull();
+            // An unknown state is its own words, never a mapped guess (FR-003).
+            expect(lifecycleCopy(accountFixture({ state: 'something-new' })).label)
+                .toBe('unknown state: something-new');
+        }
+        // case: marks an unreported member as unreported, never as a pass (NFR-112)
+        {
+            const bare: PanelAccount = {
+                numericUserId: CONNECTED_ID,
+                login: CONNECTED_LOGIN,
+                displayName: null,
+                usable: false,
+            };
+            const detail = accountDetail(accountsState({ accounts: [bare] }), bare);
 
-    it('marks an unreported member as unreported, never as a pass (NFR-112)', () => {
-        const bare: PanelAccount = {
-            numericUserId: CONNECTED_ID,
-            login: CONNECTED_LOGIN,
-            displayName: null,
-            usable: false,
-        };
-        const detail = accountDetail(accountsState({ accounts: [bare] }), bare);
+            expect(detail).not.toContain('scope: ok');
+        }
+        // case: reads the connection word Status prints instead of calling it unknown (FR-003)
+        {
+            // `needs reconnection` reaches the panel from the accounts mirror and
+            // the status projection alike, and `status-lines.ts` prints it
+            // verbatim — so Accounts must not answer *unknown connection state*
+            // for a word its sibling tab renders as fact.
+            expect(connectionPhrase(accountFixture({ connectionState: 'needs reconnection' })))
+                .toBe('needs reconnection');
 
-        expect(detail).not.toContain('scope: ok');
-    });
+            // A word neither surface has ever carried is still refused, not guessed.
+            expect(connectionPhrase(accountFixture({ connectionState: 'mystery' })))
+                .toBe('unknown connection state: mystery');
+        }
+        // case: counts an account's bindings with a noun that matches the count (FR-062)
+        {
+            expect(bindingsPhrase(0)).toBe('0 bindings');
+            expect(bindingsPhrase(1)).toBe('1 binding');
+            expect(bindingsPhrase(4)).toBe('4 bindings');
 
-    it('reads the connection word Status prints instead of calling it unknown (FR-003)', () => {
-        // `needs reconnection` reaches the panel from the accounts mirror and
-        // the status projection alike, and `status-lines.ts` prints it
-        // verbatim — so Accounts must not answer *unknown connection state*
-        // for a word its sibling tab renders as fact.
-        expect(connectionPhrase(accountFixture({ connectionState: 'needs reconnection' })))
-            .toBe('needs reconnection');
+            const account = accountFixture({});
+            const detail = accountDetail(accountsState({ accounts: [account] }), account);
 
-        // A word neither surface has ever carried is still refused, not guessed.
-        expect(connectionPhrase(accountFixture({ connectionState: 'mystery' })))
-            .toBe('unknown connection state: mystery');
-    });
-
-    it("counts an account's bindings with a noun that matches the count (FR-062)", () => {
-        expect(bindingsPhrase(0)).toBe('0 bindings');
-        expect(bindingsPhrase(1)).toBe('1 binding');
-        expect(bindingsPhrase(4)).toBe('4 bindings');
-
-        const account = accountFixture({});
-        const detail = accountDetail(accountsState({ accounts: [account] }), account);
-
-        expect(detail).toContain('0 bindings');
-        expect(detail).not.toContain('1 bindings');
+            expect(detail).toContain('0 bindings');
+            expect(detail).not.toContain('1 bindings');
+        }
     });
 
     it('counts the bindings an account backs, in the row and in the detail', () => {
@@ -463,93 +466,99 @@ describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
 });
 
 describe('T-024 the Accounts tab copy and secret posture (FR-020, FR-067, AC-129)', () => {
-    it('renders Accounts copy on the tab itself and none of the retired noun', () => {
-        const { dispose, strings } = mountAccountsTab((rt): void => {
-            rt.state.bindings = accountsState({ accounts: [accountFixture()] });
-        });
-        dispose();
+    it('renders Accounts copy on the tab itself and none of … (+2 cases)', () => {
+        // case: renders Accounts copy on the tab itself and none of the retired noun
+        {
+            const { dispose, strings } = mountAccountsTab((rt): void => {
+                rt.state.bindings = accountsState({ accounts: [accountFixture()] });
+            });
+            dispose();
 
-        expect(strings.some((line) => line.startsWith('Accounts: '))).toBe(true);
-        expect(strings.some((line) => line.includes('Repositories'))).toBe(false);
-    });
+            expect(strings.some((line) => line.startsWith('Accounts: '))).toBe(true);
+            expect(strings.some((line) => line.includes('Repositories'))).toBe(false);
+        }
+        // case: renders a hostile display name as bytes, never as markup (FR-080)
+        {
+            const hostile = accountFixture({ displayName: HOSTILE_TITLE });
+            const state = accountsState({ accounts: [hostile] });
 
-    it('renders a hostile display name as bytes, never as markup (FR-080)', () => {
-        const hostile = accountFixture({ displayName: HOSTILE_TITLE });
-        const state = accountsState({ accounts: [hostile] });
+            expect(accountTitle(hostile)).toBe(HOSTILE_TITLE);
+            expect(accountDetail(state, hostile)).toContain(HOSTILE_TITLE);
 
-        expect(accountTitle(hostile)).toBe(HOSTILE_TITLE);
-        expect(accountDetail(state, hostile)).toContain(HOSTILE_TITLE);
+            const { dispose, strings } = mountAccountsTab((rt): void => {
+                rt.state.bindings = accountsState({ accounts: [hostile] });
+                rt.state.accounts.selected = hostile.numericUserId;
+            });
+            dispose();
 
-        const { dispose, strings } = mountAccountsTab((rt): void => {
-            rt.state.bindings = accountsState({ accounts: [hostile] });
-            rt.state.accounts.selected = hostile.numericUserId;
-        });
-        dispose();
+            const [row] = mountedListItems();
+            expect(row?.title).toBe(HOSTILE_TITLE);
+            // The detail line carries it too, as text on a text node — the fake
+            // document has no HTML sink at all, so a sink would have thrown.
+            expect(strings.some((line) => line.includes('onerror'))).toBe(true);
+        }
+        // case: renders no credential member and no credential bytes (AC-129)
+        {
+            const account = accountFixture({ state: 'rejected', errorReason: AUTH_FAILED });
+            const state = accountsState({ accounts: [account] });
+            const rendered = [
+                ...accountRows(state).flatMap((row) => [row.title, row.subtitle, row.leading ?? '', row.meta ?? '']),
+                accountDetail(state, account),
+            ].join('\n');
 
-        const [row] = mountedListItems();
-        expect(row?.title).toBe(HOSTILE_TITLE);
-        // The detail line carries it too, as text on a text node — the fake
-        // document has no HTML sink at all, so a sink would have thrown.
-        expect(strings.some((line) => line.includes('onerror'))).toBe(true);
-    });
+            expect(Object.keys(account)).not.toContain('credential');
+            expect(Object.keys(account)).not.toContain('expectedLogin');
+            expectNoCredentialInStrings([rendered]);
 
-    it('renders no credential member and no credential bytes (AC-129)', () => {
-        const account = accountFixture({ state: 'rejected', errorReason: AUTH_FAILED });
-        const state = accountsState({ accounts: [account] });
-        const rendered = [
-            ...accountRows(state).flatMap((row) => [row.title, row.subtitle, row.leading ?? '', row.meta ?? '']),
-            accountDetail(state, account),
-        ].join('\n');
-
-        expect(Object.keys(account)).not.toContain('credential');
-        expect(Object.keys(account)).not.toContain('expectedLogin');
-        expectNoCredentialInStrings([rendered]);
-
-        const { dispose, strings } = mountAccountsTab((rt): void => {
-            rt.state.bindings = accountsState({ accounts: [account] });
-        });
-        dispose();
-        expectNoCredentialInStrings(strings);
+            const { dispose, strings } = mountAccountsTab((rt): void => {
+                rt.state.bindings = accountsState({ accounts: [account] });
+            });
+            dispose();
+            expectNoCredentialInStrings(strings);
+        }
     });
 });
 
 describe('the Accounts tab carries a static disclaimer instead of a consent dialog (002 v1.9.0)', () => {
-    it('mounts the disclaimer beneath the Accounts section, always visible', () => {
-        const { rt, dispose, created } = mountAccountsTab();
-        dispose();
+    it('mounts the disclaimer beneath the Accounts section, … (+2 cases)', () => {
+        // case: mounts the disclaimer beneath the Accounts section, always visible
+        {
+            const { rt, dispose, created } = mountAccountsTab();
+            dispose();
 
-        const disclaimer = mountedDisclaimer(created);
-        expect(disclaimer).toBeDefined();
-        expect(disclaimer?.hidden).toBe(false);
-        expect(disclaimer?.attribute('data-accounts-disclaimer')).toBe('informational');
-        // The fake document keeps `textContent` per node, so the copy is read
-        // from the paragraph inside the container rather than recomputed.
-        const text = disclaimer?.children.map((child) => child.textContent).join('\n\n') ?? '';
-        for (const paragraph of ACCOUNTS_DISCLAIMER_PARAGRAPHS) {
-            expect(text).toContain(paragraph);
+            const disclaimer = mountedDisclaimer(created);
+            expect(disclaimer).toBeDefined();
+            expect(disclaimer?.hidden).toBe(false);
+            expect(disclaimer?.attribute('data-accounts-disclaimer')).toBe('informational');
+            // The fake document keeps `textContent` per node, so the copy is read
+            // from the paragraph inside the container rather than recomputed.
+            const text = disclaimer?.children.map((child) => child.textContent).join('\n\n') ?? '';
+            for (const paragraph of ACCOUNTS_DISCLAIMER_PARAGRAPHS) {
+                expect(text).toContain(paragraph);
+            }
+
+            expect(rt.handoffView).not.toBeNull();
         }
+        // case: offers no Accept, Decline, or any other button with it
+        {
+            const { dispose, created } = mountAccountsTab();
+            dispose();
 
-        expect(rt.handoffView).not.toBeNull();
-    });
+            const labels = created
+                .filter((node) => node.tagName === 'button')
+                .map((node) => node.textContent);
 
-    it('offers no Accept, Decline, or any other button with it', () => {
-        const { dispose, created } = mountAccountsTab();
-        dispose();
+            expect(labels).not.toContain('Accept and continue');
+            expect(labels).not.toContain('Decline');
+            // The one credential-path button that remains is the submit control.
+        }
+        // case: keeps no consent state on the runtime the tab mounts (002 v1.9.0)
+        {
+            const { rt, dispose } = mountAccountsTab();
+            dispose();
 
-        const labels = created
-            .filter((node) => node.tagName === 'button')
-            .map((node) => node.textContent);
-
-        expect(labels).not.toContain('Accept and continue');
-        expect(labels).not.toContain('Decline');
-        // The one credential-path button that remains is the submit control.
-    });
-
-    it('keeps no consent state on the runtime the tab mounts (002 v1.9.0)', () => {
-        const { rt, dispose } = mountAccountsTab();
-        dispose();
-
-        expect(Object.keys(rt.state.handoff)).not.toContain('consentGiven');
+            expect(Object.keys(rt.state.handoff)).not.toContain('consentGiven');
+        }
     });
 });
 
@@ -623,59 +632,62 @@ async function displayRuntime(spec: DisplaySpec): Promise<{
 }
 
 describe('T-026 the display name is written by the service, never by the panel (FR-066)', () => {
-    it('round-trips a label through the narrow route and shows what came back', async () => {
-        const { rt, requests } = await displayRuntime({
-            answer: { status: 200, body: JSON.stringify({ account: {} }) },
-            stored: NEW_LABEL,
-        });
+    it('round-trips a label through the narrow route and sho… (+3 cases)', async () => {
+        // case: round-trips a label through the narrow route and shows what came back
+        {
+            const { rt, requests } = await displayRuntime({
+                answer: { status: 200, body: JSON.stringify({ account: {} }) },
+                stored: NEW_LABEL,
+            });
 
-        await saveDisplayName(rt, { numericUserId: CONNECTED_ID, value: NEW_LABEL });
+            await saveDisplayName(rt, { numericUserId: CONNECTED_ID, value: NEW_LABEL });
 
-        const put = requests.find((request) => request.method === 'PUT');
-        expect(put?.path).toBe(`/v1/accounts/${CONNECTED_ID}/display-name`);
-        expect(JSON.parse(String(put?.body))).toEqual({ displayName: NEW_LABEL });
-        // The value on screen is the one the authoritative re-read reported.
-        expect(rt.state.bindings.accounts[0]?.displayName).toBe(NEW_LABEL);
-        expect(rt.state.accounts.displayNameError).toBeNull();
-    });
+            const put = requests.find((request) => request.method === 'PUT');
+            expect(put?.path).toBe(`/v1/accounts/${CONNECTED_ID}/display-name`);
+            expect(JSON.parse(String(put?.body))).toEqual({ displayName: NEW_LABEL });
+            // The value on screen is the one the authoritative re-read reported.
+            expect(rt.state.bindings.accounts[0]?.displayName).toBe(NEW_LABEL);
+            expect(rt.state.accounts.displayNameError).toBeNull();
+        }
+        // case: renders the refusal at the field and keeps the stored label (AC-130)
+        {
+            const refusal = JSON.stringify({
+                error: {
+                    code: 'validation',
+                    message: 'displayName must not contain credential-shaped material (matched shape: PAT)',
+                },
+            });
+            const { rt, requests } = await displayRuntime({ answer: { status: 422, body: refusal } });
+            const submitted = 'ghp_looks_like_a_token';
+            // What the field holds at the click: the operator's own text.
+            rt.state.accounts.displayNameDraft = submitted;
 
-    it('renders the refusal at the field and keeps the stored label (AC-130)', async () => {
-        const refusal = JSON.stringify({
-            error: {
-                code: 'validation',
-                message: 'displayName must not contain credential-shaped material (matched shape: PAT)',
-            },
-        });
-        const { rt, requests } = await displayRuntime({ answer: { status: 422, body: refusal } });
-        const submitted = 'ghp_looks_like_a_token';
-        // What the field holds at the click: the operator's own text.
-        rt.state.accounts.displayNameDraft = submitted;
+            await saveDisplayName(rt, { numericUserId: CONNECTED_ID, value: submitted });
 
-        await saveDisplayName(rt, { numericUserId: CONNECTED_ID, value: submitted });
+            expect(requests.some((request) => request.method === 'PUT')).toBe(true);
+            // The service's copy names the field and the shape, never the value.
+            expect(rt.state.accounts.displayNameError).not.toContain(submitted);
+            // Nothing was applied, so the list still shows the stored label, and
+            // the draft keeps what was typed so the operator can correct it.
+            expect(rt.state.accounts.displayNameDraft).toBe(submitted);
+        }
+        // case: keeps the display name when the login is renamed upstream (AC-128)
+        {
+            const renamed = accountFixture({ login: RENAMED_LOGIN, displayName: 'Ops label' });
+            const [row] = accountRows(accountsState({ accounts: [renamed] }));
 
-        expect(requests.some((request) => request.method === 'PUT')).toBe(true);
-        // The service's copy names the field and the shape, never the value.
-        expect(rt.state.accounts.displayNameError).not.toContain(submitted);
-        // Nothing was applied, so the list still shows the stored label, and
-        // the draft keeps what was typed so the operator can correct it.
-        expect(rt.state.accounts.displayNameDraft).toBe(submitted);
-    });
+            // The label is the operator's; the login is GitHub's. A rename
+            // updates one and must never clobber the other.
+            expect(row?.subtitle).toContain('@octocat-renamed');
+            expect(accountTitle(accountFixture({ login: RENAMED_LOGIN }))).toBe(RENAMED_LOGIN);
+        }
+        // case: states what a rotation keeps, before anything is pasted (FR-064)
+        {
+            const statement = rotationStatement(CONNECTED_LOGIN);
 
-    it('keeps the display name when the login is renamed upstream (AC-128)', () => {
-        const renamed = accountFixture({ login: RENAMED_LOGIN, displayName: 'Ops label' });
-        const [row] = accountRows(accountsState({ accounts: [renamed] }));
-
-        // The label is the operator's; the login is GitHub's. A rename
-        // updates one and must never clobber the other.
-        expect(row?.subtitle).toContain('@octocat-renamed');
-        expect(accountTitle(accountFixture({ login: RENAMED_LOGIN }))).toBe(RENAMED_LOGIN);
-    });
-
-    it('states what a rotation keeps, before anything is pasted (FR-064)', () => {
-        const statement = rotationStatement(CONNECTED_LOGIN);
-
-        expect(statement).toContain(CONNECTED_LOGIN);
-        expect(statement).toContain('above');
+            expect(statement).toContain(CONNECTED_LOGIN);
+            expect(statement).toContain('above');
+        }
     });
 });
 

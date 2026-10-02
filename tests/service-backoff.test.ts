@@ -93,16 +93,22 @@ let dataDir = '';
 /** Open store handle for the tests that drive a cycle. */
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-backoff-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     vi.useRealTimers();
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Build a logger that records every line it is asked to write.
@@ -199,75 +205,94 @@ function recordingSleep(): {
 }
 
 describe('the ladder arithmetic (006 FR-058)', () => {
-    it('computes delay(n) = min(cap, base × 2^(n−2)) × jitter', () => {
-        const policy: RetryPolicy = { maxAttempts: 5, baseMs: 5_000, maxMs: 60_000 };
+    it('computes delay(n) = min(cap, base × 2^(n−2)) × jitte… (+4 cases)', async () => {
+        // case: computes delay(n) = min(cap, base × 2^(n−2)) × jitter
+        {
+            const policy: RetryPolicy = { maxAttempts: 5, baseMs: 5_000, maxMs: 60_000 };
 
-        // A jitter source of 1 is the top of the range, so the arithmetic is
-        // visible without the random part: 5000, 10000, 20000, then capped.
-        expect(backoffDelayMs({ policy, attempt: 2, random: TOP_JITTER })).toBe(5_000);
-        expect(backoffDelayMs({ policy, attempt: 3, random: TOP_JITTER })).toBe(10_000);
-        expect(backoffDelayMs({ policy, attempt: 4, random: TOP_JITTER })).toBe(20_000);
-        expect(backoffDelayMs({ policy, attempt: 8, random: TOP_JITTER })).toBe(60_000);
-        // The bottom of the jitter range halves it, and never goes below.
-        expect(backoffDelayMs({ policy, attempt: 2, random: FLOOR_JITTER })).toBe(2_500);
-    });
+            // A jitter source of 1 is the top of the range, so the arithmetic is
+            // visible without the random part: 5000, 10000, 20000, then capped.
+            expect(backoffDelayMs({ policy, attempt: 2, random: TOP_JITTER })).toBe(5_000);
+            expect(backoffDelayMs({ policy, attempt: 3, random: TOP_JITTER })).toBe(10_000);
+            expect(backoffDelayMs({ policy, attempt: 4, random: TOP_JITTER })).toBe(20_000);
+            expect(backoffDelayMs({ policy, attempt: 8, random: TOP_JITTER })).toBe(60_000);
+            // The bottom of the jitter range halves it, and never goes below.
+            expect(backoffDelayMs({ policy, attempt: 2, random: FLOOR_JITTER })).toBe(2_500);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: keeps every delay of a capped ladder inside [retryMaxMs / 2, retryMaxMs] (AC-148)
+        {
+            for (const random of [() => 0, () => 0.5, () => 1]) {
+                for (let attempt = 2; attempt <= 4; attempt += 1) {
+                    const delayMs = backoffDelayMs({ policy: CAPPED_LADDER, attempt, random });
 
-    it('keeps every delay of a capped ladder inside [retryMaxMs / 2, retryMaxMs] (AC-148)', () => {
-        for (const random of [() => 0, () => 0.5, () => 1]) {
-            for (let attempt = 2; attempt <= 4; attempt += 1) {
-                const delayMs = backoffDelayMs({ policy: CAPPED_LADDER, attempt, random });
-
-                expect(delayMs).toBeGreaterThanOrEqual(CAP / 2);
-                expect(delayMs).toBeLessThanOrEqual(CAP);
+                    expect(delayMs).toBeGreaterThanOrEqual(CAP / 2);
+                    expect(delayMs).toBeLessThanOrEqual(CAP);
+                }
             }
         }
-    });
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never lets a computed delay exceed the ceiling, whatever the jitter source answers
+        {
+            const policy: RetryPolicy = { maxAttempts: 10, baseMs: 1_000, maxMs: 8_000 };
 
-    it('never lets a computed delay exceed the ceiling, whatever the jitter source answers', () => {
-        const policy: RetryPolicy = { maxAttempts: 10, baseMs: 1_000, maxMs: 8_000 };
-
-        // A source outside [0, 1] is clamped rather than trusted (plan D7's
-        // injectable is still a contract).
-        for (const random of [() => -5, () => 0.25, () => 40]) {
-            for (let attempt = 2; attempt <= 9; attempt += 1) {
-                expect(backoffDelayMs({ policy, attempt, random })).toBeLessThanOrEqual(policy.maxMs);
+            // A source outside [0, 1] is clamped rather than trusted (plan D7's
+            // injectable is still a contract).
+            for (const random of [() => -5, () => 0.25, () => 40]) {
+                for (let attempt = 2; attempt <= 9; attempt += 1) {
+                    expect(backoffDelayMs({ policy, attempt, random })).toBeLessThanOrEqual(policy.maxMs);
+                }
             }
         }
-    });
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: lets rate-limit guidance win even above the ceiling, and says so in the source
+        {
+            const record = nextWait({
+                policy: CAPPED_LADDER,
+                attempt: 2,
+                guidanceSeconds: 120,
+                random: () => 1,
+            });
 
-    it('lets rate-limit guidance win even above the ceiling, and says so in the source', () => {
-        const record = nextWait({
-            policy: CAPPED_LADDER,
-            attempt: 2,
-            guidanceSeconds: 120,
-            random: () => 1,
-        });
+            expect(record).toEqual({ attempt: 2, delayMs: 120_000, source: 'guidance' });
+            expect(record.delayMs).toBeGreaterThan(CAP);
 
-        expect(record).toEqual({ attempt: 2, delayMs: 120_000, source: 'guidance' });
-        expect(record.delayMs).toBeGreaterThan(CAP);
+            // Guidance shorter than the ladder is not a reason to wait less.
+            const shorter = nextWait({ policy: CAPPED_LADDER, attempt: 2, guidanceSeconds: 1, random: () => 1 });
+            expect(shorter.source).toBe('backoff');
+            expect(shorter.delayMs).toBe(CAP);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: reports the wait before sleeping it, and sleeps exactly what it reported
+        {
+            const { sleep, sleeps } = recordingSleep();
+            const seen: WaitRecord[] = [];
 
-        // Guidance shorter than the ladder is not a reason to wait less.
-        const shorter = nextWait({ policy: CAPPED_LADDER, attempt: 2, guidanceSeconds: 1, random: () => 1 });
-        expect(shorter.source).toBe('backoff');
-        expect(shorter.delayMs).toBe(CAP);
-    });
+            const record = await waitForRetry({
+                policy: CAPPED_LADDER,
+                attempt: 3,
+                guidanceSeconds: null,
+                sleep,
+                random: () => 1,
+                onWait: (wait) => seen.push(wait),
+            });
 
-    it('reports the wait before sleeping it, and sleeps exactly what it reported', async () => {
-        const { sleep, sleeps } = recordingSleep();
-        const seen: WaitRecord[] = [];
-
-        const record = await waitForRetry({
-            policy: CAPPED_LADDER,
-            attempt: 3,
-            guidanceSeconds: null,
-            sleep,
-            random: () => 1,
-            onWait: (wait) => seen.push(wait),
-        });
-
-        expect(seen).toEqual([record]);
-        expect(sleeps).toEqual([{ delayMs: record.delayMs }]);
-        expect(record.delayMs).toBe(CAP);
+            expect(seen).toEqual([record]);
+            expect(sleeps).toEqual([{ delayMs: record.delayMs }]);
+            expect(record.delayMs).toBe(CAP);
+        }
     });
 });
 
@@ -306,81 +331,96 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
         retry: CAPPED_LADDER,
     };
 
-    it('attempts a failing request up to retryMaxAttempts times, sleeping inside the bounds', async () => {
-        const { poller, sleeps } = scriptedPoller([() => new Response('', { status: 500 })]);
+    it('attempts a failing request up to retryMaxAttempts ti… (+3 cases)', async () => {
+        // case: attempts a failing request up to retryMaxAttempts times, sleeping inside the bounds
+        {
+            const { poller, sleeps } = scriptedPoller([() => new Response('', { status: 500 })]);
 
-        const result = await poller.listOpenIssues({
-            token: FIXTURE_TOKEN,
-            owner: 'acme',
-            name: 'widget',
-            since: null,
-            pace,
-        });
+            const result = await poller.listOpenIssues({
+                token: FIXTURE_TOKEN,
+                owner: 'acme',
+                name: 'widget',
+                since: null,
+                pace,
+            });
 
-        expect(result.kind).toBe('unavailable');
-        // Two waits for three attempts: the first attempt is immediate.
-        expect(sleeps).toHaveLength(CAPPED_LADDER.maxAttempts - 1);
-        for (const waited of sleeps) {
-            expect(waited.delayMs).toBeGreaterThanOrEqual(CAP / 2);
-            expect(waited.delayMs).toBeLessThanOrEqual(CAP);
+            expect(result.kind).toBe('unavailable');
+            // Two waits for three attempts: the first attempt is immediate.
+            expect(sleeps).toHaveLength(CAPPED_LADDER.maxAttempts - 1);
+            for (const waited of sleeps) {
+                expect(waited.delayMs).toBeGreaterThanOrEqual(CAP / 2);
+                expect(waited.delayMs).toBeLessThanOrEqual(CAP);
+            }
         }
-    });
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: stops after one attempt when the credential is refused (auth-failed is never retried)
+        {
+            const { poller, sleeps } = scriptedPoller([() => new Response('', { status: 401 })]);
 
-    it('stops after one attempt when the credential is refused (auth-failed is never retried)', async () => {
-        const { poller, sleeps } = scriptedPoller([() => new Response('', { status: 401 })]);
+            const result = await poller.listOpenIssues({
+                token: FIXTURE_TOKEN,
+                owner: 'acme',
+                name: 'widget',
+                since: null,
+                pace,
+            });
 
-        const result = await poller.listOpenIssues({
-            token: FIXTURE_TOKEN,
-            owner: 'acme',
-            name: 'widget',
-            since: null,
-            pace,
-        });
-
-        expect(result).toEqual({ kind: 'auth-failed' });
-        expect(sleeps).toHaveLength(0);
-    });
-
-    it('honours a retry-after longer than the ceiling on the real request path', async () => {
-        const { poller, sleeps } = scriptedPoller([
-            () => new Response('', { status: 429, headers: new Headers([['retry-after', '120']]) }),
-            () => new Response('[]', { status: 200 }),
-        ]);
-
-        const result = await poller.listOpenIssues({
-            token: FIXTURE_TOKEN,
-            owner: 'acme',
-            name: 'widget',
-            since: null,
-            pace,
-        });
-
-        expect(result.kind).toBe('ok');
-        expect(sleeps).toEqual([{ delayMs: 120_000 }]);
-        expect(sleeps[0]?.delayMs).toBeGreaterThan(CAP);
-    });
-
-    it('logs every wait with its length and source, and no credential', async () => {
-        const { poller, lines } = scriptedPoller([() => new Response('', { status: 500 })]);
-
-        await poller.listOpenIssues({
-            token: FIXTURE_TOKEN,
-            owner: 'acme',
-            name: 'widget',
-            since: null,
-            pace,
-        });
-
-        const waits = lines
-            .filter((line) => line.includes('poll request waiting before its next attempt'))
-            .map((line) => JSON.parse(line) as Record<string, unknown>);
-        expect(waits).toHaveLength(CAPPED_LADDER.maxAttempts - 1);
-        for (const wait of waits) {
-            expect(wait.source).toBe('backoff');
-            expect(typeof wait.delayMs).toBe('number');
-            expect(wait.attempt).toBeGreaterThanOrEqual(2);
+            expect(result).toEqual({ kind: 'auth-failed' });
+            expect(sleeps).toHaveLength(0);
         }
-        expect(lines.join('\n')).not.toContain(FIXTURE_TOKEN);
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: honours a retry-after longer than the ceiling on the real request path
+        {
+            const { poller, sleeps } = scriptedPoller([
+                () => new Response('', { status: 429, headers: new Headers([['retry-after', '120']]) }),
+                () => new Response('[]', { status: 200 }),
+            ]);
+
+            const result = await poller.listOpenIssues({
+                token: FIXTURE_TOKEN,
+                owner: 'acme',
+                name: 'widget',
+                since: null,
+                pace,
+            });
+
+            expect(result.kind).toBe('ok');
+            expect(sleeps).toEqual([{ delayMs: 120_000 }]);
+            expect(sleeps[0]?.delayMs).toBeGreaterThan(CAP);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: logs every wait with its length and source, and no credential
+        {
+            const { poller, lines } = scriptedPoller([() => new Response('', { status: 500 })]);
+
+            await poller.listOpenIssues({
+                token: FIXTURE_TOKEN,
+                owner: 'acme',
+                name: 'widget',
+                since: null,
+                pace,
+            });
+
+            const waits = lines
+                .filter((line) => line.includes('poll request waiting before its next attempt'))
+                .map((line) => JSON.parse(line) as Record<string, unknown>);
+            expect(waits).toHaveLength(CAPPED_LADDER.maxAttempts - 1);
+            for (const wait of waits) {
+                expect(wait.source).toBe('backoff');
+                expect(typeof wait.delayMs).toBe('number');
+                expect(wait.attempt).toBeGreaterThanOrEqual(2);
+            }
+            expect(lines.join('\n')).not.toContain(FIXTURE_TOKEN);
+        }
     });
 });
 
@@ -419,26 +459,33 @@ async function cycleOver(answers: readonly (() => Response)[]): Promise<{
 }
 
 describe('a skipped scan keeps its checkpoint (006 FR-058, 002 FR-018)', () => {
-    it('retains the recorded lastScanAt after the ladder is exhausted', async () => {
-        const outcome = await cycleOver([() => new Response('', { status: 500 })]);
+    it('retains the recorded lastScanAt after the ladder is … (+1 cases)', async () => {
+        // case: retains the recorded lastScanAt after the ladder is exhausted
+        {
+            const outcome = await cycleOver([() => new Response('', { status: 500 })]);
 
-        expect(outcome.skipped).toBe('upstream');
-        expect(outcome.sleeps).toHaveLength(STORED_LADDER.maxAttempts - 1);
-        for (const waited of outcome.sleeps) {
-            expect(waited.delayMs).toBeGreaterThanOrEqual(STORED_LADDER.maxMs / 2);
-            expect(waited.delayMs).toBeLessThanOrEqual(STORED_LADDER.maxMs);
+            expect(outcome.skipped).toBe('upstream');
+            expect(outcome.sleeps).toHaveLength(STORED_LADDER.maxAttempts - 1);
+            for (const waited of outcome.sleeps) {
+                expect(waited.delayMs).toBeGreaterThanOrEqual(STORED_LADDER.maxMs / 2);
+                expect(waited.delayMs).toBeLessThanOrEqual(STORED_LADDER.maxMs);
+            }
+            // Not advanced past data that was never durably represented, and not
+            // cleared to a full replay: the stamp the cycle started with survives.
+            expect(outcome.lastScanAt).toBe(RECORDED_SCAN_AT);
         }
-        // Not advanced past data that was never durably represented, and not
-        // cleared to a full replay: the stamp the cycle started with survives.
-        expect(outcome.lastScanAt).toBe(RECORDED_SCAN_AT);
-    });
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: retains it after an auth refusal too, with no wait at all
+        {
+            const outcome = await cycleOver([() => new Response('', { status: 401 })]);
 
-    it('retains it after an auth refusal too, with no wait at all', async () => {
-        const outcome = await cycleOver([() => new Response('', { status: 401 })]);
-
-        expect(outcome.skipped).toBe('auth-failed');
-        expect(outcome.sleeps).toHaveLength(0);
-        expect(outcome.lastScanAt).toBe(RECORDED_SCAN_AT);
+            expect(outcome.skipped).toBe('auth-failed');
+            expect(outcome.sleeps).toHaveLength(0);
+            expect(outcome.lastScanAt).toBe(RECORDED_SCAN_AT);
+        }
     });
 });
 

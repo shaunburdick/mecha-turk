@@ -75,16 +75,22 @@ let tempRoot = '';
 let dataDir = '';
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-sweep-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
     LOG_LINES.length = 0;
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /** Build an assignment detection for one issue. */
 function assignment(issueNumber: number): EventSnapshot {
@@ -247,186 +253,215 @@ async function rowsOf(eventType: string): Promise<readonly AuditEntry[]> {
 }
 
 describe('T-009 lease expiry (FR-032)', () => {
-    it('requeues an expired unreserved claim and records the attempt before and after', async () => {
-        const run = await seedRun(101);
-        await claimSeeded(run, LAPSED_LEASE);
+    it('requeues an expired unreserved claim and records the… (+2 cases)', async () => {
+        // case: requeues an expired unreserved claim and records the attempt before and after
+        {
+            const run = await seedRun(101);
+            await claimSeeded(run, LAPSED_LEASE);
 
-        const outcome = await sweep(ONE_HOUR_LATER);
-        const requeued = await readRun(run.correlationId);
-        const rows = await rowsOf(LEASE_EXPIRED);
-
-        expect(outcome.recoveries).toHaveLength(1);
-        expect(outcome.recoveries[0]?.eventType).toBe(LEASE_EXPIRED);
-        expect(requeued.state).toBe('pending');
-        expect(requeued.attempt).toBe(2);
-        expect(requeued.requeuesUsed).toBe(1);
-        expect(requeued.lease).toBeNull();
-        expect(requeued.attempts.at(-1)).toMatchObject({ attempt: 1, outcome: 'expired' });
-        expect(rows).toHaveLength(1);
-        expect(rows[0]).toMatchObject({
-            actorSource: 'service',
-            correlationId: run.correlationId,
-            decision: 'requeued',
-            reason: 'lease expired without a reservation',
-            details: { priorState: 'claimed', attemptBefore: 1, attemptAfter: 2, migrationRecovery: false },
-        });
-        expect(rows[0]?.entity).toEqual({ kind: 'run', id: run.correlationId });
-    });
-
-    it('leaves a live lease exactly where it is', async () => {
-        const run = await seedRun(102);
-        await claimSeeded(run, LIVE_LEASE);
-
-        const outcome = await sweep('2026-09-28T13:00:00.000Z');
-        const stillClaimed = await readRun(run.correlationId);
-
-        expect(outcome.recoveries).toEqual([]);
-        expect(stillClaimed.state).toBe('claimed');
-    });
-
-    it('parks the run once the requeue budget is spent (FR-033, AC-106)', async () => {
-        const run = await seedRun(103);
-        await claimSeeded(run, LAPSED_LEASE);
-
-        // Three expiries, each a fresh claim, each consuming one requeue.
-        for (let expiry = 1; expiry <= 3; expiry += 1) {
-            const current = await readRun(run.correlationId);
-            await claimSeeded(current, LAPSED_LEASE);
-            await sweep(ONE_HOUR_LATER);
+            const outcome = await sweep(ONE_HOUR_LATER);
             const requeued = await readRun(run.correlationId);
-            expect(requeued.requeuesUsed).toBe(expiry);
+            const rows = await rowsOf(LEASE_EXPIRED);
+
+            expect(outcome.recoveries).toHaveLength(1);
+            expect(outcome.recoveries[0]?.eventType).toBe(LEASE_EXPIRED);
+            expect(requeued.state).toBe('pending');
+            expect(requeued.attempt).toBe(2);
+            expect(requeued.requeuesUsed).toBe(1);
+            expect(requeued.lease).toBeNull();
+            expect(requeued.attempts.at(-1)).toMatchObject({ attempt: 1, outcome: 'expired' });
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toMatchObject({
+                actorSource: 'service',
+                correlationId: run.correlationId,
+                decision: 'requeued',
+                reason: 'lease expired without a reservation',
+                details: { priorState: 'claimed', attemptBefore: 1, attemptAfter: 2, migrationRecovery: false },
+            });
+            expect(rows[0]?.entity).toEqual({ kind: 'run', id: run.correlationId });
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: leaves a live lease exactly where it is
+        {
+            const run = await seedRun(102);
+            await claimSeeded(run, LIVE_LEASE);
 
-        const beforeFourth = await readRun(run.correlationId);
-        await claimSeeded(beforeFourth, LAPSED_LEASE);
-        const outcome = await sweep(ONE_HOUR_LATER);
-        const parked = await readRun(run.correlationId);
-        const deadRows = await rowsOf(DEAD_LETTERED);
+            const outcome = await sweep('2026-09-28T13:00:00.000Z');
+            const stillClaimed = await readRun(run.correlationId);
 
-        expect(outcome.recoveries.map((recovery) => recovery.eventType)).toEqual([DEAD_LETTERED]);
-        expect(parked.state).toBe('dead-lettered');
-        expect(parked.lease).toBeNull();
-        expect(parked.requeuesUsed).toBe(3);
-        expect(parked.stateReason).toContain('budget exhausted after 3 requeues');
-        expect(deadRows).toHaveLength(1);
-        expect(deadRows[0]).toMatchObject({
-            decision: 'dead-lettered',
-            details: { requeuesUsed: 3, budget: 3, priorState: 'claimed' },
-        });
-        // A parked run is terminal, so it is never claimed again (FR-037).
-        const reclaim = await claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: ONE_HOUR_LATER });
-        expect(reclaim.runs).toEqual([]);
+            expect(outcome.recoveries).toEqual([]);
+            expect(stillClaimed.state).toBe('claimed');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: parks the run once the requeue budget is spent (FR-033, AC-106)
+        {
+            const run = await seedRun(103);
+            await claimSeeded(run, LAPSED_LEASE);
+
+            // Three expiries, each a fresh claim, each consuming one requeue.
+            for (let expiry = 1; expiry <= 3; expiry += 1) {
+                const current = await readRun(run.correlationId);
+                await claimSeeded(current, LAPSED_LEASE);
+                await sweep(ONE_HOUR_LATER);
+                const requeued = await readRun(run.correlationId);
+                expect(requeued.requeuesUsed).toBe(expiry);
+            }
+
+            const beforeFourth = await readRun(run.correlationId);
+            await claimSeeded(beforeFourth, LAPSED_LEASE);
+            const outcome = await sweep(ONE_HOUR_LATER);
+            const parked = await readRun(run.correlationId);
+            const deadRows = await rowsOf(DEAD_LETTERED);
+
+            expect(outcome.recoveries.map((recovery) => recovery.eventType)).toEqual([DEAD_LETTERED]);
+            expect(parked.state).toBe('dead-lettered');
+            expect(parked.lease).toBeNull();
+            expect(parked.requeuesUsed).toBe(3);
+            expect(parked.stateReason).toContain('budget exhausted after 3 requeues');
+            expect(deadRows).toHaveLength(1);
+            expect(deadRows[0]).toMatchObject({
+                decision: 'dead-lettered',
+                details: { requeuesUsed: 3, budget: 3, priorState: 'claimed' },
+            });
+            // A parked run is terminal, so it is never claimed again (FR-037).
+            const reclaim = await claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: ONE_HOUR_LATER });
+            expect(reclaim.runs).toEqual([]);
+        }
     });
 });
 
 describe('T-009 late dispatch result (FR-023)', () => {
-    it('wedges a reserved run whose result never arrived', async () => {
-        const run = await seedRun(111);
-        await claimSeeded(run, LIVE_LEASE);
-        await reserveSeeded(run);
+    it('wedges a reserved run whose result never arrived (+2 cases)', async () => {
+        // case: wedges a reserved run whose result never arrived
+        {
+            const run = await seedRun(111);
+            await claimSeeded(run, LIVE_LEASE);
+            await reserveSeeded(run);
 
-        const outcome = await sweep(ONE_HOUR_LATER);
-        const wedged = await readRun(run.correlationId);
-        const rows = await rowsOf(UNCONFIRMED);
-
-        expect(outcome.recoveries.map((recovery) => recovery.eventType)).toEqual([UNCONFIRMED]);
-        expect(wedged.state).toBe('unconfirmed');
-        expect(wedged.stateReason).toContain(RESULT_DEADLINE);
-        expect(wedged.attempts.at(-1)).toMatchObject({ outcome: 'unconfirmed' });
-        expect(rows).toHaveLength(1);
-        expect(rows[0]).toMatchObject({
-            decision: 'unconfirmed',
-            details: {
-                priorState: 'starting',
-                attempt: 1,
-                // The outstanding authorization is named by its fingerprint and
-                // never by its value (T-040c, FR-061).
-                dispatchTokenFingerprint: buildDispatchTokenFingerprint(DISPATCH_TOKEN),
-                deadline: RESULT_DEADLINE,
-            },
-        });
-        expect(JSON.stringify(rows[0])).not.toContain(DISPATCH_TOKEN);
-    });
-
-    it('leaves a reserved run alone before its deadline', async () => {
-        const run = await seedRun(112);
-        await claimSeeded(run, LIVE_LEASE);
-        await reserveSeeded(run);
-
-        const outcome = await sweep('2026-09-28T12:01:00.000Z');
-        const reserved = await readRun(run.correlationId);
-
-        expect(outcome.recoveries).toEqual([]);
-        expect(reserved.state).toBe('starting');
-    });
-
-    it('leaves an unconfirmed wedge untouched through ten more passes (AC-107)', async () => {
-        const run = await seedRun(113);
-        await claimSeeded(run, LIVE_LEASE);
-        await reserveSeeded(run);
-        await sweep(ONE_HOUR_LATER);
-        const wedged = await readRun(run.correlationId);
-
-        for (let pass = 0; pass < 10; pass += 1) {
             const outcome = await sweep(ONE_HOUR_LATER);
-            expect(outcome.recoveries).toEqual([]);
-        }
+            const wedged = await readRun(run.correlationId);
+            const rows = await rowsOf(UNCONFIRMED);
 
-        expect(await readRun(run.correlationId)).toEqual(wedged);
-        expect(await rowsOf(UNCONFIRMED)).toHaveLength(1);
+            expect(outcome.recoveries.map((recovery) => recovery.eventType)).toEqual([UNCONFIRMED]);
+            expect(wedged.state).toBe('unconfirmed');
+            expect(wedged.stateReason).toContain(RESULT_DEADLINE);
+            expect(wedged.attempts.at(-1)).toMatchObject({ outcome: 'unconfirmed' });
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toMatchObject({
+                decision: 'unconfirmed',
+                details: {
+                    priorState: 'starting',
+                    attempt: 1,
+                    // The outstanding authorization is named by its fingerprint and
+                    // never by its value (T-040c, FR-061).
+                    dispatchTokenFingerprint: buildDispatchTokenFingerprint(DISPATCH_TOKEN),
+                    deadline: RESULT_DEADLINE,
+                },
+            });
+            expect(JSON.stringify(rows[0])).not.toContain(DISPATCH_TOKEN);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: leaves a reserved run alone before its deadline
+        {
+            const run = await seedRun(112);
+            await claimSeeded(run, LIVE_LEASE);
+            await reserveSeeded(run);
+
+            const outcome = await sweep('2026-09-28T12:01:00.000Z');
+            const reserved = await readRun(run.correlationId);
+
+            expect(outcome.recoveries).toEqual([]);
+            expect(reserved.state).toBe('starting');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: leaves an unconfirmed wedge untouched through ten more passes (AC-107)
+        {
+            const run = await seedRun(113);
+            await claimSeeded(run, LIVE_LEASE);
+            await reserveSeeded(run);
+            await sweep(ONE_HOUR_LATER);
+            const wedged = await readRun(run.correlationId);
+
+            for (let pass = 0; pass < 10; pass += 1) {
+                const outcome = await sweep(ONE_HOUR_LATER);
+                expect(outcome.recoveries).toEqual([]);
+            }
+
+            expect(await readRun(run.correlationId)).toEqual(wedged);
+            expect(await rowsOf(UNCONFIRMED)).toHaveLength(1);
+        }
     });
 });
 
 describe('T-009 what the sweep must not touch (FR-036, FR-028)', () => {
-    it('burns nothing for a run that is merely waiting', async () => {
-        const run = await seedRun(121);
+    it('burns nothing for a run that is merely waiting (+1 cases)', async () => {
+        // case: burns nothing for a run that is merely waiting
+        {
+            const run = await seedRun(121);
 
-        for (let pass = 0; pass < 5; pass += 1) {
-            const outcome = await sweep(ONE_HOUR_LATER);
-            expect(outcome.recoveries).toEqual([]);
+            for (let pass = 0; pass < 5; pass += 1) {
+                const outcome = await sweep(ONE_HOUR_LATER);
+                expect(outcome.recoveries).toEqual([]);
+            }
+
+            const waiting = await readRun(run.correlationId);
+            expect(waiting.state).toBe('pending');
+            expect(waiting.attempt).toBe(1);
+            expect(waiting.requeuesUsed).toBe(0);
+            expect(await rowsOf(LEASE_EXPIRED)).toEqual([]);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never requeues a claimed run whose history already records a session
+        {
+            const run = await seedRun(122);
+            await claimSeeded(run, LAPSED_LEASE);
+            const document = await readRunsDocument({ store, log: LOGGER });
+            const claimed = document.runs.find((candidate) => candidate.correlationId === run.correlationId);
+            if (claimed === undefined) {
+                throw new Error('claimed run is missing');
+            }
 
-        const waiting = await readRun(run.correlationId);
-        expect(waiting.state).toBe('pending');
-        expect(waiting.attempt).toBe(1);
-        expect(waiting.requeuesUsed).toBe(0);
-        expect(await rowsOf(LEASE_EXPIRED)).toEqual([]);
-    });
+            // A claimed run that also records a session is unreadable by design
+            // (T-037), so the store refuses to serve it rather than requeueing a
+            // run a panel may already have dispatched.
+            const inconsistent: RunsDocument = {
+                ...document,
+                runs: document.runs.map((candidate) => (candidate.correlationId === run.correlationId
+                    ? {
+                        ...candidate,
+                        attempts: [{
+                            ...openAttempt(candidate.attempt),
+                            dispatchToken: DISPATCH_TOKEN,
+                            reservedAt: DETECTED_AT,
+                            outcome: 'dispatched' as const,
+                            sessionId: FORGED_SESSION_ID,
+                            resultReportedAt: DETECTED_AT,
+                        }],
+                    }
+                    : candidate)),
+            };
+            await store.writeJson(RUNS_FILE, inconsistent);
+            const restarted = await openStore({ dataDir });
 
-    it('never requeues a claimed run whose history already records a session', async () => {
-        const run = await seedRun(122);
-        await claimSeeded(run, LAPSED_LEASE);
-        const document = await readRunsDocument({ store, log: LOGGER });
-        const claimed = document.runs.find((candidate) => candidate.correlationId === run.correlationId);
-        if (claimed === undefined) {
-            throw new Error('claimed run is missing');
+            await expect(sweepOnce({ store: restarted, log: LOGGER, now: ONE_HOUR_LATER })).rejects.toThrow(
+                'run document is unreadable',
+            );
         }
-
-        // A claimed run that also records a session is unreadable by design
-        // (T-037), so the store refuses to serve it rather than requeueing a
-        // run a panel may already have dispatched.
-        const inconsistent: RunsDocument = {
-            ...document,
-            runs: document.runs.map((candidate) => (candidate.correlationId === run.correlationId
-                ? {
-                    ...candidate,
-                    attempts: [{
-                        ...openAttempt(candidate.attempt),
-                        dispatchToken: DISPATCH_TOKEN,
-                        reservedAt: DETECTED_AT,
-                        outcome: 'dispatched' as const,
-                        sessionId: FORGED_SESSION_ID,
-                        resultReportedAt: DETECTED_AT,
-                    }],
-                }
-                : candidate)),
-        };
-        await store.writeJson(RUNS_FILE, inconsistent);
-        const restarted = await openStore({ dataDir });
-
-        await expect(sweepOnce({ store: restarted, log: LOGGER, now: ONE_HOUR_LATER })).rejects.toThrow(
-            'run document is unreadable',
-        );
     });
 });
 
@@ -452,87 +487,109 @@ describe('T-009 migration recovery (data-model §1)', () => {
 });
 
 describe('T-009 the sweep pass itself', () => {
-    it('writes no row and no log line for a pass with nothing to do', async () => {
-        await seedRun(141);
+    it('writes no row and no log line for a pass with nothin… (+3 cases)', async () => {
+        // case: writes no row and no log line for a pass with nothing to do
+        {
+            await seedRun(141);
 
-        await sweep(ONE_HOUR_LATER);
+            await sweep(ONE_HOUR_LATER);
 
-        expect(await rowsOf(LEASE_EXPIRED)).toEqual([]);
-        expect(await rowsOf(DEAD_LETTERED)).toEqual([]);
-        expect(await rowsOf(UNCONFIRMED)).toEqual([]);
-        expect(LOG_LINES.filter((line) => line.includes('dispatch sweep recovered a run'))).toEqual([]);
-    });
+            expect(await rowsOf(LEASE_EXPIRED)).toEqual([]);
+            expect(await rowsOf(DEAD_LETTERED)).toEqual([]);
+            expect(await rowsOf(UNCONFIRMED)).toEqual([]);
+            expect(LOG_LINES.filter((line) => line.includes('dispatch sweep recovered a run'))).toEqual([]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: names each recovery in the service log without any secret (SEC-11)
+        {
+            const run = await seedRun(142);
+            await claimSeeded(run, LAPSED_LEASE);
 
-    it('names each recovery in the service log without any secret (SEC-11)', async () => {
-        const run = await seedRun(142);
-        await claimSeeded(run, LAPSED_LEASE);
+            await sweep(ONE_HOUR_LATER);
 
-        await sweep(ONE_HOUR_LATER);
+            const lines = LOG_LINES.filter((line) => line.includes('dispatch sweep recovered a run'));
+            expect(lines).toHaveLength(1);
+            expect(lines[0]).toContain(run.correlationId);
+            expect(lines[0]).toContain(LEASE_EXPIRED);
+            expect(lines[0]).not.toContain('octocat');
+            expect(lines[0]).not.toMatch(/gh[pousr]_[A-Za-z0-9]{16,}/);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: recovers several stranded runs in one pass
+        {
+            const first = await seedRun(151);
+            const second = await seedRun(152);
+            await claimSeeded(first, LAPSED_LEASE);
+            await claimSeeded(second, LAPSED_LEASE);
 
-        const lines = LOG_LINES.filter((line) => line.includes('dispatch sweep recovered a run'));
-        expect(lines).toHaveLength(1);
-        expect(lines[0]).toContain(run.correlationId);
-        expect(lines[0]).toContain(LEASE_EXPIRED);
-        expect(lines[0]).not.toContain('octocat');
-        expect(lines[0]).not.toMatch(/gh[pousr]_[A-Za-z0-9]{16,}/);
-    });
+            const outcome = await sweep(ONE_HOUR_LATER);
 
-    it('recovers several stranded runs in one pass', async () => {
-        const first = await seedRun(151);
-        const second = await seedRun(152);
-        await claimSeeded(first, LAPSED_LEASE);
-        await claimSeeded(second, LAPSED_LEASE);
-
-        const outcome = await sweep(ONE_HOUR_LATER);
-
-        expect(outcome.recoveries.map((recovery) => recovery.run.correlationId).sort())
-            .toEqual([first.correlationId, second.correlationId].sort());
-        expect(await rowsOf(LEASE_EXPIRED)).toHaveLength(2);
-    });
-
-    it('halves the shorter of the two durations for its cadence', () => {
-        expect(sweepIntervalMs({ leaseMs: 120_000, resultDeadlineMs: 120_000 })).toBe(60_000);
-        expect(sweepIntervalMs({ leaseMs: 600_000, resultDeadlineMs: 30_000 })).toBe(15_000);
-        expect(sweepIntervalMs({ leaseMs: 45_000, resultDeadlineMs: 300_000 })).toBe(22_500);
-        expect(sweepIntervalMs(DEFAULT_CONFIG)).toBe(60_000);
+            expect(outcome.recoveries.map((recovery) => recovery.run.correlationId).sort())
+                .toEqual([first.correlationId, second.correlationId].sort());
+            expect(await rowsOf(LEASE_EXPIRED)).toHaveLength(2);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: halves the shorter of the two durations for its cadence
+        {
+            expect(sweepIntervalMs({ leaseMs: 120_000, resultDeadlineMs: 120_000 })).toBe(60_000);
+            expect(sweepIntervalMs({ leaseMs: 600_000, resultDeadlineMs: 30_000 })).toBe(15_000);
+            expect(sweepIntervalMs({ leaseMs: 45_000, resultDeadlineMs: 300_000 })).toBe(22_500);
+            expect(sweepIntervalMs(DEFAULT_CONFIG)).toBe(60_000);
+        }
     });
 });
 
 describe('T-009 the enqueued path still joins an in-flight run', () => {
-    it('keeps coalescing into a run the claim leased, without un-claiming it', async () => {
-        const run = await seedRun(161);
-        await claimSeeded(run, LIVE_LEASE);
+    it('keeps coalescing into a run the claim leased, withou… (+1 cases)', async () => {
+        // case: keeps coalescing into a run the claim leased, without un-claiming it
+        {
+            const run = await seedRun(161);
+            await claimSeeded(run, LIVE_LEASE);
 
-        await enqueueEvents({
-            store,
-            log: LOGGER,
-            incoming: [createEvent({ ...assignment(161), kind: 'mention', origin: 'comment', commentId: 4242 })],
-        });
-        const joined = await readRun(run.correlationId);
-        const document = await readRunsDocument({ store, log: LOGGER });
+            await enqueueEvents({
+                store,
+                log: LOGGER,
+                incoming: [createEvent({ ...assignment(161), kind: 'mention', origin: 'comment', commentId: 4242 })],
+            });
+            const joined = await readRun(run.correlationId);
+            const document = await readRunsDocument({ store, log: LOGGER });
 
-        expect(document.runs).toHaveLength(1);
-        expect(joined.sourceReferences).toHaveLength(2);
-        expect(joined.referenceCount).toBe(2);
-        expect(joined.state).toBe('claimed');
-        expect(joined.lease?.holder).toBe(HOLDER);
-        // A delivery that arrives after authorization is marked as such (FR-015).
-        expect(joined.sourceReferences.at(-1)?.presentAtAuthorization).toBe(true);
-    });
+            expect(document.runs).toHaveLength(1);
+            expect(joined.sourceReferences).toHaveLength(2);
+            expect(joined.referenceCount).toBe(2);
+            expect(joined.state).toBe('claimed');
+            expect(joined.lease?.holder).toBe(HOLDER);
+            // A delivery that arrives after authorization is marked as such (FR-015).
+            expect(joined.sourceReferences.at(-1)?.presentAtAuthorization).toBe(true);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: marks a delivery that arrives after the reservation as post-authorization
+        {
+            const run = await seedRun(162);
+            await claimSeeded(run, LIVE_LEASE);
+            await reserveSeeded(run);
 
-    it('marks a delivery that arrives after the reservation as post-authorization', async () => {
-        const run = await seedRun(162);
-        await claimSeeded(run, LIVE_LEASE);
-        await reserveSeeded(run);
+            await enqueueEvents({
+                store,
+                log: LOGGER,
+                incoming: [createEvent({ ...assignment(162), kind: 'mention', origin: 'comment', commentId: 7 })],
+            });
+            const joined = await readRun(run.correlationId);
 
-        await enqueueEvents({
-            store,
-            log: LOGGER,
-            incoming: [createEvent({ ...assignment(162), kind: 'mention', origin: 'comment', commentId: 7 })],
-        });
-        const joined = await readRun(run.correlationId);
-
-        expect(joined.state).toBe('starting');
-        expect(joined.sourceReferences.at(-1)?.presentAtAuthorization).toBe(false);
+            expect(joined.state).toBe('starting');
+            expect(joined.sourceReferences.at(-1)?.presentAtAuthorization).toBe(false);
+        }
     });
 });

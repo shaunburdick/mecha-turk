@@ -91,108 +91,114 @@ function page(path: string): string {
 }
 
 describe('002 FR-042 / AC-022 the two operator documents describe the shipped panel', () => {
-    it('reads both documents rather than an empty pair', () => {
-        for (const doc of PAGES) {
-            expect(page(doc).length, `${doc} is suspiciously short`).toBeGreaterThan(1500);
-        }
-    });
-
-    it('names all six tabs, in the vocabulary the product ships', () => {
-        for (const doc of PAGES) {
-            const text = page(doc);
-            for (const tab of TABS) {
-                expect(text, `${doc} does not name the ${tab} tab`).toContain(tab);
+    it('reads both documents rather than an empty pair (+5 cases)', () => {
+        // case: reads both documents rather than an empty pair
+        {
+            for (const doc of PAGES) {
+                expect(page(doc).length, `${doc} is suspiciously short`).toBeGreaterThan(1500);
             }
-            expect(text).toContain('Dispatches');
-            expect(text).toContain('Bindings');
         }
-    });
-
-    it('puts the prerequisites section on Status (005 FR-037)', () => {
-        const onStatus = /Status[^\n]*prerequisites|prerequisites[^\n]*Status/i;
-
-        for (const doc of PAGES) {
-            const text = page(doc);
-            expect(text, `${doc} does not mention the prerequisites`).toMatch(/prerequisites/i);
-            expect(text, `${doc} does not place them on Status`).toMatch(onStatus);
+        // case: names all six tabs, in the vocabulary the product ships
+        {
+            for (const doc of PAGES) {
+                const text = page(doc);
+                for (const tab of TABS) {
+                    expect(text, `${doc} does not name the ${tab} tab`).toContain(tab);
+                }
+                expect(text).toContain('Dispatches');
+                expect(text).toContain('Bindings');
+            }
         }
-    });
+        // case: puts the prerequisites section on Status (005 FR-037)
+        {
+            const onStatus = /Status[^\n]*prerequisites|prerequisites[^\n]*Status/i;
 
-    it('describes Settings as the single configuration input for the whole service configuration', () => {
-        for (const doc of PAGES) {
-            // Prose asserts against whitespace-normalized text: both documents
-            // wrap at ~80 columns, so a phrase's words can be on two lines.
-            const prose = page(doc).replace(/\s+/g, ' ');
-            expect(prose, `${doc} does not point at the configuration document`).toContain('GET /v1/config');
-            // 006 T-029 (extending 005 T-033): the read-only era is history —
-            // the tab edits, and the documents must say so rather than repeat
-            // the release note that has now shipped.
-            expect(prose, `${doc} still calls the tab read-only`).not.toContain('read-only in this release');
-            // The baseline the integration card no longer carries (002 FR-029,
-            // 006 FR-100): named, sourced from the service, defaulted.
-            expect(prose, `${doc} does not name the baseline field`).toContain('expectedAgent');
-            expect(prose, `${doc} does not name the documented default`).toContain('project-manager');
-            // The manifest carries no configuration either way it is said:
-            // the card declaring nothing, or (since the owner's 2026-09-30
-            // sweep) no card existing at all.
-            expect(prose, `${doc} does not say the card carries no settings or is gone`).toMatch(
-                /carries \*\*no settings\*\*|no integration card/,
-            );
-            // 006's own surface claims: the take-effect line each row carries,
-            // the two-step confirmation before anything is deleted, and where
-            // the document lives (operator-backable, not an environment file).
-            expect(prose, `${doc} does not say where the configuration lives`).toContain('config.json');
-            expect(prose, `${doc} does not say it is operator-backable`).toContain('operator-backable');
+            for (const doc of PAGES) {
+                const text = page(doc);
+                expect(text, `${doc} does not mention the prerequisites`).toMatch(/prerequisites/i);
+                expect(text, `${doc} does not place them on Status`).toMatch(onStatus);
+            }
         }
-    });
-
-    it('names the Accounts add form as the expected-login supply surface (005 FR-006)', () => {
-        for (const doc of PAGES) {
-            expect(page(doc), `${doc} does not document the expected-login input`)
-                .toContain('expected GitHub login');
+        // case: describes Settings as the single configuration input for the whole service configuration
+        {
+            for (const doc of PAGES) {
+                // Prose asserts against whitespace-normalized text: both documents
+                // wrap at ~80 columns, so a phrase's words can be on two lines.
+                const prose = page(doc).replace(/\s+/g, ' ');
+                expect(prose, `${doc} does not point at the configuration document`).toContain('GET /v1/config');
+                // 006 T-029 (extending 005 T-033): the read-only era is history —
+                // the tab edits, and the documents must say so rather than repeat
+                // the release note that has now shipped.
+                expect(prose, `${doc} still calls the tab read-only`).not.toContain('read-only in this release');
+                // The baseline the integration card no longer carries (002 FR-029,
+                // 006 FR-100): named, sourced from the service, defaulted.
+                expect(prose, `${doc} does not name the baseline field`).toContain('expectedAgent');
+                expect(prose, `${doc} does not name the documented default`).toContain('project-manager');
+                // The manifest carries no configuration either way it is said:
+                // the card declaring nothing, or (since the owner's 2026-09-30
+                // sweep) no card existing at all.
+                expect(prose, `${doc} does not say the card carries no settings or is gone`).toMatch(
+                    /carries \*\*no settings\*\*|no integration card/,
+                );
+                // 006's own surface claims: the take-effect line each row carries,
+                // the two-step confirmation before anything is deleted, and where
+                // the document lives (operator-backable, not an environment file).
+                expect(prose, `${doc} does not say where the configuration lives`).toContain('config.json');
+                expect(prose, `${doc} does not say it is operator-backable`).toContain('operator-backable');
+            }
         }
-    });
+        // case: names the Accounts add form as the expected-login supply surface (005 FR-006)
+        {
+            for (const doc of PAGES) {
+                expect(page(doc), `${doc} does not document the expected-login input`)
+                    .toContain('expected GitHub login');
+            }
+        }
+        // case: reproduces the vocabulary mapping table in README in full (005 FR-029)
+        {
+            const text = page(README);
 
-    it('reproduces the vocabulary mapping table in README in full (005 FR-029)', () => {
-        const text = page(README);
-
-        expect(text).toContain(VOCAB_HEADING);
-        expect(text).toContain('| Runs (panel section) | **Dispatches** | L1 |');
-        expect(text).toContain('| Repositories (panel tab) | **Bindings** | L1 |');
-        expect(text).toContain('| `run` (entity, key, ordinal) | `run` | L4 |');
-        expect(text).toContain('| `GET /v1/events` and its operations | *retained* | L3 |');
+            expect(text).toContain(VOCAB_HEADING);
+            expect(text).toContain('| Runs (panel section) | **Dispatches** | L1 |');
+            expect(text).toContain('| Repositories (panel tab) | **Bindings** | L1 |');
+            expect(text).toContain('| `run` (entity, key, ordinal) | `run` | L4 |');
+            expect(text).toContain('| `GET /v1/events` and its operations | *retained* | L3 |');
+        }
     });
 });
 
 describe('002 AC-022 the negative half: no dead instruction and no retired tab', () => {
-    it('instructs no environment or file-based configuration', () => {
-        for (const doc of PAGES) {
-            const text = page(doc);
-            expect(text, `${doc} still instructs an environment variable`).not.toContain('MECHA_TURK_');
-            expect(text, `${doc} still points at a dotenv file`).not.toContain('.env');
-        }
-    });
-
-    it('presents no dead specs/001 path', () => {
-        for (const doc of PAGES) {
-            expect(page(doc), `${doc} cites a retired spec path`)
-                .not.toContain('specs/001-agent-event-orchestrator/');
-        }
-    });
-
-    it('names no retired tab outside the vocabulary mapping', () => {
-        for (const doc of PAGES) {
-            const text = withoutMapping(doc);
-            for (const retired of RETIRED) {
-                expect(retired.test(text), `${doc} uses a retired noun: ${retired.source}`).toBe(false);
+    it('instructs no environment or file-based configuration (+2 cases)', () => {
+        // case: instructs no environment or file-based configuration
+        {
+            for (const doc of PAGES) {
+                const text = page(doc);
+                expect(text, `${doc} still instructs an environment variable`).not.toContain('MECHA_TURK_');
+                expect(text, `${doc} still points at a dotenv file`).not.toContain('.env');
             }
         }
+        // case: presents no dead specs/001 path
+        {
+            for (const doc of PAGES) {
+                expect(page(doc), `${doc} cites a retired spec path`)
+                    .not.toContain('specs/001-agent-event-orchestrator/');
+            }
+        }
+        // case: names no retired tab outside the vocabulary mapping
+        {
+            for (const doc of PAGES) {
+                const text = withoutMapping(doc);
+                for (const retired of RETIRED) {
+                    expect(retired.test(text), `${doc} uses a retired noun: ${retired.source}`).toBe(false);
+                }
+            }
 
-        // Not vacuous: the rule really does catch the shape it exists for,
-        // and the mapping section really is the only place it is allowed.
-        expect(RETIRED[0]?.test('the **Spike** tab')).toBe(true);
-        expect(RETIRED[1]?.test('under **Runs**')).toBe(true);
-        expect(page(README)).toContain(VOCAB_HEADING);
-        expect(withoutMapping(README)).not.toContain(VOCAB_HEADING);
+            // Not vacuous: the rule really does catch the shape it exists for,
+            // and the mapping section really is the only place it is allowed.
+            expect(RETIRED[0]?.test('the **Spike** tab')).toBe(true);
+            expect(RETIRED[1]?.test('under **Runs**')).toBe(true);
+            expect(page(README)).toContain(VOCAB_HEADING);
+            expect(withoutMapping(README)).not.toContain(VOCAB_HEADING);
+        }
     });
 });

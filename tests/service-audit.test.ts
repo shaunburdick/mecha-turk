@@ -37,15 +37,21 @@ let tempRoot = '';
 /** Absolute data directory the store is opened on. */
 let dataDir = '';
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-audit-'));
     dataDir = join(tempRoot, 'store');
     await mkdir(dataDir, { recursive: true });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Build one audit input for the fixtures (ids only, never credential material).
@@ -122,51 +128,62 @@ async function plantTrail(): Promise<void> {
 }
 
 describe('audit sequence and chain (M6, W2-2)', () => {
-    it('appends without ever re-reading the audit file', async () => {
-        const store = await openStore({ dataDir });
-        const reads = countReads(store);
+    it('appends without ever re-reading the audit file (+2 cases)', async () => {
+        // case: appends without ever re-reading the audit file
+        {
+            const store = await openStore({ dataDir });
+            const reads = countReads(store);
 
-        const first = await appendAudit(store, sampleRow(STARTED_EVENT));
-        const second = await appendAudit(store, sampleRow(VERIFIED_EVENT));
-        const third = await appendAudit(store, sampleRow('account.deleted'));
+            const first = await appendAudit(store, sampleRow(STARTED_EVENT));
+            const second = await appendAudit(store, sampleRow(VERIFIED_EVENT));
+            const third = await appendAudit(store, sampleRow('account.deleted'));
 
-        expect(first.seq).toBe(1);
-        expect(second.seq).toBe(2);
-        expect(third.seq).toBe(3);
-        // Exactly the seed: three appends, one file read.
-        expect(reads.count()).toBe(1);
-    });
+            expect(first.seq).toBe(1);
+            expect(second.seq).toBe(2);
+            expect(third.seq).toBe(3);
+            // Exactly the seed: three appends, one file read.
+            expect(reads.count()).toBe(1);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: continues a trail that existed before the store opened
+        {
+            await plantTrail();
+            const store = await openStore({ dataDir });
+            const reads = countReads(store);
 
-    it('continues a trail that existed before the store opened', async () => {
-        await plantTrail();
-        const store = await openStore({ dataDir });
-        const reads = countReads(store);
+            const appended = await appendAudit(store, sampleRow(VERIFIED_EVENT));
 
-        const appended = await appendAudit(store, sampleRow(VERIFIED_EVENT));
+            expect(appended.seq).toBe(9);
+            expect(reads.count()).toBe(1);
 
-        expect(appended.seq).toBe(9);
-        expect(reads.count()).toBe(1);
+            // The legacy `consent` row still reads as ordinary history, and no
+            // append after the seed touches the file read again.
+            const stored = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
+            expect(stored.match(/"eventType":"consent"/g) ?? []).toHaveLength(1);
+            await appendAudit(store, sampleRow(STARTED_EVENT));
+            expect(reads.count()).toBe(1);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: serializes concurrent appends so seq stays unique and file-ordered
+        {
+            const store = await openStore({ dataDir });
 
-        // The legacy `consent` row still reads as ordinary history, and no
-        // append after the seed touches the file read again.
-        const stored = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
-        expect(stored.match(/"eventType":"consent"/g) ?? []).toHaveLength(1);
-        await appendAudit(store, sampleRow(STARTED_EVENT));
-        expect(reads.count()).toBe(1);
-    });
+            const written = await Promise.all([
+                appendAudit(store, sampleRow(STARTED_EVENT)),
+                appendAudit(store, sampleRow(VERIFIED_EVENT)),
+                appendAudit(store, sampleRow('account.deleted')),
+            ]);
 
-    it('serializes concurrent appends so seq stays unique and file-ordered', async () => {
-        const store = await openStore({ dataDir });
-
-        const written = await Promise.all([
-            appendAudit(store, sampleRow(STARTED_EVENT)),
-            appendAudit(store, sampleRow(VERIFIED_EVENT)),
-            appendAudit(store, sampleRow('account.deleted')),
-        ]);
-
-        expect(written.map((entry) => entry.seq)).toEqual([1, 2, 3]);
-        const stored = await readAuditEntries(store);
-        expect(stored.map((entry) => entry.seq)).toEqual([1, 2, 3]);
+            expect(written.map((entry) => entry.seq)).toEqual([1, 2, 3]);
+            const stored = await readAuditEntries(store);
+            expect(stored.map((entry) => entry.seq)).toEqual([1, 2, 3]);
+        }
     });
 });
 
@@ -193,72 +210,83 @@ function stampless(entry: AuditEntry): AuditEntry {
 }
 
 describe('chain join and entry composer (006 T-011)', () => {
-    it('serialises chained tasks so the second starts only after the first settles', async () => {
-        const store = await openStore({ dataDir });
-        const order: string[] = [];
-        let release: (() => void) | undefined;
-        const gate = new Promise<void>((resolve) => {
-            release = resolve;
-        });
-        let markStarted: (() => void) | undefined;
-        const started = new Promise<void>((resolve) => {
-            markStarted = resolve;
-        });
+    it('serialises chained tasks so the second starts only a… (+2 cases)', async () => {
+        // case: serialises chained tasks so the second starts only after the first settles
+        {
+            const store = await openStore({ dataDir });
+            const order: string[] = [];
+            let release: (() => void) | undefined;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            let markStarted: (() => void) | undefined;
+            const started = new Promise<void>((resolve) => {
+                markStarted = resolve;
+            });
 
-        const first = serializeAudit(store, async () => {
-            order.push(FIRST_START);
-            markStarted?.();
-            await gate;
-            order.push(FIRST_END);
+            const first = serializeAudit(store, async () => {
+                order.push(FIRST_START);
+                markStarted?.();
+                await gate;
+                order.push(FIRST_END);
 
-            return 'first';
-        });
-        const second = serializeAudit(store, async () => {
-            order.push(SECOND_RUN);
+                return 'first';
+            });
+            const second = serializeAudit(store, async () => {
+                order.push(SECOND_RUN);
 
-            return 'second';
-        });
+                return 'second';
+            });
 
-        await started;
-        await flush();
-        // The first task is parked on the gate and the second has not run: it
-        // is queued behind the first on the one chain `appendAudit` uses.
-        expect(order).toEqual([FIRST_START]);
-        release?.();
+            await started;
+            await flush();
+            // The first task is parked on the gate and the second has not run: it
+            // is queued behind the first on the one chain `appendAudit` uses.
+            expect(order).toEqual([FIRST_START]);
+            release?.();
 
-        expect(await Promise.all([first, second])).toEqual(['first', 'second']);
-        expect(order).toEqual([FIRST_START, FIRST_END, SECOND_RUN]);
-    });
+            expect(await Promise.all([first, second])).toEqual(['first', 'second']);
+            expect(order).toEqual([FIRST_START, FIRST_END, SECOND_RUN]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: composes the entry appendAudit would write, without writing a line
+        {
+            const composing = await openStore({ dataDir });
+            const appending = await openStore({ dataDir: join(tempRoot, 'appended-store') });
+            const input: AuditInput = { ...sampleRow(STARTED_EVENT), correlationId: 'compose-1' };
 
-    it('composes the entry appendAudit would write, without writing a line', async () => {
-        const composing = await openStore({ dataDir });
-        const appending = await openStore({ dataDir: join(tempRoot, 'appended-store') });
-        const input: AuditInput = { ...sampleRow(STARTED_EVENT), correlationId: 'compose-1' };
+            const composed = await serializeAudit(composing, async () => await composeAudit(composing, input));
+            const appended = await appendAudit(appending, input);
 
-        const composed = await serializeAudit(composing, async () => await composeAudit(composing, input));
-        const appended = await appendAudit(appending, input);
+            expect(stampless(composed)).toEqual(stampless(appended));
+            expect(composed.seq).toBe(1);
+            // The composer wrote nothing — the trail it composed for is still empty.
+            expect(await readAuditEntries(composing)).toEqual([]);
+            // …and its number is reserved, so the next append cannot reuse it.
+            const next = await appendAudit(composing, input);
+            expect(next.seq).toBe(2);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: runs the writer’s redaction pass over a composed entry
+        {
+            const store = await openStore({ dataDir });
+            const input: AuditInput = {
+                ...sampleRow(STARTED_EVENT),
+                correlationId: 'compose-redacted',
+                details: { note: 'credential ghp_1234567890123456789012345678901234' },
+            };
 
-        expect(stampless(composed)).toEqual(stampless(appended));
-        expect(composed.seq).toBe(1);
-        // The composer wrote nothing — the trail it composed for is still empty.
-        expect(await readAuditEntries(composing)).toEqual([]);
-        // …and its number is reserved, so the next append cannot reuse it.
-        const next = await appendAudit(composing, input);
-        expect(next.seq).toBe(2);
-    });
+            const composed = await serializeAudit(store, async () => await composeAudit(store, input));
 
-    it('runs the writer’s redaction pass over a composed entry', async () => {
-        const store = await openStore({ dataDir });
-        const input: AuditInput = {
-            ...sampleRow(STARTED_EVENT),
-            correlationId: 'compose-redacted',
-            details: { note: 'credential ghp_1234567890123456789012345678901234' },
-        };
-
-        const composed = await serializeAudit(store, async () => await composeAudit(store, input));
-
-        expect(composed.redaction.redacted).toBe(true);
-        expect(JSON.stringify(composed)).not.toContain('ghp_');
-        expect(JSON.stringify(composed)).toContain('[redacted:github-token-classic]');
+            expect(composed.redaction.redacted).toBe(true);
+            expect(JSON.stringify(composed)).not.toContain('ghp_');
+            expect(JSON.stringify(composed)).toContain('[redacted:github-token-classic]');
+        }
     });
 });

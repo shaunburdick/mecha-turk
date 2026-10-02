@@ -53,29 +53,32 @@ const RUN_OPERATIONS: readonly (readonly [(id: string) => string, string])[] = [
 ];
 
 describe('run-scoped path helpers (the correlation-id namespace)', () => {
-    it('addresses every operation by the run, under the one shared prefix', () => {
-        for (const [helper, verb] of RUN_OPERATIONS) {
-            expect(helper(CORRELATION)).toBe(`/v1/events/${CORRELATION}/${verb}`);
+    it('addresses every operation by the run, under the one … (+3 cases)', () => {
+        // case: addresses every operation by the run, under the one shared prefix
+        {
+            for (const [helper, verb] of RUN_OPERATIONS) {
+                expect(helper(CORRELATION)).toBe(`/v1/events/${CORRELATION}/${verb}`);
+            }
         }
-    });
+        // case: substitutes the correlation id exactly once and leaves no pattern behind
+        {
+            for (const [helper] of RUN_OPERATIONS) {
+                const path = helper(CORRELATION);
 
-    it('substitutes the correlation id exactly once and leaves no pattern behind', () => {
-        for (const [helper] of RUN_OPERATIONS) {
-            const path = helper(CORRELATION);
-
-            expect(path).not.toContain(':correlationId');
-            expect(path.split(CORRELATION)).toHaveLength(2);
+                expect(path).not.toContain(':correlationId');
+                expect(path.split(CORRELATION)).toHaveLength(2);
+            }
         }
-    });
-
-    it('keeps the two read paths the panel polls unchanged', () => {
-        expect(EVENTS_PENDING_PATH).toBe('/v1/events/pending');
-        expect(EVENTS_PATH).toBe('/v1/events');
-    });
-
-    it('reads one run\'s audit rows through the correlation filter (FR-053)', () => {
-        expect(AUDIT_PATH).toBe('/v1/audit');
-        expect(auditPath(CORRELATION)).toBe(`/v1/audit?correlationId=${CORRELATION}`);
+        // case: keeps the two read paths the panel polls unchanged
+        {
+            expect(EVENTS_PENDING_PATH).toBe('/v1/events/pending');
+            expect(EVENTS_PATH).toBe('/v1/events');
+        }
+        // case: reads one run\'s audit rows through the correlation filter (FR-053)
+        {
+            expect(AUDIT_PATH).toBe('/v1/audit');
+            expect(auditPath(CORRELATION)).toBe(`/v1/audit?correlationId=${CORRELATION}`);
+        }
     });
 });
 
@@ -144,111 +147,116 @@ function scriptedRequester(answer: {
 }
 
 describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-112)', () => {
-    it('names the configuration and carries every issue in the service\'s order', async () => {
-        const { serviceRequest, seen } = scriptedRequester({ status: 422, body: VALIDATION_BODY });
+    it('names the configuration and carries every issue in t… (+5 cases)', async () => {
+        // case: names the configuration and carries every issue in the service\'s order
+        {
+            const { serviceRequest, seen } = scriptedRequester({ status: 422, body: VALIDATION_BODY });
 
-        const result = await servicePutConfig({ serviceRequest, body: '{"intervalMs":60000}' });
+            const result = await servicePutConfig({ serviceRequest, body: '{"intervalMs":60000}' });
 
-        expect(seen.map((request) => `${request.method} ${request.path}`)).toEqual(['PUT /v1/config']);
-        const refusal = refusalOf(result);
-        expect(refusal.code).toBe('validation');
-        expect(refusal.issues.map((issue) => issue.field)).toEqual([
-            'retryMaxMs',
-            'expectedAgent',
-            '<withheld>',
-        ]);
-        // The remediation survives byte for byte: this is the service's wording
-        // the panel renders unrewritten (AC-107, FR-024).
-        expect(refusal.issues[0]?.remediation).toBe(
-            'set retryMaxMs to a value greater than or equal to retryBaseMs',
-        );
-        expect(refusal.problem).not.toContain('bindings');
-    });
-
-    it('drops an issue the envelope did not pair, rather than half-reading one', async () => {
-        const { serviceRequest } = scriptedRequester({
-            status: 422,
-            body: JSON.stringify({
-                error: {
-                    code: 'validation',
-                    issues: [{ field: 'intervalMs' }, 'not an entry', { field: 'perPage', remediation: 'set perPage' }],
-                },
-            }),
-        });
-
-        const result = await servicePutConfig({ serviceRequest, body: '{}' });
-
-        expect(refusalOf(result).issues).toEqual([{ field: 'perPage', remediation: 'set perPage' }]);
-    });
-
-    it('keeps a store failure and an authorisation failure distinct from a refusal', async () => {
-        const unavailable = scriptedRequester({
-            status: 503,
-            body: JSON.stringify({ error: { code: 'storage-unavailable', message: 'store is unavailable' } }),
-        });
-        const refused = refusalOf(
-            await servicePutConfig({ serviceRequest: unavailable.serviceRequest, body: '{}' }),
-        );
-        const unauthorised = scriptedRequester({
-            status: 401,
-            body: JSON.stringify({ error: { code: 'unauthorised', message: 'missing grant' } }),
-        });
-        const denied = refusalOf(await servicePutConfig({ serviceRequest: unauthorised.serviceRequest, body: '{}' }));
-
-        expect(refused.problem).toBe('service answered 503');
-        expect(refused.code).toBe('storage-unavailable');
-        expect(refused.issues).toEqual([]);
-        expect(denied.problem).toBe('service answered 401');
-        expect(denied.issues).toEqual([]);
-        // Neither is a refusal of these values, and neither claims to be one.
-        expect(refused.problem).not.toContain('refused');
-        expect(denied.problem).not.toContain('refused');
-    });
-
-    it('describes a transport failure without quoting anything', async () => {
-        const { serviceRequest } = scriptedRequester({ status: 200, body: '{}' });
-
-        const unreachable = await servicePutConfig({ serviceRequest: unreachableRequester, body: '{}' });
-        const landed = await servicePutConfig({ serviceRequest, body: '{}' });
-
-        expect(unreachable).toEqual({
-            ok: false,
-            problem: 'service unreachable: ECONNREFUSED',
-            code: null,
-            issues: [],
-            correlationId: null,
-        });
-        expect(landed).toEqual({ ok: true, body: '{}' });
-    });
-
-    it('keeps the envelope correlation id an unexpected failure carried (006 FR-064)', async () => {
-        const body = JSON.stringify({
-            error: { code: 'internal', message: 'route failed', correlationId: 'mt-cfg-1' },
-        });
-        const { serviceRequest } = scriptedRequester({ status: 500, body });
-
-        const failed = await servicePutConfig({ serviceRequest, body: '{}' });
-
-        expect(failed.ok).toBe(false);
-        if (failed.ok) {
-            return;
+            expect(seen.map((request) => `${request.method} ${request.path}`)).toEqual(['PUT /v1/config']);
+            const refusal = refusalOf(result);
+            expect(refusal.code).toBe('validation');
+            expect(refusal.issues.map((issue) => issue.field)).toEqual([
+                'retryMaxMs',
+                'expectedAgent',
+                '<withheld>',
+            ]);
+            // The remediation survives byte for byte: this is the service's wording
+            // the panel renders unrewritten (AC-107, FR-024).
+            expect(refusal.issues[0]?.remediation).toBe(
+                'set retryMaxMs to a value greater than or equal to retryBaseMs',
+            );
+            expect(refusal.problem).not.toContain('bindings');
         }
+        // case: drops an issue the envelope did not pair, rather than half-reading one
+        {
+            const { serviceRequest } = scriptedRequester({
+                status: 422,
+                body: JSON.stringify({
+                    error: {
+                        code: 'validation',
+                        issues: [{ field: 'intervalMs' }, 'not an entry', {
+                            field: 'perPage', remediation: 'set perPage' }],
+                    },
+                }),
+            });
 
-        expect(failed.code).toBe('internal');
-        expect(failed.correlationId).toBe('mt-cfg-1');
-        expect(failed.problem).not.toContain('mt-cfg-1');
-    });
+            const result = await servicePutConfig({ serviceRequest, body: '{}' });
 
-    it('still says *bindings list* on the bindings path (nothing regresses)', async () => {
-        const { serviceRequest } = scriptedRequester({ status: 422, body: VALIDATION_BODY });
-
-        const result = await servicePut({ serviceRequest, path: BINDINGS_PATH, body: '[]' });
-
-        if (result.ok) {
-            throw new Error('a bindings 422 must not read as success');
+            expect(refusalOf(result).issues).toEqual([{ field: 'perPage', remediation: 'set perPage' }]);
         }
+        // case: keeps a store failure and an authorisation failure distinct from a refusal
+        {
+            const unavailable = scriptedRequester({
+                status: 503,
+                body: JSON.stringify({ error: { code: 'storage-unavailable', message: 'store is unavailable' } }),
+            });
+            const refused = refusalOf(
+                await servicePutConfig({ serviceRequest: unavailable.serviceRequest, body: '{}' }),
+            );
+            const unauthorised = scriptedRequester({
+                status: 401,
+                body: JSON.stringify({ error: { code: 'unauthorised', message: 'missing grant' } }),
+            });
+            const denied = refusalOf(await servicePutConfig({
+                serviceRequest: unauthorised.serviceRequest, body: '{}' }));
 
-        expect(result.code).toBe('validation');
-        expect(result.message).toContain('retryMaxMs');
+            expect(refused.problem).toBe('service answered 503');
+            expect(refused.code).toBe('storage-unavailable');
+            expect(refused.issues).toEqual([]);
+            expect(denied.problem).toBe('service answered 401');
+            expect(denied.issues).toEqual([]);
+            // Neither is a refusal of these values, and neither claims to be one.
+            expect(refused.problem).not.toContain('refused');
+            expect(denied.problem).not.toContain('refused');
+        }
+        // case: describes a transport failure without quoting anything
+        {
+            const { serviceRequest } = scriptedRequester({ status: 200, body: '{}' });
+
+            const unreachable = await servicePutConfig({ serviceRequest: unreachableRequester, body: '{}' });
+            const landed = await servicePutConfig({ serviceRequest, body: '{}' });
+
+            expect(unreachable).toEqual({
+                ok: false,
+                problem: 'service unreachable: ECONNREFUSED',
+                code: null,
+                issues: [],
+                correlationId: null,
+            });
+            expect(landed).toEqual({ ok: true, body: '{}' });
+        }
+        // case: keeps the envelope correlation id an unexpected failure carried (006 FR-064)
+        {
+            const body = JSON.stringify({
+                error: { code: 'internal', message: 'route failed', correlationId: 'mt-cfg-1' },
+            });
+            const { serviceRequest } = scriptedRequester({ status: 500, body });
+
+            const failed = await servicePutConfig({ serviceRequest, body: '{}' });
+
+            expect(failed.ok).toBe(false);
+            if (failed.ok) {
+                return;
+            }
+
+            expect(failed.code).toBe('internal');
+            expect(failed.correlationId).toBe('mt-cfg-1');
+            expect(failed.problem).not.toContain('mt-cfg-1');
+        }
+        // case: still says *bindings list* on the bindings path (nothing regresses)
+        {
+            const { serviceRequest } = scriptedRequester({ status: 422, body: VALIDATION_BODY });
+
+            const result = await servicePut({ serviceRequest, path: BINDINGS_PATH, body: '[]' });
+
+            if (result.ok) {
+                throw new Error('a bindings 422 must not read as success');
+            }
+
+            expect(result.code).toBe('validation');
+            expect(result.message).toContain('retryMaxMs');
+        }
     });
 });

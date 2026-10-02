@@ -51,14 +51,20 @@ let tempRoot = '';
 /** Data directory the store opens on. */
 let dataDir = '';
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-runs-parse-'));
     dataDir = join(tempRoot, 'store');
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Build the one source reference every fixture run starts with.
@@ -283,51 +289,62 @@ async function readBack(document: unknown): Promise<JsonReadResult<RunsDocument>
 }
 
 describe('writer → reader round-trip (real bytes)', () => {
-    it('reads back exactly what the writer persisted', async () => {
-        const document = fixtureDocument([
-            fixtureRun(),
-            fixtureRun({
-                subjectNumber: 13,
-                state: 'failed',
-                stateReason: 'session-create-failed',
-                attempt: 2,
-                requeuesUsed: 1,
-            }),
-        ]);
+    it('reads back exactly what the writer persisted (+2 cases)', async () => {
+        // case: reads back exactly what the writer persisted
+        {
+            const document = fixtureDocument([
+                fixtureRun(),
+                fixtureRun({
+                    subjectNumber: 13,
+                    state: 'failed',
+                    stateReason: 'session-create-failed',
+                    attempt: 2,
+                    requeuesUsed: 1,
+                }),
+            ]);
 
-        const result = await readBack(document);
+            const result = await readBack(document);
 
-        expect(result.status).toBe('ok');
-        expect(result.status === 'ok' ? result.value : null).toEqual(document);
-    });
+            expect(result.status).toBe('ok');
+            expect(result.status === 'ok' ? result.value : null).toEqual(document);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: keeps all eight dispatch states readable, blocked family included
+        {
+            const states = [
+                'pending',
+                'claimed',
+                'starting',
+                'dispatched',
+                'failed',
+                'unconfirmed',
+                'dead-lettered',
+                'blocked:project-missing',
+            ] as const;
+            const runs = states.map((state, index) => fixtureRun({
+                subjectNumber: 12 + index,
+                state,
+                stateReason: state === 'pending' ? null : `sitting in ${state}`,
+            }));
 
-    it('keeps all eight dispatch states readable, blocked family included', async () => {
-        const states = [
-            'pending',
-            'claimed',
-            'starting',
-            'dispatched',
-            'failed',
-            'unconfirmed',
-            'dead-lettered',
-            'blocked:project-missing',
-        ] as const;
-        const runs = states.map((state, index) => fixtureRun({
-            subjectNumber: 12 + index,
-            state,
-            stateReason: state === 'pending' ? null : `sitting in ${state}`,
-        }));
+            const result = await readBack(fixtureDocument(runs));
 
-        const result = await readBack(fixtureDocument(runs));
+            expect(result.status).toBe('ok');
+            expect(result.status === 'ok' ? result.value.runs.map((run) => run.state) : []).toEqual([...states]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses the file rather than half-reading it when one row is wrong
+        {
+            const result = await readBack(fixtureDocument([fixtureRun(), fixtureRun({ attempt: 0 })]));
 
-        expect(result.status).toBe('ok');
-        expect(result.status === 'ok' ? result.value.runs.map((run) => run.state) : []).toEqual([...states]);
-    });
-
-    it('refuses the file rather than half-reading it when one row is wrong', async () => {
-        const result = await readBack(fixtureDocument([fixtureRun(), fixtureRun({ attempt: 0 })]));
-
-        expect(result.status).toBe('quarantined');
+            expect(result.status).toBe('quarantined');
+        }
     });
 });
 
@@ -420,105 +437,137 @@ describe('fail-closed document and row validation', () => {
         },
     ];
 
-    it('refuses every malformed document in the table', () => {
-        for (const { name, document } of broken) {
-            expect(parseRunsDocument(document), `must refuse: ${name}`).toBeNull();
+    it('refuses every malformed document in the table (+5 cases)', async () => {
+        // case: refuses every malformed document in the table
+        {
+            for (const { name, document } of broken) {
+                expect(parseRunsDocument(document), `must refuse: ${name}`).toBeNull();
+            }
         }
-    });
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a row whose lease, reservation, session, or verification is malformed
+        {
+            const patches: readonly (readonly [string, unknown])[] = [
+                ['lease', { leaseId: '', holder: 'panel', issuedAt: STAMP, expiresAt: STAMP, attempt: 1 }],
+                ['lease', { leaseId: 'l', holder: 'panel', issuedAt: 'never', expiresAt: STAMP, attempt: 1 }],
+                ['lease', 'not an object'],
+                ['reservation', { dispatchToken: '', attempt: 1, reservedAt: STAMP, resultDeadlineAt: STAMP }],
+                [
+                    'reservation',
+                    { dispatchToken: 'dtk-a', attempt: 0, reservedAt: STAMP, resultDeadlineAt: STAMP, consumed: false },
+                ],
+                [
+                    'session',
+                    { sessionId: 'ses_1', attachmentId: 'mt-run-0', dispatchedAt: STAMP, title: 7, sourceUrl: 'u' },
+                ],
+                ['session', {
+                    sessionId: '', attachmentId: 'mt-run-0', dispatchedAt: STAMP, title: 't', sourceUrl: 'u' }],
+                ['verification', { observedAgent: null, expectedAgent: '', ok: true, note: null, at: STAMP }],
+                ['verification', { observedAgent: null, expectedAgent: 'pm', ok: 'yes', note: null, at: STAMP }],
+                ['sourceReferences', [{ ...fixtureReference(), origin: 'comment:abc' }]],
+                ['sourceReferences', [{ ...fixtureReference(), kind: 'assignmente' }]],
+                ['sourceReferences', [{ ...fixtureReference(), detectedAt: 'never' }]],
+                ['attempts', [{ ...attemptRecord(), attempt: 0 }]],
+                ['attempts', [{ ...attemptRecord(), outcome: 'exploded' }]],
+            ];
 
-    it('refuses a row whose lease, reservation, session, or verification is malformed', () => {
-        const patches: readonly (readonly [string, unknown])[] = [
-            ['lease', { leaseId: '', holder: 'panel', issuedAt: STAMP, expiresAt: STAMP, attempt: 1 }],
-            ['lease', { leaseId: 'l', holder: 'panel', issuedAt: 'never', expiresAt: STAMP, attempt: 1 }],
-            ['lease', 'not an object'],
-            ['reservation', { dispatchToken: '', attempt: 1, reservedAt: STAMP, resultDeadlineAt: STAMP }],
-            [
-                'reservation',
-                { dispatchToken: 'dtk-a', attempt: 0, reservedAt: STAMP, resultDeadlineAt: STAMP, consumed: false },
-            ],
-            [
-                'session',
-                { sessionId: 'ses_1', attachmentId: 'mt-run-0', dispatchedAt: STAMP, title: 7, sourceUrl: 'u' },
-            ],
-            ['session', { sessionId: '', attachmentId: 'mt-run-0', dispatchedAt: STAMP, title: 't', sourceUrl: 'u' }],
-            ['verification', { observedAgent: null, expectedAgent: '', ok: true, note: null, at: STAMP }],
-            ['verification', { observedAgent: null, expectedAgent: 'pm', ok: 'yes', note: null, at: STAMP }],
-            ['sourceReferences', [{ ...fixtureReference(), origin: 'comment:abc' }]],
-            ['sourceReferences', [{ ...fixtureReference(), kind: 'assignmente' }]],
-            ['sourceReferences', [{ ...fixtureReference(), detectedAt: 'never' }]],
-            ['attempts', [{ ...attemptRecord(), attempt: 0 }]],
-            ['attempts', [{ ...attemptRecord(), outcome: 'exploded' }]],
-        ];
-
-        for (const [field, value] of patches) {
-            expect(parseRun(poisoned(field, value))).toBeNull();
+            for (const [field, value] of patches) {
+                expect(parseRun(poisoned(field, value))).toBeNull();
+            }
         }
-    });
-
-    it('accepts every nullable sub-object written as null, and as absent', () => {
-        expect(parseRun(fixtureRun())).not.toBeNull();
-        expect(parseRun(without('lease', 'reservation', 'session', 'verification'))).not.toBeNull();
-    });
-
-    it('refuses contradictory attempt history that records a session on a non-dispatched run', () => {
-        const createdSessionAttempt = {
-            ...attemptRecord(),
-            dispatchToken: 'dtk-0123456789abcdef0123456789abcdef',
-            reservedAt: STAMP,
-            outcome: 'dispatched' as const,
-            sessionId: 'ses_created',
-            resultReportedAt: STAMP,
-        };
-        const pending = fixtureRun({ attempts: [createdSessionAttempt] });
-
-        expect(parseRun(pending)).toBeNull();
-        expect(runHistoryIndicatesSession(pending)).toBe(true);
-    });
-
-    it('refuses an attempt session id that conflicts with the run session pointer', () => {
-        const session = {
-            sessionId: 'ses_pointer',
-            attachmentId: fixtureRun().correlationId,
-            dispatchedAt: STAMP,
-            title: 'Issue session',
-            sourceUrl: 'https://github.com/acme/widget/issues/12',
-            worktree: null,
-        };
-        const run = fixtureRun({
-            state: 'dispatched',
-            stateReason: 'session created',
-            session,
-            attempts: [{
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: accepts every nullable sub-object written as null, and as absent
+        {
+            expect(parseRun(fixtureRun())).not.toBeNull();
+            expect(parseRun(without('lease', 'reservation', 'session', 'verification'))).not.toBeNull();
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses contradictory attempt history that records a session on a non-dispatched run
+        {
+            const createdSessionAttempt = {
                 ...attemptRecord(),
-                outcome: 'dispatched',
-                sessionId: 'ses_other',
+                dispatchToken: 'dtk-0123456789abcdef0123456789abcdef',
+                reservedAt: STAMP,
+                outcome: 'dispatched' as const,
+                sessionId: 'ses_created',
                 resultReportedAt: STAMP,
-            }],
-        });
+            };
+            const pending = fixtureRun({ attempts: [createdSessionAttempt] });
 
-        expect(parseRun(run)).toBeNull();
+            expect(parseRun(pending)).toBeNull();
+            expect(runHistoryIndicatesSession(pending)).toBe(true);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses an attempt session id that conflicts with the run session pointer
+        {
+            const session = {
+                sessionId: 'ses_pointer',
+                attachmentId: fixtureRun().correlationId,
+                dispatchedAt: STAMP,
+                title: 'Issue session',
+                sourceUrl: 'https://github.com/acme/widget/issues/12',
+                worktree: null,
+            };
+            const run = fixtureRun({
+                state: 'dispatched',
+                stateReason: 'session created',
+                session,
+                attempts: [{
+                    ...attemptRecord(),
+                    outcome: 'dispatched',
+                    sessionId: 'ses_other',
+                    resultReportedAt: STAMP,
+                }],
+            });
+
+            expect(parseRun(run)).toBeNull();
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: accepts a blocked state whose reason the panel has never produced
+        {
+            const run = parseRun(fixtureRun({
+                state: 'blocked:policy', stateReason: 'no policy allowed this dispatch' }));
+
+            expect(run?.state).toBe('blocked:policy');
+        }
     });
 
-    it('accepts a blocked state whose reason the panel has never produced', () => {
-        const run = parseRun(fixtureRun({ state: 'blocked:policy', stateReason: 'no policy allowed this dispatch' }));
+    it('accepts a reference that records a comment id as its… (+1 cases)', async () => {
+        // case: accepts a reference that records a comment id as its origin
+        {
+            const reference = { ...fixtureReference(), kind: 'mention' as const, origin: 'comment:4242' as const };
+            const run = parseRun(fixtureRun({ sourceReferences: [reference] }));
 
-        expect(run?.state).toBe('blocked:policy');
-    });
+            expect(run?.sourceReferences).toEqual([reference]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: reads a capped run whose overflow is counted rather than hidden (T-038)
+        {
+            const capped = withReferences(MAX_SOURCE_REFERENCES + 7);
+            const run = parseRun(capped);
 
-    it('accepts a reference that records a comment id as its origin', () => {
-        const reference = { ...fixtureReference(), kind: 'mention' as const, origin: 'comment:4242' as const };
-        const run = parseRun(fixtureRun({ sourceReferences: [reference] }));
-
-        expect(run?.sourceReferences).toEqual([reference]);
-    });
-
-    it('reads a capped run whose overflow is counted rather than hidden (T-038)', () => {
-        const capped = withReferences(MAX_SOURCE_REFERENCES + 7);
-        const run = parseRun(capped);
-
-        expect(run?.sourceReferences).toHaveLength(MAX_SOURCE_REFERENCES);
-        expect(run?.referenceCount).toBe(MAX_SOURCE_REFERENCES + 7);
-        expect(run?.referencesNotRetained).toBe(7);
-        expect(run?.referencesTruncated).toBe(true);
+            expect(run?.sourceReferences).toHaveLength(MAX_SOURCE_REFERENCES);
+            expect(run?.referenceCount).toBe(MAX_SOURCE_REFERENCES + 7);
+            expect(run?.referencesNotRetained).toBe(7);
+            expect(run?.referencesTruncated).toBe(true);
+        }
     });
 });

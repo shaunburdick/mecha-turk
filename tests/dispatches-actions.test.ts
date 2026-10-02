@@ -77,13 +77,19 @@ const CAUSE_NOT_CLEARED = 'the cause has not cleared';
 /** The loop under test. */
 let loop: DispatchLoop;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     loop = await startDispatchLoop();
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await loop.shutdown();
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Read the one run a fixture issue produced.
@@ -352,48 +358,59 @@ describe('AC-118 a refused retry renders the service verdict and changes no row'
 });
 
 describe('FR-049 one action dispatch path and one correlation id per row', () => {
-    it('runs exactly one action when the same row is activated twice', async () => {
-        await loop.enqueue({ issueNumber: FAILED_ISSUE });
-        await driveTo({ issueNumber: FAILED_ISSUE, state: 'failed' });
-        expect(await stateOf(FAILED_ISSUE)).toBe('failed');
+    it('runs exactly one action when the same row is activat… (+2 cases)', async () => {
+        // case: runs exactly one action when the same row is activated twice
+        {
+            await loop.enqueue({ issueNumber: FAILED_ISSUE });
+            await driveTo({ issueNumber: FAILED_ISSUE, state: 'failed' });
+            expect(await stateOf(FAILED_ISSUE)).toBe('failed');
 
-        const rt = loop.mount();
-        await loadDispatches(rt);
-        selectDispatch(rt, onlyRow(rt).id);
+            const rt = loop.mount();
+            await loadDispatches(rt);
+            selectDispatch(rt, onlyRow(rt).id);
 
-        await Promise.all([retryRun(rt), retryRun(rt)]);
+            await Promise.all([retryRun(rt), retryRun(rt)]);
 
-        expect(retryPosts()).toBe(1);
-        expect(onlyRow(rt).state).toBe('pending');
-        expect(rt.state.dispatches.busy).toBe(false);
-    });
+            expect(retryPosts()).toBe(1);
+            expect(onlyRow(rt).state).toBe('pending');
+            expect(rt.state.dispatches.busy).toBe(false);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: copies the correlation id from the selected row
+        {
+            await loop.enqueue({ issueNumber: FAILED_ISSUE });
+            const rt = loop.mount();
+            await loadDispatches(rt);
+            const row = onlyRow(rt);
 
-    it('copies the correlation id from the selected row', async () => {
-        await loop.enqueue({ issueNumber: FAILED_ISSUE });
-        const rt = loop.mount();
-        await loadDispatches(rt);
-        const row = onlyRow(rt);
+            await copyCorrelationId(rt);
 
-        await copyCorrelationId(rt);
+            selectDispatch(rt, row.id);
+            await copyCorrelationId(rt);
 
-        selectDispatch(rt, row.id);
-        await copyCorrelationId(rt);
+            expect(rt.state.dispatches.note).toBe(`Correlation id ${row.correlationId} copied.`);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: says why the correlation id could not be copied
+        {
+            const clipboard = createTestRuntime(
+                fakeHost({ writeClipboard: () => Promise.reject(new Error(CLIPBOARD_FAILURE)) }),
+            );
+            await loop.enqueue({ issueNumber: FAILED_ISSUE });
+            const source = loop.mount();
+            await loadDispatches(source);
+            clipboard.state.dispatches.rows = source.state.dispatches.rows;
+            selectDispatch(clipboard, onlyRow(clipboard).id);
 
-        expect(rt.state.dispatches.note).toBe(`Correlation id ${row.correlationId} copied.`);
-    });
+            await copyCorrelationId(clipboard);
 
-    it('says why the correlation id could not be copied', async () => {
-        const clipboard = createTestRuntime(
-            fakeHost({ writeClipboard: () => Promise.reject(new Error(CLIPBOARD_FAILURE)) }),
-        );
-        await loop.enqueue({ issueNumber: FAILED_ISSUE });
-        const source = loop.mount();
-        await loadDispatches(source);
-        clipboard.state.dispatches.rows = source.state.dispatches.rows;
-        selectDispatch(clipboard, onlyRow(clipboard).id);
-
-        await copyCorrelationId(clipboard);
-
-        expect(clipboard.state.dispatches.note).toContain(CLIPBOARD_FAILURE);
+            expect(clipboard.state.dispatches.note).toContain(CLIPBOARD_FAILURE);
+        }
     });
 });

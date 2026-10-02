@@ -138,107 +138,113 @@ function statusLines(): readonly string[] {
 }
 
 describe('splitLine keeps every line byte-identical across its two cells', () => {
-    it('reads the fixture document rather than an empty one', () => {
-        expect(statusLines().length).toBeGreaterThan(10);
-    });
-
-    it('rejoins every Status line to the exact string the copy module returned', () => {
-        for (const line of statusLines()) {
-            expect(asRead(line), line).toBe(line);
+    it('reads the fixture document rather than an empty one (+5 cases)', () => {
+        // case: reads the fixture document rather than an empty one
+        {
+            expect(statusLines().length).toBeGreaterThan(10);
         }
-    });
+        // case: rejoins every Status line to the exact string the copy module returned
+        {
+            for (const line of statusLines()) {
+                expect(asRead(line), line).toBe(line);
+            }
+        }
+        // case: splits both the label form and the subject form, so neither is dead code
+        {
+            const lines = statusLines();
+            const labelForm = lines.find((line) => splitLine(line)?.separator === ': ');
+            const subjectForm = lines.find((line) => splitLine(line)?.separator === ' — ');
 
-    it('splits both the label form and the subject form, so neither is dead code', () => {
-        const lines = statusLines();
-        const labelForm = lines.find((line) => splitLine(line)?.separator === ': ');
-        const subjectForm = lines.find((line) => splitLine(line)?.separator === ' — ');
+            expect(labelForm).toBeDefined();
+            expect(subjectForm).toBeDefined();
+            expect(splitLine(subjectForm ?? '')?.key).not.toContain('—');
+        }
+        // case: leaves a sentence alone rather than burying it under a label column
+        {
+            const prose =
+                'The effective and configured intervals differ: the scheduler is running 60,000 ms, '
+                + 'while configuration asks for 60,000 ms.';
 
-        expect(labelForm).toBeDefined();
-        expect(subjectForm).toBeDefined();
-        expect(splitLine(subjectForm ?? '')?.key).not.toContain('—');
-    });
+            expect(splitLine(prose)).toBeNull();
+            expect(asRead(prose)).toBe(prose);
+        }
+        // case: refuses a line with no separator, so a whole line stays whole
+        {
+            expect(splitLine(WHOLE_LINE)).toBeNull();
+        }
+        // case: keeps every prerequisite field intact when the line itself is reassembled
+        {
+            const { state } = createTestRuntime(fakeHost());
 
-    it('leaves a sentence alone rather than burying it under a label column', () => {
-        const prose =
-            'The effective and configured intervals differ: the scheduler is running 60,000 ms, '
-            + 'while configuration asks for 60,000 ms.';
+            for (const item of derivePrerequisites(state)) {
+                const reassembled =
+                    `${item.title} · ${prerequisiteStateLabel(item.state)} — ${item.detail} ${item.remediation}`;
 
-        expect(splitLine(prose)).toBeNull();
-        expect(asRead(prose)).toBe(prose);
-    });
-
-    it('refuses a line with no separator, so a whole line stays whole', () => {
-        expect(splitLine(WHOLE_LINE)).toBeNull();
-    });
-
-    it('keeps every prerequisite field intact when the line itself is reassembled', () => {
-        const { state } = createTestRuntime(fakeHost());
-
-        for (const item of derivePrerequisites(state)) {
-            const reassembled =
-                `${item.title} · ${prerequisiteStateLabel(item.state)} — ${item.detail} ${item.remediation}`;
-
-            expect(reassembled).toBe(prerequisiteLine(item));
+                expect(reassembled).toBe(prerequisiteLine(item));
+            }
         }
     });
 });
 
 describe('a mounted row is the two cells the stylesheet lays out', () => {
-    it('mounts a label cell and a value cell for a split line', () => {
-        mounts.log.length = 0;
-        const dom = fakeDom();
-        const list = createRowList(dom.root);
-        lineRow(list, { line: 'Health: healthy' });
+    it('mounts a label cell and a value cell for a split lin… (+3 cases)', () => {
+        // case: mounts a label cell and a value cell for a split line
+        {
+            mounts.log.length = 0;
+            const dom = fakeDom();
+            const list = createRowList(dom.root);
+            lineRow(list, { line: 'Health: healthy' });
 
-        const texts = mounts.log.filter((entry) => entry.key === 'mountText').map(
-            (entry) => (entry.props as { readonly text?: string }).text,
-        );
-        expect(texts).toEqual(['Health', 'healthy']);
+            const texts = mounts.log.filter((entry) => entry.key === 'mountText').map(
+                (entry) => (entry.props as { readonly text?: string }).text,
+            );
+            expect(texts).toEqual(['Health', 'healthy']);
 
-        const classes = dom.created.map((node) => node.className);
-        expect(classes).toContain('mt-def');
-        expect(classes).toContain('mt-key');
-        expect(classes).toContain('mt-val');
-    });
+            const classes = dom.created.map((node) => node.className);
+            expect(classes).toContain('mt-def');
+            expect(classes).toContain('mt-key');
+            expect(classes).toContain('mt-val');
+        }
+        // case: mounts one cell spanning the row for a line that is prose
+        {
+            mounts.log.length = 0;
+            const dom = fakeDom();
+            const list = createRowList(dom.root);
+            lineRow(list, { line: WHOLE_LINE });
 
-    it('mounts one cell spanning the row for a line that is prose', () => {
-        mounts.log.length = 0;
-        const dom = fakeDom();
-        const list = createRowList(dom.root);
-        lineRow(list, { line: WHOLE_LINE });
+            const texts = mounts.log.filter((entry) => entry.key === 'mountText').map(
+                (entry) => (entry.props as { readonly text?: string }).text,
+            );
+            expect(texts).toEqual([WHOLE_LINE]);
+            expect(dom.created.find((node) => node.className === 'mt-key')).toBeUndefined();
+            expect(dom.created.some((node) => node.className.includes('mt-def--note'))).toBe(true);
+        }
+        // case: gives a block a real heading element, whose text still reaches the SDK
+        {
+            mounts.log.length = 0;
+            const dom = fakeDom();
+            const block = createBlock(dom.root, { heading: 'Service' });
 
-        const texts = mounts.log.filter((entry) => entry.key === 'mountText').map(
-            (entry) => (entry.props as { readonly text?: string }).text,
-        );
-        expect(texts).toEqual([WHOLE_LINE]);
-        expect(dom.created.find((node) => node.className === 'mt-key')).toBeUndefined();
-        expect(dom.created.some((node) => node.className.includes('mt-def--note'))).toBe(true);
-    });
+            const heading = dom.created.find((node) => node.tagName === 'h2');
+            expect(heading?.className).toBe('mt-heading');
+            const painted = mounts.log.filter((entry) => entry.key === 'mountText').map(
+                (entry) => (entry.props as { readonly text?: string }).text,
+            );
+            expect(painted).toContain('Service');
+            expect(block.body.className).toBe('mt-block');
+            expect(dom.created.some((node) => node.className === 'mt-block')).toBe(true);
+        }
+        // case: releases a row and its cells on dispose
+        {
+            mounts.log.length = 0;
+            const dom = fakeDom();
+            const list = createRowList(dom.root);
+            const row = lineRow(list, { line: 'Storage: writable' });
+            expect(list.children).toHaveLength(1);
 
-    it('gives a block a real heading element, whose text still reaches the SDK', () => {
-        mounts.log.length = 0;
-        const dom = fakeDom();
-        const block = createBlock(dom.root, { heading: 'Service' });
+            row.dispose();
 
-        const heading = dom.created.find((node) => node.tagName === 'h2');
-        expect(heading?.className).toBe('mt-heading');
-        const painted = mounts.log.filter((entry) => entry.key === 'mountText').map(
-            (entry) => (entry.props as { readonly text?: string }).text,
-        );
-        expect(painted).toContain('Service');
-        expect(block.body.className).toBe('mt-block');
-        expect(dom.created.some((node) => node.className === 'mt-block')).toBe(true);
-    });
-
-    it('releases a row and its cells on dispose', () => {
-        mounts.log.length = 0;
-        const dom = fakeDom();
-        const list = createRowList(dom.root);
-        const row = lineRow(list, { line: 'Storage: writable' });
-        expect(list.children).toHaveLength(1);
-
-        row.dispose();
-
-        expect(list.children).toHaveLength(0);
+            expect(list.children).toHaveLength(0);
+        }
     });
 });

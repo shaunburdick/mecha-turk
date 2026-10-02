@@ -93,39 +93,42 @@ const PINNED_DISCLAIMER: readonly string[] = [
 ];
 
 describe('ACCOUNTS_DISCLAIMER', () => {
-    it('matches the pinned copy in the contract and in the shipped mirror', () => {
-        // Contract side: the §1.1 block must match the pin.
-        expect(contractParagraphs()).toEqual(PINNED_DISCLAIMER);
+    it('matches the pinned copy in the contract and in the s… (+3 cases)', () => {
+        // case: matches the pinned copy in the contract and in the shipped mirror
+        {
+            // Contract side: the §1.1 block must match the pin.
+            expect(contractParagraphs()).toEqual(PINNED_DISCLAIMER);
 
-        // Shipped side: the mirror `mountAccountsDisclaimer` renders must
-        // match the same pin, so the two sources cannot drift apart.
-        expect(ACCOUNTS_DISCLAIMER_PARAGRAPHS).toEqual(PINNED_DISCLAIMER);
-    });
-
-    it('keeps the advisory full-user-access sentence FR-008 exists to state', () => {
-        expect(ACCOUNTS_DISCLAIMER).toContain('Phase 1 does not enforce an OS sandbox');
-    });
-
-    it('renders four paragraphs separated by blank lines, with no markup markers', () => {
-        expect(ACCOUNTS_DISCLAIMER.split('\n\n')).toHaveLength(ACCOUNTS_DISCLAIMER_PARAGRAPHS.length);
-        expect(ACCOUNTS_DISCLAIMER).not.toContain('**');
-    });
-
-    it('asks the operator for nothing: no accept, no decline, no consent gate', () => {
-        // The whole point of the 2026-10-01 removal: the copy is information,
-        // and neither the shipped text nor the contract block may read as a
-        // step an operator has to complete.
-        for (const paragraph of ACCOUNTS_DISCLAIMER_PARAGRAPHS) {
-            expect(paragraph).not.toMatch(/\baccept\b/i);
-            expect(paragraph).not.toMatch(/\bdecline\b/i);
-            expect(paragraph).not.toMatch(/\bconsent\b/i);
+            // Shipped side: the mirror `mountAccountsDisclaimer` renders must
+            // match the same pin, so the two sources cannot drift apart.
+            expect(ACCOUNTS_DISCLAIMER_PARAGRAPHS).toEqual(PINNED_DISCLAIMER);
         }
+        // case: keeps the advisory full-user-access sentence FR-008 exists to state
+        {
+            expect(ACCOUNTS_DISCLAIMER).toContain('Phase 1 does not enforce an OS sandbox');
+        }
+        // case: renders four paragraphs separated by blank lines, with no markup markers
+        {
+            expect(ACCOUNTS_DISCLAIMER.split('\n\n')).toHaveLength(ACCOUNTS_DISCLAIMER_PARAGRAPHS.length);
+            expect(ACCOUNTS_DISCLAIMER).not.toContain('**');
+        }
+        // case: asks the operator for nothing: no accept, no decline, no consent gate
+        {
+            // The whole point of the 2026-10-01 removal: the copy is information,
+            // and neither the shipped text nor the contract block may read as a
+            // step an operator has to complete.
+            for (const paragraph of ACCOUNTS_DISCLAIMER_PARAGRAPHS) {
+                expect(paragraph).not.toMatch(/\baccept\b/i);
+                expect(paragraph).not.toMatch(/\bdecline\b/i);
+                expect(paragraph).not.toMatch(/\bconsent\b/i);
+            }
 
-        const contract = readFileSync(CONTRACT_PATH, 'utf8');
-        const section = contract.slice(contract.indexOf(SECTION_HEADING));
-        const block = section.slice(0, section.indexOf(RULES_HEADING));
-        expect(block).not.toMatch(/\baccept\b/i);
-        expect(block).not.toMatch(/\bdecline\b/i);
-        expect(block).not.toMatch(/\bconsent\b/i);
+            const contract = readFileSync(CONTRACT_PATH, 'utf8');
+            const section = contract.slice(contract.indexOf(SECTION_HEADING));
+            const block = section.slice(0, section.indexOf(RULES_HEADING));
+            expect(block).not.toMatch(/\baccept\b/i);
+            expect(block).not.toMatch(/\bdecline\b/i);
+            expect(block).not.toMatch(/\bconsent\b/i);
+        }
     });
 });

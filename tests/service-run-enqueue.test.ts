@@ -51,15 +51,21 @@ let tempRoot = '';
 let dataDir = '';
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-run-enqueue-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /** Build an assignment fixture for one issue. */
 function assignment(issueNumber: number): EventSnapshot {
@@ -125,193 +131,218 @@ function runFixture(): Run {
 }
 
 describe('T-006 run-aware enqueue', () => {
-    it('coalesces assignment and body mention from one scan and correlates every audit row', async () => {
-        const added = await enqueue([assignment(12), bodyMention(12)]);
-        const document = await readRunsDocument({ store, log: LOGGER });
-        const audits = await readAuditEntries(store);
+    it('coalesces assignment and body mention from one scan … (+5 cases)', async () => {
+        // case: coalesces assignment and body mention from one scan and correlates every audit row
+        {
+            const added = await enqueue([assignment(12), bodyMention(12)]);
+            const document = await readRunsDocument({ store, log: LOGGER });
+            const audits = await readAuditEntries(store);
 
-        expect(document.runs).toHaveLength(1);
-        expect(document.runs[0]?.sourceReferences.map((reference) => reference.kind)).toEqual([
-            'assignment',
-            'mention',
-        ]);
-        expect(added).toHaveLength(2);
-        expect(added.every((event) => event.runCorrelationId === document.runs[0]?.correlationId)).toBe(true);
-        expect(audits.map((entry) => entry.eventType)).toEqual([
-            RUN_CREATED_EVENT,
-            RUN_COALESCED_EVENT,
-            DELIVERY_DETECTED,
-            DELIVERY_DETECTED,
-        ]);
-        expect(audits.every((entry) => entry.correlationId === document.runs[0]?.correlationId)).toBe(true);
-    });
-
-    it('joins a later-scan comment to the existing non-terminal run', async () => {
-        await enqueue([assignment(14)]);
-        await enqueue([commentMention(14, 42)]);
-
-        const document = await readRunsDocument({ store, log: LOGGER });
-        const queue = await readEvents({ store, log: LOGGER });
-
-        expect(document.runs).toHaveLength(1);
-        expect(document.runs[0]?.sourceReferences).toHaveLength(2);
-        expect(queue.map((event) => event.runCorrelationId)).toEqual([
-            document.runs[0]?.correlationId,
-            document.runs[0]?.correlationId,
-        ]);
-    });
-
-    it('opens the next ordinal after the prior run has a recorded session', async () => {
-        const [delivery] = await enqueue([assignment(16)]);
-        const first = await readRunsDocument({ store, log: LOGGER });
-        const correlationId = first.runs[0]?.correlationId;
-        if (correlationId === undefined) {
-            throw new Error('first run missing');
+            expect(document.runs).toHaveLength(1);
+            expect(document.runs[0]?.sourceReferences.map((reference) => reference.kind)).toEqual([
+                'assignment',
+                'mention',
+            ]);
+            expect(added).toHaveLength(2);
+            expect(added.every((event) => event.runCorrelationId === document.runs[0]?.correlationId)).toBe(true);
+            expect(audits.map((entry) => entry.eventType)).toEqual([
+                RUN_CREATED_EVENT,
+                RUN_COALESCED_EVENT,
+                DELIVERY_DETECTED,
+                DELIVERY_DETECTED,
+            ]);
+            expect(audits.every((entry) => entry.correlationId === document.runs[0]?.correlationId)).toBe(true);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: joins a later-scan comment to the existing non-terminal run
+        {
+            await enqueue([assignment(14)]);
+            await enqueue([commentMention(14, 42)]);
 
-        const claim = await claimRun({
-            store,
-            log: LOGGER,
-            correlationId,
-            holder: HOLDER,
-            leaseId: LEASE_ID,
-            issuedAt: STAMP,
-            expiresAt: CLAIM_EXPIRY,
-            now: STAMP,
-        });
-        expect(claim.status).toBe('applied');
-        // T-043g: the routed authorization path is the only way to authorize or
-        // spend an attempt — the un-routed second minting site this suite used
-        // to reach has been deleted, so the fixture drives the same modules the
-        // routes do.
-        const reservation = await reserveDispatch({
-            store,
-            log: LOGGER,
-            correlationId,
-            leaseId: LEASE_ID,
-            attempt: 1,
-            now: STAMP,
-        });
-        if (reservation.status !== 'applied') {
-            throw new Error(`reserve did not apply: ${reservation.status}`);
+            const document = await readRunsDocument({ store, log: LOGGER });
+            const queue = await readEvents({ store, log: LOGGER });
+
+            expect(document.runs).toHaveLength(1);
+            expect(document.runs[0]?.sourceReferences).toHaveLength(2);
+            expect(queue.map((event) => event.runCorrelationId)).toEqual([
+                document.runs[0]?.correlationId,
+                document.runs[0]?.correlationId,
+            ]);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: opens the next ordinal after the prior run has a recorded session
+        {
+            const [delivery] = await enqueue([assignment(16)]);
+            const first = await readRunsDocument({ store, log: LOGGER });
+            const correlationId = first.runs[0]?.correlationId;
+            if (correlationId === undefined) {
+                throw new Error('first run missing');
+            }
 
-        const result = await reportDispatch({
-            store,
-            log: LOGGER,
-            correlationId,
-            dispatchToken: reservation.dispatchToken,
-            attempt: 1,
-            operation: 'result',
-            outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_existing', reason: null },
-            now: STAMP,
-        });
-        expect(result.status).toBe('applied');
+            const claim = await claimRun({
+                store,
+                log: LOGGER,
+                correlationId,
+                holder: HOLDER,
+                leaseId: LEASE_ID,
+                issuedAt: STAMP,
+                expiresAt: CLAIM_EXPIRY,
+                now: STAMP,
+            });
+            expect(claim.status).toBe('applied');
+            // T-043g: the routed authorization path is the only way to authorize or
+            // spend an attempt — the un-routed second minting site this suite used
+            // to reach has been deleted, so the fixture drives the same modules the
+            // routes do.
+            const reservation = await reserveDispatch({
+                store,
+                log: LOGGER,
+                correlationId,
+                leaseId: LEASE_ID,
+                attempt: 1,
+                now: STAMP,
+            });
+            if (reservation.status !== 'applied') {
+                throw new Error(`reserve did not apply: ${reservation.status}`);
+            }
 
-        const second = await enqueue([commentMention(16, 4242)]);
-        const document = await readRunsDocument({ store, log: LOGGER });
+            const result = await reportDispatch({
+                store,
+                log: LOGGER,
+                correlationId,
+                dispatchToken: reservation.dispatchToken,
+                attempt: 1,
+                operation: 'result',
+                outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_existing', reason: null },
+                now: STAMP,
+            });
+            expect(result.status).toBe('applied');
 
-        expect(delivery?.runCorrelationId).toBe(first.runs[0]?.correlationId);
-        expect(second[0]?.runCorrelationId).not.toBe(delivery?.runCorrelationId);
-        expect(document.runs.map((run) => run.ordinal)).toEqual([0, 1]);
-    });
+            const second = await enqueue([commentMention(16, 4242)]);
+            const document = await readRunsDocument({ store, log: LOGGER });
 
-    it('heals a crash after runs.json by joining the redetected delivery once', async () => {
-        let failQueueWrite = true;
-        const interruptedStore: ServiceStore = {
-            ...store,
-            writeJson: async (path, value) => {
-                if (path === 'events.json' && failQueueWrite) {
-                    failQueueWrite = false;
-                    throw new Error('simulated queue write interruption');
-                }
+            expect(delivery?.runCorrelationId).toBe(first.runs[0]?.correlationId);
+            expect(second[0]?.runCorrelationId).not.toBe(delivery?.runCorrelationId);
+            expect(document.runs.map((run) => run.ordinal)).toEqual([0, 1]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: heals a crash after runs.json by joining the redetected delivery once
+        {
+            let failQueueWrite = true;
+            const interruptedStore: ServiceStore = {
+                ...store,
+                writeJson: async (path, value) => {
+                    if (path === 'events.json' && failQueueWrite) {
+                        failQueueWrite = false;
+                        throw new Error('simulated queue write interruption');
+                    }
 
-                await store.writeJson(path, value);
-            },
-        };
-        const event = createEvent(assignment(18));
+                    await store.writeJson(path, value);
+                },
+            };
+            const event = createEvent(assignment(18));
 
-        await expect(enqueueEvents({ store: interruptedStore, log: LOGGER, incoming: [event] })).rejects.toThrow(
-            'simulated queue write interruption',
-        );
-        const recovered = await enqueueEvents({ store, log: LOGGER, incoming: [event] });
-        const document = await readRunsDocument({ store, log: LOGGER });
-        const audits = await readAuditEntries(store);
+            await expect(enqueueEvents({ store: interruptedStore, log: LOGGER, incoming: [event] })).rejects.toThrow(
+                'simulated queue write interruption',
+            );
+            const recovered = await enqueueEvents({ store, log: LOGGER, incoming: [event] });
+            const document = await readRunsDocument({ store, log: LOGGER });
+            const audits = await readAuditEntries(store);
 
-        expect(recovered).toHaveLength(1);
-        expect(document.runs).toHaveLength(1);
-        expect(document.runs[0]?.sourceReferences).toHaveLength(1);
-        expect(audits.map((entry) => entry.eventType)).toEqual([
-            RUN_CREATED_EVENT,
-            RUN_COALESCED_EVENT,
-            DELIVERY_DETECTED,
-        ]);
-    });
+            expect(recovered).toHaveLength(1);
+            expect(document.runs).toHaveLength(1);
+            expect(document.runs[0]?.sourceReferences).toHaveLength(1);
+            expect(audits.map((entry) => entry.eventType)).toEqual([
+                RUN_CREATED_EVENT,
+                RUN_COALESCED_EVENT,
+                DELIVERY_DETECTED,
+            ]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: serializes concurrent trigger deliveries on the shared queue/run chain
+        {
+            const scans = Array.from({ length: 10 }, (_unused, index) => enqueue([commentMention(20, index + 1)]));
+            const concurrentClaim = claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
+            const [results, claimed] = await Promise.all([Promise.all(scans), concurrentClaim]);
+            const document = await readRunsDocument({ store, log: LOGGER });
 
-    it('serializes concurrent trigger deliveries on the shared queue/run chain', async () => {
-        const scans = Array.from({ length: 10 }, (_unused, index) => enqueue([commentMention(20, index + 1)]));
-        const concurrentClaim = claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
-        const [results, claimed] = await Promise.all([Promise.all(scans), concurrentClaim]);
-        const document = await readRunsDocument({ store, log: LOGGER });
+            expect(claimed.runs).toHaveLength(1);
+            expect(claimed.runs[0]?.correlationId).toBe(document.runs[0]?.correlationId);
+            expect(claimed.runs[0]?.sourceReferences).toHaveLength(10);
+            expect(results.reduce((total: number, rows: readonly unknown[]) => total + rows.length, 0)).toBe(10);
+            expect(document.runs).toHaveLength(1);
+            expect(document.runs[0]?.referenceCount).toBe(10);
+            expect(document.runs[0]?.sourceReferences).toHaveLength(10);
+            // The claim leases the run it was offered, so it is no longer claimable.
+            const again = await claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
+            expect(again.runs).toEqual([]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: retains every reference up to the cap, then counts the overflow visibly (T-038)
+        {
+            // One assignment opens the run; 199 comment mentions fill it exactly.
+            await enqueue([assignment(SUBJECT_ISSUE), ...Array.from(
+                { length: MAX_SOURCE_REFERENCES - 1 },
+                (_unused, index) => commentMention(SUBJECT_ISSUE, index + 1),
+            )]);
+            const filled = await readRunsDocument({ store, log: LOGGER });
+            const full = filled.runs[0];
+            const lastRetained = full?.sourceReferences.at(-1);
 
-        expect(claimed.runs).toHaveLength(1);
-        expect(claimed.runs[0]?.correlationId).toBe(document.runs[0]?.correlationId);
-        expect(claimed.runs[0]?.sourceReferences).toHaveLength(10);
-        expect(results.reduce((total: number, rows: readonly unknown[]) => total + rows.length, 0)).toBe(10);
-        expect(document.runs).toHaveLength(1);
-        expect(document.runs[0]?.referenceCount).toBe(10);
-        expect(document.runs[0]?.sourceReferences).toHaveLength(10);
-        // The claim leases the run it was offered, so it is no longer claimable.
-        const again = await claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
-        expect(again.runs).toEqual([]);
-    });
+            expect(full?.sourceReferences).toHaveLength(MAX_SOURCE_REFERENCES);
+            expect(full?.referenceCount).toBe(MAX_SOURCE_REFERENCES);
+            expect(full?.referencesNotRetained).toBe(0);
+            expect(full?.referencesTruncated).toBe(false);
+            // FR-013 detail is complete on the reference the cap last accepted.
+            expect(lastRetained).toEqual({
+                deliveryId: `evt-acme~widget~22~77331~mention~${MAX_SOURCE_REFERENCES - 1}`,
+                kind: 'mention',
+                origin: `comment:${MAX_SOURCE_REFERENCES - 1}`,
+                sourceUrl: `${ISSUE_URL_PREFIX}${SUBJECT_ISSUE}`,
+                detectedAt: STAMP,
+                presentAtAuthorization: true,
+            });
 
-    it('retains every reference up to the cap, then counts the overflow visibly (T-038)', async () => {
-        // One assignment opens the run; 199 comment mentions fill it exactly.
-        await enqueue([assignment(SUBJECT_ISSUE), ...Array.from(
-            { length: MAX_SOURCE_REFERENCES - 1 },
-            (_unused, index) => commentMention(SUBJECT_ISSUE, index + 1),
-        )]);
-        const filled = await readRunsDocument({ store, log: LOGGER });
-        const full = filled.runs[0];
-        const lastRetained = full?.sourceReferences.at(-1);
+            // The 201st joining trigger still joins, and says it was not retained.
+            const overflow = await enqueue([commentMention(22, MAX_SOURCE_REFERENCES + 1)]);
+            const document = await readRunsDocument({ store, log: LOGGER });
+            const capped = document.runs[0];
+            const audits = await readAuditEntries(store);
+            const coalesced = audits.filter((entry) => entry.eventType === 'run.coalesced').at(-1);
 
-        expect(full?.sourceReferences).toHaveLength(MAX_SOURCE_REFERENCES);
-        expect(full?.referenceCount).toBe(MAX_SOURCE_REFERENCES);
-        expect(full?.referencesNotRetained).toBe(0);
-        expect(full?.referencesTruncated).toBe(false);
-        // FR-013 detail is complete on the reference the cap last accepted.
-        expect(lastRetained).toEqual({
-            deliveryId: `evt-acme~widget~22~77331~mention~${MAX_SOURCE_REFERENCES - 1}`,
-            kind: 'mention',
-            origin: `comment:${MAX_SOURCE_REFERENCES - 1}`,
-            sourceUrl: `${ISSUE_URL_PREFIX}${SUBJECT_ISSUE}`,
-            detectedAt: STAMP,
-            presentAtAuthorization: true,
-        });
-
-        // The 201st joining trigger still joins, and says it was not retained.
-        const overflow = await enqueue([commentMention(22, MAX_SOURCE_REFERENCES + 1)]);
-        const document = await readRunsDocument({ store, log: LOGGER });
-        const capped = document.runs[0];
-        const audits = await readAuditEntries(store);
-        const coalesced = audits.filter((entry) => entry.eventType === 'run.coalesced').at(-1);
-
-        expect(overflow).toHaveLength(1);
-        expect(overflow[0]?.runCorrelationId).toBe(capped?.correlationId);
-        expect(capped?.sourceReferences).toHaveLength(MAX_SOURCE_REFERENCES);
-        expect(capped?.referenceCount).toBe(MAX_SOURCE_REFERENCES + 1);
-        expect(capped?.referencesNotRetained).toBe(1);
-        expect(capped?.referencesTruncated).toBe(true);
-        expect(capped?.sourceReferences.map((reference) => reference.deliveryId))
-            .not.toContain(`evt-acme~widget~22~77331~mention~${MAX_SOURCE_REFERENCES + 1}`);
-        // FR-016: the overflow delivery is still audited, naming the marker.
-        expect(coalesced?.details).toMatchObject({
-            deliveryId: `evt-acme~widget~22~77331~mention~${MAX_SOURCE_REFERENCES + 1}`,
-            retained: false,
-            referencesNotRetained: 1,
-        });
-        expect(audits.filter((entry) => entry.eventType === DELIVERY_DETECTED)).toHaveLength(MAX_SOURCE_REFERENCES + 1);
+            expect(overflow).toHaveLength(1);
+            expect(overflow[0]?.runCorrelationId).toBe(capped?.correlationId);
+            expect(capped?.sourceReferences).toHaveLength(MAX_SOURCE_REFERENCES);
+            expect(capped?.referenceCount).toBe(MAX_SOURCE_REFERENCES + 1);
+            expect(capped?.referencesNotRetained).toBe(1);
+            expect(capped?.referencesTruncated).toBe(true);
+            expect(capped?.sourceReferences.map((reference) => reference.deliveryId))
+                .not.toContain(`evt-acme~widget~22~77331~mention~${MAX_SOURCE_REFERENCES + 1}`);
+            // FR-016: the overflow delivery is still audited, naming the marker.
+            expect(coalesced?.details).toMatchObject({
+                deliveryId: `evt-acme~widget~22~77331~mention~${MAX_SOURCE_REFERENCES + 1}`,
+                retained: false,
+                referencesNotRetained: 1,
+            });
+            expect(audits.filter((entry) => entry.eventType === DELIVERY_DETECTED)).toHaveLength(
+                MAX_SOURCE_REFERENCES + 1
+            );
+        }
     });
 
     it('refuses to read a run whose stored count cannot be reconciled (T-038)', async () => {
@@ -333,221 +364,239 @@ describe('T-006 run-aware enqueue', () => {
 });
 
 describe('T-003 run transition invariants', () => {
-    it('permits one lease and one session for a run, refusing competing mutations', async () => {
-        const fixture = runFixture();
-        await writeRunsDocument({
-            store,
-            log: LOGGER,
-            document: {
-                ...emptyRunsDocument(),
-                subjects: { [RUN_SUBJECT_KEY]: 1 },
-                runs: [fixture],
-            },
-        });
-        const claimInputs = {
-            store,
-            log: LOGGER,
-            correlationId: fixture.correlationId,
-            holder: HOLDER,
-            leaseId: LEASE_ID,
-            issuedAt: STAMP,
-            expiresAt: CLAIM_EXPIRY,
-            now: STAMP,
-        };
+    it('permits one lease and one session for a run, refusin… (+1 cases)', async () => {
+        // case: permits one lease and one session for a run, refusing competing mutations
+        {
+            const fixture = runFixture();
+            await writeRunsDocument({
+                store,
+                log: LOGGER,
+                document: {
+                    ...emptyRunsDocument(),
+                    subjects: { [RUN_SUBJECT_KEY]: 1 },
+                    runs: [fixture],
+                },
+            });
+            const claimInputs = {
+                store,
+                log: LOGGER,
+                correlationId: fixture.correlationId,
+                holder: HOLDER,
+                leaseId: LEASE_ID,
+                issuedAt: STAMP,
+                expiresAt: CLAIM_EXPIRY,
+                now: STAMP,
+            };
 
-        const firstClaim = claimRun(claimInputs);
-        const competingClaim = claimRun({ ...claimInputs, leaseId: COMPETING_LEASE_ID });
-        const claims = await Promise.all([firstClaim, competingClaim]);
-        expect(claims.filter((result) => result.status === 'applied')).toHaveLength(1);
-        expect(claims.filter((result) => result.status === 'refused')).toHaveLength(1);
+            const firstClaim = claimRun(claimInputs);
+            const competingClaim = claimRun({ ...claimInputs, leaseId: COMPETING_LEASE_ID });
+            const claims = await Promise.all([firstClaim, competingClaim]);
+            expect(claims.filter((result) => result.status === 'applied')).toHaveLength(1);
+            expect(claims.filter((result) => result.status === 'refused')).toHaveLength(1);
 
-        // T-043g: authorization and its spend are the routed modules' alone, so
-        // the concurrency fixture drives them rather than the deleted store-level
-        // wrappers. Exactly one reserve must survive — the loser answers
-        // `already-reserved` against the winner's durable reservation.
-        const reserveOnce = () => reserveDispatch({
-            store,
-            log: LOGGER,
-            correlationId: fixture.correlationId,
-            leaseId: LEASE_ID,
-            attempt: 1,
-            now: STAMP,
-        });
-        const reservations = await Promise.all([reserveOnce(), reserveOnce()]);
-        expect(reservations.filter((result) => result.status === 'applied')).toHaveLength(1);
-        expect(reservations.filter((result) => result.status === 'refused')).toHaveLength(1);
-        const [authorized] = reservations.filter((result) => result.status === 'applied');
-        if (authorized === undefined) {
-            throw new Error('exactly one concurrent reserve must apply');
-        }
-
-        // Two identical reports likewise: one applies, and the chain serializes
-        // the second into FR-025's idempotent repeat of the outcome already
-        // recorded — never a second application (NFR-102, contract invariant 3).
-        const reportOnce = () => reportDispatch({
-            store,
-            log: LOGGER,
-            correlationId: fixture.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            attempt: 1,
-            operation: 'result',
-            outcome: { attemptOutcome: 'dispatched', sessionId: SESSION_ID, reason: null },
-            now: STAMP,
-        });
-        const results = await Promise.all([reportOnce(), reportOnce()]);
-        expect(results.filter((result) => result.status === 'applied')).toHaveLength(1);
-        expect(results.filter((result) => result.status === 'duplicate')).toHaveLength(1);
-        const final = await readRunsDocument({ store, log: LOGGER });
-        expect(final.runs[0]?.session?.sessionId).toBe(SESSION_ID);
-        expect(final.runs[0]?.attempts).toHaveLength(1);
-        expect(final.runs[0]?.attempts[0]?.outcome).toBe('dispatched');
-        expect(final.runs[0]?.attempts[0]?.dispatchToken).toMatch(/^dtk-[0-9a-f]{32}$/);
-    });
-
-    it('never reuses an ordinal after terminal-run retention evicts old rows', async () => {
-        let document = emptyRunsDocument();
-        for (let ordinal = 0; ordinal < 501; ordinal += 1) {
-            const created = applyEnqueue({
-                document,
-                deliveries: [createEvent(assignment(24))],
+            // T-043g: authorization and its spend are the routed modules' alone, so
+            // the concurrency fixture drives them rather than the deleted store-level
+            // wrappers. Exactly one reserve must survive — the loser answers
+            // `already-reserved` against the winner's durable reservation.
+            const reserveOnce = () => reserveDispatch({
+                store,
+                log: LOGGER,
+                correlationId: fixture.correlationId,
+                leaseId: LEASE_ID,
+                attempt: 1,
                 now: STAMP,
             });
-            document = {
-                ...created.document,
-                runs: created.document.runs.map((run) => ({
-                    ...run,
-                    state: 'dispatched',
-                    stateReason: 'session created',
-                })),
-            };
+            const reservations = await Promise.all([reserveOnce(), reserveOnce()]);
+            expect(reservations.filter((result) => result.status === 'applied')).toHaveLength(1);
+            expect(reservations.filter((result) => result.status === 'refused')).toHaveLength(1);
+            const [authorized] = reservations.filter((result) => result.status === 'applied');
+            if (authorized === undefined) {
+                throw new Error('exactly one concurrent reserve must apply');
+            }
+
+            // Two identical reports likewise: one applies, and the chain serializes
+            // the second into FR-025's idempotent repeat of the outcome already
+            // recorded — never a second application (NFR-102, contract invariant 3).
+            const reportOnce = () => reportDispatch({
+                store,
+                log: LOGGER,
+                correlationId: fixture.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                attempt: 1,
+                operation: 'result',
+                outcome: { attemptOutcome: 'dispatched', sessionId: SESSION_ID, reason: null },
+                now: STAMP,
+            });
+            const results = await Promise.all([reportOnce(), reportOnce()]);
+            expect(results.filter((result) => result.status === 'applied')).toHaveLength(1);
+            expect(results.filter((result) => result.status === 'duplicate')).toHaveLength(1);
+            const final = await readRunsDocument({ store, log: LOGGER });
+            expect(final.runs[0]?.session?.sessionId).toBe(SESSION_ID);
+            expect(final.runs[0]?.attempts).toHaveLength(1);
+            expect(final.runs[0]?.attempts[0]?.outcome).toBe('dispatched');
+            expect(final.runs[0]?.attempts[0]?.dispatchToken).toMatch(/^dtk-[0-9a-f]{32}$/);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never reuses an ordinal after terminal-run retention evicts old rows
+        {
+            let document = emptyRunsDocument();
+            for (let ordinal = 0; ordinal < 501; ordinal += 1) {
+                const created = applyEnqueue({
+                    document,
+                    deliveries: [createEvent(assignment(24))],
+                    now: STAMP,
+                });
+                document = {
+                    ...created.document,
+                    runs: created.document.runs.map((run) => ({
+                        ...run,
+                        state: 'dispatched',
+                        stateReason: 'session created',
+                    })),
+                };
+            }
 
-        await writeRunsDocument({ store, log: LOGGER, document });
-        const retained = await readRunsDocument({ store, log: LOGGER });
-        const next = applyEnqueue({
-            document: retained,
-            deliveries: [createEvent(commentMention(24, 777))],
-            now: STAMP,
-        });
+            await writeRunsDocument({ store, log: LOGGER, document });
+            const retained = await readRunsDocument({ store, log: LOGGER });
+            const next = applyEnqueue({
+                document: retained,
+                deliveries: [createEvent(commentMention(24, 777))],
+                now: STAMP,
+            });
 
-        expect(retained.runs).toHaveLength(500);
-        expect(retained.subjects['github|77331|acme/widget|issue|24']).toBe(501);
-        expect(next.created[0]?.ordinal).toBe(501);
+            expect(retained.runs).toHaveLength(500);
+            expect(retained.subjects['github|77331|acme/widget|issue|24']).toBe(501);
+            expect(next.created[0]?.ordinal).toBe(501);
+        }
     });
 });
 
 describe('T-037 durable run creation audit intent', () => {
-    it('recovers a creation audit missed after the run and delivery writes', async () => {
-        let failAuditAppend = true;
-        const interruptedStore: ServiceStore = {
-            ...store,
-            appendLine: async (path, value) => {
-                if (path === AUDIT_FILE && failAuditAppend) {
-                    failAuditAppend = false;
-                    throw new Error('simulated process interruption before audit append');
-                }
-
-                await store.appendLine(path, value);
-            },
-        };
-
-        await enqueueEvents({
-            store: interruptedStore,
-            log: LOGGER,
-            incoming: [createEvent(assignment(44))],
-        });
-        const auditBeforeRestart = await readAuditEntries(store);
-        expect(auditBeforeRestart.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(0);
-
-        const restartedStore = await openStore({ dataDir });
-        const recovered = await readRunsDocument({ store: restartedStore, log: LOGGER });
-        const audits = await readAuditEntries(restartedStore);
-
-        expect(recovered.auditIntents).toEqual([]);
-        expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
-        expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)[0]?.correlationId)
-            .toBe(recovered.runs[0]?.correlationId);
-    });
-
-    it('does not duplicate a creation audit when interrupted before retiring its intent', async () => {
-        let runWrites = 0;
-        const interruptedStore: ServiceStore = {
-            ...store,
-            writeJson: async (path, value) => {
-                if (path === RUNS_FILE) {
-                    runWrites += 1;
-                    if (runWrites === 3) {
-                        throw new Error('simulated interruption after audit append');
+    it('recovers a creation audit missed after the run and d… (+2 cases)', async () => {
+        // case: recovers a creation audit missed after the run and delivery writes
+        {
+            let failAuditAppend = true;
+            const interruptedStore: ServiceStore = {
+                ...store,
+                appendLine: async (path, value) => {
+                    if (path === AUDIT_FILE && failAuditAppend) {
+                        failAuditAppend = false;
+                        throw new Error('simulated process interruption before audit append');
                     }
-                }
 
-                await store.writeJson(path, value);
-            },
-        };
+                    await store.appendLine(path, value);
+                },
+            };
 
-        await enqueueEvents({
-            store: interruptedStore,
-            log: LOGGER,
-            incoming: [createEvent(assignment(45))],
-        });
-        const auditAfterEnqueue = await readAuditEntries(store);
-        expect(auditAfterEnqueue.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
+            await enqueueEvents({
+                store: interruptedStore,
+                log: LOGGER,
+                incoming: [createEvent(assignment(44))],
+            });
+            const auditBeforeRestart = await readAuditEntries(store);
+            expect(auditBeforeRestart.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(0);
 
-        const restartedStore = await openStore({ dataDir });
-        const recovered = await readRunsDocument({ store: restartedStore, log: LOGGER });
-        const audits = await readAuditEntries(restartedStore);
+            const restartedStore = await openStore({ dataDir });
+            const recovered = await readRunsDocument({ store: restartedStore, log: LOGGER });
+            const audits = await readAuditEntries(restartedStore);
 
-        expect(recovered.auditIntents).toEqual([]);
-        expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
-    });
+            expect(recovered.auditIntents).toEqual([]);
+            expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
+            expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)[0]?.correlationId)
+                .toBe(recovered.runs[0]?.correlationId);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: does not duplicate a creation audit when interrupted before retiring its intent
+        {
+            let runWrites = 0;
+            const interruptedStore: ServiceStore = {
+                ...store,
+                writeJson: async (path, value) => {
+                    if (path === RUNS_FILE) {
+                        runWrites += 1;
+                        if (runWrites === 3) {
+                            throw new Error('simulated interruption after audit append');
+                        }
+                    }
 
-    it('refuses a pending run if attempt history already records a session', async () => {
-        const run = runFixture();
-        const dispatchedRun: Run = {
-            ...run,
-            attempts: [{
-                attempt: 1,
-                dispatchToken: 'dtk-0123456789abcdef0123456789abcdef',
-                reservedAt: STAMP,
-                outcome: 'dispatched',
-                sessionId: 'ses_already_created',
-                reason: null,
-                resultReportedAt: STAMP,
-            }],
-        };
-        const forgedDocument: RunsDocument = {
-            ...emptyRunsDocument(),
-            subjects: { [RUN_SUBJECT_KEY]: 1 },
-            runs: [dispatchedRun],
-        };
-        let writes = 0;
-        const corruptReadStore: ServiceStore = {
-            ...store,
-            readJson: async <T>(
-                path: string,
-                validate: (raw: unknown) => T | null,
-            ): Promise<JsonReadResult<T>> => path === RUNS_FILE
-                ? { status: 'ok', value: forgedDocument as T }
-                : await store.readJson(path, validate),
-            writeJson: async (path, value) => {
-                writes += 1;
-                await store.writeJson(path, value);
-            },
-        };
+                    await store.writeJson(path, value);
+                },
+            };
 
-        const result = await claimRun({
-            store: corruptReadStore,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            holder: HOLDER,
-            leaseId: LEASE_ID,
-            issuedAt: STAMP,
-            expiresAt: CLAIM_EXPIRY,
-            now: STAMP,
-        });
+            await enqueueEvents({
+                store: interruptedStore,
+                log: LOGGER,
+                incoming: [createEvent(assignment(45))],
+            });
+            const auditAfterEnqueue = await readAuditEntries(store);
+            expect(auditAfterEnqueue.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
 
-        expect(result).toEqual({ status: 'refused', state: 'pending' });
-        expect(writes).toBe(0);
+            const restartedStore = await openStore({ dataDir });
+            const recovered = await readRunsDocument({ store: restartedStore, log: LOGGER });
+            const audits = await readAuditEntries(restartedStore);
+
+            expect(recovered.auditIntents).toEqual([]);
+            expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a pending run if attempt history already records a session
+        {
+            const run = runFixture();
+            const dispatchedRun: Run = {
+                ...run,
+                attempts: [{
+                    attempt: 1,
+                    dispatchToken: 'dtk-0123456789abcdef0123456789abcdef',
+                    reservedAt: STAMP,
+                    outcome: 'dispatched',
+                    sessionId: 'ses_already_created',
+                    reason: null,
+                    resultReportedAt: STAMP,
+                }],
+            };
+            const forgedDocument: RunsDocument = {
+                ...emptyRunsDocument(),
+                subjects: { [RUN_SUBJECT_KEY]: 1 },
+                runs: [dispatchedRun],
+            };
+            let writes = 0;
+            const corruptReadStore: ServiceStore = {
+                ...store,
+                readJson: async <T>(
+                    path: string,
+                    validate: (raw: unknown) => T | null,
+                ): Promise<JsonReadResult<T>> => path === RUNS_FILE
+                    ? { status: 'ok', value: forgedDocument as T }
+                    : await store.readJson(path, validate),
+                writeJson: async (path, value) => {
+                    writes += 1;
+                    await store.writeJson(path, value);
+                },
+            };
+
+            const result = await claimRun({
+                store: corruptReadStore,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                holder: HOLDER,
+                leaseId: LEASE_ID,
+                issuedAt: STAMP,
+                expiresAt: CLAIM_EXPIRY,
+                now: STAMP,
+            });
+
+            expect(result).toEqual({ status: 'refused', state: 'pending' });
+            expect(writes).toBe(0);
+        }
     });
 });
 

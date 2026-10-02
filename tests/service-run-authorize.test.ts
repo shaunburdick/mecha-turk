@@ -120,16 +120,22 @@ const LOGGER = createLogger({ level: 'debug', sink: (line) => LOG_LINES.push(lin
 let tempRoot = '';
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-authorize-'));
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     await store.writeJson('config.json', { ...DEFAULT_CONFIG, leaseMs: LEASE_MS, resultDeadlineMs: LEASE_MS });
     LOG_LINES.length = 0;
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /** Build an assignment detection for one issue. */
 function assignment(issueNumber: number): EventSnapshot {
@@ -501,632 +507,760 @@ function leaseOf(run: Run): string {
 }
 
 describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', () => {
-    it('moves the run to starting, records the reservation, and answers the token', async () => {
-        const claimed = await seedAndClaim(1);
+    it('moves the run to starting, records the reservation, … (+4 cases)', async () => {
+        // case: moves the run to starting, records the reservation, and answers the token
+        {
+            const claimed = await seedAndClaim(1);
 
-        const outcome = await reserve(claimed);
+            const outcome = await reserve(claimed);
 
-        expect(outcome.status).toBe(APPLIED);
-        if (outcome.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+            expect(outcome.status).toBe(APPLIED);
+            if (outcome.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+
+            const stored = await readRun(claimed.correlationId);
+            // Constraint: the state move and the reservation are one write. A `claimed`
+            // run holding a reservation would match neither sweep rule and strand.
+            expect(stored.state).toBe(STARTING);
+            expect(stored.reservation).toMatchObject({ attempt: 1, consumed: false });
+            expect(stored.reservation?.dispatchToken).toBe(outcome.dispatchToken);
+            // The token rides on the lease it was authorized under (contract §1).
+            expect(outcome.tokenExpiresAt).toBe(stored.lease?.expiresAt);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: derives the token from the run key and attempt, byte-for-byte
+        {
+            const claimed = await seedAndClaim(2);
+            const outcome = await reserve(claimed);
+            if (outcome.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
 
-        const stored = await readRun(claimed.correlationId);
-        // Constraint: the state move and the reservation are one write. A `claimed`
-        // run holding a reservation would match neither sweep rule and strand.
-        expect(stored.state).toBe(STARTING);
-        expect(stored.reservation).toMatchObject({ attempt: 1, consumed: false });
-        expect(stored.reservation?.dispatchToken).toBe(outcome.dispatchToken);
-        // The token rides on the lease it was authorized under (contract §1).
-        expect(outcome.tokenExpiresAt).toBe(stored.lease?.expiresAt);
-    });
-
-    it('derives the token from the run key and attempt, byte-for-byte', async () => {
-        const claimed = await seedAndClaim(2);
-        const outcome = await reserve(claimed);
-        if (outcome.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+            const stored = await readRun(claimed.correlationId);
+            expect(outcome.dispatchToken).toBe(buildDispatchToken(stored.runKey, stored.attempt));
+            expect(outcome.dispatchToken).toMatch(/^dtk-[0-9a-f]{32}$/);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: writes a dispatch.reserved row naming the lease, attempt, and attachment
+        {
+            const claimed = await seedAndClaim(3);
 
-        const stored = await readRun(claimed.correlationId);
-        expect(outcome.dispatchToken).toBe(buildDispatchToken(stored.runKey, stored.attempt));
-        expect(outcome.dispatchToken).toMatch(/^dtk-[0-9a-f]{32}$/);
-    });
+            await reserve(claimed);
 
-    it('writes a dispatch.reserved row naming the lease, attempt, and attachment', async () => {
-        const claimed = await seedAndClaim(3);
+            const [row] = await rowsOf(RESERVED_ROW);
+            expect(row).toMatchObject({ leaseId: claimed.leaseId, attempt: 1, attachmentId: claimed.correlationId });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: arms the result deadline from the configured window
+        {
+            const claimed = await seedAndClaim(4);
 
-        await reserve(claimed);
+            await reserve(claimed);
 
-        const [row] = await rowsOf(RESERVED_ROW);
-        expect(row).toMatchObject({ leaseId: claimed.leaseId, attempt: 1, attachmentId: claimed.correlationId });
-    });
+            const stored = await readRun(claimed.correlationId);
+            expect(Date.parse(stored.reservation?.resultDeadlineAt ?? '') - Date.parse(STAMP)).toBe(LEASE_MS);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: answers 404 for a run this service does not have
+        {
+            const outcome = await reserve({
+                correlationId: 'mt-run-000000000000000000000000',
+                leaseId: 'lse-000000000000000000000000',
+            });
 
-    it('arms the result deadline from the configured window', async () => {
-        const claimed = await seedAndClaim(4);
-
-        await reserve(claimed);
-
-        const stored = await readRun(claimed.correlationId);
-        expect(Date.parse(stored.reservation?.resultDeadlineAt ?? '') - Date.parse(STAMP)).toBe(LEASE_MS);
-    });
-
-    it('answers 404 for a run this service does not have', async () => {
-        const outcome = await reserve({
-            correlationId: 'mt-run-000000000000000000000000',
-            leaseId: 'lse-000000000000000000000000',
-        });
-
-        expect(outcome.status).toBe('not-found');
+            expect(outcome.status).toBe('not-found');
+        }
     });
 });
 
 describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
-    it('refuses an expired lease as stale, without minting anything', async () => {
-        const claimed = await seedAndClaim(5);
+    it('refuses an expired lease as stale, without minting a… (+5 cases)', async () => {
+        // case: refuses an expired lease as stale, without minting anything
+        {
+            const claimed = await seedAndClaim(5);
 
-        const outcome = await reserve({ ...claimed, now: AFTER_LEASE });
+            const outcome = await reserve({ ...claimed, now: AFTER_LEASE });
 
-        expect(outcome.status).toBe(REFUSED);
-        const refusal = outcome.status === REFUSED ? outcome.refusal : null;
-        expect(refusal?.code).toBe(STALE_LEASE);
-        const stored = await readRun(claimed.correlationId);
-        expect(stored.state).toBe('claimed');
-        expect(stored.reservation).toBeNull();
-        expect(await rowsOf(RESERVED_ROW)).toEqual([]);
-    });
-
-    it('refuses a lease belonging to another attempt', async () => {
-        const claimed = await seedAndClaim(6);
-
-        const outcome = await reserve({ ...claimed, attempt: 7 });
-
-        expect(outcome.status).toBe(REFUSED);
-        const refusal = outcome.status === REFUSED ? outcome.refusal : null;
-        expect(refusal?.code).toBe(STALE_LEASE);
-    });
-
-    it('refuses a lease this run never held', async () => {
-        const claimed = await seedAndClaim(7);
-
-        const outcome = await reserve({ ...claimed, leaseId: `lse-${'f'.repeat(24)}` });
-
-        expect(outcome.status).toBe(REFUSED);
-        const refusal = outcome.status === REFUSED ? outcome.refusal : null;
-        expect(refusal?.code).toBe(STALE_LEASE);
-    });
-
-    it('refuses a second reserve as already-reserved, naming attempt and deadline', async () => {
-        const claimed = await seedAndClaim(8);
-        await reserve(claimed);
-        const authorized = await readRun(claimed.correlationId);
-
-        const outcome = await reserve(claimed);
-
-        expect(outcome.status).toBe(REFUSED);
-        const refusal = outcome.status === REFUSED ? outcome.refusal : null;
-        expect(refusal?.code).toBe(ALREADY_RESERVED);
-        // FR-022's "names the reservation": an operator reading this can tell
-        // which authorization is already outstanding.
-        expect(refusal?.message).toContain('attempt 1');
-        expect(refusal?.message).toContain(authorized.reservation?.resultDeadlineAt ?? '');
-        // One live authorization: exactly one reservation survives.
-        const afterDuplicate = await readRun(claimed.correlationId);
-        expect(afterDuplicate.reservation?.dispatchToken).toBe(authorized.reservation?.dispatchToken);
-    });
-
-    it('refuses a leaseless dispatched run by naming the session, not the absent lease', async () => {
-        // AC-112 on the natural path: a dispatched run holds **no lease** — an
-        // applied result clears it — so the session check has to be asked before
-        // the lease check or this verdict is unreachable and every such run
-        // answers `stale-lease` instead (FR-022). The fixture is leaseless for
-        // exactly that reason; a live lease here would have hidden the ordering
-        // it exists to pin.
-        const run = await seedRunWithSession({ issueNumber: 9, sessionId: 'ses_already' });
-        expect(run.lease).toBeNull();
-
-        const outcome = await reserve({ correlationId: run.correlationId, leaseId: leaseOf(run) });
-
-        expect(outcome.status).toBe(REFUSED);
-        const refusal = outcome.status === REFUSED ? outcome.refusal : null;
-        expect(refusal?.code).toBe('already-dispatched');
-        // AC-112 in full: the refusal names the session.
-        expect(refusal?.message).toContain('ses_already');
-        const refusals = await rowsOf(REFUSED_ROW);
-        expect(refusals.some((row) => row.code === 'already-dispatched')).toBe(true);
-    });
-
-    it('refuses a live-lease run that is not claimed as invalid-transition, naming the state', async () => {
-        // Contract §1's verdict order is session → lease → reservation → state
-        // (T-042e), so `invalid-transition` is reachable only for a run whose
-        // lease is still live while its state is not `claimed`. The parser
-        // accepts exactly that (it requires only that a lease's attempt match the
-        // run's), which makes it the real shape this branch exists for: a run
-        // that failed or was resolved while a panel still held its claim.
-        for (const [index, state] of ([FAILED, UNCONFIRMED] as const).entries()) {
-            const run = await seedRunInState({ issueNumber: 20 + index, state, liveLease: true });
-
-            const outcome = await reserve({ correlationId: run.correlationId, leaseId: leaseOf(run) });
-
-            expect(outcome.status, `${state} must be refused`).toBe(REFUSED);
+            expect(outcome.status).toBe(REFUSED);
             const refusal = outcome.status === REFUSED ? outcome.refusal : null;
-            expect(refusal?.code).toBe(INVALID_TRANSITION);
-            expect(refusal?.message).toContain(state);
+            expect(refusal?.code).toBe(STALE_LEASE);
+            const stored = await readRun(claimed.correlationId);
+            expect(stored.state).toBe('claimed');
+            expect(stored.reservation).toBeNull();
+            expect(await rowsOf(RESERVED_ROW)).toEqual([]);
         }
-    });
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a lease belonging to another attempt
+        {
+            const claimed = await seedAndClaim(6);
 
-    it('refuses a leaseless run as stale, because the session check finds no session first', async () => {
-        // The other half of the ordering, and the honest answer: a run in
-        // `failed`, `unconfirmed`, or `dead-lettered` holds no lease, so there is
-        // nothing for a reserve to ride on regardless of its state. The session
-        // check runs before the lease check now (T-042e), and none of these
-        // fixtures records a session — which is what leaves the lease verdict as
-        // the first one that can fire.
-        for (const [index, state] of (['pending', FAILED, UNCONFIRMED, 'dead-lettered'] as const).entries()) {
-            const run = await seedRunInState({ issueNumber: 24 + index, state });
+            const outcome = await reserve({ ...claimed, attempt: 7 });
+
+            expect(outcome.status).toBe(REFUSED);
+            const refusal = outcome.status === REFUSED ? outcome.refusal : null;
+            expect(refusal?.code).toBe(STALE_LEASE);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a lease this run never held
+        {
+            const claimed = await seedAndClaim(7);
+
+            const outcome = await reserve({ ...claimed, leaseId: `lse-${'f'.repeat(24)}` });
+
+            expect(outcome.status).toBe(REFUSED);
+            const refusal = outcome.status === REFUSED ? outcome.refusal : null;
+            expect(refusal?.code).toBe(STALE_LEASE);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a second reserve as already-reserved, naming attempt and deadline
+        {
+            const claimed = await seedAndClaim(8);
+            await reserve(claimed);
+            const authorized = await readRun(claimed.correlationId);
+
+            const outcome = await reserve(claimed);
+
+            expect(outcome.status).toBe(REFUSED);
+            const refusal = outcome.status === REFUSED ? outcome.refusal : null;
+            expect(refusal?.code).toBe(ALREADY_RESERVED);
+            // FR-022's "names the reservation": an operator reading this can tell
+            // which authorization is already outstanding.
+            expect(refusal?.message).toContain('attempt 1');
+            expect(refusal?.message).toContain(authorized.reservation?.resultDeadlineAt ?? '');
+            // One live authorization: exactly one reservation survives.
+            const afterDuplicate = await readRun(claimed.correlationId);
+            expect(afterDuplicate.reservation?.dispatchToken).toBe(authorized.reservation?.dispatchToken);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a leaseless dispatched run by naming the session, not the absent lease
+        {
+            // AC-112 on the natural path: a dispatched run holds **no lease** — an
+            // applied result clears it — so the session check has to be asked before
+            // the lease check or this verdict is unreachable and every such run
+            // answers `stale-lease` instead (FR-022). The fixture is leaseless for
+            // exactly that reason; a live lease here would have hidden the ordering
+            // it exists to pin.
+            const run = await seedRunWithSession({ issueNumber: 9, sessionId: 'ses_already' });
+            expect(run.lease).toBeNull();
 
             const outcome = await reserve({ correlationId: run.correlationId, leaseId: leaseOf(run) });
 
-            expect(outcome.status, `${state} must be refused`).toBe(REFUSED);
-            expect(outcome.status === REFUSED ? outcome.refusal.code : '').toBe(STALE_LEASE);
-            const stored = await readRun(run.correlationId);
-            expect(stored.state).toBe(state);
+            expect(outcome.status).toBe(REFUSED);
+            const refusal = outcome.status === REFUSED ? outcome.refusal : null;
+            expect(refusal?.code).toBe('already-dispatched');
+            // AC-112 in full: the refusal names the session.
+            expect(refusal?.message).toContain('ses_already');
+            const refusals = await rowsOf(REFUSED_ROW);
+            expect(refusals.some((row) => row.code === 'already-dispatched')).toBe(true);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a live-lease run that is not claimed as invalid-transition, naming the state
+        {
+            // Contract §1's verdict order is session → lease → reservation → state
+            // (T-042e), so `invalid-transition` is reachable only for a run whose
+            // lease is still live while its state is not `claimed`. The parser
+            // accepts exactly that (it requires only that a lease's attempt match the
+            // run's), which makes it the real shape this branch exists for: a run
+            // that failed or was resolved while a panel still held its claim.
+            for (const [index, state] of ([FAILED, UNCONFIRMED] as const).entries()) {
+                const run = await seedRunInState({ issueNumber: 20 + index, state, liveLease: true });
+
+                const outcome = await reserve({ correlationId: run.correlationId, leaseId: leaseOf(run) });
+
+                expect(outcome.status, `${state} must be refused`).toBe(REFUSED);
+                const refusal = outcome.status === REFUSED ? outcome.refusal : null;
+                expect(refusal?.code).toBe(INVALID_TRANSITION);
+                expect(refusal?.message).toContain(state);
+            }
         }
     });
 
-    it('writes exactly one dispatch.refused row per refusal, naming the operation', async () => {
-        const claimed = await seedAndClaim(10);
-        await reserve({ ...claimed, now: AFTER_LEASE });
-        await reserve(claimed);
-        await reserve(claimed);
+    it('refuses a leaseless run as stale, because the sessio… (+1 cases)', async () => {
+        // case: refuses a leaseless run as stale, because the session check finds no session first
+        {
+            // The other half of the ordering, and the honest answer: a run in
+            // `failed`, `unconfirmed`, or `dead-lettered` holds no lease, so there is
+            // nothing for a reserve to ride on regardless of its state. The session
+            // check runs before the lease check now (T-042e), and none of these
+            // fixtures records a session — which is what leaves the lease verdict as
+            // the first one that can fire.
+            for (const [index, state] of (['pending', FAILED, UNCONFIRMED, 'dead-lettered'] as const).entries()) {
+                const run = await seedRunInState({ issueNumber: 24 + index, state });
 
-        const entries = await trail();
-        const refusedRows = entries.filter((entry) => entry.eventType === REFUSED_ROW);
-        expect(refusedRows).toHaveLength(2);
-        for (const refusal of refusedRows) {
-            // `priorState` is the state the run was in *when refused*, so the two
-            // rows differ: the stale one refused a `claimed` run, and the
-            // already-reserved one refused a run the first reserve had started.
-            expect(refusal.details).toMatchObject({ operation: 'reserve', attempt: 1 });
-            expect(refusal.correlationId).toBe(claimed.correlationId);
-            expect(refusal.actorSource).toBe('service');
+                const outcome = await reserve({ correlationId: run.correlationId, leaseId: leaseOf(run) });
+
+                expect(outcome.status, `${state} must be refused`).toBe(REFUSED);
+                expect(outcome.status === REFUSED ? outcome.refusal.code : '').toBe(STALE_LEASE);
+                const stored = await readRun(run.correlationId);
+                expect(stored.state).toBe(state);
+            }
         }
-        expect(refusedRows.map((entry) => entry.details.code)).toEqual([STALE_LEASE, ALREADY_RESERVED]);
-        expect(refusedRows.map((entry) => entry.details.priorState)).toEqual(['claimed', STARTING]);
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: writes exactly one dispatch.refused row per refusal, naming the operation
+        {
+            const claimed = await seedAndClaim(10);
+            await reserve({ ...claimed, now: AFTER_LEASE });
+            await reserve(claimed);
+            await reserve(claimed);
+
+            const entries = await trail();
+            const refusedRows = entries.filter((entry) => entry.eventType === REFUSED_ROW);
+            expect(refusedRows).toHaveLength(2);
+            for (const refusal of refusedRows) {
+                // `priorState` is the state the run was in *when refused*, so the two
+                // rows differ: the stale one refused a `claimed` run, and the
+                // already-reserved one refused a run the first reserve had started.
+                expect(refusal.details).toMatchObject({ operation: 'reserve', attempt: 1 });
+                expect(refusal.correlationId).toBe(claimed.correlationId);
+                expect(refusal.actorSource).toBe('service');
+            }
+            expect(refusedRows.map((entry) => entry.details.code)).toEqual([STALE_LEASE, ALREADY_RESERVED]);
+            expect(refusedRows.map((entry) => entry.details.priorState)).toEqual(['claimed', STARTING]);
+        }
     });
 });
 
 describe('T-012 result settles the reservation in one write (FR-040, constraint)', () => {
-    it('records a session as dispatched, consumed, with a session ref', async () => {
-        const claimed = await seedAndClaim(11);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+    it('records a session as dispatched, consumed, with a se… (+3 cases)', async () => {
+        // case: records a session as dispatched, consumed, with a session ref
+        {
+            const claimed = await seedAndClaim(11);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+
+            const outcome = await report({
+                correlationId: claimed.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                sessionId: 'ses_created',
+            });
+
+            expect(outcome.status).toBe(APPLIED);
+            const stored = await readRun(claimed.correlationId);
+            expect(stored.state).toBe('dispatched');
+            // Constraint: the outcome and the consumed reservation are one write, so a
+            // run can never hold a token that authorizes nothing while looking live.
+            expect(stored.reservation?.consumed).toBe(true);
+            expect(stored.session?.sessionId).toBe('ses_created');
+            expect(stored.lease).toBeNull();
+            expect(stored.attempts.at(-1)).toMatchObject({ outcome: 'dispatched', sessionId: 'ses_created' });
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: records a problem as failed and never as dispatched (FR-040, AC-113)
+        {
+            const claimed = await seedAndClaim(12);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
 
-        const outcome = await report({
-            correlationId: claimed.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            sessionId: 'ses_created',
-        });
+            const outcome = await report({
+                correlationId: claimed.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                problem: BOOTSTRAP_FAILED,
+            });
 
-        expect(outcome.status).toBe(APPLIED);
-        const stored = await readRun(claimed.correlationId);
-        expect(stored.state).toBe('dispatched');
-        // Constraint: the outcome and the consumed reservation are one write, so a
-        // run can never hold a token that authorizes nothing while looking live.
-        expect(stored.reservation?.consumed).toBe(true);
-        expect(stored.session?.sessionId).toBe('ses_created');
-        expect(stored.lease).toBeNull();
-        expect(stored.attempts.at(-1)).toMatchObject({ outcome: 'dispatched', sessionId: 'ses_created' });
-    });
-
-    it('records a problem as failed and never as dispatched (FR-040, AC-113)', async () => {
-        const claimed = await seedAndClaim(12);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+            expect(outcome.status).toBe(APPLIED);
+            const stored = await readRun(claimed.correlationId);
+            expect(stored.state).toBe(FAILED);
+            expect(stored.state).not.toBe('dispatched');
+            expect(stored.session).toBeNull();
+            expect(stored.stateReason).toBe(BOOTSTRAP_FAILED);
+            expect(stored.reservation?.consumed).toBe(true);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: writes a dispatch.result row whose decision is failed for a problem
+        {
+            const claimed = await seedAndClaim(13);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
 
-        const outcome = await report({
-            correlationId: claimed.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            problem: BOOTSTRAP_FAILED,
-        });
+            await report({
+                correlationId: claimed.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                problem: BOOTSTRAP_FAILED,
+            });
 
-        expect(outcome.status).toBe(APPLIED);
-        const stored = await readRun(claimed.correlationId);
-        expect(stored.state).toBe(FAILED);
-        expect(stored.state).not.toBe('dispatched');
-        expect(stored.session).toBeNull();
-        expect(stored.stateReason).toBe(BOOTSTRAP_FAILED);
-        expect(stored.reservation?.consumed).toBe(true);
-    });
-
-    it('writes a dispatch.result row whose decision is failed for a problem', async () => {
-        const claimed = await seedAndClaim(13);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+            const [row] = await rowsOf(RESULT_ROW);
+            expect(row).toMatchObject({ attempt: 1, failureReason: BOOTSTRAP_FAILED });
+            const entries = await trail();
+            const resultRow = entries.find((entry) => entry.eventType === RESULT_ROW);
+            expect(resultRow?.decision).toBe(FAILED);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: leaves the run retryable after a problem, not wedged
+        {
+            const claimed = await seedAndClaim(14);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
 
-        await report({
-            correlationId: claimed.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            problem: BOOTSTRAP_FAILED,
-        });
+            await report({
+                correlationId: claimed.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                problem: BOOTSTRAP_FAILED,
+            });
 
-        const [row] = await rowsOf(RESULT_ROW);
-        expect(row).toMatchObject({ attempt: 1, failureReason: BOOTSTRAP_FAILED });
-        const entries = await trail();
-        const resultRow = entries.find((entry) => entry.eventType === RESULT_ROW);
-        expect(resultRow?.decision).toBe(FAILED);
-    });
-
-    it('leaves the run retryable after a problem, not wedged', async () => {
-        const claimed = await seedAndClaim(14);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+            const stored = await readRun(claimed.correlationId);
+            // FR-026/FR-041: `failed` is retryable and is never `unconfirmed`.
+            expect(stored.state).toBe(FAILED);
+            expect(stored.state).not.toBe(UNCONFIRMED);
         }
-
-        await report({
-            correlationId: claimed.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            problem: BOOTSTRAP_FAILED,
-        });
-
-        const stored = await readRun(claimed.correlationId);
-        // FR-026/FR-041: `failed` is retryable and is never `unconfirmed`.
-        expect(stored.state).toBe(FAILED);
-        expect(stored.state).not.toBe(UNCONFIRMED);
     });
 });
 
 describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', () => {
-    it('is idempotent ten times over: one result row, nine duplicate rows, stable state', async () => {
-        const claimed = await seedAndClaim(15);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
-        }
+    it('is idempotent ten times over: one result row, nine d… (+5 cases)', async () => {
+        // case: is idempotent ten times over: one result row, nine duplicate rows, stable state
+        {
+            const claimed = await seedAndClaim(15);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
 
-        const body = {
-            correlationId: claimed.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            sessionId: 'ses_idem',
-        };
-        await report(body);
-        const afterFirst = await readRun(claimed.correlationId);
-        for (let index = 0; index < 9; index += 1) {
-            const repeat = await report(body);
-            expect(repeat.status, `repeat ${index + 1} must be accepted`).toBe(DUPLICATE);
-        }
+            const body = {
+                correlationId: claimed.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                sessionId: 'ses_idem',
+            };
+            await report(body);
+            const afterFirst = await readRun(claimed.correlationId);
+            for (let index = 0; index < 9; index += 1) {
+                const repeat = await report(body);
+                expect(repeat.status, `repeat ${index + 1} must be accepted`).toBe(DUPLICATE);
+            }
 
-        const afterTenth = await readRun(claimed.correlationId);
-        // Contract invariant 3: byte-stable across the repeats.
-        expect(afterTenth).toEqual(afterFirst);
-        const rows = await trail();
-        expect(rows.filter((entry) => entry.eventType === RESULT_ROW)).toHaveLength(1);
-        expect(rows.filter((entry) => entry.eventType === DUPLICATE_ROW)).toHaveLength(9);
+            const afterTenth = await readRun(claimed.correlationId);
+            // Contract invariant 3: byte-stable across the repeats.
+            expect(afterTenth).toEqual(afterFirst);
+            const rows = await trail();
+            expect(rows.filter((entry) => entry.eventType === RESULT_ROW)).toHaveLength(1);
+            expect(rows.filter((entry) => entry.eventType === DUPLICATE_ROW)).toHaveLength(9);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a token this run never recorded, as stale
+        {
+            const claimed = await seedAndClaim(16);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+
+            const outcome = await report({
+                correlationId: claimed.correlationId,
+                dispatchToken: 'dtk-ffffffffffffffffffffffffffffffff',
+                sessionId: 'ses_forged',
+            });
+
+            expect(outcome.status).toBe(REFUSED);
+            const refusal = outcome.status === REFUSED ? outcome.refusal : null;
+            expect(refusal?.code).toBe(STALE_LEASE);
+            expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe(STARTING);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a report carrying a superseded attempt
+        {
+            const claimed = await seedAndClaim(17);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+
+            const outcome = await report({
+                correlationId: claimed.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                attempt: 2,
+                sessionId: 'ses_late',
+            });
+
+            expect(outcome.status).toBe(REFUSED);
+            const refusal = outcome.status === REFUSED ? outcome.refusal : null;
+            expect(refusal?.code).toBe(STALE_LEASE);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a conflicting repeat rather than overwriting a recorded session
+        {
+            const claimed = await seedAndClaim(18);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+            const body = { correlationId: claimed.correlationId, dispatchToken: authorized.dispatchToken };
+
+            await report({ ...body, sessionId: 'ses_first' });
+            const outcome = await report({ ...body, problem: BOOTSTRAP_FAILED });
+
+            expect(outcome.status).toBe(REFUSED);
+            const refusal = outcome.status === REFUSED ? outcome.refusal : null;
+            expect(refusal?.code).toBe(INVALID_TRANSITION);
+            // The session survives: a session id can never be replaced by a problem.
+            expect(refusal?.message).toContain('ses_first');
+            const stored = await readRun(claimed.correlationId);
+            expect(stored.session?.sessionId).toBe('ses_first');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a repeated problem carrying a different cause
+        {
+            const claimed = await seedAndClaim(19);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+            const body = { correlationId: claimed.correlationId, dispatchToken: authorized.dispatchToken };
+
+            await report({ ...body, problem: BOOTSTRAP_FAILED });
+            const outcome = await report({ ...body, problem: 'session-create-failed' });
+
+            expect(outcome.status).toBe(REFUSED);
+            expect(await readRun(claimed.correlationId).then((found) => found.stateReason)).toBe(BOOTSTRAP_FAILED);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: applies an unconsumed report from starting even after the lease expired
+        {
+            const claimed = await seedAndClaim(25);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+
+            // The reservation, not the lease, authorizes a *report* (plan D7) — this
+            // is what lets AC-111's remount-after-expiry reconciliation succeed.
+            const outcome = await report({
+                correlationId: claimed.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                sessionId: 'ses_late_but_real',
+                now: AFTER_LEASE,
+            });
+
+            expect(outcome.status).toBe(APPLIED);
+            expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe('dispatched');
+        }
     });
 
-    it('refuses a token this run never recorded, as stale', async () => {
-        const claimed = await seedAndClaim(16);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+    it('applies an unconsumed report from unconfirmed, recon… (+1 cases)', async () => {
+        // case: applies an unconsumed report from unconfirmed, reconciling the run
+        {
+            const claimed = await seedAndClaim(26);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+            // Let the deadline pass so the sweep wedges the run (FR-023).
+            await sweepOnce({ store, log: LOGGER, now: AFTER_LEASE });
+            expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe(UNCONFIRMED);
+
+            const outcome = await report({
+                correlationId: claimed.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                sessionId: 'ses_reconciled',
+            });
+
+            // Contract §2's `unconfirmed` row: applied, not refused.
+            expect(outcome.status).toBe(APPLIED);
+            const stored = await readRun(claimed.correlationId);
+            expect(stored.state).toBe('dispatched');
+            expect(stored.session?.sessionId).toBe('ses_reconciled');
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a second reservation token over a newer one
+        {
+            const claimed = await seedAndClaim(27);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+            // The run has one authorization; a report carrying any other token is
+            // stale regardless of state.
+            const outcome = await report({
+                correlationId: claimed.correlationId,
+                // A well-formed token that is not this run's: the mint function is the
+                // real one, so the value passes every shape check and is still refused
+                // on the comparison, which is what makes this a staleness test rather
+                // than a malformed-input test.
+                dispatchToken: buildDispatchToken(`${claimed.correlationId}|another-run`, 1),
+                sessionId: 'ses_wrong_chain',
+            });
 
-        const outcome = await report({
-            correlationId: claimed.correlationId,
-            dispatchToken: 'dtk-ffffffffffffffffffffffffffffffff',
-            sessionId: 'ses_forged',
-        });
-
-        expect(outcome.status).toBe(REFUSED);
-        const refusal = outcome.status === REFUSED ? outcome.refusal : null;
-        expect(refusal?.code).toBe(STALE_LEASE);
-        expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe(STARTING);
-    });
-
-    it('refuses a report carrying a superseded attempt', async () => {
-        const claimed = await seedAndClaim(17);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+            expect(outcome.status).toBe(REFUSED);
+            expect(await readRun(claimed.correlationId).then((found) => found.session)).toBeNull();
         }
-
-        const outcome = await report({
-            correlationId: claimed.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            attempt: 2,
-            sessionId: 'ses_late',
-        });
-
-        expect(outcome.status).toBe(REFUSED);
-        const refusal = outcome.status === REFUSED ? outcome.refusal : null;
-        expect(refusal?.code).toBe(STALE_LEASE);
-    });
-
-    it('refuses a conflicting repeat rather than overwriting a recorded session', async () => {
-        const claimed = await seedAndClaim(18);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
-        }
-        const body = { correlationId: claimed.correlationId, dispatchToken: authorized.dispatchToken };
-
-        await report({ ...body, sessionId: 'ses_first' });
-        const outcome = await report({ ...body, problem: BOOTSTRAP_FAILED });
-
-        expect(outcome.status).toBe(REFUSED);
-        const refusal = outcome.status === REFUSED ? outcome.refusal : null;
-        expect(refusal?.code).toBe(INVALID_TRANSITION);
-        // The session survives: a session id can never be replaced by a problem.
-        expect(refusal?.message).toContain('ses_first');
-        const stored = await readRun(claimed.correlationId);
-        expect(stored.session?.sessionId).toBe('ses_first');
-    });
-
-    it('refuses a repeated problem carrying a different cause', async () => {
-        const claimed = await seedAndClaim(19);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
-        }
-        const body = { correlationId: claimed.correlationId, dispatchToken: authorized.dispatchToken };
-
-        await report({ ...body, problem: BOOTSTRAP_FAILED });
-        const outcome = await report({ ...body, problem: 'session-create-failed' });
-
-        expect(outcome.status).toBe(REFUSED);
-        expect(await readRun(claimed.correlationId).then((found) => found.stateReason)).toBe(BOOTSTRAP_FAILED);
-    });
-
-    it('applies an unconsumed report from starting even after the lease expired', async () => {
-        const claimed = await seedAndClaim(25);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
-        }
-
-        // The reservation, not the lease, authorizes a *report* (plan D7) — this
-        // is what lets AC-111's remount-after-expiry reconciliation succeed.
-        const outcome = await report({
-            correlationId: claimed.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            sessionId: 'ses_late_but_real',
-            now: AFTER_LEASE,
-        });
-
-        expect(outcome.status).toBe(APPLIED);
-        expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe('dispatched');
-    });
-
-    it('applies an unconsumed report from unconfirmed, reconciling the run', async () => {
-        const claimed = await seedAndClaim(26);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
-        }
-        // Let the deadline pass so the sweep wedges the run (FR-023).
-        await sweepOnce({ store, log: LOGGER, now: AFTER_LEASE });
-        expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe(UNCONFIRMED);
-
-        const outcome = await report({
-            correlationId: claimed.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            sessionId: 'ses_reconciled',
-        });
-
-        // Contract §2's `unconfirmed` row: applied, not refused.
-        expect(outcome.status).toBe(APPLIED);
-        const stored = await readRun(claimed.correlationId);
-        expect(stored.state).toBe('dispatched');
-        expect(stored.session?.sessionId).toBe('ses_reconciled');
-    });
-
-    it('refuses a second reservation token over a newer one', async () => {
-        const claimed = await seedAndClaim(27);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
-        }
-        // The run has one authorization; a report carrying any other token is
-        // stale regardless of state.
-        const outcome = await report({
-            correlationId: claimed.correlationId,
-            // A well-formed token that is not this run's: the mint function is the
-            // real one, so the value passes every shape check and is still refused
-            // on the comparison, which is what makes this a staleness test rather
-            // than a malformed-input test.
-            dispatchToken: buildDispatchToken(`${claimed.correlationId}|another-run`, 1),
-            sessionId: 'ses_wrong_chain',
-        });
-
-        expect(outcome.status).toBe(REFUSED);
-        expect(await readRun(claimed.correlationId).then((found) => found.session)).toBeNull();
     });
 });
 
 describe('T-012 abandon is honest and retryable (FR-026)', () => {
-    it('records a reserved attempt that created no session as failed', async () => {
-        const claimed = await seedAndClaim(30);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+    it('records a reserved attempt that created no session a… (+2 cases)', async () => {
+        // case: records a reserved attempt that created no session as failed
+        {
+            const claimed = await seedAndClaim(30);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+
+            const outcome = await report({
+                correlationId: claimed.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                operation: 'abandon',
+                reason: ABANDON_REASON,
+            });
+
+            expect(outcome.status).toBe(APPLIED);
+            const stored = await readRun(claimed.correlationId);
+            expect(stored.state).toBe(FAILED);
+            expect(stored.state).not.toBe(UNCONFIRMED);
+            expect(stored.stateReason).toBe(ABANDON_REASON);
+            expect(stored.reservation?.consumed).toBe(true);
+            expect(stored.attempts.at(-1)).toMatchObject({ outcome: 'abandoned', reason: ABANDON_REASON });
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: writes a dispatch.abandoned row with the no-session decision
+        {
+            const claimed = await seedAndClaim(31);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
 
-        const outcome = await report({
-            correlationId: claimed.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            operation: 'abandon',
-            reason: ABANDON_REASON,
-        });
+            await report({
+                correlationId: claimed.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                operation: 'abandon',
+                reason: 'guard failed after reserve',
+            });
 
-        expect(outcome.status).toBe(APPLIED);
-        const stored = await readRun(claimed.correlationId);
-        expect(stored.state).toBe(FAILED);
-        expect(stored.state).not.toBe(UNCONFIRMED);
-        expect(stored.stateReason).toBe(ABANDON_REASON);
-        expect(stored.reservation?.consumed).toBe(true);
-        expect(stored.attempts.at(-1)).toMatchObject({ outcome: 'abandoned', reason: ABANDON_REASON });
-    });
-
-    it('writes a dispatch.abandoned row with the no-session decision', async () => {
-        const claimed = await seedAndClaim(31);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+            const [row] = await rowsOf(ABANDONED_ROW);
+            expect(row).toMatchObject({ attempt: 1, reason: 'guard failed after reserve' });
+            const entries = await trail();
+            const abandonedEntry = entries.find((entry) => entry.eventType === ABANDONED_ROW);
+            expect(abandonedEntry?.decision).toBe('no-session');
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: is idempotent: a repeated abandon is a duplicate, not a second failure
+        {
+            const claimed = await seedAndClaim(32);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+            const body = {
+                correlationId: claimed.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                operation: 'abandon' as const,
+                reason: 'panel aborted',
+            };
 
-        await report({
-            correlationId: claimed.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            operation: 'abandon',
-            reason: 'guard failed after reserve',
-        });
+            await report(body);
+            const outcome = await report(body);
 
-        const [row] = await rowsOf(ABANDONED_ROW);
-        expect(row).toMatchObject({ attempt: 1, reason: 'guard failed after reserve' });
-        const entries = await trail();
-        const abandonedEntry = entries.find((entry) => entry.eventType === ABANDONED_ROW);
-        expect(abandonedEntry?.decision).toBe('no-session');
-    });
-
-    it('is idempotent: a repeated abandon is a duplicate, not a second failure', async () => {
-        const claimed = await seedAndClaim(32);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+            expect(outcome.status).toBe(DUPLICATE);
+            expect(await rowsOf(ABANDONED_ROW)).toHaveLength(1);
+            expect(await rowsOf(DUPLICATE_ROW)).toHaveLength(1);
         }
-        const body = {
-            correlationId: claimed.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            operation: 'abandon' as const,
-            reason: 'panel aborted',
-        };
-
-        await report(body);
-        const outcome = await report(body);
-
-        expect(outcome.status).toBe(DUPLICATE);
-        expect(await rowsOf(ABANDONED_ROW)).toHaveLength(1);
-        expect(await rowsOf(DUPLICATE_ROW)).toHaveLength(1);
     });
 });
 
 describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)', () => {
-    it('blocks from claimed under the live lease, consuming nothing', async () => {
-        const claimed = await seedAndClaim(40);
+    it('blocks from claimed under the live lease, consuming … (+5 cases)', async () => {
+        // case: blocks from claimed under the live lease, consuming nothing
+        {
+            const claimed = await seedAndClaim(40);
 
-        const outcome = await block({
-            claim: claimed,
-            blockedReason: PROJECT_MISSING,
-            detail: 'project "prj_9" is not registered',
-        });
+            const outcome = await block({
+                claim: claimed,
+                blockedReason: PROJECT_MISSING,
+                detail: 'project "prj_9" is not registered',
+            });
 
-        expect(outcome.status).toBe(APPLIED);
-        const stored = await readRun(claimed.correlationId);
-        expect(stored.state).toBe('blocked:project-missing');
-        expect(stored.stateReason).toBe('project "prj_9" is not registered');
-        // Gate Q3: a guard refusal consumes neither the attempt nor the budget.
-        expect(stored.attempt).toBe(1);
-        expect(stored.requeuesUsed).toBe(0);
-        expect(stored.reservation).toBeNull();
-    });
-
-    it('writes a run.blocked row naming the cause, prior state, and guidance', async () => {
-        const claimed = await seedAndClaim(41);
-
-        await block({
-            claim: claimed,
-            blockedReason: BINDING_MISSING,
-            detail: 'binding gone',
-            guidance: 'restore the binding, then retry',
-        });
-
-        const [row] = await rowsOf(BLOCKED_ROW);
-        expect(row).toMatchObject({
-            blockedReason: BINDING_MISSING,
-            priorState: 'claimed',
-            guidance: 'restore the binding, then retry',
-        });
-        const entries = await trail();
-        const blockedEntry = entries.find((entry) => entry.eventType === BLOCKED_ROW);
-        expect(blockedEntry?.actorSource).toBe('panel');
-    });
-
-    it('leaves a blocked run untouched by ten sweep ticks', async () => {
-        const claimed = await seedAndClaim(42);
-        await block({ claim: claimed, blockedReason: 'policy', detail: 'no policy profile matched' });
-
-        for (let index = 0; index < 10; index += 1) {
-            await sweepOnce({ store, log: LOGGER, now: AFTER_LEASE });
+            expect(outcome.status).toBe(APPLIED);
+            const stored = await readRun(claimed.correlationId);
+            expect(stored.state).toBe('blocked:project-missing');
+            expect(stored.stateReason).toBe('project "prj_9" is not registered');
+            // Gate Q3: a guard refusal consumes neither the attempt nor the budget.
+            expect(stored.attempt).toBe(1);
+            expect(stored.requeuesUsed).toBe(0);
+            expect(stored.reservation).toBeNull();
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: writes a run.blocked row naming the cause, prior state, and guidance
+        {
+            const claimed = await seedAndClaim(41);
 
-        const stored = await readRun(claimed.correlationId);
-        // FR-036: the sweep touches exactly two conditions, and this is neither.
-        expect(stored.state).toBe('blocked:policy');
-        expect(stored.attempt).toBe(1);
-        expect(stored.requeuesUsed).toBe(0);
-    });
+            await block({
+                claim: claimed,
+                blockedReason: BINDING_MISSING,
+                detail: 'binding gone',
+                guidance: 'restore the binding, then retry',
+            });
 
-    it('never records a blocked run as dispatched, even with a session-shaped id present', async () => {
-        const claimed = await seedAndClaim(43);
+            const [row] = await rowsOf(BLOCKED_ROW);
+            expect(row).toMatchObject({
+                blockedReason: BINDING_MISSING,
+                priorState: 'claimed',
+                guidance: 'restore the binding, then retry',
+            });
+            const entries = await trail();
+            const blockedEntry = entries.find((entry) => entry.eventType === BLOCKED_ROW);
+            expect(blockedEntry?.actorSource).toBe('panel');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: leaves a blocked run untouched by ten sweep ticks
+        {
+            const claimed = await seedAndClaim(42);
+            await block({ claim: claimed, blockedReason: 'policy', detail: 'no policy profile matched' });
 
-        await block({ claim: claimed, blockedReason: 'credential', detail: 'token scopes insufficient' });
+            for (let index = 0; index < 10; index += 1) {
+                await sweepOnce({ store, log: LOGGER, now: AFTER_LEASE });
+            }
 
-        const stored = await readRun(claimed.correlationId);
-        expect(stored.state).not.toBe('dispatched');
-        expect(stored.session).toBeNull();
-    });
+            const stored = await readRun(claimed.correlationId);
+            // FR-036: the sweep touches exactly two conditions, and this is neither.
+            expect(stored.state).toBe('blocked:policy');
+            expect(stored.attempt).toBe(1);
+            expect(stored.requeuesUsed).toBe(0);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never records a blocked run as dispatched, even with a session-shaped id present
+        {
+            const claimed = await seedAndClaim(43);
 
-    it('refuses a block under an expired lease, as stale', async () => {
-        const claimed = await seedAndClaim(44);
+            await block({ claim: claimed, blockedReason: 'credential', detail: 'token scopes insufficient' });
 
-        const outcome = await blockDispatch({
-            store,
-            log: LOGGER,
-            correlationId: claimed.correlationId,
-            leaseId: claimed.leaseId,
-            attempt: 1,
-            blockedReason: PROJECT_MISSING,
-            detail: 'gone',
-            guidance: null,
-            now: AFTER_LEASE,
-        });
+            const stored = await readRun(claimed.correlationId);
+            expect(stored.state).not.toBe('dispatched');
+            expect(stored.session).toBeNull();
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a block under an expired lease, as stale
+        {
+            const claimed = await seedAndClaim(44);
 
-        expect(outcome.status).toBe(REFUSED);
-        const refusal = outcome.status === REFUSED ? outcome.refusal : null;
-        expect(refusal?.code).toBe(STALE_LEASE);
-        expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe('claimed');
-    });
+            const outcome = await blockDispatch({
+                store,
+                log: LOGGER,
+                correlationId: claimed.correlationId,
+                leaseId: claimed.leaseId,
+                attempt: 1,
+                blockedReason: PROJECT_MISSING,
+                detail: 'gone',
+                guidance: null,
+                now: AFTER_LEASE,
+            });
 
-    it('refuses a live-lease run that is not claimed as invalid-transition, naming the state', async () => {
-        // Same shape as the reserve's: the lease is valid and current, so the
-        // refusal is about the state rather than the authorization. A guard that
-        // fires late — after the run failed — must not rewrite it as `blocked`.
-        const run = await seedRunInState({ issueNumber: 45, state: FAILED, liveLease: true });
+            expect(outcome.status).toBe(REFUSED);
+            const refusal = outcome.status === REFUSED ? outcome.refusal : null;
+            expect(refusal?.code).toBe(STALE_LEASE);
+            expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe('claimed');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a live-lease run that is not claimed as invalid-transition, naming the state
+        {
+            // Same shape as the reserve's: the lease is valid and current, so the
+            // refusal is about the state rather than the authorization. A guard that
+            // fires late — after the run failed — must not rewrite it as `blocked`.
+            const run = await seedRunInState({ issueNumber: 45, state: FAILED, liveLease: true });
 
-        const outcome = await blockDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            leaseId: leaseOf(run),
-            attempt: 1,
-            blockedReason: PROJECT_MISSING,
-            detail: 'gone',
-            guidance: null,
-            now: STAMP,
-        });
+            const outcome = await blockDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                leaseId: leaseOf(run),
+                attempt: 1,
+                blockedReason: PROJECT_MISSING,
+                detail: 'gone',
+                guidance: null,
+                now: STAMP,
+            });
 
-        expect(outcome.status).toBe(REFUSED);
-        const refusal = outcome.status === REFUSED ? outcome.refusal : null;
-        expect(refusal?.code).toBe(INVALID_TRANSITION);
-        expect(refusal?.message).toContain(FAILED);
-        expect(await readRun(run.correlationId).then((found) => found.state)).toBe(FAILED);
+            expect(outcome.status).toBe(REFUSED);
+            const refusal = outcome.status === REFUSED ? outcome.refusal : null;
+            expect(refusal?.code).toBe(INVALID_TRANSITION);
+            expect(refusal?.message).toContain(FAILED);
+            expect(await readRun(run.correlationId).then((found) => found.state)).toBe(FAILED);
+        }
     });
 
     it('writes exactly one run.blocked row for a guard refusal, carrying the run id', async () => {
@@ -1144,161 +1278,165 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
 });
 
 describe('T-011..T-013 no audit row ever carries a dispatch token value (FR-061)', () => {
-    it('scans every row this wave writes for a token-shaped string', async () => {
-        const reserved = await seedAndClaim(50);
-        const authorized = await reserve(reserved);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+    it('scans every row this wave writes for a token-shaped … (+1 cases)', async () => {
+        // case: scans every row this wave writes for a token-shaped string
+        {
+            const reserved = await seedAndClaim(50);
+            const authorized = await reserve(reserved);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+            await report({
+                correlationId: reserved.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                sessionId: 'ses_scan',
+            });
+
+            const abandoned = await seedAndClaim(51);
+            const second = await reserve(abandoned);
+            if (second.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+            await report({
+                correlationId: abandoned.correlationId,
+                dispatchToken: second.dispatchToken,
+                operation: 'abandon',
+                reason: 'abandoned for the scan',
+            });
+
+            const blocked = await seedAndClaim(52);
+            await block({ claim: blocked, blockedReason: PROJECT_MISSING, detail: 'gone' });
+
+            const refused = await seedAndClaim(53);
+            await reserve({ ...refused, now: AFTER_LEASE });
+
+            const entries = await trail();
+            expect(entries.length).toBeGreaterThan(0);
+            for (const entry of entries) {
+                expect(JSON.stringify(entry), `${entry.eventType} carried a dispatch token`)
+                    .not.toMatch(/dtk-[0-9a-f]{8,}/);
+            }
         }
-        await report({
-            correlationId: reserved.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            sessionId: 'ses_scan',
-        });
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: names each authorization by a distinct fingerprint
+        {
+            const first = await seedAndClaim(54);
+            const firstToken = await reserve(first);
+            if (firstToken.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
 
-        const abandoned = await seedAndClaim(51);
-        const second = await reserve(abandoned);
-        if (second.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+            const second = await seedAndClaim(55);
+            const secondToken = await reserve(second);
+            if (secondToken.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+
+            const reservedRows = await rowsOf(RESERVED_ROW);
+            const fingerprints = reservedRows.map((row) => row.dispatchTokenFingerprint);
+            expect(fingerprints).toHaveLength(2);
+            for (const fingerprint of fingerprints) {
+                expect(fingerprint).toMatch(/^tokfp-[0-9a-f]{16}$/);
+            }
+            expect(new Set(fingerprints).size).toBe(2);
         }
-        await report({
-            correlationId: abandoned.correlationId,
-            dispatchToken: second.dispatchToken,
-            operation: 'abandon',
-            reason: 'abandoned for the scan',
-        });
-
-        const blocked = await seedAndClaim(52);
-        await block({ claim: blocked, blockedReason: PROJECT_MISSING, detail: 'gone' });
-
-        const refused = await seedAndClaim(53);
-        await reserve({ ...refused, now: AFTER_LEASE });
-
-        const entries = await trail();
-        expect(entries.length).toBeGreaterThan(0);
-        for (const entry of entries) {
-            expect(JSON.stringify(entry), `${entry.eventType} carried a dispatch token`)
-                .not.toMatch(/dtk-[0-9a-f]{8,}/);
-        }
-    });
-
-    it('names each authorization by a distinct fingerprint', async () => {
-        const first = await seedAndClaim(54);
-        const firstToken = await reserve(first);
-        if (firstToken.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
-        }
-
-        const second = await seedAndClaim(55);
-        const secondToken = await reserve(second);
-        if (secondToken.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
-        }
-
-        const reservedRows = await rowsOf(RESERVED_ROW);
-        const fingerprints = reservedRows.map((row) => row.dispatchTokenFingerprint);
-        expect(fingerprints).toHaveLength(2);
-        for (const fingerprint of fingerprints) {
-            expect(fingerprint).toMatch(/^tokfp-[0-9a-f]{16}$/);
-        }
-        expect(new Set(fingerprints).size).toBe(2);
     });
 });
 
 
 describe('T-011..T-013 every route answers the documented validation failures (contract §4)', () => {
-    it('refuses a reserve whose body contradicts the path, naming the field', async () => {
-        // FR-051: the service mints the id; a panel that substitutes one is not
-        // talking about the run it addressed, so the request is refused rather
-        // than reconciled. This is a validation failure, not a staleness verdict:
-        // the service never got to compare an authorization.
-        const service = await startTestService();
+    it('refuses a reserve whose body contradicts the path, n… (+5 cases)', async () => {
+        // case: refuses a reserve whose body contradicts the path, naming the field
+        {
+            // FR-051: the service mints the id; a panel that substitutes one is not
+            // talking about the run it addressed, so the request is refused rather
+            // than reconciled. This is a validation failure, not a staleness verdict:
+            // the service never got to compare an authorization.
+            const service = await startTestService();
 
-        const response = await service.call(routePath(RESERVE_ROUTE), {
-            method: 'POST',
-            headers: jsonHeaders(),
-            body: JSON.stringify({ correlationId: 'mt-run-111111111111111111111111', attempt: 1, leaseId: LEASE }),
-        });
-        const failure = (await response.json()) as { error: { code: string; issues?: readonly { field: string }[] } };
+            const response = await service.call(routePath(RESERVE_ROUTE), {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ correlationId: 'mt-run-111111111111111111111111', attempt: 1, leaseId: LEASE }),
+            });
+            const failure = (await response.json()) as { error: { code: string; issues?: readonly {
+                field: string }[] } };
 
-        expect(response.status).toBe(422);
-        expect(failure.error.code).toBe('validation');
-        expect(failure.error.issues?.map((issue) => issue.field)).toContain('correlationId');
-        // SEC-11: the received value is never echoed back.
-        expect(JSON.stringify(failure)).not.toContain('mt-run-111111111111111111111111');
-    });
+            expect(response.status).toBe(422);
+            expect(failure.error.code).toBe('validation');
+            expect(failure.error.issues?.map((issue) => issue.field)).toContain('correlationId');
+            // SEC-11: the received value is never echoed back.
+            expect(JSON.stringify(failure)).not.toContain('mt-run-111111111111111111111111');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a result carrying both a session and a problem
+        {
+            const service = await startTestService();
 
-    it('refuses a result carrying both a session and a problem', async () => {
-        const service = await startTestService();
+            const response = await service.call(routePath(DISPATCHED_ROUTE), {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({
+                    correlationId: RUN_ID,
+                    attempt: 1,
+                    dispatchToken: TOKEN,
+                    sessionId: 'ses_a',
+                    problem: BOOTSTRAP_FAILED,
+                }),
+            });
 
-        const response = await service.call(routePath(DISPATCHED_ROUTE), {
-            method: 'POST',
-            headers: jsonHeaders(),
-            body: JSON.stringify({
-                correlationId: RUN_ID,
-                attempt: 1,
-                dispatchToken: TOKEN,
-                sessionId: 'ses_a',
-                problem: BOOTSTRAP_FAILED,
-            }),
-        });
+            // FR-040's whole point is that the two are different facts; resolving
+            // "which did the caller mean" by a precedence rule is exactly the guess
+            // constitution II forbids.
+            expect(response.status).toBe(422);
+            expect(((await response.json()) as { error: { code: string } }).error.code).toBe('validation');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a result carrying neither a session nor a problem
+        {
+            const service = await startTestService();
 
-        // FR-040's whole point is that the two are different facts; resolving
-        // "which did the caller mean" by a precedence rule is exactly the guess
-        // constitution II forbids.
-        expect(response.status).toBe(422);
-        expect(((await response.json()) as { error: { code: string } }).error.code).toBe('validation');
-    });
+            const response = await service.call(routePath(DISPATCHED_ROUTE), {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ correlationId: RUN_ID, attempt: 1, dispatchToken: TOKEN }),
+            });
 
-    it('refuses a result carrying neither a session nor a problem', async () => {
-        const service = await startTestService();
+            expect(response.status).toBe(422);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses an abandon with no reason, since the row would be unreadable
+        {
+            const service = await startTestService();
 
-        const response = await service.call(routePath(DISPATCHED_ROUTE), {
-            method: 'POST',
-            headers: jsonHeaders(),
-            body: JSON.stringify({ correlationId: RUN_ID, attempt: 1, dispatchToken: TOKEN }),
-        });
+            const response = await service.call(routePath(ABANDON_ROUTE), {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ correlationId: RUN_ID, attempt: 1, dispatchToken: TOKEN }),
+            });
 
-        expect(response.status).toBe(422);
-    });
+            expect(response.status).toBe(422);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a blocked reason outside the four declared causes
+        {
+            const service = await startTestService();
 
-    it('refuses an abandon with no reason, since the row would be unreadable', async () => {
-        const service = await startTestService();
-
-        const response = await service.call(routePath(ABANDON_ROUTE), {
-            method: 'POST',
-            headers: jsonHeaders(),
-            body: JSON.stringify({ correlationId: RUN_ID, attempt: 1, dispatchToken: TOKEN }),
-        });
-
-        expect(response.status).toBe(422);
-    });
-
-    it('refuses a blocked reason outside the four declared causes', async () => {
-        const service = await startTestService();
-
-        const response = await service.call(routePath(BLOCKED_ROUTE), {
-            method: 'POST',
-            headers: jsonHeaders(),
-            body: JSON.stringify({
-                correlationId: RUN_ID,
-                attempt: 1,
-                leaseId: LEASE,
-                blockedReason: 'invented',
-                detail: 'x',
-            }),
-        });
-
-        // The four-value set is what keeps `blocked:<reason>` states parseable
-        // (data-model §2.2); a fifth value would make the document unreadable.
-        expect(response.status).toBe(422);
-        expect(((await response.json()) as { error: { code: string } }).error.code).toBe('validation');
-    });
-
-    it('accepts each of the four declared blocked reasons', async () => {
-        const service = await startTestService();
-
-        for (const reason of [PROJECT_MISSING, BINDING_MISSING, 'credential', 'policy']) {
             const response = await service.call(routePath(BLOCKED_ROUTE), {
                 method: 'POST',
                 headers: jsonHeaders(),
@@ -1306,15 +1444,42 @@ describe('T-011..T-013 every route answers the documented validation failures (c
                     correlationId: RUN_ID,
                     attempt: 1,
                     leaseId: LEASE,
-                    blockedReason: reason,
+                    blockedReason: 'invented',
                     detail: 'x',
                 }),
             });
 
-            // Not 422: the reason is one this build declares. `unknown-run` is the
-            // honest answer for an empty store.
-            expect(response.status, `${reason} must be accepted`).toBe(404);
-            expect(((await response.json()) as { error: { code: string } }).error.code).toBe('unknown-run');
+            // The four-value set is what keeps `blocked:<reason>` states parseable
+            // (data-model §2.2); a fifth value would make the document unreadable.
+            expect(response.status).toBe(422);
+            expect(((await response.json()) as { error: { code: string } }).error.code).toBe('validation');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: accepts each of the four declared blocked reasons
+        {
+            const service = await startTestService();
+
+            for (const reason of [PROJECT_MISSING, BINDING_MISSING, 'credential', 'policy']) {
+                const response = await service.call(routePath(BLOCKED_ROUTE), {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify({
+                        correlationId: RUN_ID,
+                        attempt: 1,
+                        leaseId: LEASE,
+                        blockedReason: reason,
+                        detail: 'x',
+                    }),
+                });
+
+                // Not 422: the reason is one this build declares. `unknown-run` is the
+                // honest answer for an empty store.
+                expect(response.status, `${reason} must be accepted`).toBe(404);
+                expect(((await response.json()) as { error: { code: string } }).error.code).toBe('unknown-run');
+            }
         }
     });
 
@@ -1332,153 +1497,171 @@ describe('T-011..T-013 every route answers the documented validation failures (c
 });
 
 describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC-119)', () => {
-    it('answers 200 with auditWritten false and keeps the state change when the append fails', async () => {
-        const claimed = await seedAndClaim(80);
-        const failing = {
-            ...store,
-            appendLine: async (path: string, line: unknown): Promise<void> => {
-                // Fail only the lifecycle rows, so the fixture still has a store
-                // whose run document is writable and readable.
-                if (path === AUDIT_FILE) {
-                    throw new Error(APPEND_REFUSED);
-                }
+    it('answers 200 with auditWritten false and keeps the st… (+2 cases)', async () => {
+        // case: answers 200 with auditWritten false and keeps the state change when the append fails
+        {
+            const claimed = await seedAndClaim(80);
+            const failing = {
+                ...store,
+                appendLine: async (path: string, line: unknown): Promise<void> => {
+                    // Fail only the lifecycle rows, so the fixture still has a store
+                    // whose run document is writable and readable.
+                    if (path === AUDIT_FILE) {
+                        throw new Error(APPEND_REFUSED);
+                    }
 
-                await store.appendLine(path, line);
-            },
-        };
+                    await store.appendLine(path, line);
+                },
+            };
 
-        const outcome = await reserveDispatch({
-            store: failing,
-            log: LOGGER,
-            correlationId: claimed.correlationId,
-            leaseId: claimed.leaseId,
-            attempt: 1,
-            now: STAMP,
-        });
+            const outcome = await reserveDispatch({
+                store: failing,
+                log: LOGGER,
+                correlationId: claimed.correlationId,
+                leaseId: claimed.leaseId,
+                attempt: 1,
+                now: STAMP,
+            });
 
-        // The durable change stands: FR-063 forbids rolling it back, because the
-        // panel is already acting on the token this call handed out.
-        expect(outcome.status).toBe(APPLIED);
-        if (outcome.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+            // The durable change stands: FR-063 forbids rolling it back, because the
+            // panel is already acting on the token this call handed out.
+            expect(outcome.status).toBe(APPLIED);
+            if (outcome.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
+            expect(outcome.auditWritten).toBe(false);
+            expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe(STARTING);
         }
-        expect(outcome.auditWritten).toBe(false);
-        expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe(STARTING);
-    });
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: logs the failure naming the run, so the degradation is diagnosable
+        {
+            const claimed = await seedAndClaim(81);
+            LOG_LINES.length = 0;
 
-    it('logs the failure naming the run, so the degradation is diagnosable', async () => {
-        const claimed = await seedAndClaim(81);
-        LOG_LINES.length = 0;
+            await reserveDispatch({
+                store: {
+                    ...store,
+                    appendLine: async (path: string, line: unknown): Promise<void> => {
+                        if (path === AUDIT_FILE) {
+                            throw new Error(APPEND_REFUSED);
+                        }
 
-        await reserveDispatch({
-            store: {
-                ...store,
-                appendLine: async (path: string, line: unknown): Promise<void> => {
-                    if (path === AUDIT_FILE) {
-                        throw new Error(APPEND_REFUSED);
-                    }
-
-                    await store.appendLine(path, line);
+                        await store.appendLine(path, line);
+                    },
                 },
-            },
-            log: LOGGER,
-            correlationId: claimed.correlationId,
-            leaseId: claimed.leaseId,
-            attempt: 1,
-            now: STAMP,
-        });
+                log: LOGGER,
+                correlationId: claimed.correlationId,
+                leaseId: claimed.leaseId,
+                attempt: 1,
+                now: STAMP,
+            });
 
-        const warning = LOG_LINES.find((line) => line.includes('could not be appended'));
-        expect(warning).toBeDefined();
-        expect(warning).toContain(claimed.correlationId);
-        expect(warning).toContain(RESERVED_ROW);
-    });
+            const warning = LOG_LINES.find((line) => line.includes('could not be appended'));
+            expect(warning).toBeDefined();
+            expect(warning).toContain(claimed.correlationId);
+            expect(warning).toContain(RESERVED_ROW);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: reports auditWritten false for a refusal whose own row failed
+        {
+            const claimed = await seedAndClaim(82);
 
-    it('reports auditWritten false for a refusal whose own row failed', async () => {
-        const claimed = await seedAndClaim(82);
+            const outcome = await reserveDispatch({
+                store: {
+                    ...store,
+                    appendLine: async (path: string, line: unknown): Promise<void> => {
+                        if (path === AUDIT_FILE) {
+                            throw new Error(APPEND_REFUSED);
+                        }
 
-        const outcome = await reserveDispatch({
-            store: {
-                ...store,
-                appendLine: async (path: string, line: unknown): Promise<void> => {
-                    if (path === AUDIT_FILE) {
-                        throw new Error(APPEND_REFUSED);
-                    }
-
-                    await store.appendLine(path, line);
+                        await store.appendLine(path, line);
+                    },
                 },
-            },
-            log: LOGGER,
-            correlationId: claimed.correlationId,
-            leaseId: claimed.leaseId,
-            attempt: 1,
-            now: AFTER_LEASE,
-        });
+                log: LOGGER,
+                correlationId: claimed.correlationId,
+                leaseId: claimed.leaseId,
+                attempt: 1,
+                now: AFTER_LEASE,
+            });
 
-        expect(outcome.status).toBe(REFUSED);
-        expect(outcome.status === REFUSED ? outcome.auditWritten : true).toBe(false);
-        // Nothing moved either way.
-        expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe('claimed');
+            expect(outcome.status).toBe(REFUSED);
+            expect(outcome.status === REFUSED ? outcome.auditWritten : true).toBe(false);
+            // Nothing moved either way.
+            expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe('claimed');
+        }
     });
 });
 
 describe('T-012 one live authorization survives concurrent reserves (AC-109, AC-112)', () => {
-    it('lets exactly one of two concurrent reserves through', async () => {
-        const claimed = await seedAndClaim(83);
+    it('lets exactly one of two concurrent reserves through (+1 cases)', async () => {
+        // case: lets exactly one of two concurrent reserves through
+        {
+            const claimed = await seedAndClaim(83);
 
-        // Two panels, one live lease. Both read the same `claimed` run and both
-        // believe they may authorize it; the shared write chain is what makes one
-        // of them win. This is the race a check-then-act design would lose.
-        const [first, second] = await Promise.all([
-            reserveDispatch({
-                store,
-                log: LOGGER,
-                correlationId: claimed.correlationId,
-                leaseId: claimed.leaseId,
-                attempt: 1,
-                now: STAMP,
-            }),
-            reserveDispatch({
-                store,
-                log: LOGGER,
-                correlationId: claimed.correlationId,
-                leaseId: claimed.leaseId,
-                attempt: 1,
-                now: STAMP,
-            }),
-        ]);
+            // Two panels, one live lease. Both read the same `claimed` run and both
+            // believe they may authorize it; the shared write chain is what makes one
+            // of them win. This is the race a check-then-act design would lose.
+            const [first, second] = await Promise.all([
+                reserveDispatch({
+                    store,
+                    log: LOGGER,
+                    correlationId: claimed.correlationId,
+                    leaseId: claimed.leaseId,
+                    attempt: 1,
+                    now: STAMP,
+                }),
+                reserveDispatch({
+                    store,
+                    log: LOGGER,
+                    correlationId: claimed.correlationId,
+                    leaseId: claimed.leaseId,
+                    attempt: 1,
+                    now: STAMP,
+                }),
+            ]);
 
-        const applied = [first, second].filter((outcome) => outcome.status === APPLIED);
-        const refused = [first, second].filter((outcome) => outcome.status === REFUSED);
-        expect(applied).toHaveLength(1);
-        expect(refused).toHaveLength(1);
-        expect(refused[0]?.status === 'refused' ? refused[0].refusal.code : '').toBe(ALREADY_RESERVED);
-        // Exactly one reservation and one `dispatch.reserved` row survive.
-        expect(await rowsOf(RESERVED_ROW)).toHaveLength(1);
-    });
-
-    it('lets exactly one of two concurrent identical results through', async () => {
-        const claimed = await seedAndClaim(84);
-        const authorized = await reserve(claimed);
-        if (authorized.status !== 'applied') {
-            throw new Error(RESERVE_DID_NOT_APPLY);
+            const applied = [first, second].filter((outcome) => outcome.status === APPLIED);
+            const refused = [first, second].filter((outcome) => outcome.status === REFUSED);
+            expect(applied).toHaveLength(1);
+            expect(refused).toHaveLength(1);
+            expect(refused[0]?.status === 'refused' ? refused[0].refusal.code : '').toBe(ALREADY_RESERVED);
+            // Exactly one reservation and one `dispatch.reserved` row survive.
+            expect(await rowsOf(RESERVED_ROW)).toHaveLength(1);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: lets exactly one of two concurrent identical results through
+        {
+            const claimed = await seedAndClaim(84);
+            const authorized = await reserve(claimed);
+            if (authorized.status !== 'applied') {
+                throw new Error(RESERVE_DID_NOT_APPLY);
+            }
 
-        const body = {
-            correlationId: claimed.correlationId,
-            dispatchToken: authorized.dispatchToken,
-            sessionId: 'ses_race',
-        };
-        const [first, second] = await Promise.all([report(body), report(body)]);
+            const body = {
+                correlationId: claimed.correlationId,
+                dispatchToken: authorized.dispatchToken,
+                sessionId: 'ses_race',
+            };
+            const [first, second] = await Promise.all([report(body), report(body)]);
 
-        // One applies, one is recognised as a repeat: a double-reported outcome
-        // can never be applied twice, so a session cannot be recorded twice.
-        const applied = [first, second].filter((outcome) => outcome.status === APPLIED);
-        const duplicates = [first, second].filter((outcome) => outcome.status === DUPLICATE);
-        expect(applied).toHaveLength(1);
-        expect(duplicates).toHaveLength(1);
-        const raced = await readRun(claimed.correlationId);
-        expect(raced.attempts.filter((entry) => entry.sessionId !== null)).toHaveLength(1);
+            // One applies, one is recognised as a repeat: a double-reported outcome
+            // can never be applied twice, so a session cannot be recorded twice.
+            const applied = [first, second].filter((outcome) => outcome.status === APPLIED);
+            const duplicates = [first, second].filter((outcome) => outcome.status === DUPLICATE);
+            expect(applied).toHaveLength(1);
+            expect(duplicates).toHaveLength(1);
+            const raced = await readRun(claimed.correlationId);
+            expect(raced.attempts.filter((entry) => entry.sessionId !== null)).toHaveLength(1);
+        }
     });
 });
 

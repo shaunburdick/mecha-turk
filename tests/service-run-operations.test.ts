@@ -101,15 +101,21 @@ const MISMATCH_ROW = 'agent.mismatch';
 let tempRoot = '';
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-runops-'));
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     LOG_LINES.length = 0;
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /** Build an assignment detection for one issue on the fixture binding. */
 function assignment(issueNumber: number): EventSnapshot {
@@ -470,105 +476,10 @@ async function rowsOf(eventType: string): Promise<readonly Record<string, unknow
 }
 
 describe('T-014 retry (FR-041) — attempt discipline', () => {
-    it('returns a failed run to waiting with the attempt incremented exactly once', async () => {
-        const run = await seedRun({ issueNumber: 1, state: 'failed' });
-
-        const outcome = await retryDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            causeCleared: true,
-            causeReport: null,
-            now: NOW,
-        });
-
-        expect(outcome.status).toBe('applied');
-        const stored = await readRun(run.correlationId);
-        expect(stored.state).toBe('pending');
-        expect(stored.attempt).toBe(2);
-        expect(stored.lease).toBeNull();
-        expect(stored.reservation).toBeNull();
-    });
-
-    it('preserves the source references and every prior attempt record', async () => {
-        const run = await seedRun({ issueNumber: 2, state: 'failed', attempt: 3 });
-
-        await retryDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 3,
-            causeCleared: true,
-            causeReport: null,
-            now: NOW,
-        });
-
-        const stored = await readRun(run.correlationId);
-        // Same run key, same references, same history: a retry never opens a new
-        // run (FR-041), so nothing about the run's identity moves.
-        expect(stored.runKey).toBe(run.runKey);
-        expect(stored.correlationId).toBe(run.correlationId);
-        expect(stored.sourceReferences).toEqual(run.sourceReferences);
-        expect(stored.attempts).toEqual(run.attempts);
-    });
-
-    it('does not touch the automatic requeue budget', async () => {
-        const run = await seedRun({ issueNumber: 3, state: 'failed', requeuesUsed: 2 });
-
-        await retryDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            causeCleared: true,
-            causeReport: null,
-            now: NOW,
-        });
-
-        // Plan D5: only an expired claim spends budget; an operator retry must
-        // not inflate it or reset it.
-        const stored = await readRun(run.correlationId);
-        expect(stored.requeuesUsed).toBe(2);
-    });
-
-    it('writes one dispatch.retry row naming the prior state and both attempts', async () => {
-        const run = await seedRun({ issueNumber: 4, state: 'failed' });
-
-        await retryDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            causeCleared: true,
-            causeReport: 'panel rechecked the project',
-            now: NOW,
-        });
-
-        const [row] = await rowsOf(RETRY_ROW);
-        expect(row).toMatchObject({ priorState: 'failed', attemptBefore: 1, attemptAfter: 2 });
-        const rows = await trail();
-        expect(rows.filter((entry) => entry.eventType === RETRY_ROW)).toHaveLength(1);
-    });
-});
-
-describe('T-014 retry refusals are distinct (FR-041, AC-113)', () => {
-    it('names each refusing state in its own words', async () => {
-        const cases: readonly { readonly state: RunState; readonly issue: number; readonly fragment: string }[] = [
-            { state: 'pending', issue: 10, fragment: 'already waiting' },
-            { state: DISPATCHED, issue: 11, fragment: 'already dispatched' },
-            { state: 'unconfirmed', issue: 12, fragment: 'resolve it instead' },
-            { state: 'claimed', issue: 13, fragment: 'attempt is in flight' },
-            { state: 'starting', issue: 14, fragment: 'attempt is in flight' },
-            { state: DEAD_LETTERED, issue: 15, fragment: 'use return-to-waiting' },
-        ];
-
-        for (const entry of cases) {
-            const run = await seedRun({
-                issueNumber: entry.issue,
-                state: entry.state,
-                ...(entry.state === DISPATCHED ? { sessionId: 'ses_done' } : {}),
-            });
+    it('returns a failed run to waiting with the attempt inc… (+3 cases)', async () => {
+        // case: returns a failed run to waiting with the attempt incremented exactly once
+        {
+            const run = await seedRun({ issueNumber: 1, state: 'failed' });
 
             const outcome = await retryDispatch({
                 store,
@@ -580,310 +491,504 @@ describe('T-014 retry refusals are distinct (FR-041, AC-113)', () => {
                 now: NOW,
             });
 
-            expect(outcome.status, `${entry.state} must be refused`).toBe('refused');
-            const refusal = outcome.status === 'refused' ? outcome.refusal : null;
-            expect(refusal?.code).toBe(INVALID_TRANSITION);
-            expect(refusal?.message).toContain(entry.fragment);
+            expect(outcome.status).toBe('applied');
+            const stored = await readRun(run.correlationId);
+            expect(stored.state).toBe('pending');
+            expect(stored.attempt).toBe(2);
+            expect(stored.lease).toBeNull();
+            expect(stored.reservation).toBeNull();
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: preserves the source references and every prior attempt record
+        {
+            const run = await seedRun({ issueNumber: 2, state: 'failed', attempt: 3 });
+
+            await retryDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 3,
+                causeCleared: true,
+                causeReport: null,
+                now: NOW,
+            });
+
+            const stored = await readRun(run.correlationId);
+            // Same run key, same references, same history: a retry never opens a new
+            // run (FR-041), so nothing about the run's identity moves.
+            expect(stored.runKey).toBe(run.runKey);
+            expect(stored.correlationId).toBe(run.correlationId);
+            expect(stored.sourceReferences).toEqual(run.sourceReferences);
+            expect(stored.attempts).toEqual(run.attempts);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: does not touch the automatic requeue budget
+        {
+            const run = await seedRun({ issueNumber: 3, state: 'failed', requeuesUsed: 2 });
+
+            await retryDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                causeCleared: true,
+                causeReport: null,
+                now: NOW,
+            });
+
+            // Plan D5: only an expired claim spends budget; an operator retry must
+            // not inflate it or reset it.
+            const stored = await readRun(run.correlationId);
+            expect(stored.requeuesUsed).toBe(2);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: writes one dispatch.retry row naming the prior state and both attempts
+        {
+            const run = await seedRun({ issueNumber: 4, state: 'failed' });
+
+            await retryDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                causeCleared: true,
+                causeReport: 'panel rechecked the project',
+                now: NOW,
+            });
+
+            const [row] = await rowsOf(RETRY_ROW);
+            expect(row).toMatchObject({ priorState: 'failed', attemptBefore: 1, attemptAfter: 2 });
+            const rows = await trail();
+            expect(rows.filter((entry) => entry.eventType === RETRY_ROW)).toHaveLength(1);
         }
     });
+});
 
-    it('moves nothing and writes exactly one refusal row per refused retry', async () => {
-        const run = await seedRun({ issueNumber: 16, state: 'pending' });
-        const before = await trail();
+describe('T-014 retry refusals are distinct (FR-041, AC-113)', () => {
+    it('names each refusing state in its own words (+2 cases)', async () => {
+        // case: names each refusing state in its own words
+        {
+            const cases: readonly { readonly state: RunState; readonly issue: number; readonly fragment: string }[] = [
+                { state: 'pending', issue: 10, fragment: 'already waiting' },
+                { state: DISPATCHED, issue: 11, fragment: 'already dispatched' },
+                { state: 'unconfirmed', issue: 12, fragment: 'resolve it instead' },
+                { state: 'claimed', issue: 13, fragment: 'attempt is in flight' },
+                { state: 'starting', issue: 14, fragment: 'attempt is in flight' },
+                { state: DEAD_LETTERED, issue: 15, fragment: 'use return-to-waiting' },
+            ];
 
-        await retryDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            causeCleared: true,
-            causeReport: null,
-            now: NOW,
-        });
+            for (const entry of cases) {
+                const run = await seedRun({
+                    issueNumber: entry.issue,
+                    state: entry.state,
+                    ...(entry.state === DISPATCHED ? { sessionId: 'ses_done' } : {}),
+                });
 
-        const stored = await readRun(run.correlationId);
-        expect(stored.state).toBe('pending');
-        expect(stored.attempt).toBe(1);
+                const outcome = await retryDispatch({
+                    store,
+                    log: LOGGER,
+                    correlationId: run.correlationId,
+                    attempt: 1,
+                    causeCleared: true,
+                    causeReport: null,
+                    now: NOW,
+                });
 
-        const after = await trail();
-        const added = after.slice(before.length);
-        expect(added.map((entry) => entry.eventType)).toEqual([REFUSED_ROW]);
-        expect(added[0]?.details).toMatchObject({
-            operation: 'retry',
-            code: INVALID_TRANSITION,
-            priorState: 'pending',
-            attempt: 1,
-        });
-        expect(added[0]?.correlationId).toBe(run.correlationId);
-    });
+                expect(outcome.status, `${entry.state} must be refused`).toBe('refused');
+                const refusal = outcome.status === 'refused' ? outcome.refusal : null;
+                expect(refusal?.code).toBe(INVALID_TRANSITION);
+                expect(refusal?.message).toContain(entry.fragment);
+            }
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: moves nothing and writes exactly one refusal row per refused retry
+        {
+            const run = await seedRun({ issueNumber: 16, state: 'pending' });
+            const before = await trail();
 
-    it('refuses a retry whose attempt does not match the run it names', async () => {
-        const run = await seedRun({ issueNumber: 17, state: 'failed', attempt: 4 });
-        const before = await trail();
+            await retryDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                causeCleared: true,
+                causeReport: null,
+                now: NOW,
+            });
 
-        const outcome = await retryDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 2,
-            causeCleared: true,
-            causeReport: null,
-            now: NOW,
-        });
+            const stored = await readRun(run.correlationId);
+            expect(stored.state).toBe('pending');
+            expect(stored.attempt).toBe(1);
 
-        // Contract, common body fields: §6's body carries `attempt`, and a
-        // mismatch of a declared member is a refusal, never a partial apply. A
-        // retry judged against a state the run has already left would increment
-        // a counter the caller never saw — which is the half-apply the rule
-        // exists to prevent, and why staleness is read before the state verdict.
-        expect(outcome.status).toBe('refused');
-        const refusal = outcome.status === 'refused' ? outcome.refusal : null;
-        expect(refusal?.code).toBe(STALE_LEASE);
-        expect(refusal?.message).toContain('attempt 4');
+            const after = await trail();
+            const added = after.slice(before.length);
+            expect(added.map((entry) => entry.eventType)).toEqual([REFUSED_ROW]);
+            expect(added[0]?.details).toMatchObject({
+                operation: 'retry',
+                code: INVALID_TRANSITION,
+                priorState: 'pending',
+                attempt: 1,
+            });
+            expect(added[0]?.correlationId).toBe(run.correlationId);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a retry whose attempt does not match the run it names
+        {
+            const run = await seedRun({ issueNumber: 17, state: 'failed', attempt: 4 });
+            const before = await trail();
 
-        const stored = await readRun(run.correlationId);
-        expect(stored.attempt).toBe(4);
-        expect(stored.state).toBe('failed');
+            const outcome = await retryDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 2,
+                causeCleared: true,
+                causeReport: null,
+                now: NOW,
+            });
 
-        const after = await trail();
-        expect(after.slice(before.length).map((entry) => entry.eventType)).toEqual([REFUSED_ROW]);
+            // Contract, common body fields: §6's body carries `attempt`, and a
+            // mismatch of a declared member is a refusal, never a partial apply. A
+            // retry judged against a state the run has already left would increment
+            // a counter the caller never saw — which is the half-apply the rule
+            // exists to prevent, and why staleness is read before the state verdict.
+            expect(outcome.status).toBe('refused');
+            const refusal = outcome.status === 'refused' ? outcome.refusal : null;
+            expect(refusal?.code).toBe(STALE_LEASE);
+            expect(refusal?.message).toContain('attempt 4');
+
+            const stored = await readRun(run.correlationId);
+            expect(stored.attempt).toBe(4);
+            expect(stored.state).toBe('failed');
+
+            const after = await trail();
+            expect(after.slice(before.length).map((entry) => entry.eventType)).toEqual([REFUSED_ROW]);
+        }
     });
 });
 
 describe('T-014 retry corroborates a blocked cause only where it can (FR-042, contract §6)', () => {
-    it('refuses a binding-missing retry while the binding is still absent', async () => {
-        const run = await seedRun({ issueNumber: 20, state: 'blocked:binding-missing' });
-        await storeBindings();
+    it('refuses a binding-missing retry while the binding is… (+3 cases)', async () => {
+        // case: refuses a binding-missing retry while the binding is still absent
+        {
+            const run = await seedRun({ issueNumber: 20, state: 'blocked:binding-missing' });
+            await storeBindings();
 
-        const outcome = await retryDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            causeCleared: true,
-            causeReport: 'the panel thinks the binding came back',
-            now: NOW,
-        });
+            const outcome = await retryDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                causeCleared: true,
+                causeReport: 'the panel thinks the binding came back',
+                now: NOW,
+            });
 
-        expect(outcome.status).toBe('refused');
-        const refusal = outcome.status === 'refused' ? outcome.refusal : null;
-        expect(refusal?.code).toBe('cause-not-cleared');
-        expect(refusal?.message).toContain(BINDING_ID);
-    });
+            expect(outcome.status).toBe('refused');
+            const refusal = outcome.status === 'refused' ? outcome.refusal : null;
+            expect(refusal?.code).toBe('cause-not-cleared');
+            expect(refusal?.message).toContain(BINDING_ID);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: accepts a binding-missing retry once the binding is back, as corroborated
+        {
+            const run = await seedRun({ issueNumber: 21, state: 'blocked:binding-missing' });
+            await storeBindings(BINDING_ID);
 
-    it('accepts a binding-missing retry once the binding is back, as corroborated', async () => {
-        const run = await seedRun({ issueNumber: 21, state: 'blocked:binding-missing' });
-        await storeBindings(BINDING_ID);
+            const outcome = await retryDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                causeCleared: true,
+                causeReport: null,
+                now: NOW,
+            });
 
-        const outcome = await retryDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            causeCleared: true,
-            causeReport: null,
-            now: NOW,
-        });
+            expect(outcome.status).toBe('applied');
+            const [row] = await rowsOf(RETRY_ROW);
+            // `corroborated` is the honest word: the service re-read the table.
+            expect(row?.causeClearedSource).toBe(CORROBORATED);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: records a project-missing retry as reported, never corroborated
+        {
+            const run = await seedRun({ issueNumber: 22, state: 'blocked:project-missing' });
+            await storeBindings(BINDING_ID);
 
-        expect(outcome.status).toBe('applied');
-        const [row] = await rowsOf(RETRY_ROW);
-        // `corroborated` is the honest word: the service re-read the table.
-        expect(row?.causeClearedSource).toBe(CORROBORATED);
-    });
+            const outcome = await retryDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                causeCleared: true,
+                causeReport: 'listProjects resolves it now',
+                now: NOW,
+            });
 
-    it('records a project-missing retry as reported, never corroborated', async () => {
-        const run = await seedRun({ issueNumber: 22, state: 'blocked:project-missing' });
-        await storeBindings(BINDING_ID);
+            expect(outcome.status).toBe('applied');
+            const [row] = await rowsOf(RETRY_ROW);
+            // The service cannot call host APIs (002's architecture), so the panel's
+            // same-mount check is the evidence and is audited as evidence.
+            expect(row?.causeClearedSource).toBe(REPORTED);
+            expect(row?.causeReportedCleared).toBe(true);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a blocked retry whose cause the operator has not reported cleared
+        {
+            const run = await seedRun({ issueNumber: 23, state: 'blocked:project-missing' });
+            await storeBindings(BINDING_ID);
 
-        const outcome = await retryDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            causeCleared: true,
-            causeReport: 'listProjects resolves it now',
-            now: NOW,
-        });
+            const outcome = await retryDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                causeCleared: false,
+                causeReport: null,
+                now: NOW,
+            });
 
-        expect(outcome.status).toBe('applied');
-        const [row] = await rowsOf(RETRY_ROW);
-        // The service cannot call host APIs (002's architecture), so the panel's
-        // same-mount check is the evidence and is audited as evidence.
-        expect(row?.causeClearedSource).toBe(REPORTED);
-        expect(row?.causeReportedCleared).toBe(true);
-    });
-
-    it('refuses a blocked retry whose cause the operator has not reported cleared', async () => {
-        const run = await seedRun({ issueNumber: 23, state: 'blocked:project-missing' });
-        await storeBindings(BINDING_ID);
-
-        const outcome = await retryDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            causeCleared: false,
-            causeReport: null,
-            now: NOW,
-        });
-
-        expect(outcome.status).toBe('refused');
-        expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe('cause-not-cleared');
+            expect(outcome.status).toBe('refused');
+            expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe('cause-not-cleared');
+        }
     });
 });
 
 describe('T-014 return-to-waiting resets both counters (FR-033)', () => {
-    it('returns a dead-lettered run to pending with attempt and budget reset', async () => {
-        const run = await seedRun({ issueNumber: 30, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
+    it('returns a dead-lettered run to pending with attempt … (+3 cases)', async () => {
+        // case: returns a dead-lettered run to pending with attempt and budget reset
+        {
+            const run = await seedRun({ issueNumber: 30, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
 
-        const outcome = await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
+            const outcome = await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
 
-        expect(outcome.status).toBe('applied');
-        const stored = await readRun(run.correlationId);
-        expect(stored.state).toBe('pending');
-        expect(stored.attempt).toBe(1);
-        expect(stored.requeuesUsed).toBe(0);
-    });
-
-    it('keeps the source references and attempt history across the reset', async () => {
-        const run = await seedRun({ issueNumber: 31, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
-
-        await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
-
-        const stored = await readRun(run.correlationId);
-        expect(stored.attempts).toEqual(run.attempts);
-        expect(stored.sourceReferences).toEqual(run.sourceReferences);
-    });
-
-    it('names the reset in its dispatch.retry row', async () => {
-        const run = await seedRun({ issueNumber: 32, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
-
-        await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
-
-        const [row] = await rowsOf(RETRY_ROW);
-        expect(row).toMatchObject({ priorState: DEAD_LETTERED, attemptBefore: 4, attemptAfter: 1, attemptReset: true });
-    });
-
-    it('refuses every state that is not dead-lettered', async () => {
-        for (const [index, state] of (['pending', 'claimed', 'unconfirmed'] as const).entries()) {
-            const run = await seedRun({ issueNumber: 33 + index, state });
-
-            const outcome = await requeueDispatch({
-                store,
-                log: LOGGER,
-                correlationId: run.correlationId,
-                now: NOW,
-            });
-
-            expect(outcome.status, `${state} must be refused`).toBe('refused');
-            expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe(INVALID_TRANSITION);
+            expect(outcome.status).toBe('applied');
             const stored = await readRun(run.correlationId);
-            expect(stored.state).toBe(state);
+            expect(stored.state).toBe('pending');
+            expect(stored.attempt).toBe(1);
+            expect(stored.requeuesUsed).toBe(0);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: keeps the source references and attempt history across the reset
+        {
+            const run = await seedRun({ issueNumber: 31, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
+
+            await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
+
+            const stored = await readRun(run.correlationId);
+            expect(stored.attempts).toEqual(run.attempts);
+            expect(stored.sourceReferences).toEqual(run.sourceReferences);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: names the reset in its dispatch.retry row
+        {
+            const run = await seedRun({ issueNumber: 32, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
+
+            await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
+
+            const [row] = await rowsOf(RETRY_ROW);
+            expect(row).toMatchObject({
+                priorState: DEAD_LETTERED, attemptBefore: 4, attemptAfter: 1, attemptReset: true });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses every state that is not dead-lettered
+        {
+            for (const [index, state] of (['pending', 'claimed', 'unconfirmed'] as const).entries()) {
+                const run = await seedRun({ issueNumber: 33 + index, state });
+
+                const outcome = await requeueDispatch({
+                    store,
+                    log: LOGGER,
+                    correlationId: run.correlationId,
+                    now: NOW,
+                });
+
+                expect(outcome.status, `${state} must be refused`).toBe('refused');
+                expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe(INVALID_TRANSITION);
+                const stored = await readRun(run.correlationId);
+                expect(stored.state).toBe(state);
+            }
         }
     });
 });
 
 describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
-    it('records the session the operator named, terminally, in one write', async () => {
-        const run = await seedRun({ issueNumber: 40, state: 'unconfirmed' });
+    it('records the session the operator named, terminally, … (+5 cases)', async () => {
+        // case: records the session the operator named, terminally, in one write
+        {
+            const run = await seedRun({ issueNumber: 40, state: 'unconfirmed' });
 
-        const outcome = await resolveDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            decision: 'session-created',
-            sessionId: 'ses_found',
-            note: RESOLVE_NOTE,
-            guidance: RESOLVE_GUIDANCE,
-            now: NOW,
-        });
+            const outcome = await resolveDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                decision: 'session-created',
+                sessionId: 'ses_found',
+                note: RESOLVE_NOTE,
+                guidance: RESOLVE_GUIDANCE,
+                now: NOW,
+            });
 
-        expect(outcome.status).toBe('applied');
-        const stored = await readRun(run.correlationId);
-        expect(stored.state).toBe(DISPATCHED);
-        expect(stored.session?.sessionId).toBe('ses_found');
-        expect(stored.reservation?.consumed).toBe(true);
-        // T-037's invariant, from the other side: the attempt record naming the
-        // session must be in the same write as the terminal state, or the
-        // document would not parse back.
-        expect(stored.attempts.at(-1)).toMatchObject({ outcome: DISPATCHED, sessionId: 'ses_found' });
-    });
+            expect(outcome.status).toBe('applied');
+            const stored = await readRun(run.correlationId);
+            expect(stored.state).toBe(DISPATCHED);
+            expect(stored.session?.sessionId).toBe('ses_found');
+            expect(stored.reservation?.consumed).toBe(true);
+            // T-037's invariant, from the other side: the attempt record naming the
+            // session must be in the same write as the terminal state, or the
+            // document would not parse back.
+            expect(stored.attempts.at(-1)).toMatchObject({ outcome: DISPATCHED, sessionId: 'ses_found' });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: returns to pending with the attempt incremented for no-session
+        {
+            const run = await seedRun({ issueNumber: 41, state: 'unconfirmed', attempt: 2 });
 
-    it('returns to pending with the attempt incremented for no-session', async () => {
-        const run = await seedRun({ issueNumber: 41, state: 'unconfirmed', attempt: 2 });
+            const outcome = await resolveDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                decision: NO_SESSION,
+                sessionId: null,
+                note: 'no session with that attachment id',
+                guidance: null,
+                now: NOW,
+            });
 
-        const outcome = await resolveDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            decision: NO_SESSION,
-            sessionId: null,
-            note: 'no session with that attachment id',
-            guidance: null,
-            now: NOW,
-        });
+            expect(outcome.status).toBe('applied');
+            const stored = await readRun(run.correlationId);
+            expect(stored.state).toBe('pending');
+            expect(stored.attempt).toBe(3);
+            expect(stored.lease).toBeNull();
+            // The reservation is **cleared**, not left spent. The attempt moved on,
+            // and a reservation the parser reads as belonging to the run's current
+            // attempt could not be retained across the increment at all — and the old
+            // token must be dead rather than merely spent, since a retained one would
+            // still name an attempt that no longer exists.
+            expect(stored.reservation).toBeNull();
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: re-dispatches a resolved no-session run through a brand-new token
+        {
+            const run = await seedRun({ issueNumber: 47, state: 'unconfirmed', attempt: 2 });
+            await resolveDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                decision: NO_SESSION,
+                sessionId: null,
+                note: null,
+                guidance: null,
+                now: NOW,
+            });
 
-        expect(outcome.status).toBe('applied');
-        const stored = await readRun(run.correlationId);
-        expect(stored.state).toBe('pending');
-        expect(stored.attempt).toBe(3);
-        expect(stored.lease).toBeNull();
-        // The reservation is **cleared**, not left spent. The attempt moved on,
-        // and a reservation the parser reads as belonging to the run's current
-        // attempt could not be retained across the increment at all — and the old
-        // token must be dead rather than merely spent, since a retained one would
-        // still name an attempt that no longer exists.
-        expect(stored.reservation).toBeNull();
-    });
+            const claimed = await claimPendingRuns({ store, log: LOGGER, holder: 'panel-after-resolve', now: NOW });
+            const [reclaimed] = claimed.runs.filter((candidate) => candidate.correlationId === run.correlationId);
 
-    it('re-dispatches a resolved no-session run through a brand-new token', async () => {
-        const run = await seedRun({ issueNumber: 47, state: 'unconfirmed', attempt: 2 });
-        await resolveDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            decision: NO_SESSION,
-            sessionId: null,
-            note: null,
-            guidance: null,
-            now: NOW,
-        });
+            expect(reclaimed?.attempt).toBe(3);
+            expect(reclaimed?.state).toBe('pending');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: writes a dispatch.resolved row naming the decision, prior state, and guidance
+        {
+            const run = await seedRun({ issueNumber: 42, state: 'unconfirmed' });
 
-        const claimed = await claimPendingRuns({ store, log: LOGGER, holder: 'panel-after-resolve', now: NOW });
-        const [reclaimed] = claimed.runs.filter((candidate) => candidate.correlationId === run.correlationId);
+            await resolveDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                decision: 'session-created',
+                sessionId: 'ses_found',
+                note: RESOLVE_NOTE,
+                guidance: RESOLVE_GUIDANCE,
+                now: NOW,
+            });
 
-        expect(reclaimed?.attempt).toBe(3);
-        expect(reclaimed?.state).toBe('pending');
-    });
+            const [row] = await rowsOf(RESOLVED_ROW);
+            expect(row).toMatchObject({
+                priorState: 'unconfirmed',
+                note: RESOLVE_NOTE,
+                guidance: RESOLVE_GUIDANCE,
+            });
+            const entries = await trail();
+            const resolved = entries.find((entry) => entry.eventType === RESOLVED_ROW);
+            expect(resolved?.decision).toBe(DISPATCHED);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses every state that is not unconfirmed
+        {
+            for (const [index, state] of (['pending', 'claimed', DEAD_LETTERED] as const).entries()) {
+                const run = await seedRun({ issueNumber: 43 + index, state });
 
-    it('writes a dispatch.resolved row naming the decision, prior state, and guidance', async () => {
-        const run = await seedRun({ issueNumber: 42, state: 'unconfirmed' });
+                const outcome = await resolveDispatch({
+                    store,
+                    log: LOGGER,
+                    correlationId: run.correlationId,
+                    decision: NO_SESSION,
+                    sessionId: null,
+                    note: null,
+                    guidance: null,
+                    now: NOW,
+                });
 
-        await resolveDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            decision: 'session-created',
-            sessionId: 'ses_found',
-            note: RESOLVE_NOTE,
-            guidance: RESOLVE_GUIDANCE,
-            now: NOW,
-        });
-
-        const [row] = await rowsOf(RESOLVED_ROW);
-        expect(row).toMatchObject({
-            priorState: 'unconfirmed',
-            note: RESOLVE_NOTE,
-            guidance: RESOLVE_GUIDANCE,
-        });
-        const entries = await trail();
-        const resolved = entries.find((entry) => entry.eventType === RESOLVED_ROW);
-        expect(resolved?.decision).toBe(DISPATCHED);
-    });
-
-    it('refuses every state that is not unconfirmed', async () => {
-        for (const [index, state] of (['pending', 'claimed', DEAD_LETTERED] as const).entries()) {
-            const run = await seedRun({ issueNumber: 43 + index, state });
+                expect(outcome.status, `${state} must be refused`).toBe('refused');
+                const stored = await readRun(run.correlationId);
+                expect(stored.state).toBe(state);
+            }
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never lets a resolution re-dispatch a run that already has a session
+        {
+            const run = await seedRun({ issueNumber: 46, state: DISPATCHED, sessionId: 'ses_existing' });
 
             const outcome = await resolveDispatch({
                 store,
@@ -896,369 +1001,399 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
                 now: NOW,
             });
 
-            expect(outcome.status, `${state} must be refused`).toBe('refused');
+            expect(outcome.status).toBe('refused');
             const stored = await readRun(run.correlationId);
-            expect(stored.state).toBe(state);
+            expect(stored.state).toBe(DISPATCHED);
+            expect(stored.session?.sessionId).toBe('ses_existing');
         }
-    });
-
-    it('never lets a resolution re-dispatch a run that already has a session', async () => {
-        const run = await seedRun({ issueNumber: 46, state: DISPATCHED, sessionId: 'ses_existing' });
-
-        const outcome = await resolveDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            decision: NO_SESSION,
-            sessionId: null,
-            note: null,
-            guidance: null,
-            now: NOW,
-        });
-
-        expect(outcome.status).toBe('refused');
-        const stored = await readRun(run.correlationId);
-        expect(stored.state).toBe(DISPATCHED);
-        expect(stored.session?.sessionId).toBe('ses_existing');
     });
 });
 
 describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)', () => {
-    it('records a matching read-back without moving the run', async () => {
-        const run = await seedRun({ issueNumber: 50, state: DISPATCHED, sessionId: 'ses_v1' });
+    it('records a matching read-back without moving the run (+4 cases)', async () => {
+        // case: records a matching read-back without moving the run
+        {
+            const run = await seedRun({ issueNumber: 50, state: DISPATCHED, sessionId: 'ses_v1' });
 
-        const outcome = await recordVerification({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            sessionId: 'ses_v1',
-            observedAgent: EXPECTED_AGENT,
-            expectedAgent: EXPECTED_AGENT,
-            ok: true,
-            note: null,
-            now: NOW,
-        });
+            const outcome = await recordVerification({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                sessionId: 'ses_v1',
+                observedAgent: EXPECTED_AGENT,
+                expectedAgent: EXPECTED_AGENT,
+                ok: true,
+                note: null,
+                now: NOW,
+            });
 
-        expect(outcome.status).toBe('applied');
-        const stored = await readRun(run.correlationId);
-        expect(stored.state).toBe(DISPATCHED);
-        expect(stored.attempt).toBe(1);
-        expect(stored.verification).toMatchObject({ observedAgent: EXPECTED_AGENT, ok: true });
-        const [verified] = await rowsOf(VERIFIED_ROW);
-        expect(verified).toMatchObject({
-            sessionId: 'ses_v1',
-            observedAgent: EXPECTED_AGENT,
-            expectedAgent: EXPECTED_AGENT,
-        });
-    });
+            expect(outcome.status).toBe('applied');
+            const stored = await readRun(run.correlationId);
+            expect(stored.state).toBe(DISPATCHED);
+            expect(stored.attempt).toBe(1);
+            expect(stored.verification).toMatchObject({ observedAgent: EXPECTED_AGENT, ok: true });
+            const [verified] = await rowsOf(VERIFIED_ROW);
+            expect(verified).toMatchObject({
+                sessionId: 'ses_v1',
+                observedAgent: EXPECTED_AGENT,
+                expectedAgent: EXPECTED_AGENT,
+            });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: records a mismatch visibly and leaves the run untouched
+        {
+            const run = await seedRun({ issueNumber: 51, state: DISPATCHED, sessionId: 'ses_v2' });
+            const before = await readRun(run.correlationId);
 
-    it('records a mismatch visibly and leaves the run untouched', async () => {
-        const run = await seedRun({ issueNumber: 51, state: DISPATCHED, sessionId: 'ses_v2' });
-        const before = await readRun(run.correlationId);
+            const outcome = await recordVerification({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                sessionId: 'ses_v2',
+                observedAgent: SPACE_BUNNY,
+                expectedAgent: EXPECTED_AGENT,
+                ok: false,
+                note: 'agent differs from the expected baseline',
+                now: NOW,
+            });
 
-        const outcome = await recordVerification({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            sessionId: 'ses_v2',
-            observedAgent: SPACE_BUNNY,
-            expectedAgent: EXPECTED_AGENT,
-            ok: false,
-            note: 'agent differs from the expected baseline',
-            now: NOW,
-        });
+            expect(outcome.status).toBe('applied');
+            const stored = await readRun(run.correlationId);
+            // Warn-only: the mismatch is visible on the row and changes nothing.
+            expect(stored.state).toBe(before.state);
+            expect(stored.attempt).toBe(before.attempt);
+            expect(stored.reservation).toBeNull();
+            expect(stored.verification).toMatchObject({ observedAgent: SPACE_BUNNY, ok: false });
+            const [mismatch] = await rowsOf(MISMATCH_ROW);
+            expect(mismatch).toMatchObject({ observedAgent: SPACE_BUNNY });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: records an unreadable read-back as a mismatch, not a success
+        {
+            const run = await seedRun({ issueNumber: 52, state: DISPATCHED, sessionId: 'ses_v3' });
 
-        expect(outcome.status).toBe('applied');
-        const stored = await readRun(run.correlationId);
-        // Warn-only: the mismatch is visible on the row and changes nothing.
-        expect(stored.state).toBe(before.state);
-        expect(stored.attempt).toBe(before.attempt);
-        expect(stored.reservation).toBeNull();
-        expect(stored.verification).toMatchObject({ observedAgent: SPACE_BUNNY, ok: false });
-        const [mismatch] = await rowsOf(MISMATCH_ROW);
-        expect(mismatch).toMatchObject({ observedAgent: SPACE_BUNNY });
-    });
+            await recordVerification({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                sessionId: 'ses_v3',
+                observedAgent: null,
+                expectedAgent: EXPECTED_AGENT,
+                ok: false,
+                note: 'the read-back timed out',
+                now: NOW,
+            });
 
-    it('records an unreadable read-back as a mismatch, not a success', async () => {
-        const run = await seedRun({ issueNumber: 52, state: DISPATCHED, sessionId: 'ses_v3' });
+            const [unreadable] = await rowsOf(MISMATCH_ROW);
+            expect(unreadable).toMatchObject({ observedAgent: null, note: 'the read-back timed out' });
+            expect(await rowsOf(VERIFIED_ROW)).toEqual([]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a read-back for a session this run does not record
+        {
+            const run = await seedRun({ issueNumber: 53, state: DISPATCHED, sessionId: 'ses_v4' });
 
-        await recordVerification({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            sessionId: 'ses_v3',
-            observedAgent: null,
-            expectedAgent: EXPECTED_AGENT,
-            ok: false,
-            note: 'the read-back timed out',
-            now: NOW,
-        });
+            const outcome = await recordVerification({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                sessionId: 'ses_someone_else',
+                observedAgent: EXPECTED_AGENT,
+                expectedAgent: EXPECTED_AGENT,
+                ok: true,
+                note: null,
+                now: NOW,
+            });
 
-        const [unreadable] = await rowsOf(MISMATCH_ROW);
-        expect(unreadable).toMatchObject({ observedAgent: null, note: 'the read-back timed out' });
-        expect(await rowsOf(VERIFIED_ROW)).toEqual([]);
-    });
+            expect(outcome.status).toBe('refused');
+            const stored = await readRun(run.correlationId);
+            expect(stored.verification).toBeNull();
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a read-back for a run with no session at all
+        {
+            const run = await seedRun({ issueNumber: 54, state: 'failed' });
 
-    it('refuses a read-back for a session this run does not record', async () => {
-        const run = await seedRun({ issueNumber: 53, state: DISPATCHED, sessionId: 'ses_v4' });
+            const outcome = await recordVerification({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                sessionId: 'ses_none',
+                observedAgent: EXPECTED_AGENT,
+                expectedAgent: EXPECTED_AGENT,
+                ok: true,
+                note: null,
+                now: NOW,
+            });
 
-        const outcome = await recordVerification({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            sessionId: 'ses_someone_else',
-            observedAgent: EXPECTED_AGENT,
-            expectedAgent: EXPECTED_AGENT,
-            ok: true,
-            note: null,
-            now: NOW,
-        });
-
-        expect(outcome.status).toBe('refused');
-        const stored = await readRun(run.correlationId);
-        expect(stored.verification).toBeNull();
-    });
-
-    it('refuses a read-back for a run with no session at all', async () => {
-        const run = await seedRun({ issueNumber: 54, state: 'failed' });
-
-        const outcome = await recordVerification({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            attempt: 1,
-            sessionId: 'ses_none',
-            observedAgent: EXPECTED_AGENT,
-            expectedAgent: EXPECTED_AGENT,
-            ok: true,
-            note: null,
-            now: NOW,
-        });
-
-        expect(outcome.status).toBe('refused');
-        expect(await rowsOf(VERIFIED_ROW)).toEqual([]);
+            expect(outcome.status).toBe('refused');
+            expect(await rowsOf(VERIFIED_ROW)).toEqual([]);
+        }
     });
 });
 
 describe('T-014 the token chain across a dead-letter reset (plan D6, research §R3)', () => {
-    it('returns the run to waiting on attempt 1, which is a fresh token chain', async () => {
-        // The tension plan D6 resolves: `token = f(runKey, attempt)` plus
-        // "reset the attempt count" would re-derive a token an earlier report had
-        // already consumed, and FR-022 would then refuse it forever. The reset is
-        // therefore an explicit, audited operator action rather than an implicit
-        // one — this asserts the reset half of that answer.
-        const run = await seedRun({ issueNumber: 60, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
+    it('returns the run to waiting on attempt 1, which is a … (+3 cases)', async () => {
+        // case: returns the run to waiting on attempt 1, which is a fresh token chain
+        {
+            // The tension plan D6 resolves: `token = f(runKey, attempt)` plus
+            // "reset the attempt count" would re-derive a token an earlier report had
+            // already consumed, and FR-022 would then refuse it forever. The reset is
+            // therefore an explicit, audited operator action rather than an implicit
+            // one — this asserts the reset half of that answer.
+            const run = await seedRun({ issueNumber: 60, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
 
-        const outcome = await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
+            const outcome = await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
 
-        expect(outcome.status).toBe('applied');
-        const stored = await readRun(run.correlationId);
-        expect(stored.attempt).toBe(1);
-        expect(stored.state).toBe('pending');
-    });
-
-    it('leaves the reset run claimable, so a new token chain can start', async () => {
-        const run = await seedRun({ issueNumber: 61, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
-        await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
-
-        const claimed = await claimPendingRuns({ store, log: LOGGER, holder: 'panel-after-reset', now: NOW });
-
-        expect(claimed.runs.map((candidate) => candidate.correlationId)).toEqual([run.correlationId]);
-    });
-
-    it('never offers a reset-path run that already recorded a session', async () => {
-        const run = await seedRun({ issueNumber: 62, state: DISPATCHED, sessionId: 'ses_reset' });
-
-        const claimed = await claimPendingRuns({ store, log: LOGGER, holder: 'panel-x', now: NOW });
-
-        // FR-037's "under any condition" clause, exercised through the reset path
-        // the plan D6 tension created.
-        expect(claimed.runs.some((candidate) => candidate.correlationId === run.correlationId)).toBe(false);
-    });
-
-    it('reserves a fresh token after the reset and refuses the earlier chain\'s token', async () => {
-        // plan D6's two halves, asserted together: the reset must make a reserve
-        // possible again (otherwise a dead-lettered run is unrecoverable), and it
-        // must not resurrect a token an earlier attempt already spent (otherwise
-        // FR-022's single-use rule leaks across the boundary the reset draws).
-        //
-        // Both chains are replayed, not only attempt 4's: the reset re-mints
-        // attempt **1**, so attempt 4's token is the easy refusal (the live
-        // reservation never held it) and attempt 1's is the one that matters —
-        // it is byte-identical to the authorization chain 2 now holds.
-        const run = await seedRun({ issueNumber: 64, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
-        const chainOneToken = await recordEarlierChain(run);
-        await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
-
-        const claimed = await claimPendingRuns({ store, log: LOGGER, holder: 'panel-token-chain', now: NOW });
-        const [reclaimed] = claimed.runs.filter((candidate) => candidate.correlationId === run.correlationId);
-        if (reclaimed === undefined) {
-            throw new Error('the reset run was not claimable');
+            expect(outcome.status).toBe('applied');
+            const stored = await readRun(run.correlationId);
+            expect(stored.attempt).toBe(1);
+            expect(stored.state).toBe('pending');
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: leaves the reset run claimable, so a new token chain can start
+        {
+            const run = await seedRun({ issueNumber: 61, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
+            await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
 
-        const reserved = await reserveDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            leaseId: reclaimed.lease.leaseId,
-            attempt: reclaimed.attempt,
-            now: NOW,
-        });
+            const claimed = await claimPendingRuns({ store, log: LOGGER, holder: 'panel-after-reset', now: NOW });
 
-        expect(reserved.status).toBe('applied');
-        if (reserved.status !== 'applied') {
-            throw new Error('a reserve after the reset must apply');
+            expect(claimed.runs.map((candidate) => candidate.correlationId)).toEqual([run.correlationId]);
         }
-        // The new chain is derived from the reset attempt, so it is a different
-        // token than the one attempt 4 would have minted — and the byte-identical
-        // one to the token attempt 1 already spent.
-        expect(reserved.dispatchToken).toBe(buildDispatchToken(run.runKey, 1));
-        expect(reserved.dispatchToken).toBe(chainOneToken);
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never offers a reset-path run that already recorded a session
+        {
+            const run = await seedRun({ issueNumber: 62, state: DISPATCHED, sessionId: 'ses_reset' });
 
-        const stale = await reportDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            dispatchToken: buildDispatchToken(run.runKey, 4),
-            attempt: 4,
-            operation: 'result',
-            outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_stale_chain', reason: null },
-            now: NOW,
-        });
+            const claimed = await claimPendingRuns({ store, log: LOGGER, holder: 'panel-x', now: NOW });
 
-        expect(stale.status).toBe('refused');
+            // FR-037's "under any condition" clause, exercised through the reset path
+            // the plan D6 tension created.
+            expect(claimed.runs.some((candidate) => candidate.correlationId === run.correlationId)).toBe(false);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: reserves a fresh token after the reset and refuses the earlier chain\'s token
+        {
+            // plan D6's two halves, asserted together: the reset must make a reserve
+            // possible again (otherwise a dead-lettered run is unrecoverable), and it
+            // must not resurrect a token an earlier attempt already spent (otherwise
+            // FR-022's single-use rule leaks across the boundary the reset draws).
+            //
+            // Both chains are replayed, not only attempt 4's: the reset re-mints
+            // attempt **1**, so attempt 4's token is the easy refusal (the live
+            // reservation never held it) and attempt 1's is the one that matters —
+            // it is byte-identical to the authorization chain 2 now holds.
+            const run = await seedRun({ issueNumber: 64, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
+            const chainOneToken = await recordEarlierChain(run);
+            await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
 
-        // The replay the derivation makes possible: chain 1's spent token, which
-        // chain 2's live reservation now carries byte for byte.
-        const replay = await reportDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            dispatchToken: chainOneToken,
-            attempt: 1,
-            operation: 'result',
-            outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_wrong_chain', reason: null },
-            now: NOW,
-        });
+            const claimed = await claimPendingRuns({ store, log: LOGGER, holder: 'panel-token-chain', now: NOW });
+            const [reclaimed] = claimed.runs.filter((candidate) => candidate.correlationId === run.correlationId);
+            if (reclaimed === undefined) {
+                throw new Error('the reset run was not claimable');
+            }
 
-        expect(replay.status).toBe('refused');
-        expect(replay.status === 'refused' ? replay.refusal.code : '').toBe(STALE_LEASE);
-        const stored = await readRun(run.correlationId);
-        expect(stored.state).toBe('starting');
-        expect(stored.session).toBeNull();
-        expect(stored.reservation?.dispatchToken).toBe(reserved.dispatchToken);
+            const reserved = await reserveDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                leaseId: reclaimed.lease.leaseId,
+                attempt: reclaimed.attempt,
+                now: NOW,
+            });
+
+            expect(reserved.status).toBe('applied');
+            if (reserved.status !== 'applied') {
+                throw new Error('a reserve after the reset must apply');
+            }
+            // The new chain is derived from the reset attempt, so it is a different
+            // token than the one attempt 4 would have minted — and the byte-identical
+            // one to the token attempt 1 already spent.
+            expect(reserved.dispatchToken).toBe(buildDispatchToken(run.runKey, 1));
+            expect(reserved.dispatchToken).toBe(chainOneToken);
+
+            const stale = await reportDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                dispatchToken: buildDispatchToken(run.runKey, 4),
+                attempt: 4,
+                operation: 'result',
+                outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_stale_chain', reason: null },
+                now: NOW,
+            });
+
+            expect(stale.status).toBe('refused');
+
+            // The replay the derivation makes possible: chain 1's spent token, which
+            // chain 2's live reservation now carries byte for byte.
+            const replay = await reportDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                dispatchToken: chainOneToken,
+                attempt: 1,
+                operation: 'result',
+                outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_wrong_chain', reason: null },
+                now: NOW,
+            });
+
+            expect(replay.status).toBe('refused');
+            expect(replay.status === 'refused' ? replay.refusal.code : '').toBe(STALE_LEASE);
+            const stored = await readRun(run.correlationId);
+            expect(stored.state).toBe('starting');
+            expect(stored.session).toBeNull();
+            expect(stored.reservation?.dispatchToken).toBe(reserved.dispatchToken);
+        }
     });
 });
 
 describe('T-042 a token the attempt history closed never authorizes a report (FR-020, FR-028, AC-110)', () => {
-    it('re-mints byte-identical bytes across a dead-letter reset, so history is the only guard', async () => {
-        // The reproduction the audit ran, asserted as a fact about the
-        // derivation rather than as a bug report: FR-020 pins the token to
-        // sha256(runKey|attempt) and FR-033's reset returns the run to attempt 1,
-        // so the collision is structural. Contract §9's "two attempts of one run
-        // mint two different tokens" holds *within* a chain and is false across a
-        // reset — which is exactly why T-044 corrects it and this suite fences it.
-        const permutation = await crashPermutation(80);
+    it('re-mints byte-identical bytes across a dead-letter r… (+3 cases)', async () => {
+        // case: re-mints byte-identical bytes across a dead-letter reset, so history is the only guard
+        {
+            // The reproduction the audit ran, asserted as a fact about the
+            // derivation rather than as a bug report: FR-020 pins the token to
+            // sha256(runKey|attempt) and FR-033's reset returns the run to attempt 1,
+            // so the collision is structural. Contract §9's "two attempts of one run
+            // mint two different tokens" holds *within* a chain and is false across a
+            // reset — which is exactly why T-044 corrects it and this suite fences it.
+            const permutation = await crashPermutation(80);
 
-        expect(permutation.chainTwoToken).toBe(permutation.chainOneToken);
-        expect(permutation.chainOneToken).toBe(buildDispatchToken(permutation.runKey, 1));
-    });
-
-    it('refuses the audit\u2019s crash permutation, from the first reserve to the replayed report', async () => {
-        const permutation = await crashPermutation(81);
-        const before = await readRun(permutation.correlationId);
-        expect(before.state).toBe(STARTING);
-
-        const replay = await reportDispatch({
-            store,
-            log: LOGGER,
-            correlationId: permutation.correlationId,
-            dispatchToken: permutation.chainOneToken,
-            attempt: 1,
-            operation: 'result',
-            outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_late', reason: null },
-            now: NOW,
-        });
-
-        expect(replay.status).toBe('refused');
-        expect(replay.status === 'refused' ? replay.refusal.code : '').toBe(STALE_LEASE);
-        // The whole point: chain 2's honest session is not displaced, and no
-        // session exists for this run at all (FR-025, FR-028, AC-110, NFR-102).
-        const stored = await readRun(permutation.correlationId);
-        expect(stored.state).toBe(STARTING);
-        expect(stored.session).toBeNull();
-        expect(stored.attempt).toBe(1);
-        expect(stored.reservation?.consumed).toBe(false);
-        expect(stored.reservation?.dispatchToken).toBe(permutation.chainTwoToken);
-
-        const refusals = await rowsOf(REFUSED_ROW);
-        expect(refusals).toHaveLength(1);
-        expect(refusals[0]).toMatchObject({ operation: 'result', code: STALE_LEASE, attempt: 1 });
-    });
-
-    it('never applies a report whose token an earlier attempt record already closed', async () => {
-        // The standing assertion the auditor asked for, stated generally: walk
-        // every record *outside the live reservation's own* that the history
-        // already closed and replay its token. Each one must be refused, whatever
-        // the live reservation happens to say. The reservation's record is
-        // governed by `reservation.consumed` instead — which is what keeps the
-        // sweep's `unconfirmed` wedge reconcilable (AC-111, asserted separately
-        // in the authorize suite).
-        const permutation = await crashPermutation(82);
-        const stored = await readRun(permutation.correlationId);
-        // Resolved independently of the implementation's own helper: the record
-        // the live reservation stands on is the *last* one for the current attempt.
-        let liveIndex = -1;
-        for (const [index, record] of stored.attempts.entries()) {
-            if (record.attempt === stored.attempt) {
-                liveIndex = index;
-            }
+            expect(permutation.chainTwoToken).toBe(permutation.chainOneToken);
+            expect(permutation.chainOneToken).toBe(buildDispatchToken(permutation.runKey, 1));
         }
-        const closed = stored.attempts.filter((record, index) => index !== liveIndex
-            && record.dispatchToken !== null
-            && (record.resultReportedAt !== null || record.outcome !== null));
-        expect(closed.length).toBeGreaterThan(0);
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses the audit\u2019s crash permutation, from the first reserve to the replayed report
+        {
+            const permutation = await crashPermutation(81);
+            const before = await readRun(permutation.correlationId);
+            expect(before.state).toBe(STARTING);
 
-        for (const record of closed) {
             const replay = await reportDispatch({
                 store,
                 log: LOGGER,
                 correlationId: permutation.correlationId,
-                dispatchToken: record.dispatchToken ?? '',
-                attempt: record.attempt,
+                dispatchToken: permutation.chainOneToken,
+                attempt: 1,
                 operation: 'result',
-                outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_replay', reason: null },
+                outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_late', reason: null },
                 now: NOW,
             });
 
-            expect(replay.status, `attempt ${record.attempt}'s closed token was applied`).toBe('refused');
+            expect(replay.status).toBe('refused');
             expect(replay.status === 'refused' ? replay.refusal.code : '').toBe(STALE_LEASE);
+            // The whole point: chain 2's honest session is not displaced, and no
+            // session exists for this run at all (FR-025, FR-028, AC-110, NFR-102).
+            const stored = await readRun(permutation.correlationId);
+            expect(stored.state).toBe(STARTING);
+            expect(stored.session).toBeNull();
+            expect(stored.attempt).toBe(1);
+            expect(stored.reservation?.consumed).toBe(false);
+            expect(stored.reservation?.dispatchToken).toBe(permutation.chainTwoToken);
+
+            const refusals = await rowsOf(REFUSED_ROW);
+            expect(refusals).toHaveLength(1);
+            expect(refusals[0]).toMatchObject({ operation: 'result', code: STALE_LEASE, attempt: 1 });
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never applies a report whose token an earlier attempt record already closed
+        {
+            // The standing assertion the auditor asked for, stated generally: walk
+            // every record *outside the live reservation's own* that the history
+            // already closed and replay its token. Each one must be refused, whatever
+            // the live reservation happens to say. The reservation's record is
+            // governed by `reservation.consumed` instead — which is what keeps the
+            // sweep's `unconfirmed` wedge reconcilable (AC-111, asserted separately
+            // in the authorize suite).
+            const permutation = await crashPermutation(82);
+            const stored = await readRun(permutation.correlationId);
+            // Resolved independently of the implementation's own helper: the record
+            // the live reservation stands on is the *last* one for the current attempt.
+            let liveIndex = -1;
+            for (const [index, record] of stored.attempts.entries()) {
+                if (record.attempt === stored.attempt) {
+                    liveIndex = index;
+                }
+            }
+            const closed = stored.attempts.filter((record, index) => index !== liveIndex
+                && record.dispatchToken !== null
+                && (record.resultReportedAt !== null || record.outcome !== null));
+            expect(closed.length).toBeGreaterThan(0);
 
-        const after = await readRun(permutation.correlationId);
-        expect(after.session).toBeNull();
-        expect(after.state).toBe(STARTING);
-    });
+            for (const record of closed) {
+                const replay = await reportDispatch({
+                    store,
+                    log: LOGGER,
+                    correlationId: permutation.correlationId,
+                    dispatchToken: record.dispatchToken ?? '',
+                    attempt: record.attempt,
+                    operation: 'result',
+                    outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_replay', reason: null },
+                    now: NOW,
+                });
 
-    it('still authorizes a reserve after the reset, so the dead-letter path cannot dead-end', async () => {
-        // The other half of the ruling: the spend check reads history only where
-        // a *report* is being judged. Reserve consults no history, so an operator
-        // returning a run to waiting can always obtain a fresh authorization and
-        // the run is recoverable rather than wedged by its own past.
-        const run = await seedRun({ issueNumber: 83, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
-        await recordEarlierChain(run);
-        await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
-        const leaseId = await claimLeaseOf(run.correlationId, 'panel-recoverable');
+                expect(replay.status, `attempt ${record.attempt}'s closed token was applied`).toBe('refused');
+                expect(replay.status === 'refused' ? replay.refusal.code : '').toBe(STALE_LEASE);
+            }
 
-        const reserved = await reserveDispatch({
-            store, log: LOGGER, correlationId: run.correlationId, leaseId, attempt: 1, now: NOW,
-        });
+            const after = await readRun(permutation.correlationId);
+            expect(after.session).toBeNull();
+            expect(after.state).toBe(STARTING);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: still authorizes a reserve after the reset, so the dead-letter path cannot dead-end
+        {
+            // The other half of the ruling: the spend check reads history only where
+            // a *report* is being judged. Reserve consults no history, so an operator
+            // returning a run to waiting can always obtain a fresh authorization and
+            // the run is recoverable rather than wedged by its own past.
+            const run = await seedRun({ issueNumber: 83, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
+            await recordEarlierChain(run);
+            await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
+            const leaseId = await claimLeaseOf(run.correlationId, 'panel-recoverable');
 
-        expect(reserved.status).toBe('applied');
+            const reserved = await reserveDispatch({
+                store, log: LOGGER, correlationId: run.correlationId, leaseId, attempt: 1, now: NOW,
+            });
+
+            expect(reserved.status).toBe('applied');
+        }
     });
 });
 

@@ -38,57 +38,60 @@ function runSelfTest(): SelfTestReport {
 }
 
 describe('the visual capture tooling stays wired up', () => {
-    it('proves its PNG codec against a file it encoded itself', () => {
-        const report = runSelfTest();
-        const failed = report.checks.filter((check) => !check.ok).map((check) => check.name);
+    it('proves its PNG codec against a file it encoded itsel… (+5 cases)', () => {
+        // case: proves its PNG codec against a file it encoded itself
+        {
+            const report = runSelfTest();
+            const failed = report.checks.filter((check) => !check.ok).map((check) => check.name);
 
-        expect(failed).toEqual([]);
-        expect(report.ok).toBe(true);
-        expect(report.checks.length).toBeGreaterThan(2);
-    });
+            expect(failed).toEqual([]);
+            expect(report.ok).toBe(true);
+            expect(report.checks.length).toBeGreaterThan(2);
+        }
+        // case: is reachable in one command
+        {
+            const manifest = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')) as ScriptsBlock;
 
-    it('is reachable in one command', () => {
-        const manifest = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')) as ScriptsBlock;
+            expect(manifest.scripts.shot).toBe('node tools/visual/shot.js');
+        }
+        // case: keeps captures out of the repository
+        {
+            const ignore = readFileSync(resolve(ROOT, '.gitignore'), 'utf8');
 
-        expect(manifest.scripts.shot).toBe('node tools/visual/shot.js');
-    });
+            expect(ignore).toContain('screenshots/');
+            expect(ignore).toContain('tools/visual/*.png');
+            expect(ignore).toContain('/panel-*.png');
+        }
+        // case: defaults captures to the repo-root screenshots folder
+        {
+            const tool = readFileSync(resolve(ROOT, 'tools/visual/shot.js'), 'utf8');
 
-    it('keeps captures out of the repository', () => {
-        const ignore = readFileSync(resolve(ROOT, '.gitignore'), 'utf8');
+            expect(tool).toContain("'screenshots'");
+            expect(tool).not.toContain('/tmp/opencode');
+        }
+        // case: sizes its frames to the width the host really gives a rail panel
+        {
+            const tool = readFileSync(resolve(ROOT, 'tools/visual/shot.js'), 'utf8');
 
-        expect(ignore).toContain('screenshots/');
-        expect(ignore).toContain('tools/visual/*.png');
-        expect(ignore).toContain('/panel-*.png');
-    });
+            // 0.45 × content region, clamped to [320, region − 400]: ≈500–715px
+            // on a 1440–1920 desktop. See DEFAULT_WIDTH's evidence block.
+            expect(tool).toContain('const DEFAULT_WIDTH = 720;');
+            expect(tool).toContain('const NARROW_WIDTH = 560;');
+            // Every tab keeps a second frame at the tight end of that band.
+            expect(tool).toMatch(/panel-\$\{tab\.id\}-narrow/);
+            expect(tool).not.toContain('VIEWPORT_WIDTH');
+        }
+        // case: is documented for the agent that comes next
+        {
+            const agents = readFileSync(resolve(ROOT, 'AGENTS.md'), 'utf8');
 
-    it('defaults captures to the repo-root screenshots folder', () => {
-        const tool = readFileSync(resolve(ROOT, 'tools/visual/shot.js'), 'utf8');
-
-        expect(tool).toContain("'screenshots'");
-        expect(tool).not.toContain('/tmp/opencode');
-    });
-
-    it('sizes its frames to the width the host really gives a rail panel', () => {
-        const tool = readFileSync(resolve(ROOT, 'tools/visual/shot.js'), 'utf8');
-
-        // 0.45 × content region, clamped to [320, region − 400]: ≈500–715px
-        // on a 1440–1920 desktop. See DEFAULT_WIDTH's evidence block.
-        expect(tool).toContain('const DEFAULT_WIDTH = 720;');
-        expect(tool).toContain('const NARROW_WIDTH = 560;');
-        // Every tab keeps a second frame at the tight end of that band.
-        expect(tool).toMatch(/panel-\$\{tab\.id\}-narrow/);
-        expect(tool).not.toContain('VIEWPORT_WIDTH');
-    });
-
-    it('is documented for the agent that comes next', () => {
-        const agents = readFileSync(resolve(ROOT, 'AGENTS.md'), 'utf8');
-
-        expect(agents).toContain('tools/visual/');
-        expect(agents).toContain('screenshots/');
-        expect(agents).not.toContain('/tmp/opencode');
-        // The narrow rail widths, not the desktop width the old text pinned.
-        expect(agents).toContain('720px');
-        expect(agents).toContain('560px');
-        expect(agents).not.toContain('1400px');
+            expect(agents).toContain('tools/visual/');
+            expect(agents).toContain('screenshots/');
+            expect(agents).not.toContain('/tmp/opencode');
+            // The narrow rail widths, not the desktop width the old text pinned.
+            expect(agents).toContain('720px');
+            expect(agents).toContain('560px');
+            expect(agents).not.toContain('1400px');
+        }
     });
 });

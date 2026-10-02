@@ -204,180 +204,192 @@ function regionOf(root: FakeElement): FakeElement | undefined {
 }
 
 describe('mountTabShell (the six-tab shell, 005 FR-010)', () => {
-    it('mounts six tabs in FR-010 order with Status active (AC-101)', () => {
-        const { rt, root, counts } = mountShell();
+    it('mounts six tabs in FR-010 order with Status active (… (+2 cases)', () => {
+        // case: mounts six tabs in FR-010 order with Status active (AC-101)
+        {
+            const { rt, root, counts } = mountShell();
 
-        expect(strip.labels).toEqual(LABELS);
-        expect(strip.buttons).toHaveLength(6);
-        expect(rt.activeTab).toBe('status');
-        expect(bodyOf(root, 'status')?.hidden).toBe(false);
-        for (const id of TAB_IDS.filter((tab) => tab !== 'status')) {
-            expect(bodyOf(root, id)?.hidden).toBe(true);
+            expect(strip.labels).toEqual(LABELS);
+            expect(strip.buttons).toHaveLength(6);
+            expect(rt.activeTab).toBe('status');
+            expect(bodyOf(root, 'status')?.hidden).toBe(false);
+            for (const id of TAB_IDS.filter((tab) => tab !== 'status')) {
+                expect(bodyOf(root, id)?.hidden).toBe(true);
+            }
+
+            // Status is active, so its body mounted on the first paint (FR-013).
+            expect(counts.get('status')?.mounts).toBe(1);
         }
+        // case: puts the strip before the bodies, so every body follows it (FR-082)
+        {
+            const { root } = mountShell();
 
-        // Status is active, so its body mounted on the first paint (FR-013).
-        expect(counts.get('status')?.mounts).toBe(1);
-    });
+            expect(root.children[0]?.attribute('role')).toBe('tablist');
+            const region = root.children[1];
+            expect(region?.children[0]?.attribute('data-body')).toBe('status');
+        }
+        // case: gives exactly one tab the roving slot (FR-016)
+        {
+            mountShell();
 
-    it('puts the strip before the bodies, so every body follows it (FR-082)', () => {
-        const { root } = mountShell();
-
-        expect(root.children[0]?.attribute('role')).toBe('tablist');
-        const region = root.children[1];
-        expect(region?.children[0]?.attribute('data-body')).toBe('status');
-    });
-
-    it('gives exactly one tab the roving slot (FR-016)', () => {
-        mountShell();
-
-        const roving = strip.buttons.map((button) => button.tabIndex);
-        expect(roving.filter((index) => index === 0)).toHaveLength(1);
-        expect(roving[0]).toBe(0);
-        expect(roving.slice(1).every((index) => index === -1)).toBe(true);
+            const roving = strip.buttons.map((button) => button.tabIndex);
+            expect(roving.filter((index) => index === 0)).toHaveLength(1);
+            expect(roving[0]).toBe(0);
+            expect(roving.slice(1).every((index) => index === -1)).toBe(true);
+        }
     });
 });
 
 describe('the strip holds its layout while content scrolls (005 FR-082)', () => {
-    it('makes the body region the panel’s only scroller', () => {
-        const { root } = mountShell();
-        const region = regionOf(root);
+    it('makes the body region the panel’s only scroller (+2 cases)', () => {
+        // case: makes the body region the panel’s only scroller
+        {
+            const { root } = mountShell();
+            const region = regionOf(root);
 
-        expect(region).toBeDefined();
-        // Grow into the space the strip and banners leave, shrink before the
-        // page does, and scroll inside that box: the three properties a
-        // flex child needs to be the thing that moves instead of its siblings.
-        expect(region?.style.flex).toBe('1 1 auto');
-        expect(region?.style.minHeight).toBe('0');
-        expect(region?.style.overflowY).toBe('auto');
-    });
+            expect(region).toBeDefined();
+            // Grow into the space the strip and banners leave, shrink before the
+            // page does, and scroll inside that box: the three properties a
+            // flex child needs to be the thing that moves instead of its siblings.
+            expect(region?.style.flex).toBe('1 1 auto');
+            expect(region?.style.minHeight).toBe('0');
+            expect(region?.style.overflowY).toBe('auto');
+        }
+        // case: keeps the strip outside the region, so tall bodies scroll under it
+        {
+            const { root } = mountShell();
+            const region = regionOf(root);
+            const stripElement = root.children[0];
 
-    it('keeps the strip outside the region, so tall bodies scroll under it', () => {
-        const { root } = mountShell();
-        const region = regionOf(root);
-        const stripElement = root.children[0];
+            expect(stripElement?.attribute('role')).toBe('tablist');
+            expect(region).toBeDefined();
+            // The strip is a sibling *before* the scroller, never a child of it:
+            // a strip inside the scrolling box would scroll away with the content.
+            const stripIndex = root.children.indexOf(stripElement ?? root);
+            const regionIndex = root.children.indexOf(region ?? root);
+            expect(stripIndex).toBe(0);
+            expect(regionIndex).toBeGreaterThan(stripIndex);
+        }
+        // case: lets no root child but the region give up height (panel/index.html)
+        {
+            const html = readFileSync(resolve(import.meta.dirname, '../panel/index.html'), 'utf8');
 
-        expect(stripElement?.attribute('role')).toBe('tablist');
-        expect(region).toBeDefined();
-        // The strip is a sibling *before* the scroller, never a child of it:
-        // a strip inside the scrolling box would scroll away with the content.
-        const stripIndex = root.children.indexOf(stripElement ?? root);
-        const regionIndex = root.children.indexOf(region ?? root);
-        expect(stripIndex).toBe(0);
-        expect(regionIndex).toBeGreaterThan(stripIndex);
-    });
-
-    it('lets no root child but the region give up height (panel/index.html)', () => {
-        const html = readFileSync(resolve(import.meta.dirname, '../panel/index.html'), 'utf8');
-
-        // The stylesheet half of the contract: the shell only ever styles the
-        // region, so every other child — notice, banners, strip — has to be
-        // told here not to shrink. Without it a tall body squeezes the strip.
-        expect(html).toMatch(/#root > \* \{\s*flex-shrink: 0;\s*\}/);
-        expect(html).toMatch(/#root \{[^}]*display: flex;/);
-        expect(html).toMatch(/#root \{[^}]*flex-direction: column;/);
+            // The stylesheet half of the contract: the shell only ever styles the
+            // region, so every other child — notice, banners, strip — has to be
+            // told here not to shrink. Without it a tall body squeezes the strip.
+            expect(html).toMatch(/#root > \* \{\s*flex-shrink: 0;\s*\}/);
+            expect(html).toMatch(/#root \{[^}]*display: flex;/);
+            expect(html).toMatch(/#root \{[^}]*flex-direction: column;/);
+        }
     });
 });
 
 describe('mountTabShell activation (005 FR-013, FR-014, FR-016)', () => {
-    it('mounts a body once and never again (FR-013)', () => {
-        const { rt, root, counts } = mountShell();
+    it('mounts a body once and never again (FR-013) (+5 cases)', () => {
+        // case: mounts a body once and never again (FR-013)
+        {
+            const { rt, root, counts } = mountShell();
 
-        rt.shell?.activate('bindings');
-        rt.shell?.activate('bindings');
-        rt.shell?.activate('status');
-        rt.shell?.activate('bindings');
+            rt.shell?.activate('bindings');
+            rt.shell?.activate('bindings');
+            rt.shell?.activate('status');
+            rt.shell?.activate('bindings');
 
-        expect(counts.get('bindings')?.mounts).toBe(1);
-        expect(bodyOf(root, 'bindings')?.hidden).toBe(false);
-        expect(bodyOf(root, 'status')?.hidden).toBe(true);
-    });
-
-    it('treats activating the shown tab as a no-op with no repaint (FR-014)', () => {
-        const { rt } = mountShell();
-        const { updates } = strip;
-
-        rt.shell?.activate('status');
-
-        expect(strip.updates).toBe(updates);
-        expect(rt.activeTab).toBe('status');
-    });
-
-    it('reaches every one of the six tabs exactly once', () => {
-        const { rt, counts } = mountShell();
-
-        for (const id of TAB_IDS) {
-            rt.shell?.activate(id);
+            expect(counts.get('bindings')?.mounts).toBe(1);
+            expect(bodyOf(root, 'bindings')?.hidden).toBe(false);
+            expect(bodyOf(root, 'status')?.hidden).toBe(true);
         }
+        // case: treats activating the shown tab as a no-op with no repaint (FR-014)
+        {
+            const { rt } = mountShell();
+            const { updates } = strip;
 
-        expect(rt.tabMounted.size).toBe(6);
-        for (const id of TAB_IDS) {
-            expect(counts.get(id)?.mounts).toBe(1);
+            rt.shell?.activate('status');
+
+            expect(strip.updates).toBe(updates);
+            expect(rt.activeTab).toBe('status');
         }
-    });
+        // case: reaches every one of the six tabs exactly once
+        {
+            const { rt, counts } = mountShell();
 
-    it('keeps the tab↔body association across two strip repaints (FR-016, FR-082)', () => {
-        const { rt, root } = mountShell();
+            for (const id of TAB_IDS) {
+                rt.shell?.activate(id);
+            }
 
-        rt.shell?.activate('bindings');
-        rt.shell?.activate('accounts');
-
-        for (const id of TAB_IDS) {
-            const tab = root.querySelector(`[role="tab"][data-id="${id}"]`);
-            const body = bodyOf(root, id);
-            expect(tab?.attribute('id')).toBe(`oc-tab-${id}`);
-            expect(body?.attribute('role')).toBe('tabpanel');
-            expect(body?.attribute('aria-labelledby')).toBe(`oc-tab-${id}`);
+            expect(rt.tabMounted.size).toBe(6);
+            for (const id of TAB_IDS) {
+                expect(counts.get(id)?.mounts).toBe(1);
+            }
         }
-        expect(strip.updates).toBe(2);
-    });
+        // case: keeps the tab↔body association across two strip repaints (FR-016, FR-082)
+        {
+            const { rt, root } = mountShell();
 
-    it('turns a strip selection change into the same activation', () => {
-        const { rt, counts } = mountShell();
+            rt.shell?.activate('bindings');
+            rt.shell?.activate('accounts');
 
-        strip.onChange?.('about');
+            for (const id of TAB_IDS) {
+                const tab = root.querySelector(`[role="tab"][data-id="${id}"]`);
+                const body = bodyOf(root, id);
+                expect(tab?.attribute('id')).toBe(`oc-tab-${id}`);
+                expect(body?.attribute('role')).toBe('tabpanel');
+                expect(body?.attribute('aria-labelledby')).toBe(`oc-tab-${id}`);
+            }
+            expect(strip.updates).toBe(2);
+        }
+        // case: turns a strip selection change into the same activation
+        {
+            const { rt, counts } = mountShell();
 
-        expect(rt.activeTab).toBe('about');
-        expect(counts.get('about')?.mounts).toBe(1);
-        expect(strip.key).toBeNull();
-    });
+            strip.onChange?.('about');
 
-    it('records a landed read without activating anything (FR-014)', () => {
-        const { rt } = mountShell();
+            expect(rt.activeTab).toBe('about');
+            expect(counts.get('about')?.mounts).toBe(1);
+            expect(strip.key).toBeNull();
+        }
+        // case: records a landed read without activating anything (FR-014)
+        {
+            const { rt } = mountShell();
 
-        rt.shell?.noteRead('status', STAMP);
+            rt.shell?.noteRead('status', STAMP);
 
-        expect(rt.tabLastRead.get('status')).toBe(STAMP);
-        expect(rt.activeTab).toBe('status');
+            expect(rt.tabLastRead.get('status')).toBe(STAMP);
+            expect(rt.activeTab).toBe('status');
+        }
     });
 });
 
 describe('mountTabShell teardown (005 FR-017, NFR-108)', () => {
-    it('disposes every mounted body in strip order and clears the registries', () => {
-        const { rt, counts, shell } = mountShell();
-        rt.shell?.activate('about');
-        rt.shell?.activate('dispatches');
-        rt.shell?.noteRead('dispatches', STAMP);
+    it('disposes every mounted body in strip order and clear… (+1 cases)', () => {
+        // case: disposes every mounted body in strip order and clears the registries
+        {
+            const { rt, counts, shell } = mountShell();
+            rt.shell?.activate('about');
+            rt.shell?.activate('dispatches');
+            rt.shell?.noteRead('dispatches', STAMP);
 
-        shell.dispose();
+            shell.dispose();
 
-        expect(counts.get('status')?.disposals).toBe(1);
-        expect(counts.get('about')?.disposals).toBe(1);
-        expect(counts.get('dispatches')?.disposals).toBe(1);
-        // Never mounted, so nothing to release — dispose is not a mount.
-        expect(counts.get('settings')?.disposals).toBe(0);
-        expect(rt.tabMounted.size).toBe(0);
-        expect(rt.tabLastRead.size).toBe(0);
-        expect(strip.disposed).toBe(true);
-        expect(rt.shell).toBeNull();
-    });
+            expect(counts.get('status')?.disposals).toBe(1);
+            expect(counts.get('about')?.disposals).toBe(1);
+            expect(counts.get('dispatches')?.disposals).toBe(1);
+            // Never mounted, so nothing to release — dispose is not a mount.
+            expect(counts.get('settings')?.disposals).toBe(0);
+            expect(rt.tabMounted.size).toBe(0);
+            expect(rt.tabLastRead.size).toBe(0);
+            expect(strip.disposed).toBe(true);
+            expect(rt.shell).toBeNull();
+        }
+        // case: removes the body region it appended
+        {
+            const { root, shell } = mountShell();
+            expect(root.children.length).toBeGreaterThan(1);
 
-    it('removes the body region it appended', () => {
-        const { root, shell } = mountShell();
-        expect(root.children.length).toBeGreaterThan(1);
+            shell.dispose();
 
-        shell.dispose();
-
-        expect(root.children).toHaveLength(0);
+            expect(root.children).toHaveLength(0);
+        }
     });
 });
 
@@ -406,22 +418,25 @@ function hiddenWrites(): readonly string[] {
 }
 
 describe('the spike surface is deleted, not hidden (005 SC-103, FR-011)', () => {
-    it('leaves no code path that hides a spike-era container', () => {
-        // The old switch wrote `section.spike.hidden` and
-        // `section.bindings.pane.hidden`; neither container exists any more,
-        // so no assignment may name one (FR-011, SC-103).
-        const retired = hiddenWrites().filter((entry) => /(section|spike|repos\b|pane)/.test(entry));
+    it('leaves no code path that hides a spike-era container (+1 cases)', () => {
+        // case: leaves no code path that hides a spike-era container
+        {
+            // The old switch wrote `section.spike.hidden` and
+            // `section.bindings.pane.hidden`; neither container exists any more,
+            // so no assignment may name one (FR-011, SC-103).
+            const retired = hiddenWrites().filter((entry) => /(section|spike|repos\b|pane)/.test(entry));
 
-        expect(retired).toEqual([]);
-    });
+            expect(retired).toEqual([]);
+        }
+        // case: hides a tab body only inside the shell
+        {
+            const offenders = hiddenWrites().filter(
+                (entry) => entry.includes('body.hidden') && !entry.startsWith('src/tabs.ts'),
+            );
 
-    it('hides a tab body only inside the shell', () => {
-        const offenders = hiddenWrites().filter(
-            (entry) => entry.includes('body.hidden') && !entry.startsWith('src/tabs.ts'),
-        );
-
-        expect(offenders).toEqual([]);
-        expect(hiddenWrites().some((entry) => entry.startsWith('src/tabs.ts'))).toBe(true);
+            expect(offenders).toEqual([]);
+            expect(hiddenWrites().some((entry) => entry.startsWith('src/tabs.ts'))).toBe(true);
+        }
     });
 });
 

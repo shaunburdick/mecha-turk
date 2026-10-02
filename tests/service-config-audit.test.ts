@@ -67,19 +67,25 @@ let dataDir = '';
 /** Services started by a case, shut down with the fixture. */
 const running: TestService[] = [];
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-config-audit-'));
     dataDir = join(tempRoot, 'store');
     await mkdir(dataDir, { recursive: true });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     for (const service of running.splice(0)) {
         await service.shutdown();
     }
 
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /** One `PUT /v1/config` answer. */
 interface PutAnswer {
@@ -153,47 +159,54 @@ function configRows(trail: readonly AuditEntry[]): readonly AuditEntry[] {
 }
 
 describe('an accepted write records exactly one applied row (006 T-015, AC-135, SC-109)', () => {
-    it('records one triple per changed field, ordered by name, with each class', async () => {
-        const service = await startService();
+    it('records one triple per changed field, ordered by nam… (+1 cases)', async () => {
+        // case: records one triple per changed field, ordered by name, with each class
+        {
+            const service = await startService();
 
-        const { status, answer } = await putConfig(service, {
-            ...DEFAULT_CONFIG,
-            intervalMs: 30_000,
-            logLevel: 'debug',
-        });
+            const { status, answer } = await putConfig(service, {
+                ...DEFAULT_CONFIG,
+                intervalMs: 30_000,
+                logLevel: 'debug',
+            });
 
-        expect(status).toBe(200);
-        expect(answer.auditWritten).toBe(true);
-        const rows = configRows(await trailOf(service));
-        expect(rows).toHaveLength(1);
-        const [row] = rows;
-        expect(row?.eventType).toBe(CONFIG_CHANGED_EVENT);
-        expect(row?.actorSource).toBe('operator');
-        expect(row?.entity).toEqual({ kind: 'service', id: 'configuration' });
-        expect(row?.decision).toBe('applied');
-        expect(row?.details.changes).toEqual([
-            { field: 'intervalMs', from: 60_000, to: 30_000 },
-            { field: 'logLevel', from: 'info', to: 'debug' },
-        ]);
-        expect(row?.details.takesEffect).toEqual({ intervalMs: 'next-cycle', logLevel: 'immediate' });
-        // Its own identifier: a configuration change belongs to no run.
-        expect(row?.correlationId).not.toMatch(RUN_ID_PATTERN);
-    });
+            expect(status).toBe(200);
+            expect(answer.auditWritten).toBe(true);
+            const rows = configRows(await trailOf(service));
+            expect(rows).toHaveLength(1);
+            const [row] = rows;
+            expect(row?.eventType).toBe(CONFIG_CHANGED_EVENT);
+            expect(row?.actorSource).toBe('operator');
+            expect(row?.entity).toEqual({ kind: 'service', id: 'configuration' });
+            expect(row?.decision).toBe('applied');
+            expect(row?.details.changes).toEqual([
+                { field: 'intervalMs', from: 60_000, to: 30_000 },
+                { field: 'logLevel', from: 'info', to: 'debug' },
+            ]);
+            expect(row?.details.takesEffect).toEqual({ intervalMs: 'next-cycle', logLevel: 'immediate' });
+            // Its own identifier: a configuration change belongs to no run.
+            expect(row?.correlationId).not.toMatch(RUN_ID_PATTERN);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: records nothing for a write that changed nothing (006 T-015, AC-127, FR-048)
+        {
+            const service = await startService();
+            const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000 };
+            const first = await putConfig(service, replacement);
+            expect(first.answer.auditWritten).toBe(true);
+            const afterFirst = await trailOf(service);
 
-    it('records nothing for a write that changed nothing (006 T-015, AC-127, FR-048)', async () => {
-        const service = await startService();
-        const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000 };
-        const first = await putConfig(service, replacement);
-        expect(first.answer.auditWritten).toBe(true);
-        const afterFirst = await trailOf(service);
+            const second = await putConfig(service, replacement);
 
-        const second = await putConfig(service, replacement);
-
-        expect(second.status).toBe(200);
-        expect(second.answer.auditWritten).toBe(true);
-        expect(second.answer.config).toEqual(replacement);
-        expect(await trailOf(service)).toEqual(afterFirst);
-        expect(configRows(await trailOf(service))).toHaveLength(1);
+            expect(second.status).toBe(200);
+            expect(second.answer.auditWritten).toBe(true);
+            expect(second.answer.config).toEqual(replacement);
+            expect(await trailOf(service)).toEqual(afterFirst);
+            expect(configRows(await trailOf(service))).toHaveLength(1);
+        }
     });
 });
 

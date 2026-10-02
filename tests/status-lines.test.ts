@@ -74,44 +74,47 @@ function statusFixture(slot: {
 }
 
 describe('bindingRows (scan status on the binding rows, FIX 2b)', () => {
-    it('names the skip reason when the binding has never completed a scan', () => {
-        const rt = createTestRuntime(fakeHost());
-        rt.state.bindings.bindings = [bindingFixture()];
-        rt.state.bindings.statusRows = [statusFixture({ lastScanAt: null, lastError: 'auth-failed' })];
+    it('names the skip reason when the binding has never com… (+3 cases)', () => {
+        // case: names the skip reason when the binding has never completed a scan
+        {
+            const rt = createTestRuntime(fakeHost());
+            rt.state.bindings.bindings = [bindingFixture()];
+            rt.state.bindings.statusRows = [statusFixture({ lastScanAt: null, lastError: 'auth-failed' })];
 
-        const [row] = bindingRows(rt.state.bindings);
+            const [row] = bindingRows(rt.state.bindings);
 
-        expect(row?.subtitle).toContain(`polled as ${ACCOUNT_LOGIN}`);
-        expect(row?.leading).toBe('on');
-        expect(row?.meta).toBe('0');
-    });
+            expect(row?.subtitle).toContain(`polled as ${ACCOUNT_LOGIN}`);
+            expect(row?.leading).toBe('on');
+            expect(row?.meta).toBe('0');
+        }
+        // case: shows how long ago the last scan ran, and that it was clean
+        {
+            const rt = createTestRuntime(fakeHost());
+            rt.state.bindings.bindings = [bindingFixture()];
+            rt.state.bindings.statusRows = [statusFixture({ lastScanAt: minutesAgo(2), lastError: null })];
 
-    it('shows how long ago the last scan ran, and that it was clean', () => {
-        const rt = createTestRuntime(fakeHost());
-        rt.state.bindings.bindings = [bindingFixture()];
-        rt.state.bindings.statusRows = [statusFixture({ lastScanAt: minutesAgo(2), lastError: null })];
+            const [row] = bindingRows(rt.state.bindings);
 
-        const [row] = bindingRows(rt.state.bindings);
+            expect(row?.subtitle).toContain('scan: 2m ago · ok');
+        }
+        // case: carries the reason next to the stamp when a scan skipped after a success
+        {
+            const rt = createTestRuntime(fakeHost());
+            rt.state.bindings.bindings = [bindingFixture()];
+            rt.state.bindings.statusRows = [statusFixture({ lastScanAt: minutesAgo(30), lastError: 'auth-failed' })];
 
-        expect(row?.subtitle).toContain('scan: 2m ago · ok');
-    });
+            const [row] = bindingRows(rt.state.bindings);
 
-    it('carries the reason next to the stamp when a scan skipped after a success', () => {
-        const rt = createTestRuntime(fakeHost());
-        rt.state.bindings.bindings = [bindingFixture()];
-        rt.state.bindings.statusRows = [statusFixture({ lastScanAt: minutesAgo(30), lastError: 'auth-failed' })];
+            expect(row?.subtitle).toContain('scan: 30m ago · auth-failed');
+        }
+        // case: says the binding has not been scanned while no status row exists
+        {
+            const rt = createTestRuntime(fakeHost());
+            rt.state.bindings.bindings = [bindingFixture()];
 
-        const [row] = bindingRows(rt.state.bindings);
+            const [row] = bindingRows(rt.state.bindings);
 
-        expect(row?.subtitle).toContain('scan: 30m ago · auth-failed');
-    });
-
-    it('says the binding has not been scanned while no status row exists', () => {
-        const rt = createTestRuntime(fakeHost());
-        rt.state.bindings.bindings = [bindingFixture()];
-
-        const [row] = bindingRows(rt.state.bindings);
-
-        expect(row?.meta).toBe('0');
+            expect(row?.meta).toBe('0');
+        }
     });
 });

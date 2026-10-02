@@ -176,97 +176,106 @@ describe('handlePagehide', () => {
 });
 
 describe('applySettings', () => {
-    it('records the snapshot and waits for a binding when none is active', () => {
-        const runtime = createTestRuntime(fakeHost());
+    it('records the snapshot and waits for a binding when no… (+2 cases)', () => {
+        // case: records the snapshot and waits for a binding when none is active
+        {
+            const runtime = createTestRuntime(fakeHost());
 
-        applySettings(runtime, settingsOf());
+            applySettings(runtime, settingsOf());
 
-        // 002 FR-041: the card declares zero settings, so the snapshot is a
-        // readiness marker and never a configuration source.
-        expect(runtime.state.settings).toEqual({});
-        expect(runtime.state.config).toBeNull();
-        expect(runtime.state.status.tone).toBe('info');
-        expect(runtime.state.status.title).toBe(WAITING_FOR_BINDING);
-    });
+            // 002 FR-041: the card declares zero settings, so the snapshot is a
+            // readiness marker and never a configuration source.
+            expect(runtime.state.settings).toEqual({});
+            expect(runtime.state.config).toBeNull();
+            expect(runtime.state.status.tone).toBe('info');
+            expect(runtime.state.status.title).toBe(WAITING_FOR_BINDING);
+        }
+        // case: takes no configuration from a record that still carries the card ids
+        {
+            const runtime = createTestRuntime(fakeHost());
+            const cardShaped = settingsOf([
+                ['repository', REPOSITORY],
+                ['project-id', PROJECT_ID],
+                ['worktree-option', 'generated'],
+                ['poll-interval-ms', '45000'],
+                ['expected-login', LOGIN],
+                ['expected-agent', 'planner'],
+            ]);
 
-    it('takes no configuration from a record that still carries the card ids', () => {
-        const runtime = createTestRuntime(fakeHost());
-        const cardShaped = settingsOf([
-            ['repository', REPOSITORY],
-            ['project-id', PROJECT_ID],
-            ['worktree-option', 'generated'],
-            ['poll-interval-ms', '45000'],
-            ['expected-login', LOGIN],
-            ['expected-agent', 'planner'],
-        ]);
+            applySettings(runtime, cardShaped);
 
-        applySettings(runtime, cardShaped);
+            expect(runtime.state.config).toBeNull();
+            expect(runtime.state.status.title).toBe(WAITING_FOR_BINDING);
+        }
+        // case: does not block while a binding is active
+        {
+            const runtime = createTestRuntime(fakeHost());
+            runtime.state.bindings.bindings = [activeBinding()];
+            runtime.state.bindingsActive = 1;
 
-        expect(runtime.state.config).toBeNull();
-        expect(runtime.state.status.title).toBe(WAITING_FOR_BINDING);
-    });
+            // No `repository` setting at all: the retired legacy parse would have
+            // refused with "repository must be owner/name…", but the binding is
+            // authoritative and always was.
+            applySettings(runtime, settingsOf([['project-id', PROJECT_ID]]));
 
-    it('does not block while a binding is active', () => {
-        const runtime = createTestRuntime(fakeHost());
-        runtime.state.bindings.bindings = [activeBinding()];
-        runtime.state.bindingsActive = 1;
-
-        // No `repository` setting at all: the retired legacy parse would have
-        // refused with "repository must be owner/name…", but the binding is
-        // authoritative and always was.
-        applySettings(runtime, settingsOf([['project-id', PROJECT_ID]]));
-
-        expect(runtime.state.status.tone).toBe('info');
-        expect(runtime.state.status.body).toBe('1 binding(s) active; legacy single-repo settings ignored');
-        expect(runtime.state.config).not.toBeNull();
-        expect(runtime.state.config?.repository).toEqual({ owner: 'acme', name: 'widget' });
-        expect(runtime.state.config?.projectId).toBe(PROJECT_ID);
-        expect(runtime.state.config?.worktree).toEqual({ kind: 'generated' });
+            expect(runtime.state.status.tone).toBe('info');
+            expect(runtime.state.status.body).toBe('1 binding(s) active; legacy single-repo settings ignored');
+            expect(runtime.state.config).not.toBeNull();
+            expect(runtime.state.config?.repository).toEqual({ owner: 'acme', name: 'widget' });
+            expect(runtime.state.config?.projectId).toBe(PROJECT_ID);
+            expect(runtime.state.config?.worktree).toEqual({ kind: 'generated' });
+        }
     });
 });
 
 describe('the install-time GitHub card is retired, not dormant (owner order 2026-09-30)', () => {
-    it('keeps the retired card, poll, and connection machinery unreachable from panel source', () => {
-        expect(retiredSpikeCallers()).toEqual([]);
-    });
+    it('keeps the retired card, poll, and connection machine… (+1 cases)', async () => {
+        // case: keeps the retired card, poll, and connection machinery unreachable from panel source
+        {
+            expect(retiredSpikeCallers()).toEqual([]);
+        }
+        // case: arms the relay from the bindings read, which needs no connection event
+        {
+            const runtime = createTestRuntime(fakeHost());
+            runtime.state.bindings.bindings = [activeBinding()];
+            runtime.state.bindings.status = 'ready';
 
-    it('arms the relay from the bindings read, which needs no connection event', async () => {
-        const runtime = createTestRuntime(fakeHost());
-        runtime.state.bindings.bindings = [activeBinding()];
-        runtime.state.bindings.status = 'ready';
+            await loadInitialBindings(runtime);
+            await tick();
 
-        await loadInitialBindings(runtime);
-        await tick();
-
-        expect(runtime.relayArmed).toBe(true);
-        expect(runtime.state.relay.timer).not.toBeNull();
+            expect(runtime.relayArmed).toBe(true);
+            expect(runtime.state.relay.timer).not.toBeNull();
+        }
     });
 });
 
 describe('loadLedger on remount', () => {
-    it('restores the stored evidence record so a reopened panel can dispatch', async () => {
-        const evidence = serializeEvidence(testEvidence());
-        const storage = createStorageDouble({ [EVIDENCE_STORAGE_KEY]: parseJsonValue(evidence) });
-        const runtime = createTestRuntime(fakeHost({ storage: storage.storage }));
-        expect(runtime.state.evidence).toBeNull();
+    it('restores the stored evidence record so a reopened pa… (+1 cases)', async () => {
+        // case: restores the stored evidence record so a reopened panel can dispatch
+        {
+            const evidence = serializeEvidence(testEvidence());
+            const storage = createStorageDouble({ [EVIDENCE_STORAGE_KEY]: parseJsonValue(evidence) });
+            const runtime = createTestRuntime(fakeHost({ storage: storage.storage }));
+            expect(runtime.state.evidence).toBeNull();
 
-        await loadLedger(runtime, FIXTURE_TIMESTAMP);
+            await loadLedger(runtime, FIXTURE_TIMESTAMP);
 
-        expect(runtime.state.evidence).toEqual(testEvidence());
-        expect(runtime.state.ledger.panelGeneration).toBe(1);
-        expect(runtime.state.ledger.entries.at(-1)?.phase).toBe('mounted');
-        expect(storage.values.has(LEDGER_STORAGE_KEY)).toBe(true);
-    });
+            expect(runtime.state.evidence).toEqual(testEvidence());
+            expect(runtime.state.ledger.panelGeneration).toBe(1);
+            expect(runtime.state.ledger.entries.at(-1)?.phase).toBe('mounted');
+            expect(storage.values.has(LEDGER_STORAGE_KEY)).toBe(true);
+        }
+        // case: refuses a stored evidence record that does not match the contract
+        {
+            const broken: JsonValue = { schemaVersion: 'extension-spike-1', repository: 42 };
+            const storage = createStorageDouble({ [EVIDENCE_STORAGE_KEY]: broken });
+            const runtime = createTestRuntime(fakeHost({ storage: storage.storage }));
 
-    it('refuses a stored evidence record that does not match the contract', async () => {
-        const broken: JsonValue = { schemaVersion: 'extension-spike-1', repository: 42 };
-        const storage = createStorageDouble({ [EVIDENCE_STORAGE_KEY]: broken });
-        const runtime = createTestRuntime(fakeHost({ storage: storage.storage }));
+            await loadLedger(runtime, FIXTURE_TIMESTAMP);
 
-        await loadLedger(runtime, FIXTURE_TIMESTAMP);
-
-        expect(runtime.state.evidence).toBeNull();
-        expect(runtime.state.ledger.entries.at(-1)?.phase).toBe('mounted');
+            expect(runtime.state.evidence).toBeNull();
+            expect(runtime.state.ledger.entries.at(-1)?.phase).toBe('mounted');
+        }
     });
 });
 
@@ -292,63 +301,66 @@ function configureWithLoadedProjects(runtime: PanelRuntime): void {
 }
 
 describe('project selection', () => {
-    it('records the restored panel selection as this mount’s choice', () => {
-        const runtime = createTestRuntime(fakeHost());
-        runtime.state.projectSelection = OTHER_ID;
+    it('records the restored panel selection as this mount’s… (+3 cases)', async () => {
+        // case: records the restored panel selection as this mount’s choice
+        {
+            const runtime = createTestRuntime(fakeHost());
+            runtime.state.projectSelection = OTHER_ID;
 
-        applySettings(runtime, settingsOf());
+            applySettings(runtime, settingsOf());
 
-        expect(runtime.state.projectSelection).toBe(OTHER_ID);
-        expect(selectedProjectId(runtime.state)).toBe(OTHER_ID);
-        // 002 FR-041: settings resolve nothing, so no config appears from one.
-        expect(runtime.state.config).toBeNull();
-    });
+            expect(runtime.state.projectSelection).toBe(OTHER_ID);
+            expect(selectedProjectId(runtime.state)).toBe(OTHER_ID);
+            // 002 FR-041: settings resolve nothing, so no config appears from one.
+            expect(runtime.state.config).toBeNull();
+        }
+        // case: adopts a pick and stores it
+        {
+            const storage = createStorageDouble();
+            const runtime = createTestRuntime(
+                fakeHost({ storage: storage.storage, listProjects: async () => TWO_PROJECTS }),
+            );
+            configureWithLoadedProjects(runtime);
 
-    it('adopts a pick and stores it', async () => {
-        const storage = createStorageDouble();
-        const runtime = createTestRuntime(
-            fakeHost({ storage: storage.storage, listProjects: async () => TWO_PROJECTS }),
-        );
-        configureWithLoadedProjects(runtime);
+            await selectProject(runtime, OTHER_ID);
 
-        await selectProject(runtime, OTHER_ID);
+            expect(runtime.state.projectSelection).toBe(OTHER_ID);
+            expect(storage.values.get(PROJECT_STORAGE_KEY)).toBe(OTHER_ID);
+        }
+        // case: refuses a pick from outside the loaded list and stores nothing
+        {
+            const storage = createStorageDouble();
+            const runtime = createTestRuntime(
+                fakeHost({ storage: storage.storage, listProjects: async () => TWO_PROJECTS }),
+            );
+            configureWithLoadedProjects(runtime);
 
-        expect(runtime.state.projectSelection).toBe(OTHER_ID);
-        expect(storage.values.get(PROJECT_STORAGE_KEY)).toBe(OTHER_ID);
-    });
+            await selectProject(runtime, 'prj_invented');
 
-    it('refuses a pick from outside the loaded list and stores nothing', async () => {
-        const storage = createStorageDouble();
-        const runtime = createTestRuntime(
-            fakeHost({ storage: storage.storage, listProjects: async () => TWO_PROJECTS }),
-        );
-        configureWithLoadedProjects(runtime);
-
-        await selectProject(runtime, 'prj_invented');
-
-        expect(runtime.state.projectSelection).toBeNull();
-        expect(storage.values.has(PROJECT_STORAGE_KEY)).toBe(false);
-        expect(runtime.state.projects.note).toContain('prj_invented');
-    });
-
-    it('keeps the pick in memory when the storage write is refused', async () => {
-        const storage = createStorageDouble();
-        const runtime = createTestRuntime(
-            fakeHost({
-                storage: {
-                    ...storage.storage,
-                    set: async () => {
-                        throw new Error('storage offline');
+            expect(runtime.state.projectSelection).toBeNull();
+            expect(storage.values.has(PROJECT_STORAGE_KEY)).toBe(false);
+            expect(runtime.state.projects.note).toContain('prj_invented');
+        }
+        // case: keeps the pick in memory when the storage write is refused
+        {
+            const storage = createStorageDouble();
+            const runtime = createTestRuntime(
+                fakeHost({
+                    storage: {
+                        ...storage.storage,
+                        set: async () => {
+                            throw new Error('storage offline');
+                        },
                     },
-                },
-                listProjects: async () => TWO_PROJECTS,
-            }),
-        );
-        configureWithLoadedProjects(runtime);
+                    listProjects: async () => TWO_PROJECTS,
+                }),
+            );
+            configureWithLoadedProjects(runtime);
 
-        await selectProject(runtime, OTHER_ID);
+            await selectProject(runtime, OTHER_ID);
 
-        expect(runtime.state.projectSelection).toBe(OTHER_ID);
+            expect(runtime.state.projectSelection).toBe(OTHER_ID);
+        }
     });
 });
 

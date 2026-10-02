@@ -295,30 +295,33 @@ function stringsIn(log: readonly MountRecord[]): readonly string[] {
 }
 
 describe('every tab is a stack of blocks with a real heading', () => {
-    it('mounts at least one heading per section, and never skips a level', async () => {
-        const { dom } = await renderSixTabs();
-        const levels = dom.created
-            .filter((node) => /^h[1-6]$/.test(node.tagName))
-            .map((node) => Number(node.tagName.slice(1)));
+    it('mounts at least one heading per section, and never s… (+2 cases)', async () => {
+        // case: mounts at least one heading per section, and never skips a level
+        {
+            const { dom } = await renderSixTabs();
+            const levels = dom.created
+                .filter((node) => /^h[1-6]$/.test(node.tagName))
+                .map((node) => Number(node.tagName.slice(1)));
 
-        expect(levels.filter((level) => level === 2).length).toBeGreaterThanOrEqual(15);
-        expect(levels.every((level) => level === 2 || level === 3)).toBe(true);
-        expect(levels).not.toContain(1);
-    });
-
-    it('hands each section heading to the SDK text path, so the scans still see it', async () => {
-        const { log } = await renderSixTabs();
-        const strings = stringsIn(log);
-
-        for (const heading of SECTION_HEADINGS) {
-            expect(strings, `${heading} never reached the SDK`).toContain(heading);
+            expect(levels.filter((level) => level === 2).length).toBeGreaterThanOrEqual(15);
+            expect(levels.every((level) => level === 2 || level === 3)).toBe(true);
+            expect(levels).not.toContain(1);
         }
-    });
+        // case: hands each section heading to the SDK text path, so the scans still see it
+        {
+            const { log } = await renderSixTabs();
+            const strings = stringsIn(log);
 
-    it('keeps the strip contract the A3 pass pinned', () => {
-        expect(PANEL_HTML).toMatch(/#root > \* \{\s*flex-shrink: 0;\s*\}/);
-        expect(PANEL_HTML).toMatch(/#root \{[^}]*display: flex;/);
-        expect(PANEL_HTML).toMatch(/#root \{[^}]*flex-direction: column;/);
+            for (const heading of SECTION_HEADINGS) {
+                expect(strings, `${heading} never reached the SDK`).toContain(heading);
+            }
+        }
+        // case: keeps the strip contract the A3 pass pinned
+        {
+            expect(PANEL_HTML).toMatch(/#root > \* \{\s*flex-shrink: 0;\s*\}/);
+            expect(PANEL_HTML).toMatch(/#root \{[^}]*display: flex;/);
+            expect(PANEL_HTML).toMatch(/#root \{[^}]*flex-direction: column;/);
+        }
     });
 });
 
@@ -375,78 +378,84 @@ describe('the Settings header is hidden over the single-column rail', () => {
         return cascadedDisplay({ rules: PANEL_RULES, element: settingsHead, media });
     }
 
-    it('reads the narrow default and the wide return as two distinct rules', () => {
-        const narrow = PANEL_RULES.filter(
-            (rule) => rule.media === null && rule.selectors.includes(SETTINGS_HEAD_SELECTOR),
-        );
-        const wide = PANEL_RULES.filter(
-            (rule) => rule.media === WIDE && rule.selectors.includes(SETTINGS_HEAD_SELECTOR),
-        );
-
-        expect(narrow, 'the unguarded narrow default').toHaveLength(1);
-        expect(wide, 'the guarded wide return').toHaveLength(1);
-        expect(mediaVariants(PANEL_RULES).some((media) => media.has(WIDE))).toBe(true);
-        expect(mediaVariants(PANEL_RULES).some((media) => !media.has(WIDE))).toBe(true);
-    });
-
-    it('gives it `none` under every reading that carries no wide return', () => {
-        for (const media of mediaVariants(PANEL_RULES)) {
-            if (media.has(WIDE)) {
-                continue;
-            }
-
-            const reading = [...media].join(', ');
-
-            expect(settingsHeadDisplay(media), `settings head at ${reading === '' ? 'the rail' : reading}`).toBe(
-                'none',
+    it('reads the narrow default and the wide return as two … (+3 cases)', () => {
+        // case: reads the narrow default and the wide return as two distinct rules
+        {
+            const narrow = PANEL_RULES.filter(
+                (rule) => rule.media === null && rule.selectors.includes(SETTINGS_HEAD_SELECTOR),
             );
-        }
-    });
+            const wide = PANEL_RULES.filter(
+                (rule) => rule.media === WIDE && rule.selectors.includes(SETTINGS_HEAD_SELECTOR),
+            );
 
-    it('gives it a grid under every reading that carries the wide return', () => {
-        for (const media of mediaVariants(PANEL_RULES)) {
-            if (!media.has(WIDE)) {
-                continue;
+            expect(narrow, 'the unguarded narrow default').toHaveLength(1);
+            expect(wide, 'the guarded wide return').toHaveLength(1);
+            expect(mediaVariants(PANEL_RULES).some((media) => media.has(WIDE))).toBe(true);
+            expect(mediaVariants(PANEL_RULES).some((media) => !media.has(WIDE))).toBe(true);
+        }
+        // case: gives it `none` under every reading that carries no wide return
+        {
+            for (const media of mediaVariants(PANEL_RULES)) {
+                if (media.has(WIDE)) {
+                    continue;
+                }
+
+                const reading = [...media].join(', ');
+
+                expect(settingsHeadDisplay(media), `settings head at ${reading === '' ? 'the rail' : reading}`).toBe(
+                    'none',
+                );
             }
-
-            expect(settingsHeadDisplay(media), `settings head at ${[...media].join(', ')}`).toBe('grid');
         }
-    });
+        // case: gives it a grid under every reading that carries the wide return
+        {
+            for (const media of mediaVariants(PANEL_RULES)) {
+                if (!media.has(WIDE)) {
+                    continue;
+                }
 
-    it('would not be hidden if the narrow default were stripped', () => {
-        const without = withoutNarrowDefault(PANEL_RULES);
+                expect(settingsHeadDisplay(media), `settings head at ${[...media].join(', ')}`).toBe('grid');
+            }
+        }
+        // case: would not be hidden if the narrow default were stripped
+        {
+            const without = withoutNarrowDefault(PANEL_RULES);
 
-        expect(without).toHaveLength(PANEL_RULES.length - 1);
-        expect(
-            cascadedDisplay({ rules: without, element: settingsHead, media: NO_MEDIA }),
-            'the header the stripped sheet would paint',
-        ).toBe('grid');
+            expect(without).toHaveLength(PANEL_RULES.length - 1);
+            expect(
+                cascadedDisplay({ rules: without, element: settingsHead, media: NO_MEDIA }),
+                'the header the stripped sheet would paint',
+            ).toBe('grid');
+        }
     });
 });
 
 describe('the Status tab renders structure instead of loose lines', () => {
-    it('renders definition rows and one card per prerequisite', async () => {
-        const { dom } = await renderSixTabs();
-        const rows = dom.created.filter(
-            (node) => node.className === 'mt-def' || node.className === 'mt-def mt-def--note',
-        );
-        const cards = dom.created.filter((node) => node.className === 'mt-card');
+    it('renders definition rows and one card per prerequisit… (+1 cases)', async () => {
+        // case: renders definition rows and one card per prerequisite
+        {
+            const { dom } = await renderSixTabs();
+            const rows = dom.created.filter(
+                (node) => node.className === 'mt-def' || node.className === 'mt-def mt-def--note',
+            );
+            const cards = dom.created.filter((node) => node.className === 'mt-card');
 
-        expect(rows.length).toBeGreaterThanOrEqual(14);
-        expect(cards).toHaveLength(5);
-    });
-
-    it('paints the three prerequisite states as toned chips carrying the state', async () => {
-        const { log } = await renderSixTabs();
-        const badges = log.filter((entry) => entry.key === 'mountBadge').map(
-            (entry) => entry.props as { readonly label?: string; readonly tone?: string },
-        );
-
-        expect(badges.length).toBeGreaterThanOrEqual(5);
-        for (const tone of ['success', 'error', 'neutral']) {
-            expect(badges.some((badge) => badge.tone === tone), `no chip carries the ${tone} tone`).toBe(true);
+            expect(rows.length).toBeGreaterThanOrEqual(14);
+            expect(cards).toHaveLength(5);
         }
+        // case: paints the three prerequisite states as toned chips carrying the state
+        {
+            const { log } = await renderSixTabs();
+            const badges = log.filter((entry) => entry.key === 'mountBadge').map(
+                (entry) => entry.props as { readonly label?: string; readonly tone?: string },
+            );
 
+            expect(badges.length).toBeGreaterThanOrEqual(5);
+            for (const tone of ['success', 'error', 'neutral']) {
+                expect(badges.some((badge) => badge.tone === tone), `no chip carries the ${tone} tone`).toBe(true);
+            }
+
+        }
     });
 });
 
@@ -511,39 +520,42 @@ describe('exactly one tab body is in the layout', () => {
         });
     }
 
-    it('parses a real stylesheet rather than a fragment of one', () => {
-        expect(rules.length).toBeGreaterThan(30);
-        expect(mediaVariants(rules).length).toBeGreaterThan(1);
-    });
+    it('parses a real stylesheet rather than a fragment of o… (+3 cases)', () => {
+        // case: parses a real stylesheet rather than a fragment of one
+        {
+            expect(rules.length).toBeGreaterThan(30);
+            expect(mediaVariants(rules).length).toBeGreaterThan(1);
+        }
+        // case: takes every hidden body out of the layout, under every media reading
+        {
+            for (const media of mediaVariants(rules)) {
+                for (const id of TAB_IDS) {
+                    const joined = [...media].join(', ');
+                    const reading = joined === '' ? 'no media' : joined;
 
-    it('takes every hidden body out of the layout, under every media reading', () => {
-        for (const media of mediaVariants(rules)) {
-            for (const id of TAB_IDS) {
-                const joined = [...media].join(', ');
-                const reading = joined === '' ? 'no media' : joined;
-
-                expect(displayOf({ id, hidden: true, media }), `${id} hidden at ${reading}`).toBe('none');
+                    expect(displayOf({ id, hidden: true, media }), `${id} hidden at ${reading}`).toBe('none');
+                }
             }
         }
-    });
-
-    it('leaves the active body in it, as the flex stack the shell needs', () => {
-        for (const media of mediaVariants(rules)) {
-            expect(displayOf({ id: 'status', hidden: false, media }), 'status shown').toBe('flex');
+        // case: leaves the active body in it, as the flex stack the shell needs
+        {
+            for (const media of mediaVariants(rules)) {
+                expect(displayOf({ id: 'status', hidden: false, media }), 'status shown').toBe('flex');
+            }
         }
-    });
+        // case: would fail against the stylesheet as it was before either rule hid a body
+        {
+            const without = withoutHidingRules(rules, HIDING_SELECTORS);
 
-    it('would fail against the stylesheet as it was before either rule hid a body', () => {
-        const without = withoutHidingRules(rules, HIDING_SELECTORS);
-
-        expect(without).toHaveLength(rules.length - HIDING_SELECTORS.length);
-        expect(
-            cascadedDisplay({
-                rules: without,
-                element: bodyProbe({ id: 'settings', hidden: true }),
-                media: NO_MEDIA,
-            }),
-        ).toBe('flex');
+            expect(without).toHaveLength(rules.length - HIDING_SELECTORS.length);
+            expect(
+                cascadedDisplay({
+                    rules: without,
+                    element: bodyProbe({ id: 'settings', hidden: true }),
+                    media: NO_MEDIA,
+                }),
+            ).toBe('flex');
+        }
     });
 });
 
@@ -620,38 +632,41 @@ function shapeProbe(shape: HiddenShape, hidden: boolean): ProbeElement {
  * from any stylesheet can reach an element the panel marked hidden.
  */
 describe('no element the panel hid is still painted', () => {
-    it('takes every hidden one out of the layout, under every media reading', () => {
-        for (const media of mediaVariants(COMBINED_RULES)) {
-            const joined = [...media].join(', ');
-            const reading = joined === '' ? 'no media' : joined;
+    it('takes every hidden one out of the layout, under ever… (+2 cases)', () => {
+        // case: takes every hidden one out of the layout, under every media reading
+        {
+            for (const media of mediaVariants(COMBINED_RULES)) {
+                const joined = [...media].join(', ');
+                const reading = joined === '' ? 'no media' : joined;
 
-            for (const shape of HIDDEN_SHAPES) {
-                expect(
-                    cascadedDisplay({ rules: COMBINED_RULES, element: shapeProbe(shape, true), media }),
-                    `${shape.name} hidden at ${reading}`,
-                ).toBe('none');
+                for (const shape of HIDDEN_SHAPES) {
+                    expect(
+                        cascadedDisplay({ rules: COMBINED_RULES, element: shapeProbe(shape, true), media }),
+                        `${shape.name} hidden at ${reading}`,
+                    ).toBe('none');
+                }
             }
         }
-    });
-
-    it('paints each of them while the panel has not marked it hidden', () => {
-        for (const shape of HIDDEN_SHAPES) {
-            expect(
-                cascadedDisplay({ rules: COMBINED_RULES, element: shapeProbe(shape, false), media: NO_MEDIA }),
-                `${shape.name} shown`,
-            ).toBe(shape.painted);
+        // case: paints each of them while the panel has not marked it hidden
+        {
+            for (const shape of HIDDEN_SHAPES) {
+                expect(
+                    cascadedDisplay({ rules: COMBINED_RULES, element: shapeProbe(shape, false), media: NO_MEDIA }),
+                    `${shape.name} shown`,
+                ).toBe(shape.painted);
+            }
         }
-    });
+        // case: would paint every one of them again if the `[hidden]` rule were stripped
+        {
+            const without = withoutHidingRules(COMBINED_RULES, ['[hidden]']);
 
-    it('would paint every one of them again if the `[hidden]` rule were stripped', () => {
-        const without = withoutHidingRules(COMBINED_RULES, ['[hidden]']);
-
-        expect(without).toHaveLength(COMBINED_RULES.length - 1);
-        for (const shape of HIDDEN_SHAPES) {
-            expect(
-                cascadedDisplay({ rules: without, element: shapeProbe(shape, true), media: NO_MEDIA }),
-                `${shape.name} without the fence`,
-            ).toBe(shape.painted);
+            expect(without).toHaveLength(COMBINED_RULES.length - 1);
+            for (const shape of HIDDEN_SHAPES) {
+                expect(
+                    cascadedDisplay({ rules: without, element: shapeProbe(shape, true), media: NO_MEDIA }),
+                    `${shape.name} without the fence`,
+                ).toBe(shape.painted);
+            }
         }
     });
 });

@@ -128,149 +128,158 @@ function verifyHost(input: {
 }
 
 describe('verifySessionAgent (documented read-back, research §R3)', () => {
-    it('subscribes before it opens the session, then releases the subscription', async () => {
-        const double = verifyHost({ onOpen: snapshot(EXPECTED_AGENT) });
+    it('subscribes before it opens the session, then release… (+5 cases)', async () => {
+        // case: subscribes before it opens the session, then releases the subscription
+        {
+            const double = verifyHost({ onOpen: snapshot(EXPECTED_AGENT) });
 
-        const result = await verifySessionAgent({
-            host: double.host,
-            sessionId: SESSION,
-            expected: EXPECTED_AGENT,
-        });
+            const result = await verifySessionAgent({
+                host: double.host,
+                sessionId: SESSION,
+                expected: EXPECTED_AGENT,
+            });
 
-        // The subscription must be registered first: `onSession` replays the
-        // host's current snapshot to a late subscriber, so a snapshot that
-        // arrived between the two calls would be missed otherwise. The
-        // trailing `unsubscribe` is the release after the read-back.
-        expect(double.calls).toEqual(['onSession', `openSession:${SESSION}`, 'unsubscribe']);
-        expect(result.status).toBe('match');
-        expect(double.unsubscribes()).toBe(1);
-    });
-
-    it('reports a match when the session agent equals the expected one', async () => {
-        const double = verifyHost({ onOpen: snapshot(EXPECTED_AGENT) });
-
-        const result = await verifySessionAgent({
-            host: double.host,
-            sessionId: SESSION,
-            expected: EXPECTED_AGENT,
-        });
-
-        expect(result).toEqual({ status: 'match', agent: EXPECTED_AGENT, expected: EXPECTED_AGENT });
-    });
-
-    it('reports a mismatch when the session runs another agent', async () => {
-        const double = verifyHost({ onOpen: snapshot('executor') });
-
-        const result = await verifySessionAgent({
-            host: double.host,
-            sessionId: SESSION,
-            expected: EXPECTED_AGENT,
-        });
-
-        expect(result).toEqual({ status: 'mismatch', agent: 'executor', expected: EXPECTED_AGENT });
-        expect(double.unsubscribes()).toBe(1);
-    });
-
-    it('reports a mismatch when the snapshot carries no agent at all', async () => {
-        const double = verifyHost({ onOpen: snapshot() });
-
-        const result = await verifySessionAgent({
-            host: double.host,
-            sessionId: SESSION,
-            expected: EXPECTED_AGENT,
-        });
-
-        expect(result).toEqual({ status: 'mismatch', agent: null, expected: EXPECTED_AGENT });
-    });
-
-    it('ignores snapshots for other sessions and times out on its own budget', async () => {
-        const otherSession: SessionSnapshot = { id: 'ses_other', title: 'elsewhere', busy: false, agent: 'nobody' };
-        const double = verifyHost({ onOpen: otherSession });
-
-        const result = await verifySessionAgent({
-            host: double.host,
-            sessionId: SESSION,
-            expected: EXPECTED_AGENT,
-            timeoutMs: TEST_TIMEOUT_MS,
-        });
-
-        expect(result).toEqual({ status: 'timeout', expected: EXPECTED_AGENT, timeoutMs: TEST_TIMEOUT_MS });
-        expect(double.unsubscribes()).toBe(1);
-    });
-
-    it('reports the session as unavailable when openSession refuses', async () => {
-        const double = verifyHost({ openError: new Error('HOST_REJECTED') });
-
-        const result = await verifySessionAgent({
-            host: double.host,
-            sessionId: SESSION,
-            expected: EXPECTED_AGENT,
-            timeoutMs: TEST_TIMEOUT_MS,
-        });
-
-        expect(result.status).toBe('unavailable');
-        if (result.status === 'unavailable') {
-            expect(result.problem).toContain('HOST_REJECTED');
-            expect(result.expected).toBe(EXPECTED_AGENT);
+            // The subscription must be registered first: `onSession` replays the
+            // host's current snapshot to a late subscriber, so a snapshot that
+            // arrived between the two calls would be missed otherwise. The
+            // trailing `unsubscribe` is the release after the read-back.
+            expect(double.calls).toEqual(['onSession', `openSession:${SESSION}`, 'unsubscribe']);
+            expect(result.status).toBe('match');
+            expect(double.unsubscribes()).toBe(1);
         }
+        // case: reports a match when the session agent equals the expected one
+        {
+            const double = verifyHost({ onOpen: snapshot(EXPECTED_AGENT) });
 
-        expect(double.unsubscribes()).toBe(1);
+            const result = await verifySessionAgent({
+                host: double.host,
+                sessionId: SESSION,
+                expected: EXPECTED_AGENT,
+            });
+
+            expect(result).toEqual({ status: 'match', agent: EXPECTED_AGENT, expected: EXPECTED_AGENT });
+        }
+        // case: reports a mismatch when the session runs another agent
+        {
+            const double = verifyHost({ onOpen: snapshot('executor') });
+
+            const result = await verifySessionAgent({
+                host: double.host,
+                sessionId: SESSION,
+                expected: EXPECTED_AGENT,
+            });
+
+            expect(result).toEqual({ status: 'mismatch', agent: 'executor', expected: EXPECTED_AGENT });
+            expect(double.unsubscribes()).toBe(1);
+        }
+        // case: reports a mismatch when the snapshot carries no agent at all
+        {
+            const double = verifyHost({ onOpen: snapshot() });
+
+            const result = await verifySessionAgent({
+                host: double.host,
+                sessionId: SESSION,
+                expected: EXPECTED_AGENT,
+            });
+
+            expect(result).toEqual({ status: 'mismatch', agent: null, expected: EXPECTED_AGENT });
+        }
+        // case: ignores snapshots for other sessions and times out on its own budget
+        {
+            const otherSession: SessionSnapshot = { id: 'ses_other', title: 'elsewhere', busy: false, agent: 'nobody' };
+            const double = verifyHost({ onOpen: otherSession });
+
+            const result = await verifySessionAgent({
+                host: double.host,
+                sessionId: SESSION,
+                expected: EXPECTED_AGENT,
+                timeoutMs: TEST_TIMEOUT_MS,
+            });
+
+            expect(result).toEqual({ status: 'timeout', expected: EXPECTED_AGENT, timeoutMs: TEST_TIMEOUT_MS });
+            expect(double.unsubscribes()).toBe(1);
+        }
+        // case: reports the session as unavailable when openSession refuses
+        {
+            const double = verifyHost({ openError: new Error('HOST_REJECTED') });
+
+            const result = await verifySessionAgent({
+                host: double.host,
+                sessionId: SESSION,
+                expected: EXPECTED_AGENT,
+                timeoutMs: TEST_TIMEOUT_MS,
+            });
+
+            expect(result.status).toBe('unavailable');
+            if (result.status === 'unavailable') {
+                expect(result.problem).toContain('HOST_REJECTED');
+                expect(result.expected).toBe(EXPECTED_AGENT);
+            }
+
+            expect(double.unsubscribes()).toBe(1);
+        }
     });
 
-    it('defaults its budget to the documented 15 seconds', () => {
-        expect(AGENT_VERIFY_TIMEOUT_MS).toBe(15_000);
-    });
+    it('defaults its budget to the documented 15 seconds (+1 cases)', async () => {
+        // case: defaults its budget to the documented 15 seconds
+        {
+            expect(AGENT_VERIFY_TIMEOUT_MS).toBe(15_000);
+        }
+        // case: bounds a host whose openSession never answers with the same budget
+        {
+            // The read-back shares the relay's dispatch slot: an unanswered
+            // context switch must cost the budget, not the whole loop.
+            const double = verifyHost({ onOpen: snapshot(EXPECTED_AGENT), hangOpen: true });
 
-    it('bounds a host whose openSession never answers with the same budget', async () => {
-        // The read-back shares the relay's dispatch slot: an unanswered
-        // context switch must cost the budget, not the whole loop.
-        const double = verifyHost({ onOpen: snapshot(EXPECTED_AGENT), hangOpen: true });
+            const result = await verifySessionAgent({
+                host: double.host,
+                sessionId: SESSION,
+                expected: EXPECTED_AGENT,
+                timeoutMs: TEST_TIMEOUT_MS,
+            });
 
-        const result = await verifySessionAgent({
-            host: double.host,
-            sessionId: SESSION,
-            expected: EXPECTED_AGENT,
-            timeoutMs: TEST_TIMEOUT_MS,
-        });
-
-        expect(result.status).toBe('timeout');
-        expect(double.unsubscribes()).toBe(1);
+            expect(result.status).toBe('timeout');
+            expect(double.unsubscribes()).toBe(1);
+        }
     });
 });
 
 describe('verificationNotice (warn-only copy)', () => {
-    it('shows a success banner for a match', () => {
-        const notice = verificationNotice({ status: 'match', agent: EXPECTED_AGENT, expected: EXPECTED_AGENT });
+    it('shows a success banner for a match (+3 cases)', () => {
+        // case: shows a success banner for a match
+        {
+            const notice = verificationNotice({ status: 'match', agent: EXPECTED_AGENT, expected: EXPECTED_AGENT });
 
-        expect(notice.tone).toBe('success');
-        expect(notice.body).toContain(EXPECTED_AGENT);
-    });
+            expect(notice.tone).toBe('success');
+            expect(notice.body).toContain(EXPECTED_AGENT);
+        }
+        // case: names the observed agent and the expectation in the mismatch warning
+        {
+            const notice = verificationNotice({ status: 'mismatch', agent: 'executor', expected: EXPECTED_AGENT });
 
-    it('names the observed agent and the expectation in the mismatch warning', () => {
-        const notice = verificationNotice({ status: 'mismatch', agent: 'executor', expected: EXPECTED_AGENT });
+            expect(notice.tone).toBe('warning');
+            expect(notice.body).toContain("session agent was 'executor'");
+            expect(notice.body).toContain(`expected '${EXPECTED_AGENT}'`);
+        }
+        // case: phrases the timeout against the real 15-second budget
+        {
+            const notice = verificationNotice({ status: 'timeout', expected: EXPECTED_AGENT, timeoutMs: 15_000 });
 
-        expect(notice.tone).toBe('warning');
-        expect(notice.body).toContain("session agent was 'executor'");
-        expect(notice.body).toContain(`expected '${EXPECTED_AGENT}'`);
-    });
+            expect(notice.tone).toBe('warning');
+            expect(notice.body).toContain('within 15s');
+        }
+        // case: redacts a failure problem before it reaches the banner
+        {
+            const notice = verificationNotice({
+                status: 'unavailable',
+                expected: EXPECTED_AGENT,
+                problem: 'HOST_REJECTED ghp_abcdefghijklmnopqrstuvwx',
+            });
 
-    it('phrases the timeout against the real 15-second budget', () => {
-        const notice = verificationNotice({ status: 'timeout', expected: EXPECTED_AGENT, timeoutMs: 15_000 });
-
-        expect(notice.tone).toBe('warning');
-        expect(notice.body).toContain('within 15s');
-    });
-
-    it('redacts a failure problem before it reaches the banner', () => {
-        const notice = verificationNotice({
-            status: 'unavailable',
-            expected: EXPECTED_AGENT,
-            problem: 'HOST_REJECTED ghp_abcdefghijklmnopqrstuvwx',
-        });
-
-        expect(notice.tone).toBe('warning');
-        expect(notice.body).not.toContain('ghp_abcdefghijklmnopqrstuvwx');
-        expect(notice.body).toContain('[redacted:github-token-classic]');
+            expect(notice.tone).toBe('warning');
+            expect(notice.body).not.toContain('ghp_abcdefghijklmnopqrstuvwx');
+            expect(notice.body).toContain('[redacted:github-token-classic]');
+        }
     });
 });
 
@@ -350,28 +359,31 @@ async function recordedVerification(agent?: string): Promise<PanelRuntime> {
 }
 
 describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
-    it('records agentVerified with the observed agent on a match', async () => {
-        const rt = await recordedVerification(EXPECTED_AGENT);
-        const entry = rt.state.ledger.entries.at(-1);
+    it('records agentVerified with the observed agent on a m… (+1 cases)', async () => {
+        // case: records agentVerified with the observed agent on a match
+        {
+            const rt = await recordedVerification(EXPECTED_AGENT);
+            const entry = rt.state.ledger.entries.at(-1);
 
-        expect(entry?.kind).toBe('session');
-        expect(entry?.correlationId).toBe(CORRELATION);
-        expect(entry?.detail.agentVerified).toBe(true);
-        expect(entry?.detail.observedAgent).toBe(EXPECTED_AGENT);
-        expect(entry?.detail.verification).toBe('match');
-        expect(rt.state.dispatches.agentNotice?.tone).toBe('success');
-    });
+            expect(entry?.kind).toBe('session');
+            expect(entry?.correlationId).toBe(CORRELATION);
+            expect(entry?.detail.agentVerified).toBe(true);
+            expect(entry?.detail.observedAgent).toBe(EXPECTED_AGENT);
+            expect(entry?.detail.verification).toBe('match');
+            expect(rt.state.dispatches.agentNotice?.tone).toBe('success');
+        }
+        // case: records a failed verification and warns without blocking on a mismatch
+        {
+            const rt = await recordedVerification('executor');
+            const entry = rt.state.ledger.entries.at(-1);
 
-    it('records a failed verification and warns without blocking on a mismatch', async () => {
-        const rt = await recordedVerification('executor');
-        const entry = rt.state.ledger.entries.at(-1);
-
-        expect(entry?.detail.agentVerified).toBe(false);
-        expect(entry?.detail.observedAgent).toBe('executor');
-        expect(entry?.detail.verification).toBe('mismatch');
-        expect(rt.state.dispatches.agentNotice?.tone).toBe('warning');
-        expect(rt.state.dispatches.agentNotice?.body).toContain("session agent was 'executor'");
-        // M9 is warn-only: the copy must say the session keeps running.
+            expect(entry?.detail.agentVerified).toBe(false);
+            expect(entry?.detail.observedAgent).toBe('executor');
+            expect(entry?.detail.verification).toBe('mismatch');
+            expect(rt.state.dispatches.agentNotice?.tone).toBe('warning');
+            expect(rt.state.dispatches.agentNotice?.body).toContain("session agent was 'executor'");
+            // M9 is warn-only: the copy must say the session keeps running.
+        }
     });
 });
 
@@ -559,191 +571,197 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
         return JSON.parse(body) as Record<string, unknown>;
     }
 
-    it('posts a match as evidence with its attempt and the baseline it used', async () => {
-        const report = await reported(EXPECTED_AGENT);
+    it('posts a match as evidence with its attempt and the b… (+5 cases)', async () => {
+        // case: posts a match as evidence with its attempt and the baseline it used
+        {
+            const report = await reported(EXPECTED_AGENT);
 
-        expect(report.paths).toEqual(READ_BACK_PATHS);
-        expect(reportBody(report)).toEqual({
-            correlationId: CORRELATION,
-            attempt: 1,
-            sessionId: SESSION,
-            observedAgent: EXPECTED_AGENT,
-            expectedAgent: EXPECTED_AGENT,
-            ok: true,
-            note: null,
-        });
-        expect(report.rt.state.dispatches.agentNotice?.tone).toBe('success');
-    });
+            expect(report.paths).toEqual(READ_BACK_PATHS);
+            expect(reportBody(report)).toEqual({
+                correlationId: CORRELATION,
+                attempt: 1,
+                sessionId: SESSION,
+                observedAgent: EXPECTED_AGENT,
+                expectedAgent: EXPECTED_AGENT,
+                ok: true,
+                note: null,
+            });
+            expect(report.rt.state.dispatches.agentNotice?.tone).toBe('success');
+        }
+        // case: posts a mismatch as warn-only evidence and changes no run state
+        {
+            const report = await reported('executor');
+            const body = reportBody(report);
 
-    it('posts a mismatch as warn-only evidence and changes no run state', async () => {
-        const report = await reported('executor');
-        const body = reportBody(report);
+            expect(body.ok).toBe(false);
+            expect(body.observedAgent).toBe('executor');
+            expect(report.rt.state.dispatches.agentNotice?.tone).toBe('warning');
+            // Warn-only (FR-043): the verification moved no run and armed nothing.
+            expect(report.rt.state.dispatches.rows).toEqual([]);
+            expect(report.rt.state.dispatches.pendingAction).toBeNull();
+            expect(report.rt.state.dispatches.busy).toBe(false);
+        }
+        // case: posts an unreadable agent as no observation, with the note that says so
+        {
+            const body = reportBody(await reported());
 
-        expect(body.ok).toBe(false);
-        expect(body.observedAgent).toBe('executor');
-        expect(report.rt.state.dispatches.agentNotice?.tone).toBe('warning');
-        // Warn-only (FR-043): the verification moved no run and armed nothing.
-        expect(report.rt.state.dispatches.rows).toEqual([]);
-        expect(report.rt.state.dispatches.pendingAction).toBeNull();
-        expect(report.rt.state.dispatches.busy).toBe(false);
-    });
+            expect(body.ok).toBe(false);
+            expect(body.observedAgent).toBeNull();
+        }
+        // case: reads a configured baseline from GET /v1/config and records it as configured
+        {
+            const report = await reported('planner', JSON.stringify({ config: { expectedAgent: '  planner  ' } }));
 
-    it('posts an unreadable agent as no observation, with the note that says so', async () => {
-        const body = reportBody(await reported());
+            expect(report.paths).toEqual(READ_BACK_PATHS);
+            const body = reportBody(report);
+            expect(body.expectedAgent).toBe('planner');
+            expect(body.ok).toBe(true);
 
-        expect(body.ok).toBe(false);
-        expect(body.observedAgent).toBeNull();
-    });
+            const entry = report.rt.state.ledger.entries.at(-1);
+            expect(entry?.kind).toBe('session');
+            expect(entry?.detail.expectedAgent).toBe('planner');
+            expect(entry?.detail.baselineProvenance).toBe('configured');
+            expect(entry?.detail.agentVerified).toBe(true);
+        }
+        // case: falls back to the documented default when the config read does not answer
+        {
+            // 002 FR-029 case (ii): the field is absent, the document is
+            // unreadable, or the service is unreachable — all three answer the
+            // default with `provenance: 'defaulted'` and the run proceeds.
+            const report = await reported(EXPECTED_AGENT);
 
-    it('reads a configured baseline from GET /v1/config and records it as configured', async () => {
-        const report = await reported('planner', JSON.stringify({ config: { expectedAgent: '  planner  ' } }));
+            expect(report.paths[0]).toBe(READ_BACK_PATHS[0]);
+            const body = reportBody(report);
+            expect(body.expectedAgent).toBe(EXPECTED_AGENT);
+            expect(body.ok).toBe(true);
 
-        expect(report.paths).toEqual(READ_BACK_PATHS);
-        const body = reportBody(report);
-        expect(body.expectedAgent).toBe('planner');
-        expect(body.ok).toBe(true);
+            const entry = report.rt.state.ledger.entries.at(-1);
+            expect(entry?.detail.expectedAgent).toBe(EXPECTED_AGENT);
+            expect(entry?.detail.baselineProvenance).toBe('defaulted');
+        }
+        // case: defaults when the document is present but carries no usable value
+        {
+            const unusable = [
+                '{"config":{}}',
+                '{"config":{"expectedAgent":"   "}}',
+                '{"config":{"expectedAgent":42}}',
+                '{"config":"not-an-object"}',
+                'not json at all',
+            ];
 
-        const entry = report.rt.state.ledger.entries.at(-1);
-        expect(entry?.kind).toBe('session');
-        expect(entry?.detail.expectedAgent).toBe('planner');
-        expect(entry?.detail.baselineProvenance).toBe('configured');
-        expect(entry?.detail.agentVerified).toBe(true);
-    });
+            for (const document of unusable) {
+                const report = await reported(EXPECTED_AGENT, document);
 
-    it('falls back to the documented default when the config read does not answer', async () => {
-        // 002 FR-029 case (ii): the field is absent, the document is
-        // unreadable, or the service is unreachable — all three answer the
-        // default with `provenance: 'defaulted'` and the run proceeds.
-        const report = await reported(EXPECTED_AGENT);
-
-        expect(report.paths[0]).toBe(READ_BACK_PATHS[0]);
-        const body = reportBody(report);
-        expect(body.expectedAgent).toBe(EXPECTED_AGENT);
-        expect(body.ok).toBe(true);
-
-        const entry = report.rt.state.ledger.entries.at(-1);
-        expect(entry?.detail.expectedAgent).toBe(EXPECTED_AGENT);
-        expect(entry?.detail.baselineProvenance).toBe('defaulted');
-    });
-
-    it('defaults when the document is present but carries no usable value', async () => {
-        const unusable = [
-            '{"config":{}}',
-            '{"config":{"expectedAgent":"   "}}',
-            '{"config":{"expectedAgent":42}}',
-            '{"config":"not-an-object"}',
-            'not json at all',
-        ];
-
-        for (const document of unusable) {
-            const report = await reported(EXPECTED_AGENT, document);
-
-            expect(reportBody(report).expectedAgent).toBe(EXPECTED_AGENT);
-            expect(report.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe('defaulted');
+                expect(reportBody(report).expectedAgent).toBe(EXPECTED_AGENT);
+                expect(report.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe('defaulted');
+            }
         }
     });
 
-    it('never blocks for the baseline’s own absence: a matching agent verifies', async () => {
-        // AC-023: a missing baseline alone must not produce
-        // `blocked:agent-mismatch`; only an observed mismatch or an
-        // unreadable observed agent does.
-        const report = await reported(EXPECTED_AGENT);
+    it('never blocks for the baseline’s own absence: a match… (+2 cases)', async () => {
+        // case: never blocks for the baseline’s own absence: a matching agent verifies
+        {
+            // AC-023: a missing baseline alone must not produce
+            // `blocked:agent-mismatch`; only an observed mismatch or an
+            // unreadable observed agent does.
+            const report = await reported(EXPECTED_AGENT);
 
-        expect(reportBody(report).ok).toBe(true);
-        expect(report.rt.state.dispatches.agentNotice?.tone).toBe('success');
-    });
+            expect(reportBody(report).ok).toBe(true);
+            expect(report.rt.state.dispatches.agentNotice?.tone).toBe('success');
+        }
+        // case: still warns when the observed agent differs from a defaulted baseline
+        {
+            const report = await reported('executor');
 
-    it('still warns when the observed agent differs from a defaulted baseline', async () => {
-        const report = await reported('executor');
+            expect(reportBody(report).ok).toBe(false);
+            expect(report.rt.state.dispatches.agentNotice?.tone).toBe('warning');
+            expect(report.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe('defaulted');
+        }
+        // case: never holds the relay tick while the read-back waits (AC-125)
+        {
+            // The host answers every service call but never delivers a session
+            // snapshot: an awaited read-back would sit on its 15 s budget here.
+            const held: { deliver: (agent: string) => void } = {
+                deliver: () => {
+                    throw new Error('the read-back never subscribed');
+                },
+            };
+            const calls: string[] = [];
+            const host = fakeHost({
+                startSession: async () => SESSION_CREATED,
+                openSession: async (id) => {
+                    calls.push(`openSession:${id}`);
+                },
+                onSession: (listener) => {
+                    held.deliver = (agent) => listener(snapshot(agent));
 
-        expect(reportBody(report).ok).toBe(false);
-        expect(report.rt.state.dispatches.agentNotice?.tone).toBe('warning');
-        expect(report.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe('defaulted');
-    });
+                    return IDLE_UNSUBSCRIBE;
+                },
+                serviceRequest: async (request) => {
+                    calls.push(`${request.method} ${request.path}`);
+                    if (request.method === 'GET' && request.path === '/v1/events/pending') {
+                        return {
+                            status: 200,
+                            body: JSON.stringify({ events: [CLAIM], status: [], auditWritten: true }),
+                        };
+                    }
 
-    it('never holds the relay tick while the read-back waits (AC-125)', async () => {
-        // The host answers every service call but never delivers a session
-        // snapshot: an awaited read-back would sit on its 15 s budget here.
-        const held: { deliver: (agent: string) => void } = {
-            deliver: () => {
-                throw new Error('the read-back never subscribed');
-            },
-        };
-        const calls: string[] = [];
-        const host = fakeHost({
-            startSession: async () => SESSION_CREATED,
-            openSession: async (id) => {
-                calls.push(`openSession:${id}`);
-            },
-            onSession: (listener) => {
-                held.deliver = (agent) => listener(snapshot(agent));
+                    if (request.path.endsWith('/reserve')) {
+                        return {
+                            status: 200,
+                            body: JSON.stringify({
+                                correlationId: CORRELATION,
+                                attempt: 1,
+                                dispatchToken: TOKEN,
+                                tokenExpiresAt: FIXTURE_TIMESTAMP,
+                                resultDeadlineAt: FIXTURE_TIMESTAMP,
+                                state: 'starting',
+                                auditWritten: true,
+                            }),
+                        };
+                    }
 
-                return IDLE_UNSUBSCRIBE;
-            },
-            serviceRequest: async (request) => {
-                calls.push(`${request.method} ${request.path}`);
-                if (request.method === 'GET' && request.path === '/v1/events/pending') {
-                    return {
-                        status: 200,
-                        body: JSON.stringify({ events: [CLAIM], status: [], auditWritten: true }),
-                    };
-                }
+                    if (request.path.endsWith('/dispatched')) {
+                        return { status: 200, body: '{"done":true}' };
+                    }
 
-                if (request.path.endsWith('/reserve')) {
-                    return {
-                        status: 200,
-                        body: JSON.stringify({
-                            correlationId: CORRELATION,
-                            attempt: 1,
-                            dispatchToken: TOKEN,
-                            tokenExpiresAt: FIXTURE_TIMESTAMP,
-                            resultDeadlineAt: FIXTURE_TIMESTAMP,
-                            state: 'starting',
-                            auditWritten: true,
-                        }),
-                    };
-                }
+                    if (request.method === 'GET' && request.path.startsWith('/v1/events?')) {
+                        return { status: 200, body: JSON.stringify({ events: [], page: HISTORY_PAGE }) };
+                    }
 
-                if (request.path.endsWith('/dispatched')) {
-                    return { status: 200, body: '{"done":true}' };
-                }
+                    return { status: 200, body: '{"ok":true}' };
+                },
+            });
+            const rt = createTestRuntime(host);
+            rt.state.bindings.bindings = [
+                {
+                    bindingId: CLAIM.bindingId,
+                    accountNumericUserId: '77331',
+                    accountLogin: LOGIN,
+                    repository: CLAIM.repository,
+                    projectId: PROJECT_ID,
+                    worktreeOption: 'generated',
+                    triggers: { assignment: true, mention: false, reviewRequest: false },
+                    state: 'active',
+                    createdAt: FIXTURE_TIMESTAMP,
+                    updatedAt: FIXTURE_TIMESTAMP,
+                },
+            ];
 
-                if (request.method === 'GET' && request.path.startsWith('/v1/events?')) {
-                    return { status: 200, body: JSON.stringify({ events: [], page: HISTORY_PAGE }) };
-                }
+            await dispatchClaimedRun(rt, CLAIM);
 
-                return { status: 200, body: '{"ok":true}' };
-            },
-        });
-        const rt = createTestRuntime(host);
-        rt.state.bindings.bindings = [
-            {
-                bindingId: CLAIM.bindingId,
-                accountNumericUserId: '77331',
-                accountLogin: LOGIN,
-                repository: CLAIM.repository,
-                projectId: PROJECT_ID,
-                worktreeOption: 'generated',
-                triggers: { assignment: true, mention: false, reviewRequest: false },
-                state: 'active',
-                createdAt: FIXTURE_TIMESTAMP,
-                updatedAt: FIXTURE_TIMESTAMP,
-            },
-        ];
+            // The tick returned with the read-back still in flight: the claim slot
+            // is free while the host has not answered (AC-125, FR-043).
+            expect(rt.pendingVerifications).toHaveLength(1);
+            expect(calls).toContain(`openSession:${SESSION}`);
+            expect(rt.state.dispatches.rows).toHaveLength(0);
 
-        await dispatchClaimedRun(rt, CLAIM);
+            held.deliver('executor');
+            await drainVerifications(rt);
 
-        // The tick returned with the read-back still in flight: the claim slot
-        // is free while the host has not answered (AC-125, FR-043).
-        expect(rt.pendingVerifications).toHaveLength(1);
-        expect(calls).toContain(`openSession:${SESSION}`);
-        expect(rt.state.dispatches.rows).toHaveLength(0);
-
-        held.deliver('executor');
-        await drainVerifications(rt);
-
-        expect(rt.pendingVerifications).toHaveLength(0);
-        expect(rt.state.ledger.entries.at(-1)?.detail.agentVerified).toBe(false);
-        expect(rt.state.dispatches.agentNotice?.tone).toBe('warning');
+            expect(rt.pendingVerifications).toHaveLength(0);
+            expect(rt.state.ledger.entries.at(-1)?.detail.agentVerified).toBe(false);
+            expect(rt.state.dispatches.agentNotice?.tone).toBe('warning');
+        }
     });
 });

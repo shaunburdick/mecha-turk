@@ -442,231 +442,243 @@ function settingsSlice(overrides: Partial<SettingsTabState> = {}): SettingsTabSt
 }
 
 describe('the panel source carries no configuration literal (006 AC-106)', () => {
-    it('carries no unit phrase, no declaration-shaped bound, and no level set', async () => {
-        const sources = await panelSources();
-        const offending = sources.filter((source) => {
-            const found = configurationLiteralsIn(source);
+    it('carries no unit phrase, no declaration-shaped bound,… (+4 cases)', async () => {
+        // case: carries no unit phrase, no declaration-shaped bound, and no level set
+        {
+            const sources = await panelSources();
+            const offending = sources.filter((source) => {
+                const found = configurationLiteralsIn(source);
 
-            return found.units.length > 0 || found.declarationNumbers.length > 0 || found.levelSentinel;
-        });
+                return found.units.length > 0 || found.declarationNumbers.length > 0 || found.levelSentinel;
+            });
 
-        expect(offending.map((source) => source.name)).toEqual([]);
-    });
+            expect(offending.map((source) => source.name)).toEqual([]);
+        }
+        // case: carries the single documented default exception, pinned to the service default
+        {
+            const sources = await panelSources();
+            const occurrences = sources.flatMap((source) =>
+                configurationLiteralsIn(source).stringDefaults.map((entry) => ({
+                    file: source.name, line: entry.line })),);
 
-    it('carries the single documented default exception, pinned to the service default', async () => {
-        const sources = await panelSources();
-        const occurrences = sources.flatMap((source) =>
-            configurationLiteralsIn(source).stringDefaults.map((entry) => ({ file: source.name, line: entry.line })),);
+            // Exactly one entry in the allow-list, and it is the pinned constant
+            // plan X7 records (research Q3's ruling): the verification baseline
+            // that has to exist before the first successful config read.
+            expect(occurrences).toHaveLength(1);
+            expect(occurrences[0]?.file).toBe('config.ts');
+            expect(DEFAULT_EXPECTED_AGENT).toBe(DEFAULT_CONFIG.expectedAgent);
+        }
+        // case: never attaches a take-effect class to a field
+        {
+            const sources = await panelSources();
+            const offending = sources.filter((source) => configurationLiteralsIn(source).attachedClasses.length > 0);
 
-        // Exactly one entry in the allow-list, and it is the pinned constant
-        // plan X7 records (research Q3's ruling): the verification baseline
-        // that has to exist before the first successful config read.
-        expect(occurrences).toHaveLength(1);
-        expect(occurrences[0]?.file).toBe('config.ts');
-        expect(DEFAULT_EXPECTED_AGENT).toBe(DEFAULT_CONFIG.expectedAgent);
-    });
+            expect(offending.map((source) => source.name)).toEqual([]);
+        }
+        // case: never claims a value changes nothing in this build
+        {
+            const sources = await panelSources();
+            const forbidden = /changes nothing in this build|no effect in this build/i;
+            const offending = sources.filter((source) => forbidden.test(source.text));
 
-    it('never attaches a take-effect class to a field', async () => {
-        const sources = await panelSources();
-        const offending = sources.filter((source) => configurationLiteralsIn(source).attachedClasses.length > 0);
+            expect(offending.map((source) => source.name)).toEqual([]);
+            // The declaration 005 retired is gone with it: nothing in `src/` still
+            // answers to the old `SETTINGS_FIELDS` name, so no second source of
+            // truth can be mistaken for the projection.
+            expect(sources.filter((source) => source.text.includes('SETTINGS_FIELDS'))).toEqual([]);
+        }
+        // case: bites: every rule flags a pasted stand-in
+        {
+            const found = configurationLiteralsIn(standInSnippet());
 
-        expect(offending.map((source) => source.name)).toEqual([]);
-    });
-
-    it('never claims a value changes nothing in this build', async () => {
-        const sources = await panelSources();
-        const forbidden = /changes nothing in this build|no effect in this build/i;
-        const offending = sources.filter((source) => forbidden.test(source.text));
-
-        expect(offending.map((source) => source.name)).toEqual([]);
-        // The declaration 005 retired is gone with it: nothing in `src/` still
-        // answers to the old `SETTINGS_FIELDS` name, so no second source of
-        // truth can be mistaken for the projection.
-        expect(sources.filter((source) => source.text.includes('SETTINGS_FIELDS'))).toEqual([]);
-    });
-
-    it('bites: every rule flags a pasted stand-in', () => {
-        const found = configurationLiteralsIn(standInSnippet());
-
-        expect(found.units).toEqual(['milliseconds']);
-        expect(found.declarationNumbers.length).toBeGreaterThan(0);
-        expect(found.levelSentinel).toBe(true);
-        expect(found.stringDefaults).toHaveLength(1);
-        expect(found.attachedClasses.length).toBeGreaterThan(0);
+            expect(found.units).toEqual(['milliseconds']);
+            expect(found.declarationNumbers.length).toBeGreaterThan(0);
+            expect(found.levelSentinel).toBe(true);
+            expect(found.stringDefaults).toHaveLength(1);
+            expect(found.attachedClasses.length).toBeGreaterThan(0);
+        }
     });
 });
 
 describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () => {
-    it('renders eleven rows against the 006-only fixture and thirteen against the combined one', () => {
-        expect(settingsRows(specs006OnlyEnvelope())).toHaveLength(SPECS_006_FIELDS.length);
-        const combined = settingsRows(combinedEnvelope());
-        expect(combined).toHaveLength(configSchema().length);
-        // The count is derived, never asserted from a literal: it follows the
-        // projection, which is what lets 003's two fields arrive untouched.
-        expect(combined.length).toBe(Object.keys(DEFAULT_CONFIG).length);
-    });
-
-    it('gives every one of 006\'s eleven fields its five attributes', () => {
-        const envelope = combinedEnvelope();
-        const rows = settingsRows(envelope);
-        expect(rows).toHaveLength(configSchema().length);
-
-        for (const name of SPECS_006_FIELDS) {
-            const descriptor = envelope.fields.find((candidate) => candidate.name === name);
-            expect(descriptor, `${name} is missing from the projection`).toBeDefined();
-            const row = rows.find((candidate) => candidate.field === name);
-            expect(row, `${name} rendered no row`).toBeDefined();
-
-            // 1. the documented name, 2. its value as the document holds it.
-            expect(row?.text.startsWith(`${name}: `)).toBe(true);
-            expect(row?.text).toContain(String(envelope.config[name]));
-
-            // 3. unit-or-none and 4. bounds-or-format, both from the wire.
-            if (descriptor?.kind === 'integer') {
-                expect(row?.text).toContain(descriptor.unit);
-                expect(row?.text).toContain(`bounds ${descriptor.min}–${descriptor.max}`);
-            } else if (descriptor?.kind === 'enum') {
-                expect(row?.text).toContain(`accepted: ${descriptor.values.join(', ')}`);
-            } else if (descriptor !== undefined) {
-                expect(row?.text).toContain(`format: ${descriptor.format}`);
-            }
-
-            // 5. the class, in the product's words, and the declared default.
-            const words = descriptor === undefined ? '' : classWords(descriptor.takesEffect);
-            expect(row?.text).toContain(words);
-            expect(row?.text).toContain(`default ${String(descriptor?.default)}`);
+    it('renders eleven rows against the 006-only fixture and… (+4 cases)', () => {
+        // case: renders eleven rows against the 006-only fixture and thirteen against the combined one
+        {
+            expect(settingsRows(specs006OnlyEnvelope())).toHaveLength(SPECS_006_FIELDS.length);
+            const combined = settingsRows(combinedEnvelope());
+            expect(combined).toHaveLength(configSchema().length);
+            // The count is derived, never asserted from a literal: it follows the
+            // projection, which is what lets 003's two fields arrive untouched.
+            expect(combined.length).toBe(Object.keys(DEFAULT_CONFIG).length);
         }
-    });
+        // case: gives every one of 006\'s eleven fields its five attributes
+        {
+            const envelope = combinedEnvelope();
+            const rows = settingsRows(envelope);
+            expect(rows).toHaveLength(configSchema().length);
 
-    it('marks a row the stored document lacked as default, not as configured', () => {
-        const envelope = envelopeFor(envelopeBody({ defaultsApplied: ['expectedAgent'] }));
-        const row = settingsRows(envelope).find((candidate) => candidate.field === 'expectedAgent');
+            for (const name of SPECS_006_FIELDS) {
+                const descriptor = envelope.fields.find((candidate) => candidate.name === name);
+                expect(descriptor, `${name} is missing from the projection`).toBeDefined();
+                const row = rows.find((candidate) => candidate.field === name);
+                expect(row, `${name} rendered no row`).toBeDefined();
 
-        expect(row?.text).toContain(`default ${DEFAULT_CONFIG.expectedAgent}`);
-    });
+                // 1. the documented name, 2. its value as the document holds it.
+                expect(row?.text.startsWith(`${name}: `)).toBe(true);
+                expect(row?.text).toContain(String(envelope.config[name]));
 
-    it('renders an unreadable value with its remediation and never a default (AC-116)', () => {
-        const rows = rowsFor(envelopeBody({ config: { intervalMs: 'soon', perPage: 12 } }));
-        const interval = rows.find((row) => row.field === 'intervalMs');
+                // 3. unit-or-none and 4. bounds-or-format, both from the wire.
+                if (descriptor?.kind === 'integer') {
+                    expect(row?.text).toContain(descriptor.unit);
+                    expect(row?.text).toContain(`bounds ${descriptor.min}–${descriptor.max}`);
+                } else if (descriptor?.kind === 'enum') {
+                    expect(row?.text).toContain(`accepted: ${descriptor.values.join(', ')}`);
+                } else if (descriptor !== undefined) {
+                    expect(row?.text).toContain(`format: ${descriptor.format}`);
+                }
 
-        expect(interval?.text).toContain(
-            `set intervalMs to an integer between ${NUMERIC_BOUNDS.intervalMs.min}` +
-                ` and ${NUMERIC_BOUNDS.intervalMs.max} ${NUMERIC_BOUNDS.intervalMs.unit}`,
-        );
-        // Never a default dressed as a configured value (FR-028, NFR-112).
-        expect(interval?.text).not.toContain(`${DEFAULT_CONFIG.intervalMs}`);
-        expect(interval?.text).not.toContain('default');
-        // The field beside it still renders — one bad field hides nothing.
-        expect(rows.find((row) => row.field === 'perPage')?.text).toContain('bounds 1–30');
-    });
+                // 5. the class, in the product's words, and the declared default.
+                const words = descriptor === undefined ? '' : classWords(descriptor.takesEffect);
+                expect(row?.text).toContain(words);
+                expect(row?.text).toContain(`default ${String(descriptor?.default)}`);
+            }
+        }
+        // case: marks a row the stored document lacked as default, not as configured
+        {
+            const envelope = envelopeFor(envelopeBody({ defaultsApplied: ['expectedAgent'] }));
+            const row = settingsRows(envelope).find((candidate) => candidate.field === 'expectedAgent');
 
-    it('renders a member with no descriptor as this version not showing it (AC-115)', () => {
-        const rows = rowsFor(
-            envelopeBody({ config: { ...DEFAULT_CONFIG, expectedAgent: 'other-agent' }, fields: [] }),
-        );
+            expect(row?.text).toContain(`default ${DEFAULT_CONFIG.expectedAgent}`);
+        }
+        // case: renders an unreadable value with its remediation and never a default (AC-116)
+        {
+            const rows = rowsFor(envelopeBody({ config: { intervalMs: 'soon', perPage: 12 } }));
+            const interval = rows.find((row) => row.field === 'intervalMs');
 
-        expect(rows.map((row) => row.field)).toEqual(Object.keys(DEFAULT_CONFIG));
-        expect(rows.every((row) => row.text.includes('field this version does not show'))).toBe(true);
-        // It borrows no bound and promises no effect (FR-027).
-        const agent = rows.find((row) => row.field === 'expectedAgent');
-        expect(agent?.text).toContain('other-agent');
-        expect(agent?.text).not.toContain('bounds');
+            expect(interval?.text).toContain(
+                `set intervalMs to an integer between ${NUMERIC_BOUNDS.intervalMs.min}` +
+                    ` and ${NUMERIC_BOUNDS.intervalMs.max} ${NUMERIC_BOUNDS.intervalMs.unit}`,
+            );
+            // Never a default dressed as a configured value (FR-028, NFR-112).
+            expect(interval?.text).not.toContain(`${DEFAULT_CONFIG.intervalMs}`);
+            expect(interval?.text).not.toContain('default');
+            // The field beside it still renders — one bad field hides nothing.
+            expect(rows.find((row) => row.field === 'perPage')?.text).toContain('bounds 1–30');
+        }
+        // case: renders a member with no descriptor as this version not showing it (AC-115)
+        {
+            const rows = rowsFor(
+                envelopeBody({ config: { ...DEFAULT_CONFIG, expectedAgent: 'other-agent' }, fields: [] }),
+            );
+
+            expect(rows.map((row) => row.field)).toEqual(Object.keys(DEFAULT_CONFIG));
+            expect(rows.every((row) => row.text.includes('field this version does not show'))).toBe(true);
+            // It borrows no bound and promises no effect (FR-027).
+            const agent = rows.find((row) => row.field === 'expectedAgent');
+            expect(agent?.text).toContain('other-agent');
+            expect(agent?.text).not.toContain('bounds');
+        }
     });
 });
 
 describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)', () => {
-    it('mounts one control per declared field, named with its unit and boundary', async () => {
-        const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
-        const controls = mounts.log.filter(
-            (entry) => entry.key === 'mountTextField' || entry.key === 'mountSelect',
-        );
+    it('mounts one control per declared field, named with it… (+5 cases)', async () => {
+        // case: mounts one control per declared field, named with its unit and boundary
+        {
+            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+            const controls = mounts.log.filter(
+                (entry) => entry.key === 'mountTextField' || entry.key === 'mountSelect',
+            );
 
-        expect(controls).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
-        const interval = controls.find((entry) => {
-            const { label } = entry.props as { readonly label?: string };
+            expect(controls).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
+            const interval = controls.find((entry) => {
+                const { label } = entry.props as { readonly label?: string };
 
-            return label === undefined ? false : label.startsWith('intervalMs');
-        });
-        expect(interval).toBeDefined();
-        const { label } = (interval?.props as { readonly label: string });
-        // The accessible name carries the unit and the boundary (FR-018, FR-039).
-        expect(label).toContain(NUMERIC_BOUNDS.intervalMs.unit);
-        // The affordance carries bounds and the default — and gates nothing
-        // (FR-023: these shape the control and the hint and nothing else).
-        const { helper } = (interval?.props as { readonly helper: string });
-        expect(helper).toContain(`bounds ${NUMERIC_BOUNDS.intervalMs.min}–${NUMERIC_BOUNDS.intervalMs.max}`);
-        expect(helper).toContain(`default ${DEFAULT_CONFIG.intervalMs}`);
-        expect((interval?.props as { readonly value: string }).value).toBe(String(DEFAULT_CONFIG.intervalMs));
-        const level = controls.find((entry) => entry.key === 'mountSelect');
-        expect((level?.props as { readonly options: readonly { readonly id: string }[] }).options.map(
-            (option) => option.id,
-        )).toEqual([...LOG_LEVEL_VALUES]);
-        view.dispose();
-    });
+                return label === undefined ? false : label.startsWith('intervalMs');
+            });
+            expect(interval).toBeDefined();
+            const { label } = (interval?.props as { readonly label: string });
+            // The accessible name carries the unit and the boundary (FR-018, FR-039).
+            expect(label).toContain(NUMERIC_BOUNDS.intervalMs.unit);
+            // The affordance carries bounds and the default — and gates nothing
+            // (FR-023: these shape the control and the hint and nothing else).
+            const { helper } = (interval?.props as { readonly helper: string });
+            expect(helper).toContain(`bounds ${NUMERIC_BOUNDS.intervalMs.min}–${NUMERIC_BOUNDS.intervalMs.max}`);
+            expect(helper).toContain(`default ${DEFAULT_CONFIG.intervalMs}`);
+            expect((interval?.props as { readonly value: string }).value).toBe(String(DEFAULT_CONFIG.intervalMs));
+            const level = controls.find((entry) => entry.key === 'mountSelect');
+            expect((level?.props as { readonly options: readonly { readonly id: string }[] }).options.map(
+                (option) => option.id,
+            )).toEqual([...LOG_LEVEL_VALUES]);
+            view.dispose();
+        }
+        // case: gives an undocumented member a line, and no affordance at all (AC-115)
+        {
+            const view = await mountSettings({
+                answer: configAnswer(envelopeBody({ config: { ...DEFAULT_CONFIG, surprise: 1 } })),
+            });
+            const controls = mounts.log.filter(
+                (entry) => entry.key === 'mountTextField' || entry.key === 'mountSelect',
+            );
 
-    it('gives an undocumented member a line, and no affordance at all (AC-115)', async () => {
-        const view = await mountSettings({
-            answer: configAnswer(envelopeBody({ config: { ...DEFAULT_CONFIG, surprise: 1 } })),
-        });
-        const controls = mounts.log.filter(
-            (entry) => entry.key === 'mountTextField' || entry.key === 'mountSelect',
-        );
+            expect(controls).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
+            expect(renderedRows(view.strings).some((row) => row.includes(
+                'field this version does not show'
+            ))).toBe(true);
+            view.dispose();
+        }
+        // case: says what a save will do while one is possible (FR-045)
+        {
+            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
 
-        expect(controls).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
-        expect(renderedRows(view.strings).some((row) => row.includes('field this version does not show'))).toBe(true);
-        view.dispose();
-    });
+            // The read control plus the save bar's four: save, discard, restore,
+            // and Cancel — which mounts hidden and appears only once something is
+            // armed (006 FR-054), so an unarmed tab never offers it.
+            expect(mounts.log.filter((entry) => entry.key === 'mountButton')).toHaveLength(5);
+            expect(view.requests.map((request) => `${request.method} ${request.path}`)).toEqual(['GET /v1/config']);
+            view.dispose();
+        }
+        // case: AC-132: with the service unreachable, keeps static content and names the cause
+        {
+            const view = await mountSettings({
+                answer: () => {
+                    throw new Error('connection refused');
+                },
+            });
+            const text = view.strings.join('\n');
 
-    it('says what a save will do while one is possible (FR-045)', async () => {
-        const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+            expect(text).toContain('Settings');
+            expect(text).toContain('GET /v1/config did not answer');
+            expect(renderedRows(view.strings)).toEqual([]);
+            view.dispose();
+        }
+        // case: reads twice and never writes: the re-read is a read (FR-014, NFR-104)
+        {
+            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+            expect(view.requests).toHaveLength(1);
 
-        // The read control plus the save bar's four: save, discard, restore,
-        // and Cancel — which mounts hidden and appears only once something is
-        // armed (006 FR-054), so an unarmed tab never offers it.
-        expect(mounts.log.filter((entry) => entry.key === 'mountButton')).toHaveLength(5);
-        expect(view.requests.map((request) => `${request.method} ${request.path}`)).toEqual(['GET /v1/config']);
-        view.dispose();
-    });
+            const button = mounts.log.find(
+                (entry) => entry.key === 'mountButton'
+                    && (entry.props as { readonly label?: string }).label === 'Refresh configuration',
+            );
+            expect(button).toBeDefined();
+            (button?.props as { readonly onClick: () => void }).onClick();
+            await tick();
 
-    it('AC-132: with the service unreachable, keeps static content and names the cause', async () => {
-        const view = await mountSettings({
-            answer: () => {
-                throw new Error('connection refused');
-            },
-        });
-        const text = view.strings.join('\n');
+            expect(view.requests).toHaveLength(2);
+            expect(view.requests.every((request) => request.method === 'GET')).toBe(true);
+            view.dispose();
+        }
+        // case: keeps the configured value for itself: the Status slice stays untouched (FR-039)
+        {
+            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
 
-        expect(text).toContain('Settings');
-        expect(text).toContain('GET /v1/config did not answer');
-        expect(renderedRows(view.strings)).toEqual([]);
-        view.dispose();
-    });
-
-    it('reads twice and never writes: the re-read is a read (FR-014, NFR-104)', async () => {
-        const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
-        expect(view.requests).toHaveLength(1);
-
-        const button = mounts.log.find(
-            (entry) => entry.key === 'mountButton'
-                && (entry.props as { readonly label?: string }).label === 'Refresh configuration',
-        );
-        expect(button).toBeDefined();
-        (button?.props as { readonly onClick: () => void }).onClick();
-        await tick();
-
-        expect(view.requests).toHaveLength(2);
-        expect(view.requests.every((request) => request.method === 'GET')).toBe(true);
-        view.dispose();
-    });
-
-    it('keeps the configured value for itself: the Status slice stays untouched (FR-039)', async () => {
-        const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
-
-        expect(view.rt.state.settingsTab.phase).toBe('loaded');
-        expect(view.rt.state.statusTab.phase).toBe('idle');
-        expect(view.rt.state.statusTab.configuredIntervalMs).toBeNull();
-        expect(view.rt.state.settingsTab.doc?.fields).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
-        view.dispose();
+            expect(view.rt.state.settingsTab.phase).toBe('loaded');
+            expect(view.rt.state.statusTab.phase).toBe('idle');
+            expect(view.rt.state.statusTab.configuredIntervalMs).toBeNull();
+            expect(view.rt.state.settingsTab.doc?.fields).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
+            view.dispose();
+        }
     });
 
     it('releases every handle it mounted, and leaves no slot behind (FR-017)', async () => {

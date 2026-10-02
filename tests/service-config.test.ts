@@ -144,7 +144,8 @@ let running: TestService | null = null;
 /** Scratch directory created by a test that needs an unwritable parent. */
 let scratch: string | null = null;
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork1 = async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
@@ -154,7 +155,9 @@ afterEach(async () => {
         await rm(scratch, { recursive: true, force: true });
         scratch = null;
     }
-});
+};
+
+afterEach(afterEachWork1);
 
 /**
  * Start a service instance and register it for cleanup.
@@ -185,274 +188,325 @@ async function unwritableDataDir(): Promise<string> {
 }
 
 describe('ServiceConfig validation', () => {
-    it('accepts the shipped defaults unchanged', () => {
-        const result = validateConfig(DEFAULT_CONFIG);
+    it('accepts the shipped defaults unchanged (+5 cases)', async () => {
+        // case: accepts the shipped defaults unchanged
+        {
+            const result = validateConfig(DEFAULT_CONFIG);
 
-        expect(result).toEqual({ ok: true, config: DEFAULT_CONFIG });
-    });
+            expect(result).toEqual({ ok: true, config: DEFAULT_CONFIG });
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: rejects every out-of-bounds value with a named remediation
+        {
+            for (const { field, value } of OUT_OF_BOUNDS) {
+                const result = validateConfig({ ...DEFAULT_CONFIG, [field]: value });
 
-    it('rejects every out-of-bounds value with a named remediation', () => {
-        for (const { field, value } of OUT_OF_BOUNDS) {
-            const result = validateConfig({ ...DEFAULT_CONFIG, [field]: value });
+                expect(result.ok, `${field} = ${String(value)} must be refused`).toBe(false);
+                if (!result.ok) {
+                    const issue = result.issues.find((candidate) => candidate.field === field);
+                    expect(issue?.remediation, `${field} remediation must name the field`).toContain(field);
+                }
+            }
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: reports every missing field in one pass
+        {
+            const result = validateConfig({ [INTERVAL_FIELD]: 60_000 });
 
-            expect(result.ok, `${field} = ${String(value)} must be refused`).toBe(false);
+            expect(result.ok).toBe(false);
             if (!result.ok) {
-                const issue = result.issues.find((candidate) => candidate.field === field);
-                expect(issue?.remediation, `${field} remediation must name the field`).toContain(field);
+                const fields = result.issues.map((issue) => issue.field);
+                const missing = Object.keys(DEFAULT_CONFIG).filter((field) => field !== INTERVAL_FIELD);
+                expect(fields).toEqual(expect.arrayContaining(missing));
+                expect(fields).not.toContain(INTERVAL_FIELD);
+            }
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: rejects a document that is not an object
+        {
+            const result = validateConfig('not a configuration');
+
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.issues[0]?.field).toBe('body');
+            }
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: rejects an unknown field with a removal instruction
+        {
+            const result = validateConfig({ ...DEFAULT_CONFIG, [INVENTED_FIELD]: 60_000 });
+
+            expect(result.ok).toBe(false);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: withholds a secret-shaped field name instead of echoing it
+        {
+            const result = validateConfig({ ...DEFAULT_CONFIG, [TOKEN_FIELD]: 1 });
+
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.issues.map((issue) => issue.field)).toContain('<withheld>');
+                expect(JSON.stringify(result.issues)).not.toContain(TOKEN_FIELD);
+                expect(result.issues.map((issue) => issue.field)).not.toContain(TOKEN_FIELD);
             }
         }
     });
 
-    it('reports every missing field in one pass', () => {
-        const result = validateConfig({ [INTERVAL_FIELD]: 60_000 });
+    it('rejects a retry ceiling below the retry base (+5 cases)', async () => {
+        // case: rejects a retry ceiling below the retry base
+        {
+            const result = validateConfig({ ...DEFAULT_CONFIG, retryBaseMs: 60_000, retryMaxMs: 5_000 });
 
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            const fields = result.issues.map((issue) => issue.field);
-            const missing = Object.keys(DEFAULT_CONFIG).filter((field) => field !== INTERVAL_FIELD);
-            expect(fields).toEqual(expect.arrayContaining(missing));
-            expect(fields).not.toContain(INTERVAL_FIELD);
-        }
-    });
-
-    it('rejects a document that is not an object', () => {
-        const result = validateConfig('not a configuration');
-
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            expect(result.issues[0]?.field).toBe('body');
-        }
-    });
-
-    it('rejects an unknown field with a removal instruction', () => {
-        const result = validateConfig({ ...DEFAULT_CONFIG, [INVENTED_FIELD]: 60_000 });
-
-        expect(result.ok).toBe(false);
-    });
-
-    it('withholds a secret-shaped field name instead of echoing it', () => {
-        const result = validateConfig({ ...DEFAULT_CONFIG, [TOKEN_FIELD]: 1 });
-
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            expect(result.issues.map((issue) => issue.field)).toContain('<withheld>');
-            expect(JSON.stringify(result.issues)).not.toContain(TOKEN_FIELD);
-            expect(result.issues.map((issue) => issue.field)).not.toContain(TOKEN_FIELD);
-        }
-    });
-
-    it('rejects a retry ceiling below the retry base', () => {
-        const result = validateConfig({ ...DEFAULT_CONFIG, retryBaseMs: 60_000, retryMaxMs: 5_000 });
-
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            expect(result.issues.map((issue) => issue.field)).toContain('retryMaxMs');
-        }
-    });
-
-    it('never echoes the submitted value in a remediation', () => {
-        const result = validateConfig({ ...DEFAULT_CONFIG, intervalMs: ABSURD_INTERVAL });
-
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            for (const issue of result.issues) {
-                expect(issue.remediation).not.toContain(String(ABSURD_INTERVAL));
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.issues.map((issue) => issue.field)).toContain('retryMaxMs');
             }
         }
-    });
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: never echoes the submitted value in a remediation
+        {
+            const result = validateConfig({ ...DEFAULT_CONFIG, intervalMs: ABSURD_INTERVAL });
 
-    it('defaults the lease and result-deadline knobs to the documented bounds (T-008)', () => {
-        expect(DEFAULT_CONFIG.leaseMs).toBe(120_000);
-        expect(DEFAULT_CONFIG.resultDeadlineMs).toBe(120_000);
-        expect(validateConfig(DEFAULT_CONFIG)).toEqual({ ok: true, config: DEFAULT_CONFIG });
-    });
-
-    it('never offers a requeue-budget field (003 v1.3.0 / 006 Deferred)', () => {
-        const result = validateConfig({ ...DEFAULT_CONFIG, requeueBudget: 3 });
-
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            expect(result.issues.map((issue) => issue.field)).toContain('requeueBudget');
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                for (const issue of result.issues) {
+                    expect(issue.remediation).not.toContain(String(ABSURD_INTERVAL));
+                }
+            }
         }
-    });
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: defaults the lease and result-deadline knobs to the documented bounds (T-008)
+        {
+            expect(DEFAULT_CONFIG.leaseMs).toBe(120_000);
+            expect(DEFAULT_CONFIG.resultDeadlineMs).toBe(120_000);
+            expect(validateConfig(DEFAULT_CONFIG)).toEqual({ ok: true, config: DEFAULT_CONFIG });
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: never offers a requeue-budget field (003 v1.3.0 / 006 Deferred)
+        {
+            const result = validateConfig({ ...DEFAULT_CONFIG, requeueBudget: 3 });
 
-    it('reads a configuration document written before the lease fields existed (T-008)', () => {
-        const result = parseStoredConfig(PRE_RUN_LAYER_CONFIG);
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.issues.map((issue) => issue.field)).toContain('requeueBudget');
+            }
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: reads a configuration document written before the lease fields existed (T-008)
+        {
+            const result = parseStoredConfig(PRE_RUN_LAYER_CONFIG);
 
-        expect(result).toEqual({
-            config: {
-                ...PRE_RUN_LAYER_CONFIG,
-                leaseMs: 120_000,
-                resultDeadlineMs: 120_000,
-                [AGENT_FIELD]: AGENT_DEFAULT,
-            },
-            defaultsApplied: ['leaseMs', 'resultDeadlineMs', AGENT_FIELD],
-        });
-    });
-
-    it('still quarantines a stored document whose own values are unusable (T-008)', () => {
-        expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, leaseMs: 1 })).toBeNull();
-        expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, requeueBudget: 3 })).toBeNull();
-        expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, logLevel: 'verbose' })).toBeNull();
+            expect(result).toEqual({
+                config: {
+                    ...PRE_RUN_LAYER_CONFIG,
+                    leaseMs: 120_000,
+                    resultDeadlineMs: 120_000,
+                    [AGENT_FIELD]: AGENT_DEFAULT,
+                },
+                defaultsApplied: ['leaseMs', 'resultDeadlineMs', AGENT_FIELD],
+            });
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: still quarantines a stored document whose own values are unusable (T-008)
+        {
+            expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, leaseMs: 1 })).toBeNull();
+            expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, requeueBudget: 3 })).toBeNull();
+            expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, logLevel: 'verbose' })).toBeNull();
+        }
     });
 });
 
 describe('GET and PUT /v1/config', () => {
-    it('answers a fresh store with the defaults', async () => {
-        const service = await startServiceForTest();
+    it('answers a fresh store with the defaults (+5 cases)', async () => {
+        // case: answers a fresh store with the defaults
+        {
+            const service = await startServiceForTest();
 
-        const response = await service.call(CONFIG_PATH);
-        const body: { config: ServiceConfig } = await response.json();
+            const response = await service.call(CONFIG_PATH);
+            const body: { config: ServiceConfig } = await response.json();
 
-        expect(response.status).toBe(200);
-        expect(body.config).toEqual(DEFAULT_CONFIG);
-    });
-
-    it('persists a replacement and reads it back', async () => {
-        const service = await startServiceForTest();
-        const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000, logLevel: 'debug' as const };
-
-        const put = await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(replacement) });
-        const stored = JSON.parse(await readFile(join(service.dataDir, CONFIG_FILE), 'utf8')) as ServiceConfig;
-        const get = await service.call(CONFIG_PATH);
-        const body: { config: ServiceConfig } = await get.json();
-
-        expect(put.status).toBe(200);
-        expect(stored).toEqual(replacement);
-        expect(body.config).toEqual(replacement);
-    });
-
-    it('rejects a partial document with one remediation per missing field', async () => {
-        const service = await startServiceForTest();
-
-        const response = await service.call(CONFIG_PATH, {
-            method: 'PUT',
-            body: JSON.stringify({ intervalMs: 30_000 }),
-        });
-        const failure: ValidationBody = await response.json();
-
-        expect(response.status).toBe(422);
-        expect(failure.error.code).toBe('validation');
-        const missing = Object.keys(DEFAULT_CONFIG).filter((field) => field !== INTERVAL_FIELD);
-        expect(failure.error.issues.map((issue) => issue.field)).toEqual(expect.arrayContaining(missing));
-        expect(failure.error.message).toContain('retryBaseMs');
-        const stored = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8').catch(() => null);
-        expect(stored).toBeNull();
-    });
-
-    it('rejects an unknown field rather than silently ignoring it', async () => {
-        const service = await startServiceForTest();
-
-        const response = await service.call(CONFIG_PATH, {
-            method: 'PUT',
-            body: JSON.stringify({ ...DEFAULT_CONFIG, [INVENTED_FIELD]: 60_000 }),
-        });
-        const failure: ValidationBody = await response.json();
-
-        expect(response.status).toBe(422);
-        expect(failure.error.issues.map((issue) => issue.field)).toContain(INVENTED_FIELD);
-    });
-
-    it('refuses a body that is not valid JSON', async () => {
-        const service = await startServiceForTest();
-
-        const response = await service.call(CONFIG_PATH, { method: 'PUT', body: '{"intervalMs":' });
-
-        expect(response.status).toBe(400);
-    });
-
-    it('reads a pre-existing configuration document without quarantining it (T-008)', async () => {
-        const service = await startServiceForTest();
-        await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_RUN_LAYER_CONFIG), 'utf8');
-
-        const response = await service.call(CONFIG_PATH);
-        const body: { config: ServiceConfig } = await response.json();
-        const entries = await readdir(service.dataDir);
-
-        expect(response.status).toBe(200);
-        expect(body.config).toEqual({
-            ...PRE_RUN_LAYER_CONFIG,
-            leaseMs: 120_000,
-            resultDeadlineMs: 120_000,
-            [AGENT_FIELD]: AGENT_DEFAULT,
-        });
-        expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toEqual([]);
-    });
-
-    it('round-trips a retuned lease and result deadline (T-008)', async () => {
-        const service = await startServiceForTest();
-        const replacement = { ...DEFAULT_CONFIG, leaseMs: 45_000, resultDeadlineMs: 300_000 };
-
-        const put = await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(replacement) });
-        const get = await service.call(CONFIG_PATH);
-        const body: { config: ServiceConfig } = await get.json();
-
-        expect(put.status).toBe(200);
-        expect(body.config).toEqual(replacement);
-    });
-
-    it('answers 503 for both routes when the data directory is unusable', async () => {
-        const service = await startServiceForTest({ dataDir: await unwritableDataDir() });
-
-        const get = await service.call(CONFIG_PATH);
-        const put = await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(DEFAULT_CONFIG) });
-        const health = await service.call(HEALTH_PATH);
-        const bodies = [await get.json(), await put.json()];
-
-        expect(get.status).toBe(503);
-        expect(put.status).toBe(503);
-        for (const body of bodies) {
-            expect(body).toMatchObject({ error: { code: 'storage-unavailable' } });
+            expect(response.status).toBe(200);
+            expect(body.config).toEqual(DEFAULT_CONFIG);
         }
-        expect(health.status).toBe(200);
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: persists a replacement and reads it back
+        {
+            const service = await startServiceForTest();
+            const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000, logLevel: 'debug' as const };
+
+            const put = await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(replacement) });
+            const stored = JSON.parse(await readFile(join(service.dataDir, CONFIG_FILE), 'utf8')) as ServiceConfig;
+            const get = await service.call(CONFIG_PATH);
+            const body: { config: ServiceConfig } = await get.json();
+
+            expect(put.status).toBe(200);
+            expect(stored).toEqual(replacement);
+            expect(body.config).toEqual(replacement);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: rejects a partial document with one remediation per missing field
+        {
+            const service = await startServiceForTest();
+
+            const response = await service.call(CONFIG_PATH, {
+                method: 'PUT',
+                body: JSON.stringify({ intervalMs: 30_000 }),
+            });
+            const failure: ValidationBody = await response.json();
+
+            expect(response.status).toBe(422);
+            expect(failure.error.code).toBe('validation');
+            const missing = Object.keys(DEFAULT_CONFIG).filter((field) => field !== INTERVAL_FIELD);
+            expect(failure.error.issues.map((issue) => issue.field)).toEqual(expect.arrayContaining(missing));
+            expect(failure.error.message).toContain('retryBaseMs');
+            const stored = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8').catch(() => null);
+            expect(stored).toBeNull();
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: rejects an unknown field rather than silently ignoring it
+        {
+            const service = await startServiceForTest();
+
+            const response = await service.call(CONFIG_PATH, {
+                method: 'PUT',
+                body: JSON.stringify({ ...DEFAULT_CONFIG, [INVENTED_FIELD]: 60_000 }),
+            });
+            const failure: ValidationBody = await response.json();
+
+            expect(response.status).toBe(422);
+            expect(failure.error.issues.map((issue) => issue.field)).toContain(INVENTED_FIELD);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses a body that is not valid JSON
+        {
+            const service = await startServiceForTest();
+
+            const response = await service.call(CONFIG_PATH, { method: 'PUT', body: '{"intervalMs":' });
+
+            expect(response.status).toBe(400);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: reads a pre-existing configuration document without quarantining it (T-008)
+        {
+            const service = await startServiceForTest();
+            await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_RUN_LAYER_CONFIG), 'utf8');
+
+            const response = await service.call(CONFIG_PATH);
+            const body: { config: ServiceConfig } = await response.json();
+            const entries = await readdir(service.dataDir);
+
+            expect(response.status).toBe(200);
+            expect(body.config).toEqual({
+                ...PRE_RUN_LAYER_CONFIG,
+                leaseMs: 120_000,
+                resultDeadlineMs: 120_000,
+                [AGENT_FIELD]: AGENT_DEFAULT,
+            });
+            expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toEqual([]);
+        }
+    });
+
+    it('round-trips a retuned lease and result deadline (T-0… (+1 cases)', async () => {
+        // case: round-trips a retuned lease and result deadline (T-008)
+        {
+            const service = await startServiceForTest();
+            const replacement = { ...DEFAULT_CONFIG, leaseMs: 45_000, resultDeadlineMs: 300_000 };
+
+            const put = await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(replacement) });
+            const get = await service.call(CONFIG_PATH);
+            const body: { config: ServiceConfig } = await get.json();
+
+            expect(put.status).toBe(200);
+            expect(body.config).toEqual(replacement);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: answers 503 for both routes when the data directory is unusable
+        {
+            const service = await startServiceForTest({ dataDir: await unwritableDataDir() });
+
+            const get = await service.call(CONFIG_PATH);
+            const put = await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(DEFAULT_CONFIG) });
+            const health = await service.call(HEALTH_PATH);
+            const bodies = [await get.json(), await put.json()];
+
+            expect(get.status).toBe(503);
+            expect(put.status).toBe(503);
+            for (const body of bodies) {
+                expect(body).toMatchObject({ error: { code: 'storage-unavailable' } });
+            }
+            expect(health.status).toBe(200);
+        }
     });
 });
 
 describe('GET /v1/status', () => {
-    it('reports the documented skeleton on a healthy store', async () => {
-        const service = await startServiceForTest();
+    it('reports the documented skeleton on a healthy store (+2 cases)', async () => {
+        // case: reports the documented skeleton on a healthy store
+        {
+            const service = await startServiceForTest();
 
-        const response = await service.call(STATUS_PATH);
-        const body: ServiceStatusBody = await response.json();
+            const response = await service.call(STATUS_PATH);
+            const body: ServiceStatusBody = await response.json();
 
-        expect(response.status).toBe(200);
-        const sections = Object.keys(body).sort();
-        expect(sections).toEqual(['accounts', 'agentPin', 'polling', 'repositories', 'service', 'surface']);
-        expect(body.service.status).toBe('ok');
-        expect(body.service.dataDir).toBe(service.dataDir);
-        expect(body.service.schemaVersion).toBe(SERVICE_SCHEMA_VERSION);
-        expect(body.service.uptimeMs).toBeGreaterThanOrEqual(0);
-        expect(body.accounts).toEqual([]);
-        expect(body.repositories).toEqual([]);
-        expect(body.agentPin).toEqual({ expectedAgent: null, lastVerification: null });
-        expect(body.polling.intervalMs).toBe(DEFAULT_CONFIG.intervalMs);
-        expect(body.polling.paused).toBe(false);
-        expect(body.polling.pausedReason).toBe('');
-        expect(Date.parse(body.polling.nextPollAt ?? '')).toBeGreaterThan(Date.now());
-        expect(body.surface.supported).toBe(true);
-    });
+            expect(response.status).toBe(200);
+            const sections = Object.keys(body).sort();
+            expect(sections).toEqual(['accounts', 'agentPin', 'polling', 'repositories', 'service', 'surface']);
+            expect(body.service.status).toBe('ok');
+            expect(body.service.dataDir).toBe(service.dataDir);
+            expect(body.service.schemaVersion).toBe(SERVICE_SCHEMA_VERSION);
+            expect(body.service.uptimeMs).toBeGreaterThanOrEqual(0);
+            expect(body.accounts).toEqual([]);
+            expect(body.repositories).toEqual([]);
+            expect(body.agentPin).toEqual({ expectedAgent: null, lastVerification: null });
+            expect(body.polling.intervalMs).toBe(DEFAULT_CONFIG.intervalMs);
+            expect(body.polling.paused).toBe(false);
+            expect(body.polling.pausedReason).toBe('');
+            expect(Date.parse(body.polling.nextPollAt ?? '')).toBeGreaterThan(Date.now());
+            expect(body.surface.supported).toBe(true);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: reflects a persisted interval in the polling state
+        {
+            const service = await startServiceForTest();
+            const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000 };
 
-    it('reflects a persisted interval in the polling state', async () => {
-        const service = await startServiceForTest();
-        const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000 };
+            await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(replacement) });
+            const response = await service.call(STATUS_PATH);
+            const body: ServiceStatusBody = await response.json();
 
-        await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(replacement) });
-        const response = await service.call(STATUS_PATH);
-        const body: ServiceStatusBody = await response.json();
+            expect(body.polling.intervalMs).toBe(30_000);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: reports degraded and schema-less when the store is unavailable
+        {
+            const service = await startServiceForTest({ dataDir: await unwritableDataDir() });
 
-        expect(body.polling.intervalMs).toBe(30_000);
-    });
+            const response = await service.call(STATUS_PATH);
+            const body: ServiceStatusBody = await response.json();
 
-    it('reports degraded and schema-less when the store is unavailable', async () => {
-        const service = await startServiceForTest({ dataDir: await unwritableDataDir() });
-
-        const response = await service.call(STATUS_PATH);
-        const body: ServiceStatusBody = await response.json();
-
-        expect(body.service.status).toBe('degraded');
-        expect(body.service.schemaVersion).toBeNull();
-        expect(body.polling.paused).toBe(true);
-        expect(body.surface.supported).toBe(true);
+            expect(body.service.status).toBe('degraded');
+            expect(body.service.schemaVersion).toBeNull();
+            expect(body.polling.paused).toBe(true);
+            expect(body.surface.supported).toBe(true);
+        }
     });
 });
 
@@ -493,117 +547,131 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
         },
     ];
 
-    it('refuses each documented bad value with its own remediation and no echo', () => {
-        for (const { case: shape, value, remediation } of REFUSALS) {
-            const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: value });
+    it('refuses each documented bad value with its own remed… (+3 cases)', async () => {
+        // case: refuses each documented bad value with its own remediation and no echo
+        {
+            for (const { case: shape, value, remediation } of REFUSALS) {
+                const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: value });
 
-            expect(result.ok, `${shape} must be refused`).toBe(false);
-            if (!result.ok) {
-                const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
-                expect(issue?.remediation, `${shape} remediation`).toBe(remediation);
-                expect(issue?.remediation, `${shape} must not echo whitespace`).not.toContain('    ');
-                const submitted = value.trim();
-                if (submitted !== '') {
-                    expect(JSON.stringify(result.issues), `${shape} must not echo the value`)
-                        .not.toContain(submitted);
+                expect(result.ok, `${shape} must be refused`).toBe(false);
+                if (!result.ok) {
+                    const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
+                    expect(issue?.remediation, `${shape} remediation`).toBe(remediation);
+                    expect(issue?.remediation, `${shape} must not echo whitespace`).not.toContain('    ');
+                    const submitted = value.trim();
+                    if (submitted !== '') {
+                        expect(JSON.stringify(result.issues), `${shape} must not echo the value`)
+                            .not.toContain(submitted);
+                    }
                 }
             }
         }
-    });
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: stores the trimmed value so a save/load round trip is stable
+        {
+            const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: PADDED_AGENT });
 
-    it('stores the trimmed value so a save/load round trip is stable', () => {
-        const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: PADDED_AGENT });
-
-        expect(result.ok).toBe(true);
-        if (result.ok) {
-            expect(result.config[AGENT_FIELD]).toBe(ACCEPTED_AGENT);
+            expect(result.ok).toBe(true);
+            if (result.ok) {
+                expect(result.config[AGENT_FIELD]).toBe(ACCEPTED_AGENT);
+            }
         }
-    });
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses a PUT that omits the field while the read fills it (FR-100(b), data-model §2)
+        {
+            const service = await startServiceForTest();
+            await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_AGENT_CONFIG), 'utf8');
 
-    it('refuses a PUT that omits the field while the read fills it (FR-100(b), data-model §2)', async () => {
-        const service = await startServiceForTest();
-        await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_AGENT_CONFIG), 'utf8');
+            const read = await service.call(CONFIG_PATH);
+            const envelope: ConfigEnvelope = await read.json();
+            const put = await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(PRE_AGENT_CONFIG) });
+            const failure: ValidationBody = await put.json();
+            const stored = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8');
 
-        const read = await service.call(CONFIG_PATH);
-        const envelope: ConfigEnvelope = await read.json();
-        const put = await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(PRE_AGENT_CONFIG) });
-        const failure: ValidationBody = await put.json();
-        const stored = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8');
+            // Read side: filled, reported, and byte-identical — a read writes nothing.
+            expect(read.status).toBe(200);
+            expect(envelope.source).toBe('stored');
+            expect(envelope.defaultsApplied).toEqual([AGENT_FIELD]);
+            expect(envelope.config[AGENT_FIELD]).toBe(AGENT_DEFAULT);
+            expect(envelope.config.intervalMs).toBe(DEFAULT_CONFIG.intervalMs);
+            expect(stored).toBe(JSON.stringify(PRE_AGENT_CONFIG));
 
-        // Read side: filled, reported, and byte-identical — a read writes nothing.
-        expect(read.status).toBe(200);
-        expect(envelope.source).toBe('stored');
-        expect(envelope.defaultsApplied).toEqual([AGENT_FIELD]);
-        expect(envelope.config[AGENT_FIELD]).toBe(AGENT_DEFAULT);
-        expect(envelope.config.intervalMs).toBe(DEFAULT_CONFIG.intervalMs);
-        expect(stored).toBe(JSON.stringify(PRE_AGENT_CONFIG));
+            // Write side: the whole-file rule is unchanged, so the same body is a 422.
+            expect(put.status).toBe(422);
+            expect(failure.error.issues.map((issue) => issue.field)).toContain(AGENT_FIELD);
+            expect(await readFile(join(service.dataDir, CONFIG_FILE), 'utf8')).toBe(JSON.stringify(PRE_AGENT_CONFIG));
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: leaves the stored value in force when a credential-shaped save is refused (AC-154)
+        {
+            const service = await startServiceForTest();
+            const accepted = { ...DEFAULT_CONFIG, [AGENT_FIELD]: ACCEPTED_AGENT };
+            await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(accepted) });
+            const before = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8');
 
-        // Write side: the whole-file rule is unchanged, so the same body is a 422.
-        expect(put.status).toBe(422);
-        expect(failure.error.issues.map((issue) => issue.field)).toContain(AGENT_FIELD);
-        expect(await readFile(join(service.dataDir, CONFIG_FILE), 'utf8')).toBe(JSON.stringify(PRE_AGENT_CONFIG));
-    });
+            const refused = await service.call(CONFIG_PATH, {
+                method: 'PUT',
+                body: JSON.stringify({ ...DEFAULT_CONFIG, [AGENT_FIELD]: CREDENTIAL_SHAPED_VALUE }),
+            });
+            const body = await refused.text();
+            const after = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8');
 
-    it('leaves the stored value in force when a credential-shaped save is refused (AC-154)', async () => {
-        const service = await startServiceForTest();
-        const accepted = { ...DEFAULT_CONFIG, [AGENT_FIELD]: ACCEPTED_AGENT };
-        await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(accepted) });
-        const before = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8');
-
-        const refused = await service.call(CONFIG_PATH, {
-            method: 'PUT',
-            body: JSON.stringify({ ...DEFAULT_CONFIG, [AGENT_FIELD]: CREDENTIAL_SHAPED_VALUE }),
-        });
-        const body = await refused.text();
-        const after = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8');
-
-        expect(refused.status).toBe(422);
-        expect(body).toContain(AGENT_FIELD);
-        expect(body).not.toContain(CREDENTIAL_SHAPED_VALUE);
-        expect(after).toBe(before);
+            expect(refused.status).toBe(422);
+            expect(body).toContain(AGENT_FIELD);
+            expect(body).not.toContain(CREDENTIAL_SHAPED_VALUE);
+            expect(after).toBe(before);
+        }
     });
 });
 
 describe('GET /v1/config widens without changing what it already said (006 FR-020, contract §1)', () => {
-    it('reports source fidelity for all three reads, and [] whenever source is not stored', async () => {
-        const service = await startServiceForTest();
+    it('reports source fidelity for all three reads, and [] … (+1 cases)', async () => {
+        // case: reports source fidelity for all three reads, and [] whenever source is not stored
+        {
+            const service = await startServiceForTest();
 
-        // Absent: the documented defaults answer, and `config` keeps its shape.
-        const absentResponse = await service.call(CONFIG_PATH);
-        const absent: ConfigEnvelope = await absentResponse.json();
-        expect(absent.source).toBe('default');
-        expect(absent.defaultsApplied).toEqual([]);
-        expect(absent.config).toEqual(DEFAULT_CONFIG);
+            // Absent: the documented defaults answer, and `config` keeps its shape.
+            const absentResponse = await service.call(CONFIG_PATH);
+            const absent: ConfigEnvelope = await absentResponse.json();
+            expect(absent.source).toBe('default');
+            expect(absent.defaultsApplied).toEqual([]);
+            expect(absent.config).toEqual(DEFAULT_CONFIG);
 
-        // Stored: the file's values, with only the missing key reported as filled.
-        await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_AGENT_CONFIG), 'utf8');
-        const storedResponse = await service.call(CONFIG_PATH);
-        const stored: ConfigEnvelope = await storedResponse.json();
-        expect(stored.source).toBe('stored');
-        expect(stored.defaultsApplied).toEqual([AGENT_FIELD]);
-        expect(stored.config[AGENT_FIELD]).toBe(AGENT_DEFAULT);
+            // Stored: the file's values, with only the missing key reported as filled.
+            await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_AGENT_CONFIG), 'utf8');
+            const storedResponse = await service.call(CONFIG_PATH);
+            const stored: ConfigEnvelope = await storedResponse.json();
+            expect(stored.source).toBe('stored');
+            expect(stored.defaultsApplied).toEqual([AGENT_FIELD]);
+            expect(stored.config[AGENT_FIELD]).toBe(AGENT_DEFAULT);
 
-        // Quarantined: defaults serve, no key is claimed as filled, no value as configured.
-        const unusable = JSON.stringify({ ...PRE_AGENT_CONFIG, surprise: 1 });
-        await writeFile(join(service.dataDir, CONFIG_FILE), unusable, 'utf8');
-        const quarantinedResponse = await service.call(CONFIG_PATH);
-        const quarantined: ConfigEnvelope = await quarantinedResponse.json();
-        expect(quarantined.source).toBe('quarantined');
-        expect(quarantined.defaultsApplied).toEqual([]);
-        expect(quarantined.config).toEqual(DEFAULT_CONFIG);
-        const entries = await readdir(service.dataDir);
-        expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toHaveLength(1);
-    });
+            // Quarantined: defaults serve, no key is claimed as filled, no value as configured.
+            const unusable = JSON.stringify({ ...PRE_AGENT_CONFIG, surprise: 1 });
+            await writeFile(join(service.dataDir, CONFIG_FILE), unusable, 'utf8');
+            const quarantinedResponse = await service.call(CONFIG_PATH);
+            const quarantined: ConfigEnvelope = await quarantinedResponse.json();
+            expect(quarantined.source).toBe('quarantined');
+            expect(quarantined.defaultsApplied).toEqual([]);
+            expect(quarantined.config).toEqual(DEFAULT_CONFIG);
+            const entries = await readdir(service.dataDir);
+            expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toHaveLength(1);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: carries one descriptor per documented field, in the validator\'s own order (AC-107)
+        {
+            const service = await startServiceForTest();
+            const response = await service.call(CONFIG_PATH);
+            const envelope: ConfigEnvelope = await response.json();
 
-    it('carries one descriptor per documented field, in the validator\'s own order (AC-107)', async () => {
-        const service = await startServiceForTest();
-        const response = await service.call(CONFIG_PATH);
-        const envelope: ConfigEnvelope = await response.json();
-
-        expect(envelope.fields.map((descriptor) => descriptor.name)).toEqual(Object.keys(DEFAULT_CONFIG));
-        expect(envelope.fields).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
-        for (const descriptor of envelope.fields) {
-            expect(descriptor.takesEffect).toBeTruthy();
+            expect(envelope.fields.map((descriptor) => descriptor.name)).toEqual(Object.keys(DEFAULT_CONFIG));
+            expect(envelope.fields).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
+            for (const descriptor of envelope.fields) {
+                expect(descriptor.takesEffect).toBeTruthy();
+            }
         }
     });
 });
@@ -637,74 +705,83 @@ function refusedValueFor(descriptor: FieldDescriptor): unknown {
 }
 
 describe('the projection is the validator\'s own declaration (006 SC-101, SC-106)', () => {
-    it('moves together when a bound moves, and returns when it is reverted (SC-101)', () => {
-        expect(descriptorOf('intervalMs')).toMatchObject({ min: 15_000, max: 300_000 });
-        expect(validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 }).ok).toBe(true);
+    it('moves together when a bound moves, and returns when … (+3 cases)', async () => {
+        // case: moves together when a bound moves, and returns when it is reverted (SC-101)
+        {
+            expect(descriptorOf('intervalMs')).toMatchObject({ min: 15_000, max: 300_000 });
+            expect(validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 }).ok).toBe(true);
 
-        try {
-            Reflect.set(NUMERIC_BOUNDS.intervalMs, 'min', 42_000);
-            expect(descriptorOf('intervalMs')).toMatchObject({ min: 42_000, max: 300_000 });
-            const moved = validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 });
-            expect(moved.ok).toBe(false);
-            if (!moved.ok) {
-                const issue = moved.issues.find((candidate) => candidate.field === 'intervalMs');
-                expect(issue?.remediation).toContain('42000');
+            try {
+                Reflect.set(NUMERIC_BOUNDS.intervalMs, 'min', 42_000);
+                expect(descriptorOf('intervalMs')).toMatchObject({ min: 42_000, max: 300_000 });
+                const moved = validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 });
+                expect(moved.ok).toBe(false);
+                if (!moved.ok) {
+                    const issue = moved.issues.find((candidate) => candidate.field === 'intervalMs');
+                    expect(issue?.remediation).toContain('42000');
+                }
+            } finally {
+                Reflect.set(NUMERIC_BOUNDS.intervalMs, 'min', 15_000);
             }
-        } finally {
-            Reflect.set(NUMERIC_BOUNDS.intervalMs, 'min', 15_000);
+
+            expect(descriptorOf('intervalMs')).toMatchObject({ min: 15_000 });
+            expect(validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 }).ok).toBe(true);
         }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: emits descriptors in exactly the order a full refusal reports issues
+        {
+            const candidate: Record<string, unknown> = {};
+            for (const descriptor of configSchema()) {
+                candidate[descriptor.name] = refusedValueFor(descriptor);
+            }
 
-        expect(descriptorOf('intervalMs')).toMatchObject({ min: 15_000 });
-        expect(validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 }).ok).toBe(true);
-    });
+            const result = validateConfig(candidate);
 
-    it('emits descriptors in exactly the order a full refusal reports issues', () => {
-        const candidate: Record<string, unknown> = {};
-        for (const descriptor of configSchema()) {
-            candidate[descriptor.name] = refusedValueFor(descriptor);
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                const reportedOrder = configSchema().map((descriptor) => descriptor.name);
+                expect(result.issues.map((issue) => issue.field)).toEqual(reportedOrder);
+            }
         }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: declares nine next-cycle, one immediate, and one next-dispatch over 006\'s eleven (SC-106)
+        {
+            const declared = configSchema()
+                .filter((descriptor) => SPEC_FIELDS.includes(descriptor.name))
+                .map((descriptor) => descriptor.takesEffect);
 
-        const result = validateConfig(candidate);
-
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-            const reportedOrder = configSchema().map((descriptor) => descriptor.name);
-            expect(result.issues.map((issue) => issue.field)).toEqual(reportedOrder);
+            expect(declared).toHaveLength(11);
+            expect(declared.filter((takeEffect) => takeEffect === 'next-cycle')).toHaveLength(9);
+            expect(declared.filter((takeEffect) => takeEffect === 'immediate')).toHaveLength(1);
+            expect(declared.filter((takeEffect) => takeEffect === 'next-dispatch')).toHaveLength(1);
+            expect(declared.filter((takeEffect) => takeEffect === 'restart' || takeEffect === 'none')).toHaveLength(0);
         }
-    });
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: gives the string field no unit and no numeric bound, and the enum field the four levels
+        {
+            const agent = descriptorOf(AGENT_FIELD);
+            expect(agent).toMatchObject({
+                kind: 'string',
+                unit: null,
+                maxLength: 80,
+                default: AGENT_DEFAULT,
+                takesEffect: 'next-dispatch',
+            });
+            const agentKeys = agent === undefined ? [] : Object.keys(agent);
+            expect(agentKeys).not.toContain('min');
+            expect(agentKeys).not.toContain('max');
 
-    it('declares nine next-cycle, one immediate, and one next-dispatch over 006\'s eleven (SC-106)', () => {
-        const declared = configSchema()
-            .filter((descriptor) => SPEC_FIELDS.includes(descriptor.name))
-            .map((descriptor) => descriptor.takesEffect);
-
-        expect(declared).toHaveLength(11);
-        expect(declared.filter((takeEffect) => takeEffect === 'next-cycle')).toHaveLength(9);
-        expect(declared.filter((takeEffect) => takeEffect === 'immediate')).toHaveLength(1);
-        expect(declared.filter((takeEffect) => takeEffect === 'next-dispatch')).toHaveLength(1);
-        expect(declared.filter((takeEffect) => takeEffect === 'restart' || takeEffect === 'none')).toHaveLength(0);
-    });
-
-    it('gives the string field no unit and no numeric bound, and the enum field the four levels', () => {
-        const agent = descriptorOf(AGENT_FIELD);
-        expect(agent).toMatchObject({
-            kind: 'string',
-            unit: null,
-            maxLength: 80,
-            default: AGENT_DEFAULT,
-            takesEffect: 'next-dispatch',
-        });
-        const agentKeys = agent === undefined ? [] : Object.keys(agent);
-        expect(agentKeys).not.toContain('min');
-        expect(agentKeys).not.toContain('max');
-
-        expect(descriptorOf('logLevel')).toMatchObject({
-            kind: 'enum',
-            unit: null,
-            values: ['debug', 'info', 'warn', 'error'],
-            default: 'info',
-            takesEffect: 'immediate',
-        });
+            expect(descriptorOf('logLevel')).toMatchObject({
+                kind: 'enum',
+                unit: null,
+                values: ['debug', 'info', 'warn', 'error'],
+                default: 'info',
+                takesEffect: 'immediate',
+            });
+        }
     });
 });
 

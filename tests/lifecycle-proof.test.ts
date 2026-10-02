@@ -152,68 +152,74 @@ async function visitAllTabs(): Promise<LifecycleRun> {
 }
 
 describe('AC-137 a teardown returns the panel to its pre-mount counts', () => {
-    it('removes every node, timer, and registry entry after visiting all six', async () => {
-        const run = await visitAllTabs();
-        const { rt, root } = run;
+    it('removes every node, timer, and registry entry after … (+1 cases)', async () => {
+        // case: removes every node, timer, and registry entry after visiting all six
+        {
+            const run = await visitAllTabs();
+            const { rt, root } = run;
 
-        // Six bodies mounted, nothing armed: the tabs own no loop and no
-        // timer of their own (FR-018 — the relay lives at the root).
-        expect(rt.tabMounted.size).toBe(6);
-        expect(root.children.length).toBeGreaterThan(0);
-        expect(rt.state.relay.timer).toBeNull();
-        expect(rt.relayArmed).toBe(false);
+            // Six bodies mounted, nothing armed: the tabs own no loop and no
+            // timer of their own (FR-018 — the relay lives at the root).
+            expect(rt.tabMounted.size).toBe(6);
+            expect(root.children.length).toBeGreaterThan(0);
+            expect(rt.state.relay.timer).toBeNull();
+            expect(rt.relayArmed).toBe(false);
 
-        rt.shell?.dispose();
+            rt.shell?.dispose();
 
-        expect(root.children).toEqual([]);
-        expect(rt.tabMounted.size).toBe(0);
-        expect(rt.tabLastRead.size).toBe(0);
-        expect(rt.shell).toBeNull();
-        expect(rt.statusUi).toBeNull();
-        expect(rt.settingsUi).toBeNull();
-        expect(rt.aboutUi).toBeNull();
-        expect(rt.bindingsUi).toBeNull();
-        expect(rt.accountsUi).toBeNull();
-        expect(rt.dispatchesUi).toBeNull();
-    });
+            expect(root.children).toEqual([]);
+            expect(rt.tabMounted.size).toBe(0);
+            expect(rt.tabLastRead.size).toBe(0);
+            expect(rt.shell).toBeNull();
+            expect(rt.statusUi).toBeNull();
+            expect(rt.settingsUi).toBeNull();
+            expect(rt.aboutUi).toBeNull();
+            expect(rt.bindingsUi).toBeNull();
+            expect(rt.accountsUi).toBeNull();
+            expect(rt.dispatchesUi).toBeNull();
+        }
+        // case: disposes no handle twice, and a second teardown disposes nothing new (NFR-108)
+        {
+            const run = await visitAllTabs();
+            run.rt.shell?.dispose();
+            const first = mounts.disposed.length;
 
-    it('disposes no handle twice, and a second teardown disposes nothing new (NFR-108)', async () => {
-        const run = await visitAllTabs();
-        run.rt.shell?.dispose();
-        const first = mounts.disposed.length;
+            expect(first).toBeGreaterThan(10);
+            expect(new Set(mounts.disposed).size).toBe(first);
 
-        expect(first).toBeGreaterThan(10);
-        expect(new Set(mounts.disposed).size).toBe(first);
-
-        run.rt.shell?.dispose();
-        expect(mounts.disposed).toHaveLength(first);
+            run.rt.shell?.dispose();
+            expect(mounts.disposed).toHaveLength(first);
+        }
     });
 });
 
 describe('FR-014 activating the shown tab reads nothing and changes nothing (NFR-104)', () => {
-    it('performs zero service reads when the operator clicks the active tab', async () => {
-        const run = await visitAllTabs();
-        const before = run.requests.length;
-        const state = JSON.stringify(run.rt.state);
+    it('performs zero service reads when the operator clicks… (+1 cases)', async () => {
+        // case: performs zero service reads when the operator clicks the active tab
+        {
+            const run = await visitAllTabs();
+            const before = run.requests.length;
+            const state = JSON.stringify(run.rt.state);
 
-        run.rt.shell?.activate('settings');
-        run.rt.shell?.activate('settings');
+            run.rt.shell?.activate('settings');
+            run.rt.shell?.activate('settings');
 
-        expect(run.rt.activeTab).toBe('settings');
-        expect(run.requests).toHaveLength(before);
-        expect(JSON.stringify(run.rt.state)).toBe(state);
-    });
+            expect(run.rt.activeTab).toBe('settings');
+            expect(run.requests).toHaveLength(before);
+            expect(JSON.stringify(run.rt.state)).toBe(state);
+        }
+        // case: changes nothing but the activation field when a new tab opens
+        {
+            const run = await visitAllTabs();
+            const { rt } = run;
+            rt.activeTab = 'status';
+            const state = JSON.stringify(rt.state);
 
-    it('changes nothing but the activation field when a new tab opens', async () => {
-        const run = await visitAllTabs();
-        const { rt } = run;
-        rt.activeTab = 'status';
-        const state = JSON.stringify(rt.state);
+            rt.shell?.activate('bindings');
 
-        rt.shell?.activate('bindings');
-
-        expect(rt.activeTab).toBe('bindings');
-        expect(JSON.stringify(rt.state)).toBe(state);
+            expect(rt.activeTab).toBe('bindings');
+            expect(JSON.stringify(rt.state)).toBe(state);
+        }
     });
 });
 
@@ -272,45 +278,48 @@ describe('AC-136 / SC-108 one loop and one session across a mid-flight switch', 
 });
 
 describe('FR-019 / NFR-111 a failed read keeps what it had, marked stale', () => {
-    it('keeps the Settings document and marks it stale on a failed re-read', async () => {
-        const run = await visitAllTabs();
-        const { rt } = run;
-        expect(rt.state.settingsTab.phase).toBe('loaded');
-        expect(rt.state.settingsTab.doc).not.toBeNull();
+    it('keeps the Settings document and marks it stale on a … (+2 cases)', async () => {
+        // case: keeps the Settings document and marks it stale on a failed re-read
+        {
+            const run = await visitAllTabs();
+            const { rt } = run;
+            expect(rt.state.settingsTab.phase).toBe('loaded');
+            expect(rt.state.settingsTab.doc).not.toBeNull();
 
-        run.fail();
-        await loadSettings(rt);
+            run.fail();
+            await loadSettings(rt);
 
-        expect(rt.state.settingsTab.phase).toBe('failed');
-        expect(rt.state.settingsTab.stale).toBe(true);
-        expect(rt.state.settingsTab.doc).not.toBeNull();
-    });
+            expect(rt.state.settingsTab.phase).toBe('failed');
+            expect(rt.state.settingsTab.stale).toBe(true);
+            expect(rt.state.settingsTab.doc).not.toBeNull();
+        }
+        // case: keeps the About version and marks it stale on a failed re-read
+        {
+            const run = await visitAllTabs();
+            const { rt } = run;
+            expect(rt.state.aboutTab.version).not.toBeNull();
 
-    it('keeps the About version and marks it stale on a failed re-read', async () => {
-        const run = await visitAllTabs();
-        const { rt } = run;
-        expect(rt.state.aboutTab.version).not.toBeNull();
+            run.fail();
+            await loadVersion(rt);
 
-        run.fail();
-        await loadVersion(rt);
+            expect(rt.state.aboutTab.phase).toBe('failed');
+            expect(rt.state.aboutTab.version).not.toBeNull();
+            expect(rt.state.aboutTab.problem).not.toBeNull();
+        }
+        // case: says plainly that there is nothing to keep when nothing ever landed
+        {
+            const rt = createTestRuntime(fakeHost({
+                serviceRequest: async () => {
+                    throw new Error('connection refused');
+                },
+            }));
 
-        expect(rt.state.aboutTab.phase).toBe('failed');
-        expect(rt.state.aboutTab.version).not.toBeNull();
-        expect(rt.state.aboutTab.problem).not.toBeNull();
-    });
+            await loadSettings(rt);
+            await loadVersion(rt);
 
-    it('says plainly that there is nothing to keep when nothing ever landed', async () => {
-        const rt = createTestRuntime(fakeHost({
-            serviceRequest: async () => {
-                throw new Error('connection refused');
-            },
-        }));
-
-        await loadSettings(rt);
-        await loadVersion(rt);
-
-        expect(rt.state.settingsTab.stale).toBe(false);
-        expect(rt.state.settingsTab.doc).toBeNull();
-        expect(rt.state.aboutTab.version).toBeNull();
+            expect(rt.state.settingsTab.stale).toBe(false);
+            expect(rt.state.settingsTab.doc).toBeNull();
+            expect(rt.state.aboutTab.version).toBeNull();
+        }
     });
 });

@@ -163,14 +163,17 @@ const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => LOG
 let running: TestService | null = null;
 let store: ServiceStore;
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork1 = async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
     }
 
     LOG_LINES.length = 0;
-});
+};
+
+afterEach(afterEachWork1);
 
 /**
  * Start a service against a fresh temp store and register it for cleanup.

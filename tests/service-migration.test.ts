@@ -98,21 +98,27 @@ let store: ServiceStore;
 /** The upgraded service T-030 boots, drained before the temp root goes. */
 let running: TestService | null = null;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-migration-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
     running = null;
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
     }
 
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /** Build a complete assignment detection for a migration case. */
 function snapshot(issueNumber: number): EventSnapshot {
@@ -167,152 +173,170 @@ async function seedLegacyQueue(): Promise<readonly { readonly id: string }[]> {
 }
 
 describe('runs.json first-read adoption', () => {
-    it('maps every legacy branch without changing queue bytes, windows, or quarantine state', async () => {
-        const rows = await seedLegacyQueue();
-        const legacyBytes = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
-        const scanStateBytes = JSON.stringify({ bindings: { [BINDING_ID]: { lastScanAt: STAMP, lastError: null } } });
-        await store.writeJson(SCAN_STATE_FILE, JSON.parse(scanStateBytes) as unknown);
-        const beforeWindow = await readFile(join(dataDir, SCAN_STATE_FILE), 'utf8');
+    it('maps every legacy branch without changing queue byte… (+3 cases)', async () => {
+        // case: maps every legacy branch without changing queue bytes, windows, or quarantine state
+        {
+            const rows = await seedLegacyQueue();
+            const legacyBytes = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
+            const scanStateBytes = JSON.stringify({ bindings: { [BINDING_ID]: {
+                lastScanAt: STAMP, lastError: null } } });
+            await store.writeJson(SCAN_STATE_FILE, JSON.parse(scanStateBytes) as unknown);
+            const beforeWindow = await readFile(join(dataDir, SCAN_STATE_FILE), 'utf8');
 
-        expect(await ensureRunsAdopted({ store, log: LOGGER, now: NOW })).toBe('adopted');
-        const document = await readRunsDocument({ store, log: LOGGER });
-        const audit = await readAuditEntries(store);
+            expect(await ensureRunsAdopted({ store, log: LOGGER, now: NOW })).toBe('adopted');
+            const document = await readRunsDocument({ store, log: LOGGER });
+            const audit = await readAuditEntries(store);
 
-        expect(document.runs.map((run) => run.state)).toEqual([
-            'pending',
-            'claimed',
-            'starting',
-            'dispatched',
-            'failed',
-            'dispatched',
-        ]);
-        // The synthetic lease is already expired **at mint** for every clock
-        // that could judge it: it expires with the legacy claim's own window
-        // (the earlier of that stamp and the adopting stamp minus a
-        // millisecond), never with a stamp only this process has seen (T-045).
-        expect(document.runs[1]?.lease?.expiresAt).toBe(STAMP);
-        expect(document.runs[2]?.reservation?.reservedAt).toBe(NOW);
-        expect(document.runs[2]?.reservation?.resultDeadlineAt).toBe('2026-09-28T12:32:00.000Z');
-        expect(document.runs[3]?.session?.sessionId).toBe('ses_preexisting');
-        expect(document.runs[4]?.stateReason).toBe(PROBLEM_RESULT);
-        expect(document.runs[5]?.state).toBe('dispatched');
-        expect(document.runs[5]?.session?.sessionId).toBe('unknown-legacy-result');
-        expect(document.runs.map((run) => run.sourceReferences[0]?.deliveryId)).toEqual(
-            rows.map((row) => row.id),
-        );
-        expect(audit.filter((entry) => entry.eventType === MIGRATED_EVENT)).toHaveLength(6);
-        expect(audit.filter((entry) => entry.eventType === MIGRATED_EVENT).map((entry) => entry.correlationId))
-            .toEqual(document.runs.map((run) => run.correlationId));
-        expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(legacyBytes);
-        expect(await readFile(join(dataDir, SCAN_STATE_FILE), 'utf8')).toBe(beforeWindow);
-        const entries = await readdir(dataDir);
-        expect(entries.filter((name) => name.includes('.corrupt-'))).toEqual([]);
-    });
-
-    it('is idempotent across a second store handle and never repeats migration audit rows', async () => {
-        await seedLegacyQueue();
-        await ensureRunsAdopted({ store, log: LOGGER });
-        const auditBefore = await readAuditEntries(store);
-        const secondStore = await openStore({ dataDir });
-
-        expect(await ensureRunsAdopted({ store: secondStore, log: LOGGER })).toBe('present');
-        const auditAfter = await readAuditEntries(secondStore);
-        expect(auditAfter).toEqual(auditBefore);
-        const document = await secondStore.readJson(RUNS_FILE, (value) => value);
-        expect(document.status).toBe('ok');
-    });
-
-    it('recovers a migration audit missed after the adopted run document was written', async () => {
-        await seedLegacyQueue();
-        const interruptedStore: ServiceStore = {
-            ...store,
-            appendLine: async (path, value) => {
-                if (path === AUDIT_FILE) {
-                    throw new Error('simulated interruption before migration audit append');
-                }
-
-                await store.appendLine(path, value);
-            },
-        };
-
-        expect(await ensureRunsAdopted({ store: interruptedStore, log: LOGGER, now: NOW })).toBe('adopted');
-        const firstRead = await readRunsDocument({ store: interruptedStore, log: LOGGER });
-        expect(firstRead.auditIntents).toHaveLength(6);
-        const auditBeforeRestart = await readAuditEntries(store);
-        expect(auditBeforeRestart.filter((entry) => entry.eventType === MIGRATED_EVENT)).toHaveLength(0);
-
-        const restartedStore = await openStore({ dataDir });
-        const recovered = await readRunsDocument({ store: restartedStore, log: LOGGER });
-        const auditAfterRestart = await readAuditEntries(restartedStore);
-        const migrations = auditAfterRestart.filter((entry) => entry.eventType === MIGRATED_EVENT);
-
-        expect(recovered.auditIntents).toEqual([]);
-        expect(migrations).toHaveLength(6);
-        expect(migrations.map((entry) => entry.correlationId)).toEqual(
-            recovered.runs.map((run) => run.correlationId),
-        );
-    });
-
-    it('refuses to re-adopt state-free run-linked rows when runs.json was lost', async () => {
-        const event = createEvent(snapshot(77));
-        const [linked] = await enqueueEvents({ store, log: LOGGER, incoming: [event] });
-        const before = await readRunsDocument({ store, log: LOGGER });
-        const run = before.runs[0];
-        if (linked === undefined || run === undefined) {
-            throw new Error('run fixture was not enqueued');
+            expect(document.runs.map((run) => run.state)).toEqual([
+                'pending',
+                'claimed',
+                'starting',
+                'dispatched',
+                'failed',
+                'dispatched',
+            ]);
+            // The synthetic lease is already expired **at mint** for every clock
+            // that could judge it: it expires with the legacy claim's own window
+            // (the earlier of that stamp and the adopting stamp minus a
+            // millisecond), never with a stamp only this process has seen (T-045).
+            expect(document.runs[1]?.lease?.expiresAt).toBe(STAMP);
+            expect(document.runs[2]?.reservation?.reservedAt).toBe(NOW);
+            expect(document.runs[2]?.reservation?.resultDeadlineAt).toBe('2026-09-28T12:32:00.000Z');
+            expect(document.runs[3]?.session?.sessionId).toBe('ses_preexisting');
+            expect(document.runs[4]?.stateReason).toBe(PROBLEM_RESULT);
+            expect(document.runs[5]?.state).toBe('dispatched');
+            expect(document.runs[5]?.session?.sessionId).toBe('unknown-legacy-result');
+            expect(document.runs.map((run) => run.sourceReferences[0]?.deliveryId)).toEqual(
+                rows.map((row) => row.id),
+            );
+            expect(audit.filter((entry) => entry.eventType === MIGRATED_EVENT)).toHaveLength(6);
+            expect(audit.filter((entry) => entry.eventType === MIGRATED_EVENT).map((entry) => entry.correlationId))
+                .toEqual(document.runs.map((run) => run.correlationId));
+            expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(legacyBytes);
+            expect(await readFile(join(dataDir, SCAN_STATE_FILE), 'utf8')).toBe(beforeWindow);
+            const entries = await readdir(dataDir);
+            expect(entries.filter((name) => name.includes('.corrupt-'))).toEqual([]);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: is idempotent across a second store handle and never repeats migration audit rows
+        {
+            await seedLegacyQueue();
+            await ensureRunsAdopted({ store, log: LOGGER });
+            const auditBefore = await readAuditEntries(store);
+            const secondStore = await openStore({ dataDir });
 
-        const claimInput = {
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            holder: 'panel-migration-test',
-            leaseId: MIGRATION_TEST_LEASE_ID,
-            issuedAt: NOW,
-            expiresAt: '2026-09-28T12:35:00.000Z',
-            now: NOW,
-        };
-        const claim = await claimRun(claimInput);
-        expect(claim.status).toBe('applied');
-        // T-043g: the un-routed second minting site is gone, so the fixture
-        // authorizes and spends through the modules the routes call — which is
-        // also what makes the assertion below about a *real* durable dispatch.
-        const reservation = await reserveDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            leaseId: MIGRATION_TEST_LEASE_ID,
-            attempt: 1,
-            now: NOW,
-        });
-        if (reservation.status !== 'applied') {
-            throw new Error(`reserve did not apply: ${reservation.status}`);
+            expect(await ensureRunsAdopted({ store: secondStore, log: LOGGER })).toBe('present');
+            const auditAfter = await readAuditEntries(secondStore);
+            expect(auditAfter).toEqual(auditBefore);
+            const document = await secondStore.readJson(RUNS_FILE, (value) => value);
+            expect(document.status).toBe('ok');
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: recovers a migration audit missed after the adopted run document was written
+        {
+            await seedLegacyQueue();
+            const interruptedStore: ServiceStore = {
+                ...store,
+                appendLine: async (path, value) => {
+                    if (path === AUDIT_FILE) {
+                        throw new Error('simulated interruption before migration audit append');
+                    }
 
-        const result = await reportDispatch({
-            store,
-            log: LOGGER,
-            correlationId: run.correlationId,
-            dispatchToken: reservation.dispatchToken,
-            attempt: 1,
-            operation: 'result',
-            outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_durable_before_loss', reason: null },
-            now: NOW,
-        });
-        expect(result.status).toBe('applied');
+                    await store.appendLine(path, value);
+                },
+            };
 
-        await store.removeFile(RUNS_FILE);
-        const restartedStore = await openStore({ dataDir });
+            expect(await ensureRunsAdopted({ store: interruptedStore, log: LOGGER, now: NOW })).toBe('adopted');
+            const firstRead = await readRunsDocument({ store: interruptedStore, log: LOGGER });
+            expect(firstRead.auditIntents).toHaveLength(6);
+            const auditBeforeRestart = await readAuditEntries(store);
+            expect(auditBeforeRestart.filter((entry) => entry.eventType === MIGRATED_EVENT)).toHaveLength(0);
 
-        const adoption = await ensureRunsAdopted({ store: restartedStore, log: LOGGER });
-        expect(adoption).toBe('unreadable');
-        await expect(readRunsDocument({ store: restartedStore, log: LOGGER }))
-            .rejects.toThrow('refusing to serve run state');
-        await expect(claimRun({ ...claimInput, store: restartedStore })).rejects.toThrow('refusing to serve run state');
-        expect(await restartedStore.readJson(RUNS_FILE, (value) => value)).toEqual({ status: 'absent' });
-        const finalAudits = await readAuditEntries(restartedStore);
-        expect(finalAudits.filter((entry) => entry.eventType === MIGRATED_EVENT)).toHaveLength(0);
-        expect(await restartedStore.readJson(EVENTS_FILE, (value) => value)).toMatchObject({ status: 'ok' });
+            const restartedStore = await openStore({ dataDir });
+            const recovered = await readRunsDocument({ store: restartedStore, log: LOGGER });
+            const auditAfterRestart = await readAuditEntries(restartedStore);
+            const migrations = auditAfterRestart.filter((entry) => entry.eventType === MIGRATED_EVENT);
+
+            expect(recovered.auditIntents).toEqual([]);
+            expect(migrations).toHaveLength(6);
+            expect(migrations.map((entry) => entry.correlationId)).toEqual(
+                recovered.runs.map((run) => run.correlationId),
+            );
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses to re-adopt state-free run-linked rows when runs.json was lost
+        {
+            const event = createEvent(snapshot(77));
+            const [linked] = await enqueueEvents({ store, log: LOGGER, incoming: [event] });
+            const before = await readRunsDocument({ store, log: LOGGER });
+            const run = before.runs[0];
+            if (linked === undefined || run === undefined) {
+                throw new Error('run fixture was not enqueued');
+            }
+
+            const claimInput = {
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                holder: 'panel-migration-test',
+                leaseId: MIGRATION_TEST_LEASE_ID,
+                issuedAt: NOW,
+                expiresAt: '2026-09-28T12:35:00.000Z',
+                now: NOW,
+            };
+            const claim = await claimRun(claimInput);
+            expect(claim.status).toBe('applied');
+            // T-043g: the un-routed second minting site is gone, so the fixture
+            // authorizes and spends through the modules the routes call — which is
+            // also what makes the assertion below about a *real* durable dispatch.
+            const reservation = await reserveDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                leaseId: MIGRATION_TEST_LEASE_ID,
+                attempt: 1,
+                now: NOW,
+            });
+            if (reservation.status !== 'applied') {
+                throw new Error(`reserve did not apply: ${reservation.status}`);
+            }
+
+            const result = await reportDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                dispatchToken: reservation.dispatchToken,
+                attempt: 1,
+                operation: 'result',
+                outcome: { attemptOutcome: 'dispatched', sessionId: 'ses_durable_before_loss', reason: null },
+                now: NOW,
+            });
+            expect(result.status).toBe('applied');
+
+            await store.removeFile(RUNS_FILE);
+            const restartedStore = await openStore({ dataDir });
+
+            const adoption = await ensureRunsAdopted({ store: restartedStore, log: LOGGER });
+            expect(adoption).toBe('unreadable');
+            await expect(readRunsDocument({ store: restartedStore, log: LOGGER }))
+                .rejects.toThrow('refusing to serve run state');
+            await expect(claimRun({ ...claimInput, store: restartedStore })).rejects.toThrow(
+                'refusing to serve run state'
+            );
+            expect(await restartedStore.readJson(RUNS_FILE, (value) => value)).toEqual({ status: 'absent' });
+            const finalAudits = await readAuditEntries(restartedStore);
+            expect(finalAudits.filter((entry) => entry.eventType === MIGRATED_EVENT)).toHaveLength(0);
+            expect(await restartedStore.readJson(EVENTS_FILE, (value) => value)).toMatchObject({ status: 'ok' });
+        }
     });
 });
 

@@ -261,187 +261,196 @@ const THREE_ISSUES: readonly { readonly field: string; readonly remediation: str
 ];
 
 describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC-125)', () => {
-    it('sends every field and renders the configuration the service returned', async () => {
-        const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 46_000 });
-        const view = await mountSettings({
-            answer: scriptedAnswer({ put: { status: 200, body: returned } }),
-        });
-        typeInto('intervalMs', '45000');
+    it('sends every field and renders the configuration the … (+2 cases)', async () => {
+        // case: sends every field and renders the configuration the service returned
+        {
+            const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 46_000 });
+            const view = await mountSettings({
+                answer: scriptedAnswer({ put: { status: 200, body: returned } }),
+            });
+            typeInto('intervalMs', '45000');
 
-        await activateSave(view);
+            await activateSave(view);
 
-        const writes = view.requests.filter((request) => request.method === 'PUT');
-        expect(writes).toHaveLength(1);
-        const sent = JSON.parse(writes[0]?.body ?? '{}') as Record<string, unknown>;
-        // The whole document, not a patch: every documented key went.
-        expect(Object.keys(sent).sort()).toEqual(Object.keys(DEFAULT_CONFIG).sort());
-        expect(sent.intervalMs).toBe(45_000);
-        // The tab now shows what the *service* said, not what was sent (AC-125).
-        expect(view.rt.state.settingsTab.edit.draft.intervalMs).toBe('46000');
-        expect(view.rt.state.settingsTab.edit.saveState).toBe('saved');
-        expect(view.rt.state.settingsTab.edit.dirty).toEqual([]);
-        // And the save reports itself, with the boundary it was saved under.
-        expect(recordedStrings().join('\n')).toContain('Saved.');
-        view.dispose();
-    });
+            const writes = view.requests.filter((request) => request.method === 'PUT');
+            expect(writes).toHaveLength(1);
+            const sent = JSON.parse(writes[0]?.body ?? '{}') as Record<string, unknown>;
+            // The whole document, not a patch: every documented key went.
+            expect(Object.keys(sent).sort()).toEqual(Object.keys(DEFAULT_CONFIG).sort());
+            expect(sent.intervalMs).toBe(45_000);
+            // The tab now shows what the *service* said, not what was sent (AC-125).
+            expect(view.rt.state.settingsTab.edit.draft.intervalMs).toBe('46000');
+            expect(view.rt.state.settingsTab.edit.saveState).toBe('saved');
+            expect(view.rt.state.settingsTab.edit.dirty).toEqual([]);
+            // And the save reports itself, with the boundary it was saved under.
+            expect(recordedStrings().join('\n')).toContain('Saved.');
+            view.dispose();
+        }
+        // case: AC-105: the pending marker names the boundary and is not cleared by the save
+        {
+            const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 46_000 });
+            const view = await mountSettings({
+                answer: scriptedAnswer({ put: { status: 200, body: returned } }),
+            });
+            typeInto('intervalMs', '45000');
 
-    it('AC-105: the pending marker names the boundary and is not cleared by the save', async () => {
-        const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 46_000 });
-        const view = await mountSettings({
-            answer: scriptedAnswer({ put: { status: 200, body: returned } }),
-        });
-        typeInto('intervalMs', '45000');
+            await activateSave(view);
 
-        await activateSave(view);
+            const { pending } = view.rt.state.settingsTab.edit;
+            expect(pending).toEqual([{ field: 'intervalMs', boundary: 'next-cycle' }]);
+            view.dispose();
+        }
+        // case: AC-102: the new interval is announced for the next poll, and nothing is restarted
+        {
+            const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 120_000 });
+            const view = await mountSettings({
+                answer: scriptedAnswer({ put: { status: 200, body: returned } }),
+            });
+            typeInto('intervalMs', '120000');
 
-        const { pending } = view.rt.state.settingsTab.edit;
-        expect(pending).toEqual([{ field: 'intervalMs', boundary: 'next-cycle' }]);
-        view.dispose();
-    });
+            await activateSave(view);
 
-    it('AC-102: the new interval is announced for the next poll, and nothing is restarted', async () => {
-        const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 120_000 });
-        const view = await mountSettings({
-            answer: scriptedAnswer({ put: { status: 200, body: returned } }),
-        });
-        typeInto('intervalMs', '120000');
-
-        await activateSave(view);
-
-        // The row says which boundary governs — never *immediately* — and the
-        // panel itself restarts nothing: one read, one write, no further call
-        // (FR-032: the service's own timer re-reads the interval per cycle).
-        expect(view.rt.state.settingsTab.edit.saveState).toBe('saved');
-        expect(view.requests).toHaveLength(2);
-        expect(view.requests.every((request) => request.method === 'GET' || request.method === 'PUT')).toBe(true);
-        view.dispose();
+            // The row says which boundary governs — never *immediately* — and the
+            // panel itself restarts nothing: one read, one write, no further call
+            // (FR-032: the service's own timer re-reads the interval per cycle).
+            expect(view.rt.state.settingsTab.edit.saveState).toBe('saved');
+            expect(view.requests).toHaveLength(2);
+            expect(view.requests.every((request) => request.method === 'GET' || request.method === 'PUT')).toBe(true);
+            view.dispose();
+        }
     });
 });
 
 describe('a refusal renders the service in the service\'s words (006 T-020, AC-107 – AC-112)', () => {
-    it('renders every issue in order, unrewritten, and names no other resource', async () => {
-        const view = await mountSettings({
-            answer: scriptedAnswer({
-                put: { status: 422, body: refusalBody(THREE_ISSUES) },
-            }),
-        });
-        typeInto('intervalMs', '120000');
+    it('renders every issue in order, unrewritten, and names… (+3 cases)', async () => {
+        // case: renders every issue in order, unrewritten, and names no other resource
+        {
+            const view = await mountSettings({
+                answer: scriptedAnswer({
+                    put: { status: 422, body: refusalBody(THREE_ISSUES) },
+                }),
+            });
+            typeInto('intervalMs', '120000');
 
-        await activateSave(view);
+            await activateSave(view);
 
-        const text = recordedStrings().join('\n');
-        const positions = THREE_ISSUES.map((issue) => text.indexOf(`${issue.field}: ${issue.remediation}`));
-        for (const position of positions) {
-            expect(position).toBeGreaterThanOrEqual(0);
+            const text = recordedStrings().join('\n');
+            const positions = THREE_ISSUES.map((issue) => text.indexOf(`${issue.field}: ${issue.remediation}`));
+            for (const position of positions) {
+                expect(position).toBeGreaterThanOrEqual(0);
+            }
+            // In the service's order, none merged into another (AC-107).
+            expect([...positions].sort((left, right) => left - right)).toEqual(positions);
+            // The problem names the configuration and never the bindings list
+            // (AC-112), and the tab reports the refusal rather than a success.
+            expect(view.rt.state.settingsTab.edit.saveState).toBe('refused');
+            expect(text).not.toContain('bindings list');
+            view.dispose();
         }
-        // In the service's order, none merged into another (AC-107).
-        expect([...positions].sort((left, right) => left - right)).toEqual(positions);
-        // The problem names the configuration and never the bindings list
-        // (AC-112), and the tab reports the refusal rather than a success.
-        expect(view.rt.state.settingsTab.edit.saveState).toBe('refused');
-        expect(text).not.toContain('bindings list');
-        view.dispose();
-    });
+        // case: AC-110: an out-of-bounds value is sent, and refused there
+        {
+            const view = await mountSettings({
+                answer: scriptedAnswer({ put: { status: 422, body: refusalBody(THREE_ISSUES.slice(0, 1)) } }),
+            });
+            typeInto('intervalMs', String(OUT_OF_RANGE));
 
-    it('AC-110: an out-of-bounds value is sent, and refused there', async () => {
-        const view = await mountSettings({
-            answer: scriptedAnswer({ put: { status: 422, body: refusalBody(THREE_ISSUES.slice(0, 1)) } }),
-        });
-        typeInto('intervalMs', String(OUT_OF_RANGE));
+            await activateSave(view);
 
-        await activateSave(view);
+            const writes = view.requests.filter((request) => request.method === 'PUT');
+            expect(writes).toHaveLength(1);
+            expect(writes[0]?.body).toContain(String(OUT_OF_RANGE));
+            expect(view.rt.state.settingsTab.edit.saveState).toBe('refused');
+            view.dispose();
+        }
+        // case: AC-109: every field shows the last configuration the service reported
+        {
+            const view = await mountSettings({
+                answer: scriptedAnswer({ put: { status: 422, body: refusalBody(THREE_ISSUES.slice(0, 1)) } }),
+            });
+            typeInto('intervalMs', '120000');
 
-        const writes = view.requests.filter((request) => request.method === 'PUT');
-        expect(writes).toHaveLength(1);
-        expect(writes[0]?.body).toContain(String(OUT_OF_RANGE));
-        expect(view.rt.state.settingsTab.edit.saveState).toBe('refused');
-        view.dispose();
-    });
+            await activateSave(view);
 
-    it('AC-109: every field shows the last configuration the service reported', async () => {
-        const view = await mountSettings({
-            answer: scriptedAnswer({ put: { status: 422, body: refusalBody(THREE_ISSUES.slice(0, 1)) } }),
-        });
-        typeInto('intervalMs', '120000');
+            // The typed value is gone from the draft — and with it from every
+            // control, because the control reads the draft.
+            expect(view.rt.state.settingsTab.edit.draft.intervalMs).toBe(String(DEFAULT_CONFIG.intervalMs));
+            expect(view.rt.state.settingsTab.edit.dirty).toEqual([]);
+            view.dispose();
+        }
+        // case: AC-108: no submitted value reaches the surface, storage, or a log line
+        {
+            const view = await mountSettings({
+                answer: scriptedAnswer({ put: { status: 422, body: refusalBody(THREE_ISSUES.slice(0, 1)) } }),
+            });
+            typeInto('intervalMs', String(OUT_OF_RANGE));
 
-        await activateSave(view);
+            await activateSave(view);
 
-        // The typed value is gone from the draft — and with it from every
-        // control, because the control reads the draft.
-        expect(view.rt.state.settingsTab.edit.draft.intervalMs).toBe(String(DEFAULT_CONFIG.intervalMs));
-        expect(view.rt.state.settingsTab.edit.dirty).toEqual([]);
-        view.dispose();
-    });
-
-    it('AC-108: no submitted value reaches the surface, storage, or a log line', async () => {
-        const view = await mountSettings({
-            answer: scriptedAnswer({ put: { status: 422, body: refusalBody(THREE_ISSUES.slice(0, 1)) } }),
-        });
-        typeInto('intervalMs', String(OUT_OF_RANGE));
-
-        await activateSave(view);
-
-        const slice = view.rt.state.settingsTab;
-        // What is on screen *now*: the restored draft and the service's own
-        // remediation, which names the field and its constraint but never the
-        // submission (FR-024, NFR-102).
-        const current = [
-            JSON.stringify(slice.edit.draft),
-            recordedStrings().filter((text) => text.includes('set intervalMs')).join('\n'),
-            JSON.stringify(view.storage),
-        ].join('\n');
-        expect(current).not.toContain(String(OUT_OF_RANGE));
-        // The value itself only ever appears in the request the panel sent —
-        // that is the submission, and it is the one place it belongs.
-        expect(JSON.stringify(view.requests.map((request) => request.body))).toContain(String(OUT_OF_RANGE));
-        view.dispose();
+            const slice = view.rt.state.settingsTab;
+            // What is on screen *now*: the restored draft and the service's own
+            // remediation, which names the field and its constraint but never the
+            // submission (FR-024, NFR-102).
+            const current = [
+                JSON.stringify(slice.edit.draft),
+                recordedStrings().filter((text) => text.includes('set intervalMs')).join('\n'),
+                JSON.stringify(view.storage),
+            ].join('\n');
+            expect(current).not.toContain(String(OUT_OF_RANGE));
+            // The value itself only ever appears in the request the panel sent —
+            // that is the submission, and it is the one place it belongs.
+            expect(JSON.stringify(view.requests.map((request) => request.body))).toContain(String(OUT_OF_RANGE));
+            view.dispose();
+        }
     });
 });
 
 describe('nothing is written by looking; one activation writes once (AC-123, AC-124, AC-126)', () => {
-    it('AC-124: with no baseline, activating save sends nothing', async () => {
-        const view = await mountSettings({
-            answer: () => {
-                throw new Error('connection refused');
-            },
-        });
+    it('AC-124: with no baseline, activating save sends noth… (+2 cases)', async () => {
+        // case: AC-124: with no baseline, activating save sends nothing
+        {
+            const view = await mountSettings({
+                answer: () => {
+                    throw new Error('connection refused');
+                },
+            });
 
-        await activateSave(view);
+            await activateSave(view);
 
-        expect(view.requests.every((request) => request.method === 'GET')).toBe(true);
-        expect(view.rt.state.settingsTab.edit.saveState).toBe('idle');
-        view.dispose();
-    });
+            expect(view.requests.every((request) => request.method === 'GET')).toBe(true);
+            expect(view.rt.state.settingsTab.edit.saveState).toBe('idle');
+            view.dispose();
+        }
+        // case: AC-126: two rapid activations produce exactly one write
+        {
+            const view = await mountSettings({
+                answer: scriptedAnswer({ put: { status: 200, body: envelopeBody() } }),
+            });
+            typeInto('intervalMs', '45000');
 
-    it('AC-126: two rapid activations produce exactly one write', async () => {
-        const view = await mountSettings({
-            answer: scriptedAnswer({ put: { status: 200, body: envelopeBody() } }),
-        });
-        typeInto('intervalMs', '45000');
+            await activateSave(view, 2);
 
-        await activateSave(view, 2);
+            expect(view.requests.filter((request) => request.method === 'PUT')).toHaveLength(1);
+            view.dispose();
+        }
+        // case: AC-123: an unsaved edit survives another tab body mounting
+        {
+            const view = await mountSettings({ answer: scriptedAnswer({}) });
+            typeInto('intervalMs', '45000');
+            expect(view.rt.state.settingsTab.edit.dirty).toEqual(['intervalMs']);
 
-        expect(view.requests.filter((request) => request.method === 'PUT')).toHaveLength(1);
-        view.dispose();
-    });
+            // The shell keeps every body mounted, so "switching away and back" is
+            // another body mounting beside this one — no read, no write, and no
+            // repaint that could clear the draft.
+            const other = tabSpecs(view.rt, inertHandlers).find((entry) => entry.id === 'status');
+            const disposeOther = other?.mount(fakeDom().root) ?? null;
+            repaintSettingsTab(view.rt);
 
-    it('AC-123: an unsaved edit survives another tab body mounting', async () => {
-        const view = await mountSettings({ answer: scriptedAnswer({}) });
-        typeInto('intervalMs', '45000');
-        expect(view.rt.state.settingsTab.edit.dirty).toEqual(['intervalMs']);
-
-        // The shell keeps every body mounted, so "switching away and back" is
-        // another body mounting beside this one — no read, no write, and no
-        // repaint that could clear the draft.
-        const other = tabSpecs(view.rt, inertHandlers).find((entry) => entry.id === 'status');
-        const disposeOther = other?.mount(fakeDom().root) ?? null;
-        repaintSettingsTab(view.rt);
-
-        expect(view.rt.state.settingsTab.edit.dirty).toEqual(['intervalMs']);
-        expect(view.rt.state.settingsTab.edit.draft.intervalMs).toBe('45000');
-        expect(view.requests.every((request) => request.method === 'GET')).toBe(true);
-        disposeOther?.();
-        view.dispose();
+            expect(view.rt.state.settingsTab.edit.dirty).toEqual(['intervalMs']);
+            expect(view.rt.state.settingsTab.edit.draft.intervalMs).toBe('45000');
+            expect(view.requests.every((request) => request.method === 'GET')).toBe(true);
+            disposeOther?.();
+            view.dispose();
+        }
     });
 });
 

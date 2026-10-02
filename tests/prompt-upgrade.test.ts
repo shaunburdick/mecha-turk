@@ -86,22 +86,28 @@ let store: ServiceStore;
 /** The service this suite boots, drained before the temp root goes. */
 let running: TestService | null = null;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-prompt-upgrade-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
     running = null;
     LOG_LINES.length = 0;
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
     }
 
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /** The pre-004 binding: no prompt member anywhere, and `disabled` so no scan runs. */
 function pre004Binding(): Record<string, unknown> {
@@ -310,80 +316,91 @@ function goldenMessage(correlationId: string): string {
 }
 
 describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
-    it('boots the pre-004 store with no quarantine, no window reset, and no rewrite', async () => {
-        const seed = await seedPre004Store();
-        const service = await bootPre004Store();
-        const entries = await readdir(dataDir);
+    it('boots the pre-004 store with no quarantine, no windo… (+2 cases)', async () => {
+        // case: boots the pre-004 store with no quarantine, no window reset, and no rewrite
+        {
+            const seed = await seedPre004Store();
+            const service = await bootPre004Store();
+            const entries = await readdir(dataDir);
 
-        // Nothing was set aside, and nothing was repaired on the way in.
-        expect(entries.filter((entry) => entry.includes('.corrupt-'))).toEqual([]);
+            // Nothing was set aside, and nothing was repaired on the way in.
+            expect(entries.filter((entry) => entry.includes('.corrupt-'))).toEqual([]);
 
-        // The bindings file and the scan window come back byte-identical: the
-        // upgrade read them, it did not write them (FR-018, SC-128).
-        expect(await readFile(join(dataDir, BINDINGS_FILE), 'utf8')).toBe(seed.bindings);
-        expect(await readFile(join(dataDir, SCAN_STATE_FILE), 'utf8')).toBe(seed.window);
-        // Delivery rows gain no field, so their bytes are the shipped bytes.
-        expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(seed.events);
+            // The bindings file and the scan window come back byte-identical: the
+            // upgrade read them, it did not write them (FR-018, SC-128).
+            expect(await readFile(join(dataDir, BINDINGS_FILE), 'utf8')).toBe(seed.bindings);
+            expect(await readFile(join(dataDir, SCAN_STATE_FILE), 'utf8')).toBe(seed.window);
+            // Delivery rows gain no field, so their bytes are the shipped bytes.
+            expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(seed.events);
 
-        // The identifiers are untouched: same run key, same correlation id.
-        const handle = service.handle.store;
-        if (handle === null) {
-            throw new Error(NO_STORE);
+            // The identifiers are untouched: same run key, same correlation id.
+            const handle = service.handle.store;
+            if (handle === null) {
+                throw new Error(NO_STORE);
+            }
+
+            const document = await readRunsDocument({ store: handle, log: LOGGER });
+            const [run] = document.runs;
+            expect(run?.runKey).toBe(seed.runKey);
+            expect(run?.correlationId).toBe(seed.correlationId);
+            expect(run?.prompt).toBeNull();
+
+            // The schema marker still says 1: there was nothing to compute (FR-018).
+            expect(SERVICE_SCHEMA_VERSION).toBe(1);
+            expect(handle.schemaVersion).toBe(1);
+
+            // The inherited trail was retained, not restarted.
+            expect(await auditRowsOf(handle)).toBeGreaterThanOrEqual(seed.auditRows);
+            expect(service.logLines.some((line) => line.includes('.corrupt-'))).toBe(false);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: composes the seeded prompt-less run byte-identically to the shipped frame (SC-121)
+        {
+            const seed = await seedPre004Store();
+            const service = await bootPre004Store();
 
-        const document = await readRunsDocument({ store: handle, log: LOGGER });
-        const [run] = document.runs;
-        expect(run?.runKey).toBe(seed.runKey);
-        expect(run?.correlationId).toBe(seed.correlationId);
-        expect(run?.prompt).toBeNull();
-
-        // The schema marker still says 1: there was nothing to compute (FR-018).
-        expect(SERVICE_SCHEMA_VERSION).toBe(1);
-        expect(handle.schemaVersion).toBe(1);
-
-        // The inherited trail was retained, not restarted.
-        expect(await auditRowsOf(handle)).toBeGreaterThanOrEqual(seed.auditRows);
-        expect(service.logLines.some((line) => line.includes('.corrupt-'))).toBe(false);
-    });
-
-    it('composes the seeded prompt-less run byte-identically to the shipped frame (SC-121)', async () => {
-        const seed = await seedPre004Store();
-        const service = await bootPre004Store();
-
-        const composed = await composedMessageFor(service);
-        expect(composed).toBe(goldenMessage(seed.correlationId));
-        // No fence, no blank line, no note about the absence — the block the
-        // previous build wrote is the whole of what this one writes.
-        expect(composed).not.toContain('OPERATOR STARTING PROMPT');
-        expect(composed.startsWith('Mecha Turk dispatch (automated')).toBe(true);
-    });
-
-    it('keeps a queued run on its snapshot after the binding’s prompt is edited (AC-138)', async () => {
-        await seedPre004Store(QUEUED_PROMPT);
-        const service = await bootPre004Store();
-        const handle = service.handle.store;
-        if (handle === null) {
-            throw new Error(NO_STORE);
+            const composed = await composedMessageFor(service);
+            expect(composed).toBe(goldenMessage(seed.correlationId));
+            // No fence, no blank line, no note about the absence — the block the
+            // previous build wrote is the whole of what this one writes.
+            expect(composed).not.toContain('OPERATOR STARTING PROMPT');
+            expect(composed.startsWith('Mecha Turk dispatch (automated')).toBe(true);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: keeps a queued run on its snapshot after the binding’s prompt is edited (AC-138)
+        {
+            await seedPre004Store(QUEUED_PROMPT);
+            const service = await bootPre004Store();
+            const handle = service.handle.store;
+            if (handle === null) {
+                throw new Error(NO_STORE);
+            }
 
-        const before = await readRunsDocument({ store: handle, log: LOGGER });
-        const original = before.runs[0]?.prompt;
-        expect(original?.text).toBe(QUEUED_PROMPT);
+            const before = await readRunsDocument({ store: handle, log: LOGGER });
+            const original = before.runs[0]?.prompt;
+            expect(original?.text).toBe(QUEUED_PROMPT);
 
-        // The operator edits the store file — 004 FR-062's documented set path
-        // until 005 lands — while the run is still queued.
-        const edited = { ...pre004Binding(), startingPrompt: LATE_PROMPT };
-        await handle.writeJson(BINDINGS_FILE, [edited]);
+            // The operator edits the store file — 004 FR-062's documented set path
+            // until 005 lands — while the run is still queued.
+            const edited = { ...pre004Binding(), startingPrompt: LATE_PROMPT };
+            await handle.writeJson(BINDINGS_FILE, [edited]);
 
-        const after = await readRunsDocument({ store: handle, log: LOGGER });
-        const queued = after.runs[0]?.prompt ?? null;
-        expect(queued?.text).toBe(original?.text);
-        expect(queued?.fingerprint).toBe(promptFingerprint(QUEUED_PROMPT));
-        expect(queued?.fingerprint).not.toBe(promptFingerprint(LATE_PROMPT));
+            const after = await readRunsDocument({ store: handle, log: LOGGER });
+            const queued = after.runs[0]?.prompt ?? null;
+            expect(queued?.text).toBe(original?.text);
+            expect(queued?.fingerprint).toBe(promptFingerprint(QUEUED_PROMPT));
+            expect(queued?.fingerprint).not.toBe(promptFingerprint(LATE_PROMPT));
 
-        // And the retry composes from that snapshot, byte for byte.
-        expect(await composedMessageFor(service)).toBe(await composedMessageFor(service));
-        expect(await composedMessageFor(service)).toContain(QUEUED_PROMPT);
-        expect(await composedMessageFor(service)).not.toContain(LATE_PROMPT);
+            // And the retry composes from that snapshot, byte for byte.
+            expect(await composedMessageFor(service)).toBe(await composedMessageFor(service));
+            expect(await composedMessageFor(service)).toContain(QUEUED_PROMPT);
+            expect(await composedMessageFor(service)).not.toContain(LATE_PROMPT);
+        }
     });
 });

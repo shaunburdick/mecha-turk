@@ -121,7 +121,8 @@ let log: ServiceLogger;
 /** Lines the capturing logger wrote. */
 let logLines: string[];
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-triggers-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
@@ -132,11 +133,16 @@ beforeEach(async () => {
             logLines.push(line);
         },
     });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Build one stored binding with the given trigger set.
@@ -308,238 +314,274 @@ async function scan(binding: BindingRecord, recorded: RecordedPoller): Promise<r
 }
 
 describe('mention detection (M6)', () => {
-    it('queues one event per human comment that mentions the account, keyed by comment id', async () => {
-        const recorded = recordingPoller({
-            issues: [fixtureIssue()],
-            comments: [
-                fixtureComment({ commentId: FIRST_COMMENT_ID, body: 'cc @OCTOCAT-MT — drift again' }),
-                fixtureComment({ commentId: SECOND_COMMENT_ID, body: 'confirmed, please look @OctoCat-Mt' }),
-            ],
-        });
+    it('queues one event per human comment that mentions the… (+2 cases)', async () => {
+        // case: queues one event per human comment that mentions the account, keyed by comment id
+        {
+            const recorded = recordingPoller({
+                issues: [fixtureIssue()],
+                comments: [
+                    fixtureComment({ commentId: FIRST_COMMENT_ID, body: 'cc @OCTOCAT-MT — drift again' }),
+                    fixtureComment({ commentId: SECOND_COMMENT_ID, body: 'confirmed, please look @OctoCat-Mt' }),
+                ],
+            });
 
-        const events = await scan(
-            fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
-            recorded,
-        );
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                recorded,
+            );
 
-        expect(recorded.calls).toEqual(['issues', 'comments']);
-        expect(events).toHaveLength(2);
-        expect(events.map((event) => event.kind)).toEqual(['mention', 'mention']);
-        // The comment id is in the event id: two comments on one issue are two events.
-        expect(events.map((event) => event.id)).toEqual([
-            `evt-acme~widget~7~${ACCOUNT_ID}~mention~${FIRST_COMMENT_ID}`,
-            `evt-acme~widget~7~${ACCOUNT_ID}~mention~${SECOND_COMMENT_ID}`,
-        ]);
-        // The title resolves against the issue list the same scan read.
-        expect(events[0]).toMatchObject({
-            issueNumber: 7,
-            issueTitle: ISSUE_TITLE,
-            issueUrl: ISSUE_URL,
-            accountLogin: ACCOUNT_LOGIN,
-            subjectType: 'issue',
-            headSha: null,
-            baseRef: null,
-        });
-        // The trigger note names the commenter, not just the account.
-        expect(events[0]?.triggerNote).toContain(HUMAN_AUTHOR_LOGIN);
-        expect(events[0]?.issueBodyExcerpt).toBe('cc @OCTOCAT-MT — drift again');
-    });
+            expect(recorded.calls).toEqual(['issues', 'comments']);
+            expect(events).toHaveLength(2);
+            expect(events.map((event) => event.kind)).toEqual(['mention', 'mention']);
+            // The comment id is in the event id: two comments on one issue are two events.
+            expect(events.map((event) => event.id)).toEqual([
+                `evt-acme~widget~7~${ACCOUNT_ID}~mention~${FIRST_COMMENT_ID}`,
+                `evt-acme~widget~7~${ACCOUNT_ID}~mention~${SECOND_COMMENT_ID}`,
+            ]);
+            // The title resolves against the issue list the same scan read.
+            expect(events[0]).toMatchObject({
+                issueNumber: 7,
+                issueTitle: ISSUE_TITLE,
+                issueUrl: ISSUE_URL,
+                accountLogin: ACCOUNT_LOGIN,
+                subjectType: 'issue',
+                headSha: null,
+                baseRef: null,
+            });
+            // The trigger note names the commenter, not just the account.
+            expect(events[0]?.triggerNote).toContain(HUMAN_AUTHOR_LOGIN);
+            expect(events[0]?.issueBodyExcerpt).toBe('cc @OCTOCAT-MT — drift again');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: skips bot authors, lookalike handles, and bodies that never mention the account
+        {
+            const recorded = recordingPoller({
+                issues: [fixtureIssue()],
+                comments: [
+                    // A `[bot]` login that mentions the account.
+                    fixtureComment({
+                        commentId: 601,
+                        body: '@octocat-mt updated the lockfile',
+                        authorLogin: 'dependabot[bot]',
+                    }),
+                    // A `type: Bot` author with an ordinary-looking login.
+                    fixtureComment({
+                        commentId: 602,
+                        body: '@octocat-mt build failed',
+                        authorLogin: 'warehouse-runner',
+                        authorType: 'Bot',
+                    }),
+                    // The account's handle as a prefix of a longer handle.
+                    fixtureComment({ commentId: 603, body: 'ask @octocat-mt2 instead' }),
+                    // The handle glued to a preceding character is not a mention.
+                    fixtureComment({ commentId: 604, body: 'mail octocat-mt@acme.dev' }),
+                    // The one real mention among the noise.
+                    fixtureComment({ commentId: 605, body: 'nice @octocat-mt, thanks!' }),
+                ],
+            });
 
-    it('skips bot authors, lookalike handles, and bodies that never mention the account', async () => {
-        const recorded = recordingPoller({
-            issues: [fixtureIssue()],
-            comments: [
-                // A `[bot]` login that mentions the account.
-                fixtureComment({
-                    commentId: 601,
-                    body: '@octocat-mt updated the lockfile',
-                    authorLogin: 'dependabot[bot]',
-                }),
-                // A `type: Bot` author with an ordinary-looking login.
-                fixtureComment({
-                    commentId: 602,
-                    body: '@octocat-mt build failed',
-                    authorLogin: 'warehouse-runner',
-                    authorType: 'Bot',
-                }),
-                // The account's handle as a prefix of a longer handle.
-                fixtureComment({ commentId: 603, body: 'ask @octocat-mt2 instead' }),
-                // The handle glued to a preceding character is not a mention.
-                fixtureComment({ commentId: 604, body: 'mail octocat-mt@acme.dev' }),
-                // The one real mention among the noise.
-                fixtureComment({ commentId: 605, body: 'nice @octocat-mt, thanks!' }),
-            ],
-        });
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                recorded,
+            );
 
-        const events = await scan(
-            fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
-            recorded,
-        );
+            expect(events).toHaveLength(1);
+            expect(events[0]?.id).toBe(`evt-acme~widget~7~${ACCOUNT_ID}~mention~605`);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never lists comments when the mention switch is off
+        {
+            const recorded = recordingPoller({ issues: [], comments: [] });
 
-        expect(events).toHaveLength(1);
-        expect(events[0]?.id).toBe(`evt-acme~widget~7~${ACCOUNT_ID}~mention~605`);
-    });
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: true, mention: false, reviewRequest: false }),
+                recorded,
+            );
 
-    it('never lists comments when the mention switch is off', async () => {
-        const recorded = recordingPoller({ issues: [], comments: [] });
-
-        const events = await scan(
-            fixtureBinding(MENTION_BINDING, { assignment: true, mention: false, reviewRequest: false }),
-            recorded,
-        );
-
-        expect(recorded.calls).toEqual(['issues']);
-        expect(events).toEqual([]);
+            expect(recorded.calls).toEqual(['issues']);
+            expect(events).toEqual([]);
+        }
     });
 });
 
 describe('issue-body mention detection (M6, operator product decision 2026-09-28)', () => {
-    it('queues one mention event with the fixed ~mention~body id and a bounded excerpt', async () => {
-        const body = `Hey ${MENTION_TOKEN.toUpperCase()} — the flux capacitor drifts.\n${'lorem ipsum '.repeat(80)}`;
-        const recorded = recordingPoller({ issues: [fixtureIssue({ body })] });
+    it('queues one mention event with the fixed ~mention~bod… (+5 cases)', async () => {
+        // case: queues one mention event with the fixed ~mention~body id and a bounded excerpt
+        {
+            const filler = 'lorem ipsum '.repeat(80);
+            const body = `Hey ${MENTION_TOKEN.toUpperCase()} — the flux capacitor drifts.\n${filler}`;
+            const recorded = recordingPoller({ issues: [fixtureIssue({ body })] });
 
-        const events = await scan(
-            fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
-            recorded,
-        );
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                recorded,
+            );
 
-        // The body path rides the issue list; only the comment feed is extra.
-        expect(recorded.calls).toEqual(['issues', 'comments']);
-        expect(events).toHaveLength(1);
-        expect(events[0]).toMatchObject({
-            kind: 'mention',
-            id: `evt-acme~widget~7~${ACCOUNT_ID}~mention~body`,
-            issueNumber: 7,
-            issueTitle: ISSUE_TITLE,
-            issueUrl: ISSUE_URL,
-            triggerNote: 'mentioned in issue body',
-            subjectType: 'issue',
-            headSha: null,
-            baseRef: null,
-        });
-        // The untrusted body is bounded exactly like a comment excerpt (600).
-        expect(events[0]?.issueBodyExcerpt).toHaveLength(600);
-        expect(events[0]?.issueBodyExcerpt.endsWith('…')).toBe(true);
-    });
+            // The body path rides the issue list; only the comment feed is extra.
+            expect(recorded.calls).toEqual(['issues', 'comments']);
+            expect(events).toHaveLength(1);
+            expect(events[0]).toMatchObject({
+                kind: 'mention',
+                id: `evt-acme~widget~7~${ACCOUNT_ID}~mention~body`,
+                issueNumber: 7,
+                issueTitle: ISSUE_TITLE,
+                issueUrl: ISSUE_URL,
+                triggerNote: 'mentioned in issue body',
+                subjectType: 'issue',
+                headSha: null,
+                baseRef: null,
+            });
+            // The untrusted body is bounded exactly like a comment excerpt (600).
+            expect(events[0]?.issueBodyExcerpt).toHaveLength(600);
+            expect(events[0]?.issueBodyExcerpt.endsWith('…')).toBe(true);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: queues nothing for lookalikes, bots, unreadable authors, or an empty body
+        {
+            const recorded = recordingPoller({
+                issues: [
+                    // The account's handle as a prefix of a longer handle.
+                    fixtureIssue({ issueNumber: 11, body: 'ask @octocat-mt2 instead' }),
+                    // The handle glued to a preceding character is not a mention.
+                    fixtureIssue({ issueNumber: 12, body: 'mail octocat-mt@acme.dev' }),
+                    // A `[bot]` author that mentions the account.
+                    fixtureIssue({
+                        issueNumber: 13,
+                        body: '@octocat-mt updated the lockfile',
+                        authorLogin: 'dependabot[bot]',
+                    }),
+                    // A `type: Bot` author with an ordinary-looking login.
+                    fixtureIssue({
+                        issueNumber: 14,
+                        body: '@octocat-mt build failed',
+                        authorLogin: 'warehouse-runner',
+                        authorType: 'Bot',
+                    }),
+                    // No readable author: fail closed, never dispatch.
+                    fixtureIssue({ issueNumber: 15, body: MENTION_TOKEN, authorLogin: '' }),
+                    // No body at all.
+                    fixtureIssue({ issueNumber: 16, body: null }),
+                ],
+            });
 
-    it('queues nothing for lookalikes, bots, unreadable authors, or an empty body', async () => {
-        const recorded = recordingPoller({
-            issues: [
-                // The account's handle as a prefix of a longer handle.
-                fixtureIssue({ issueNumber: 11, body: 'ask @octocat-mt2 instead' }),
-                // The handle glued to a preceding character is not a mention.
-                fixtureIssue({ issueNumber: 12, body: 'mail octocat-mt@acme.dev' }),
-                // A `[bot]` author that mentions the account.
-                fixtureIssue({
-                    issueNumber: 13,
-                    body: '@octocat-mt updated the lockfile',
-                    authorLogin: 'dependabot[bot]',
-                }),
-                // A `type: Bot` author with an ordinary-looking login.
-                fixtureIssue({
-                    issueNumber: 14,
-                    body: '@octocat-mt build failed',
-                    authorLogin: 'warehouse-runner',
-                    authorType: 'Bot',
-                }),
-                // No readable author: fail closed, never dispatch.
-                fixtureIssue({ issueNumber: 15, body: MENTION_TOKEN, authorLogin: '' }),
-                // No body at all.
-                fixtureIssue({ issueNumber: 16, body: null }),
-            ],
-        });
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                recorded,
+            );
 
-        const events = await scan(
-            fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
-            recorded,
-        );
+            expect(events).toEqual([]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never reads an issue body when the mention switch is off
+        {
+            const recorded = recordingPoller({ issues: [fixtureIssue({ body: `please look ${MENTION_TOKEN}` })] });
 
-        expect(events).toEqual([]);
-    });
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: true, mention: false, reviewRequest: false }),
+                recorded,
+            );
 
-    it('never reads an issue body when the mention switch is off', async () => {
-        const recorded = recordingPoller({ issues: [fixtureIssue({ body: `please look ${MENTION_TOKEN}` })] });
+            // The issues feed is still listed — for the assignment trigger.
+            expect(recorded.calls).toEqual(['issues']);
+            expect(events).toEqual([]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: keeps an assignment and a body mention on one issue as two distinct, deduplicable events
+        {
+            const recorded = recordingPoller({
+                issues: [fixtureIssue({ body: `Hey ${MENTION_TOKEN}, please triage`, assignees: [ACCOUNT_LOGIN] })],
+            });
 
-        const events = await scan(
-            fixtureBinding(MENTION_BINDING, { assignment: true, mention: false, reviewRequest: false }),
-            recorded,
-        );
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: true, mention: true, reviewRequest: false }),
+                recorded,
+            );
 
-        // The issues feed is still listed — for the assignment trigger.
-        expect(recorded.calls).toEqual(['issues']);
-        expect(events).toEqual([]);
-    });
+            // Two observations, two ids: the assignment id never gained a suffix.
+            expect(events.map((event) => event.kind)).toEqual(['assignment', 'mention']);
+            expect(events.map((event) => event.id)).toEqual([
+                `evt-acme~widget~7~${ACCOUNT_ID}`,
+                `evt-acme~widget~7~${ACCOUNT_ID}~mention~body`,
+            ]);
 
-    it('keeps an assignment and a body mention on one issue as two distinct, deduplicable events', async () => {
-        const recorded = recordingPoller({
-            issues: [fixtureIssue({ body: `Hey ${MENTION_TOKEN}, please triage`, assignees: [ACCOUNT_LOGIN] })],
-        });
+            // A replay (window cleared, as a first scan or recovery reset does)
+            // re-detects both observations and dedupes them to the same two rows.
+            await writeScanState({ store, state: { bindings: {} } });
+            const replayed = await runScanCycle({ store, log, poller: recorded.poller });
 
-        const events = await scan(
-            fixtureBinding(MENTION_BINDING, { assignment: true, mention: true, reviewRequest: false }),
-            recorded,
-        );
+            expect(replayed.enqueued).toBe(0);
+            expect(await readEvents({ store, log })).toHaveLength(2);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: coalesces a pull-request assignment and review request under the PR subject
+        {
+            const pullRequest = fixtureIssue({
+                issueNumber: 31,
+                title: 'Change 31',
+                url: 'https://github.com/acme/widget/pull/31',
+                isPullRequest: true,
+                assignees: [ACCOUNT_LOGIN],
+            });
+            const recorded = recordingPoller({
+                issues: [pullRequest],
+                pulls: [{ ...fixturePull({ pullNumber: 31, requestedReviewers: [
+                    ACCOUNT_LOGIN] }), title: 'Change 31' }],
+            });
 
-        // Two observations, two ids: the assignment id never gained a suffix.
-        expect(events.map((event) => event.kind)).toEqual(['assignment', 'mention']);
-        expect(events.map((event) => event.id)).toEqual([
-            `evt-acme~widget~7~${ACCOUNT_ID}`,
-            `evt-acme~widget~7~${ACCOUNT_ID}~mention~body`,
-        ]);
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: true, mention: false, reviewRequest: true }),
+                recorded,
+            );
 
-        // A replay (window cleared, as a first scan or recovery reset does)
-        // re-detects both observations and dedupes them to the same two rows.
-        await writeScanState({ store, state: { bindings: {} } });
-        const replayed = await runScanCycle({ store, log, poller: recorded.poller });
+            expect(events.map((event) => event.kind)).toEqual(['assignment', 'review']);
+            expect(events.map((event) => event.subjectType)).toEqual(['pull_request', 'pull_request']);
+            expect(events.map((event) => event.runCorrelationId)).toEqual([
+                events[0]?.runCorrelationId,
+                events[0]?.runCorrelationId,
+            ]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: keeps a comment mention and a body mention on one issue as two distinct events
+        {
+            const recorded = recordingPoller({
+                issues: [fixtureIssue({ body: `details in the body, ${MENTION_TOKEN}` })],
+                comments: [fixtureComment({ commentId: FIRST_COMMENT_ID, body: `cc ${MENTION_TOKEN} — see above` })],
+            });
 
-        expect(replayed.enqueued).toBe(0);
-        expect(await readEvents({ store, log })).toHaveLength(2);
-    });
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                recorded,
+            );
 
-    it('coalesces a pull-request assignment and review request under the PR subject', async () => {
-        const pullRequest = fixtureIssue({
-            issueNumber: 31,
-            title: 'Change 31',
-            url: 'https://github.com/acme/widget/pull/31',
-            isPullRequest: true,
-            assignees: [ACCOUNT_LOGIN],
-        });
-        const recorded = recordingPoller({
-            issues: [pullRequest],
-            pulls: [{ ...fixturePull({ pullNumber: 31, requestedReviewers: [ACCOUNT_LOGIN] }), title: 'Change 31' }],
-        });
-
-        const events = await scan(
-            fixtureBinding(MENTION_BINDING, { assignment: true, mention: false, reviewRequest: true }),
-            recorded,
-        );
-
-        expect(events.map((event) => event.kind)).toEqual(['assignment', 'review']);
-        expect(events.map((event) => event.subjectType)).toEqual(['pull_request', 'pull_request']);
-        expect(events.map((event) => event.runCorrelationId)).toEqual([
-            events[0]?.runCorrelationId,
-            events[0]?.runCorrelationId,
-        ]);
-    });
-
-    it('keeps a comment mention and a body mention on one issue as two distinct events', async () => {
-        const recorded = recordingPoller({
-            issues: [fixtureIssue({ body: `details in the body, ${MENTION_TOKEN}` })],
-            comments: [fixtureComment({ commentId: FIRST_COMMENT_ID, body: `cc ${MENTION_TOKEN} — see above` })],
-        });
-
-        const events = await scan(
-            fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
-            recorded,
-        );
-
-        expect(events.map((event) => event.id)).toEqual([
-            `evt-acme~widget~7~${ACCOUNT_ID}~mention~body`,
-            `evt-acme~widget~7~${ACCOUNT_ID}~mention~${FIRST_COMMENT_ID}`,
-        ]);
-        // The comment mention keeps its own note and its own excerpt.
-        expect(events[1]?.triggerNote).toContain(HUMAN_AUTHOR_LOGIN);
-        expect(events[1]?.issueBodyExcerpt).toBe(`cc ${MENTION_TOKEN} — see above`);
+            expect(events.map((event) => event.id)).toEqual([
+                `evt-acme~widget~7~${ACCOUNT_ID}~mention~body`,
+                `evt-acme~widget~7~${ACCOUNT_ID}~mention~${FIRST_COMMENT_ID}`,
+            ]);
+            // The comment mention keeps its own note and its own excerpt.
+            expect(events[1]?.triggerNote).toContain(HUMAN_AUTHOR_LOGIN);
+            expect(events[1]?.issueBodyExcerpt).toBe(`cc ${MENTION_TOKEN} — see above`);
+        }
     });
 
     it('ignores an issue body the scan window has already passed', async () => {
@@ -561,174 +603,213 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
 });
 
 describe('mention and review detectors (unit)', () => {
-    it('matches the token case-insensitively and bounded on both sides', () => {
-        expect(mentionsLogin(`hey ${MENTION_TOKEN.toUpperCase()}`, ACCOUNT_LOGIN)).toBe(true);
-        expect(mentionsLogin(`(${MENTION_TOKEN})`, ACCOUNT_LOGIN)).toBe(true);
-        expect(mentionsLogin('no handle here', ACCOUNT_LOGIN)).toBe(false);
-        expect(mentionsLogin('two words: @ octocat-mt', ACCOUNT_LOGIN)).toBe(false);
-        expect(mentionsLogin('@octocat-mt2', ACCOUNT_LOGIN)).toBe(false);
-        expect(mentionsLogin('x@octocat-mt', ACCOUNT_LOGIN)).toBe(false);
-        expect(mentionsLogin(MENTION_TOKEN, '')).toBe(false);
-    });
-
-    it('reads a bot comment as a bot whatever the author field says', () => {
-        expect(isMentionComment(fixtureComment({
-            commentId: 701,
-            body: MENTION_TOKEN,
-            authorLogin: 'some-bot[bot]',
-        }), ACCOUNT_LOGIN)).toBe(false);
-        expect(isMentionComment(fixtureComment({
-            commentId: 702,
-            body: MENTION_TOKEN,
-            authorLogin: 'release-helper',
-            authorType: 'Bot',
-        }), ACCOUNT_LOGIN)).toBe(false);
-        expect(isMentionComment(fixtureComment({ commentId: 703, body: MENTION_TOKEN }), ACCOUNT_LOGIN)).toBe(true);
-    });
-
-    it('reads an issue-body mention the same way — author first, bounded token second', () => {
-        expect(isIssueBodyMention(fixtureIssue({ body: `hey ${MENTION_TOKEN}` }), ACCOUNT_LOGIN)).toBe(true);
-        expect(isIssueBodyMention(fixtureIssue({ body: 'no handle here' }), ACCOUNT_LOGIN)).toBe(false);
-        expect(isIssueBodyMention(fixtureIssue({ body: '@octocat-mt2' }), ACCOUNT_LOGIN)).toBe(false);
-        expect(isIssueBodyMention(fixtureIssue({ body: MENTION_TOKEN, authorLogin: 'ci-bot[bot]' }), ACCOUNT_LOGIN))
-            .toBe(false);
-        expect(isIssueBodyMention(fixtureIssue({ body: MENTION_TOKEN, authorType: 'Bot' }), ACCOUNT_LOGIN)).toBe(false);
-        expect(isIssueBodyMention(fixtureIssue({ body: MENTION_TOKEN, authorLogin: '' }), ACCOUNT_LOGIN)).toBe(false);
-        expect(isIssueBodyMention(fixtureIssue({ body: null }), ACCOUNT_LOGIN)).toBe(false);
-        expect(isIssueBodyMention(fixtureIssue({ body: MENTION_TOKEN }), '')).toBe(false);
-    });
-
-    it('matches a requested reviewer case-insensitively, and nobody else', () => {
-        expect(isReviewRequestPull(fixturePull({ pullNumber: 1, requestedReviewers: ['OCTOCAT-MT'] }), ACCOUNT_LOGIN))
-            .toBe(true);
-        expect(isReviewRequestPull(fixturePull({ pullNumber: 2, requestedReviewers: ['someone-else'] }), ACCOUNT_LOGIN))
-            .toBe(false);
-        expect(isReviewRequestPull(fixturePull({ pullNumber: 3, requestedReviewers: [] }), ACCOUNT_LOGIN)).toBe(false);
+    it('matches the token case-insensitively and bounded on … (+3 cases)', async () => {
+        // case: matches the token case-insensitively and bounded on both sides
+        {
+            expect(mentionsLogin(`hey ${MENTION_TOKEN.toUpperCase()}`, ACCOUNT_LOGIN)).toBe(true);
+            expect(mentionsLogin(`(${MENTION_TOKEN})`, ACCOUNT_LOGIN)).toBe(true);
+            expect(mentionsLogin('no handle here', ACCOUNT_LOGIN)).toBe(false);
+            expect(mentionsLogin('two words: @ octocat-mt', ACCOUNT_LOGIN)).toBe(false);
+            expect(mentionsLogin('@octocat-mt2', ACCOUNT_LOGIN)).toBe(false);
+            expect(mentionsLogin('x@octocat-mt', ACCOUNT_LOGIN)).toBe(false);
+            expect(mentionsLogin(MENTION_TOKEN, '')).toBe(false);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: reads a bot comment as a bot whatever the author field says
+        {
+            expect(isMentionComment(fixtureComment({
+                commentId: 701,
+                body: MENTION_TOKEN,
+                authorLogin: 'some-bot[bot]',
+            }), ACCOUNT_LOGIN)).toBe(false);
+            expect(isMentionComment(fixtureComment({
+                commentId: 702,
+                body: MENTION_TOKEN,
+                authorLogin: 'release-helper',
+                authorType: 'Bot',
+            }), ACCOUNT_LOGIN)).toBe(false);
+            expect(isMentionComment(fixtureComment({ commentId: 703, body: MENTION_TOKEN }), ACCOUNT_LOGIN)).toBe(true);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: reads an issue-body mention the same way — author first, bounded token second
+        {
+            expect(isIssueBodyMention(fixtureIssue({ body: `hey ${MENTION_TOKEN}` }), ACCOUNT_LOGIN)).toBe(true);
+            expect(isIssueBodyMention(fixtureIssue({ body: 'no handle here' }), ACCOUNT_LOGIN)).toBe(false);
+            expect(isIssueBodyMention(fixtureIssue({ body: '@octocat-mt2' }), ACCOUNT_LOGIN)).toBe(false);
+            expect(isIssueBodyMention(fixtureIssue({ body: MENTION_TOKEN, authorLogin: 'ci-bot[bot]' }), ACCOUNT_LOGIN))
+                .toBe(false);
+            expect(isIssueBodyMention(fixtureIssue({
+                body: MENTION_TOKEN, authorType: 'Bot' }), ACCOUNT_LOGIN)).toBe(false);
+            expect(isIssueBodyMention(fixtureIssue({ body: MENTION_TOKEN, authorLogin: '' }), ACCOUNT_LOGIN)).toBe(
+                false
+            );
+            expect(isIssueBodyMention(fixtureIssue({ body: null }), ACCOUNT_LOGIN)).toBe(false);
+            expect(isIssueBodyMention(fixtureIssue({ body: MENTION_TOKEN }), '')).toBe(false);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: matches a requested reviewer case-insensitively, and nobody else
+        {
+            expect(isReviewRequestPull(fixturePull({ pullNumber: 1, requestedReviewers: [
+                'OCTOCAT-MT'] }), ACCOUNT_LOGIN))
+                .toBe(true);
+            expect(isReviewRequestPull(fixturePull({ pullNumber: 2, requestedReviewers: [
+                'someone-else'] }), ACCOUNT_LOGIN))
+                .toBe(false);
+            expect(isReviewRequestPull(fixturePull({ pullNumber: 3, requestedReviewers: [
+            ] }), ACCOUNT_LOGIN)).toBe(false);
+        }
     });
 });
 
 describe('review-request detection (M7)', () => {
-    it('queues a review event with the PR head and base captured, and lists no issues', async () => {
-        const recorded = recordingPoller({
-            pulls: [fixturePull({ pullNumber: 3, requestedReviewers: [ACCOUNT_LOGIN.toUpperCase()] })],
-        });
+    it('queues a review event with the PR head and base capt… (+1 cases)', async () => {
+        // case: queues a review event with the PR head and base captured, and lists no issues
+        {
+            const recorded = recordingPoller({
+                pulls: [fixturePull({ pullNumber: 3, requestedReviewers: [ACCOUNT_LOGIN.toUpperCase()] })],
+            });
 
-        const events = await scan(
-            fixtureBinding(REVIEW_BINDING, { assignment: false, mention: false, reviewRequest: true }),
-            recorded,
-        );
+            const events = await scan(
+                fixtureBinding(REVIEW_BINDING, { assignment: false, mention: false, reviewRequest: true }),
+                recorded,
+            );
 
-        // A review-only binding pays for one feed, not three.
-        expect(recorded.calls).toEqual(['pulls']);
-        expect(events).toHaveLength(1);
-        expect(events[0]).toMatchObject({
-            kind: 'review',
-            issueNumber: 3,
-            issueTitle: PULL_TITLE,
-            issueUrl: PULL_URL,
-            headSha: HEAD_SHA,
-            baseRef: BASE_REF,
-            subjectType: 'pull_request',
-        });
-        // The id carries the PR number, the account, and the kind.
-        expect(events[0]?.id).toBe(`evt-acme~widget~3~${ACCOUNT_ID}~review`);
-    });
+            // A review-only binding pays for one feed, not three.
+            expect(recorded.calls).toEqual(['pulls']);
+            expect(events).toHaveLength(1);
+            expect(events[0]).toMatchObject({
+                kind: 'review',
+                issueNumber: 3,
+                issueTitle: PULL_TITLE,
+                issueUrl: PULL_URL,
+                headSha: HEAD_SHA,
+                baseRef: BASE_REF,
+                subjectType: 'pull_request',
+            });
+            // The id carries the PR number, the account, and the kind.
+            expect(events[0]?.id).toBe(`evt-acme~widget~3~${ACCOUNT_ID}~review`);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: queues nothing for a pull request that does not ask this account
+        {
+            const recorded = recordingPoller({
+                pulls: [fixturePull({ pullNumber: 9, requestedReviewers: ['someone-else'] })],
+            });
 
-    it('queues nothing for a pull request that does not ask this account', async () => {
-        const recorded = recordingPoller({
-            pulls: [fixturePull({ pullNumber: 9, requestedReviewers: ['someone-else'] })],
-        });
+            const events = await scan(
+                fixtureBinding(REVIEW_BINDING, { assignment: false, mention: false, reviewRequest: true }),
+                recorded,
+            );
 
-        const events = await scan(
-            fixtureBinding(REVIEW_BINDING, { assignment: false, mention: false, reviewRequest: true }),
-            recorded,
-        );
-
-        expect(events).toEqual([]);
+            expect(events).toEqual([]);
+        }
     });
 });
 
 describe('event kind round-trip (nullable Slice-2 fields)', () => {
-    it('round-trips a review event with headSha and baseRef intact', () => {
-        const snapshot: EventSnapshot = {
-            bindingId: REVIEW_BINDING,
-            repository: REPO_LABEL,
-            accountNumericUserId: ACCOUNT_ID,
-            accountLogin: ACCOUNT_LOGIN,
-            projectId: PROJECT_ID,
-            worktreeOption: 'none',
-            kind: 'review',
-            headSha: HEAD_SHA,
-            baseRef: BASE_REF,
-            issue: {
-                issueNumber: 3,
-                issueTitle: PULL_TITLE,
-                issueUrl: PULL_URL,
-                issueBodyExcerpt: '',
-            },
-            triggerNote: 'Pull request #3 requested the bound account\'s review',
-            detectedAt: STAMP,
-        };
-        const event = createEvent(snapshot);
-
-        expect(parseStoredEvent(JSON.parse(JSON.stringify(event)) as unknown)).toEqual(event);
-        expect(event.headSha).toBe(HEAD_SHA);
-        expect(event.baseRef).toBe(BASE_REF);
-    });
-
-    it('reads a row written before M7 — no headSha/baseRef at all — as null', () => {
-        const stored: Record<string, unknown> = {
-            ...createEvent({
-                bindingId: MENTION_BINDING,
+    it('round-trips a review event with headSha and baseRef … (+2 cases)', async () => {
+        // case: round-trips a review event with headSha and baseRef intact
+        {
+            const snapshot: EventSnapshot = {
+                bindingId: REVIEW_BINDING,
                 repository: REPO_LABEL,
                 accountNumericUserId: ACCOUNT_ID,
                 accountLogin: ACCOUNT_LOGIN,
                 projectId: PROJECT_ID,
                 worktreeOption: 'none',
-                kind: 'assignment',
+                kind: 'review',
+                headSha: HEAD_SHA,
+                baseRef: BASE_REF,
                 issue: {
-                    issueNumber: 2,
-                    issueTitle: 'Ticket #2',
-                    issueUrl: 'https://github.com/acme/widget/issues/2',
+                    issueNumber: 3,
+                    issueTitle: PULL_TITLE,
+                    issueUrl: PULL_URL,
                     issueBodyExcerpt: '',
                 },
-                triggerNote: 'Issue assigned to the bound account',
+                triggerNote: 'Pull request #3 requested the bound account\'s review',
                 detectedAt: STAMP,
-            }),
-        };
-        delete stored.headSha;
-        delete stored.baseRef;
+            };
+            const event = createEvent(snapshot);
 
-        const parsed = parseStoredEvent(stored);
+            expect(parseStoredEvent(JSON.parse(JSON.stringify(event)) as unknown)).toEqual(event);
+            expect(event.headSha).toBe(HEAD_SHA);
+            expect(event.baseRef).toBe(BASE_REF);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: reads a row written before M7 — no headSha/baseRef at all — as null
+        {
+            const stored: Record<string, unknown> = {
+                ...createEvent({
+                    bindingId: MENTION_BINDING,
+                    repository: REPO_LABEL,
+                    accountNumericUserId: ACCOUNT_ID,
+                    accountLogin: ACCOUNT_LOGIN,
+                    projectId: PROJECT_ID,
+                    worktreeOption: 'none',
+                    kind: 'assignment',
+                    issue: {
+                        issueNumber: 2,
+                        issueTitle: 'Ticket #2',
+                        issueUrl: 'https://github.com/acme/widget/issues/2',
+                        issueBodyExcerpt: '',
+                    },
+                    triggerNote: 'Issue assigned to the bound account',
+                    detectedAt: STAMP,
+                }),
+            };
+            delete stored.headSha;
+            delete stored.baseRef;
 
-        expect(parsed).not.toBeNull();
-        expect(parsed?.headSha).toBeNull();
-        expect(parsed?.baseRef).toBeNull();
-        expect(parsed?.kind).toBe('assignment');
-    });
+            const parsed = parseStoredEvent(stored);
 
-    it('still refuses a row whose Slice-2 fields are not text', () => {
-        const event = createEvent({
-            bindingId: REVIEW_BINDING,
-            repository: REPO_LABEL,
-            accountNumericUserId: ACCOUNT_ID,
-            accountLogin: ACCOUNT_LOGIN,
-            projectId: PROJECT_ID,
-            worktreeOption: 'none',
-            kind: 'review',
-            headSha: HEAD_SHA,
-            baseRef: BASE_REF,
-            issue: {
-                issueNumber: 3,
-                issueTitle: PULL_TITLE,
-                issueUrl: PULL_URL,
-                issueBodyExcerpt: '',
-            },
-            triggerNote: 'Pull request #3 requested the bound account\'s review',
-            detectedAt: STAMP,
-        });
+            expect(parsed).not.toBeNull();
+            expect(parsed?.headSha).toBeNull();
+            expect(parsed?.baseRef).toBeNull();
+            expect(parsed?.kind).toBe('assignment');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: still refuses a row whose Slice-2 fields are not text
+        {
+            const event = createEvent({
+                bindingId: REVIEW_BINDING,
+                repository: REPO_LABEL,
+                accountNumericUserId: ACCOUNT_ID,
+                accountLogin: ACCOUNT_LOGIN,
+                projectId: PROJECT_ID,
+                worktreeOption: 'none',
+                kind: 'review',
+                headSha: HEAD_SHA,
+                baseRef: BASE_REF,
+                issue: {
+                    issueNumber: 3,
+                    issueTitle: PULL_TITLE,
+                    issueUrl: PULL_URL,
+                    issueBodyExcerpt: '',
+                },
+                triggerNote: 'Pull request #3 requested the bound account\'s review',
+                detectedAt: STAMP,
+            });
 
-        expect(parseStoredEvent({ ...event, headSha: 42 })).toBeNull();
-        expect(parseStoredEvent({ ...event, baseRef: ['main'] })).toBeNull();
+            expect(parseStoredEvent({ ...event, headSha: 42 })).toBeNull();
+            expect(parseStoredEvent({ ...event, baseRef: ['main'] })).toBeNull();
+        }
     });
 });

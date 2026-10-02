@@ -269,137 +269,143 @@ function firstSeqFor(input: {
 }
 
 describe('AC-115 every vocabulary entry is present with its required details', () => {
-    it('writes all sixteen types with the actor, decision, and details the table names', () => {
-        const { trail } = driven();
-        expect(new Set(trail.map((entry) => entry.eventType)).size).toBeGreaterThanOrEqual(
-            VOCABULARY.length + 1,
-        );
+    it('writes all sixteen types with the actor, decision, a… (+2 cases)', () => {
+        // case: writes all sixteen types with the actor, decision, and details the table names
+        {
+            const { trail } = driven();
+            expect(new Set(trail.map((entry) => entry.eventType)).size).toBeGreaterThanOrEqual(
+                VOCABULARY.length + 1,
+            );
 
-        for (const entry of VOCABULARY) {
-            const rows = rowsOf(trail, entry.eventType);
-            expect(rows.length, `${entry.eventType} must appear in the trail`).toBeGreaterThan(0);
+            for (const entry of VOCABULARY) {
+                const rows = rowsOf(trail, entry.eventType);
+                expect(rows.length, `${entry.eventType} must appear in the trail`).toBeGreaterThan(0);
 
-            for (const row of rows) {
-                expect(row.actorSource, `${entry.eventType} actor`).toBe(entry.actor);
-                expect(row.decision, `${entry.eventType} decision`).toBe(entry.decision);
-                expect(row.entity.kind, `${entry.eventType} entity`).toBe('run');
-                expect(row.entity.id, `${entry.eventType} entity id`).toBe(row.correlationId);
-                // The reason *member* every row carries; several types leave
-                // its value `null` and put their prose in `details` instead,
-                // which is the shape as stored, not a projection of this read.
-                expect(Object.hasOwn(row, 'reason'), `${entry.eventType} reason member`).toBe(true);
-                for (const key of entry.details) {
-                    expect(
-                        Object.hasOwn(row.details, key),
-                        `${entry.eventType} details must carry ${key}`,
-                    ).toBe(true);
+                for (const row of rows) {
+                    expect(row.actorSource, `${entry.eventType} actor`).toBe(entry.actor);
+                    expect(row.decision, `${entry.eventType} decision`).toBe(entry.decision);
+                    expect(row.entity.kind, `${entry.eventType} entity`).toBe('run');
+                    expect(row.entity.id, `${entry.eventType} entity id`).toBe(row.correlationId);
+                    // The reason *member* every row carries; several types leave
+                    // its value `null` and put their prose in `details` instead,
+                    // which is the shape as stored, not a projection of this read.
+                    expect(Object.hasOwn(row, 'reason'), `${entry.eventType} reason member`).toBe(true);
+                    for (const key of entry.details) {
+                        expect(
+                            Object.hasOwn(row.details, key),
+                            `${entry.eventType} details must carry ${key}`,
+                        ).toBe(true);
+                    }
                 }
             }
         }
-    });
+        // case: names the reference that joined after authorization as possibly unseen (FR-015)
+        {
+            const { trail } = driven();
+            const coalesced = rowsOf(trail, COALESCED_ROW);
 
-    it('names the reference that joined after authorization as possibly unseen (FR-015)', () => {
-        const { trail } = driven();
-        const coalesced = rowsOf(trail, COALESCED_ROW);
-
-        expect(coalesced).toHaveLength(1);
-        expect(coalesced[0]?.details).toMatchObject({
-            kind: 'mention',
-            origin: 'comment:4242',
-            presentAtAuthorization: false,
-        });
-    });
-
-    it('records one refusal of each of the eight refusing operations (FR-003)', () => {
-        const { trail, refusals, adoptedRunId } = driven();
-        expect(refusals).toHaveLength(REFUSING_OPERATIONS.length);
-        expect(refusals.map((observation) => observation.operation).sort())
-            .toEqual([...REFUSING_OPERATIONS].sort());
-
-        const rows = rowsOf(trail, REFUSAL_ROW);
-        const operations = new Set(rows.map((row) => row.details.operation));
-        for (const operation of REFUSING_OPERATIONS) {
-            expect(operations.has(operation), `${REFUSAL_ROW} must record ${operation}`).toBe(true);
+            expect(coalesced).toHaveLength(1);
+            expect(coalesced[0]?.details).toMatchObject({
+                kind: 'mention',
+                origin: 'comment:4242',
+                presentAtAuthorization: false,
+            });
         }
+        // case: records one refusal of each of the eight refusing operations (FR-003)
+        {
+            const { trail, refusals, adoptedRunId } = driven();
+            expect(refusals).toHaveLength(REFUSING_OPERATIONS.length);
+            expect(refusals.map((observation) => observation.operation).sort())
+                .toEqual([...REFUSING_OPERATIONS].sort());
 
-        // T-043/T-044: a `422` about a run that exists owes its row too, and
-        // its `details.code` is `validation` — the case the contract's own
-        // narrowing had to be written to keep.
-        const validationRows = rows.filter((row) => row.details.code === 'validation');
-        expect(validationRows.length).toBeGreaterThan(0);
-        expect(validationRows.every((row) => row.decision === 'refused')).toBe(true);
-        const validationObservations = refusals.filter((observation) => observation.status === 422);
-        expect(validationObservations.length).toBeGreaterThan(0);
-        for (const observation of validationObservations) {
-            expect(observation.code).toBe('validation');
-        }
+            const rows = rowsOf(trail, REFUSAL_ROW);
+            const operations = new Set(rows.map((row) => row.details.operation));
+            for (const operation of REFUSING_OPERATIONS) {
+                expect(operations.has(operation), `${REFUSAL_ROW} must record ${operation}`).toBe(true);
+            }
 
-        // Every refusal row names the run it refused, and the verdict it held.
-        for (const row of rows) {
-            expect(row.actorSource).toBe('service');
-            expect(row.entity.id).toBe(adoptedRunId);
-            expect(typeof row.details.operation).toBe('string');
-            expect(typeof row.details.code).toBe('string');
-            expect(typeof row.details.priorState).toBe('string');
+            // T-043/T-044: a `422` about a run that exists owes its row too, and
+            // its `details.code` is `validation` — the case the contract's own
+            // narrowing had to be written to keep.
+            const validationRows = rows.filter((row) => row.details.code === 'validation');
+            expect(validationRows.length).toBeGreaterThan(0);
+            expect(validationRows.every((row) => row.decision === 'refused')).toBe(true);
+            const validationObservations = refusals.filter((observation) => observation.status === 422);
+            expect(validationObservations.length).toBeGreaterThan(0);
+            for (const observation of validationObservations) {
+                expect(observation.code).toBe('validation');
+            }
+
+            // Every refusal row names the run it refused, and the verdict it held.
+            for (const row of rows) {
+                expect(row.actorSource).toBe('service');
+                expect(row.entity.id).toBe(adoptedRunId);
+                expect(typeof row.details.operation).toBe('string');
+                expect(typeof row.details.code).toBe('string');
+                expect(typeof row.details.priorState).toBe('string');
+            }
         }
     });
 });
 
 describe('FR-062 every lifecycle row carries the run correlation id', () => {
-    it('reports the run id byte-identically, never a freshly generated one (AC-116)', () => {
-        const { trail, adoptedRunId, createdRunId } = driven();
-        const lifecycle = lifecycleRows(trail);
+    it('reports the run id byte-identically, never a freshly… (+1 cases)', () => {
+        // case: reports the run id byte-identically, never a freshly generated one (AC-116)
+        {
+            const { trail, adoptedRunId, createdRunId } = driven();
+            const lifecycle = lifecycleRows(trail);
 
-        expect(lifecycle.length).toBeGreaterThan(0);
-        for (const row of lifecycle) {
-            expect(row.correlationId, `${row.eventType} correlation id`).toMatch(RUN_ID_PATTERN);
-            expect(row.entity.id, `${row.eventType} entity id`).toBe(row.correlationId);
-            // A fresh uuid would still parse as an id and never look wrong to
-            // a casual reader — which is exactly the failure AC-116 forbids.
-            expect(row.correlationId).not.toMatch(FRESH_ID_PATTERN);
-            const expected = row.eventType === CREATED_ROW ? createdRunId : adoptedRunId;
-            expect(row.correlationId, `${row.eventType} must name its run`).toBe(expected);
+            expect(lifecycle.length).toBeGreaterThan(0);
+            for (const row of lifecycle) {
+                expect(row.correlationId, `${row.eventType} correlation id`).toMatch(RUN_ID_PATTERN);
+                expect(row.entity.id, `${row.eventType} entity id`).toBe(row.correlationId);
+                // A fresh uuid would still parse as an id and never look wrong to
+                // a casual reader — which is exactly the failure AC-116 forbids.
+                expect(row.correlationId).not.toMatch(FRESH_ID_PATTERN);
+                const expected = row.eventType === CREATED_ROW ? createdRunId : adoptedRunId;
+                expect(row.correlationId, `${row.eventType} must name its run`).toBe(expected);
+            }
+
+            // Detection rows were assigned the run's id at enqueue, so the same
+            // filter finds them — the forwards half of FR-052's traceability.
+            const detected = rowsOf(trail, DETECTED_ROW);
+            expect(detected.length).toBeGreaterThan(0);
+            for (const row of detected) {
+                expect([adoptedRunId, createdRunId]).toContain(row.correlationId);
+            }
         }
+        // case: orders the trail the way the transitions happened
+        {
+            const { trail, adoptedRunId, createdRunId } = driven();
+            // The drive's own order: adoption, the claim that gave the refusals a
+            // live state, the budget parking the run and its return to waiting, the
+            // guard, the authorization the second trigger joined behind, the wedge
+            // and its resolution, then the dispatch and its read-backs.
+            const chain = [
+                MIGRATED_ROW,
+                CLAIMED_ROW,
+                DEAD_LETTERED_ROW,
+                RETRY_ROW,
+                BLOCKED_ROW,
+                RESERVED_ROW,
+                COALESCED_ROW,
+                ABANDONED_ROW,
+                UNCONFIRMED_ROW,
+                RESOLVED_ROW,
+                RESULT_ROW,
+                DUPLICATE_ROW,
+                VERIFIED_ROW,
+                MISMATCH_ROW,
+            ].map((eventType) => firstSeqFor({ trail, eventType, correlationId: adoptedRunId }));
 
-        // Detection rows were assigned the run's id at enqueue, so the same
-        // filter finds them — the forwards half of FR-052's traceability.
-        const detected = rowsOf(trail, DETECTED_ROW);
-        expect(detected.length).toBeGreaterThan(0);
-        for (const row of detected) {
-            expect([adoptedRunId, createdRunId]).toContain(row.correlationId);
+            expect(chain.every((seq) => !Number.isNaN(seq))).toBe(true);
+            expect([...chain].sort((left, right) => left - right)).toEqual(chain);
+            // Creation is the only row that belongs to the other run, and it is
+            // written once — the vocabulary's first entry (AC-115's sample).
+            expect(rowsOf(trail, CREATED_ROW)).toHaveLength(1);
+            expect(firstRowOf(trail, CREATED_ROW).correlationId).toBe(createdRunId);
+            expect(rowsOf(trail, MIGRATED_ROW)).toHaveLength(1);
         }
-    });
-
-    it('orders the trail the way the transitions happened', () => {
-        const { trail, adoptedRunId, createdRunId } = driven();
-        // The drive's own order: adoption, the claim that gave the refusals a
-        // live state, the budget parking the run and its return to waiting, the
-        // guard, the authorization the second trigger joined behind, the wedge
-        // and its resolution, then the dispatch and its read-backs.
-        const chain = [
-            MIGRATED_ROW,
-            CLAIMED_ROW,
-            DEAD_LETTERED_ROW,
-            RETRY_ROW,
-            BLOCKED_ROW,
-            RESERVED_ROW,
-            COALESCED_ROW,
-            ABANDONED_ROW,
-            UNCONFIRMED_ROW,
-            RESOLVED_ROW,
-            RESULT_ROW,
-            DUPLICATE_ROW,
-            VERIFIED_ROW,
-            MISMATCH_ROW,
-        ].map((eventType) => firstSeqFor({ trail, eventType, correlationId: adoptedRunId }));
-
-        expect(chain.every((seq) => !Number.isNaN(seq))).toBe(true);
-        expect([...chain].sort((left, right) => left - right)).toEqual(chain);
-        // Creation is the only row that belongs to the other run, and it is
-        // written once — the vocabulary's first entry (AC-115's sample).
-        expect(rowsOf(trail, CREATED_ROW)).toHaveLength(1);
-        expect(firstRowOf(trail, CREATED_ROW).correlationId).toBe(createdRunId);
-        expect(rowsOf(trail, MIGRATED_ROW)).toHaveLength(1);
     });
 });
 

@@ -103,21 +103,27 @@ let dataDir = '';
 let running: TestService | null = null;
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-audit-route-'));
     dataDir = join(tempRoot, 'store');
     LOG_LINES.length = 0;
     running = null;
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
     }
 
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Start a service against this fixture's data directory.
@@ -249,71 +255,78 @@ async function seededRunId(): Promise<string> {
 }
 
 describe('T-017 the correlation filter is a byte-exact string equality', () => {
-    it('returns every run row, includes the detection rows, and never a non-run row (FR-052, AC-118)', async () => {
-        const service = await startServiceForTest();
-        const correlationId = await seededRunId();
-        const dispatchRows = await seedRows({ correlationId, count: 2 });
-        // A credential-verification row: its own identifier, and the delivery
-        // identifiers it concerns, exactly as FR-052 requires of non-run rows.
-        await appendAudit(store, {
-            eventType: 'account.verified',
-            actorSource: 'service',
-            entity: { kind: 'account', id: 'acct_fixture' },
-            correlationId: NON_RUN_ID,
-            reason: 'fixture credential verification',
-            details: { deliveryIds: ['evt-acme~audit-route~9~77331'] },
-        });
+    it('returns every run row, includes the detection rows, … (+1 cases)', async () => {
+        // case: returns every run row, includes the detection rows, and never a non-run row (FR-052, AC-118)
+        {
+            const service = await startServiceForTest();
+            const correlationId = await seededRunId();
+            const dispatchRows = await seedRows({ correlationId, count: 2 });
+            // A credential-verification row: its own identifier, and the delivery
+            // identifiers it concerns, exactly as FR-052 requires of non-run rows.
+            await appendAudit(store, {
+                eventType: 'account.verified',
+                actorSource: 'service',
+                entity: { kind: 'account', id: 'acct_fixture' },
+                correlationId: NON_RUN_ID,
+                reason: 'fixture credential verification',
+                details: { deliveryIds: ['evt-acme~audit-route~9~77331'] },
+            });
 
-        const filtered = await readAudit(service, `correlationId=${correlationId}`);
-        expect(filtered.status).toBe(200);
-        // Every run-scoped row the store holds under this id — the creation
-        // row, the detection row (assigned at enqueue), and the two seeded —
-        // comes back, and nothing else does.
-        const stored = await readAuditEntries(store);
-        const expected = stored.filter((entry) => entry.correlationId === correlationId);
-        expect(filtered.json.entries).toEqual(expected);
-        expect(filtered.json.count).toBe(expected.length);
-        expect(expected.length).toBeGreaterThanOrEqual(dispatchRows.length + 2);
-        expect(filtered.json.entries.every((entry) => entry.correlationId === correlationId)).toBe(true);
-        expect(filtered.json.entries.some((entry) => entry.eventType === 'account.verified')).toBe(false);
-        expect(filtered.json.entries.some((entry) => entry.eventType === 'delivery.detected')).toBe(true);
+            const filtered = await readAudit(service, `correlationId=${correlationId}`);
+            expect(filtered.status).toBe(200);
+            // Every run-scoped row the store holds under this id — the creation
+            // row, the detection row (assigned at enqueue), and the two seeded —
+            // comes back, and nothing else does.
+            const stored = await readAuditEntries(store);
+            const expected = stored.filter((entry) => entry.correlationId === correlationId);
+            expect(filtered.json.entries).toEqual(expected);
+            expect(filtered.json.count).toBe(expected.length);
+            expect(expected.length).toBeGreaterThanOrEqual(dispatchRows.length + 2);
+            expect(filtered.json.entries.every((entry) => entry.correlationId === correlationId)).toBe(true);
+            expect(filtered.json.entries.some((entry) => entry.eventType === 'account.verified')).toBe(false);
+            expect(filtered.json.entries.some((entry) => entry.eventType === 'delivery.detected')).toBe(true);
 
-        const all = await readAudit(service, '');
-        expect(all.status).toBe(200);
-        expect(all.json.entries.some((entry) => entry.correlationId === NON_RUN_ID)).toBe(true);
-        // The non-run row keeps its own id *and* names the delivery it concerns.
-        const nonRun = all.json.entries.find((entry) => entry.correlationId === NON_RUN_ID);
-        expect(nonRun?.entity.kind).toBe('account');
-        expect(nonRun?.details.deliveryIds).toEqual(['evt-acme~audit-route~9~77331']);
-    });
+            const all = await readAudit(service, '');
+            expect(all.status).toBe(200);
+            expect(all.json.entries.some((entry) => entry.correlationId === NON_RUN_ID)).toBe(true);
+            // The non-run row keeps its own id *and* names the delivery it concerns.
+            const nonRun = all.json.entries.find((entry) => entry.correlationId === NON_RUN_ID);
+            expect(nonRun?.entity.kind).toBe('account');
+            expect(nonRun?.details.deliveryIds).toEqual(['evt-acme~audit-route~9~77331']);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: answers an unknown id with 200 and zero entries, and never widens a near-miss
+        {
+            const service = await startServiceForTest();
+            await seedRows({ correlationId: SEEDED_RUN_ID, count: 3 });
 
-    it('answers an unknown id with 200 and zero entries, and never widens a near-miss', async () => {
-        const service = await startServiceForTest();
-        await seedRows({ correlationId: SEEDED_RUN_ID, count: 3 });
+            const unknown = await readAudit(service, `correlationId=${UNKNOWN_RUN_ID}`);
+            expect(unknown.status).toBe(200);
+            expect(unknown.json.entries).toEqual([]);
+            expect(unknown.json.count).toBe(0);
+            expect(unknown.json.nextCursor).toBeNull();
 
-        const unknown = await readAudit(service, `correlationId=${UNKNOWN_RUN_ID}`);
-        expect(unknown.status).toBe(200);
-        expect(unknown.json.entries).toEqual([]);
-        expect(unknown.json.count).toBe(0);
-        expect(unknown.json.nextCursor).toBeNull();
+            // Not a derivation and not a prefix match: `MT-RUN-…` is a different
+            // string, so it matches nothing (FR-051's byte-identical values).
+            const wrongCase = await readAudit(service, `correlationId=${WRONG_CASE_RUN_ID}`);
+            expect(wrongCase.status).toBe(200);
+            expect(wrongCase.json.entries).toEqual([]);
 
-        // Not a derivation and not a prefix match: `MT-RUN-…` is a different
-        // string, so it matches nothing (FR-051's byte-identical values).
-        const wrongCase = await readAudit(service, `correlationId=${WRONG_CASE_RUN_ID}`);
-        expect(wrongCase.status).toBe(200);
-        expect(wrongCase.json.entries).toEqual([]);
+            // A *present* filter is narrowed to it and nothing else: a blank value
+            // matches nothing rather than widening into a read of the whole trail.
+            const blank = await readAudit(service, 'correlationId=');
+            expect(blank.status).toBe(200);
+            expect(blank.json.entries).toEqual([]);
+            expect(blank.json.count).toBe(0);
 
-        // A *present* filter is narrowed to it and nothing else: a blank value
-        // matches nothing rather than widening into a read of the whole trail.
-        const blank = await readAudit(service, 'correlationId=');
-        expect(blank.status).toBe(200);
-        expect(blank.json.entries).toEqual([]);
-        expect(blank.json.count).toBe(0);
-
-        // Byte-exact means byte-exact: one padded space is a different string.
-        const padded = await readAudit(service, `correlationId=%20${SEEDED_RUN_ID}`);
-        expect(padded.status).toBe(200);
-        expect(padded.json.entries).toEqual([]);
+            // Byte-exact means byte-exact: one padded space is a different string.
+            const padded = await readAudit(service, `correlationId=%20${SEEDED_RUN_ID}`);
+            expect(padded.status).toBe(200);
+            expect(padded.json.entries).toEqual([]);
+        }
     });
 });
 
@@ -355,151 +368,181 @@ describe('T-017 pagination chains with no duplicate and no gap', () => {
 });
 
 describe('T-017 limit is clamped, never refused', () => {
-    it('takes the default, clamps both bounds, and treats a word as the default', async () => {
-        const service = await startServiceForTest();
-        await seedRows({ correlationId: SEEDED_RUN_ID, count: CLAMP_ROWS });
+    it('takes the default, clamps both bounds, and treats a … (+1 cases)', async () => {
+        // case: takes the default, clamps both bounds, and treats a word as the default
+        {
+            const service = await startServiceForTest();
+            await seedRows({ correlationId: SEEDED_RUN_ID, count: CLAMP_ROWS });
 
-        const absent = await readAudit(service, `correlationId=${SEEDED_RUN_ID}`);
-        expect(absent.status).toBe(200);
-        expect(absent.json.count).toBe(100);
+            const absent = await readAudit(service, `correlationId=${SEEDED_RUN_ID}`);
+            expect(absent.status).toBe(200);
+            expect(absent.json.count).toBe(100);
 
-        const overMax = await readAudit(service, `correlationId=${SEEDED_RUN_ID}&limit=1000`);
-        expect(overMax.status).toBe(200);
-        expect(overMax.json.count).toBe(200);
+            const overMax = await readAudit(service, `correlationId=${SEEDED_RUN_ID}&limit=1000`);
+            expect(overMax.status).toBe(200);
+            expect(overMax.json.count).toBe(200);
 
-        const underMin = await readAudit(service, `correlationId=${SEEDED_RUN_ID}&limit=0`);
-        expect(underMin.status).toBe(200);
-        expect(underMin.json.count).toBe(1);
+            const underMin = await readAudit(service, `correlationId=${SEEDED_RUN_ID}&limit=0`);
+            expect(underMin.status).toBe(200);
+            expect(underMin.json.count).toBe(1);
 
-        const nonsense = await readAudit(service, `correlationId=${SEEDED_RUN_ID}&limit=lots`);
-        expect(nonsense.status).toBe(200);
-        expect(nonsense.json.count).toBe(100);
-    });
+            const nonsense = await readAudit(service, `correlationId=${SEEDED_RUN_ID}&limit=lots`);
+            expect(nonsense.status).toBe(200);
+            expect(nonsense.json.count).toBe(100);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a cursor that is no sequence number, naming the field and not its value
+        {
+            const service = await startServiceForTest();
+            await seedRows({ correlationId: SEEDED_RUN_ID, count: 3 });
 
-    it('refuses a cursor that is no sequence number, naming the field and not its value', async () => {
-        const service = await startServiceForTest();
-        await seedRows({ correlationId: SEEDED_RUN_ID, count: 3 });
+            const refused = await readAudit(service, 'cursor=not-a-seq');
 
-        const refused = await readAudit(service, 'cursor=not-a-seq');
-
-        expect(refused.status).toBe(422);
-        const body = JSON.parse(refused.text) as {
-            error?: { code?: string; issues?: readonly { readonly field?: string; readonly remediation?: string }[] };
-        };
-        expect(body.error?.code).toBe('validation');
-        expect(body.error?.issues?.map((issue) => issue.field)).toContain('cursor');
-        // SEC-11: the received value never reaches the answer.
-        expect(refused.text).not.toContain('not-a-seq');
+            expect(refused.status).toBe(422);
+            const body = JSON.parse(refused.text) as {
+                error?: { code?: string; issues?: readonly {
+                    readonly field?: string; readonly remediation?: string }[] };
+            };
+            expect(body.error?.code).toBe('validation');
+            expect(body.error?.issues?.map((issue) => issue.field)).toContain('cursor');
+            // SEC-11: the received value never reaches the answer.
+            expect(refused.text).not.toContain('not-a-seq');
+        }
     });
 });
 
 describe('T-017 the transport rules hold on the audit path', () => {
-    it('answers a page that cannot fit the response cap with response-too-large, never a truncation', async () => {
-        const service = await startServiceForTest();
-        await seedRows({
-            correlationId: SEEDED_RUN_ID,
-            count: FAT_ROWS,
-            details: { blob: 'x'.repeat(FAT_DETAIL_CHARS) },
-        });
+    it('answers a page that cannot fit the response cap with… (+3 cases)', async () => {
+        // case: answers a page that cannot fit the response cap with response-too-large, never a truncation
+        {
+            const service = await startServiceForTest();
+            await seedRows({
+                correlationId: SEEDED_RUN_ID,
+                count: FAT_ROWS,
+                details: { blob: 'x'.repeat(FAT_DETAIL_CHARS) },
+            });
 
-        const oversized = await readAudit(service, `correlationId=${SEEDED_RUN_ID}&limit=200`);
+            const oversized = await readAudit(service, `correlationId=${SEEDED_RUN_ID}&limit=200`);
 
-        // Contract §2: the guard measures and answers; it never ships half a row.
-        expect(oversized.status).toBe(500);
-        expect(JSON.parse(oversized.text)).toMatchObject({ error: { code: 'response-too-large' } });
+            // Contract §2: the guard measures and answers; it never ships half a row.
+            expect(oversized.status).toBe(500);
+            expect(JSON.parse(oversized.text)).toMatchObject({ error: { code: 'response-too-large' } });
 
-        // A page that fits still answers normally, so the guard is a bound and
-        // not a broken route.
-        const small = await readAudit(service, `correlationId=${SEEDED_RUN_ID}&limit=1`);
-        expect(small.status).toBe(200);
-        expect(small.json.count).toBe(1);
-    });
+            // A page that fits still answers normally, so the guard is a bound and
+            // not a broken route.
+            const small = await readAudit(service, `correlationId=${SEEDED_RUN_ID}&limit=1`);
+            expect(small.status).toBe(200);
+            expect(small.json.count).toBe(1);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: requires the bearer token before routing, with no route oracle
+        {
+            const service = await startServiceForTest();
 
-    it('requires the bearer token before routing, with no route oracle', async () => {
-        const service = await startServiceForTest();
+            const missing = await fetch(`${service.baseUrl}${AUDIT_PATH}`);
+            const wrong = await fetch(`${service.baseUrl}${AUDIT_PATH}`, {
+                headers: { authorization: `${BEARER}wrong-wrong-wrong-wrong` },
+            });
+            const invented = await fetch(`${service.baseUrl}/v1/audit-not-a-route`);
 
-        const missing = await fetch(`${service.baseUrl}${AUDIT_PATH}`);
-        const wrong = await fetch(`${service.baseUrl}${AUDIT_PATH}`, {
-            headers: { authorization: `${BEARER}wrong-wrong-wrong-wrong` },
-        });
-        const invented = await fetch(`${service.baseUrl}/v1/audit-not-a-route`);
+            expect(missing.status).toBe(401);
+            expect(wrong.status).toBe(401);
+            expect(invented.status).toBe(401);
+            const missingText = await missing.text();
+            expect(await wrong.text()).toBe(missingText);
+            expect(await invented.text()).toBe(missingText);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: answers a wrong verb with 405 and an Allow header naming GET
+        {
+            const service = await startServiceForTest();
 
-        expect(missing.status).toBe(401);
-        expect(wrong.status).toBe(401);
-        expect(invented.status).toBe(401);
-        const missingText = await missing.text();
-        expect(await wrong.text()).toBe(missingText);
-        expect(await invented.text()).toBe(missingText);
-    });
+            const response = await service.call(AUDIT_PATH, { method: WRONG_METHOD });
 
-    it('answers a wrong verb with 405 and an Allow header naming GET', async () => {
-        const service = await startServiceForTest();
+            expect(response.status).toBe(405);
+            expect(response.headers.get('allow')).toBe('GET');
+            const body = (await response.json()) as { error?: { code?: string } };
+            expect(body.error?.code).toBe('method-not-allowed');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: answers an unreadable trail with 503 storage-unavailable, not a 500
+        {
+            const service = await startServiceForTest({ unreadableTrail: true });
 
-        const response = await service.call(AUDIT_PATH, { method: WRONG_METHOD });
+            const response = await service.call(AUDIT_PATH);
+            const body = (await response.json()) as { error?: { code?: string } };
 
-        expect(response.status).toBe(405);
-        expect(response.headers.get('allow')).toBe('GET');
-        const body = (await response.json()) as { error?: { code?: string } };
-        expect(body.error?.code).toBe('method-not-allowed');
-    });
-
-    it('answers an unreadable trail with 503 storage-unavailable, not a 500', async () => {
-        const service = await startServiceForTest({ unreadableTrail: true });
-
-        const response = await service.call(AUDIT_PATH);
-        const body = (await response.json()) as { error?: { code?: string } };
-
-        expect(response.status).toBe(503);
-        expect(body.error?.code).toBe('storage-unavailable');
+            expect(response.status).toBe(503);
+            expect(body.error?.code).toBe('storage-unavailable');
+        }
     });
 });
 
 describe('T-017 entries come back as stored, projected by nothing', () => {
-    it('returns the stored row verbatim, with the whole documented member set', async () => {
-        const service = await startServiceForTest();
-        const [seeded] = await seedRows({
-            correlationId: SEEDED_RUN_ID,
-            count: 1,
-            row: { reason: 'the operator retried after the cause cleared' },
-        });
-        if (seeded === undefined) {
-            throw new Error('the fixture row was not seeded');
+    it('returns the stored row verbatim, with the whole docu… (+1 cases)', async () => {
+        // case: returns the stored row verbatim, with the whole documented member set
+        {
+            const service = await startServiceForTest();
+            const [seeded] = await seedRows({
+                correlationId: SEEDED_RUN_ID,
+                count: 1,
+                row: { reason: 'the operator retried after the cause cleared' },
+            });
+            if (seeded === undefined) {
+                throw new Error('the fixture row was not seeded');
+            }
+
+            const answer = await readAudit(service, `correlationId=${SEEDED_RUN_ID}`);
+
+            expect(answer.json.entries).toEqual([seeded]);
+            expect(Object.keys(answer.json.entries[0] ?? {})).toEqual([
+                'seq',
+                'timestamp',
+                'correlationId',
+                'eventType',
+                'actorSource',
+                'entity',
+                'decision',
+                'reason',
+                'redaction',
+                'details',
+            ]);
+            // Nothing is re-redacted on the way out: rows were redaction-passed at
+            // write (FR-061), so an unchanged marker is the honest answer.
+            expect(answer.json.entries[0]?.redaction).toEqual({ redacted: false, fields: [] });
+            expect(answer.json.entries[0]?.details.fixture).toBe(0);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: sees a row appended after the last answer, with no repair step in between
+        {
+            // The trail this route reads is the same file the writer appends to —
+            // no second copy, no derived index — so a row appended after the last
+            // answer is visible to the next one without any repair step.
+            const service = await startServiceForTest();
+            await seedRows({ correlationId: SEEDED_RUN_ID, count: 1 });
+            const before = await readAudit(service, `correlationId=${SEEDED_RUN_ID}`);
+            expect(before.json.count).toBe(1);
 
-        const answer = await readAudit(service, `correlationId=${SEEDED_RUN_ID}`);
+            await seedRows({ correlationId: SEEDED_RUN_ID, count: 1 });
+            const after = await readAudit(service, `correlationId=${SEEDED_RUN_ID}`);
 
-        expect(answer.json.entries).toEqual([seeded]);
-        expect(Object.keys(answer.json.entries[0] ?? {})).toEqual([
-            'seq',
-            'timestamp',
-            'correlationId',
-            'eventType',
-            'actorSource',
-            'entity',
-            'decision',
-            'reason',
-            'redaction',
-            'details',
-        ]);
-        // Nothing is re-redacted on the way out: rows were redaction-passed at
-        // write (FR-061), so an unchanged marker is the honest answer.
-        expect(answer.json.entries[0]?.redaction).toEqual({ redacted: false, fields: [] });
-        expect(answer.json.entries[0]?.details.fixture).toBe(0);
-    });
-
-    it('sees a row appended after the last answer, with no repair step in between', async () => {
-        // The trail this route reads is the same file the writer appends to —
-        // no second copy, no derived index — so a row appended after the last
-        // answer is visible to the next one without any repair step.
-        const service = await startServiceForTest();
-        await seedRows({ correlationId: SEEDED_RUN_ID, count: 1 });
-        const before = await readAudit(service, `correlationId=${SEEDED_RUN_ID}`);
-        expect(before.json.count).toBe(1);
-
-        await seedRows({ correlationId: SEEDED_RUN_ID, count: 1 });
-        const after = await readAudit(service, `correlationId=${SEEDED_RUN_ID}`);
-
-        expect(after.json.count).toBe(2);
-        expect(after.json.entries[0]?.seq).toBe(before.json.entries[0]?.seq);
+            expect(after.json.count).toBe(2);
+            expect(after.json.entries[0]?.seq).toBe(before.json.entries[0]?.seq);
+        }
     });
 });

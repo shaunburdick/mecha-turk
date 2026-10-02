@@ -47,7 +47,8 @@ let entry: ChildProcess | null = null;
 /** Temporary home the current test's store lives under. */
 let home: string | null = null;
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork1 = async (): Promise<void> => {
     if (entry !== null) {
         entry.kill('SIGKILL');
         entry = null;
@@ -57,7 +58,9 @@ afterEach(async () => {
         await rm(home, { recursive: true, force: true });
         home = null;
     }
-});
+};
+
+afterEach(afterEachWork1);
 
 /**
  * Build the environment the host documents for a guest service.
@@ -151,9 +154,9 @@ function waitForExit(child: ChildProcess): Promise<number | null> {
 }
 
 describe('service entry (spawned bundle)', () => {
-    it(
-        'starts, answers the readiness probe, and drains on SIGTERM',
-        async () => {
+    it('starts, answers the readiness probe, and drains on S… (+1 cases)', async () => {
+        // case: starts, answers the readiness probe, and drains on SIGTERM
+        {
             home = await mkdtemp(join(tmpdir(), 'mecha-turk-entry-'));
             entry = spawn(process.execPath, [ENTRY], { env: buildEnv(home), stdio: ['ignore', 'pipe', 'pipe'] });
             const port = await readListeningPort(entry);
@@ -170,13 +173,11 @@ describe('service entry (spawned bundle)', () => {
             const exited = waitForExit(entry);
             entry.kill('SIGTERM');
             expect(await exited).toBe(0);
-        },
-        TEST_MS,
-    );
-
-    it(
-        'refuses to start on a short service token, exit non-zero, log secret-free (SEC-02a)',
-        async () => {
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses to start on a short service token, exit non-zero, log secret-free (SEC-02a)
+        {
             home = await mkdtemp(join(tmpdir(), 'mecha-turk-entry-'));
             const shortToken = 'f'.repeat(TOKEN_FLOOR - 1);
             const env = buildEnv(home);
@@ -189,7 +190,7 @@ describe('service entry (spawned bundle)', () => {
             expect(output).toContain('OPENCHAMBER_SERVICE_TOKEN');
             expect(output).not.toContain(shortToken);
             expect(output).not.toContain('listening');
-        },
-        TEST_MS,
-    );
+        }
+    },
+    TEST_MS,);
 });

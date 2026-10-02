@@ -198,57 +198,63 @@ function descriptorOf(name: string): ReturnType<typeof configSchema>[number] {
 }
 
 describe('SC-106: eleven fields, eleven consumers, zero inert rows', () => {
-    it('counts 006\'s own eleven as nine next-cycle, one immediate, one next-dispatch', () => {
-        const histogram = new Map<string, number>();
-        for (const name of SPECS_006_FIELDS) {
-            const { takesEffect } = descriptorOf(name);
-            histogram.set(takesEffect, (histogram.get(takesEffect) ?? 0) + 1);
+    it('counts 006\\\'s own eleven as nine next-cycle, one imm… (+1 cases)', () => {
+        // case: counts 006\'s own eleven as nine next-cycle, one immediate, one next-dispatch
+        {
+            const histogram = new Map<string, number>();
+            for (const name of SPECS_006_FIELDS) {
+                const { takesEffect } = descriptorOf(name);
+                histogram.set(takesEffect, (histogram.get(takesEffect) ?? 0) + 1);
+            }
+
+            expect(histogram.get(NEXT_CYCLE)).toBe(9);
+            expect(histogram.get('immediate')).toBe(1);
+            expect(histogram.get('next-dispatch')).toBe(1);
+            expect(histogram.get('restart')).toBeUndefined();
+            expect(histogram.get('none')).toBeUndefined();
         }
+        // case: AC-104: every declared class is one this build delivers, in words that say so
+        {
+            for (const name of SPECS_006_FIELDS) {
+                const { takesEffect } = descriptorOf(name);
+                const words = takeEffectWords(takesEffect);
 
-        expect(histogram.get(NEXT_CYCLE)).toBe(9);
-        expect(histogram.get('immediate')).toBe(1);
-        expect(histogram.get('next-dispatch')).toBe(1);
-        expect(histogram.get('restart')).toBeUndefined();
-        expect(histogram.get('none')).toBeUndefined();
-    });
-
-    it('AC-104: every declared class is one this build delivers, in words that say so', () => {
-        for (const name of SPECS_006_FIELDS) {
-            const { takesEffect } = descriptorOf(name);
-            const words = takeEffectWords(takesEffect);
-
-            expect(words).not.toBe('');
-            expect(words).not.toBe('no take-effect boundary declared');
-            expect(words).not.toContain('changes nothing in this build');
+                expect(words).not.toBe('');
+                expect(words).not.toBe('no take-effect boundary declared');
+                expect(words).not.toContain('changes nothing in this build');
+            }
         }
     });
 
 });
 
 describe('SC-107: a declared class with no backing observation fails', () => {
-    it('has an observation for every field the projection carries', () => {
-        for (const descriptor of configSchema()) {
-            expect(OBSERVATIONS[descriptor.name], `${descriptor.name} has no observation`).toBeDefined();
+    it('has an observation for every field the projection ca… (+2 cases)', () => {
+        // case: has an observation for every field the projection carries
+        {
+            for (const descriptor of configSchema()) {
+                expect(OBSERVATIONS[descriptor.name], `${descriptor.name} has no observation`).toBeDefined();
+            }
         }
-    });
-
-    it('still finds the observation each field points at', () => {
-        for (const [name, observation] of Object.entries(OBSERVATIONS)) {
-            const path = resolve(ROOT, observation.suite);
-            expect(existsSync(path), `${name} points at a suite that is gone`).toBe(true);
-            expect(
-                suiteText(observation.suite),
-                `${name}'s observation is no longer in ${observation.suite}`,
-            ).toContain(observation.marker);
+        // case: still finds the observation each field points at
+        {
+            for (const [name, observation] of Object.entries(OBSERVATIONS)) {
+                const path = resolve(ROOT, observation.suite);
+                expect(existsSync(path), `${name} points at a suite that is gone`).toBe(true);
+                expect(
+                    suiteText(observation.suite),
+                    `${name}'s observation is no longer in ${observation.suite}`,
+                ).toContain(observation.marker);
+            }
         }
-    });
-
-    it('declares the class the projection declares — a moved class fails here', () => {
-        for (const [name, observation] of Object.entries(OBSERVATIONS)) {
-            expect(
-                descriptorOf(name).takesEffect,
-                `${name}'s class moved without its observation moving`,
-            ).toBe(observation.declared);
+        // case: declares the class the projection declares — a moved class fails here
+        {
+            for (const [name, observation] of Object.entries(OBSERVATIONS)) {
+                expect(
+                    descriptorOf(name).takesEffect,
+                    `${name}'s class moved without its observation moving`,
+                ).toBe(observation.declared);
+            }
         }
     });
 });
@@ -379,95 +385,98 @@ function startVerification(run: VerificationRun, id: string): Promise<void> {
 }
 
 describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verification', () => {
-    it('compares against the saved value with no restart and no cycle boundary between', async () => {
-        const run = verificationRun(SAVED_AGENT);
-        run.setConfig(configBody(SAVED_AGENT));
+    it('compares against the saved value with no restart and… (+4 cases)', async () => {
+        // case: compares against the saved value with no restart and no cycle boundary between
+        {
+            const run = verificationRun(SAVED_AGENT);
+            run.setConfig(configBody(SAVED_AGENT));
 
-        await startVerification(run, RUN_ID);
+            await startVerification(run, RUN_ID);
 
-        // Exactly the baseline read and the report: no restart exists to
-        // perform, and nothing polls a cycle in between — the value read for
-        // *this* dispatch is the value compared.
-        expect(run.calls).toEqual([
-            GET_CONFIG,
-            'onSession',
-            `openSession:${SESSION}`,
-            'unsubscribe',
-            `POST ${verificationPath(RUN_ID)}`,
-        ]);
-        expect(run.reads()).toBe(1);
-        expect(reportOf(run)).toMatchObject({ expectedAgent: SAVED_AGENT, ok: true });
+            // Exactly the baseline read and the report: no restart exists to
+            // perform, and nothing polls a cycle in between — the value read for
+            // *this* dispatch is the value compared.
+            expect(run.calls).toEqual([
+                GET_CONFIG,
+                'onSession',
+                `openSession:${SESSION}`,
+                'unsubscribe',
+                `POST ${verificationPath(RUN_ID)}`,
+            ]);
+            expect(run.reads()).toBe(1);
+            expect(reportOf(run)).toMatchObject({ expectedAgent: SAVED_AGENT, ok: true });
 
-        const entry = run.rt.state.ledger.entries.at(-1);
-        expect(entry?.detail.expectedAgent).toBe(SAVED_AGENT);
-        expect(entry?.detail.baselineProvenance).toBe(CONFIGURED);
-        expect(entry?.detail.agentVerified).toBe(true);
-    });
+            const entry = run.rt.state.ledger.entries.at(-1);
+            expect(entry?.detail.expectedAgent).toBe(SAVED_AGENT);
+            expect(entry?.detail.baselineProvenance).toBe(CONFIGURED);
+            expect(entry?.detail.agentVerified).toBe(true);
+        }
+        // case: a verification already in flight keeps the baseline it started with
+        {
+            const run = verificationRun(FIRST_AGENT);
+            run.setConfig(configBody(FIRST_AGENT));
+            // The first read has already happened by the time this returns, so the
+            // document changes while that verification sits between its read and
+            // its report.
+            const first = startVerification(run, `${RUN_ID}-a`);
+            run.setConfig(configBody('second-agent'));
+            const second = startVerification(run, `${RUN_ID}-b`);
+            await Promise.all([first, second]);
 
-    it('a verification already in flight keeps the baseline it started with', async () => {
-        const run = verificationRun(FIRST_AGENT);
-        run.setConfig(configBody(FIRST_AGENT));
-        // The first read has already happened by the time this returns, so the
-        // document changes while that verification sits between its read and
-        // its report.
-        const first = startVerification(run, `${RUN_ID}-a`);
-        run.setConfig(configBody('second-agent'));
-        const second = startVerification(run, `${RUN_ID}-b`);
-        await Promise.all([first, second]);
+            const reports = run.calls
+                .map((call, index) => ({ call, body: run.bodies[index] }))
+                .filter((entry) => entry.call.startsWith('POST '))
+                .map((entry) => JSON.parse(entry.body ?? '{}') as Record<string, unknown>)
+                .map((body) => body.expectedAgent);
 
-        const reports = run.calls
-            .map((call, index) => ({ call, body: run.bodies[index] }))
-            .filter((entry) => entry.call.startsWith('POST '))
-            .map((entry) => JSON.parse(entry.body ?? '{}') as Record<string, unknown>)
-            .map((body) => body.expectedAgent);
+            expect(reports).toEqual([FIRST_AGENT, 'second-agent']);
+            // Two verifications, two reads — each took its own baseline at its own
+            // start, and neither borrowed the other's.
+            expect(run.reads()).toBe(2);
+        }
+        // case: defaults to the documented agent with its provenance recorded, and never blocks on it
+        {
+            const run = verificationRun(DEFAULT_EXPECTED_AGENT);
+            run.setConfig(configBody());
 
-        expect(reports).toEqual([FIRST_AGENT, 'second-agent']);
-        // Two verifications, two reads — each took its own baseline at its own
-        // start, and neither borrowed the other's.
-        expect(run.reads()).toBe(2);
-    });
+            await startVerification(run, `${RUN_ID}-missing`);
 
-    it('defaults to the documented agent with its provenance recorded, and never blocks on it', async () => {
-        const run = verificationRun(DEFAULT_EXPECTED_AGENT);
-        run.setConfig(configBody());
+            // The default is the documented one, pinned to the service's own
+            // declaration rather than retyped (002 FR-029, plan X7).
+            expect(DEFAULT_EXPECTED_AGENT).toBe(DEFAULT_CONFIG.expectedAgent);
+            expect(reportOf(run)).toMatchObject({ expectedAgent: DEFAULT_EXPECTED_AGENT, ok: true });
 
-        await startVerification(run, `${RUN_ID}-missing`);
+            const entry = run.rt.state.ledger.entries.at(-1);
+            expect(entry?.detail.baselineProvenance).toBe(DEFAULTED);
+            expect(entry?.detail.agentVerified).toBe(true);
+            // The outcome records *which* baseline was used — and a defaulted one
+            // that matched leaves the run verified rather than blocked.
+            expect(entry?.detail.verification).toBe('match');
+        }
+        // case: defaults the same way when the read itself fails
+        {
+            const run = verificationRun(DEFAULT_EXPECTED_AGENT);
+            run.setConfig(null);
 
-        // The default is the documented one, pinned to the service's own
-        // declaration rather than retyped (002 FR-029, plan X7).
-        expect(DEFAULT_EXPECTED_AGENT).toBe(DEFAULT_CONFIG.expectedAgent);
-        expect(reportOf(run)).toMatchObject({ expectedAgent: DEFAULT_EXPECTED_AGENT, ok: true });
+            await startVerification(run, `${RUN_ID}-unreadable`);
 
-        const entry = run.rt.state.ledger.entries.at(-1);
-        expect(entry?.detail.baselineProvenance).toBe(DEFAULTED);
-        expect(entry?.detail.agentVerified).toBe(true);
-        // The outcome records *which* baseline was used — and a defaulted one
-        // that matched leaves the run verified rather than blocked.
-        expect(entry?.detail.verification).toBe('match');
-    });
+            expect(reportOf(run)).toMatchObject({ expectedAgent: DEFAULT_EXPECTED_AGENT, ok: true });
+            expect(run.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe(DEFAULTED);
+        }
+        // case: warns — and does not block — when the observed agent differs from a defaulted baseline
+        {
+            const run = verificationRun('executor');
+            run.setConfig(null);
 
-    it('defaults the same way when the read itself fails', async () => {
-        const run = verificationRun(DEFAULT_EXPECTED_AGENT);
-        run.setConfig(null);
+            await startVerification(run, `${RUN_ID}-mismatch`);
 
-        await startVerification(run, `${RUN_ID}-unreadable`);
-
-        expect(reportOf(run)).toMatchObject({ expectedAgent: DEFAULT_EXPECTED_AGENT, ok: true });
-        expect(run.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe(DEFAULTED);
-    });
-
-    it('warns — and does not block — when the observed agent differs from a defaulted baseline', async () => {
-        const run = verificationRun('executor');
-        run.setConfig(null);
-
-        await startVerification(run, `${RUN_ID}-mismatch`);
-
-        const entry = run.rt.state.ledger.entries.at(-1);
-        expect(entry?.detail.baselineProvenance).toBe(DEFAULTED);
-        expect(entry?.detail.agentVerified).toBe(false);
-        // Warn-only: the banner carries the mismatch, and no run state was
-        // written — a baseline problem is never a block (002 FR-029).
-        expect(run.rt.state.dispatches.agentNotice?.tone).toBe('warning');
-        expect(reportOf(run)).toMatchObject({ ok: false, expectedAgent: DEFAULT_EXPECTED_AGENT });
+            const entry = run.rt.state.ledger.entries.at(-1);
+            expect(entry?.detail.baselineProvenance).toBe(DEFAULTED);
+            expect(entry?.detail.agentVerified).toBe(false);
+            // Warn-only: the banner carries the mismatch, and no run state was
+            // written — a baseline problem is never a block (002 FR-029).
+            expect(run.rt.state.dispatches.agentNotice?.tone).toBe('warning');
+            expect(reportOf(run)).toMatchObject({ ok: false, expectedAgent: DEFAULT_EXPECTED_AGENT });
+        }
     });
 });

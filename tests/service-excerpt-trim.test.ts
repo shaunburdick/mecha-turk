@@ -79,15 +79,21 @@ let dataDir = '';
 /** Open store handle the cases seed and trim through. */
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-excerpt-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Build a capturing logger, so the pass's own line can be asserted.
@@ -280,260 +286,294 @@ function rowFor(queue: readonly QueuedEvent[], issueNumber: number): QueuedEvent
 }
 
 describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
-    it('clears and marks an old terminal row while leaving every other row alone', async () => {
-        await plantQueue([
-            queuedRow({
-                id: OLD_DISPATCHED,
-                detectedAt: OLD_DETECTED,
-                state: 'dispatched',
-                runCorrelationId: RUN_CORRELATION,
-            }),
-            queuedRow({ id: OLD_PENDING, detectedAt: OLD_DETECTED, state: 'pending', excerpt: PENDING_BODY }),
-            queuedRow({ id: OLD_IN_FLIGHT, detectedAt: OLD_DETECTED, state: 'in-flight', excerpt: PENDING_BODY }),
-            queuedRow({ id: FRESH_DISPATCHED, detectedAt: FRESH_DETECTED, state: 'dispatched' }),
-            queuedRow({ id: OLD_EMPTY_BODY, detectedAt: OLD_DETECTED, state: 'dispatched', excerpt: '' }),
-            queuedRow({ id: OLD_STATELESS, detectedAt: OLD_DETECTED, excerpt: PENDING_BODY }),
-        ]);
-        const { log, lines } = capturingLogger();
-
-        const outcome = await trimExcerpts({ store, log, config: config(), now: NOW });
-
-        expect(outcome.cleared).toBe(1);
-        // The cleared row: text gone, marker set, everything else identical.
-        const cleared = await storedRow(OLD_DISPATCHED);
-        expect(cleared?.issueBodyExcerpt).toBe('');
-        expect(cleared?.excerptTrimmedAt).toBe(CLEARED_AT);
-        expect(cleared?.state).toBe('dispatched');
-        expect(cleared?.dispatchedAt).toBe(OLD_DETECTED);
-        expect(cleared?.runCorrelationId).toBe(RUN_CORRELATION);
-        expect(cleared?.detectedAt).toBe(OLD_DETECTED);
-        expect(cleared?.id).toBe(OLD_DISPATCHED);
-        // Untouched: pending and in-flight at any age, a fresh terminal row, a
-        // row that never had a body, and a row with neither a lifecycle state
-        // nor a run the document can answer — the last is left alone because
-        // its link is unusable, not because it is stateless (T-032: a linked
-        // post-003 row *does* clear, and is exercised below).
-        const pending = await storedRow(OLD_PENDING);
-        expect(pending?.issueBodyExcerpt).toBe(PENDING_BODY);
-        expect(pending?.excerptTrimmedAt).toBeUndefined();
-        const inFlight = await storedRow(OLD_IN_FLIGHT);
-        expect(inFlight?.issueBodyExcerpt).toBe(PENDING_BODY);
-        expect(inFlight?.excerptTrimmedAt).toBeUndefined();
-        const fresh = await storedRow(FRESH_DISPATCHED);
-        expect(fresh?.issueBodyExcerpt).toBe(DISPATCHED_BODY);
-        expect(fresh?.excerptTrimmedAt).toBeUndefined();
-        // Never-bodied stays distinguishable: cleared rows carry a marker, this
-        // one does not, so a reader can never conclude it had no body.
-        const neverBodied = await storedRow(OLD_EMPTY_BODY);
-        expect(neverBodied?.issueBodyExcerpt).toBe('');
-        expect(neverBodied?.excerptTrimmedAt).toBeUndefined();
-        const stateless = await storedRow(OLD_STATELESS);
-        expect(stateless?.issueBodyExcerpt).toBe(PENDING_BODY);
-        expect(stateless?.excerptTrimmedAt).toBeUndefined();
-        // One row, appended after the clearing, naming the excerpt window.
-        const trail = await readAuditEntries(store);
-        expect(trail).toHaveLength(1);
-        expect(trail[0]?.eventType).toBe('audit.trimmed');
-        expect(trail[0]?.decision).toBe('trimmed');
-        expect(trail[0]?.actorSource).toBe('service');
-        expect(trail[0]?.entity).toEqual({ kind: 'service', id: 'configuration' });
-        expect(trail[0]?.details).toEqual({
-            entriesRemoved: 1,
-            limitReached: 'excerpt-days',
-            minimalReferencesPreserved: 0,
-        });
-        expect(lines.some((line) => line.includes('stored payload excerpts trimmed'))).toBe(true);
-    });
-
-    it('keeps the marker across a store round trip on a reopened handle', async () => {
-        await plantQueue([
-            queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
-        ]);
-
-        await trimExcerpts({ store, log: capturingLogger().log, config: config(), now: NOW });
-
-        const reopened = await openStore({ dataDir });
-        const queue = await readEvents({ store: reopened, log: capturingLogger().log });
-
-        expect(queue).toHaveLength(1);
-        expect(queue[0]?.issueBodyExcerpt).toBe('');
-        expect(queue[0]?.excerptTrimmedAt).toBe(CLEARED_AT);
-        // Round-trippable and typed: the marker is a date a reader can parse,
-        // not a sentinel string living in the excerpt field.
-        expect(Number.isNaN(Date.parse(queue[0]?.excerptTrimmedAt ?? ''))).toBe(false);
-    });
-
-    it('appends nothing when a pass clears nothing', async () => {
-        await plantQueue([
-            queuedRow({ id: FRESH_DISPATCHED, detectedAt: FRESH_DETECTED, state: 'dispatched' }),
-            queuedRow({ id: OLD_PENDING, detectedAt: OLD_DETECTED, state: 'pending', excerpt: PENDING_BODY }),
-        ]);
-        const before = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
-
-        const outcome = await trimExcerpts({
-            store,
-            log: capturingLogger().log,
-            config: config(),
-            now: NOW,
-        });
-
-        expect(outcome.cleared).toBe(0);
-        expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(before);
-        expect(await readAuditEntries(store)).toEqual([]);
-    });
-
-    it('is idempotent: a second pass clears nothing and records nothing', async () => {
-        await plantQueue([
-            queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
-        ]);
-        const { log } = capturingLogger();
-
-        const first = await trimExcerpts({ store, log, config: config(), now: NOW });
-        const afterFirst = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
-        const second = await trimExcerpts({ store, log, config: config(), now: NOW });
-
-        expect(first.cleared).toBe(1);
-        expect(second.cleared).toBe(0);
-        expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(afterFirst);
-        const trail = await readAuditEntries(store);
-        expect(trail).toHaveLength(1);
-    });
-
-    it('leaves the queue byte-identical and records nothing when the rewrite fails', async () => {
-        await plantQueue([
-            queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
-        ]);
-        const before = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
-        const failing: ServiceStore = {
-            ...store,
-            writeJson: () => Promise.reject(new Error('disk full')),
-        };
-
-        await expect(
-            trimExcerpts({ store: failing, log: capturingLogger().log, config: config(), now: NOW }),
-        ).rejects.toThrow('disk full');
-
-        expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(before);
-        expect(await readAuditEntries(store)).toEqual([]);
-    });
-
-    it('honours the configured window rather than a hard-coded one', async () => {
-        await plantQueue([
-            queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
-        ]);
-        const widened = { ...DEFAULT_CONFIG, excerptRetentionDays: 365 };
-
-        const outcome = await trimExcerpts({ store, log: capturingLogger().log, config: widened, now: NOW });
-
-        // The fixture is 121 days old: inside a 365-day window it survives.
-        expect(outcome.cleared).toBe(0);
-        const untouched = await storedRow(OLD_DISPATCHED);
-        expect(untouched?.excerptTrimmedAt).toBeUndefined();
-        expect(await readAuditEntries(store)).toEqual([]);
-    });
-});
-
-describe('excerpt trim: the run-layer eligibility (006 T-032, FR-057, FR-052, FR-084)', () => {
-    it('clears an aged dispatched run, and refuses every other run state beside it', async () => {
-        const planted = await plantLinkedQueue(
-            [
-                { issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' },
-                { issueNumber: 2, detectedAt: OLD_DETECTED, runState: 'failed' },
-                { issueNumber: 3, detectedAt: OLD_DETECTED, runState: 'dead-lettered' },
-                { issueNumber: 4, detectedAt: OLD_DETECTED, runState: 'unconfirmed' },
-                { issueNumber: 5, detectedAt: OLD_DETECTED, runState: 'pending' },
-                { issueNumber: 6, detectedAt: FRESH_DETECTED, runState: 'dispatched' },
-            ],
-            [
-                // The legacy path beside it: a pre-003 row answers from its own
-                // frozen `state`, so it clears even though no run document has
-                // ever heard of its link.
+    it('clears and marks an old terminal row while leaving e… (+5 cases)', async () => {
+        // case: clears and marks an old terminal row while leaving every other row alone
+        {
+            await plantQueue([
                 queuedRow({
-                    id: 'evt-legacy-dispatched',
+                    id: OLD_DISPATCHED,
                     detectedAt: OLD_DETECTED,
                     state: 'dispatched',
                     runCorrelationId: RUN_CORRELATION,
                 }),
-                // A post-003 row whose link no run answers: no usable link, so
-                // it is left alone rather than guessed at.
-                queuedRow({
-                    id: 'evt-orphan-link',
-                    issueNumber: 8,
-                    detectedAt: OLD_DETECTED,
-                    excerpt: PENDING_BODY,
-                    runCorrelationId: ORPHAN_RUN_CORRELATION,
-                }),
-            ],
-        );
-        const { log, lines } = capturingLogger();
+                queuedRow({ id: OLD_PENDING, detectedAt: OLD_DETECTED, state: 'pending', excerpt: PENDING_BODY }),
+                queuedRow({ id: OLD_IN_FLIGHT, detectedAt: OLD_DETECTED, state: 'in-flight', excerpt: PENDING_BODY }),
+                queuedRow({ id: FRESH_DISPATCHED, detectedAt: FRESH_DETECTED, state: 'dispatched' }),
+                queuedRow({ id: OLD_EMPTY_BODY, detectedAt: OLD_DETECTED, state: 'dispatched', excerpt: '' }),
+                queuedRow({ id: OLD_STATELESS, detectedAt: OLD_DETECTED, excerpt: PENDING_BODY }),
+            ]);
+            const { log, lines } = capturingLogger();
 
-        const outcome = await trimExcerpts({ store, log, config: config(), now: NOW });
+            const outcome = await trimExcerpts({ store, log, config: config(), now: NOW });
 
-        // Exactly two cleared: the aged run that really reached `dispatched`,
-        // and the legacy row. The relay still reads the other four to dispatch,
-        // retry, or return them to waiting, so their text stays **at any age**.
-        expect(outcome.cleared).toBe(2);
-        const stored = await storedQueue();
-        const cleared = rowFor(stored, 1);
-        expect(cleared?.issueBodyExcerpt).toBe('');
-        expect(cleared?.excerptTrimmedAt).toBe(CLEARED_AT);
-        expect(cleared?.state).toBeUndefined();
-        expect(cleared?.runCorrelationId).toBe(planted[0]?.runCorrelationId);
-        expect(cleared?.detectedAt).toBe(OLD_DETECTED);
-        expect(cleared?.id).toBe(planted[0]?.id);
-        const legacy = stored.find((row) => row.id === 'evt-legacy-dispatched');
-        expect(legacy?.issueBodyExcerpt).toBe('');
-        expect(legacy?.excerptTrimmedAt).toBe(CLEARED_AT);
-        for (const issueNumber of [2, 3, 4]) {
-            expect(rowFor(stored, issueNumber)?.issueBodyExcerpt).toBe(DISPATCHED_BODY);
-            expect(rowFor(stored, issueNumber)?.excerptTrimmedAt).toBeUndefined();
+            expect(outcome.cleared).toBe(1);
+            // The cleared row: text gone, marker set, everything else identical.
+            const cleared = await storedRow(OLD_DISPATCHED);
+            expect(cleared?.issueBodyExcerpt).toBe('');
+            expect(cleared?.excerptTrimmedAt).toBe(CLEARED_AT);
+            expect(cleared?.state).toBe('dispatched');
+            expect(cleared?.dispatchedAt).toBe(OLD_DETECTED);
+            expect(cleared?.runCorrelationId).toBe(RUN_CORRELATION);
+            expect(cleared?.detectedAt).toBe(OLD_DETECTED);
+            expect(cleared?.id).toBe(OLD_DISPATCHED);
+            // Untouched: pending and in-flight at any age, a fresh terminal row, a
+            // row that never had a body, and a row with neither a lifecycle state
+            // nor a run the document can answer — the last is left alone because
+            // its link is unusable, not because it is stateless (T-032: a linked
+            // post-003 row *does* clear, and is exercised below).
+            const pending = await storedRow(OLD_PENDING);
+            expect(pending?.issueBodyExcerpt).toBe(PENDING_BODY);
+            expect(pending?.excerptTrimmedAt).toBeUndefined();
+            const inFlight = await storedRow(OLD_IN_FLIGHT);
+            expect(inFlight?.issueBodyExcerpt).toBe(PENDING_BODY);
+            expect(inFlight?.excerptTrimmedAt).toBeUndefined();
+            const fresh = await storedRow(FRESH_DISPATCHED);
+            expect(fresh?.issueBodyExcerpt).toBe(DISPATCHED_BODY);
+            expect(fresh?.excerptTrimmedAt).toBeUndefined();
+            // Never-bodied stays distinguishable: cleared rows carry a marker, this
+            // one does not, so a reader can never conclude it had no body.
+            const neverBodied = await storedRow(OLD_EMPTY_BODY);
+            expect(neverBodied?.issueBodyExcerpt).toBe('');
+            expect(neverBodied?.excerptTrimmedAt).toBeUndefined();
+            const stateless = await storedRow(OLD_STATELESS);
+            expect(stateless?.issueBodyExcerpt).toBe(PENDING_BODY);
+            expect(stateless?.excerptTrimmedAt).toBeUndefined();
+            // One row, appended after the clearing, naming the excerpt window.
+            const trail = await readAuditEntries(store);
+            expect(trail).toHaveLength(1);
+            expect(trail[0]?.eventType).toBe('audit.trimmed');
+            expect(trail[0]?.decision).toBe('trimmed');
+            expect(trail[0]?.actorSource).toBe('service');
+            expect(trail[0]?.entity).toEqual({ kind: 'service', id: 'configuration' });
+            expect(trail[0]?.details).toEqual({
+                entriesRemoved: 1,
+                limitReached: 'excerpt-days',
+                minimalReferencesPreserved: 0,
+            });
+            expect(lines.some((line) => line.includes('stored payload excerpts trimmed'))).toBe(true);
         }
-        // The pending row is byte-identical: every field it was planted with.
-        expect(rowFor(stored, 5)).toEqual(planted[4]);
-        // Inside the window, and with no usable link, are left alone too.
-        expect(rowFor(stored, 6)?.issueBodyExcerpt).toBe(DISPATCHED_BODY);
-        expect(rowFor(stored, 6)?.excerptTrimmedAt).toBeUndefined();
-        expect(rowFor(stored, 8)?.issueBodyExcerpt).toBe(PENDING_BODY);
-        expect(rowFor(stored, 8)?.excerptTrimmedAt).toBeUndefined();
-        // One row records the clearing, after it, naming the excerpt window.
-        const trail = await readAuditEntries(store);
-        expect(trail).toHaveLength(1);
-        expect(trail[0]?.eventType).toBe('audit.trimmed');
-        expect(trail[0]?.details).toEqual({
-            entriesRemoved: 2,
-            limitReached: 'excerpt-days',
-            minimalReferencesPreserved: 0,
-        });
-        expect(lines.some((line) => line.includes('stored payload excerpts trimmed'))).toBe(true);
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: keeps the marker across a store round trip on a reopened handle
+        {
+            await plantQueue([
+                queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
+            ]);
+
+            await trimExcerpts({ store, log: capturingLogger().log, config: config(), now: NOW });
+
+            const reopened = await openStore({ dataDir });
+            const queue = await readEvents({ store: reopened, log: capturingLogger().log });
+
+            expect(queue).toHaveLength(1);
+            expect(queue[0]?.issueBodyExcerpt).toBe('');
+            expect(queue[0]?.excerptTrimmedAt).toBe(CLEARED_AT);
+            // Round-trippable and typed: the marker is a date a reader can parse,
+            // not a sentinel string living in the excerpt field.
+            expect(Number.isNaN(Date.parse(queue[0]?.excerptTrimmedAt ?? ''))).toBe(false);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: appends nothing when a pass clears nothing
+        {
+            await plantQueue([
+                queuedRow({ id: FRESH_DISPATCHED, detectedAt: FRESH_DETECTED, state: 'dispatched' }),
+                queuedRow({ id: OLD_PENDING, detectedAt: OLD_DETECTED, state: 'pending', excerpt: PENDING_BODY }),
+            ]);
+            const before = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
+
+            const outcome = await trimExcerpts({
+                store,
+                log: capturingLogger().log,
+                config: config(),
+                now: NOW,
+            });
+
+            expect(outcome.cleared).toBe(0);
+            expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(before);
+            expect(await readAuditEntries(store)).toEqual([]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: is idempotent: a second pass clears nothing and records nothing
+        {
+            await plantQueue([
+                queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
+            ]);
+            const { log } = capturingLogger();
+
+            const first = await trimExcerpts({ store, log, config: config(), now: NOW });
+            const afterFirst = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
+            const second = await trimExcerpts({ store, log, config: config(), now: NOW });
+
+            expect(first.cleared).toBe(1);
+            expect(second.cleared).toBe(0);
+            expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(afterFirst);
+            const trail = await readAuditEntries(store);
+            expect(trail).toHaveLength(1);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: leaves the queue byte-identical and records nothing when the rewrite fails
+        {
+            await plantQueue([
+                queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
+            ]);
+            const before = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
+            const failing: ServiceStore = {
+                ...store,
+                writeJson: () => Promise.reject(new Error('disk full')),
+            };
+
+            await expect(
+                trimExcerpts({ store: failing, log: capturingLogger().log, config: config(), now: NOW }),
+            ).rejects.toThrow('disk full');
+
+            expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(before);
+            expect(await readAuditEntries(store)).toEqual([]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: honours the configured window rather than a hard-coded one
+        {
+            await plantQueue([
+                queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
+            ]);
+            const widened = { ...DEFAULT_CONFIG, excerptRetentionDays: 365 };
+
+            const outcome = await trimExcerpts({ store, log: capturingLogger().log, config: widened, now: NOW });
+
+            // The fixture is 121 days old: inside a 365-day window it survives.
+            expect(outcome.cleared).toBe(0);
+            const untouched = await storedRow(OLD_DISPATCHED);
+            expect(untouched?.excerptTrimmedAt).toBeUndefined();
+            expect(await readAuditEntries(store)).toEqual([]);
+        }
     });
+});
 
-    it('keeps a run-linked row\'s marker across a store round trip', async () => {
-        await plantLinkedQueue([{ issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' }]);
+describe('excerpt trim: the run-layer eligibility (006 T-032, FR-057, FR-052, FR-084)', () => {
+    it('clears an aged dispatched run, and refuses every oth… (+2 cases)', async () => {
+        // case: clears an aged dispatched run, and refuses every other run state beside it
+        {
+            const planted = await plantLinkedQueue(
+                [
+                    { issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' },
+                    { issueNumber: 2, detectedAt: OLD_DETECTED, runState: 'failed' },
+                    { issueNumber: 3, detectedAt: OLD_DETECTED, runState: 'dead-lettered' },
+                    { issueNumber: 4, detectedAt: OLD_DETECTED, runState: 'unconfirmed' },
+                    { issueNumber: 5, detectedAt: OLD_DETECTED, runState: 'pending' },
+                    { issueNumber: 6, detectedAt: FRESH_DETECTED, runState: 'dispatched' },
+                ],
+                [
+                    // The legacy path beside it: a pre-003 row answers from its own
+                    // frozen `state`, so it clears even though no run document has
+                    // ever heard of its link.
+                    queuedRow({
+                        id: 'evt-legacy-dispatched',
+                        detectedAt: OLD_DETECTED,
+                        state: 'dispatched',
+                        runCorrelationId: RUN_CORRELATION,
+                    }),
+                    // A post-003 row whose link no run answers: no usable link, so
+                    // it is left alone rather than guessed at.
+                    queuedRow({
+                        id: 'evt-orphan-link',
+                        issueNumber: 8,
+                        detectedAt: OLD_DETECTED,
+                        excerpt: PENDING_BODY,
+                        runCorrelationId: ORPHAN_RUN_CORRELATION,
+                    }),
+                ],
+            );
+            const { log, lines } = capturingLogger();
 
-        await trimExcerpts({ store, log: capturingLogger().log, config: config(), now: NOW });
+            const outcome = await trimExcerpts({ store, log, config: config(), now: NOW });
 
-        const reopened = await openStore({ dataDir });
-        const queue = await readEvents({ store: reopened, log: capturingLogger().log });
+            // Exactly two cleared: the aged run that really reached `dispatched`,
+            // and the legacy row. The relay still reads the other four to dispatch,
+            // retry, or return them to waiting, so their text stays **at any age**.
+            expect(outcome.cleared).toBe(2);
+            const stored = await storedQueue();
+            const cleared = rowFor(stored, 1);
+            expect(cleared?.issueBodyExcerpt).toBe('');
+            expect(cleared?.excerptTrimmedAt).toBe(CLEARED_AT);
+            expect(cleared?.state).toBeUndefined();
+            expect(cleared?.runCorrelationId).toBe(planted[0]?.runCorrelationId);
+            expect(cleared?.detectedAt).toBe(OLD_DETECTED);
+            expect(cleared?.id).toBe(planted[0]?.id);
+            const legacy = stored.find((row) => row.id === 'evt-legacy-dispatched');
+            expect(legacy?.issueBodyExcerpt).toBe('');
+            expect(legacy?.excerptTrimmedAt).toBe(CLEARED_AT);
+            for (const issueNumber of [2, 3, 4]) {
+                expect(rowFor(stored, issueNumber)?.issueBodyExcerpt).toBe(DISPATCHED_BODY);
+                expect(rowFor(stored, issueNumber)?.excerptTrimmedAt).toBeUndefined();
+            }
+            // The pending row is byte-identical: every field it was planted with.
+            expect(rowFor(stored, 5)).toEqual(planted[4]);
+            // Inside the window, and with no usable link, are left alone too.
+            expect(rowFor(stored, 6)?.issueBodyExcerpt).toBe(DISPATCHED_BODY);
+            expect(rowFor(stored, 6)?.excerptTrimmedAt).toBeUndefined();
+            expect(rowFor(stored, 8)?.issueBodyExcerpt).toBe(PENDING_BODY);
+            expect(rowFor(stored, 8)?.excerptTrimmedAt).toBeUndefined();
+            // One row records the clearing, after it, naming the excerpt window.
+            const trail = await readAuditEntries(store);
+            expect(trail).toHaveLength(1);
+            expect(trail[0]?.eventType).toBe('audit.trimmed');
+            expect(trail[0]?.details).toEqual({
+                entriesRemoved: 2,
+                limitReached: 'excerpt-days',
+                minimalReferencesPreserved: 0,
+            });
+            expect(lines.some((line) => line.includes('stored payload excerpts trimmed'))).toBe(true);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: keeps a run-linked row\'s marker across a store round trip
+        {
+            await plantLinkedQueue([{ issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' }]);
 
-        expect(queue).toHaveLength(1);
-        expect(queue[0]?.issueBodyExcerpt).toBe('');
-        expect(queue[0]?.excerptTrimmedAt).toBe(CLEARED_AT);
-        expect(Number.isNaN(Date.parse(queue[0]?.excerptTrimmedAt ?? ''))).toBe(false);
-    });
+            await trimExcerpts({ store, log: capturingLogger().log, config: config(), now: NOW });
 
-    it('leaves every post-003 row alone while the run document is unreadable', async () => {
-        await plantLinkedQueue([{ issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' }]);
-        // Fail closed: a run document the store cannot parse answers "unknown",
-        // and unknown never clears a post-003 row (invariant 8).
-        await store.writeJson(RUNS_FILE, { schemaVersion: 'not-a-run-document' });
-        const before = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
-        const { log, lines } = capturingLogger();
+            const reopened = await openStore({ dataDir });
+            const queue = await readEvents({ store: reopened, log: capturingLogger().log });
 
-        const outcome = await trimExcerpts({ store, log, config: config(), now: NOW });
+            expect(queue).toHaveLength(1);
+            expect(queue[0]?.issueBodyExcerpt).toBe('');
+            expect(queue[0]?.excerptTrimmedAt).toBe(CLEARED_AT);
+            expect(Number.isNaN(Date.parse(queue[0]?.excerptTrimmedAt ?? ''))).toBe(false);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: leaves every post-003 row alone while the run document is unreadable
+        {
+            await plantLinkedQueue([{ issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' }]);
+            // Fail closed: a run document the store cannot parse answers "unknown",
+            // and unknown never clears a post-003 row (invariant 8).
+            await store.writeJson(RUNS_FILE, { schemaVersion: 'not-a-run-document' });
+            const before = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
+            const { log, lines } = capturingLogger();
 
-        expect(outcome.cleared).toBe(0);
-        expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(before);
-        expect(await readAuditEntries(store)).toEqual([]);
-        expect(lines.some((line) => line.includes('post-003 excerpts stay put'))).toBe(true);
+            const outcome = await trimExcerpts({ store, log, config: config(), now: NOW });
+
+            expect(outcome.cleared).toBe(0);
+            expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(before);
+            expect(await readAuditEntries(store)).toEqual([]);
+            expect(lines.some((line) => line.includes('post-003 excerpts stay put'))).toBe(true);
+        }
     });
 });

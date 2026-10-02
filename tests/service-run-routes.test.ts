@@ -232,14 +232,17 @@ function storageProbes(store: ServiceStore, log: ServiceLogger): readonly Storag
 
 let running: TestService | null = null;
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork1 = async (): Promise<void> => {
     if (running === null) {
         return;
     }
 
     await running.shutdown();
     running = null;
-});
+};
+
+afterEach(afterEachWork1);
 
 /**
  * Start a service instance and register it for cleanup.
@@ -274,135 +277,155 @@ function bodyFor(operation: OperationFixture): Record<string, unknown> {
 }
 
 describe('T-015 every wave-3 route is registered and answers its method', () => {
-    it('serves every operation on its own path, and refuses a wrong method with 405 and Allow', async () => {
-        const service = await startServiceForTest();
+    it('serves every operation on its own path, and refuses … (+4 cases)', async () => {
+        // case: serves every operation on its own path, and refuses a wrong method with 405 and Allow
+        {
+            const service = await startServiceForTest();
 
-        for (const operation of RUN_OPERATIONS) {
-            // Not 404 (unregistered), not 405 (wrong method), not 422 (a body
-            // that never reached the operation), and not 500 (a handler that
-            // threw on a path it does not own). The body is the one §1–§8 name
-            // for this operation, so the handler runs to its own first verdict:
-            // the route exists, the run does not, and `404 unknown-run` is the
-            // honest answer the contract names.
-            const served = await service.call(bound(operation.path), {
-                method: 'POST',
-                headers: jsonHeaders(),
-                body: JSON.stringify(bodyFor(operation)),
-            });
-            expect(served.status, `${operation.name} must answer POST on ${operation.path}`).toBe(404);
-            expect(await codeOf(served), `${operation.name} must answer unknown-run`).toBe(UNKNOWN_RUN);
+            for (const operation of RUN_OPERATIONS) {
+                // Not 404 (unregistered), not 405 (wrong method), not 422 (a body
+                // that never reached the operation), and not 500 (a handler that
+                // threw on a path it does not own). The body is the one §1–§8 name
+                // for this operation, so the handler runs to its own first verdict:
+                // the route exists, the run does not, and `404 unknown-run` is the
+                // honest answer the contract names.
+                const served = await service.call(bound(operation.path), {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify(bodyFor(operation)),
+                });
+                expect(served.status, `${operation.name} must answer POST on ${operation.path}`).toBe(404);
+                expect(await codeOf(served), `${operation.name} must answer unknown-run`).toBe(UNKNOWN_RUN);
 
-            const wrong = await service.call(bound(operation.path), { method: WRONG_METHOD });
-            expect(wrong.status, `${operation.name} must refuse ${WRONG_METHOD} with 405`).toBe(405);
-            expect(wrong.headers.get('allow'), `${operation.name} Allow header`).toBe('POST');
-            expect(await codeOf(wrong), `${operation.name} must answer method-not-allowed`)
-                .toBe('method-not-allowed');
+                const wrong = await service.call(bound(operation.path), { method: WRONG_METHOD });
+                expect(wrong.status, `${operation.name} must refuse ${WRONG_METHOD} with 405`).toBe(405);
+                expect(wrong.headers.get('allow'), `${operation.name} Allow header`).toBe('POST');
+                expect(await codeOf(wrong), `${operation.name} must answer method-not-allowed`)
+                    .toBe('method-not-allowed');
+            }
         }
-    });
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: runs every handler, not just the path guard (FR-051)
+        {
+            const service = await startServiceForTest();
 
-    it('runs every handler, not just the path guard (FR-051)', async () => {
-        const service = await startServiceForTest();
+            // The decisive signal that a route is wired to a real handler: with a
+            // well-formed path id whose body echo *contradicts* it, the shared
+            // run-scope validation answers `422` naming `correlationId`. The path
+            // guard would have answered `404 unknown-run` before ever reading the
+            // body, so this cannot pass on a registration gap.
+            for (const operation of RUN_OPERATIONS) {
+                const response = await service.call(bound(operation.path), {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify({ ...bodyFor(operation), correlationId: OTHER_RUN_ID }),
+                });
+                const body = (await response.json()) as {
+                    error?: { code?: string; issues?: readonly { readonly field?: string }[] };
+                };
 
-        // The decisive signal that a route is wired to a real handler: with a
-        // well-formed path id whose body echo *contradicts* it, the shared
-        // run-scope validation answers `422` naming `correlationId`. The path
-        // guard would have answered `404 unknown-run` before ever reading the
-        // body, so this cannot pass on a registration gap.
-        for (const operation of RUN_OPERATIONS) {
-            const response = await service.call(bound(operation.path), {
-                method: 'POST',
-                headers: jsonHeaders(),
-                body: JSON.stringify({ ...bodyFor(operation), correlationId: OTHER_RUN_ID }),
-            });
-            const body = (await response.json()) as {
-                error?: { code?: string; issues?: readonly { readonly field?: string }[] };
-            };
-
-            expect(response.status, `${operation.name} must reach its own validation`).toBe(422);
-            expect(body.error?.code).toBe('validation');
-            expect(body.error?.issues?.map((issue) => issue.field)).toContain('correlationId');
+                expect(response.status, `${operation.name} must reach its own validation`).toBe(422);
+                expect(body.error?.code).toBe('validation');
+                expect(body.error?.issues?.map((issue) => issue.field)).toContain('correlationId');
+            }
         }
-    });
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: still serves the read-only event routes after the wave-3 registrations
+        {
+            const service = await startServiceForTest();
 
-    it('still serves the read-only event routes after the wave-3 registrations', async () => {
-        const service = await startServiceForTest();
+            for (const route of READ_ROUTES) {
+                const response = await service.call(route.path, { method: route.method });
 
-        for (const route of READ_ROUTES) {
-            const response = await service.call(route.path, { method: route.method });
-
-            expect(response.status, `${route.name} must still answer`).toBe(200);
+                expect(response.status, `${route.name} must still answer`).toBe(200);
+            }
         }
-    });
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: keeps a wrong method on a literal route answered by its own methods
+        {
+            const service = await startServiceForTest();
 
-    it('keeps a wrong method on a literal route answered by its own methods', async () => {
-        const service = await startServiceForTest();
+            const response = await service.call(EVENTS_PATH, { method: WRONG_METHOD });
 
-        const response = await service.call(EVENTS_PATH, { method: WRONG_METHOD });
+            expect(response.status).toBe(405);
+            expect(response.headers.get('allow')).toBe('GET');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: prefers a literal route over a parameterised sibling
+        {
+            const service = await startServiceForTest();
 
-        expect(response.status).toBe(405);
-        expect(response.headers.get('allow')).toBe('GET');
-    });
+            // `/v1/events/pending` is a literal GET; the run-scoped patterns are
+            // three segments deep and cannot match it. This asserts the collision the
+            // pipeline's exact-before-parameterised rule exists to prevent.
+            const response = await service.call(EVENTS_PENDING_PATH, { method: 'GET' });
 
-    it('prefers a literal route over a parameterised sibling', async () => {
-        const service = await startServiceForTest();
-
-        // `/v1/events/pending` is a literal GET; the run-scoped patterns are
-        // three segments deep and cannot match it. This asserts the collision the
-        // pipeline's exact-before-parameterised rule exists to prevent.
-        const response = await service.call(EVENTS_PENDING_PATH, { method: 'GET' });
-
-        expect(response.status).toBe(200);
+            expect(response.status).toBe(200);
+        }
     });
 });
 
 describe('T-015 unknown paths and unrecognised run ids are distinct', () => {
-    it('answers an invented path with 404 not-found', async () => {
-        const service = await startServiceForTest();
+    it('answers an invented path with 404 not-found (+3 cases)', async () => {
+        // case: answers an invented path with 404 not-found
+        {
+            const service = await startServiceForTest();
 
-        const response = await service.call('/v1/events/does-not-exist', { method: 'POST' });
+            const response = await service.call('/v1/events/does-not-exist', { method: 'POST' });
 
-        expect(response.status).toBe(404);
-        expect(await codeOf(response)).toBe(NOT_FOUND);
-    });
+            expect(response.status).toBe(404);
+            expect(await codeOf(response)).toBe(NOT_FOUND);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: answers an unknown verb under the run prefix with 404, not 405
+        {
+            const service = await startServiceForTest();
 
-    it('answers an unknown verb under the run prefix with 404, not 405', async () => {
-        const service = await startServiceForTest();
+            // Only the eight registered verbs exist under the prefix; an invented one
+            // has no route at all, so it is a missing route rather than a wrong method.
+            const response = await service.call(`${bound(RESERVE_PATH)}/invented`, { method: 'POST' });
 
-        // Only the eight registered verbs exist under the prefix; an invented one
-        // has no route at all, so it is a missing route rather than a wrong method.
-        const response = await service.call(`${bound(RESERVE_PATH)}/invented`, { method: 'POST' });
+            expect(response.status).toBe(404);
+            expect(await codeOf(response)).toBe(NOT_FOUND);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: answers a well-formed but unseeded run id with unknown-run, naming the distinction
+        {
+            const service = await startServiceForTest();
 
-        expect(response.status).toBe(404);
-        expect(await codeOf(response)).toBe(NOT_FOUND);
-    });
+            const response = await service.call(bound(RETRY_PATH), {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ correlationId: RUN_ID, attempt: 1 }),
+            });
 
-    it('answers a well-formed but unseeded run id with unknown-run, naming the distinction', async () => {
-        const service = await startServiceForTest();
+            expect(response.status).toBe(404);
+            // Two different 404s: `not-found` means no such route, `unknown-run` means
+            // the route ran and the run is gone. Collapsing them would tell a panel
+            // its run never existed when it was evicted.
+            expect(await codeOf(response)).toBe(UNKNOWN_RUN);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: answers a delivery id on a run-scoped path with unknown-run
+        {
+            const service = await startServiceForTest();
 
-        const response = await service.call(bound(RETRY_PATH), {
-            method: 'POST',
-            headers: jsonHeaders(),
-            body: JSON.stringify({ correlationId: RUN_ID, attempt: 1 }),
-        });
+            const response = await service.call(RETRY_PATH.replace(':correlationId', 'evt-acme~widget~9~77331'), {
+                method: 'POST',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ attempt: 1 }),
+            });
 
-        expect(response.status).toBe(404);
-        // Two different 404s: `not-found` means no such route, `unknown-run` means
-        // the route ran and the run is gone. Collapsing them would tell a panel
-        // its run never existed when it was evicted.
-        expect(await codeOf(response)).toBe(UNKNOWN_RUN);
-    });
-
-    it('answers a delivery id on a run-scoped path with unknown-run', async () => {
-        const service = await startServiceForTest();
-
-        const response = await service.call(RETRY_PATH.replace(':correlationId', 'evt-acme~widget~9~77331'), {
-            method: 'POST',
-            headers: jsonHeaders(),
-            body: JSON.stringify({ attempt: 1 }),
-        });
-
-        expect(response.status).toBe(404);
-        expect(await codeOf(response)).toBe(UNKNOWN_RUN);
+            expect(response.status).toBe(404);
+            expect(await codeOf(response)).toBe(UNKNOWN_RUN);
+        }
     });
 });
 
@@ -416,30 +439,35 @@ describe('T-015 authentication runs before routing, unchanged', () => {
         ...READ_ROUTES,
     ];
 
-    it('refuses every run and read route with a missing or wrong token, byte-identically', async () => {
-        const service = await startServiceForTest();
+    it('refuses every run and read route with a missing or w… (+1 cases)', async () => {
+        // case: refuses every run and read route with a missing or wrong token, byte-identically
+        {
+            const service = await startServiceForTest();
 
-        for (const probe of probes) {
-            const missing = await fetch(`${service.baseUrl}${probe.path}`, { method: probe.method });
-            const wrong = await fetch(`${service.baseUrl}${probe.path}`, {
-                method: probe.method,
-                headers: { authorization: `${BEARER}wrong-wrong-wrong-wrong` },
-            });
+            for (const probe of probes) {
+                const missing = await fetch(`${service.baseUrl}${probe.path}`, { method: probe.method });
+                const wrong = await fetch(`${service.baseUrl}${probe.path}`, {
+                    method: probe.method,
+                    headers: { authorization: `${BEARER}wrong-wrong-wrong-wrong` },
+                });
 
-            expect(missing.status, `${probe.name} must refuse a missing token`).toBe(401);
-            expect(wrong.status, `${probe.name} must refuse a wrong token`).toBe(401);
-            // Byte-identical across both, and across every route: no route oracle.
-            expect(await wrong.text(), `${probe.name} refusal body must match`).toBe(await missing.text());
+                expect(missing.status, `${probe.name} must refuse a missing token`).toBe(401);
+                expect(wrong.status, `${probe.name} must refuse a wrong token`).toBe(401);
+                // Byte-identical across both, and across every route: no route oracle.
+                expect(await wrong.text(), `${probe.name} refusal body must match`).toBe(await missing.text());
+            }
         }
-    });
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: answers an invented path with the same 401 a real one gets
+        {
+            const service = await startServiceForTest();
+            const invented = await fetch(`${service.baseUrl}/v1/events/not-a-route`, { method: 'POST' });
+            const real = await fetch(`${service.baseUrl}${bound(RESERVE_PATH)}`, { method: 'POST' });
 
-    it('answers an invented path with the same 401 a real one gets', async () => {
-        const service = await startServiceForTest();
-        const invented = await fetch(`${service.baseUrl}/v1/events/not-a-route`, { method: 'POST' });
-        const real = await fetch(`${service.baseUrl}${bound(RESERVE_PATH)}`, { method: 'POST' });
-
-        expect(invented.status).toBe(401);
-        expect(await invented.text()).toBe(await real.text());
+            expect(invented.status).toBe(401);
+            expect(await invented.text()).toBe(await real.text());
+        }
     });
 });
 

@@ -61,48 +61,51 @@ describe('persistLedger recovery', () => {
 });
 
 describe('appendEntryAndPersist', () => {
-    it('appends the entry and lands it in storage without the caller awaiting', async () => {
-        const storage = createStorageDouble();
-        const runtime = createTestRuntime(fakeHost({ storage: storage.storage }));
+    it('appends the entry and lands it in storage without th… (+1 cases)', async () => {
+        // case: appends the entry and lands it in storage without the caller awaiting
+        {
+            const storage = createStorageDouble();
+            const runtime = createTestRuntime(fakeHost({ storage: storage.storage }));
 
-        appendEntryAndPersist(runtime, {
-            at: FIXTURE_TIMESTAMP,
-            kind: 'lifecycle',
-            correlationId: LEDGER_CORRELATION,
-            detail: { phase: 'mounted' },
-        });
-        await tick();
-
-        expect(runtime.state.ledger.entries.at(-1)?.kind).toBe('lifecycle');
-        const stored = readLedger(storage.values.get(LEDGER_STORAGE_KEY));
-        expect(stored?.entries.at(-1)?.kind).toBe('lifecycle');
-        expect(stored?.entries.at(-1)?.detail.phase).toBe('mounted');
-    });
-
-    it('never throws when the host refuses the write; it says so instead', async () => {
-        const storage = createStorageDouble();
-        const runtime = createTestRuntime(
-            fakeHost({
-                storage: {
-                    ...storage.storage,
-                    set: async () => {
-                        throw new Error('storage offline');
-                    },
-                },
-            }),
-        );
-
-        const appendClosedEntry = (): void => {
             appendEntryAndPersist(runtime, {
                 at: FIXTURE_TIMESTAMP,
                 kind: 'lifecycle',
-                detail: { phase: 'closed' },
+                correlationId: LEDGER_CORRELATION,
+                detail: { phase: 'mounted' },
             });
-        };
+            await tick();
 
-        expect(appendClosedEntry).not.toThrow();
-        await tick();
+            expect(runtime.state.ledger.entries.at(-1)?.kind).toBe('lifecycle');
+            const stored = readLedger(storage.values.get(LEDGER_STORAGE_KEY));
+            expect(stored?.entries.at(-1)?.kind).toBe('lifecycle');
+            expect(stored?.entries.at(-1)?.detail.phase).toBe('mounted');
+        }
+        // case: never throws when the host refuses the write; it says so instead
+        {
+            const storage = createStorageDouble();
+            const runtime = createTestRuntime(
+                fakeHost({
+                    storage: {
+                        ...storage.storage,
+                        set: async () => {
+                            throw new Error('storage offline');
+                        },
+                    },
+                }),
+            );
 
-        expect(['Ledger write failed', 'Ledger repaired']).toContain(runtime.state.status.title);
+            const appendClosedEntry = (): void => {
+                appendEntryAndPersist(runtime, {
+                    at: FIXTURE_TIMESTAMP,
+                    kind: 'lifecycle',
+                    detail: { phase: 'closed' },
+                });
+            };
+
+            expect(appendClosedEntry).not.toThrow();
+            await tick();
+
+            expect(['Ledger write failed', 'Ledger repaired']).toContain(runtime.state.status.title);
+        }
     });
 });

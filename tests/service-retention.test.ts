@@ -73,19 +73,25 @@ let dataDir = '';
 /** Services started by a case, shut down with the fixture. */
 const running: TestService[] = [];
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-retention-'));
     dataDir = join(tempRoot, 'store');
     await mkdir(dataDir, { recursive: true });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     for (const service of running.splice(0)) {
         await service.shutdown();
     }
 
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Build a capturing logger for the drive-only cases.
@@ -297,60 +303,67 @@ describe('retention runs at store open (006 T-014, FR-055(a))', () => {
 });
 
 describe('a configuration write runs no trim (006 T-014, FR-047, AC-128)', () => {
-    it('applies a lowered retention limit at the next cycle boundary, not at the write', async () => {
-        const seed = await openStore({ dataDir });
-        await plantFreshWindowTrail(seed);
-        const service = await startTestService({ dataDir });
-        running.push(service);
-        const { store } = service.handle;
-        expect(store).not.toBeNull();
-        if (store === null) {
-            return;
+    it('applies a lowered retention limit at the next cycle … (+1 cases)', async () => {
+        // case: applies a lowered retention limit at the next cycle boundary, not at the write
+        {
+            const seed = await openStore({ dataDir });
+            await plantFreshWindowTrail(seed);
+            const service = await startTestService({ dataDir });
+            running.push(service);
+            const { store } = service.handle;
+            expect(store).not.toBeNull();
+            if (store === null) {
+                return;
+            }
+            const { log } = capturingLogger();
+
+            // Opened at the default 180-day window: a 40-day-old row is inside it,
+            // so the open pass has nothing to take and writes nothing.
+            const opened = await readAuditEntries(store);
+            expect(trimRows(opened)).toEqual([]);
+            expect(opened.some((entry) => entry.seq === MIDDLE_SEQ)).toBe(true);
+
+            // The save lowers the limit; the route runs no pass of its own.
+            const put = await service.call(CONFIG_PATH, {
+                method: 'PUT',
+                body: JSON.stringify({ ...DEFAULT_CONFIG, auditRetentionDays: 30 }),
+            });
+            expect(put.status).toBe(200);
+            const afterWrite = await readAuditEntries(store);
+            expect(trimRows(afterWrite)).toEqual([]);
+            expect(afterWrite.some((entry) => entry.seq === MIDDLE_SEQ)).toBe(true);
+            expect(service.logLines.some((line) => line.includes('trimmed'))).toBe(false);
+
+            // The next boundary is what applies it: the same row is now outside
+            // the saved 30-day window and goes, with one row recording the taking.
+            await runScanCycle({ store, log, poller: idlePoller() });
+            const afterCycle = await readAuditEntries(store);
+            const trims = trimRows(afterCycle);
+            expect(trims).toHaveLength(1);
+            expect(trims[0]?.details.limitReached).toBe('day-window');
+            expect(afterCycle.some((entry) => entry.seq === MIDDLE_SEQ)).toBe(false);
+            expect(afterCycle.some((entry) => entry.seq === FRESH_SEQ)).toBe(true);
         }
-        const { log } = capturingLogger();
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: degrades an unreadable configuration at the boundary to the documented defaults
+        {
+            const seed = await openStore({ dataDir });
+            await plantMixedTrail(seed);
+            const { log, lines } = capturingLogger();
 
-        // Opened at the default 180-day window: a 40-day-old row is inside it,
-        // so the open pass has nothing to take and writes nothing.
-        const opened = await readAuditEntries(store);
-        expect(trimRows(opened)).toEqual([]);
-        expect(opened.some((entry) => entry.seq === MIDDLE_SEQ)).toBe(true);
+            await runScanCycle({ store: brokenConfigStore(seed), log, poller: idlePoller() });
 
-        // The save lowers the limit; the route runs no pass of its own.
-        const put = await service.call(CONFIG_PATH, {
-            method: 'PUT',
-            body: JSON.stringify({ ...DEFAULT_CONFIG, auditRetentionDays: 30 }),
-        });
-        expect(put.status).toBe(200);
-        const afterWrite = await readAuditEntries(store);
-        expect(trimRows(afterWrite)).toEqual([]);
-        expect(afterWrite.some((entry) => entry.seq === MIDDLE_SEQ)).toBe(true);
-        expect(service.logLines.some((line) => line.includes('trimmed'))).toBe(false);
-
-        // The next boundary is what applies it: the same row is now outside
-        // the saved 30-day window and goes, with one row recording the taking.
-        await runScanCycle({ store, log, poller: idlePoller() });
-        const afterCycle = await readAuditEntries(store);
-        const trims = trimRows(afterCycle);
-        expect(trims).toHaveLength(1);
-        expect(trims[0]?.details.limitReached).toBe('day-window');
-        expect(afterCycle.some((entry) => entry.seq === MIDDLE_SEQ)).toBe(false);
-        expect(afterCycle.some((entry) => entry.seq === FRESH_SEQ)).toBe(true);
-    });
-
-    it('degrades an unreadable configuration at the boundary to the documented defaults', async () => {
-        const seed = await openStore({ dataDir });
-        await plantMixedTrail(seed);
-        const { log, lines } = capturingLogger();
-
-        await runScanCycle({ store: brokenConfigStore(seed), log, poller: idlePoller() });
-
-        expect(lines.some((line) => line.includes('cycle configuration read failed'))).toBe(true);
-        // The pass ran at the documented defaults rather than not at all: the
-        // 400-day row is outside the default 180-day window and went, while
-        // the 40-day row is inside it and stayed.
-        const trail = await readAuditEntries(seed);
-        expect(trimRows(trail)).toHaveLength(1);
-        expect(trail.some((entry) => entry.seq === ANCIENT_SEQ)).toBe(false);
-        expect(trail.some((entry) => entry.seq === MIDDLE_SEQ)).toBe(true);
+            expect(lines.some((line) => line.includes('cycle configuration read failed'))).toBe(true);
+            // The pass ran at the documented defaults rather than not at all: the
+            // 400-day row is outside the default 180-day window and went, while
+            // the 40-day row is inside it and stayed.
+            const trail = await readAuditEntries(seed);
+            expect(trimRows(trail)).toHaveLength(1);
+            expect(trail.some((entry) => entry.seq === ANCIENT_SEQ)).toBe(false);
+            expect(trail.some((entry) => entry.seq === MIDDLE_SEQ)).toBe(true);
+        }
     });
 });

@@ -246,53 +246,59 @@ function textIn(dom: FakeDom, text: string): HidableNode {
 }
 
 describe('the Selected dispatch block disappears when nothing is selected (Accounts rule)', () => {
-    it('takes the whole block, heading included, out of the layout', () => {
-        const { dom, board } = mountBoard();
-        const heading = textIn(dom, SELECTED_HEADING);
+    it('takes the whole block, heading included, out of the … (+1 cases)', () => {
+        // case: takes the whole block, heading included, out of the layout
+        {
+            const { dom, board } = mountBoard();
+            const heading = textIn(dom, SELECTED_HEADING);
 
-        expect(isOutOfLayout(parentsOf(dom), heading)).toBe(true);
-        expect(board.selectedBox.hidden).toBe(true);
-    });
+            expect(isOutOfLayout(parentsOf(dom), heading)).toBe(true);
+            expect(board.selectedBox.hidden).toBe(true);
+        }
+        // case: keeps the read-failure note on screen while nothing is selected
+        {
+            const { dom, board } = mountBoard((rt) => {
+                rt.state.dispatches = { ...initialDispatches(), status: 'error', note: READ_FAILURE_NOTE };
+            });
+            const note = textIn(dom, READ_FAILURE_NOTE);
 
-    it('keeps the read-failure note on screen while nothing is selected', () => {
-        const { dom, board } = mountBoard((rt) => {
-            rt.state.dispatches = { ...initialDispatches(), status: 'error', note: READ_FAILURE_NOTE };
-        });
-        const note = textIn(dom, READ_FAILURE_NOTE);
-
-        expect(board.selectedBox.hidden).toBe(true);
-        expect(isOutOfLayout(parentsOf(dom), note)).toBe(false);
+            expect(board.selectedBox.hidden).toBe(true);
+            expect(isOutOfLayout(parentsOf(dom), note)).toBe(false);
+        }
     });
 });
 
 describe('a selected dispatch keeps every control its row opens', () => {
-    it('shows the block, the retry group, and the source-reference detail for a failed row', () => {
-        const { dom, board } = mountBoard((rt) => {
-            rt.state.dispatches = runsState({ state: 'failed', open: true });
-        });
-        const parents = parentsOf(dom);
+    it('shows the block, the retry group, and the source-ref… (+1 cases)', () => {
+        // case: shows the block, the retry group, and the source-reference detail for a failed row
+        {
+            const { dom, board } = mountBoard((rt) => {
+                rt.state.dispatches = runsState({ state: 'failed', open: true });
+            });
+            const parents = parentsOf(dom);
 
-        expect(board.selectedBox.hidden).toBe(false);
-        expect(isOutOfLayout(parents, textIn(dom, SELECTED_HEADING))).toBe(false);
-        expect(board.retryRunBox.hidden).toBe(false);
-        expect(isOutOfLayout(parents, board.retryRunBox)).toBe(false);
-        expect(board.controls.detailBox.hidden).toBe(false);
-        expect(isOutOfLayout(parents, board.controls.detailBox)).toBe(false);
-        // FR-027's group is a different row's control: it stays out rather
-        // than greying out, because a disabled control still promises a send.
-        expect(board.resolveBox.hidden).toBe(true);
-    });
+            expect(board.selectedBox.hidden).toBe(false);
+            expect(isOutOfLayout(parents, textIn(dom, SELECTED_HEADING))).toBe(false);
+            expect(board.retryRunBox.hidden).toBe(false);
+            expect(isOutOfLayout(parents, board.retryRunBox)).toBe(false);
+            expect(board.controls.detailBox.hidden).toBe(false);
+            expect(isOutOfLayout(parents, board.controls.detailBox)).toBe(false);
+            // FR-027's group is a different row's control: it stays out rather
+            // than greying out, because a disabled control still promises a send.
+            expect(board.resolveBox.hidden).toBe(true);
+        }
+        // case: shows the resolve group, session-id field included, for an unconfirmed row
+        {
+            const { dom, board } = mountBoard((rt) => {
+                rt.state.dispatches = runsState({ state: 'unconfirmed', open: true });
+            });
+            const parents = parentsOf(dom);
 
-    it('shows the resolve group, session-id field included, for an unconfirmed row', () => {
-        const { dom, board } = mountBoard((rt) => {
-            rt.state.dispatches = runsState({ state: 'unconfirmed', open: true });
-        });
-        const parents = parentsOf(dom);
-
-        expect(board.selectedBox.hidden).toBe(false);
-        expect(board.resolveBox.hidden).toBe(false);
-        expect(isOutOfLayout(parents, board.resolveBox)).toBe(false);
-        expect(isOutOfLayout(parents, textIn(dom, SELECTED_HEADING))).toBe(false);
-        expect(board.retryRunBox.hidden).toBe(true);
+            expect(board.selectedBox.hidden).toBe(false);
+            expect(board.resolveBox.hidden).toBe(false);
+            expect(isOutOfLayout(parents, board.resolveBox)).toBe(false);
+            expect(isOutOfLayout(parents, textIn(dom, SELECTED_HEADING))).toBe(false);
+            expect(board.retryRunBox.hidden).toBe(true);
+        }
     });
 });

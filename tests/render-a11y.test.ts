@@ -323,77 +323,83 @@ async function renderSixTabs(input: {
 }
 
 describe('FR-080 / NFR-101 the six tabs render through the text path only', () => {
-    it('has no HTML sink in any module the tabs render from', () => {
-        const modules = readdirSync(resolve(import.meta.dirname, `../${SRC_DIR}`), { recursive: true })
-            .map((entry) => String(entry))
-            .filter((entry) => entry.endsWith('.ts'));
+    it('has no HTML sink in any module the tabs render from (+1 cases)', async () => {
+        // case: has no HTML sink in any module the tabs render from
+        {
+            const modules = readdirSync(resolve(import.meta.dirname, `../${SRC_DIR}`), { recursive: true })
+                .map((entry) => String(entry))
+                .filter((entry) => entry.endsWith('.ts'));
 
-        expect(modules.length).toBeGreaterThan(40);
-        for (const module of modules) {
-            const source = readFileSync(resolve(import.meta.dirname, `../${SRC_DIR}/${module}`), 'utf8');
-            for (const sink of HTML_SINKS) {
-                expect(source, `${module} must not use ${sink.source}`).not.toMatch(sink);
+            expect(modules.length).toBeGreaterThan(40);
+            for (const module of modules) {
+                const source = readFileSync(resolve(import.meta.dirname, `../${SRC_DIR}/${module}`), 'utf8');
+                for (const sink of HTML_SINKS) {
+                    expect(source, `${module} must not use ${sink.source}`).not.toMatch(sink);
+                }
             }
         }
-    });
+        // case: hands a hostile title, login, and reason to the SDK as text
+        {
+            const rendered = await renderSixTabs();
+            const text = rendered.strings.join('\n');
 
-    it('hands a hostile title, login, and reason to the SDK as text', async () => {
-        const rendered = await renderSixTabs();
-        const text = rendered.strings.join('\n');
-
-        // The fixtures really were hostile, and they arrived verbatim as
-        // string props — never as assembled markup.
-        expect(text).toContain(HOSTILE);
-        expect(rendered.strings.filter((line) => line.includes(HOSTILE)).length).toBeGreaterThan(2);
-        for (const entry of rendered.log) {
-            expect(entry.key).not.toMatch(/html|innerHTML/i);
+            // The fixtures really were hostile, and they arrived verbatim as
+            // string props — never as assembled markup.
+            expect(text).toContain(HOSTILE);
+            expect(rendered.strings.filter((line) => line.includes(HOSTILE)).length).toBeGreaterThan(2);
+            for (const entry of rendered.log) {
+                expect(entry.key).not.toMatch(/html|innerHTML/i);
+            }
         }
     });
 });
 
 describe('FR-081 every control and row action has an accessible name', () => {
-    it('gives every button, field, select, banner, and list a name', async () => {
-        const rendered = await renderSixTabs();
-        const namedKinds = ['mountButton', 'mountTextField', 'mountSelect', 'mountBanner', 'mountList'];
-        const named = rendered.log.filter((entry) =>
-            entry.key.startsWith('mount') && !entry.key.includes(':') && namedKinds.includes(entry.key));
+    it('gives every button, field, select, banner, and list … (+2 cases)', async () => {
+        // case: gives every button, field, select, banner, and list a name
+        {
+            const rendered = await renderSixTabs();
+            const namedKinds = ['mountButton', 'mountTextField', 'mountSelect', 'mountBanner', 'mountList'];
+            const named = rendered.log.filter((entry) =>
+                entry.key.startsWith('mount') && !entry.key.includes(':') && namedKinds.includes(entry.key));
 
-        expect(named.length).toBeGreaterThan(10);
-        for (const entry of named) {
-            const props = entry.props as Record<string, unknown>;
-            const name = [props.label, props.title, props.ariaLabel].find(
-                (value) => typeof value === 'string',
-            );
-            expect(typeof name, `${entry.key} mounted without a name`).toBe('string');
-            expect(String(name).trim(), `${entry.key} mounted an empty name`).not.toBe('');
-        }
-    });
-
-    it('names every tab in the strip and every row in a list', async () => {
-        const rendered = await renderSixTabs();
-        const strip = rendered.log.find((entry) => entry.key === 'mountTabs');
-        const items = (strip?.props as { readonly items?: readonly { readonly label?: string }[] }).items ?? [];
-
-        expect(items.map((item) => item.label)).toEqual([...TAB_IDS].map((id) => labelOf(id)));
-
-        for (const entry of rendered.log.filter((candidate) => candidate.key === 'mountList')) {
-            const props = entry.props as {
-                readonly ariaLabel?: string;
-                readonly items?: readonly { readonly title?: string }[];
-            };
-            expect(props.ariaLabel?.trim(), 'a list has no accessible name').not.toBe('');
-            for (const item of props.items ?? []) {
-                expect(item.title?.trim(), 'a list row has no title').not.toBe('');
+            expect(named.length).toBeGreaterThan(10);
+            for (const entry of named) {
+                const props = entry.props as Record<string, unknown>;
+                const name = [props.label, props.title, props.ariaLabel].find(
+                    (value) => typeof value === 'string',
+                );
+                expect(typeof name, `${entry.key} mounted without a name`).toBe('string');
+                expect(String(name).trim(), `${entry.key} mounted an empty name`).not.toBe('');
             }
         }
-    });
+        // case: names every tab in the strip and every row in a list
+        {
+            const rendered = await renderSixTabs();
+            const strip = rendered.log.find((entry) => entry.key === 'mountTabs');
+            const items = (strip?.props as { readonly items?: readonly { readonly label?: string }[] }).items ?? [];
 
-    it('names a row-level action with the row it acts on', () => {
-        const row: RunRow = { ...hostileRun(), issueNumber: 412, repository: 'owner/name' };
+            expect(items.map((item) => item.label)).toEqual([...TAB_IDS].map((id) => labelOf(id)));
 
-        expect(rowActionLabel(RETRY_LABEL, row)).toBe('Retry dispatch for #412 in owner/name');
-        expect(sourceRevealLabel(false, row)).toContain('#412 in owner/name');
-        expect(sourceRevealLabel(true, row)).toContain('#412 in owner/name');
+            for (const entry of rendered.log.filter((candidate) => candidate.key === 'mountList')) {
+                const props = entry.props as {
+                    readonly ariaLabel?: string;
+                    readonly items?: readonly { readonly title?: string }[];
+                };
+                expect(props.ariaLabel?.trim(), 'a list has no accessible name').not.toBe('');
+                for (const item of props.items ?? []) {
+                    expect(item.title?.trim(), 'a list row has no title').not.toBe('');
+                }
+            }
+        }
+        // case: names a row-level action with the row it acts on
+        {
+            const row: RunRow = { ...hostileRun(), issueNumber: 412, repository: 'owner/name' };
+
+            expect(rowActionLabel(RETRY_LABEL, row)).toBe('Retry dispatch for #412 in owner/name');
+            expect(sourceRevealLabel(false, row)).toContain('#412 in owner/name');
+            expect(sourceRevealLabel(true, row)).toContain('#412 in owner/name');
+        }
     });
 });
 
@@ -406,176 +412,189 @@ function sdkFile(name: string): string {
 }
 
 describe('FR-082 the strip is associated, keyboard-operable, and truncates', () => {
-    it('stamps the tab↔body association in the shell that owns it', () => {
-        const source = readFileSync(resolve(import.meta.dirname, '../src/tabs.ts'), 'utf8');
+    it('stamps the tab↔body association in the shell that ow… (+2 cases)', () => {
+        // case: stamps the tab↔body association in the shell that owns it
+        {
+            const source = readFileSync(resolve(import.meta.dirname, '../src/tabs.ts'), 'utf8');
 
-        expect(source).toContain("setAttribute('id', ");
-        expect(source).toContain('oc-tab-');
-        expect(source).toContain("setAttribute('role', 'tabpanel')");
-        expect(source).toContain("setAttribute('aria-labelledby', ");
-    });
+            expect(source).toContain("setAttribute('id', ");
+            expect(source).toContain('oc-tab-');
+            expect(source).toContain("setAttribute('role', 'tabpanel')");
+            expect(source).toContain("setAttribute('aria-labelledby', ");
+        }
+        // case: operates the strip from the keyboard, moves focus, and traps nothing
+        {
+            const strip = sdkFile('tabs.js');
+            const navigation = sdkFile('navigation.js');
 
-    it('operates the strip from the keyboard, moves focus, and traps nothing', () => {
-        const strip = sdkFile('tabs.js');
-        const navigation = sdkFile('navigation.js');
+            // role, selection, and the roving slot are what the shell re-stamps.
+            expect(strip).toContain("'tablist'");
+            expect(strip).toContain('aria-selected');
+            expect(strip).toContain('tabIndex');
+            // Horizontal keys only: Tab is never matched, so focus is never held.
+            expect(strip).toContain("navigationKey(event, 'horizontal')");
+            expect(strip).toContain('.focus()');
+            expect(navigation).not.toMatch(/'Tab'/);
+            expect(navigation).not.toMatch(/'Escape'/);
+        }
+        // case: never wraps a tab label, so the strip keeps its height (NFR-107)
+        {
+            const style = sdkFile('style.js');
+            const at = style.indexOf('.oc-sdk-tab {');
 
-        // role, selection, and the roving slot are what the shell re-stamps.
-        expect(strip).toContain("'tablist'");
-        expect(strip).toContain('aria-selected');
-        expect(strip).toContain('tabIndex');
-        // Horizontal keys only: Tab is never matched, so focus is never held.
-        expect(strip).toContain("navigationKey(event, 'horizontal')");
-        expect(strip).toContain('.focus()');
-        expect(navigation).not.toMatch(/'Tab'/);
-        expect(navigation).not.toMatch(/'Escape'/);
-    });
-
-    it('never wraps a tab label, so the strip keeps its height (NFR-107)', () => {
-        const style = sdkFile('style.js');
-        const at = style.indexOf('.oc-sdk-tab {');
-
-        expect(at).toBeGreaterThan(-1);
-        // The rule holds an interpolated theme colour, so the window is read
-        // by offset rather than by a `[^}]*` that the first `}` would end.
+            expect(at).toBeGreaterThan(-1);
+            // The rule holds an interpolated theme colour, so the window is read
+            // by offset rather than by a `[^}]*` that the first `}` would end.
+        }
     });
 });
 
 describe('FR-083 state is carried by text as well as colour', () => {
-    it('gives every banner a title, and every state banner a body too', async () => {
-        const rendered = await renderSixTabs();
-        const banners = rendered.log.filter((entry) => entry.key === 'mountBanner');
+    it('gives every banner a title, and every state banner a… (+1 cases)', async () => {
+        // case: gives every banner a title, and every state banner a body too
+        {
+            const rendered = await renderSixTabs();
+            const banners = rendered.log.filter((entry) => entry.key === 'mountBanner');
 
-        expect(banners.length).toBeGreaterThan(0);
-        for (const entry of banners) {
-            const props = entry.props as {
-                readonly tone?: string;
-                readonly title?: string;
-                readonly body?: string;
-            };
-            expect(props.title?.trim(), 'a banner title is empty').not.toBe('');
-            if (props.tone !== 'info') {
-                expect(props.body?.trim(), `the ${String(props.tone)} banner "${String(props.title)}" carries no body`)
-                    .not.toBe('');
+            expect(banners.length).toBeGreaterThan(0);
+            for (const entry of banners) {
+                const props = entry.props as {
+                    readonly tone?: string;
+                    readonly title?: string;
+                    readonly body?: string;
+                };
+                expect(props.title?.trim(), 'a banner title is empty').not.toBe('');
+                if (props.tone !== 'info') {
+                    expect(props.body?.trim(
+                    ), `the ${String(props.tone)} banner "${String(props.title)}" carries no body`)
+                        .not.toBe('');
+                }
             }
         }
-    });
+        // case: says the state in words the operator can read
+        {
+            const rendered = await renderSixTabs();
+            const text = rendered.strings.join('\n');
 
-    it('says the state in words the operator can read', async () => {
-        const rendered = await renderSixTabs();
-        const text = rendered.strings.join('\n');
-
-        // At least one state word is on screen in the default mount, so the
-        // rule is being checked against real copy and not an empty panel.
-        expect(text).toMatch(/could not be read|not checkable|unreadable|not met|waiting/);
+            // At least one state word is on screen in the default mount, so the
+            // rule is being checked against real copy and not an empty panel.
+            expect(text).toMatch(/could not be read|not checkable|unreadable|not met|waiting/);
+        }
     });
 });
 
 describe('FR-084 irreversible actions arm first, and confirm() does not exist', () => {
-    it('arms the removal, names the cascade, and only then sends (AC-126)', async () => {
-        mounts.log.length = 0;
-        const requests: GuestRequest[] = [];
-        const rt = createTestRuntime(fakeHost({
-            serviceRequest: async (request) => {
-                requests.push(request);
+    it('arms the removal, names the cascade, and only then s… (+1 cases)', async () => {
+        // case: arms the removal, names the cascade, and only then sends (AC-126)
+        {
+            mounts.log.length = 0;
+            const requests: GuestRequest[] = [];
+            const rt = createTestRuntime(fakeHost({
+                serviceRequest: async (request) => {
+                    requests.push(request);
 
-                return { status: 404, body: UNROUTED };
-            },
-        }));
-        rt.state.bindings.bindings = [hostileBinding()];
-        rt.state.bindings.accounts = [hostileAccount()];
-        rt.state.bindings.status = 'ready';
-        const handlers = createAccountsHandlers(rt);
-        const dom = fakeDom();
-        const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'accounts');
-        if (spec === undefined) {
-            throw new Error('the Accounts tab spec is missing from the shell');
+                    return { status: 404, body: UNROUTED };
+                },
+            }));
+            rt.state.bindings.bindings = [hostileBinding()];
+            rt.state.bindings.accounts = [hostileAccount()];
+            rt.state.bindings.status = 'ready';
+            const handlers = createAccountsHandlers(rt);
+            const dom = fakeDom();
+            const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'accounts');
+            if (spec === undefined) {
+                throw new Error('the Accounts tab spec is missing from the shell');
+            }
+
+            spec.mount(dom.root);
+            const idle = mounts.log
+                .filter((entry) => entry.key === 'mountButton')
+                .map((entry) => (entry.props as { readonly label?: string }).label);
+            expect(idle).toContain(REMOVE_LABEL);
+
+            handlers.selectAccount('77331');
+            handlers.removeAccount();
+            await tick();
+
+            // Step one changes no state beyond arming, and says what will happen.
+            expect(requests).toEqual([]);
+            expect(rt.state.accounts.removeArmed).toBe('77331');
+            const armed = mounts.log
+                .filter((entry) => entry.key === 'mountButton:update' || entry.key === 'mountButton')
+                .map((entry) => (entry.props as { readonly label?: string }).label);
+            expect(armed).toContain(REMOVE_ARMED_LABEL);
+
+            handlers.removeAccount();
+            await tick();
+
+            // Step two is the one that reaches the service.
+            expect(requests.map((request) => request.method)).toContain('DELETE');
+            rt.shell?.dispose();
         }
+        // case: states the cascade in words on the row itself (AC-126)
+        {
+            const rendered = await renderSixTabs({
+                setup: (rt) => {
+                    armAccountRemoval(rt, '77331');
+                    rt.state.accounts.selected = '77331';
+                },
+            });
+            const text = rendered.strings.join('\n');
 
-        spec.mount(dom.root);
-        const idle = mounts.log
-            .filter((entry) => entry.key === 'mountButton')
-            .map((entry) => (entry.props as { readonly label?: string }).label);
-        expect(idle).toContain(REMOVE_LABEL);
-
-        handlers.selectAccount('77331');
-        handlers.removeAccount();
-        await tick();
-
-        // Step one changes no state beyond arming, and says what will happen.
-        expect(requests).toEqual([]);
-        expect(rt.state.accounts.removeArmed).toBe('77331');
-        const armed = mounts.log
-            .filter((entry) => entry.key === 'mountButton:update' || entry.key === 'mountButton')
-            .map((entry) => (entry.props as { readonly label?: string }).label);
-        expect(armed).toContain(REMOVE_ARMED_LABEL);
-
-        handlers.removeAccount();
-        await tick();
-
-        // Step two is the one that reaches the service.
-        expect(requests.map((request) => request.method)).toContain('DELETE');
-        rt.shell?.dispose();
-    });
-
-    it('states the cascade in words on the row itself (AC-126)', async () => {
-        const rendered = await renderSixTabs({
-            setup: (rt) => {
-                armAccountRemoval(rt, '77331');
-                rt.state.accounts.selected = '77331';
-            },
-        });
-        const text = rendered.strings.join('\n');
-
-        expect(text).toMatch(/1 binding(s)? will be disabled/);
-        expect(text).toContain(REMOVE_ARMED_LABEL);
+            expect(text).toMatch(/1 binding(s)? will be disabled/);
+            expect(text).toContain(REMOVE_ARMED_LABEL);
+        }
     });
 });
 
 describe('FR-085 a refusal names its cause and never echoes the value', () => {
-    it('keeps a refused credential-shaped display name out of the render', async () => {
-        const token = `ghp_${'refusald'.repeat(3)}`;
-        const rendered = await renderSixTabs({
-            answer: () => ({ status: 422, body: JSON.stringify({
-                error: { code: 'validation', message: 'displayName: this value looks like a credential' },
-            }) }),
-            setup: (rt) => {
-                rt.state.bindings.status = 'ready';
-            },
-        });
+    it('keeps a refused credential-shaped display name out o… (+1 cases)', async () => {
+        // case: keeps a refused credential-shaped display name out of the render
+        {
+            const token = `ghp_${'refusald'.repeat(3)}`;
+            const rendered = await renderSixTabs({
+                answer: () => ({ status: 422, body: JSON.stringify({
+                    error: { code: 'validation', message: 'displayName: this value looks like a credential' },
+                }) }),
+                setup: (rt) => {
+                    rt.state.bindings.status = 'ready';
+                },
+            });
 
-        const { rt } = rendered;
-        // The refusal is only reachable for the row the operator has open,
-        // which is also what stops a save from landing on the wrong account.
-        selectAccountRow(rt, '77331');
-        await saveDisplayName(rt, { numericUserId: '77331', value: token });
-        await tick();
+            const { rt } = rendered;
+            // The refusal is only reachable for the row the operator has open,
+            // which is also what stops a save from landing on the wrong account.
+            selectAccountRow(rt, '77331');
+            await saveDisplayName(rt, { numericUserId: '77331', value: token });
+            await tick();
 
-        expect(rt.state.accounts.displayNameError).toContain('credential');
-        expect(rt.state.accounts.displayNameError).not.toContain(token);
-        expect(rendered.strings.join('\n')).not.toContain(token);
-    });
+            expect(rt.state.accounts.displayNameError).toContain('credential');
+            expect(rt.state.accounts.displayNameError).not.toContain(token);
+            expect(rendered.strings.join('\n')).not.toContain(token);
+        }
+        // case: blocks a ledger write whose content is secret-shaped, instead of logging past it
+        {
+            const storage = createStorageDouble();
+            const token = `ghp_${'ledgerxx'.repeat(3)}`;
+            const rt = createTestRuntime(fakeHost({ storage: storage.storage }));
+            rt.state.ledger.entries.push({
+                seq: 1,
+                at: '2026-09-30T00:00:00.000Z',
+                correlationId: 'mt-correlation',
+                panelGeneration: 1,
+                kind: 'error',
+                detail: { error: token },
+            });
 
-    it('blocks a ledger write whose content is secret-shaped, instead of logging past it', async () => {
-        const storage = createStorageDouble();
-        const token = `ghp_${'ledgerxx'.repeat(3)}`;
-        const rt = createTestRuntime(fakeHost({ storage: storage.storage }));
-        rt.state.ledger.entries.push({
-            seq: 1,
-            at: '2026-09-30T00:00:00.000Z',
-            correlationId: 'mt-correlation',
-            panelGeneration: 1,
-            kind: 'error',
-            detail: { error: token },
-        });
+            await persistLedger(rt);
 
-        await persistLedger(rt);
-
-        // The refusal blocks the write: `serializeLedger` throws before the
-        // host is asked, the bad entry is repaired out, and the retry that
-        // does land carries no part of the value. What the operator sees is
-        // a banner naming the failure — never the secret, never silence.
-        expect(JSON.stringify([...storage.values])).not.toContain(token);
-        expect(rt.state.status.title).toMatch(/Ledger (repaired|write failed)/);
-        expect(rt.state.status.body).not.toContain(token);
+            // The refusal blocks the write: `serializeLedger` throws before the
+            // host is asked, the bad entry is repaired out, and the retry that
+            // does land carries no part of the value. What the operator sees is
+            // a banner naming the failure — never the secret, never silence.
+            expect(JSON.stringify([...storage.values])).not.toContain(token);
+            expect(rt.state.status.title).toMatch(/Ledger (repaired|write failed)/);
+            expect(rt.state.status.body).not.toContain(token);
+        }
     });
 });

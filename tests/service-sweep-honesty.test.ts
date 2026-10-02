@@ -88,16 +88,22 @@ let tempRoot = '';
 let dataDir = '';
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-honesty-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
     LOG_LINES.length = 0;
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /** Build an assignment detection for one issue on the fixture binding. */
 function assignment(issueNumber: number, bindingId = BINDING_ID): EventSnapshot {
@@ -260,230 +266,272 @@ async function reserveAndAbandon(issueNumber: number): Promise<Run> {
 }
 
 describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
-    it('counts only waiting runs, never claimed or dispatched ones', async () => {
-        // The longest documented lease, so a claim at DETECTED_AT stays live
-        // until 12:10:00 and the sweep can requeue exactly the lease this test
-        // lapses by hand.
-        await store.writeJson('config.json', { ...DEFAULT_CONFIG, leaseMs: 600_000, resultDeadlineMs: 600_000 });
-        await storeBindings(BINDING_ID);
-        await seed(assignment(1), assignment(2), assignment(3));
-        const before = await readStatusRows({
-            store,
-            log: LOGGER,
-            bindings: await storedBindings(),
-        });
+    it('counts only waiting runs, never claimed or dispatche… (+2 cases)', async () => {
+        // case: counts only waiting runs, never claimed or dispatched ones
+        {
+            // The longest documented lease, so a claim at DETECTED_AT stays live
+            // until 12:10:00 and the sweep can requeue exactly the lease this test
+            // lapses by hand.
+            await store.writeJson('config.json', { ...DEFAULT_CONFIG, leaseMs: 600_000, resultDeadlineMs: 600_000 });
+            await storeBindings(BINDING_ID);
+            await seed(assignment(1), assignment(2), assignment(3));
+            const before = await readStatusRows({
+                store,
+                log: LOGGER,
+                bindings: await storedBindings(),
+            });
 
-        // Three waiting runs. The old implementation counted the three delivery
-        // rows and would keep reporting 3 through the rest of this test.
-        expect(before[0]?.pendingCount).toBe(3);
+            // Three waiting runs. The old implementation counted the three delivery
+            // rows and would keep reporting 3 through the rest of this test.
+            expect(before[0]?.pendingCount).toBe(3);
 
-        const claimed = await claim();
-        expect(claimed.runs).toHaveLength(3);
-        const afterClaim = await readStatusRows({
-            store,
-            log: LOGGER,
-            bindings: await storedBindings(),
-        });
-        // All three are leased, so none is waiting — the count has to fall, not
-        // stay where the delivery count left it.
-        expect(afterClaim[0]?.pendingCount).toBe(0);
+            const claimed = await claim();
+            expect(claimed.runs).toHaveLength(3);
+            const afterClaim = await readStatusRows({
+                store,
+                log: LOGGER,
+                bindings: await storedBindings(),
+            });
+            // All three are leased, so none is waiting — the count has to fall, not
+            // stay where the delivery count left it.
+            expect(afterClaim[0]?.pendingCount).toBe(0);
 
-        // One lease lapses and the sweep requeues it, one reports a session, and
-        // the third stays claimed: exactly one run is waiting.
-        const [requeued, dispatched] = claimed.runs;
-        await lapseLeaseOf(requeued?.correlationId ?? '');
-        await sweepOnce({ store, log: LOGGER, now: WITHIN_LEASE });
-        const document = await readRunsDocument({ store, log: LOGGER });
-        await writeRunsDocument({
-            store,
-            log: LOGGER,
-            document: {
-                ...document,
-                runs: document.runs.map((run) => (run.correlationId === dispatched?.correlationId
-                    ? {
-                        ...run,
-                        state: 'dispatched' as const,
-                        stateReason: 'session ses_done created',
-                        lease: null,
-                        attempts: [{
-                            attempt: run.attempt,
-                            dispatchToken: FIXTURE_DISPATCH_TOKEN,
-                            reservedAt: DETECTED_AT,
-                            outcome: 'dispatched' as const,
-                            sessionId: 'ses_done',
-                            reason: null,
-                            resultReportedAt: DETECTED_AT,
-                        }],
-                        session: {
-                            sessionId: 'ses_done',
-                            attachmentId: run.attachmentId,
-                            dispatchedAt: DETECTED_AT,
-                            title: '',
-                            sourceUrl: run.sourceReferences[0]?.sourceUrl ?? '',
-                            worktree: null,
-                        },
-                    }
-                    : run)),
-            },
-        });
-        const settled = await readStatusRows({
-            store,
-            log: LOGGER,
-            bindings: await storedBindings(),
-        });
+            // One lease lapses and the sweep requeues it, one reports a session, and
+            // the third stays claimed: exactly one run is waiting.
+            const [requeued, dispatched] = claimed.runs;
+            await lapseLeaseOf(requeued?.correlationId ?? '');
+            await sweepOnce({ store, log: LOGGER, now: WITHIN_LEASE });
+            const document = await readRunsDocument({ store, log: LOGGER });
+            await writeRunsDocument({
+                store,
+                log: LOGGER,
+                document: {
+                    ...document,
+                    runs: document.runs.map((run) => (run.correlationId === dispatched?.correlationId
+                        ? {
+                            ...run,
+                            state: 'dispatched' as const,
+                            stateReason: 'session ses_done created',
+                            lease: null,
+                            attempts: [{
+                                attempt: run.attempt,
+                                dispatchToken: FIXTURE_DISPATCH_TOKEN,
+                                reservedAt: DETECTED_AT,
+                                outcome: 'dispatched' as const,
+                                sessionId: 'ses_done',
+                                reason: null,
+                                resultReportedAt: DETECTED_AT,
+                            }],
+                            session: {
+                                sessionId: 'ses_done',
+                                attachmentId: run.attachmentId,
+                                dispatchedAt: DETECTED_AT,
+                                title: '',
+                                sourceUrl: run.sourceReferences[0]?.sourceUrl ?? '',
+                                worktree: null,
+                            },
+                        }
+                        : run)),
+                },
+            });
+            const settled = await readStatusRows({
+                store,
+                log: LOGGER,
+                bindings: await storedBindings(),
+            });
 
-        // One requeued run waiting; one dispatched run and one still-claimed run
-        // are not waiting, so neither counts.
-        expect(settled[0]?.pendingCount).toBe(1);
-    });
+            // One requeued run waiting; one dispatched run and one still-claimed run
+            // are not waiting, so neither counts.
+            expect(settled[0]?.pendingCount).toBe(1);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: keys the count per binding, so one binding work is not another
+        {
+            await storeBindings(BINDING_ID, OTHER_BINDING_ID);
+            await seed(assignment(1, BINDING_ID), assignment(2, BINDING_ID), assignment(3, OTHER_BINDING_ID));
+            const rows = await readStatusRows({
+                store,
+                log: LOGGER,
+                bindings: await storedBindings(),
+            });
 
-    it('keys the count per binding, so one binding work is not another', async () => {
-        await storeBindings(BINDING_ID, OTHER_BINDING_ID);
-        await seed(assignment(1, BINDING_ID), assignment(2, BINDING_ID), assignment(3, OTHER_BINDING_ID));
-        const rows = await readStatusRows({
-            store,
-            log: LOGGER,
-            bindings: await storedBindings(),
-        });
+            expect(rows.find((row) => row.bindingId === BINDING_ID)?.pendingCount).toBe(2);
+            expect(rows.find((row) => row.bindingId === OTHER_BINDING_ID)?.pendingCount).toBe(1);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: reports zero for a binding with no runs at all
+        {
+            await storeBindings(BINDING_ID);
+            const rows = await readStatusRows({ store, log: LOGGER, bindings: await readBindings({
+                store, log: LOGGER }) });
 
-        expect(rows.find((row) => row.bindingId === BINDING_ID)?.pendingCount).toBe(2);
-        expect(rows.find((row) => row.bindingId === OTHER_BINDING_ID)?.pendingCount).toBe(1);
-    });
-
-    it('reports zero for a binding with no runs at all', async () => {
-        await storeBindings(BINDING_ID);
-        const rows = await readStatusRows({ store, log: LOGGER, bindings: await readBindings({ store, log: LOGGER }) });
-
-        expect(rows[0]?.pendingCount).toBe(0);
+            expect(rows[0]?.pendingCount).toBe(0);
+        }
     });
 });
 
 describe('T-040b the sweep owes a durable, recoverable audit trail (FR-063)', () => {
-    it('reports auditWritten true when every row landed', async () => {
-        await strandClaim(31);
+    it('reports auditWritten true when every row landed (+3 cases)', async () => {
+        // case: reports auditWritten true when every row landed
+        {
+            await strandClaim(31);
 
-        const outcome = await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
+            const outcome = await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
 
-        expect(outcome.recoveries).toHaveLength(1);
-        expect(outcome.auditWritten).toBe(true);
-    });
+            expect(outcome.recoveries).toHaveLength(1);
+            expect(outcome.auditWritten).toBe(true);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: backs each owed row with an intent the next read drains
+        {
+            const run = await strandClaim(32);
+            await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
 
-    it('backs each owed row with an intent the next read drains', async () => {
-        const run = await strandClaim(32);
-        await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
+            // The intent survives in `runs.json` until a reader retires it, and is
+            // byte-parsable by the strict outbox parser.
+            const intents = await storedIntents();
+            expect(intents).toHaveLength(1);
+            expect(intents?.[0]).toMatchObject({
+                eventType: 'dispatch.lease-expired',
+                correlationId: run.correlationId,
+                decision: 'requeued',
+            });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: retires the intent once the row is durable, writing no second row
+        {
+            await strandClaim(33);
+            const first = await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
+            const firstEntries = await readAuditEntries(store);
+            const rowsAfterFirst = firstEntries.filter((entry) => entry.eventType === LEASE_EXPIRED);
 
-        // The intent survives in `runs.json` until a reader retires it, and is
-        // byte-parsable by the strict outbox parser.
-        const intents = await storedIntents();
-        expect(intents).toHaveLength(1);
-        expect(intents?.[0]).toMatchObject({
-            eventType: 'dispatch.lease-expired',
-            correlationId: run.correlationId,
-            decision: 'requeued',
-        });
-    });
+            expect(rowsAfterFirst).toHaveLength(1);
 
-    it('retires the intent once the row is durable, writing no second row', async () => {
-        await strandClaim(33);
-        const first = await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
-        const firstEntries = await readAuditEntries(store);
-        const rowsAfterFirst = firstEntries.filter((entry) => entry.eventType === LEASE_EXPIRED);
+            // Any later read drains the outbox; the row must not be duplicated.
+            await readRunsDocument({ store, log: LOGGER });
+            const drained = await readAuditEntries(store);
+            const rowsAfterDrain = drained.filter((entry) => entry.eventType === LEASE_EXPIRED);
 
-        expect(rowsAfterFirst).toHaveLength(1);
+            expect(rowsAfterDrain).toHaveLength(1);
+            expect(await storedIntents()).toEqual([]);
+            expect(first.auditWritten).toBe(true);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: distinguishes a second recovery of the same run from the first
+        {
+            const first = await strandClaim(34);
+            await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
+            const firstEntries = await readAuditEntries(store);
+            const rowsAfterFirst = firstEntries.filter((entry) => entry.eventType === LEASE_EXPIRED);
 
-        // Any later read drains the outbox; the row must not be duplicated.
-        await readRunsDocument({ store, log: LOGGER });
-        const drained = await readAuditEntries(store);
-        const rowsAfterDrain = drained.filter((entry) => entry.eventType === LEASE_EXPIRED);
+            // Re-claim and expire again: the same run, the same event type, one more
+            // row. A matcher that compared only the event type would retire this
+            // intent against the first row and never write it.
+            await lapseLeaseOf(await claimRun(34));
+            await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
+            const secondEntries = await readAuditEntries(store);
+            const rowsAfterSecond = secondEntries.filter((entry) => entry.eventType === LEASE_EXPIRED);
 
-        expect(rowsAfterDrain).toHaveLength(1);
-        expect(await storedIntents()).toEqual([]);
-        expect(first.auditWritten).toBe(true);
-    });
-
-    it('distinguishes a second recovery of the same run from the first', async () => {
-        const first = await strandClaim(34);
-        await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
-        const firstEntries = await readAuditEntries(store);
-        const rowsAfterFirst = firstEntries.filter((entry) => entry.eventType === LEASE_EXPIRED);
-
-        // Re-claim and expire again: the same run, the same event type, one more
-        // row. A matcher that compared only the event type would retire this
-        // intent against the first row and never write it.
-        await lapseLeaseOf(await claimRun(34));
-        await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
-        const secondEntries = await readAuditEntries(store);
-        const rowsAfterSecond = secondEntries.filter((entry) => entry.eventType === LEASE_EXPIRED);
-
-        expect(rowsAfterFirst).toHaveLength(1);
-        expect(rowsAfterSecond).toHaveLength(2);
-        expect(rowsAfterSecond[1]?.details.attemptAfter).toBe(3);
-        expect(first.correlationId).toBe(rowsAfterSecond[1]?.correlationId);
+            expect(rowsAfterFirst).toHaveLength(1);
+            expect(rowsAfterSecond).toHaveLength(2);
+            expect(rowsAfterSecond[1]?.details.attemptAfter).toBe(3);
+            expect(first.correlationId).toBe(rowsAfterSecond[1]?.correlationId);
+        }
     });
 });
 
 describe('T-040c no audit row ever carries a dispatch token value (FR-061)', () => {
-    it('names the outstanding token by fingerprint only', async () => {
-        const reserved = await reserveAndAbandon(41);
-        const token = reserved.reservation?.dispatchToken ?? '';
-        expect(token).toMatch(/^dtk-[0-9a-f]{32}$/);
+    it('names the outstanding token by fingerprint only (+3 cases)', async () => {
+        // case: names the outstanding token by fingerprint only
+        {
+            const reserved = await reserveAndAbandon(41);
+            const token = reserved.reservation?.dispatchToken ?? '';
+            expect(token).toMatch(/^dtk-[0-9a-f]{32}$/);
 
-        const outcome = await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
-        const entries = await readAuditEntries(store);
-        const unconfirmed = entries.find((entry) => entry.eventType === UNCONFIRMED);
-        const details = unconfirmed?.details as Record<string, unknown>;
+            const outcome = await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
+            const entries = await readAuditEntries(store);
+            const unconfirmed = entries.find((entry) => entry.eventType === UNCONFIRMED);
+            const details = unconfirmed?.details as Record<string, unknown>;
 
-        expect(outcome.recoveries[0]?.eventType).toBe('dispatch.unconfirmed');
-        expect(details.dispatchTokenFingerprint).toMatch(/^tokfp-[0-9a-f]{16}$/);
-        expect(details.dispatchToken).toBeUndefined();
-        // The row is the only place the token could have leaked, so the whole
-        // row is scanned rather than just the member the fix changed.
-        expect(JSON.stringify(unconfirmed)).not.toContain(token);
-    });
-
-    it('produces a different fingerprint for each outstanding authorization', async () => {
-        const first = await reserveAndAbandon(42);
-        await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
-        const second = await reserveAndAbandon(43);
-        await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
-        const rows = await readAuditEntries(store);
-        const fingerprints = rows
-            .filter((entry) => entry.eventType === UNCONFIRMED)
-            .map((entry) => (entry.details as Record<string, unknown>).dispatchTokenFingerprint);
-
-        // Two runs, two tokens: the fingerprint identifies which authorization
-        // was outstanding without carrying it.
-        expect(fingerprints).toHaveLength(2);
-        expect(new Set(fingerprints).size).toBe(2);
-        expect(first.reservation?.dispatchToken).not.toBe(second.reservation?.dispatchToken);
-    });
-
-    it('scans every audit row the service wrote for a token-shaped value', async () => {
-        // The strongest form of the assertion: drive the paths that write
-        // lifecycle rows, then scan the entire trail — not one row, not one
-        // event type — for the token prefix.
-        await strandClaim(44);
-        await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
-        await reserveAndAbandon(45);
-        await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
-        await seed(assignment(46));
-        await claim();
-        await readStatusRows({ store, log: LOGGER, bindings: await readBindings({ store, log: LOGGER }) });
-
-        const entries: readonly AuditEntry[] = await readAuditEntries(store);
-        expect(entries.length).toBeGreaterThan(0);
-        for (const entry of entries) {
-            const row = JSON.stringify(entry);
-            expect(row, `${entry.eventType} carried a dispatch token`).not.toMatch(/dtk-[0-9a-f]{8,}/);
+            expect(outcome.recoveries[0]?.eventType).toBe('dispatch.unconfirmed');
+            expect(details.dispatchTokenFingerprint).toMatch(/^tokfp-[0-9a-f]{16}$/);
+            expect(details.dispatchToken).toBeUndefined();
+            // The row is the only place the token could have leaked, so the whole
+            // row is scanned rather than just the member the fix changed.
+            expect(JSON.stringify(unconfirmed)).not.toContain(token);
         }
-    });
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: produces a different fingerprint for each outstanding authorization
+        {
+            const first = await reserveAndAbandon(42);
+            await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
+            const second = await reserveAndAbandon(43);
+            await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
+            const rows = await readAuditEntries(store);
+            const fingerprints = rows
+                .filter((entry) => entry.eventType === UNCONFIRMED)
+                .map((entry) => (entry.details as Record<string, unknown>).dispatchTokenFingerprint);
 
-    it('leaves the project secret guard alone: a token is not a credential shape', async () => {
-        // `SECRET_PATTERNS` deliberately does NOT include `dtk-`: 003 T-019
-        // legitimately stores tokens in panel storage, so a guard that refused
-        // them would break the feature. The defence is this scan, not redaction.
-        const { findSecretLeak } = await import('../src/redaction.ts');
-        expect(findSecretLeak('dtk-0123456789abcdef0123456789abcdef')).toBeNull();
+            // Two runs, two tokens: the fingerprint identifies which authorization
+            // was outstanding without carrying it.
+            expect(fingerprints).toHaveLength(2);
+            expect(new Set(fingerprints).size).toBe(2);
+            expect(first.reservation?.dispatchToken).not.toBe(second.reservation?.dispatchToken);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: scans every audit row the service wrote for a token-shaped value
+        {
+            // The strongest form of the assertion: drive the paths that write
+            // lifecycle rows, then scan the entire trail — not one row, not one
+            // event type — for the token prefix.
+            await strandClaim(44);
+            await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
+            await reserveAndAbandon(45);
+            await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
+            await seed(assignment(46));
+            await claim();
+            await readStatusRows({ store, log: LOGGER, bindings: await readBindings({ store, log: LOGGER }) });
+
+            const entries: readonly AuditEntry[] = await readAuditEntries(store);
+            expect(entries.length).toBeGreaterThan(0);
+            for (const entry of entries) {
+                const row = JSON.stringify(entry);
+                expect(row, `${entry.eventType} carried a dispatch token`).not.toMatch(/dtk-[0-9a-f]{8,}/);
+            }
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: leaves the project secret guard alone: a token is not a credential shape
+        {
+            // `SECRET_PATTERNS` deliberately does NOT include `dtk-`: 003 T-019
+            // legitimately stores tokens in panel storage, so a guard that refused
+            // them would break the feature. The defence is this scan, not redaction.
+            const { findSecretLeak } = await import('../src/redaction.ts');
+            expect(findSecretLeak('dtk-0123456789abcdef0123456789abcdef')).toBeNull();
+        }
     });
 });
 
@@ -521,99 +569,122 @@ describe('T-040d the claim reads outside the chain and writes only when needed',
 });
 
 describe('T-040e lease provenance is typed, and the parser refuses anything else', () => {
-    it('records adoption provenance as a member, not an id prefix alone', async () => {
-        const run = await strandClaim(61);
+    it('records adoption provenance as a member, not an id p… (+3 cases)', async () => {
+        // case: records adoption provenance as a member, not an id prefix alone
+        {
+            const run = await strandClaim(61);
 
-        expect(run.lease?.provenance).toBe('panel');
+            expect(run.lease?.provenance).toBe('panel');
 
-        const document = await readRunsDocument({ store, log: LOGGER });
-        const stored = JSON.stringify(document.runs[0]?.lease);
-        expect(stored).toContain('"provenance":"panel"');
-    });
+            const document = await readRunsDocument({ store, log: LOGGER });
+            const stored = JSON.stringify(document.runs[0]?.lease);
+            expect(stored).toContain('"provenance":"panel"');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a lease whose id is neither of the two shapes this build mints
+        {
+            const run = await strandClaim(62);
+            const document = await readRunsDocument({ store, log: LOGGER });
+            await store.writeJson(RUNS_FILE, {
+                ...document,
+                runs: document.runs.map((candidate) => (candidate.correlationId === run.correlationId
+                    ? { ...candidate, lease: { ...candidate.lease, leaseId: 'lease-anything-at-all' } }
+                    : candidate)),
+            });
 
-    it('refuses a lease whose id is neither of the two shapes this build mints', async () => {
-        const run = await strandClaim(62);
-        const document = await readRunsDocument({ store, log: LOGGER });
-        await store.writeJson(RUNS_FILE, {
-            ...document,
-            runs: document.runs.map((candidate) => (candidate.correlationId === run.correlationId
-                ? { ...candidate, lease: { ...candidate.lease, leaseId: 'lease-anything-at-all' } }
-                : candidate)),
-        });
+            // A quarantined document is refused rather than served (constitution II).
+            const reopened = await openStore({ dataDir });
+            await expect(readRunsDocument({ store: reopened, log: LOGGER })).rejects.toThrow('run document');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a lease with no provenance member at all
+        {
+            const run = await strandClaim(63);
+            const document = await readRunsDocument({ store, log: LOGGER });
+            await store.writeJson(RUNS_FILE, {
+                ...document,
+                runs: document.runs.map((candidate) => {
+                    if (candidate.correlationId !== run.correlationId || candidate.lease === null) {
+                        return candidate;
+                    }
+                    const lease: Record<string, unknown> = { ...candidate.lease };
+                    delete lease.provenance;
 
-        // A quarantined document is refused rather than served (constitution II).
-        const reopened = await openStore({ dataDir });
-        await expect(readRunsDocument({ store: reopened, log: LOGGER })).rejects.toThrow('run document');
-    });
+                    return { ...candidate, lease };
+                }),
+            });
 
-    it('refuses a lease with no provenance member at all', async () => {
-        const run = await strandClaim(63);
-        const document = await readRunsDocument({ store, log: LOGGER });
-        await store.writeJson(RUNS_FILE, {
-            ...document,
-            runs: document.runs.map((candidate) => {
-                if (candidate.correlationId !== run.correlationId || candidate.lease === null) {
-                    return candidate;
-                }
-                const lease: Record<string, unknown> = { ...candidate.lease };
-                delete lease.provenance;
+            const reopened = await openStore({ dataDir });
+            await expect(readRunsDocument({ store: reopened, log: LOGGER })).rejects.toThrow('run document');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: accepts both legal shapes, so adoption recovery still works
+        {
+            const run = await strandClaim(64);
+            const document = await readRunsDocument({ store, log: LOGGER });
+            await store.writeJson(RUNS_FILE, {
+                ...document,
+                runs: document.runs.map((candidate) => (candidate.correlationId === run.correlationId
+                    ? {
+                        ...candidate,
+                        lease: candidate.lease === null
+                            ? null
+                            : {
+                                ...candidate.lease,
+                                leaseId: `migration-${candidate.correlationId}`,
+                                provenance: 'migration',
+                            },
+                    }
+                    : candidate)),
+            });
+            const reopened = await openStore({ dataDir });
+            const migrated = await readRunsDocument({ store: reopened, log: LOGGER });
+            const lease = migrated.runs[0]?.lease;
 
-                return { ...candidate, lease };
-            }),
-        });
-
-        const reopened = await openStore({ dataDir });
-        await expect(readRunsDocument({ store: reopened, log: LOGGER })).rejects.toThrow('run document');
-    });
-
-    it('accepts both legal shapes, so adoption recovery still works', async () => {
-        const run = await strandClaim(64);
-        const document = await readRunsDocument({ store, log: LOGGER });
-        await store.writeJson(RUNS_FILE, {
-            ...document,
-            runs: document.runs.map((candidate) => (candidate.correlationId === run.correlationId
-                ? {
-                    ...candidate,
-                    lease: candidate.lease === null
-                        ? null
-                        : {
-                            ...candidate.lease,
-                            leaseId: `migration-${candidate.correlationId}`,
-                            provenance: 'migration',
-                        },
-                }
-                : candidate)),
-        });
-        const reopened = await openStore({ dataDir });
-        const migrated = await readRunsDocument({ store: reopened, log: LOGGER });
-        const lease = migrated.runs[0]?.lease;
-
-        expect(lease?.leaseId).toBe(`migration-${run.correlationId}`);
-        expect(lease?.provenance).toBe('migration');
+            expect(lease?.leaseId).toBe(`migration-${run.correlationId}`);
+            expect(lease?.provenance).toBe('migration');
+        }
     });
 });
 
 describe('T-040f the first sweep tick is armed from the stored durations', () => {
-    it('reads the operator minimum rather than the default when arming', async () => {
-        await store.writeJson('config.json', {
-            ...DEFAULT_CONFIG,
-            leaseMs: 30_000,
-            resultDeadlineMs: 30_000,
-        });
-        const stored = await readSweepDurations({ store, log: LOGGER });
+    it('reads the operator minimum rather than the default w… (+1 cases)', async () => {
+        // case: reads the operator minimum rather than the default when arming
+        {
+            await store.writeJson('config.json', {
+                ...DEFAULT_CONFIG,
+                leaseMs: 30_000,
+                resultDeadlineMs: 30_000,
+            });
+            const stored = await readSweepDurations({ store, log: LOGGER });
 
-        // The defect: arming from DEFAULT_CONFIG would schedule the first pass
-        // at 60,000 ms, so a lease expiring at 30,000 ms would wait a whole
-        // extra lease duration before anything recovered it.
-        expect(sweepIntervalMs(stored)).toBe(15_000);
-        expect(sweepIntervalMs(stored)).toBeLessThan(sweepIntervalMs(DEFAULT_CONFIG));
-        expect(sweepIntervalMs(DEFAULT_CONFIG)).toBe(60_000);
-    });
+            // The defect: arming from DEFAULT_CONFIG would schedule the first pass
+            // at 60,000 ms, so a lease expiring at 30,000 ms would wait a whole
+            // extra lease duration before anything recovered it.
+            expect(sweepIntervalMs(stored)).toBe(15_000);
+            expect(sweepIntervalMs(stored)).toBeLessThan(sweepIntervalMs(DEFAULT_CONFIG));
+            expect(sweepIntervalMs(DEFAULT_CONFIG)).toBe(60_000);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: answers the defaults when the configuration cannot be read
+        {
+            const stored = await readSweepDurations({ store, log: LOGGER });
 
-    it('answers the defaults when the configuration cannot be read', async () => {
-        const stored = await readSweepDurations({ store, log: LOGGER });
-
-        expect(stored).toEqual({ leaseMs: DEFAULT_CONFIG.leaseMs, resultDeadlineMs: DEFAULT_CONFIG.resultDeadlineMs });
+            expect(stored).toEqual({
+                leaseMs: DEFAULT_CONFIG.leaseMs, resultDeadlineMs: DEFAULT_CONFIG.resultDeadlineMs });
+        }
     });
 });
 
@@ -632,32 +703,39 @@ describe('T-040h a quarantined runs.json answers the documented 503', () => {
 });
 
 describe('T-040g the sweep is the only requeue path', () => {
-    it('exports no single-run requeue wrapper that could bypass the budget', async () => {
-        // `requeueExpiredRun` charged the requeue budget and never dead-lettered,
-        // so a caller reaching for it would requeue a run forever. The sweep's
-        // batch planner is the only definition of the transition now.
-        const storeModule = await import('../service/poll/runs.ts');
-        expect('requeueExpiredRun' in storeModule).toBe(false);
-        expect('markUnconfirmed' in storeModule).toBe(false);
-    });
-
-    it('still parks a run whose budget is spent, through the sweep alone', async () => {
-        const run = await strandClaim(71);
-
-        // Three requeues are consumed, then the fourth expiry parks the run —
-        // the exact behaviour the deleted wrapper bypassed.
-        for (let round = 1; round <= 3; round += 1) {
-            await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
-            await lapseLeaseOf(await claimRun(71));
+    it('exports no single-run requeue wrapper that could byp… (+1 cases)', async () => {
+        // case: exports no single-run requeue wrapper that could bypass the budget
+        {
+            // `requeueExpiredRun` charged the requeue budget and never dead-lettered,
+            // so a caller reaching for it would requeue a run forever. The sweep's
+            // batch planner is the only definition of the transition now.
+            const storeModule = await import('../service/poll/runs.ts');
+            expect('requeueExpiredRun' in storeModule).toBe(false);
+            expect('markUnconfirmed' in storeModule).toBe(false);
         }
-        await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: still parks a run whose budget is spent, through the sweep alone
+        {
+            const run = await strandClaim(71);
 
-        const parked = await readRun(run.correlationId);
-        const entries = await readAuditEntries(store);
-        const rows = entries.filter((entry) => entry.eventType === DEAD_LETTERED);
+            // Three requeues are consumed, then the fourth expiry parks the run —
+            // the exact behaviour the deleted wrapper bypassed.
+            for (let round = 1; round <= 3; round += 1) {
+                await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
+                await lapseLeaseOf(await claimRun(71));
+            }
+            await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
 
-        expect(parked.state).toBe('dead-lettered');
-        expect(parked.requeuesUsed).toBe(3);
-        expect(rows).toHaveLength(1);
+            const parked = await readRun(run.correlationId);
+            const entries = await readAuditEntries(store);
+            const rows = entries.filter((entry) => entry.eventType === DEAD_LETTERED);
+
+            expect(parked.state).toBe('dead-lettered');
+            expect(parked.requeuesUsed).toBe(3);
+            expect(rows).toHaveLength(1);
+        }
     });
 });

@@ -42,63 +42,69 @@ function fixtureLedger(): SpikeLedger {
 }
 
 describe('buildMountContext', () => {
-    it('treats missing storage as a first generation', () => {
-        const context = buildMountContext(null);
+    it('treats missing storage as a first generation (+1 cases)', () => {
+        // case: treats missing storage as a first generation
+        {
+            const context = buildMountContext(null);
 
-        expect(context).toEqual({
-            panelGeneration: 1,
-            storagePresent: false,
-            priorCorrelationId: null,
-            priorCreatedAt: null,
-        });
-    });
+            expect(context).toEqual({
+                panelGeneration: 1,
+                storagePresent: false,
+                priorCorrelationId: null,
+                priorCreatedAt: null,
+            });
+        }
+        // case: continues the generation of a stored ledger
+        {
+            const context = buildMountContext(fixtureLedger());
 
-    it('continues the generation of a stored ledger', () => {
-        const context = buildMountContext(fixtureLedger());
-
-        expect(context.panelGeneration).toBe(2);
-        expect(context.storagePresent).toBe(true);
-        expect(context.priorCorrelationId).toBe(CORRELATION);
-        expect(context.priorCreatedAt).toBe(T0);
+            expect(context.panelGeneration).toBe(2);
+            expect(context.storagePresent).toBe(true);
+            expect(context.priorCorrelationId).toBe(CORRELATION);
+            expect(context.priorCreatedAt).toBe(T0);
+        }
     });
 });
 
 describe('analyzeLastCloseGap', () => {
-    it('has no baseline when storage was empty', () => {
-        expect(analyzeLastCloseGap({ prior: null, mountedAt: at(60) })).toBeNull();
-    });
+    it('has no baseline when storage was empty (+3 cases)', () => {
+        // case: has no baseline when storage was empty
+        {
+            expect(analyzeLastCloseGap({ prior: null, mountedAt: at(60) })).toBeNull();
+        }
+        // case: has no baseline for an empty ledger
+        {
+            const empty = createLedger({
+                correlationId: CORRELATION,
+                panelGeneration: 1,
+                storagePresentBeforeMount: false,
+                createdAt: T0,
+            });
 
-    it('has no baseline for an empty ledger', () => {
-        const empty = createLedger({
-            correlationId: CORRELATION,
-            panelGeneration: 1,
-            storagePresentBeforeMount: false,
-            createdAt: T0,
-        });
+            expect(analyzeLastCloseGap({ prior: empty, mountedAt: at(60) })).toBeNull();
+        }
+        // case: uses the recorded closed entry as the baseline
+        {
+            let ledger = fixtureLedger();
+            ledger = recordPhase(ledger, { phase: 'closed', at: at(10) });
 
-        expect(analyzeLastCloseGap({ prior: empty, mountedAt: at(60) })).toBeNull();
-    });
+            const gap = analyzeLastCloseGap({ prior: ledger, mountedAt: at(40) });
 
-    it('uses the recorded closed entry as the baseline', () => {
-        let ledger = fixtureLedger();
-        ledger = recordPhase(ledger, { phase: 'closed', at: at(10) });
+            expect(gap?.verdict).toBe('polling-stopped');
+            expect(gap?.closedAt).toBe(at(10));
+            expect(gap?.gapMs).toBe(GAP_MS);
+        }
+        // case: falls back to the last stored entry when no closed entry survived
+        {
+            let ledger = fixtureLedger();
+            ledger = appendEntry(ledger, { at: at(5), kind: 'poll', detail: { inspected: 1 } });
 
-        const gap = analyzeLastCloseGap({ prior: ledger, mountedAt: at(40) });
+            const gap = analyzeLastCloseGap({ prior: ledger, mountedAt: at(20) });
 
-        expect(gap?.verdict).toBe('polling-stopped');
-        expect(gap?.closedAt).toBe(at(10));
-        expect(gap?.gapMs).toBe(GAP_MS);
-    });
-
-    it('falls back to the last stored entry when no closed entry survived', () => {
-        let ledger = fixtureLedger();
-        ledger = appendEntry(ledger, { at: at(5), kind: 'poll', detail: { inspected: 1 } });
-
-        const gap = analyzeLastCloseGap({ prior: ledger, mountedAt: at(20) });
-
-        expect(gap?.closedAt).toBe(at(5));
-        expect(gap?.pollEntriesInGap).toBe(0);
-        expect(gap?.verdict).toBe('polling-stopped');
+            expect(gap?.closedAt).toBe(at(5));
+            expect(gap?.pollEntriesInGap).toBe(0);
+            expect(gap?.verdict).toBe('polling-stopped');
+        }
     });
 });
 

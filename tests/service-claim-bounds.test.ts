@@ -102,17 +102,23 @@ let tempRoot = '';
 let dataDir = '';
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-bounds-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
     LOG_LINES.length = 0;
     await store.writeJson('config.json', { ...DEFAULT_CONFIG, leaseMs: 45_000, resultDeadlineMs: 45_000 });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Build one assignment detection, with a body excerpt of the given size.
@@ -204,208 +210,245 @@ async function joinFullReferenceList(issueNumber: number): Promise<number> {
 }
 
 describe('T-039 the answer is bounded and the page is complete', () => {
-    it('answers 200 within the transport ceiling for two full-reference runs', async () => {
-        // Two runs, each with the review's measured ~167 KB shape: a full
-        // 200-reference list where every delivery carries a max-length excerpt.
-        await seed(2, REFERENCE_EXCERPT_MAX_CHARS);
-        await joinFullReferenceList(1);
-        await joinFullReferenceList(2);
+    it('answers 200 within the transport ceiling for two ful… (+2 cases)', async () => {
+        // case: answers 200 within the transport ceiling for two full-reference runs
+        {
+            // Two runs, each with the review's measured ~167 KB shape: a full
+            // 200-reference list where every delivery carries a max-length excerpt.
+            await seed(2, REFERENCE_EXCERPT_MAX_CHARS);
+            await joinFullReferenceList(1);
+            await joinFullReferenceList(2);
 
-        const result = await claim();
+            const result = await claim();
 
-        expect(result.auditWritten).toBe(true);
-        expect(result.runs).toHaveLength(2);
-        const measured = measureEvents(result.runs);
-        expect(measured).toBeLessThanOrEqual(CLAIM_EVENTS_BUDGET_CHARS);
-        expect(measured).toBeLessThan(RESPONSE_BODY_MAX_CHARS);
-        // Every reference's identity is retained in full; only the excerpt text
-        // is bounded, and that is what brings the page under the ceiling.
-        expect(result.runs.every((run) => run.sourceReferences.length === MAX_SOURCE_REFERENCES)).toBe(true);
-        expect(result.deferred).toBe(0);
+            expect(result.auditWritten).toBe(true);
+            expect(result.runs).toHaveLength(2);
+            const measured = measureEvents(result.runs);
+            expect(measured).toBeLessThanOrEqual(CLAIM_EVENTS_BUDGET_CHARS);
+            expect(measured).toBeLessThan(RESPONSE_BODY_MAX_CHARS);
+            // Every reference's identity is retained in full; only the excerpt text
+            // is bounded, and that is what brings the page under the ceiling.
+            expect(result.runs.every((run) => run.sourceReferences.length === MAX_SOURCE_REFERENCES)).toBe(true);
+            expect(result.deferred).toBe(0);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: answers 200 within the ceiling for 300 single-reference runs
+        {
+            await seed(300);
+
+            const result = await claim();
+
+            expect(result.auditWritten).toBe(true);
+            expect(result.runs.length).toBeGreaterThan(0);
+            expect(result.runs.length).toBeLessThanOrEqual(MAX_CLAIMED_RUNS);
+            expect(measureEvents(result.runs)).toBeLessThanOrEqual(CLAIM_EVENTS_BUDGET_CHARS);
+            expect(result.deferred).toBe(300 - result.runs.length);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never exceeds the response ceiling the transport enforces
+        {
+            // The reserve is what makes the per-page budget safe: the rest of the
+            // answer (status rows, envelope) has to fit in what is left.
+            expect(CLAIM_EVENTS_BUDGET_CHARS).toBeLessThan(RESPONSE_BODY_MAX_CHARS);
+            expect(RESPONSE_BODY_MAX_CHARS - CLAIM_EVENTS_BUDGET_CHARS).toBe(65_536);
+        }
     }, FULL_REFERENCE_BUDGET_MS);
-
-    it('answers 200 within the ceiling for 300 single-reference runs', async () => {
-        await seed(300);
-
-        const result = await claim();
-
-        expect(result.auditWritten).toBe(true);
-        expect(result.runs.length).toBeGreaterThan(0);
-        expect(result.runs.length).toBeLessThanOrEqual(MAX_CLAIMED_RUNS);
-        expect(measureEvents(result.runs)).toBeLessThanOrEqual(CLAIM_EVENTS_BUDGET_CHARS);
-        expect(result.deferred).toBe(300 - result.runs.length);
-    });
-
-    it('never exceeds the response ceiling the transport enforces', () => {
-        // The reserve is what makes the per-page budget safe: the rest of the
-        // answer (status rows, envelope) has to fit in what is left.
-        expect(CLAIM_EVENTS_BUDGET_CHARS).toBeLessThan(RESPONSE_BODY_MAX_CHARS);
-        expect(RESPONSE_BODY_MAX_CHARS - CLAIM_EVENTS_BUDGET_CHARS).toBe(65_536);
-    });
 });
 
 describe('T-039 no lease is stranded behind an answer the transport refuses', () => {
-    it('leases nothing the answer omits, and writes no claim row for it', async () => {
-        await seed(MAX_CLAIMED_RUNS + 25);
+    it('leases nothing the answer omits, and writes no claim… (+2 cases)', async () => {
+        // case: leases nothing the answer omits, and writes no claim row for it
+        {
+            await seed(MAX_CLAIMED_RUNS + 25);
 
-        const result = await claim();
-        const offered = new Set(result.runs.map((run) => run.correlationId));
-        const document = await readRunsDocument({ store, log: LOGGER });
-        const audits = await readAuditEntries(store);
-        const claimRows = audits.filter((entry) => entry.eventType === 'dispatch.claimed');
+            const result = await claim();
+            const offered = new Set(result.runs.map((run) => run.correlationId));
+            const document = await readRunsDocument({ store, log: LOGGER });
+            const audits = await readAuditEntries(store);
+            const claimRows = audits.filter((entry) => entry.eventType === 'dispatch.claimed');
 
-        // The budget the review measured: the cap trips before the byte budget.
-        expect(result.runs).toHaveLength(MAX_CLAIMED_RUNS);
-        expect(result.deferred).toBe(25);
+            // The budget the review measured: the cap trips before the byte budget.
+            expect(result.runs).toHaveLength(MAX_CLAIMED_RUNS);
+            expect(result.deferred).toBe(25);
 
-        // The defect, stated as an assertion: a run the answer omitted has no
-        // lease, and therefore burns no attempt and no requeue budget while it
-        // waits for the next page.
-        const omitted = document.runs.filter((run) => !offered.has(run.correlationId));
-        expect(omitted).toHaveLength(25);
-        expect(omitted.every((run) => run.lease === null)).toBe(true);
-        expect(omitted.every((run) => run.attempt === 1)).toBe(true);
-        expect(omitted.every((run) => run.requeuesUsed === 0)).toBe(true);
+            // The defect, stated as an assertion: a run the answer omitted has no
+            // lease, and therefore burns no attempt and no requeue budget while it
+            // waits for the next page.
+            const omitted = document.runs.filter((run) => !offered.has(run.correlationId));
+            expect(omitted).toHaveLength(25);
+            expect(omitted.every((run) => run.lease === null)).toBe(true);
+            expect(omitted.every((run) => run.attempt === 1)).toBe(true);
+            expect(omitted.every((run) => run.requeuesUsed === 0)).toBe(true);
 
-        // And no audit row claims a lease that was never taken.
-        expect(claimRows).toHaveLength(MAX_CLAIMED_RUNS);
-        expect(claimRows.map((row) => row.correlationId).sort())
-            .toEqual([...offered].sort());
-    });
+            // And no audit row claims a lease that was never taken.
+            expect(claimRows).toHaveLength(MAX_CLAIMED_RUNS);
+            expect(claimRows.map((row) => row.correlationId).sort())
+                .toEqual([...offered].sort());
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: serves the deferred remainder on the next call, unchanged
+        {
+            await seed(MAX_CLAIMED_RUNS + 3);
 
-    it('serves the deferred remainder on the next call, unchanged', async () => {
-        await seed(MAX_CLAIMED_RUNS + 3);
+            const first = await claim();
+            const second = await claim();
 
-        const first = await claim();
-        const second = await claim();
+            expect(first.runs).toHaveLength(MAX_CLAIMED_RUNS);
+            expect(second.runs).toHaveLength(3);
+            expect(second.deferred).toBe(0);
+            // Disjoint: the second page is work the first one did not lease.
+            const offered = new Set(first.runs.map((run) => run.correlationId));
+            expect(second.runs.every((run) => !offered.has(run.correlationId))).toBe(true);
+            expect(new Set([...first.runs, ...second.runs].map((run) => run.correlationId)).size)
+                .toBe(MAX_CLAIMED_RUNS + 3);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: leases nothing and writes nothing when the whole answer is over budget
+        {
+            await seed(2);
+            // A budget too small for even one run: the documented refusal path.
+            const result = await claimPendingRuns({
+                store,
+                log: LOGGER,
+                holder: HOLDER,
+                now: STAMP,
+                budgetChars: 16,
+            });
+            const audits = await readAuditEntries(store);
 
-        expect(first.runs).toHaveLength(MAX_CLAIMED_RUNS);
-        expect(second.runs).toHaveLength(3);
-        expect(second.deferred).toBe(0);
-        // Disjoint: the second page is work the first one did not lease.
-        const offered = new Set(first.runs.map((run) => run.correlationId));
-        expect(second.runs.every((run) => !offered.has(run.correlationId))).toBe(true);
-        expect(new Set([...first.runs, ...second.runs].map((run) => run.correlationId)).size)
-            .toBe(MAX_CLAIMED_RUNS + 3);
-    });
-
-    it('leases nothing and writes nothing when the whole answer is over budget', async () => {
-        await seed(2);
-        // A budget too small for even one run: the documented refusal path.
-        const result = await claimPendingRuns({
-            store,
-            log: LOGGER,
-            holder: HOLDER,
-            now: STAMP,
-            budgetChars: 16,
-        });
-        const audits = await readAuditEntries(store);
-
-        expect(result.runs).toEqual([]);
-        expect(result.deferred).toBe(2);
-        expect(result.auditWritten).toBe(true);
-        expect(await statesOfRuns()).toEqual(['pending', 'pending']);
-        expect(audits.filter((entry) => entry.eventType === 'dispatch.claimed')).toEqual([]);
+            expect(result.runs).toEqual([]);
+            expect(result.deferred).toBe(2);
+            expect(result.auditWritten).toBe(true);
+            expect(await statesOfRuns()).toEqual(['pending', 'pending']);
+            expect(audits.filter((entry) => entry.eventType === 'dispatch.claimed')).toEqual([]);
+        }
     });
 });
 
 describe('T-039 excerpt text is bounded with an explicit marker (FR-014, FR-013)', () => {
-    it('keeps every reference identity and marks an excerpt that was not carried', async () => {
-        // One run whose references carry more excerpt text between them than the
-        // per-run budget allows, built the way the store really builds one: an
-        // assignment opens the run and comment mentions join it (FR-011).
-        const overBudget = Math.ceil(RUN_EXCERPT_MAX_CHARS / REFERENCE_EXCERPT_MAX_CHARS) + 4;
-        await seed(1, REFERENCE_EXCERPT_MAX_CHARS);
-        await enqueueEvents({
-            store,
-            log: LOGGER,
-            incoming: Array.from({ length: overBudget - 1 }, (_unused, index) => createEvent({
-                ...assignment(1, REFERENCE_EXCERPT_MAX_CHARS),
-                kind: 'mention',
-                origin: 'comment',
-                commentId: index + 1,
-            })),
-        });
+    it('keeps every reference identity and marks an excerpt … (+3 cases)', async () => {
+        // case: keeps every reference identity and marks an excerpt that was not carried
+        {
+            // One run whose references carry more excerpt text between them than the
+            // per-run budget allows, built the way the store really builds one: an
+            // assignment opens the run and comment mentions join it (FR-011).
+            const overBudget = Math.ceil(RUN_EXCERPT_MAX_CHARS / REFERENCE_EXCERPT_MAX_CHARS) + 4;
+            await seed(1, REFERENCE_EXCERPT_MAX_CHARS);
+            await enqueueEvents({
+                store,
+                log: LOGGER,
+                incoming: Array.from({ length: overBudget - 1 }, (_unused, index) => createEvent({
+                    ...assignment(1, REFERENCE_EXCERPT_MAX_CHARS),
+                    kind: 'mention',
+                    origin: 'comment',
+                    commentId: index + 1,
+                })),
+            });
 
-        const result = await claim();
-        const [claimed] = result.runs;
-        if (claimed === undefined) {
-            throw new Error('the run was not claimed');
+            const result = await claim();
+            const [claimed] = result.runs;
+            if (claimed === undefined) {
+                throw new Error('the run was not claimed');
+            }
+
+            // Every retained reference is still there, with FR-013's full detail.
+            expect(claimed.sourceReferences).toHaveLength(overBudget);
+            expect(claimed.sourceReferences.every((reference) => reference.deliveryId !== '')).toBe(true);
+            expect(claimed.sourceReferences.every((reference) => reference.sourceUrl !== '')).toBe(true);
+            expect(claimed.sourceReferences.every((reference) => reference.detectedAt === STAMP)).toBe(true);
+            expect(claimed.sourceReferences.every((reference) => reference.presentAtAuthorization)).toBe(true);
+            expect(claimed.referenceCount).toBe(overBudget);
+            expect(claimed.referencesTruncated).toBe(false);
+
+            // The budget is spent in join order: real text first, the explicit
+            // marker once it runs out, and never the other way round.
+            const firstMarker = claimed.sourceReferences.findIndex(
+                (reference) => reference.excerpt === EXCERPT_OMITTED_MARKER,
+            );
+            const carriedCount = claimed.sourceReferences.filter(
+                (reference) => !isExcerptMarker(reference.excerpt),
+            ).length;
+            expect(firstMarker).toBe(carriedCount);
+            expect(carriedCount).toBeGreaterThan(0);
+            expect(claimed.sourceReferences.slice(carriedCount).every(
+                (reference) => reference.excerpt === EXCERPT_OMITTED_MARKER,
+            )).toBe(true);
+            // The first reference keeps its real, unmodified excerpt.
+            expect(claimed.sourceReferences[0]?.excerpt).toBe('x'.repeat(REFERENCE_EXCERPT_MAX_CHARS));
+            // And the run as a whole stayed inside the page budget.
+            expect(measureEvents([claimed])).toBeLessThanOrEqual(CLAIM_EVENTS_BUDGET_CHARS);
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: marks an over-long excerpt rather than carrying it whole
+        {
+            // A single delivery whose stored excerpt is past the per-reference
+            // bound — only reachable through a store written by another path, which
+            // is exactly why the bound is re-applied on the way out.
+            await seed(1, 40);
+            await enqueueEvents({
+                store,
+                log: LOGGER,
+                incoming: [createEvent({
+                    ...assignment(1, REFERENCE_EXCERPT_MAX_CHARS + 500),
+                    kind: 'mention',
+                    origin: 'comment',
+                    commentId: 9,
+                })],
+            });
 
-        // Every retained reference is still there, with FR-013's full detail.
-        expect(claimed.sourceReferences).toHaveLength(overBudget);
-        expect(claimed.sourceReferences.every((reference) => reference.deliveryId !== '')).toBe(true);
-        expect(claimed.sourceReferences.every((reference) => reference.sourceUrl !== '')).toBe(true);
-        expect(claimed.sourceReferences.every((reference) => reference.detectedAt === STAMP)).toBe(true);
-        expect(claimed.sourceReferences.every((reference) => reference.presentAtAuthorization)).toBe(true);
-        expect(claimed.referenceCount).toBe(overBudget);
-        expect(claimed.referencesTruncated).toBe(false);
+            const result = await claim();
+            const [claimed] = result.runs;
+            const marked = claimed?.sourceReferences.at(-1)?.excerpt ?? '';
 
-        // The budget is spent in join order: real text first, the explicit
-        // marker once it runs out, and never the other way round.
-        const firstMarker = claimed.sourceReferences.findIndex(
-            (reference) => reference.excerpt === EXCERPT_OMITTED_MARKER,
-        );
-        const carriedCount = claimed.sourceReferences.filter(
-            (reference) => !isExcerptMarker(reference.excerpt),
-        ).length;
-        expect(firstMarker).toBe(carriedCount);
-        expect(carriedCount).toBeGreaterThan(0);
-        expect(claimed.sourceReferences.slice(carriedCount).every(
-            (reference) => reference.excerpt === EXCERPT_OMITTED_MARKER,
-        )).toBe(true);
-        // The first reference keeps its real, unmodified excerpt.
-        expect(claimed.sourceReferences[0]?.excerpt).toBe('x'.repeat(REFERENCE_EXCERPT_MAX_CHARS));
-        // And the run as a whole stayed inside the page budget.
-        expect(measureEvents([claimed])).toBeLessThanOrEqual(CLAIM_EVENTS_BUDGET_CHARS);
-    });
-
-    it('marks an over-long excerpt rather than carrying it whole', async () => {
-        // A single delivery whose stored excerpt is past the per-reference
-        // bound — only reachable through a store written by another path, which
-        // is exactly why the bound is re-applied on the way out.
-        await seed(1, 40);
-        await enqueueEvents({
-            store,
-            log: LOGGER,
-            incoming: [createEvent({
-                ...assignment(1, REFERENCE_EXCERPT_MAX_CHARS + 500),
-                kind: 'mention',
-                origin: 'comment',
-                commentId: 9,
-            })],
-        });
-
-        const result = await claim();
-        const [claimed] = result.runs;
-        const marked = claimed?.sourceReferences.at(-1)?.excerpt ?? '';
-
-        expect(marked.endsWith(EXCERPT_TRUNCATION_MARKER)).toBe(true);
-        expect(isExcerptMarker(marked)).toBe(true);
-        // The reference itself is untouched: only the text was cut.
-        expect(claimed?.sourceReferences).toHaveLength(2);
-        expect(claimed?.sourceReferences[0]?.excerpt).not.toContain(EXCERPT_TRUNCATION_MARKER);
-    });
-
-    it('round-trips both markers through the answer unchanged', () => {
-        // The panel's context builder (T-020) reads these strings back; a
-        // marker that changed shape on the wire would be read as source text.
-        for (const marker of [EXCERPT_OMITTED_MARKER, `excerpt${EXCERPT_TRUNCATION_MARKER}`]) {
-            expect(JSON.parse(JSON.stringify({ excerpt: marker })).excerpt).toBe(marker);
-            expect(isExcerptMarker(marker)).toBe(true);
+            expect(marked.endsWith(EXCERPT_TRUNCATION_MARKER)).toBe(true);
+            expect(isExcerptMarker(marked)).toBe(true);
+            // The reference itself is untouched: only the text was cut.
+            expect(claimed?.sourceReferences).toHaveLength(2);
+            expect(claimed?.sourceReferences[0]?.excerpt).not.toContain(EXCERPT_TRUNCATION_MARKER);
         }
-        // A genuine empty excerpt (an issue with no body) is not a marker.
-        expect(isExcerptMarker('')).toBe(false);
-        expect(isExcerptMarker('a real excerpt')).toBe(false);
-    });
-
-    it('bounds one run excerpt text to the per-dispatch budget', () => {
-        // The budget FR-014 already fixes for the dispatch itself, applied to
-        // the transport that feeds it — so no run can crowd out the page.
-        expect(RUN_EXCERPT_MAX_CHARS).toBe(12_000);
-        expect(RUN_EXCERPT_MAX_CHARS * (REFERENCE_EXCERPT_MAX_CHARS + 1))
-            .toBeGreaterThan(RESPONSE_BODY_MAX_CHARS / 2);
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: round-trips both markers through the answer unchanged
+        {
+            // The panel's context builder (T-020) reads these strings back; a
+            // marker that changed shape on the wire would be read as source text.
+            for (const marker of [EXCERPT_OMITTED_MARKER, `excerpt${EXCERPT_TRUNCATION_MARKER}`]) {
+                expect(JSON.parse(JSON.stringify({ excerpt: marker })).excerpt).toBe(marker);
+                expect(isExcerptMarker(marker)).toBe(true);
+            }
+            // A genuine empty excerpt (an issue with no body) is not a marker.
+            expect(isExcerptMarker('')).toBe(false);
+            expect(isExcerptMarker('a real excerpt')).toBe(false);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: bounds one run excerpt text to the per-dispatch budget
+        {
+            // The budget FR-014 already fixes for the dispatch itself, applied to
+            // the transport that feeds it — so no run can crowd out the page.
+            expect(RUN_EXCERPT_MAX_CHARS).toBe(12_000);
+            expect(RUN_EXCERPT_MAX_CHARS * (REFERENCE_EXCERPT_MAX_CHARS + 1))
+                .toBeGreaterThan(RESPONSE_BODY_MAX_CHARS / 2);
+        }
     });
 });
 

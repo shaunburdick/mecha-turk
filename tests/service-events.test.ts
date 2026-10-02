@@ -115,15 +115,21 @@ let dataDir = '';
 /** Open store handle for the tests that read through the real store. */
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-events-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Build a logger that records every line it is asked to write.
@@ -715,12 +721,15 @@ interface RunSeed {
 /** Services the paging block started; shut down before the store goes away. */
 const paged: TestService[] = [];
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork3 = async (): Promise<void> => {
     while (paged.length > 0) {
         const service = paged.pop();
         await service?.shutdown();
     }
-});
+};
+
+afterEach(afterEachWork3);
 
 /**
  * Build the delivery snapshot one seed describes.
@@ -887,145 +896,187 @@ function filterSeeds(): readonly RunSeed[] {
 }
 
 describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-121)', () => {
-    it('refuses a page size outside the accepted set and changes nothing', async () => {
-        const service = await startWithRuns(filterSeeds());
+    it('refuses a page size outside the accepted set and cha… (+5 cases)', async () => {
+        // case: refuses a page size outside the accepted set and changes nothing
+        {
+            const service = await startWithRuns(filterSeeds());
 
-        const response = await service.call(`${EVENTS_PATH}?limit=7`);
-        const body = await refusalOf(response);
+            const response = await service.call(`${EVENTS_PATH}?limit=7`);
+            const body = await refusalOf(response);
 
-        expect(response.status).toBe(422);
-        expect(body.error.code).toBe('validation');
-        expect(body.error.issues[0]?.field).toBe('limit');
-        // The remediation names every accepted value and never echoes the one
-        // that was sent.
-        for (const size of ['10', '25', '50', '100']) {
-            expect(body.error.issues[0]?.remediation).toContain(size);
+            expect(response.status).toBe(422);
+            expect(body.error.code).toBe('validation');
+            expect(body.error.issues[0]?.field).toBe('limit');
+            // The remediation names every accepted value and never echoes the one
+            // that was sent.
+            for (const size of ['10', '25', '50', '100']) {
+                expect(body.error.issues[0]?.remediation).toContain(size);
+            }
+            expect(body.error.issues[0]?.remediation).not.toContain('7');
+
+            const untouched = await service.call(EVENTS_PATH);
+            const answer = (await untouched.json()) as HistoryBody;
+            expect(answer.events).toHaveLength(6);
         }
-        expect(body.error.issues[0]?.remediation).not.toContain('7');
+        await afterEachWork3();
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork3();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a cursor this service did not issue instead of restarting at page one
+        {
+            const service = await startWithRuns(filterSeeds());
 
-        const untouched = await service.call(EVENTS_PATH);
-        const answer = (await untouched.json()) as HistoryBody;
-        expect(answer.events).toHaveLength(6);
+            const response = await service.call(`${EVENTS_PATH}?cursor=not-a-boundary`);
+            const body = await refusalOf(response);
+
+            expect(response.status).toBe(422);
+            expect(body.error.code).toBe('validation');
+            expect(body.error.issues[0]?.field).toBe('cursor');
+        }
+        await afterEachWork3();
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork3();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a state outside the dispatch vocabulary
+        {
+            const service = await startWithRuns(filterSeeds());
+
+            const response = await service.call(`${EVENTS_PATH}?state=bogus`);
+            const body = await refusalOf(response);
+
+            expect(response.status).toBe(422);
+            expect(body.error.code).toBe('validation');
+            expect(body.error.issues[0]?.field).toBe('state');
+            expect(body.error.issues[0]?.remediation).toContain('blocked');
+            expect(body.error.issues[0]?.remediation).not.toContain('bogus');
+        }
+        await afterEachWork3();
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork3();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: returns both blocked-family rows for state=blocked and only failed for state=failed
+        {
+            const service = await startWithRuns(filterSeeds());
+
+            const blocked = await historyAnswer(service, `${EVENTS_PATH}?state=blocked`);
+            expect(blocked.events).toHaveLength(2);
+            expect(blocked.events.every((row) => String(row.state).startsWith('blocked:'))).toBe(true);
+            expect(blocked.page.filter.state).toBe('blocked');
+
+            const exact = await historyAnswer(service, `${EVENTS_PATH}?state=${BLOCKED_PROJECT}`);
+            expect(exact.events).toHaveLength(1);
+            expect(exact.events[0]?.state).toBe(BLOCKED_PROJECT);
+
+            const failed = await historyAnswer(service, `${EVENTS_PATH}?state=failed`);
+            expect(failed.events).toHaveLength(1);
+            expect(failed.events[0]?.state).toBe('failed');
+        }
+        await afterEachWork3();
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork3();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: composes a binding filter with every page and reports one total
+        {
+            const seeds = Array.from({ length: 12 }, (_, index) => ({
+                issueNumber: index + 1,
+                bindingId: index % 2 === 0 ? 'bnd-one' : 'bnd-two',
+                detectedAt: `2026-09-27T00:${String(index + 1).padStart(2, '0')}:00.000Z`,
+            }));
+            const service = await startWithRuns(seeds);
+
+            const seen: string[] = [];
+            let cursor = '';
+            for (let page = 0; page < 4; page += 1) {
+                const tail = cursor === '' ? '' : `&cursor=${encodeURIComponent(cursor)}`;
+                const answer = await historyAnswer(service, `${EVENTS_PATH}?limit=10&bindingId=bnd-one${tail}`);
+
+                expect(answer.page.total).toBe(6);
+                expect(answer.page.filter.bindingId).toBe('bnd-one');
+                for (const row of answer.events) {
+                    expect(row.bindingId).toBe('bnd-one');
+                    seen.push(String(row.correlationId));
+                }
+
+                if (!answer.page.hasMore || answer.page.nextCursor === null) {
+                    break;
+                }
+
+                cursor = answer.page.nextCursor;
+            }
+
+            expect(seen).toHaveLength(6);
+            expect(new Set(seen).size).toBe(6);
+        }
+        await afterEachWork3();
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork3();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: answers an unknown binding id with an empty set rather than a 404
+        {
+            const service = await startWithRuns(filterSeeds());
+
+            const response = await service.call(`${EVENTS_PATH}?bindingId=bnd-nothing`);
+            const answer = (await response.json()) as HistoryBody;
+
+            expect(response.status).toBe(200);
+            expect(answer.events).toEqual([]);
+            expect(answer.page.total).toBe(0);
+            expect(answer.page.filter.bindingId).toBe('bnd-nothing');
+        }
     });
 
-    it('refuses a cursor this service did not issue instead of restarting at page one', async () => {
-        const service = await startWithRuns(filterSeeds());
+    it('keeps the order stable when rows share a detection s… (+1 cases)', async () => {
+        // case: keeps the order stable when rows share a detection stamp
+        {
+            const at = '2026-09-27T00:30:00.000Z';
+            const service = await startWithRuns([
+                { issueNumber: 1, bindingId: 'bnd-one', detectedAt: at },
+                { issueNumber: 2, bindingId: 'bnd-one', detectedAt: at },
+                { issueNumber: 3, bindingId: 'bnd-one', detectedAt: at },
+            ]);
 
-        const response = await service.call(`${EVENTS_PATH}?cursor=not-a-boundary`);
-        const body = await refusalOf(response);
+            const first = await historyAnswer(service, `${EVENTS_PATH}?limit=10`);
+            const second = await historyAnswer(service, `${EVENTS_PATH}?limit=10`);
 
-        expect(response.status).toBe(422);
-        expect(body.error.code).toBe('validation');
-        expect(body.error.issues[0]?.field).toBe('cursor');
-    });
+            expect(first.events.map((row) => row.correlationId)).toEqual(second.events.map((row) => row.correlationId));
+            // The tiebreak is the row key descending, so the boundary is exact.
+            expect(String(first.events[0]?.correlationId) > String(first.events[1]?.correlationId)).toBe(true);
+        }
+        await afterEachWork3();
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork3();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never reports the page size as the total
+        {
+            const service = await startWithRuns(filterSeeds());
 
-    it('refuses a state outside the dispatch vocabulary', async () => {
-        const service = await startWithRuns(filterSeeds());
+            const answer = await historyAnswer(service, `${EVENTS_PATH}?limit=10`);
 
-        const response = await service.call(`${EVENTS_PATH}?state=bogus`);
-        const body = await refusalOf(response);
-
-        expect(response.status).toBe(422);
-        expect(body.error.code).toBe('validation');
-        expect(body.error.issues[0]?.field).toBe('state');
-        expect(body.error.issues[0]?.remediation).toContain('blocked');
-        expect(body.error.issues[0]?.remediation).not.toContain('bogus');
-    });
-
-    it('returns both blocked-family rows for state=blocked and only failed for state=failed', async () => {
-        const service = await startWithRuns(filterSeeds());
-
-        const blocked = await historyAnswer(service, `${EVENTS_PATH}?state=blocked`);
-        expect(blocked.events).toHaveLength(2);
-        expect(blocked.events.every((row) => String(row.state).startsWith('blocked:'))).toBe(true);
-        expect(blocked.page.filter.state).toBe('blocked');
-
-        const exact = await historyAnswer(service, `${EVENTS_PATH}?state=${BLOCKED_PROJECT}`);
-        expect(exact.events).toHaveLength(1);
-        expect(exact.events[0]?.state).toBe(BLOCKED_PROJECT);
-
-        const failed = await historyAnswer(service, `${EVENTS_PATH}?state=failed`);
-        expect(failed.events).toHaveLength(1);
-        expect(failed.events[0]?.state).toBe('failed');
-    });
-
-    it('composes a binding filter with every page and reports one total', async () => {
-        const seeds = Array.from({ length: 12 }, (_, index) => ({
-            issueNumber: index + 1,
-            bindingId: index % 2 === 0 ? 'bnd-one' : 'bnd-two',
-            detectedAt: `2026-09-27T00:${String(index + 1).padStart(2, '0')}:00.000Z`,
-        }));
-        const service = await startWithRuns(seeds);
-
-        const seen: string[] = [];
-        let cursor = '';
-        for (let page = 0; page < 4; page += 1) {
-            const tail = cursor === '' ? '' : `&cursor=${encodeURIComponent(cursor)}`;
-            const answer = await historyAnswer(service, `${EVENTS_PATH}?limit=10&bindingId=bnd-one${tail}`);
-
+            expect(answer.events).toHaveLength(6);
             expect(answer.page.total).toBe(6);
-            expect(answer.page.filter.bindingId).toBe('bnd-one');
-            for (const row of answer.events) {
-                expect(row.bindingId).toBe('bnd-one');
-                seen.push(String(row.correlationId));
-            }
-
-            if (!answer.page.hasMore || answer.page.nextCursor === null) {
-                break;
-            }
-
-            cursor = answer.page.nextCursor;
+            expect(answer.page.total === answer.page.limit).toBe(false);
+            // A withheld total stays withheld: `null` is the honest "unavailable",
+            // and the page size is never substituted for it.
+            expect(buildEventPage({
+                limit: 25,
+                nextCursor: null,
+                hasMore: false,
+                total: null,
+                snapshotAt: '2026-09-27T00:00:00.000Z',
+                filter: { bindingId: null, state: null },
+            }).total).toBeNull();
         }
-
-        expect(seen).toHaveLength(6);
-        expect(new Set(seen).size).toBe(6);
-    });
-
-    it('answers an unknown binding id with an empty set rather than a 404', async () => {
-        const service = await startWithRuns(filterSeeds());
-
-        const response = await service.call(`${EVENTS_PATH}?bindingId=bnd-nothing`);
-        const answer = (await response.json()) as HistoryBody;
-
-        expect(response.status).toBe(200);
-        expect(answer.events).toEqual([]);
-        expect(answer.page.total).toBe(0);
-        expect(answer.page.filter.bindingId).toBe('bnd-nothing');
-    });
-
-    it('keeps the order stable when rows share a detection stamp', async () => {
-        const at = '2026-09-27T00:30:00.000Z';
-        const service = await startWithRuns([
-            { issueNumber: 1, bindingId: 'bnd-one', detectedAt: at },
-            { issueNumber: 2, bindingId: 'bnd-one', detectedAt: at },
-            { issueNumber: 3, bindingId: 'bnd-one', detectedAt: at },
-        ]);
-
-        const first = await historyAnswer(service, `${EVENTS_PATH}?limit=10`);
-        const second = await historyAnswer(service, `${EVENTS_PATH}?limit=10`);
-
-        expect(first.events.map((row) => row.correlationId)).toEqual(second.events.map((row) => row.correlationId));
-        // The tiebreak is the row key descending, so the boundary is exact.
-        expect(String(first.events[0]?.correlationId) > String(first.events[1]?.correlationId)).toBe(true);
-    });
-
-    it('never reports the page size as the total', async () => {
-        const service = await startWithRuns(filterSeeds());
-
-        const answer = await historyAnswer(service, `${EVENTS_PATH}?limit=10`);
-
-        expect(answer.events).toHaveLength(6);
-        expect(answer.page.total).toBe(6);
-        expect(answer.page.total === answer.page.limit).toBe(false);
-        // A withheld total stays withheld: `null` is the honest "unavailable",
-        // and the page size is never substituted for it.
-        expect(buildEventPage({
-            limit: 25,
-            nextCursor: null,
-            hasMore: false,
-            total: null,
-            snapshotAt: '2026-09-27T00:00:00.000Z',
-            filter: { bindingId: null, state: null },
-        }).total).toBeNull();
     });
 });

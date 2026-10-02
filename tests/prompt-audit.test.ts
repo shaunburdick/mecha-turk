@@ -46,12 +46,15 @@ const NEXT_PROMPT = 'Reproduce first, then patch. Do not widen the public API!';
 /** Temporary directories this suite opened, drained between tests. */
 const temporaryDirs: string[] = [];
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork1 = async (): Promise<void> => {
     while (temporaryDirs.length > 0) {
         const dir = temporaryDirs.pop();
         await rm(dir ?? '', { recursive: true, force: true });
     }
-});
+};
+
+afterEach(afterEachWork1);
 
 /** A logger that keeps every warning this suite can provoke. */
 interface CapturedLogger extends ServiceLogger {
@@ -114,176 +117,197 @@ function bindingDocument(prompt: string | null): readonly ObservedBinding[] {
 }
 
 describe('T-004 recordPromptChanges: one row per change, never the text (FR-051, AC-139)', () => {
-    it('appends exactly one row per difference, carrying every required detail key', async () => {
-        const store = await tempStore();
-        const log = capturingLogger();
+    it('appends exactly one row per difference, carrying eve… (+5 cases)', async () => {
+        // case: appends exactly one row per difference, carrying every required detail key
+        {
+            const store = await tempStore();
+            const log = capturingLogger();
 
-        const rows = await observePromptChanges({
-            store,
-            log,
-            bindings: bindingDocument(PROMPT),
-            actor: 'operator',
-        });
+            const rows = await observePromptChanges({
+                store,
+                log,
+                bindings: bindingDocument(PROMPT),
+                actor: 'operator',
+            });
 
-        expect(rows).toBe(1);
-        const [row] = await promptRows(store);
-        expect(row).toBeDefined();
-        expect(row?.actorSource).toBe('operator');
-        expect(row?.decision).toBe('set');
-        expect(row?.entity).toEqual({ kind: 'binding', id: 'bnd-one' });
-        expect(row?.correlationId).not.toMatch(/^mt-run-/);
-        expect(row?.details).toEqual({
-            bindingId: 'bnd-one',
-            promptPresent: true,
-            promptFingerprint: promptFingerprint(PROMPT),
-            promptLength: [...PROMPT].length,
-            previousFingerprint: null,
-        });
-        expect(log.warnings).toEqual([]);
-    });
+            expect(rows).toBe(1);
+            const [row] = await promptRows(store);
+            expect(row).toBeDefined();
+            expect(row?.actorSource).toBe('operator');
+            expect(row?.decision).toBe('set');
+            expect(row?.entity).toEqual({ kind: 'binding', id: 'bnd-one' });
+            expect(row?.correlationId).not.toMatch(/^mt-run-/);
+            expect(row?.details).toEqual({
+                bindingId: 'bnd-one',
+                promptPresent: true,
+                promptFingerprint: promptFingerprint(PROMPT),
+                promptLength: [...PROMPT].length,
+                previousFingerprint: null,
+            });
+            expect(log.warnings).toEqual([]);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: never carries the prompt text in any row (FR-053)
+        {
+            const store = await tempStore();
+            const log = capturingLogger();
 
-    it('never carries the prompt text in any row (FR-053)', async () => {
-        const store = await tempStore();
-        const log = capturingLogger();
+            await observePromptChanges({ store, log, bindings: bindingDocument(PROMPT), actor: 'operator' });
+            await observePromptChanges({ store, log, bindings: bindingDocument(NEXT_PROMPT), actor: 'operator' });
+            await observePromptChanges({ store, log, bindings: bindingDocument(null), actor: 'operator' });
 
-        await observePromptChanges({ store, log, bindings: bindingDocument(PROMPT), actor: 'operator' });
-        await observePromptChanges({ store, log, bindings: bindingDocument(NEXT_PROMPT), actor: 'operator' });
-        await observePromptChanges({ store, log, bindings: bindingDocument(null), actor: 'operator' });
+            const trail = await promptRows(store);
+            expect(trail).toHaveLength(3);
+            const serialized = JSON.stringify(trail);
+            expect(serialized).not.toContain(PROMPT);
+            expect(serialized).not.toContain(NEXT_PROMPT);
+            expect(serialized).not.toContain('Reproduce first');
+            // And the values that *are* recorded are the reference scalars.
+            expect(serialized).toContain(promptFingerprint(PROMPT));
+            expect(serialized).toContain(promptFingerprint(NEXT_PROMPT));
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: records set, changed, and cleared with chained previous fingerprints (SC-125)
+        {
+            const store = await tempStore();
+            const log = capturingLogger();
 
-        const trail = await promptRows(store);
-        expect(trail).toHaveLength(3);
-        const serialized = JSON.stringify(trail);
-        expect(serialized).not.toContain(PROMPT);
-        expect(serialized).not.toContain(NEXT_PROMPT);
-        expect(serialized).not.toContain('Reproduce first');
-        // And the values that *are* recorded are the reference scalars.
-        expect(serialized).toContain(promptFingerprint(PROMPT));
-        expect(serialized).toContain(promptFingerprint(NEXT_PROMPT));
-    });
+            await observePromptChanges({ store, log, bindings: bindingDocument(PROMPT), actor: 'operator' });
+            await observePromptChanges({ store, log, bindings: bindingDocument(NEXT_PROMPT), actor: 'operator' });
+            await observePromptChanges({ store, log, bindings: bindingDocument(null), actor: 'operator' });
 
-    it('records set, changed, and cleared with chained previous fingerprints (SC-125)', async () => {
-        const store = await tempStore();
-        const log = capturingLogger();
+            const trail = await promptRows(store);
+            expect(trail.map((row) => row.decision)).toEqual(['set', 'changed', 'cleared']);
+            expect(trail.map((row) => row.details.previousFingerprint)).toEqual([
+                null,
+                promptFingerprint(PROMPT),
+                promptFingerprint(NEXT_PROMPT),
+            ]);
+            expect(trail.map((row) => row.details.promptPresent)).toEqual([true, true, false]);
+            expect(trail.map((row) => row.details.promptLength)).toEqual([
+                [...PROMPT].length,
+                [...NEXT_PROMPT].length,
+                0,
+            ]);
+            expect(trail.map((row) => row.details.promptFingerprint)).toEqual([
+                promptFingerprint(PROMPT),
+                promptFingerprint(NEXT_PROMPT),
+                null,
+            ]);
+            // `seq` is monotonic: three rows, three increasing numbers.
+            const seqs = trail.map((row) => row.seq);
+            expect([...seqs].sort((left, right) => left - right)).toEqual(seqs);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: writes nothing when a second observation sees the same file (SC-125)
+        {
+            const store = await tempStore();
+            const log = capturingLogger();
 
-        await observePromptChanges({ store, log, bindings: bindingDocument(PROMPT), actor: 'operator' });
-        await observePromptChanges({ store, log, bindings: bindingDocument(NEXT_PROMPT), actor: 'operator' });
-        await observePromptChanges({ store, log, bindings: bindingDocument(null), actor: 'operator' });
+            await observePromptChanges({ store, log, bindings: bindingDocument(PROMPT), actor: 'service' });
+            const second = await observePromptChanges({ store, log, bindings: bindingDocument(
+                PROMPT
+            ), actor: 'service' });
 
-        const trail = await promptRows(store);
-        expect(trail.map((row) => row.decision)).toEqual(['set', 'changed', 'cleared']);
-        expect(trail.map((row) => row.details.previousFingerprint)).toEqual([
-            null,
-            promptFingerprint(PROMPT),
-            promptFingerprint(NEXT_PROMPT),
-        ]);
-        expect(trail.map((row) => row.details.promptPresent)).toEqual([true, true, false]);
-        expect(trail.map((row) => row.details.promptLength)).toEqual([
-            [...PROMPT].length,
-            [...NEXT_PROMPT].length,
-            0,
-        ]);
-        expect(trail.map((row) => row.details.promptFingerprint)).toEqual([
-            promptFingerprint(PROMPT),
-            promptFingerprint(NEXT_PROMPT),
-            null,
-        ]);
-        // `seq` is monotonic: three rows, three increasing numbers.
-        const seqs = trail.map((row) => row.seq);
-        expect([...seqs].sort((left, right) => left - right)).toEqual(seqs);
-    });
+            expect(second).toBe(0);
+            expect(await promptRows(store)).toHaveLength(1);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: drops a binding removed from the document without recording a change
+        {
+            const store = await tempStore();
+            const log = capturingLogger();
 
-    it('writes nothing when a second observation sees the same file (SC-125)', async () => {
-        const store = await tempStore();
-        const log = capturingLogger();
+            await observePromptChanges({ store, log, bindings: bindingDocument(PROMPT), actor: 'operator' });
+            const dropped = await observePromptChanges({ store, log, bindings: [], actor: 'operator' });
+            // Re-adding the same binding reads as a fresh `set`, not as a diff
+            // against a fingerprint nobody holds any more.
+            const readded = await observePromptChanges({
+                store,
+                log,
+                bindings: bindingDocument(PROMPT),
+                actor: 'operator',
+            });
 
-        await observePromptChanges({ store, log, bindings: bindingDocument(PROMPT), actor: 'service' });
-        const second = await observePromptChanges({ store, log, bindings: bindingDocument(PROMPT), actor: 'service' });
+            expect(dropped).toBe(0);
+            expect(readded).toBe(1);
+            const trail = await promptRows(store);
+            expect(trail.map((row) => row.details.previousFingerprint)).toEqual([null, null]);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: carries no credential-shaped string in the rows it writes (NFR-121)
+        {
+            const store = await tempStore();
+            const log = capturingLogger();
 
-        expect(second).toBe(0);
-        expect(await promptRows(store)).toHaveLength(1);
-    });
+            await observePromptChanges({ store, log, bindings: bindingDocument(PROMPT), actor: 'operator' });
+            await observePromptChanges({ store, log, bindings: bindingDocument(NEXT_PROMPT), actor: 'operator' });
+            await observePromptChanges({ store, log, bindings: bindingDocument(null), actor: 'operator' });
 
-    it('drops a binding removed from the document without recording a change', async () => {
-        const store = await tempStore();
-        const log = capturingLogger();
-
-        await observePromptChanges({ store, log, bindings: bindingDocument(PROMPT), actor: 'operator' });
-        const dropped = await observePromptChanges({ store, log, bindings: [], actor: 'operator' });
-        // Re-adding the same binding reads as a fresh `set`, not as a diff
-        // against a fingerprint nobody holds any more.
-        const readded = await observePromptChanges({
-            store,
-            log,
-            bindings: bindingDocument(PROMPT),
-            actor: 'operator',
-        });
-
-        expect(dropped).toBe(0);
-        expect(readded).toBe(1);
-        const trail = await promptRows(store);
-        expect(trail.map((row) => row.details.previousFingerprint)).toEqual([null, null]);
-    });
-    it('carries no credential-shaped string in the rows it writes (NFR-121)', async () => {
-        const store = await tempStore();
-        const log = capturingLogger();
-
-        await observePromptChanges({ store, log, bindings: bindingDocument(PROMPT), actor: 'operator' });
-        await observePromptChanges({ store, log, bindings: bindingDocument(NEXT_PROMPT), actor: 'operator' });
-        await observePromptChanges({ store, log, bindings: bindingDocument(null), actor: 'operator' });
-
-        const trail = await promptRows(store);
-        expect(trail).toHaveLength(3);
-        for (const row of trail) {
-            expect(findSecretLeak(JSON.stringify(row)), `${row.decision} row`).toBeNull();
-            expect(row.reason).toBeNull();
+            const trail = await promptRows(store);
+            expect(trail).toHaveLength(3);
+            for (const row of trail) {
+                expect(findSecretLeak(JSON.stringify(row)), `${row.decision} row`).toBeNull();
+                expect(row.reason).toBeNull();
+            }
         }
     });
 });
 
 describe('T-004 the baseline survives a restart (FR-051, AC-139)', () => {
-    it('re-seeds from the rows just written and chains previousFingerprint', async () => {
-        const dir = await mkdtemp(join(tmpdir(), 'prompt-restart-'));
-        temporaryDirs.push(dir);
-        const log = capturingLogger();
+    it('re-seeds from the rows just written and chains previ… (+1 cases)', async () => {
+        // case: re-seeds from the rows just written and chains previousFingerprint
+        {
+            const dir = await mkdtemp(join(tmpdir(), 'prompt-restart-'));
+            temporaryDirs.push(dir);
+            const log = capturingLogger();
 
-        const first = await openStore({ dataDir: dir });
-        await observePromptChanges({ store: first, log, bindings: bindingDocument(PROMPT), actor: 'operator' });
+            const first = await openStore({ dataDir: dir });
+            await observePromptChanges({ store: first, log, bindings: bindingDocument(PROMPT), actor: 'operator' });
 
-        // A restarted service opens a *new* handle over the same directory, so
-        // its state is fresh and must find the baseline in the trail itself.
-        const second = await openStore({ dataDir: dir });
-        expect(second).not.toBe(first);
-        const rows = await observePromptChanges({
-            store: second,
-            log,
-            bindings: bindingDocument(NEXT_PROMPT),
-            actor: 'service',
-        });
+            // A restarted service opens a *new* handle over the same directory, so
+            // its state is fresh and must find the baseline in the trail itself.
+            const second = await openStore({ dataDir: dir });
+            expect(second).not.toBe(first);
+            const rows = await observePromptChanges({
+                store: second,
+                log,
+                bindings: bindingDocument(NEXT_PROMPT),
+                actor: 'service',
+            });
 
-        expect(rows).toBe(1);
-        const trail = await promptRows(second);
-        expect(trail).toHaveLength(2);
-        const row = trail[1];
-        expect(row?.actorSource).toBe('service');
-        expect(row?.decision).toBe('changed');
-        expect(row?.details.previousFingerprint).toBe(promptFingerprint(PROMPT));
-    });
+            expect(rows).toBe(1);
+            const trail = await promptRows(second);
+            expect(trail).toHaveLength(2);
+            const row = trail[1];
+            expect(row?.actorSource).toBe('service');
+            expect(row?.decision).toBe('changed');
+            expect(row?.details.previousFingerprint).toBe(promptFingerprint(PROMPT));
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: starts from an empty baseline on a store with no prompt rows
+        {
+            const store = await tempStore();
+            const log = capturingLogger();
 
-    it('starts from an empty baseline on a store with no prompt rows', async () => {
-        const store = await tempStore();
-        const log = capturingLogger();
+            const rows = await observePromptChanges({
+                store,
+                log,
+                bindings: bindingDocument(PROMPT),
+                actor: 'service',
+            });
 
-        const rows = await observePromptChanges({
-            store,
-            log,
-            bindings: bindingDocument(PROMPT),
-            actor: 'service',
-        });
-
-        expect(rows).toBe(1);
-        const [row] = await promptRows(store);
-        expect(row?.details.previousFingerprint).toBeNull();
-        expect(row?.decision).toBe('set');
+            expect(rows).toBe(1);
+            const [row] = await promptRows(store);
+            expect(row?.details.previousFingerprint).toBeNull();
+            expect(row?.decision).toBe('set');
+        }
     });
 });
 

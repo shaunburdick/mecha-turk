@@ -253,145 +253,153 @@ describe('FR-091: the operator environment file is gone, not rewritten (T-025, A
 });
 
 describe('FR-090 / AC-152: the bootstrap pair is the only configuration environment', () => {
-    it('starts from exactly the host-provided pair, ignoring anything else', () => {
-        const decoy = 'SOME_UNRELATED_VARIABLE';
-        const env = readServiceEnv({
-            [PORT_KEY]: '0',
-            [TOKEN_KEY]: TOKEN_VALUE,
-            [decoy]: 'ignored',
-        });
+    it('starts from exactly the host-provided pair, ignoring… (+4 cases)', () => {
+        // case: starts from exactly the host-provided pair, ignoring anything else
+        {
+            const decoy = 'SOME_UNRELATED_VARIABLE';
+            const env = readServiceEnv({
+                [PORT_KEY]: '0',
+                [TOKEN_KEY]: TOKEN_VALUE,
+                [decoy]: 'ignored',
+            });
 
-        expect(env).toEqual({ port: 0, token: TOKEN_VALUE });
-    });
+            expect(env).toEqual({ port: 0, token: TOKEN_VALUE });
+        }
+        // case: exits naming a missing variable, and never its value
+        {
+            const missingPort = messageOf(() => readServiceEnv({ [TOKEN_KEY]: TOKEN_VALUE }));
+            const missingToken = messageOf(() => readServiceEnv({ [PORT_KEY]: '0' }));
 
-    it('exits naming a missing variable, and never its value', () => {
-        const missingPort = messageOf(() => readServiceEnv({ [TOKEN_KEY]: TOKEN_VALUE }));
-        const missingToken = messageOf(() => readServiceEnv({ [PORT_KEY]: '0' }));
+            expect(missingPort).toContain(PORT_KEY);
+            expect(missingPort).not.toContain(TOKEN_VALUE);
+            expect(missingToken).toContain(TOKEN_KEY);
+            expect(missingToken).not.toContain(TOKEN_VALUE);
+        }
+        // case: exits naming a malformed variable, and never the malformed value
+        {
+            const badPort = 'not-a-port';
+            const shortToken = 'too-short';
+            const portMessage = messageOf(() => readServiceEnv({ [PORT_KEY]: badPort, [TOKEN_KEY]: TOKEN_VALUE }));
+            const tokenMessage = messageOf(() => readServiceEnv({ [PORT_KEY]: '0', [TOKEN_KEY]: shortToken }));
 
-        expect(missingPort).toContain(PORT_KEY);
-        expect(missingPort).not.toContain(TOKEN_VALUE);
-        expect(missingToken).toContain(TOKEN_KEY);
-        expect(missingToken).not.toContain(TOKEN_VALUE);
-    });
+            expect(portMessage).toContain(PORT_KEY);
+            expect(tokenMessage).toContain(TOKEN_KEY);
+            // Neither the token nor the malformed submission is echoed anywhere
+            // (002 `token-handoff.md` F16; constitution: secrets never in logs).
+            expect(portMessage).not.toContain(TOKEN_VALUE);
+            expect(portMessage).not.toContain(badPort);
+            expect(tokenMessage).not.toContain(TOKEN_VALUE);
+            expect(tokenMessage).not.toContain(shortToken);
+        }
+        // case: reads the environment nowhere in the configuration module
+        {
+            const configModule = sourceModules(SERVICE_DIR).find((
+                module
+            ) => module.path === `${SERVICE_DIR}/config.ts`);
 
-    it('exits naming a malformed variable, and never the malformed value', () => {
-        const badPort = 'not-a-port';
-        const shortToken = 'too-short';
-        const portMessage = messageOf(() => readServiceEnv({ [PORT_KEY]: badPort, [TOKEN_KEY]: TOKEN_VALUE }));
-        const tokenMessage = messageOf(() => readServiceEnv({ [PORT_KEY]: '0', [TOKEN_KEY]: shortToken }));
+            expect(configModule).toBeDefined();
+            expect(envReadsIn(configModule?.text ?? '')).toEqual([]);
+        }
+        // case: reads nothing but the pair and HOME anywhere in the service
+        {
+            const reads = sourceModules(SERVICE_DIR)
+                .map((module) => ({ path: module.path, tokens: envReadsIn(module.text) }))
+                .filter((entry) => entry.tokens.length > 0)
+                .sort((left, right) => left.path.localeCompare(right.path));
 
-        expect(portMessage).toContain(PORT_KEY);
-        expect(tokenMessage).toContain(TOKEN_KEY);
-        // Neither the token nor the malformed submission is echoed anywhere
-        // (002 `token-handoff.md` F16; constitution: secrets never in logs).
-        expect(portMessage).not.toContain(TOKEN_VALUE);
-        expect(portMessage).not.toContain(badPort);
-        expect(tokenMessage).not.toContain(TOKEN_VALUE);
-        expect(tokenMessage).not.toContain(shortToken);
-    });
+            // HOME locates the store directory and configures nothing (GUEST_SERVICES.md).
+            expect(reads.map((entry) => entry.path)).toEqual([
+                `${SERVICE_DIR}/env.ts`,
+                `${SERVICE_DIR}/main.ts`,
+                `${SERVICE_DIR}/store/dir.ts`,
+            ]);
+            expect(reads[0]?.tokens).toEqual(['env[PORT_VARIABLE]', 'env[TOKEN_VARIABLE]']);
+            expect(reads[2]?.tokens).toEqual(['env.HOME']);
+            // The declarations those two indexes resolve to are the pair itself —
+            // and there are exactly two of them, so no third variable hides behind
+            // the same spelling.
+            const declarations = trackedText(`${SERVICE_DIR}/env.ts`)
+                .split('\n')
+                .filter((line) => line.startsWith('const ') && line.includes('_VARIABLE = '));
+            const declared = declarations.join('\n');
 
-    it('reads the environment nowhere in the configuration module', () => {
-        const configModule = sourceModules(SERVICE_DIR).find((module) => module.path === `${SERVICE_DIR}/config.ts`);
-
-        expect(configModule).toBeDefined();
-        expect(envReadsIn(configModule?.text ?? '')).toEqual([]);
-    });
-
-    it('reads nothing but the pair and HOME anywhere in the service', () => {
-        const reads = sourceModules(SERVICE_DIR)
-            .map((module) => ({ path: module.path, tokens: envReadsIn(module.text) }))
-            .filter((entry) => entry.tokens.length > 0)
-            .sort((left, right) => left.path.localeCompare(right.path));
-
-        // HOME locates the store directory and configures nothing (GUEST_SERVICES.md).
-        expect(reads.map((entry) => entry.path)).toEqual([
-            `${SERVICE_DIR}/env.ts`,
-            `${SERVICE_DIR}/main.ts`,
-            `${SERVICE_DIR}/store/dir.ts`,
-        ]);
-        expect(reads[0]?.tokens).toEqual(['env[PORT_VARIABLE]', 'env[TOKEN_VARIABLE]']);
-        expect(reads[2]?.tokens).toEqual(['env.HOME']);
-        // The declarations those two indexes resolve to are the pair itself —
-        // and there are exactly two of them, so no third variable hides behind
-        // the same spelling.
-        const declarations = trackedText(`${SERVICE_DIR}/env.ts`)
-            .split('\n')
-            .filter((line) => line.startsWith('const ') && line.includes('_VARIABLE = '));
-        const declared = declarations.join('\n');
-
-        expect(declarations).toHaveLength(2);
-        expect(declared).toContain(PORT_KEY);
-        expect(declared).toContain(TOKEN_KEY);
+            expect(declarations).toHaveLength(2);
+            expect(declared).toContain(PORT_KEY);
+            expect(declared).toContain(TOKEN_KEY);
+        }
     });
 });
 
 describe('FR-092 / AC-153: exactly one operator input per field, the interval being the example', () => {
-    it('the manifest declares no integration card and no integration setting (002 FR-041)', () => {
-        // The card that used to carry `poll-interval-ms` is gone entirely
-        // (owner order 2026-09-30), so the setting has no home in the
-        // manifest at all — not an empty array, no manifest entry.
-        expect(manifest().openchamber.contributes.integration).toBeUndefined();
-        expect(trackedText(MANIFEST)).not.toContain(INTERVAL_SETTING);
-    });
-
-    it('the panel reads no interval from ctx.settings', () => {
-        const reads = sourceModules('src')
-            .filter((module) => codeLines(module.text).some((line) => line.includes(INTERVAL_SETTING)))
-            .map((module) => module.path);
-
-        expect(reads).toEqual([]);
-    });
-
-    it('the service derives no interval from the environment', () => {
-        const derived = sourceModules(SERVICE_DIR).filter(
-            (module) => codeLines(module.text).some((line) => line.includes(INTERVAL_SETTING)),
-        );
-
-        expect(derived.map((module) => module.path)).toEqual([]);
-        // …and the configuration module reads no environment at all, which is
-        // the other half of AC-152's "no environment variable influences it".
-        expect(envReadsIn(trackedText(`${SERVICE_DIR}/config.ts`))).toEqual([]);
-    });
-
-    it('the one input is the Settings row, bounded by the service declaration', () => {
-        const descriptor = configSchema().find((entry) => entry.name === 'intervalMs');
-        if (descriptor?.kind !== 'integer') {
-            throw new Error('the projection declares no integer intervalMs row');
+    it('the manifest declares no integration card and no int… (+4 cases)', () => {
+        // case: the manifest declares no integration card and no integration setting (002 FR-041)
+        {
+            // The card that used to carry `poll-interval-ms` is gone entirely
+            // (owner order 2026-09-30), so the setting has no home in the
+            // manifest at all — not an empty array, no manifest entry.
+            expect(manifest().openchamber.contributes.integration).toBeUndefined();
+            expect(trackedText(MANIFEST)).not.toContain(INTERVAL_SETTING);
         }
+        // case: the panel reads no interval from ctx.settings
+        {
+            const reads = sourceModules('src')
+                .filter((module) => codeLines(module.text).some((line) => line.includes(INTERVAL_SETTING)))
+                .map((module) => module.path);
 
-        expect(descriptor.min).toBe(15_000);
-        expect(descriptor.max).toBe(300_000);
-        expect(descriptor.unit).toBe('milliseconds');
-        // The row is the surface: the panel renders one control per projected
-        // descriptor and derives no bounds of its own (FR-022, FR-023).
-        expect(Object.keys(DEFAULT_CONFIG)).toContain('intervalMs');
-        expect(Object.keys(DEFAULT_CONFIG)).not.toContain('pollIntervalMs');
-    });
+            expect(reads).toEqual([]);
+        }
+        // case: the service derives no interval from the environment
+        {
+            const derived = sourceModules(SERVICE_DIR).filter(
+                (module) => codeLines(module.text).some((line) => line.includes(INTERVAL_SETTING)),
+            );
 
-    it('treats the panel poll cadence as a constant, not as a second input', () => {
-        // AC-153's "exactly one" is an argument about *inputs*, and the panel
-        // does carry a cadence of its own for its refresh timer. Here is why
-        // it is not a second one — asserted, not assumed:
-        //
-        // 1. it is a `const` literal, so nothing in the tree can assign it;
-        expect(trackedText('src/config.ts')).toContain('export const DEFAULT_POLL_INTERVAL_MS = 60_000;');
-        // 2. its only appearances in panel source are that declaration and the
-        //    one dispatch-context default built from it — no control, storage
-        //    key, manifest setting, or environment read writes it;
-        const users = sourceModules('src')
-            .filter((module) => module.text.includes('DEFAULT_POLL_INTERVAL_MS'))
-            .map((module) => module.path)
-            .sort();
+            expect(derived.map((module) => module.path)).toEqual([]);
+            // …and the configuration module reads no environment at all, which is
+            // the other half of AC-152's "no environment variable influences it".
+            expect(envReadsIn(trackedText(`${SERVICE_DIR}/config.ts`))).toEqual([]);
+        }
+        // case: the one input is the Settings row, bounded by the service declaration
+        {
+            const descriptor = configSchema().find((entry) => entry.name === 'intervalMs');
+            if (descriptor?.kind !== 'integer') {
+                throw new Error('the projection declares no integer intervalMs row');
+            }
 
-        expect(users).toEqual(['src/bindings-mode.ts', 'src/config.ts']);
-        expect(trackedText('src/bindings-mode.ts')).toContain('pollIntervalMs: DEFAULT_POLL_INTERVAL_MS');
-        // 3. it is not a member of the service's document, so the projection
-        //    declares no row for it — and a field with no row has no input.
-        const projected: readonly string[] = configSchema().map((entry) => entry.name);
+            expect(descriptor.min).toBe(15_000);
+            expect(descriptor.max).toBe(300_000);
+            expect(descriptor.unit).toBe('milliseconds');
+            // The row is the surface: the panel renders one control per projected
+            // descriptor and derives no bounds of its own (FR-022, FR-023).
+            expect(Object.keys(DEFAULT_CONFIG)).toContain('intervalMs');
+            expect(Object.keys(DEFAULT_CONFIG)).not.toContain('pollIntervalMs');
+        }
+        // case: treats the panel poll cadence as a constant, not as a second input
+        {
+            // AC-153's "exactly one" is an argument about *inputs*, and the panel
+            // does carry a cadence of its own for its refresh timer. Here is why
+            // it is not a second one — asserted, not assumed:
+            //
+            // 1. it is a `const` literal, so nothing in the tree can assign it;
+            expect(trackedText('src/config.ts')).toContain('export const DEFAULT_POLL_INTERVAL_MS = 60_000;');
+            // 2. its only appearances in panel source are that declaration and the
+            //    one dispatch-context default built from it — no control, storage
+            //    key, manifest setting, or environment read writes it;
+            const users = sourceModules('src')
+                .filter((module) => module.text.includes('DEFAULT_POLL_INTERVAL_MS'))
+                .map((module) => module.path)
+                .sort();
 
-        expect(projected).not.toContain('pollIntervalMs');
-        // The row builder itself knows nothing about the panel cadence: it
-        // mounts one control per projected descriptor and no other (FR-014).
-        expect(trackedText('src/settings-rows.ts')).not.toContain('pollIntervalMs');
+            expect(users).toEqual(['src/bindings-mode.ts', 'src/config.ts']);
+            expect(trackedText('src/bindings-mode.ts')).toContain('pollIntervalMs: DEFAULT_POLL_INTERVAL_MS');
+            // 3. it is not a member of the service's document, so the projection
+            //    declares no row for it — and a field with no row has no input.
+            const projected: readonly string[] = configSchema().map((entry) => entry.name);
+
+            expect(projected).not.toContain('pollIntervalMs');
+            // The row builder itself knows nothing about the panel cadence: it
+            // mounts one control per projected descriptor and no other (FR-014).
+            expect(trackedText('src/settings-rows.ts')).not.toContain('pollIntervalMs');
+        }
     });
 });

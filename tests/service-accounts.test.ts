@@ -62,7 +62,8 @@ const running: TestService[] = [];
 /** Data directories a test owns outside the harness home, drained too. */
 const ownedDirs: string[] = [];
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork1 = async (): Promise<void> => {
     while (running.length > 0) {
         const service = running.pop();
         await service?.shutdown();
@@ -73,7 +74,9 @@ afterEach(async () => {
             await rm(dir, { recursive: true, force: true });
         }
     }
-});
+};
+
+afterEach(afterEachWork1);
 
 /**
  * Build a header map without writing HTTP header names as object keys.
@@ -247,178 +250,203 @@ async function plantTransientAccount(state: string): Promise<string> {
 }
 
 describe('GET /v1/accounts — credential-free DTOs (contract §2.2)', () => {
-    it('returns the account without any credential member', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
+    it('returns the account without any credential member (+1 cases)', async () => {
+        // case: returns the account without any credential member
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
 
-        const response = await service.call(ACCOUNTS_PATH);
-        const body = (await response.json()) as { accounts: AccountDto[] };
-        const account = body.accounts[0];
+            const response = await service.call(ACCOUNTS_PATH);
+            const body = (await response.json()) as { accounts: AccountDto[] };
+            const account = body.accounts[0];
 
-        expect(response.status).toBe(200);
-        expect(body.accounts).toHaveLength(1);
-        expect(account).toMatchObject({
-            numericUserId: String(ACCOUNT_ID),
-            login: ACCOUNT_LOGIN,
-            state: 'active',
-            connectionState: 'connected',
-        });
-        expect(Object.keys(account ?? {})).not.toContain('credential');
+            expect(response.status).toBe(200);
+            expect(body.accounts).toHaveLength(1);
+            expect(account).toMatchObject({
+                numericUserId: String(ACCOUNT_ID),
+                login: ACCOUNT_LOGIN,
+                state: 'active',
+                connectionState: 'connected',
+            });
+            expect(Object.keys(account ?? {})).not.toContain('credential');
 
-        // Compile-time proof: if `credential` ever joins the DTO, this line
-        // stops type-checking and `npm run verify` fails (contract §2.2).
-        type NeverWhenCredentialed = 'credential' extends keyof AccountDto ? never : true;
-        const credentialFree: NeverWhenCredentialed = true;
-        expect(credentialFree).toBe(true);
-    });
+            // Compile-time proof: if `credential` ever joins the DTO, this line
+            // stops type-checking and `npm run verify` fails (contract §2.2).
+            type NeverWhenCredentialed = 'credential' extends keyof AccountDto ? never : true;
+            const credentialFree: NeverWhenCredentialed = true;
+            expect(credentialFree).toBe(true);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: keeps the credential out of the serialized responses, logs, and audit
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
 
-    it('keeps the credential out of the serialized responses, logs, and audit', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
+            const list = await service.call(ACCOUNTS_PATH);
+            const listText = await list.text();
+            const status = await service.call(STATUS_PATH);
+            const statusText = await status.text();
+            const audit = await readFile(join(service.dataDir, AUDIT_FILE), 'utf8').catch(() => '');
+            const surfaces = [listText, statusText, audit, ...service.logLines].join('\n');
 
-        const list = await service.call(ACCOUNTS_PATH);
-        const listText = await list.text();
-        const status = await service.call(STATUS_PATH);
-        const statusText = await status.text();
-        const audit = await readFile(join(service.dataDir, AUDIT_FILE), 'utf8').catch(() => '');
-        const surfaces = [listText, statusText, audit, ...service.logLines].join('\n');
-
-        expect(surfaces).not.toContain(REGISTERED_TOKEN);
-        expect(listText).not.toContain('credential');
+            expect(surfaces).not.toContain(REGISTERED_TOKEN);
+            expect(listText).not.toContain('credential');
+        }
     });
 });
 
 describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
-    it('refreshes only credential, login, scopeCheck, and verifiedAt', async () => {
-        const github = fakeGitHub({ user: USER_OK });
-        const service = await startWithVerifier(github.verifier);
-        await verifyOk(service);
-        const before = await readStoredAccount(service.dataDir);
-        const auditBefore = await readFile(join(service.dataDir, AUDIT_FILE), 'utf8');
-        github.setScript({ user: USER_RENAMED });
+    it('refreshes only credential, login, scopeCheck, and ve… (+4 cases)', async () => {
+        // case: refreshes only credential, login, scopeCheck, and verifiedAt
+        {
+            const github = fakeGitHub({ user: USER_OK });
+            const service = await startWithVerifier(github.verifier);
+            await verifyOk(service);
+            const before = await readStoredAccount(service.dataDir);
+            const auditBefore = await readFile(join(service.dataDir, AUDIT_FILE), 'utf8');
+            github.setScript({ user: USER_RENAMED });
 
-        const response = await rotateToken({ service, token: `${REGISTERED_TOKEN}-rotated` });
-        const body = (await response.json()) as Record<string, unknown>;
+            const response = await rotateToken({ service, token: `${REGISTERED_TOKEN}-rotated` });
+            const body = (await response.json()) as Record<string, unknown>;
 
-        expect(response.status).toBe(200);
-        expect(body).toMatchObject({ numericUserId: String(ACCOUNT_ID), login: ROTATED_LOGIN });
-        const after = await readStoredAccount(service.dataDir);
+            expect(response.status).toBe(200);
+            expect(body).toMatchObject({ numericUserId: String(ACCOUNT_ID), login: ROTATED_LOGIN });
+            const after = await readStoredAccount(service.dataDir);
 
-        expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
-        const changed = Object.keys(after)
-            .filter((key) => JSON.stringify(after[key]) !== JSON.stringify(before[key]))
-            .sort();
-        expect(changed).toEqual(['credential', 'login', 'scopeCheck', 'verifiedAt']);
-        expect(after.numericUserId).toBe(String(ACCOUNT_ID));
+            expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+            const changed = Object.keys(after)
+                .filter((key) => JSON.stringify(after[key]) !== JSON.stringify(before[key]))
+                .sort();
+            expect(changed).toEqual(['credential', 'login', 'scopeCheck', 'verifiedAt']);
+            expect(after.numericUserId).toBe(String(ACCOUNT_ID));
 
-        // Audit history is append-only: every earlier row survives untouched.
-        const auditAfter = await readFile(join(service.dataDir, AUDIT_FILE), 'utf8');
-        expect(auditAfter.startsWith(auditBefore)).toBe(true);
-        expect(auditAfter).toContain('account.rotated');
-    });
+            // Audit history is append-only: every earlier row survives untouched.
+            const auditAfter = await readFile(join(service.dataDir, AUDIT_FILE), 'utf8');
+            expect(auditAfter.startsWith(auditBefore)).toBe(true);
+            expect(auditAfter).toContain('account.rotated');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: stores the rotated credential owner-only
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
 
-    it('stores the rotated credential owner-only', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
+            await rotateToken({ service, token: `${REGISTERED_TOKEN}-rotated` });
 
-        await rotateToken({ service, token: `${REGISTERED_TOKEN}-rotated` });
+            const file = join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
+            const info = await stat(file);
+            expect(info.mode % PERMISSION_BASE).toBe(0o600);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses a token whose numeric id differs, leaving the store byte-identical
+        {
+            const github = fakeGitHub({ user: USER_OK });
+            const service = await startWithVerifier(github.verifier);
+            await verifyOk(service);
+            const accountFile = join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
+            const before = await readFile(accountFile, 'utf8');
+            github.setScript({ user: USER_OTHER_ID });
 
-        const file = join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
-        const info = await stat(file);
-        expect(info.mode % PERMISSION_BASE).toBe(0o600);
-    });
+            const response = await rotateToken({ service, token: `${REGISTERED_TOKEN}-impostor` });
+            const error = (await response.json()) as { error?: { code?: string } };
 
-    it('refuses a token whose numeric id differs, leaving the store byte-identical', async () => {
-        const github = fakeGitHub({ user: USER_OK });
-        const service = await startWithVerifier(github.verifier);
-        await verifyOk(service);
-        const accountFile = join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
-        const before = await readFile(accountFile, 'utf8');
-        github.setScript({ user: USER_OTHER_ID });
+            expect(response.status).toBe(422);
+            expect(error.error?.code).toBe('account-rejected');
+            expect(await readFile(accountFile, 'utf8')).toBe(before);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: answers 404 for an account that does not exist
+        {
+            const service = await startService({ user: USER_OK });
 
-        const response = await rotateToken({ service, token: `${REGISTERED_TOKEN}-impostor` });
-        const error = (await response.json()) as { error?: { code?: string } };
+            const response = await rotateToken({ service, token: REGISTERED_TOKEN, userId: String(OTHER_ACCOUNT_ID) });
+            const error = (await response.json()) as { error?: { code?: string } };
 
-        expect(response.status).toBe(422);
-        expect(error.error?.code).toBe('account-rejected');
-        expect(await readFile(accountFile, 'utf8')).toBe(before);
-    });
+            expect(response.status).toBe(404);
+            expect(error.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: restores an errored account to active after a successful rotation
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+            const errored = { ...(await readStoredAccount(
+                service.dataDir
+            )), state: 'error', errorReason: 'auth-failed' };
+            await writeFile(join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`), JSON.stringify(errored), 'utf8');
 
-    it('answers 404 for an account that does not exist', async () => {
-        const service = await startService({ user: USER_OK });
+            const response = await rotateToken({ service, token: `${REGISTERED_TOKEN}-rotated` });
 
-        const response = await rotateToken({ service, token: REGISTERED_TOKEN, userId: String(OTHER_ACCOUNT_ID) });
-        const error = (await response.json()) as { error?: { code?: string } };
-
-        expect(response.status).toBe(404);
-        expect(error.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
-    });
-
-    it('restores an errored account to active after a successful rotation', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
-        const errored = { ...(await readStoredAccount(service.dataDir)), state: 'error', errorReason: 'auth-failed' };
-        await writeFile(join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`), JSON.stringify(errored), 'utf8');
-
-        const response = await rotateToken({ service, token: `${REGISTERED_TOKEN}-rotated` });
-
-        expect(response.status).toBe(200);
-        const after = await readStoredAccount(service.dataDir);
-        expect(after.state).toBe('active');
-        expect(after.errorReason).toBeNull();
+            expect(response.status).toBe(200);
+            const after = await readStoredAccount(service.dataDir);
+            expect(after.state).toBe('active');
+            expect(after.errorReason).toBeNull();
+        }
     });
 });
 
 describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7)', () => {
-    it('removes the account when no binding references it', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
+    it('removes the account when no binding references it (+2 cases)', async () => {
+        // case: removes the account when no binding references it
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
 
-        const response = await service.call(ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID)), {
-            method: 'DELETE',
-        });
-        const body = (await response.json()) as { removed?: boolean };
-        const audit = await readFile(join(service.dataDir, AUDIT_FILE), 'utf8');
+            const response = await service.call(ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID)), {
+                method: 'DELETE',
+            });
+            const body = (await response.json()) as { removed?: boolean };
+            const audit = await readFile(join(service.dataDir, AUDIT_FILE), 'utf8');
 
-        expect(response.status).toBe(200);
-        expect(body.removed).toBe(true);
-        await expect(stat(join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`))).rejects.toThrow();
-        expect(audit).toContain('account.deleted');
-    });
+            expect(response.status).toBe(200);
+            expect(body.removed).toBe(true);
+            await expect(stat(join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`))).rejects.toThrow();
+            expect(audit).toContain('account.deleted');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses while a binding references the account, unless force=1
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+            const binding = { bindingId: 'bind-1', accountNumericUserId: String(ACCOUNT_ID), state: 'active' };
+            await writeFile(join(service.dataDir, BINDINGS_FILE), JSON.stringify([binding]), 'utf8');
+            const path = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
 
-    it('refuses while a binding references the account, unless force=1', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
-        const binding = { bindingId: 'bind-1', accountNumericUserId: String(ACCOUNT_ID), state: 'active' };
-        await writeFile(join(service.dataDir, BINDINGS_FILE), JSON.stringify([binding]), 'utf8');
-        const path = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+            const refused = await service.call(path, { method: 'DELETE' });
+            const error = (await refused.json()) as { error?: { code?: string } };
 
-        const refused = await service.call(path, { method: 'DELETE' });
-        const error = (await refused.json()) as { error?: { code?: string } };
+            expect(refused.status).toBe(409);
+            expect(error.error?.code).toBe('invalid-transition');
+            await expect(stat(join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`))).resolves.toBeDefined();
 
-        expect(refused.status).toBe(409);
-        expect(error.error?.code).toBe('invalid-transition');
-        await expect(stat(join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`))).resolves.toBeDefined();
+            const forced = await service.call(`${path}?force=1`, { method: 'DELETE' });
+            const stored = (await readFile(join(service.dataDir, BINDINGS_FILE), 'utf8'));
+            const audit = await readFile(join(service.dataDir, AUDIT_FILE), 'utf8');
+            const bindings = JSON.parse(stored) as { state: string }[];
 
-        const forced = await service.call(`${path}?force=1`, { method: 'DELETE' });
-        const stored = (await readFile(join(service.dataDir, BINDINGS_FILE), 'utf8'));
-        const audit = await readFile(join(service.dataDir, AUDIT_FILE), 'utf8');
-        const bindings = JSON.parse(stored) as { state: string }[];
+            expect(forced.status).toBe(200);
+            expect(bindings).toEqual([{ ...binding, state: 'disabled' }]);
+            expect(audit).toContain('binding.disabled');
+            expect(audit).toContain('account.deleted');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: answers 404 for an unknown or non-numeric id
+        {
+            const service = await startService({ user: USER_OK });
 
-        expect(forced.status).toBe(200);
-        expect(bindings).toEqual([{ ...binding, state: 'disabled' }]);
-        expect(audit).toContain('binding.disabled');
-        expect(audit).toContain('account.deleted');
-    });
-
-    it('answers 404 for an unknown or non-numeric id', async () => {
-        const service = await startService({ user: USER_OK });
-
-        for (const id of [String(OTHER_ACCOUNT_ID), 'not-a-number']) {
-            const response = await service.call(ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, id), { method: 'DELETE' });
-            const error = (await response.json()) as { error?: { code?: string } };
-            expect(response.status).toBe(404);
-            expect(error.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
+            for (const id of [String(OTHER_ACCOUNT_ID), 'not-a-number']) {
+                const response = await service.call(ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, id), { method: 'DELETE' });
+                const error = (await response.json()) as { error?: { code?: string } };
+                expect(response.status).toBe(404);
+                expect(error.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
+            }
         }
     });
 });
@@ -444,40 +472,45 @@ describe('GET /v1/status — handoff pre-flight (contract §2.1, SEC-08)', () =>
 });
 
 describe('F13 — startup reconciliation of interrupted handoffs', () => {
-    it('marks a stranded account error:interrupted-handoff when re-verification fails', async () => {
-        const dataDir = await plantTransientAccount('verifying');
-        const rejecter = scriptedVerifier(() => ({ kind: 'rejected' as const, reason: 'auth-failed' as const }));
-        const service = await startWithVerifier(rejecter.verifier, dataDir);
+    it('marks a stranded account error:interrupted-handoff w… (+1 cases)', async () => {
+        // case: marks a stranded account error:interrupted-handoff when re-verification fails
+        {
+            const dataDir = await plantTransientAccount('verifying');
+            const rejecter = scriptedVerifier(() => ({ kind: 'rejected' as const, reason: 'auth-failed' as const }));
+            const service = await startWithVerifier(rejecter.verifier, dataDir);
 
-        // Await the reconciliation pass before reading anything it writes —
-        // the helper already waited once, this states the dependency for the
-        // assertions that follow (T-009o flake-guard).
-        const summary = await service.handle.reconciled;
-        const account = await readStoredAccount(dataDir);
-        const audit = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
+            // Await the reconciliation pass before reading anything it writes —
+            // the helper already waited once, this states the dependency for the
+            // assertions that follow (T-009o flake-guard).
+            const summary = await service.handle.reconciled;
+            const account = await readStoredAccount(dataDir);
+            const audit = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
 
-        expect(summary).toMatchObject({ examined: 1, marked: 1, restored: 0 });
-        expect(account.state).toBe('error');
-        expect(account.errorReason).toBe('interrupted-handoff');
-        expect(audit).toContain('"eventType":"account.error"');
-        expect(account.state).not.toBe('verifying');
-    });
+            expect(summary).toMatchObject({ examined: 1, marked: 1, restored: 0 });
+            expect(account.state).toBe('error');
+            expect(account.errorReason).toBe('interrupted-handoff');
+            expect(audit).toContain('"eventType":"account.error"');
+            expect(account.state).not.toBe('verifying');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: re-verifies a stranded account back to active when GitHub still knows it
+        {
+            const dataDir = await plantTransientAccount('pending_handoff');
+            const service = await startService({ user: USER_RENAMED }, dataDir);
 
-    it('re-verifies a stranded account back to active when GitHub still knows it', async () => {
-        const dataDir = await plantTransientAccount('pending_handoff');
-        const service = await startService({ user: USER_RENAMED }, dataDir);
+            // Await the reconciliation pass before reading anything it writes
+            // (T-009o flake-guard; see the sibling case above).
+            const summary = await service.handle.reconciled;
+            const account = await readStoredAccount(dataDir);
+            const audit = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
 
-        // Await the reconciliation pass before reading anything it writes
-        // (T-009o flake-guard; see the sibling case above).
-        const summary = await service.handle.reconciled;
-        const account = await readStoredAccount(dataDir);
-        const audit = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
-
-        expect(summary).toMatchObject({ examined: 1, marked: 1, restored: 1 });
-        expect(account.state).toBe('active');
-        expect(account.login).toBe(ROTATED_LOGIN);
-        expect(account.errorReason).toBeNull();
-        expect(audit).toContain('"eventType":"account.error"');
+            expect(summary).toMatchObject({ examined: 1, marked: 1, restored: 1 });
+            expect(account.state).toBe('active');
+            expect(account.login).toBe(ROTATED_LOGIN);
+            expect(account.errorReason).toBeNull();
+            expect(audit).toContain('"eventType":"account.error"');
+        }
     });
 });
 
@@ -569,155 +602,177 @@ function accountFileOf(service: TestService): string {
 }
 
 describe('PUT /v1/accounts/:id/display-name — the one display-only field (005 FR-066)', () => {
-    it('stores a label, trims it, and changes nothing but the label and its stamp', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
-        const before = await storedAccount(service);
+    it('stores a label, trims it, and changes nothing but th… (+5 cases)', async () => {
+        // case: stores a label, trims it, and changes nothing but the label and its stamp
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+            const before = await storedAccount(service);
 
-        const response = await putDisplayName(service, JSON.stringify({ displayName: '  Octo platform  ' }));
-        const body = (await response.json()) as { readonly account: AccountDto };
+            const response = await putDisplayName(service, JSON.stringify({ displayName: '  Octo platform  ' }));
+            const body = (await response.json()) as { readonly account: AccountDto };
 
-        expect(response.status).toBe(200);
-        expect('credential' in body.account).toBe(false);
+            expect(response.status).toBe(200);
+            expect('credential' in body.account).toBe(false);
 
-        const after = await storedAccount(service);
-        const changed = Object.keys(after).filter((key) => JSON.stringify(after[key]) !== JSON.stringify(before[key]));
-        expect(changed).toContain(FIELD);
-        expect(changed.filter((key) => key !== FIELD && key !== 'updatedAt')).toEqual([]);
+            const after = await storedAccount(service);
+            const changed = Object.keys(after).filter((key) => JSON.stringify(after[key]) !== JSON.stringify(
+                before[key]
+            ));
+            expect(changed).toContain(FIELD);
+            expect(changed.filter((key) => key !== FIELD && key !== 'updatedAt')).toEqual([]);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses a body that does not carry the member, rather than no-oping
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+            const file = accountFileOf(service);
+            const before = await readFile(file, 'utf8');
+
+            const response = await putDisplayName(service, JSON.stringify({}));
+            const issue = await issueOf(response);
+
+            expect(response.status).toBe(422);
+            expect(issue.field).toBe(FIELD);
+            expect(issue.remediation).not.toBe('');
+            expect(await readFile(file, 'utf8')).toBe(before);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses a credential-shaped value by field, never echoing what was sent (AC-130)
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+            await putDisplayName(service, JSON.stringify({ displayName: 'the label in force' }));
+            const file = accountFileOf(service);
+            const before = await readFile(file, 'utf8');
+            const submitted = `ghp_${SENTINEL}${'a'.repeat(24)}`;
+
+            const response = await putDisplayName(service, JSON.stringify({ displayName: submitted }));
+            const text = await response.text();
+            const parsed = JSON.parse(text) as {
+                readonly error: { readonly issues: { readonly field: string; readonly remediation: string }[] };
+            };
+            const issue = parsed.error.issues[0] ?? { field: '', remediation: '' };
+
+            expect(response.status).toBe(422);
+            expect(issue.field).toBe(FIELD);
+            expect(text).not.toContain(SENTINEL);
+            // The previous label stays in force, byte for byte.
+            expect(await readFile(file, 'utf8')).toBe(before);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: clears on null and on empty-after-trim, and refuses anything that is not text
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+
+            expect(await putStatus(service, JSON.stringify({ displayName: 'kept' }))).toBe(200);
+            expect(await putStatus(service, JSON.stringify({ displayName: '   ' }))).toBe(200);
+            const afterBlank = await storedAccount(service);
+            expect(afterBlank[FIELD]).toBeNull();
+
+            expect(await putStatus(service, JSON.stringify({ displayName: 'back again' }))).toBe(200);
+            expect(await putStatus(service, JSON.stringify({ displayName: null }))).toBe(200);
+            const afterNull = await storedAccount(service);
+            expect(afterNull[FIELD]).toBeNull();
+
+            const refused = await putDisplayName(service, JSON.stringify({ displayName: 42 }));
+            expect(refused.status).toBe(422);
+            const issue = await issueOf(refused);
+            expect(issue.field).toBe(FIELD);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: caps the label at 80 code points and refuses control characters
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+
+            expect(await putStatus(service, JSON.stringify({ displayName: 'x'.repeat(80) }))).toBe(200);
+
+            const overCap = await putDisplayName(service, JSON.stringify({ displayName: 'x'.repeat(81) }));
+            const capIssue = await issueOf(overCap);
+            expect(overCap.status).toBe(422);
+            expect(capIssue.field).toBe(FIELD);
+            expect(capIssue.remediation).toContain('80');
+
+            const controlled = await putDisplayName(service, JSON.stringify({ displayName: 'badname\u0007x' }));
+
+            const controlIssue = await issueOf(controlled);
+            expect(controlled.status).toBe(422);
+            expect(controlIssue.field).toBe(FIELD);
+            expect(controlIssue.remediation).not.toContain('bad');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: reads as null for a store that predates the field, rewriting nothing (FR-005)
+        {
+            const dataDir = await sharedDataDir();
+            const service = await startService({ user: USER_OK }, dataDir);
+            await verifyOk(service);
+            const file = join(dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
+            const legacy = await readStoredAccount(dataDir);
+            const withoutLabel = Object.fromEntries(Object.entries(legacy).filter(([key]) => key !== FIELD));
+            await writeFile(file, JSON.stringify(withoutLabel, null, 2), 'utf8');
+            const bytes = await readFile(file, 'utf8');
+
+            const response = await service.call(ACCOUNTS_PATH);
+            const body = (await response.json()) as { readonly accounts: readonly AccountDto[] };
+
+            expect(body.accounts[0]?.displayName).toBeNull();
+            expect(await readFile(file, 'utf8')).toBe(bytes);
+        }
     });
 
-    it('refuses a body that does not carry the member, rather than no-oping', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
-        const file = accountFileOf(service);
-        const before = await readFile(file, 'utf8');
+    it('keeps the label when an upstream login rename refres… (+2 cases)', async () => {
+        // case: keeps the label when an upstream login rename refreshes the login (AC-128)
+        {
+            const github = fakeGitHub({ user: USER_OK });
+            const service = await startWithVerifier(github.verifier);
+            await verifyOk(service);
+            expect(await putStatus(service, JSON.stringify({ displayName: 'Platform team' }))).toBe(200);
+            github.setScript({ user: USER_RENAMED });
 
-        const response = await putDisplayName(service, JSON.stringify({}));
-        const issue = await issueOf(response);
+            const rotated = await rotateToken({ service, token: `${REGISTERED_TOKEN}-rotated` });
+            expect(rotated.status).toBe(200);
 
-        expect(response.status).toBe(422);
-        expect(issue.field).toBe(FIELD);
-        expect(issue.remediation).not.toBe('');
-        expect(await readFile(file, 'utf8')).toBe(before);
-    });
+            const listed = await service.call(ACCOUNTS_PATH);
+            const body = (await listed.json()) as { readonly accounts: readonly AccountDto[] };
 
-    it('refuses a credential-shaped value by field, never echoing what was sent (AC-130)', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
-        await putDisplayName(service, JSON.stringify({ displayName: 'the label in force' }));
-        const file = accountFileOf(service);
-        const before = await readFile(file, 'utf8');
-        const submitted = `ghp_${SENTINEL}${'a'.repeat(24)}`;
+            expect(body.accounts[0]?.login).toBe(ROTATED_LOGIN);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: answers a populated label with no credential-shaped text (AC-129)
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+            const benign = 'Platform owned by the release rotation, contact ops';
+            expect(await putStatus(service, JSON.stringify({ displayName: benign }))).toBe(200);
 
-        const response = await putDisplayName(service, JSON.stringify({ displayName: submitted }));
-        const text = await response.text();
-        const parsed = JSON.parse(text) as {
-            readonly error: { readonly issues: { readonly field: string; readonly remediation: string }[] };
-        };
-        const issue = parsed.error.issues[0] ?? { field: '', remediation: '' };
+            const listed = await service.call(ACCOUNTS_PATH);
+            const text = await listed.text();
 
-        expect(response.status).toBe(422);
-        expect(issue.field).toBe(FIELD);
-        expect(text).not.toContain(SENTINEL);
-        // The previous label stays in force, byte for byte.
-        expect(await readFile(file, 'utf8')).toBe(before);
-    });
+            expect(text).toContain(benign);
+            expect(text).not.toMatch(/\bgh[pousr]_[A-Za-z0-9]{20,}/);
+            expect(text).not.toMatch(/\bgithub_pat_[A-Za-z0-9_]{20,}/);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: answers 404 for an id no account holds
+        {
+            const service = await startService({ user: USER_OK });
 
-    it('clears on null and on empty-after-trim, and refuses anything that is not text', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
+            const body = JSON.stringify({ displayName: 'nobody' });
+            const response = await putDisplayNameAt({ service, userId: '123456789', body });
+            const envelope = (await response.json()) as { error?: { code?: string } };
 
-        expect(await putStatus(service, JSON.stringify({ displayName: 'kept' }))).toBe(200);
-        expect(await putStatus(service, JSON.stringify({ displayName: '   ' }))).toBe(200);
-        const afterBlank = await storedAccount(service);
-        expect(afterBlank[FIELD]).toBeNull();
-
-        expect(await putStatus(service, JSON.stringify({ displayName: 'back again' }))).toBe(200);
-        expect(await putStatus(service, JSON.stringify({ displayName: null }))).toBe(200);
-        const afterNull = await storedAccount(service);
-        expect(afterNull[FIELD]).toBeNull();
-
-        const refused = await putDisplayName(service, JSON.stringify({ displayName: 42 }));
-        expect(refused.status).toBe(422);
-        const issue = await issueOf(refused);
-        expect(issue.field).toBe(FIELD);
-    });
-
-    it('caps the label at 80 code points and refuses control characters', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
-
-        expect(await putStatus(service, JSON.stringify({ displayName: 'x'.repeat(80) }))).toBe(200);
-
-        const overCap = await putDisplayName(service, JSON.stringify({ displayName: 'x'.repeat(81) }));
-        const capIssue = await issueOf(overCap);
-        expect(overCap.status).toBe(422);
-        expect(capIssue.field).toBe(FIELD);
-        expect(capIssue.remediation).toContain('80');
-
-        const controlled = await putDisplayName(service, JSON.stringify({ displayName: 'badname\u0007x' }));
-
-        const controlIssue = await issueOf(controlled);
-        expect(controlled.status).toBe(422);
-        expect(controlIssue.field).toBe(FIELD);
-        expect(controlIssue.remediation).not.toContain('bad');
-    });
-
-    it('reads as null for a store that predates the field, rewriting nothing (FR-005)', async () => {
-        const dataDir = await sharedDataDir();
-        const service = await startService({ user: USER_OK }, dataDir);
-        await verifyOk(service);
-        const file = join(dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
-        const legacy = await readStoredAccount(dataDir);
-        const withoutLabel = Object.fromEntries(Object.entries(legacy).filter(([key]) => key !== FIELD));
-        await writeFile(file, JSON.stringify(withoutLabel, null, 2), 'utf8');
-        const bytes = await readFile(file, 'utf8');
-
-        const response = await service.call(ACCOUNTS_PATH);
-        const body = (await response.json()) as { readonly accounts: readonly AccountDto[] };
-
-        expect(body.accounts[0]?.displayName).toBeNull();
-        expect(await readFile(file, 'utf8')).toBe(bytes);
-    });
-
-    it('keeps the label when an upstream login rename refreshes the login (AC-128)', async () => {
-        const github = fakeGitHub({ user: USER_OK });
-        const service = await startWithVerifier(github.verifier);
-        await verifyOk(service);
-        expect(await putStatus(service, JSON.stringify({ displayName: 'Platform team' }))).toBe(200);
-        github.setScript({ user: USER_RENAMED });
-
-        const rotated = await rotateToken({ service, token: `${REGISTERED_TOKEN}-rotated` });
-        expect(rotated.status).toBe(200);
-
-        const listed = await service.call(ACCOUNTS_PATH);
-        const body = (await listed.json()) as { readonly accounts: readonly AccountDto[] };
-
-        expect(body.accounts[0]?.login).toBe(ROTATED_LOGIN);
-    });
-
-    it('answers a populated label with no credential-shaped text (AC-129)', async () => {
-        const service = await startService({ user: USER_OK });
-        await verifyOk(service);
-        const benign = 'Platform owned by the release rotation, contact ops';
-        expect(await putStatus(service, JSON.stringify({ displayName: benign }))).toBe(200);
-
-        const listed = await service.call(ACCOUNTS_PATH);
-        const text = await listed.text();
-
-        expect(text).toContain(benign);
-        expect(text).not.toMatch(/\bgh[pousr]_[A-Za-z0-9]{20,}/);
-        expect(text).not.toMatch(/\bgithub_pat_[A-Za-z0-9_]{20,}/);
-    });
-
-    it('answers 404 for an id no account holds', async () => {
-        const service = await startService({ user: USER_OK });
-
-        const body = JSON.stringify({ displayName: 'nobody' });
-        const response = await putDisplayNameAt({ service, userId: '123456789', body });
-        const envelope = (await response.json()) as { error?: { code?: string } };
-
-        expect(response.status).toBe(404);
-        expect(envelope.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
+            expect(response.status).toBe(404);
+            expect(envelope.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
+        }
     });
 });

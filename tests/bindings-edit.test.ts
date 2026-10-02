@@ -65,12 +65,15 @@ const REFUSED_PROMPT = 'ghp_AbCdEf0123456789AbCdEf0123456789AbCd';
 /** Running harness instances, drained between tests. */
 const running: TestService[] = [];
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork1 = async (): Promise<void> => {
     while (running.length > 0) {
         const service = running.pop();
         await service?.shutdown();
     }
-});
+};
+
+afterEach(afterEachWork1);
 
 /** Build a header map without writing HTTP header names as object keys. */
 function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
@@ -205,156 +208,170 @@ async function editorRuntime(service: TestService): Promise<ReturnType<typeof cr
 }
 
 describe('loading the selected binding into the editor (FR-053)', () => {
-    it('repopulates every field, and readDraft answers with the stored row', async () => {
-        const service = await startWithAccount();
-        await seedRow(service, panelRow());
-        const rt = await editorRuntime(service);
+    it('repopulates every field, and readDraft answers with … (+2 cases)', async () => {
+        // case: repopulates every field, and readDraft answers with the stored row
+        {
+            const service = await startWithAccount();
+            await seedRow(service, panelRow());
+            const rt = await editorRuntime(service);
 
-        startEditingBinding(rt);
+            startEditingBinding(rt);
 
-        const { bindings } = rt.state;
-        expect(bindings.editing).toBe(true);
-        expect(bindings.repoInput).toBe(REPOSITORY);
-        expect(bindings.accountSelection).toBe(ACCOUNT_ID);
-        expect(bindings.repoProjectSelection).toBe(PROJECT_ID);
-        expect(bindings.triggerAssignment).toBe(true);
-        expect(bindings.triggerMention).toBe(false);
-        expect(bindings.triggerReviewRequest).toBe(true);
-        expect(bindings.worktreeSelection).toBe('none');
-        expect(bindings.startingPromptInput).toBe(STORED_PROMPT);
-        expect(bindings.startingPromptDirty).toBe(false);
+            const { bindings } = rt.state;
+            expect(bindings.editing).toBe(true);
+            expect(bindings.repoInput).toBe(REPOSITORY);
+            expect(bindings.accountSelection).toBe(ACCOUNT_ID);
+            expect(bindings.repoProjectSelection).toBe(PROJECT_ID);
+            expect(bindings.triggerAssignment).toBe(true);
+            expect(bindings.triggerMention).toBe(false);
+            expect(bindings.triggerReviewRequest).toBe(true);
+            expect(bindings.worktreeSelection).toBe('none');
+            expect(bindings.startingPromptInput).toBe(STORED_PROMPT);
+            expect(bindings.startingPromptDirty).toBe(false);
 
-        // What the form now displays is what a save would write: the draft
-        // reads back as the stored row under its own id, state, and stamp.
-        const draft = readDraft(bindings, { bindingId: BINDING_ID });
-        expect(draft).not.toBeNull();
-        expect(draft).toMatchObject({
-            bindingId: BINDING_ID,
-            accountNumericUserId: ACCOUNT_ID,
-            accountLogin: ACCOUNT_LOGIN,
-            repository: REPOSITORY,
-            projectId: PROJECT_ID,
-            worktreeOption: 'none',
-            state: 'active',
-            createdAt: STAMP,
-        });
-        expect(draft?.triggers).toEqual({ assignment: true, mention: false, reviewRequest: true });
-    });
+            // What the form now displays is what a save would write: the draft
+            // reads back as the stored row under its own id, state, and stamp.
+            const draft = readDraft(bindings, { bindingId: BINDING_ID });
+            expect(draft).not.toBeNull();
+            expect(draft).toMatchObject({
+                bindingId: BINDING_ID,
+                accountNumericUserId: ACCOUNT_ID,
+                accountLogin: ACCOUNT_LOGIN,
+                repository: REPOSITORY,
+                projectId: PROJECT_ID,
+                worktreeOption: 'none',
+                state: 'active',
+                createdAt: STAMP,
+            });
+            expect(draft?.triggers).toEqual({ assignment: true, mention: false, reviewRequest: true });
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: demands a selection instead of inventing a row to edit
+        {
+            const service = await startWithAccount();
+            await seedRow(service, panelRow());
+            const rt = await editorRuntime(service);
+            rt.state.bindings.selectedBinding = null;
 
-    it('demands a selection instead of inventing a row to edit', async () => {
-        const service = await startWithAccount();
-        await seedRow(service, panelRow());
-        const rt = await editorRuntime(service);
-        rt.state.bindings.selectedBinding = null;
+            startEditingBinding(rt);
 
-        startEditingBinding(rt);
+            expect(rt.state.bindings.editing).toBe(false);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: refuses a row whose worktree option the editor cannot render (FR-003)
+        {
+            const service = await startWithAccount();
+            await seedRow(service, { ...panelRow(), worktreeOption: 'new:feature' });
+            const rt = await editorRuntime(service);
 
-        expect(rt.state.bindings.editing).toBe(false);
-    });
+            startEditingBinding(rt);
 
-    it('refuses a row whose worktree option the editor cannot render (FR-003)', async () => {
-        const service = await startWithAccount();
-        await seedRow(service, { ...panelRow(), worktreeOption: 'new:feature' });
-        const rt = await editorRuntime(service);
-
-        startEditingBinding(rt);
-
-        // Loading it would display `none` and silently rewrite `new:feature`
-        // on save, so the edit does not open at all — and says why.
-        expect(rt.state.bindings.editing).toBe(false);
-        expect(rt.state.bindings.note).toContain('new:feature');
-        expect(rt.state.bindings.repoInput).toBe('');
+            // Loading it would display `none` and silently rewrite `new:feature`
+            // on save, so the edit does not open at all — and says why.
+            expect(rt.state.bindings.editing).toBe(false);
+            expect(rt.state.bindings.note).toContain('new:feature');
+            expect(rt.state.bindings.repoInput).toBe('');
+        }
     });
 });
 
 describe('saving an edited binding through the whole-file grant (FR-050)', () => {
-    it('round-trips the edited fields through the real service', async () => {
-        const service = await startWithAccount();
-        await seedRow(service, panelRow());
-        const rt = await editorRuntime(service);
-        const handlers = createBindingsHandlers(rt);
+    it('round-trips the edited fields through the real servi… (+2 cases)', async () => {
+        // case: round-trips the edited fields through the real service
+        {
+            const service = await startWithAccount();
+            await seedRow(service, panelRow());
+            const rt = await editorRuntime(service);
+            const handlers = createBindingsHandlers(rt);
 
-        handlers.selectBinding(BINDING_ID);
-        handlers.setMention(true);
-        handlers.setWorktree('generated');
-        handlers.setRepoInput(NEXT_REPOSITORY);
-        // The prompt the operator did not touch must not travel: the service
-        // keeps the stored one (004 FR-014's omission-preserves rule).
-        await saveEditedBinding(rt);
-        stopRelayPolling(rt);
+            handlers.selectBinding(BINDING_ID);
+            handlers.setMention(true);
+            handlers.setWorktree('generated');
+            handlers.setRepoInput(NEXT_REPOSITORY);
+            // The prompt the operator did not touch must not travel: the service
+            // keeps the stored one (004 FR-014's omission-preserves rule).
+            await saveEditedBinding(rt);
+            stopRelayPolling(rt);
 
-        const [saved] = await storedBindings(service);
-        expect(saved).toBeDefined();
-        expect(saved).toMatchObject({
-            bindingId: BINDING_ID,
-            repository: NEXT_REPOSITORY,
-            projectId: PROJECT_ID,
-            worktreeOption: 'generated',
-            state: 'active',
-            createdAt: STAMP,
-            accountNumericUserId: ACCOUNT_ID,
-            accountLogin: ACCOUNT_LOGIN,
-        });
-        const triggers: PanelTriggers | undefined = saved?.triggers;
-        expect(triggers).toEqual({ assignment: true, mention: true, reviewRequest: true });
-        // The untouched prompt survived the write that carried no prompt.
-        expect(saved?.startingPrompt).toBe(STORED_PROMPT);
+            const [saved] = await storedBindings(service);
+            expect(saved).toBeDefined();
+            expect(saved).toMatchObject({
+                bindingId: BINDING_ID,
+                repository: NEXT_REPOSITORY,
+                projectId: PROJECT_ID,
+                worktreeOption: 'generated',
+                state: 'active',
+                createdAt: STAMP,
+                accountNumericUserId: ACCOUNT_ID,
+                accountLogin: ACCOUNT_LOGIN,
+            });
+            const triggers: PanelTriggers | undefined = saved?.triggers;
+            expect(triggers).toEqual({ assignment: true, mention: true, reviewRequest: true });
+            // The untouched prompt survived the write that carried no prompt.
+            expect(saved?.startingPrompt).toBe(STORED_PROMPT);
 
-        // The panel's own list follows the service's answer, and edit mode
-        // closes on a save the service accepted.
-        expect(rt.state.bindings.bindings[0]?.repository).toBe(NEXT_REPOSITORY);
-        expect(rt.state.bindings.editing).toBe(false);
-        expect(rt.state.bindings.note).toBe(`Saved ${NEXT_REPOSITORY}.`);
-    });
+            // The panel's own list follows the service's answer, and edit mode
+            // closes on a save the service accepted.
+            expect(rt.state.bindings.bindings[0]?.repository).toBe(NEXT_REPOSITORY);
+            expect(rt.state.bindings.editing).toBe(false);
+            expect(rt.state.bindings.note).toBe(`Saved ${NEXT_REPOSITORY}.`);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: keeps the row byte-identical and renders the remediation when the service refuses
+        {
+            const service = await startWithAccount();
+            await seedRow(service, panelRow());
+            const rt = await editorRuntime(service);
+            const handlers = createBindingsHandlers(rt);
 
-    it('keeps the row byte-identical and renders the remediation when the service refuses', async () => {
-        const service = await startWithAccount();
-        await seedRow(service, panelRow());
-        const rt = await editorRuntime(service);
-        const handlers = createBindingsHandlers(rt);
+            handlers.selectBinding(BINDING_ID);
+            handlers.setStartingPrompt(REFUSED_PROMPT);
+            handlers.setMention(true);
+            await saveEditedBinding(rt);
+            stopRelayPolling(rt);
 
-        handlers.selectBinding(BINDING_ID);
-        handlers.setStartingPrompt(REFUSED_PROMPT);
-        handlers.setMention(true);
-        await saveEditedBinding(rt);
-        stopRelayPolling(rt);
+            // Nothing was written: the service still holds the row it held.
+            const [stored] = await storedBindings(service);
+            expect(stored).toMatchObject({
+                bindingId: BINDING_ID,
+                repository: REPOSITORY,
+                worktreeOption: 'none',
+                startingPrompt: STORED_PROMPT,
+            });
+            const triggers: PanelTriggers | undefined = stored?.triggers;
+            expect(triggers).toEqual({ assignment: true, mention: false, reviewRequest: true });
 
-        // Nothing was written: the service still holds the row it held.
-        const [stored] = await storedBindings(service);
-        expect(stored).toMatchObject({
-            bindingId: BINDING_ID,
-            repository: REPOSITORY,
-            worktreeOption: 'none',
-            startingPrompt: STORED_PROMPT,
-        });
-        const triggers: PanelTriggers | undefined = stored?.triggers;
-        expect(triggers).toEqual({ assignment: true, mention: false, reviewRequest: true });
+            // The refusal lands on the field it belongs to (FR-052) rather than
+            // behind a generic failure, the draft stays for the operator to fix,
+            // and nothing is reported as saved.
+            expect(rt.state.bindings.startingPromptError).toContain('startingPrompt');
+            expect(rt.state.bindings.startingPromptInput).toBe(REFUSED_PROMPT);
+            expect(rt.state.bindings.editing).toBe(true);
+            expect(rt.state.bindings.note).not.toContain('Saved');
+            expect(rt.state.bindings.note).not.toContain(REFUSED_PROMPT);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: leaves the list untouched when the draft no longer reads (repository shape)
+        {
+            const service = await startWithAccount();
+            await seedRow(service, panelRow());
+            const rt = await editorRuntime(service);
+            const handlers = createBindingsHandlers(rt);
 
-        // The refusal lands on the field it belongs to (FR-052) rather than
-        // behind a generic failure, the draft stays for the operator to fix,
-        // and nothing is reported as saved.
-        expect(rt.state.bindings.startingPromptError).toContain('startingPrompt');
-        expect(rt.state.bindings.startingPromptInput).toBe(REFUSED_PROMPT);
-        expect(rt.state.bindings.editing).toBe(true);
-        expect(rt.state.bindings.note).not.toContain('Saved');
-        expect(rt.state.bindings.note).not.toContain(REFUSED_PROMPT);
-    });
+            handlers.selectBinding(BINDING_ID);
+            handlers.setRepoInput('not-a-repository');
+            await saveEditedBinding(rt);
+            stopRelayPolling(rt);
 
-    it('leaves the list untouched when the draft no longer reads (repository shape)', async () => {
-        const service = await startWithAccount();
-        await seedRow(service, panelRow());
-        const rt = await editorRuntime(service);
-        const handlers = createBindingsHandlers(rt);
-
-        handlers.selectBinding(BINDING_ID);
-        handlers.setRepoInput('not-a-repository');
-        await saveEditedBinding(rt);
-        stopRelayPolling(rt);
-
-        const [stored] = await storedBindings(service);
-        expect(stored?.repository).toBe(REPOSITORY);
-        expect(rt.state.bindings.note).toBe('repository must be `owner/name`');
-        expect(rt.state.bindings.editing).toBe(true);
+            const [stored] = await storedBindings(service);
+            expect(stored?.repository).toBe(REPOSITORY);
+            expect(rt.state.bindings.note).toBe('repository must be `owner/name`');
+            expect(rt.state.bindings.editing).toBe(true);
+        }
     });
 });
 
@@ -387,96 +404,106 @@ function otherRow(): PanelBinding {
 }
 
 describe('the row click is the Edit affordance (FR-050, FR-081)', () => {
-    it('loads on a row click, and another row click swaps the edit to that row', () => {
-        const { host } = recordingHost();
-        const rt = createTestRuntime(host);
-        rt.state.bindings.status = 'ready';
-        rt.state.bindings.bindings = [panelRow(), otherRow()];
-        rt.state.bindings.selectedBinding = BINDING_ID;
-        const handlers = createBindingsHandlers(rt);
+    it('loads on a row click, and another row click swaps th… (+1 cases)', async () => {
+        // case: loads on a row click, and another row click swaps the edit to that row
+        {
+            const { host } = recordingHost();
+            const rt = createTestRuntime(host);
+            rt.state.bindings.status = 'ready';
+            rt.state.bindings.bindings = [panelRow(), otherRow()];
+            rt.state.bindings.selectedBinding = BINDING_ID;
+            const handlers = createBindingsHandlers(rt);
 
-        handlers.selectBinding(BINDING_ID);
-        expect(rt.state.bindings.editing).toBe(true);
-        expect(rt.state.bindings.editorOpen).toBe(true);
-        expect(rt.state.bindings.repoInput).toBe(REPOSITORY);
+            handlers.selectBinding(BINDING_ID);
+            expect(rt.state.bindings.editing).toBe(true);
+            expect(rt.state.bindings.editorOpen).toBe(true);
+            expect(rt.state.bindings.repoInput).toBe(REPOSITORY);
 
-        // A stray click on the row being edited keeps the edit open.
-        handlers.selectBinding(BINDING_ID);
-        expect(rt.state.bindings.editing).toBe(true);
-        expect(rt.state.bindings.repoInput).toBe(REPOSITORY);
+            // A stray click on the row being edited keeps the edit open.
+            handlers.selectBinding(BINDING_ID);
+            expect(rt.state.bindings.editing).toBe(true);
+            expect(rt.state.bindings.repoInput).toBe(REPOSITORY);
 
-        // Clicking another row loads **that** row: one row's draft must never
-        // stay pointed at a different row, or a save would write these values
-        // into the row the selection now names.
-        handlers.selectBinding('bnd-other');
-        expect(rt.state.bindings.editing).toBe(true);
-        expect(rt.state.bindings.repoInput).toBe('acme/other');
-        expect(rt.state.bindings.startingPromptInput).toBe('');
+            // Clicking another row loads **that** row: one row's draft must never
+            // stay pointed at a different row, or a save would write these values
+            // into the row the selection now names.
+            handlers.selectBinding('bnd-other');
+            expect(rt.state.bindings.editing).toBe(true);
+            expect(rt.state.bindings.repoInput).toBe('acme/other');
+            expect(rt.state.bindings.startingPromptInput).toBe('');
 
-        handlers.cancelEdit();
-        expect(rt.state.bindings.editing).toBe(false);
-        expect(rt.state.bindings.editorOpen).toBe(false);
-        expect(rt.state.bindings.repoInput).toBe('');
-    });
+            handlers.cancelEdit();
+            expect(rt.state.bindings.editing).toBe(false);
+            expect(rt.state.bindings.editorOpen).toBe(false);
+            expect(rt.state.bindings.repoInput).toBe('');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: routes the primary control to the save once the row is loaded
+        {
+            const { host, puts } = recordingHost();
+            const rt = createTestRuntime(host);
+            rt.state.bindings.status = 'ready';
+            rt.state.bindings.bindings = [panelRow()];
+            rt.state.bindings.selectedBinding = BINDING_ID;
+            const handlers = createBindingsHandlers(rt);
 
-    it('routes the primary control to the save once the row is loaded', async () => {
-        const { host, puts } = recordingHost();
-        const rt = createTestRuntime(host);
-        rt.state.bindings.status = 'ready';
-        rt.state.bindings.bindings = [panelRow()];
-        rt.state.bindings.selectedBinding = BINDING_ID;
-        const handlers = createBindingsHandlers(rt);
+            handlers.selectBinding(BINDING_ID);
+            handlers.setMention(true);
+            handlers.submit();
+            await tick();
 
-        handlers.selectBinding(BINDING_ID);
-        handlers.setMention(true);
-        handlers.submit();
-        await tick();
-
-        expect(puts).toHaveLength(1);
-        const sent = JSON.parse(puts[0] ?? '{}') as { readonly bindings: readonly PanelBinding[] };
-        expect(sent.bindings[0]?.bindingId).toBe(BINDING_ID);
-        expect(sent.bindings[0]?.triggers.mention).toBe(true);
-        expect(rt.state.bindings.editing).toBe(false);
-        // A save the service accepted closes the editor: the list is the
-        // surface the result belongs to (2026-10-01 review).
-        expect(rt.state.bindings.editorOpen).toBe(false);
-        stopRelayPolling(rt);
+            expect(puts).toHaveLength(1);
+            const sent = JSON.parse(puts[0] ?? '{}') as { readonly bindings: readonly PanelBinding[] };
+            expect(sent.bindings[0]?.bindingId).toBe(BINDING_ID);
+            expect(sent.bindings[0]?.triggers.mention).toBe(true);
+            expect(rt.state.bindings.editing).toBe(false);
+            // A save the service accepted closes the editor: the list is the
+            // surface the result belongs to (2026-10-01 review).
+            expect(rt.state.bindings.editorOpen).toBe(false);
+            stopRelayPolling(rt);
+        }
     });
 });
 
 describe('New binding opens the editor on an empty draft (2026-10-01 review)', () => {
-    it('selects nothing, empties every field, and opens the editor', () => {
-        const rt = createTestRuntime(recordingHost().host);
-        rt.state.bindings.status = 'ready';
-        rt.state.bindings.bindings = [panelRow()];
-        rt.state.bindings.selectedBinding = BINDING_ID;
-        rt.state.bindings.repoInput = panelRow().repository;
-        rt.state.bindings.note = 'an older refusal';
-        const handlers = createBindingsHandlers(rt);
+    it('selects nothing, empties every field, and opens the … (+1 cases)', async () => {
+        // case: selects nothing, empties every field, and opens the editor
+        {
+            const rt = createTestRuntime(recordingHost().host);
+            rt.state.bindings.status = 'ready';
+            rt.state.bindings.bindings = [panelRow()];
+            rt.state.bindings.selectedBinding = BINDING_ID;
+            rt.state.bindings.repoInput = panelRow().repository;
+            rt.state.bindings.note = 'an older refusal';
+            const handlers = createBindingsHandlers(rt);
 
-        handlers.newBinding();
+            handlers.newBinding();
 
-        const { bindings } = rt.state;
-        expect(bindings.editorOpen).toBe(true);
-        expect(bindings.editing).toBe(false);
-        expect(bindings.selectedBinding).toBeNull();
-        expect(bindings.repoInput).toBe('');
-        expect(bindings.note).toBe('');
-        expect(bindings.startingPromptInput).toBe('');
-        expect(bindings.startingPromptDirty).toBe(false);
-    });
+            const { bindings } = rt.state;
+            expect(bindings.editorOpen).toBe(true);
+            expect(bindings.editing).toBe(false);
+            expect(bindings.selectedBinding).toBeNull();
+            expect(bindings.repoInput).toBe('');
+            expect(bindings.note).toBe('');
+            expect(bindings.startingPromptInput).toBe('');
+            expect(bindings.startingPromptDirty).toBe(false);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: closes again on cancel, with nothing written
+        {
+            const rt = createTestRuntime(recordingHost().host);
+            rt.state.bindings.status = 'ready';
+            const handlers = createBindingsHandlers(rt);
 
-    it('closes again on cancel, with nothing written', () => {
-        const rt = createTestRuntime(recordingHost().host);
-        rt.state.bindings.status = 'ready';
-        const handlers = createBindingsHandlers(rt);
+            handlers.newBinding();
+            handlers.setRepoInput('acme/brand-new');
+            handlers.cancelEdit();
 
-        handlers.newBinding();
-        handlers.setRepoInput('acme/brand-new');
-        handlers.cancelEdit();
-
-        expect(rt.state.bindings.editorOpen).toBe(false);
-        expect(rt.state.bindings.repoInput).toBe('');
-        expect(rt.state.bindings.note).toBe('');
+            expect(rt.state.bindings.editorOpen).toBe(false);
+            expect(rt.state.bindings.repoInput).toBe('');
+            expect(rt.state.bindings.note).toBe('');
+        }
     });
 });

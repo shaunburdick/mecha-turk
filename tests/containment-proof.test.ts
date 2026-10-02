@@ -378,48 +378,51 @@ describe('FR-005 / NFR-103 a pre-003 store boots through the upgraded panel and 
 });
 
 describe('NFR-102 / AC-129 no surface carries the credential in the store', () => {
-    it('keeps the planted token out of every rendered string and every storage value', async () => {
-        const { loop, rt } = await bootUpgradedPanel();
-        try {
-            await tick();
-            const rendered = stringsOf(mounts.log);
-            const stored = JSON.stringify([...loop.panelStorage.values()]);
-
-            expect(rendered).not.toContain(PLANTED_TOKEN);
-            expect(findSecretLeak(rendered)).toBeNull();
-            expect(stored).not.toContain(PLANTED_TOKEN);
-            expect(findSecretLeak(stored)).toBeNull();
-            // Not vacuous: the credential really is in the store beside them.
-            const account = await loop.store.readJson(ACCOUNT_FILE, (value) => value);
-            expect(JSON.stringify(account)).toContain(PLANTED_TOKEN);
-        } finally {
-            rt.shell?.dispose();
-            await loop.shutdown();
-        }
-    });
-
-    it('renders the starting prompt in exactly one place (SC-105)', async () => {
-        const { loop, rt } = await bootUpgradedPanel();
-        try {
-            // The field opens on what the service holds for the selected row,
-            // which is the only place the text may appear — and the row only
-            // exists once the mount's own read has landed.
-            for (let attempt = 0; attempt < 100 && rt.state.bindings.bindings.length === 0; attempt += 1) {
+    it('keeps the planted token out of every rendered string… (+1 cases)', async () => {
+        // case: keeps the planted token out of every rendered string and every storage value
+        {
+            const { loop, rt } = await bootUpgradedPanel();
+            try {
                 await tick();
+                const rendered = stringsOf(mounts.log);
+                const stored = JSON.stringify([...loop.panelStorage.values()]);
+
+                expect(rendered).not.toContain(PLANTED_TOKEN);
+                expect(findSecretLeak(rendered)).toBeNull();
+                expect(stored).not.toContain(PLANTED_TOKEN);
+                expect(findSecretLeak(stored)).toBeNull();
+                // Not vacuous: the credential really is in the store beside them.
+                const account = await loop.store.readJson(ACCOUNT_FILE, (value) => value);
+                expect(JSON.stringify(account)).toContain(PLANTED_TOKEN);
+            } finally {
+                rt.shell?.dispose();
+                await loop.shutdown();
             }
+        }
+        // case: renders the starting prompt in exactly one place (SC-105)
+        {
+            const { loop, rt } = await bootUpgradedPanel();
+            try {
+                // The field opens on what the service holds for the selected row,
+                // which is the only place the text may appear — and the row only
+                // exists once the mount's own read has landed.
+                for (let attempt = 0; attempt < 100 && rt.state.bindings.bindings.length === 0; attempt += 1) {
+                    await tick();
+                }
 
-            createBindingsHandlers(rt).selectBinding(BINDING_ID);
-            await tick();
-            const carrying = mounts.log.filter((entry) =>
-                JSON.stringify(entry.props ?? null).includes(PLANTED_PROMPT));
+                createBindingsHandlers(rt).selectBinding(BINDING_ID);
+                await tick();
+                const carrying = mounts.log.filter((entry) =>
+                    JSON.stringify(entry.props ?? null).includes(PLANTED_PROMPT));
 
-            expect(carrying).toHaveLength(1);
-            // One element carries it, and that element is the text field —
-            // never a second surface (SC-105 fails at 0 and at 2 alike).
-            expect(carrying[0]?.key.startsWith('mountTextField')).toBe(true);
-        } finally {
-            rt.shell?.dispose();
-            await loop.shutdown();
+                expect(carrying).toHaveLength(1);
+                // One element carries it, and that element is the text field —
+                // never a second surface (SC-105 fails at 0 and at 2 alike).
+                expect(carrying[0]?.key.startsWith('mountTextField')).toBe(true);
+            } finally {
+                rt.shell?.dispose();
+                await loop.shutdown();
+            }
         }
     });
 });
@@ -451,32 +454,35 @@ describe('FR-002 / FR-089 the panel never writes to GitHub and never mutates the
 });
 
 describe('FR-025 / FR-026 no storage key is added, and the wire keeps its members', () => {
-    it('uses exactly the documented storage keys and never stores the active tab', () => {
-        const keys = new Set<string>();
-        for (const text of panelSources()) {
-            for (const match of text.matchAll(/'mecha-turk:([a-z-]+)'/g)) {
-                keys.add(`mecha-turk:${match[1]}`);
+    it('uses exactly the documented storage keys and never s… (+1 cases)', async () => {
+        // case: uses exactly the documented storage keys and never stores the active tab
+        {
+            const keys = new Set<string>();
+            for (const text of panelSources()) {
+                for (const match of text.matchAll(/'mecha-turk:([a-z-]+)'/g)) {
+                    keys.add(`mecha-turk:${match[1]}`);
+                }
             }
+
+            for (const key of STORAGE_KEYS) {
+                expect(keys, `${key} must still be in use`).toContain(key);
+            }
+            expect([...keys].filter((key) => key.includes('tab'))).toEqual([]);
+            expect(keys.size).toBeLessThanOrEqual(STORAGE_KEYS.length + 1);
         }
+        // case: keeps the `repositories` member the status document answers with (FR-026)
+        {
+            const loop = await startDispatchLoop();
+            try {
+                const response = await loop.service.call('/v1/status');
+                const body = (await response.json()) as Record<string, unknown>;
 
-        for (const key of STORAGE_KEYS) {
-            expect(keys, `${key} must still be in use`).toContain(key);
-        }
-        expect([...keys].filter((key) => key.includes('tab'))).toEqual([]);
-        expect(keys.size).toBeLessThanOrEqual(STORAGE_KEYS.length + 1);
-    });
-
-    it('keeps the `repositories` member the status document answers with (FR-026)', async () => {
-        const loop = await startDispatchLoop();
-        try {
-            const response = await loop.service.call('/v1/status');
-            const body = (await response.json()) as Record<string, unknown>;
-
-            expect(response.status).toBe(200);
-            expect(Object.keys(body)).toContain('repositories');
-            expect(Array.isArray(body.repositories)).toBe(true);
-        } finally {
-            await loop.shutdown();
+                expect(response.status).toBe(200);
+                expect(Object.keys(body)).toContain('repositories');
+                expect(Array.isArray(body.repositories)).toBe(true);
+            } finally {
+                await loop.shutdown();
+            }
         }
     });
 });

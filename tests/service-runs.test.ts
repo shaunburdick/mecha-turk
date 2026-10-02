@@ -111,7 +111,8 @@ const plantedRoots: string[] = [];
 /** Log lines the direct store calls in this suite keep out of the test output. */
 const SEED_LOG_LINES: string[] = [];
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork1 = async (): Promise<void> => {
     SEED_LOG_LINES.length = 0;
 
     while (running.length > 0) {
@@ -125,7 +126,9 @@ afterEach(async () => {
             await rm(root, { recursive: true, force: true });
         }
     }
-});
+};
+
+afterEach(afterEachWork1);
 
 /**
  * Start the service and register the fixture account, so a real credential
@@ -354,139 +357,148 @@ interface HistoryAnswer {
 }
 
 describe('GET /v1/events (runs history)', () => {
-    it('projects every run newest-detected-first, field set exactly as documented', async () => {
-        const service = await startWithQueue([
-            fixtureEvent({ issueNumber: 1, detectedAt: '2026-09-27T00:01:00.000Z', kind: 'assignment' }),
-            fixtureEvent({ issueNumber: 3, detectedAt: '2026-09-27T00:03:00.000Z', kind: 'review' }),
-            fixtureEvent({ issueNumber: 2, detectedAt: '2026-09-27T00:02:00.000Z', kind: 'mention' }),
-        ]);
+    it('projects every run newest-detected-first, field set … (+3 cases)', async () => {
+        // case: projects every run newest-detected-first, field set exactly as documented
+        {
+            const service = await startWithQueue([
+                fixtureEvent({ issueNumber: 1, detectedAt: '2026-09-27T00:01:00.000Z', kind: 'assignment' }),
+                fixtureEvent({ issueNumber: 3, detectedAt: '2026-09-27T00:03:00.000Z', kind: 'review' }),
+                fixtureEvent({ issueNumber: 2, detectedAt: '2026-09-27T00:02:00.000Z', kind: 'mention' }),
+            ]);
 
-        const response = await service.call(EVENTS_PATH);
-        expect(response.status).toBe(200);
+            const response = await service.call(EVENTS_PATH);
+            expect(response.status).toBe(200);
 
-        const body = (await response.json()) as { events: Record<string, unknown>[] };
-        expect(body.events.map((row) => row.issueNumber)).toEqual([3, 2, 1]);
-        expect(body.events.map((row) => row.kind)).toEqual(['review', 'mention', 'assignment']);
-        // The projection carries the contract's members and the shipped row's
-        // own, in one documented order: the review row adds the optional PR
-        // coordinates, the other two do not (contract §1).
-        expect(body.events.map((row) => Object.keys(row))).toEqual([
-            [...PROJECTED_FIELDS, 'headSha', 'baseRef'],
-            [...PROJECTED_FIELDS],
-            [...PROJECTED_FIELDS],
-        ]);
-        expect(body.events[0]?.headSha).toBe('deadbeefcafe000000000000000000000000beef');
-        expect(body.events[0]?.baseRef).toBe('main');
-        // The row *is* the run: one service-minted id is the row key, the
-        // correlation id, and the attachment id (FR-029, FR-050), and a
-        // freshly adopted legacy row is waiting under attempt 1 (FR-005).
-        expect(body.events.every((row) => row.state === 'pending')).toBe(true);
-        expect(body.events.every((row) => row.id === row.correlationId && row.id === row.attachmentId)).toBe(true);
-        expect(body.events.every((row) => row.attempt === 1)).toBe(true);
-        expect(String(body.events[0]?.runKey)).toContain('acme/widget');
-        // The read claims nothing: the runs it projected are still waiting.
-        const stored = await readStoredRuns(service);
-        expect(stored.every((run) => run.state === 'pending')).toBe(true);
-        expect(stored.every((run) => run.lease === null)).toBe(true);
-    });
-
-    it('pages the history: 25 by default, 100 at most, and the oldest still reachable', async () => {
-        const rows: QueuedEvent[] = [];
-        for (let issueNumber = 1; issueNumber <= 105; issueNumber += 1) {
-            rows.push(fixtureEvent({ issueNumber, detectedAt: detectionStamp(issueNumber), kind: 'assignment' }));
+            const body = (await response.json()) as { events: Record<string, unknown>[] };
+            expect(body.events.map((row) => row.issueNumber)).toEqual([3, 2, 1]);
+            expect(body.events.map((row) => row.kind)).toEqual(['review', 'mention', 'assignment']);
+            // The projection carries the contract's members and the shipped row's
+            // own, in one documented order: the review row adds the optional PR
+            // coordinates, the other two do not (contract §1).
+            expect(body.events.map((row) => Object.keys(row))).toEqual([
+                [...PROJECTED_FIELDS, 'headSha', 'baseRef'],
+                [...PROJECTED_FIELDS],
+                [...PROJECTED_FIELDS],
+            ]);
+            expect(body.events[0]?.headSha).toBe('deadbeefcafe000000000000000000000000beef');
+            expect(body.events[0]?.baseRef).toBe('main');
+            // The row *is* the run: one service-minted id is the row key, the
+            // correlation id, and the attachment id (FR-029, FR-050), and a
+            // freshly adopted legacy row is waiting under attempt 1 (FR-005).
+            expect(body.events.every((row) => row.state === 'pending')).toBe(true);
+            expect(body.events.every((row) => row.id === row.correlationId && row.id === row.attachmentId)).toBe(true);
+            expect(body.events.every((row) => row.attempt === 1)).toBe(true);
+            expect(String(body.events[0]?.runKey)).toContain('acme/widget');
+            // The read claims nothing: the runs it projected are still waiting.
+            const stored = await readStoredRuns(service);
+            expect(stored.every((run) => run.state === 'pending')).toBe(true);
+            expect(stored.every((run) => run.lease === null)).toBe(true);
         }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: pages the history: 25 by default, 100 at most, and the oldest still reachable
+        {
+            const rows: QueuedEvent[] = [];
+            for (let issueNumber = 1; issueNumber <= 105; issueNumber += 1) {
+                rows.push(fixtureEvent({ issueNumber, detectedAt: detectionStamp(issueNumber), kind: 'assignment' }));
+            }
 
-        const service = await startWithQueue(rows);
+            const service = await startWithQueue(rows);
 
-        const first = await service.call(EVENTS_PATH);
-        expect(first.status).toBe(200);
-        const pageOne = (await first.json()) as HistoryAnswer;
-        // The default page is 25, and the total is the set — never the page.
-        expect(pageOne.events).toHaveLength(25);
-        expect(pageOne.page.limit).toBe(25);
-        expect(pageOne.page.total).toBe(105);
-        expect(pageOne.page.hasMore).toBe(true);
-        expect(pageOne.page.nextCursor).not.toBeNull();
-        expect(pageOne.page.filter).toEqual({ bindingId: null, state: null });
-        expect(pageOne.page.snapshotAt).not.toBe('');
-        expect(pageOne.events[0]?.issueNumber).toBe(105);
+            const first = await service.call(EVENTS_PATH);
+            expect(first.status).toBe(200);
+            const pageOne = (await first.json()) as HistoryAnswer;
+            // The default page is 25, and the total is the set — never the page.
+            expect(pageOne.events).toHaveLength(25);
+            expect(pageOne.page.limit).toBe(25);
+            expect(pageOne.page.total).toBe(105);
+            expect(pageOne.page.hasMore).toBe(true);
+            expect(pageOne.page.nextCursor).not.toBeNull();
+            expect(pageOne.page.filter).toEqual({ bindingId: null, state: null });
+            expect(pageOne.page.snapshotAt).not.toBe('');
+            expect(pageOne.events[0]?.issueNumber).toBe(105);
 
-        // The shipped 100-row cap is the maximum page size, not a wall.
-        const capped = await service.call(`${EVENTS_PATH}?limit=100`);
-        const capAnswer = (await capped.json()) as HistoryAnswer;
-        expect(capAnswer.events).toHaveLength(100);
-        expect(capAnswer.page.limit).toBe(100);
-        expect(capAnswer.page.total).toBe(105);
-        expect(capAnswer.events[0]?.issueNumber).toBe(105);
-        expect(capAnswer.events.at(-1)?.issueNumber).toBe(6);
+            // The shipped 100-row cap is the maximum page size, not a wall.
+            const capped = await service.call(`${EVENTS_PATH}?limit=100`);
+            const capAnswer = (await capped.json()) as HistoryAnswer;
+            expect(capAnswer.events).toHaveLength(100);
+            expect(capAnswer.page.limit).toBe(100);
+            expect(capAnswer.page.total).toBe(105);
+            expect(capAnswer.events[0]?.issueNumber).toBe(105);
+            expect(capAnswer.events.at(-1)?.issueNumber).toBe(6);
 
-        // …so the 101st row is reachable through the boundary token.
-        const cursor = capAnswer.page.nextCursor;
-        expect(cursor).not.toBeNull();
-        const tail = await service.call(`${EVENTS_PATH}?limit=100&cursor=${encodeURIComponent(cursor ?? '')}`);
-        const tailAnswer = (await tail.json()) as HistoryAnswer;
-        expect(tailAnswer.events).toHaveLength(5);
-        expect(tailAnswer.events[0]?.issueNumber).toBe(5);
-        expect(tailAnswer.events.at(-1)?.issueNumber).toBe(1);
-        expect(tailAnswer.page.hasMore).toBe(false);
-        expect(tailAnswer.page.nextCursor).toBeNull();
-        expect(tailAnswer.page.total).toBe(105);
+            // …so the 101st row is reachable through the boundary token.
+            const cursor = capAnswer.page.nextCursor;
+            expect(cursor).not.toBeNull();
+            const tail = await service.call(`${EVENTS_PATH}?limit=100&cursor=${encodeURIComponent(cursor ?? '')}`);
+            const tailAnswer = (await tail.json()) as HistoryAnswer;
+            expect(tailAnswer.events).toHaveLength(5);
+            expect(tailAnswer.events[0]?.issueNumber).toBe(5);
+            expect(tailAnswer.events.at(-1)?.issueNumber).toBe(1);
+            expect(tailAnswer.page.hasMore).toBe(false);
+            expect(tailAnswer.page.nextCursor).toBeNull();
+            expect(tailAnswer.page.total).toBe(105);
 
-        // No duplicate and no gap across the boundary (AC-121).
-        const seen = new Set([
-            ...capAnswer.events.map((row) => String(row.correlationId)),
-            ...tailAnswer.events.map((row) => String(row.correlationId)),
-        ]);
-        expect(seen.size).toBe(105);
-    });
+            // No duplicate and no gap across the boundary (AC-121).
+            const seen = new Set([
+                ...capAnswer.events.map((row) => String(row.correlationId)),
+                ...tailAnswer.events.map((row) => String(row.correlationId)),
+            ]);
+            expect(seen.size).toBe(105);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: keeps the claim route reachable beside the new literal route
+        {
+            // A legacy row has to be in the store *before* the service adopts it,
+            // because adoption is one-shot per store handle by design (FR-005), so
+            // the fixture seeds a data directory and starts the service on it.
+            const service = await startWithQueue([
+                fixtureEvent({ issueNumber: 8, detectedAt: STAMP, kind: 'assignment' }),
+            ]);
 
-    it('keeps the claim route reachable beside the new literal route', async () => {
-        // A legacy row has to be in the store *before* the service adopts it,
-        // because adoption is one-shot per store handle by design (FR-005), so
-        // the fixture seeds a data directory and starts the service on it.
-        const service = await startWithQueue([
-            fixtureEvent({ issueNumber: 8, detectedAt: STAMP, kind: 'assignment' }),
-        ]);
+            // `/v1/events` and `/v1/events/pending` are both literal routes; the
+            // runs history must not have shadowed the relay's claim. The answer is
+            // the adopted run, offered under a lease (T-007).
+            const response = await service.call(EVENTS_PENDING_PATH);
 
-        // `/v1/events` and `/v1/events/pending` are both literal routes; the
-        // runs history must not have shadowed the relay's claim. The answer is
-        // the adopted run, offered under a lease (T-007).
-        const response = await service.call(EVENTS_PENDING_PATH);
+            expect(response.status).toBe(200);
+            const body = (await response.json()) as { events: Record<string, unknown>[] };
+            expect(body.events).toHaveLength(1);
+            expect(body.events[0]?.state).toBe('pending');
+            expect(body.events[0]?.issueNumber).toBe(8);
+            expect(body.events[0]?.lease).toMatchObject({ holder: 'unknown' });
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: keeps the registered credential and the account login out of the answer
+        {
+            const service = await startWithAccount();
+            // A run of this suite's own making, so the answer is non-empty and the
+            // scan below reads a real projection rather than an empty list.
+            const appended = await enqueueEvents({
+                store: storeOf(service),
+                log: suiteLogger(),
+                incoming: [createEvent(snapshotOf({
+                    issueNumber: 7,
+                    detectedAt: '2026-09-27T00:07:00.000Z',
+                    kind: 'mention',
+                }))],
+            });
+            expect(appended).toHaveLength(1);
 
-        expect(response.status).toBe(200);
-        const body = (await response.json()) as { events: Record<string, unknown>[] };
-        expect(body.events).toHaveLength(1);
-        expect(body.events[0]?.state).toBe('pending');
-        expect(body.events[0]?.issueNumber).toBe(8);
-        expect(body.events[0]?.lease).toMatchObject({ holder: 'unknown' });
-    });
+            const response = await service.call(EVENTS_PATH);
+            expect(response.status).toBe(200);
 
-    it('keeps the registered credential and the account login out of the answer', async () => {
-        const service = await startWithAccount();
-        // A run of this suite's own making, so the answer is non-empty and the
-        // scan below reads a real projection rather than an empty list.
-        const appended = await enqueueEvents({
-            store: storeOf(service),
-            log: suiteLogger(),
-            incoming: [createEvent(snapshotOf({
-                issueNumber: 7,
-                detectedAt: '2026-09-27T00:07:00.000Z',
-                kind: 'mention',
-            }))],
-        });
-        expect(appended).toHaveLength(1);
-
-        const response = await service.call(EVENTS_PATH);
-        expect(response.status).toBe(200);
-
-        const text = await response.text();
-        const body = JSON.parse(text) as { events: Record<string, unknown>[] };
-        expect(body.events).toHaveLength(1);
-        expect(text).not.toContain(REGISTERED_TOKEN);
-        expect(text).not.toContain(ACCOUNT_LOGIN);
-        // A dispatch token is an authorization, not history: the row says a
-        // reservation exists and when it dies, never what it is (NFR-106).
-        expect(text).not.toMatch(/dtk-[0-9a-f]{8,}/);
+            const text = await response.text();
+            const body = JSON.parse(text) as { events: Record<string, unknown>[] };
+            expect(body.events).toHaveLength(1);
+            expect(text).not.toContain(REGISTERED_TOKEN);
+            expect(text).not.toContain(ACCOUNT_LOGIN);
+            // A dispatch token is an authorization, not history: the row says a
+            // reservation exists and when it dies, never what it is (NFR-106).
+            expect(text).not.toMatch(/dtk-[0-9a-f]{8,}/);
+        }
     });
 });
 

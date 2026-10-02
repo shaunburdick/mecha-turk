@@ -51,77 +51,83 @@ interface ServiceEntryModule {
 }
 
 describe('built panel bundle', () => {
-    it('exists where the manifest expects it', () => {
-        expect(existsSync(BUNDLE)).toBe(true);
-    });
-
-    it('is a classic IIFE rather than an ES module', () => {
-        const bundle = readFileSync(BUNDLE, UTF8);
-        expect(bundle.startsWith('(()=>{')).toBe(true);
-        expect(bundle.trimEnd().endsWith('})();')).toBe(true);
-        expect(bundle).not.toContain('import.meta');
-        expect(bundle).not.toMatch(/(^|\n)export\s/m);
-        expect(bundle).not.toMatch(/(^|\n)import\s/m);
-    });
-
-    it('carries no GitHub token material', () => {
-        const bundle = readFileSync(BUNDLE, UTF8);
-        for (const pattern of TOKEN_PATTERNS) {
-            expect(bundle).not.toMatch(pattern);
+    it('exists where the manifest expects it (+5 cases)', () => {
+        // case: exists where the manifest expects it
+        {
+            expect(existsSync(BUNDLE)).toBe(true);
         }
-    });
-
-    it('is committed to the repository (006 AC-145, invariant 1)', () => {
-        // The host never compiles TypeScript for the panel either, so an
-        // uncommitted bundle would install a shell with nothing behind it.
-        const tracked = execFileSync('git', ['ls-files', '--error-unmatch', PANEL_BUNDLE_PATH], {
-            cwd: ROOT,
-            encoding: UTF8,
-        });
-
-        expect(tracked.trim()).toBe(PANEL_BUNDLE_PATH);
-    });
-
-    it('ships the Bindings body (MVP blocker, 2026-09-27; re-cut by 005 T-009)', () => {
-        const bundle = readFileSync(BUNDLE, UTF8);
-
-        // The mount-time gate greps the bundle for the pane's marker; the
-        // minifier renames identifiers and strips comments, so the marker
-        // rides a runtime attribute instead: `data-mount="mountBindingsBody"`.
-        expect(bundle).toContain('mountBindingsBody');
-        // And a semantic proof that is only true when the pane's code is
-        // actually bundled: the empty-list copy the pane itself renders.
-        // FR-020: the tab's status line leads with *Bindings*, and the retired
-        // noun it used to lead with appears nowhere in the shipped bundle.
-        expect(bundle).not.toContain('Repositories: ');
-    });
-
-    it('ships the six-tab shell and none of the spike controls it retired (005 T-010)', () => {
-        const bundle = readFileSync(BUNDLE, UTF8);
-
-        // FR-011: the spike surface is deleted, not hidden — so what ships
-        // carries none of its controls, and the six labels FR-010 names do.
-        for (const retired of ['Start session', 'Record phase', 'Observed phase', 'Verify host state']) {
-            expect(bundle).not.toContain(retired);
+        // case: is a classic IIFE rather than an ES module
+        {
+            const bundle = readFileSync(BUNDLE, UTF8);
+            expect(bundle.startsWith('(()=>{')).toBe(true);
+            expect(bundle.trimEnd().endsWith('})();')).toBe(true);
+            expect(bundle).not.toContain('import.meta');
+            expect(bundle).not.toMatch(/(^|\n)export\s/m);
+            expect(bundle).not.toMatch(/(^|\n)import\s/m);
         }
+        // case: carries no GitHub token material
+        {
+            const bundle = readFileSync(BUNDLE, UTF8);
+            for (const pattern of TOKEN_PATTERNS) {
+                expect(bundle).not.toMatch(pattern);
+            }
+        }
+        // case: is committed to the repository (006 AC-145, invariant 1)
+        {
+            // The host never compiles TypeScript for the panel either, so an
+            // uncommitted bundle would install a shell with nothing behind it.
+            const tracked = execFileSync('git', ['ls-files', '--error-unmatch', PANEL_BUNDLE_PATH], {
+                cwd: ROOT,
+                encoding: UTF8,
+            });
 
-        for (const label of ['Status', 'Dispatches', 'Bindings', 'Accounts', 'Settings', 'About']) {
-            expect(bundle).toContain(`"${label}"`);
+            expect(tracked.trim()).toBe(PANEL_BUNDLE_PATH);
+        }
+        // case: ships the Bindings body (MVP blocker, 2026-09-27; re-cut by 005 T-009)
+        {
+            const bundle = readFileSync(BUNDLE, UTF8);
+
+            // The mount-time gate greps the bundle for the pane's marker; the
+            // minifier renames identifiers and strips comments, so the marker
+            // rides a runtime attribute instead: `data-mount="mountBindingsBody"`.
+            expect(bundle).toContain('mountBindingsBody');
+            // And a semantic proof that is only true when the pane's code is
+            // actually bundled: the empty-list copy the pane itself renders.
+            // FR-020: the tab's status line leads with *Bindings*, and the retired
+            // noun it used to lead with appears nowhere in the shipped bundle.
+            expect(bundle).not.toContain('Repositories: ');
+        }
+        // case: ships the six-tab shell and none of the spike controls it retired (005 T-010)
+        {
+            const bundle = readFileSync(BUNDLE, UTF8);
+
+            // FR-011: the spike surface is deleted, not hidden — so what ships
+            // carries none of its controls, and the six labels FR-010 names do.
+            for (const retired of ['Start session', 'Record phase', 'Observed phase', 'Verify host state']) {
+                expect(bundle).not.toContain(retired);
+            }
+
+            for (const label of ['Status', 'Dispatches', 'Bindings', 'Accounts', 'Settings', 'About']) {
+                expect(bundle).toContain(`"${label}"`);
+            }
         }
     });
 });
 
 describe('panel html', () => {
-    it('loads the bundled script', () => {
-        const html = readFileSync(PANEL_HTML, UTF8);
-        expect(html).toContain('<script src="main.js"></script>');
-    });
-
-    it('carries no inline secrets or external origins', () => {
-        const html = readFileSync(PANEL_HTML, UTF8);
-        expect(html).not.toMatch(/(token|secret|password)\s*=/i);
-        for (const pattern of TOKEN_PATTERNS) {
-            expect(html).not.toMatch(pattern);
+    it('loads the bundled script (+1 cases)', () => {
+        // case: loads the bundled script
+        {
+            const html = readFileSync(PANEL_HTML, UTF8);
+            expect(html).toContain('<script src="main.js"></script>');
+        }
+        // case: carries no inline secrets or external origins
+        {
+            const html = readFileSync(PANEL_HTML, UTF8);
+            expect(html).not.toMatch(/(token|secret|password)\s*=/i);
+            for (const pattern of TOKEN_PATTERNS) {
+                expect(html).not.toMatch(pattern);
+            }
         }
     });
 });
@@ -430,63 +436,70 @@ describe('003 records carry no credential (AC-120, NFR-106)', () => {
 });
 
 describe('NFR-109 no HTML sink on a shipped artifact or a new field', () => {
-    it('keeps both committed bundles free of HTML sinks', () => {
-        for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
-            const text = readFileSync(bundle, UTF8);
-            for (const sink of HTML_SINKS) {
-                expect(text, `${bundle} must not use ${sink.source}`).not.toMatch(sink);
+    it('keeps both committed bundles free of HTML sinks (+1 cases)', () => {
+        // case: keeps both committed bundles free of HTML sinks
+        {
+            for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
+                const text = readFileSync(bundle, UTF8);
+                for (const sink of HTML_SINKS) {
+                    expect(text, `${bundle} must not use ${sink.source}`).not.toMatch(sink);
+                }
             }
         }
-    });
-
-    it('keeps every module that renders a 003 field on the text-only path', () => {
-        const sources = scanSources();
-        const rendered = [DISPATCHES_ROWS_MODULE, 'src/audit-view.ts', 'src/prerequisites.ts', 'src/dispatches-ui.ts'];
-        for (const path of rendered) {
-            const file = sources.find((candidate) => candidate.path === path);
-            expect(file, `${path} was not scanned`).toBeDefined();
-            for (const sink of HTML_SINKS) {
-                expect(file?.text, `${path} must not use ${sink.source}`).not.toMatch(sink);
+        // case: keeps every module that renders a 003 field on the text-only path
+        {
+            const sources = scanSources();
+            const rendered = [
+                DISPATCHES_ROWS_MODULE, 'src/audit-view.ts', 'src/prerequisites.ts', 'src/dispatches-ui.ts'];
+            for (const path of rendered) {
+                const file = sources.find((candidate) => candidate.path === path);
+                expect(file, `${path} was not scanned`).toBeDefined();
+                for (const sink of HTML_SINKS) {
+                    expect(file?.text, `${path} must not use ${sink.source}`).not.toMatch(sink);
+                }
             }
         }
     });
 });
 
 describe('AC-128 the no-GitHub-write scan covers every module (FR-002)', () => {
-    it('reads every source module, including every 003 addition', () => {
-        const files = scanSources();
-        expect(files.length).toBeGreaterThan(60);
+    it('reads every source module, including every 003 addit… (+3 cases)', () => {
+        // case: reads every source module, including every 003 addition
+        {
+            const files = scanSources();
+            expect(files.length).toBeGreaterThan(60);
 
-        const paths = new Set(files.map((file) => file.path));
-        for (const module of DISPATCH_MODULES) {
-            expect(paths.has(module), `${module} was not scanned`).toBe(true);
+            const paths = new Set(files.map((file) => file.path));
+            for (const module of DISPATCH_MODULES) {
+                expect(paths.has(module), `${module} was not scanned`).toBe(true);
+            }
         }
-    });
+        // case: finds a GitHub API reference only in the read-only gateways
+        {
+            // The scan has to bite before it can be believed.
+            expect(GITHUB_API.test('const url = new URL(API_ORIGIN + "/repos/acme/widget/issues")')).toBe(true);
+            expect(GITHUB_API.test('const path = `/repos/` + owner + `/issues`')).toBe(true);
 
-    it('finds a GitHub API reference only in the read-only gateways', () => {
-        // The scan has to bite before it can be believed.
-        expect(GITHUB_API.test('const url = new URL(API_ORIGIN + "/repos/acme/widget/issues")')).toBe(true);
-        expect(GITHUB_API.test('const path = `/repos/` + owner + `/issues`')).toBe(true);
-
-        const outsiders = scanSources()
-            .filter((file) => GITHUB_API.test(file.text) && !GITHUB_GATEWAYS.has(file.path))
-            .map((file) => file.path);
-        expect(outsiders).toEqual([]);
-    });
-
-    it('finds no non-GET method in a gateway, where every GitHub call is built', () => {
-        expect(GITHUB_WRITE_METHOD.test("method: 'POST'")).toBe(true);
-
-        const gateways = scanSources().filter((file) => GITHUB_GATEWAYS.has(file.path));
-        expect(gateways).toHaveLength(GITHUB_GATEWAYS.size);
-        for (const file of gateways) {
-            expect(file.text, `${file.path} builds a GitHub write`).not.toMatch(GITHUB_WRITE_METHOD);
+            const outsiders = scanSources()
+                .filter((file) => GITHUB_API.test(file.text) && !GITHUB_GATEWAYS.has(file.path))
+                .map((file) => file.path);
+            expect(outsiders).toEqual([]);
         }
-    });
+        // case: finds no non-GET method in a gateway, where every GitHub call is built
+        {
+            expect(GITHUB_WRITE_METHOD.test("method: 'POST'")).toBe(true);
 
-    it('embeds no concrete dispatch token in either bundle', () => {
-        for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
-            expect(readFileSync(bundle, UTF8), `${bundle} embeds a dispatch token`).not.toMatch(CONCRETE_TOKEN);
+            const gateways = scanSources().filter((file) => GITHUB_GATEWAYS.has(file.path));
+            expect(gateways).toHaveLength(GITHUB_GATEWAYS.size);
+            for (const file of gateways) {
+                expect(file.text, `${file.path} builds a GitHub write`).not.toMatch(GITHUB_WRITE_METHOD);
+            }
+        }
+        // case: embeds no concrete dispatch token in either bundle
+        {
+            for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
+                expect(readFileSync(bundle, UTF8), `${bundle} embeds a dispatch token`).not.toMatch(CONCRETE_TOKEN);
+            }
         }
     });
 });
@@ -552,46 +565,49 @@ async function putBindings(loop: DispatchLoop, binding: Record<string, unknown>)
 }
 
 describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
-    it('reads every 004 module in the static scans', () => {
-        const paths = new Set(scanSources().map((file) => file.path));
-        for (const module of PROMPT_MODULES) {
-            expect(paths.has(module), `${module} was not scanned`).toBe(true);
-        }
+    it('reads every 004 module in the static scans (+2 cases)', () => {
+        // case: reads every 004 module in the static scans
+        {
+            const paths = new Set(scanSources().map((file) => file.path));
+            for (const module of PROMPT_MODULES) {
+                expect(paths.has(module), `${module} was not scanned`).toBe(true);
+            }
 
-        // The no-GitHub-write walk covers those same files: nothing 004 adds
-        // may reach for GitHub at all, let alone write to it (FR-002).
-        const gateways = new Set(GITHUB_GATEWAYS);
-        for (const file of scanSources()) {
-            if (PROMPT_MODULES.includes(file.path)) {
-                expect(gateways.has(file.path), `${file.path} reached GitHub`).toBe(false);
+            // The no-GitHub-write walk covers those same files: nothing 004 adds
+            // may reach for GitHub at all, let alone write to it (FR-002).
+            const gateways = new Set(GITHUB_GATEWAYS);
+            for (const file of scanSources()) {
+                if (PROMPT_MODULES.includes(file.path)) {
+                    expect(gateways.has(file.path), `${file.path} reached GitHub`).toBe(false);
+                }
             }
         }
-    });
-
-    it('carries the binding field exactly where 005 renders it (FR-051, SC-105)', () => {
-        // This assertion used to read "the panel never even names it": 004
-        // shipped no editor, so `startingPrompt` had no business in the IIFE.
-        // 005 T-021 is the feature that breaks it **by design** (plan.md X7)
-        // — one field in the binding editor — so the bundle now carries the
-        // name, and the rule the old assertion stood for has moved to
-        // SC-105: `tests/bindings-prompt.test.ts` counts rendered elements
-        // across all six tabs and fails at 0 and at 2 alike.
-        expect(readFileSync(BUNDLE, UTF8)).toContain('startingPrompt');
-        expect(readFileSync(BUNDLE, UTF8)).toContain(
-            'Starting prompt for dispatches from this repository',
-        );
-        // The save boundary is the service, which is exactly where the
-        // refusal vocabulary does live.
-        expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('startingPrompt');
-    });
-
-    it('introduces no suppression and no `any` into a 004 module (FR-005)', () => {
-        const sources = scanSources().filter((file) => PROMPT_MODULES.includes(file.path));
-        expect(sources).toHaveLength(PROMPT_MODULES.length);
-        for (const file of sources) {
-            expect(file.text, `${file.path} suppresses a rule`)
-                .not.toMatch(/eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck/);
-            expect(file.text, `${file.path} uses \`any\``).not.toMatch(/:\s*any\b/);
+        // case: carries the binding field exactly where 005 renders it (FR-051, SC-105)
+        {
+            // This assertion used to read "the panel never even names it": 004
+            // shipped no editor, so `startingPrompt` had no business in the IIFE.
+            // 005 T-021 is the feature that breaks it **by design** (plan.md X7)
+            // — one field in the binding editor — so the bundle now carries the
+            // name, and the rule the old assertion stood for has moved to
+            // SC-105: `tests/bindings-prompt.test.ts` counts rendered elements
+            // across all six tabs and fails at 0 and at 2 alike.
+            expect(readFileSync(BUNDLE, UTF8)).toContain('startingPrompt');
+            expect(readFileSync(BUNDLE, UTF8)).toContain(
+                'Starting prompt for dispatches from this repository',
+            );
+            // The save boundary is the service, which is exactly where the
+            // refusal vocabulary does live.
+            expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('startingPrompt');
+        }
+        // case: introduces no suppression and no `any` into a 004 module (FR-005)
+        {
+            const sources = scanSources().filter((file) => PROMPT_MODULES.includes(file.path));
+            expect(sources).toHaveLength(PROMPT_MODULES.length);
+            for (const file of sources) {
+                expect(file.text, `${file.path} suppresses a rule`)
+                    .not.toMatch(/eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck/);
+                expect(file.text, `${file.path} uses \`any\``).not.toMatch(/:\s*any\b/);
+            }
         }
     });
 });
@@ -683,28 +699,31 @@ describe('004 the field is documented, and the editor it points at is the shippe
     /** The two operator pages that owe the field a section. */
     const pages: readonly string[] = ['README.md', 'specs/002-agent-event-extension/quickstart.md'];
 
-    it('states the set path, the cap, the literal rule, the refusal, and the pinned agent', () => {
-        for (const page of pages) {
-            const text = readFileSync(resolve(ROOT, page), UTF8);
-            expect(text, `${page} names the member`).toContain('startingPrompt');
-            expect(text, `${page} names the store file`).toContain('bindings.json');
-            expect(text, `${page} names the cap`).toContain('2,000');
-            expect(text, `${page} promises literal text`).toContain('literal');
+    it('states the set path, the cap, the literal rule, the … (+1 cases)', () => {
+        // case: states the set path, the cap, the literal rule, the refusal, and the pinned agent
+        {
+            for (const page of pages) {
+                const text = readFileSync(resolve(ROOT, page), UTF8);
+                expect(text, `${page} names the member`).toContain('startingPrompt');
+                expect(text, `${page} names the store file`).toContain('bindings.json');
+                expect(text, `${page} names the cap`).toContain('2,000');
+                expect(text, `${page} promises literal text`).toContain('literal');
+            }
         }
-    });
+        // case: points at the shipped Bindings editor rather than promising a future one (FR-062)
+        {
+            for (const page of pages) {
+                const text = readFileSync(resolve(ROOT, page), UTF8);
 
-    it('points at the shipped Bindings editor rather than promising a future one (FR-062)', () => {
-        for (const page of pages) {
-            const text = readFileSync(resolve(ROOT, page), UTF8);
-
-            // 004 shipped no editor in its own window; 005 T-021 shipped the
-            // binding editor's starting-prompt field, so the cycle's promise
-            // ("no editor yet") is history and both documents must say where
-            // the field actually lives instead of forecasting it.
-            expect(text, `${page} still forecasts an editor`).not.toMatch(
-                /no editor for this field yet|Until the panel grows a field/,
-            );
-            expect(text, `${page} points at a retired spec path`).not.toContain('specs/001');
+                // 004 shipped no editor in its own window; 005 T-021 shipped the
+                // binding editor's starting-prompt field, so the cycle's promise
+                // ("no editor yet") is history and both documents must say where
+                // the field actually lives instead of forecasting it.
+                expect(text, `${page} still forecasts an editor`).not.toMatch(
+                    /no editor for this field yet|Until the panel grows a field/,
+                );
+                expect(text, `${page} points at a retired spec path`).not.toContain('specs/001');
+            }
         }
     });
 });
@@ -788,66 +807,72 @@ function codeLinesOf(text: string): readonly string[] {
 }
 
 describe('006 the Settings edit surface ships in the panel bundle (T-028, invariant 1)', () => {
-    it('carries the confirmation, the failure causes, and the audit warning', () => {
-        const bundle = readFileSync(BUNDLE, UTF8);
+    it('carries the confirmation, the failure causes, and th… (+1 cases)', () => {
+        // case: carries the confirmation, the failure causes, and the audit warning
+        {
+            const bundle = readFileSync(BUNDLE, UTF8);
 
-        for (const marker of SETTINGS_MARKERS) {
-            expect(bundle, `panel/main.js does not carry ${marker}`).toContain(marker);
-        }
-    });
-
-    it('carries no credential shape in either bundle, with no exemption (NFR-102)', () => {
-        for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
-            const text = readFileSync(bundle, UTF8);
-            for (const pattern of TOKEN_PATTERNS) {
-                expect(text, `${bundle} carries a token shape`).not.toMatch(pattern);
+            for (const marker of SETTINGS_MARKERS) {
+                expect(bundle, `panel/main.js does not carry ${marker}`).toContain(marker);
             }
+        }
+        // case: carries no credential shape in either bundle, with no exemption (NFR-102)
+        {
+            for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
+                const text = readFileSync(bundle, UTF8);
+                for (const pattern of TOKEN_PATTERNS) {
+                    expect(text, `${bundle} carries a token shape`).not.toMatch(pattern);
+                }
 
-            expect(text, `${bundle} embeds a bearer literal`).not.toMatch(BEARER_LITERAL);
+                expect(text, `${bundle} embeds a bearer literal`).not.toMatch(BEARER_LITERAL);
+            }
         }
     });
 });
 
 describe('006 the suite runs offline (T-028, AC-144, SC-112)', () => {
-    it('reads every test module rather than a sample', () => {
-        const files = testModules();
+    it('reads every test module rather than a sample (+3 cases)', () => {
+        // case: reads every test module rather than a sample
+        {
+            const files = testModules();
 
-        expect(files.length).toBeGreaterThan(90);
-        expect(files.some((file) => file.path === 'tests/support/service.ts')).toBe(true);
-    });
-
-    it('only ever fetches a locally bound address', () => {
-        const offenders: string[] = [];
-        for (const file of testModules()) {
-            for (const line of codeLinesOf(file.text)) {
-                if (!FETCH_CALL.test(line)) {
-                    continue;
-                }
-
-                if (LOCAL_FETCH_TARGET.test(line)) {
-                    continue;
-                }
-
-                offenders.push(`${file.path}: ${line}`);
-            }
+            expect(files.length).toBeGreaterThan(90);
+            expect(files.some((file) => file.path === 'tests/support/service.ts')).toBe(true);
         }
+        // case: only ever fetches a locally bound address
+        {
+            const offenders: string[] = [];
+            for (const file of testModules()) {
+                for (const line of codeLinesOf(file.text)) {
+                    if (!FETCH_CALL.test(line)) {
+                        continue;
+                    }
 
-        expect(offenders).toEqual([]);
-    });
+                    if (LOCAL_FETCH_TARGET.test(line)) {
+                        continue;
+                    }
 
-    it('never imports a third-party HTTP client', () => {
-        const importers = testModules()
-            .filter((file) => HTTP_CLIENT_IMPORT.test(file.text))
-            .map((file) => file.path);
+                    offenders.push(`${file.path}: ${line}`);
+                }
+            }
 
-        expect(importers).toEqual([]);
-    });
+            expect(offenders).toEqual([]);
+        }
+        // case: never imports a third-party HTTP client
+        {
+            const importers = testModules()
+                .filter((file) => HTTP_CLIENT_IMPORT.test(file.text))
+                .map((file) => file.path);
 
-    it('never reads a credential out of the environment (AC-144: no real token)', () => {
-        const readers = testModules()
-            .filter((file) => codeLinesOf(file.text).some((line) => CREDENTIAL_ENV.test(line)))
-            .map((file) => file.path);
+            expect(importers).toEqual([]);
+        }
+        // case: never reads a credential out of the environment (AC-144: no real token)
+        {
+            const readers = testModules()
+                .filter((file) => codeLinesOf(file.text).some((line) => CREDENTIAL_ENV.test(line)))
+                .map((file) => file.path);
 
-        expect(readers).toEqual([]);
+            expect(readers).toEqual([]);
+        }
     });
 });

@@ -269,163 +269,172 @@ function phaseEntry(): LedgerEntry {
 }
 
 describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
-    it('reads the route the service registers, not a name prose invented (T-036)', () => {
-        expect(HEALTH_PATH).toBe(healthRoute.path);
-        expect(HEALTH_PATH).toBe('/health');
-    });
-
-    it('has the prose naming that same route in every document that claims it (T-036)', () => {
-        const claimed: readonly string[] = [
-            'specs/005-panel-ia/spec.md',
-            'specs/005-panel-ia/contracts/about-version.md',
-            'AGENTS.md',
-        ];
-
-        for (const doc of claimed) {
-            const text = readFileSync(resolve(import.meta.dirname, '..', doc), 'utf8');
-            expect(text, `${doc} still claims a route the service never registers`).not.toContain('/v1/health');
-            expect(text, `${doc} does not name the registered route`).toContain('/health');
+    it('reads the route the service registers, not a name pr… (+3 cases)', async () => {
+        // case: reads the route the service registers, not a name prose invented (T-036)
+        {
+            expect(HEALTH_PATH).toBe(healthRoute.path);
+            expect(HEALTH_PATH).toBe('/health');
         }
-    });
+        // case: has the prose naming that same route in every document that claims it (T-036)
+        {
+            const claimed: readonly string[] = [
+                'specs/005-panel-ia/spec.md',
+                'specs/005-panel-ia/contracts/about-version.md',
+                'AGENTS.md',
+            ];
 
-    it('shows exactly the version the service answered (AC-133)', async () => {
-        const view = await mountAbout({ answer: healthyService });
-        const manifestPath = resolve(import.meta.dirname, '../package.json');
-        const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { readonly version: string };
-
-        expect(view.strings).toContain(`Version: ${SERVICE_VERSION}`);
-        expect(SERVICE_VERSION).toBe(manifest.version);
-        expect(view.rt.state.aboutTab.version).toBe(SERVICE_VERSION);
-        view.dispose();
-    });
-
-    it('declares no version-shaped literal anywhere in the panel source', () => {
-        const files = readdirSync(resolve(import.meta.dirname, '../src'), { recursive: true })
-            .map((entry) => `src/${String(entry)}`)
-            .filter((path) => path.endsWith('.ts'))
-            .concat('panel/main.ts');
-        const offenders: string[] = [];
-
-        for (const path of files) {
-            const text = readFileSync(resolve(import.meta.dirname, `../${path}`), 'utf8')
-                .split('\n')
-                // Comment lines carry the SDK pin and the spec's own version
-                // in prose; a *literal* the panel could render never does.
-                .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
-                .join('\n');
-            for (const match of text.matchAll(new RegExp(VERSION_SHAPED, 'g'))) {
-                offenders.push(`${path}: ${match[0]}`);
+            for (const doc of claimed) {
+                const text = readFileSync(resolve(import.meta.dirname, '..', doc), 'utf8');
+                expect(text, `${doc} still claims a route the service never registers`).not.toContain('/v1/health');
+                expect(text, `${doc} does not name the registered route`).toContain('/health');
             }
         }
+        // case: shows exactly the version the service answered (AC-133)
+        {
+            const view = await mountAbout({ answer: healthyService });
+            const manifestPath = resolve(import.meta.dirname, '../package.json');
+            const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { readonly version: string };
 
-        expect(files.length).toBeGreaterThan(40);
-        expect(offenders).toEqual([]);
+            expect(view.strings).toContain(`Version: ${SERVICE_VERSION}`);
+            expect(SERVICE_VERSION).toBe(manifest.version);
+            expect(view.rt.state.aboutTab.version).toBe(SERVICE_VERSION);
+            view.dispose();
+        }
+        // case: declares no version-shaped literal anywhere in the panel source
+        {
+            const files = readdirSync(resolve(import.meta.dirname, '../src'), { recursive: true })
+                .map((entry) => `src/${String(entry)}`)
+                .filter((path) => path.endsWith('.ts'))
+                .concat('panel/main.ts');
+            const offenders: string[] = [];
+
+            for (const path of files) {
+                const text = readFileSync(resolve(import.meta.dirname, `../${path}`), 'utf8')
+                    .split('\n')
+                    // Comment lines carry the SDK pin and the spec's own version
+                    // in prose; a *literal* the panel could render never does.
+                    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+                    .join('\n');
+                for (const match of text.matchAll(new RegExp(VERSION_SHAPED, 'g'))) {
+                    offenders.push(`${path}: ${match[0]}`);
+                }
+            }
+
+            expect(files.length).toBeGreaterThan(40);
+            expect(offenders).toEqual([]);
+        }
     });
 
 });
 
 describe('an unreachable service keeps the static content (AC-132, AC-134, FR-078)', () => {
-    it('prints the exact unreachable copy with no digit on the version line', async () => {
-        const view = await mountAbout({
-            answer: () => {
-                throw new Error('connection refused');
-            },
-        });
-        // The last paint is the one on screen; the first is the mount's own
-        // "not yet read" placeholder (FR-013: a body paints what state it has).
-        const version = view.strings.filter((text) => text.startsWith('Version: ')).at(-1);
+    it('prints the exact unreachable copy with no digit on t… (+1 cases)', async () => {
+        // case: prints the exact unreachable copy with no digit on the version line
+        {
+            const view = await mountAbout({
+                answer: () => {
+                    throw new Error('connection refused');
+                },
+            });
+            // The last paint is the one on screen; the first is the mount's own
+            // "not yet read" placeholder (FR-013: a body paints what state it has).
+            const version = view.strings.filter((text) => text.startsWith('Version: ')).at(-1);
 
-        expect(version).toBe(UNREACHABLE);
-        expect(version).not.toMatch(/\d/);
-        expect(view.strings.join('\n')).not.toMatch(VERSION_SHAPED);
-        view.dispose();
-    });
+            expect(version).toBe(UNREACHABLE);
+            expect(version).not.toMatch(/\d/);
+            expect(view.strings.join('\n')).not.toMatch(VERSION_SHAPED);
+            view.dispose();
+        }
+        // case: keeps the identity content and names what could not be read
+        {
+            const view = await mountAbout({
+                answer: () => {
+                    throw new Error('connection refused');
+                },
+            });
+            const text = view.strings.join('\n');
 
-    it('keeps the identity content and names what could not be read', async () => {
-        const view = await mountAbout({
-            answer: () => {
-                throw new Error('connection refused');
-            },
-        });
-        const text = view.strings.join('\n');
-
-        // Name, version, description, repository link — the whole page after
-        // the 2026-10-01 scrub.
-        expect(text).toContain('About');
-        expect(text).toContain('Repository: [https://github.com/shaunburdick/mecha-turk]');
-        // The four statements the scrub removed, gone from every paint.
-        expect(text).not.toContain('Vocabulary (what the renames mean)');
-        expect(text).not.toContain('Cleanup:');
-        expect(text).not.toContain('Release posture');
-        expect(text).not.toContain('Data directory');
-        view.dispose();
+            // Name, version, description, repository link — the whole page after
+            // the 2026-10-01 scrub.
+            expect(text).toContain('About');
+            expect(text).toContain('Repository: [https://github.com/shaunburdick/mecha-turk]');
+            // The four statements the scrub removed, gone from every paint.
+            expect(text).not.toContain('Vocabulary (what the renames mean)');
+            expect(text).not.toContain('Cleanup:');
+            expect(text).not.toContain('Release posture');
+            expect(text).not.toContain('Data directory');
+            view.dispose();
+        }
     });
 });
 
 describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)', () => {
-    it('renders the ledger as sequence, kind, and time — never entry detail', async () => {
-        const view = await mountAbout({
-            answer: healthyService,
-            setup: (rt) => {
-                rt.state.ledger.entries.push(identityEntry(), phaseEntry());
-            },
-        });
-        // One text handle holds every line, so the last paint is the whole
-        // block the operator reads (newest first).
-        const rows = ledgerRowsIn(view.strings).at(-1);
+    it('renders the ledger as sequence, kind, and time — nev… (+3 cases)', async () => {
+        // case: renders the ledger as sequence, kind, and time — never entry detail
+        {
+            const view = await mountAbout({
+                answer: healthyService,
+                setup: (rt) => {
+                    rt.state.ledger.entries.push(identityEntry(), phaseEntry());
+                },
+            });
+            // One text handle holds every line, so the last paint is the whole
+            // block the operator reads (newest first).
+            const rows = ledgerRowsIn(view.strings).at(-1);
 
-        expect(rows).toBe(`#2 · phase: mounted · ${STAMP_TIME}\n#1 · identity · ${STAMP_TIME}`);
-        const text = view.strings.join('\n');
-        expect(text).not.toContain('octocat-secret');
-        expect(text).not.toContain('expected login differs');
-        expect(text).not.toContain(CORRELATION);
-        view.dispose();
-    });
+            expect(rows).toBe(`#2 · phase: mounted · ${STAMP_TIME}\n#1 · identity · ${STAMP_TIME}`);
+            const text = view.strings.join('\n');
+            expect(text).not.toContain('octocat-secret');
+            expect(text).not.toContain('expected login differs');
+            expect(text).not.toContain(CORRELATION);
+            view.dispose();
+        }
+        // case: offers no list, no select, and no input — only the two controls (FR-084)
+        {
+            const view = await mountAbout({ answer: healthyService });
+            const keys = mounts.log.map((entry) => entry.key);
 
-    it('offers no list, no select, and no input — only the two controls (FR-084)', async () => {
-        const view = await mountAbout({ answer: healthyService });
-        const keys = mounts.log.map((entry) => entry.key);
+            // The scrub removed the vocabulary list, so nothing on this page
+            // selects or inputs: the re-read control and the Diagnostics
+            // disclosure are the whole control set.
+            expect(keys).not.toContain('mountList');
+            expect(keys).not.toContain('mountSelect');
+            expect(keys.filter((key) => key === 'mountButton')).toHaveLength(2);
+            expect(view.created.map((element) => element.tagName)).not.toContain('input');
+            view.dispose();
+        }
+        // case: shows both schema versions and the phase record (FR-075)
+        {
+            const view = await mountAbout({
+                answer: healthyService,
+                setup: (rt) => {
+                    rt.state.ledger.entries.push(phaseEntry());
+                },
+            });
+            const text = view.strings.join('\n');
 
-        // The scrub removed the vocabulary list, so nothing on this page
-        // selects or inputs: the re-read control and the Diagnostics
-        // disclosure are the whole control set.
-        expect(keys).not.toContain('mountList');
-        expect(keys).not.toContain('mountSelect');
-        expect(keys.filter((key) => key === 'mountButton')).toHaveLength(2);
-        expect(view.created.map((element) => element.tagName)).not.toContain('input');
-        view.dispose();
-    });
+            expect(text).toContain(`Evidence schema: ${EVIDENCE_SCHEMA_VERSION} · Ledger schema: spike-ledger-1`);
+            expect(text).toContain(`Phase record: mounted at ${STAMP} — read-only; this tab writes nothing.`);
+            view.dispose();
+        }
+        // case: carries no credential-shaped value into the rendered strings
+        {
+            const token = `ghp_${'abouttab'.repeat(4)}`;
+            const view = await mountAbout({
+                answer: healthyService,
+                setup: (rt) => {
+                    rt.state.ledger.entries.push({
+                        ...identityEntry(),
+                        detail: { authenticatedLogin: 'octocat', problem: token },
+                    });
+                },
+            });
+            const text = view.strings.join('\n');
 
-    it('shows both schema versions and the phase record (FR-075)', async () => {
-        const view = await mountAbout({
-            answer: healthyService,
-            setup: (rt) => {
-                rt.state.ledger.entries.push(phaseEntry());
-            },
-        });
-        const text = view.strings.join('\n');
-
-        expect(text).toContain(`Evidence schema: ${EVIDENCE_SCHEMA_VERSION} · Ledger schema: spike-ledger-1`);
-        expect(text).toContain(`Phase record: mounted at ${STAMP} — read-only; this tab writes nothing.`);
-        view.dispose();
-    });
-
-    it('carries no credential-shaped value into the rendered strings', async () => {
-        const token = `ghp_${'abouttab'.repeat(4)}`;
-        const view = await mountAbout({
-            answer: healthyService,
-            setup: (rt) => {
-                rt.state.ledger.entries.push({
-                    ...identityEntry(),
-                    detail: { authenticatedLogin: 'octocat', problem: token },
-                });
-            },
-        });
-        const text = view.strings.join('\n');
-
-        expect(text).not.toContain(token);
-        expect(findSecretLeak(text)).toBeNull();
-        view.dispose();
+            expect(text).not.toContain(token);
+            expect(findSecretLeak(text)).toBeNull();
+            view.dispose();
+        }
     });
 });
 
@@ -439,72 +448,78 @@ const SHOW_LABEL = 'Diagnostics';
 const HIDE_LABEL = 'Hide diagnostics';
 
 describe('the repository link opens through the host (2026-10-01 scrub)', () => {
-    it('renders the address as a link wired to the SDK text path', async () => {
-        const view = await mountAbout({ answer: healthyService });
-        const link = lastProps(
-            'mountText',
-            (props) => typeof props.text === 'string' && String(props.text).startsWith('Repository: '),
-        );
+    it('renders the address as a link wired to the SDK text … (+2 cases)', async () => {
+        // case: renders the address as a link wired to the SDK text path
+        {
+            const view = await mountAbout({ answer: healthyService });
+            const link = lastProps(
+                'mountText',
+                (props) => typeof props.text === 'string' && String(props.text).startsWith('Repository: '),
+            );
 
-        expect(link?.text).toBe(`Repository: [${REPOSITORY_URL}](${REPOSITORY_URL})`);
-        expect(typeof link?.onOpenUrl).toBe('function');
-        view.dispose();
-    });
+            expect(link?.text).toBe(`Repository: [${REPOSITORY_URL}](${REPOSITORY_URL})`);
+            expect(typeof link?.onOpenUrl).toBe('function');
+            view.dispose();
+        }
+        // case: hands the URL to host.openUrl and keeps the page where it is
+        {
+            const view = await mountAbout({ answer: healthyService });
 
-    it('hands the URL to host.openUrl and keeps the page where it is', async () => {
-        const view = await mountAbout({ answer: healthyService });
+            await openRepository(view.rt, REPOSITORY_URL);
+            view.dispose();
 
-        await openRepository(view.rt, REPOSITORY_URL);
-        view.dispose();
+            expect(view.opened).toEqual([REPOSITORY_URL]);
+            expect(view.rt.state.aboutTab.repoProblem).toBeNull();
+        }
+        // case: lands a host refusal on the link line instead of swallowing it (FR-003)
+        {
+            const view = await mountAbout({
+                answer: healthyService,
+                openUrl: () => Promise.reject(new Error('HOST_REJECTED')),
+            });
 
-        expect(view.opened).toEqual([REPOSITORY_URL]);
-        expect(view.rt.state.aboutTab.repoProblem).toBeNull();
-    });
+            await openRepository(view.rt, REPOSITORY_URL);
+            const note = view.rt.state.aboutTab.repoProblem;
+            view.dispose();
 
-    it('lands a host refusal on the link line instead of swallowing it (FR-003)', async () => {
-        const view = await mountAbout({
-            answer: healthyService,
-            openUrl: () => Promise.reject(new Error('HOST_REJECTED')),
-        });
-
-        await openRepository(view.rt, REPOSITORY_URL);
-        const note = view.rt.state.aboutTab.repoProblem;
-        view.dispose();
-
-        expect(note).toContain('HOST_REJECTED');
+            expect(note).toContain('HOST_REJECTED');
+        }
     });
 });
 
 describe('Diagnostics sits behind a disclosure (2026-10-01 scrub)', () => {
-    it('starts closed, opens on its control, and its label says which it is', async () => {
-        const view = await mountAbout({ answer: healthyService });
-        const controlLabel = (): unknown => lastProps(
-            'mountButton',
-            (props) => props.label === SHOW_LABEL || props.label === HIDE_LABEL,
-        )?.label;
+    it('starts closed, opens on its control, and its label s… (+1 cases)', async () => {
+        // case: starts closed, opens on its control, and its label says which it is
+        {
+            const view = await mountAbout({ answer: healthyService });
+            const controlLabel = (): unknown => lastProps(
+                'mountButton',
+                (props) => props.label === SHOW_LABEL || props.label === HIDE_LABEL,
+            )?.label;
 
-        expect(view.rt.state.aboutTab.diagnosticsOpen).toBe(false);
-        expect(controlLabel()).toBe(SHOW_LABEL);
+            expect(view.rt.state.aboutTab.diagnosticsOpen).toBe(false);
+            expect(controlLabel()).toBe(SHOW_LABEL);
 
-        toggleDiagnostics(view.rt);
-        expect(view.rt.state.aboutTab.diagnosticsOpen).toBe(true);
-        expect(controlLabel()).toBe(HIDE_LABEL);
+            toggleDiagnostics(view.rt);
+            expect(view.rt.state.aboutTab.diagnosticsOpen).toBe(true);
+            expect(controlLabel()).toBe(HIDE_LABEL);
 
-        toggleDiagnostics(view.rt);
-        expect(view.rt.state.aboutTab.diagnosticsOpen).toBe(false);
-        expect(controlLabel()).toBe(SHOW_LABEL);
-        view.dispose();
-    });
+            toggleDiagnostics(view.rt);
+            expect(view.rt.state.aboutTab.diagnosticsOpen).toBe(false);
+            expect(controlLabel()).toBe(SHOW_LABEL);
+            view.dispose();
+        }
+        // case: mounts the record either way, so closing it hides nothing the page owes (FR-075)
+        {
+            const view = await mountAbout({
+                answer: healthyService,
+                setup: (rt) => {
+                    rt.state.ledger.entries.push(phaseEntry());
+                },
+            });
+            view.dispose();
 
-    it('mounts the record either way, so closing it hides nothing the page owes (FR-075)', async () => {
-        const view = await mountAbout({
-            answer: healthyService,
-            setup: (rt) => {
-                rt.state.ledger.entries.push(phaseEntry());
-            },
-        });
-        view.dispose();
-
-        expect(view.strings.some((line) => line.startsWith('#2 · '))).toBe(true);
+            expect(view.strings.some((line) => line.startsWith('#2 · '))).toBe(true);
+        }
     });
 });

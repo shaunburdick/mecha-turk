@@ -34,69 +34,75 @@ function validInput(): EvidenceInput {
 }
 
 describe('buildEvidence', () => {
-    it('produces the contract record with camelCase field names', () => {
-        const evidence = buildEvidence(validInput());
+    it('produces the contract record with camelCase field na… (+1 cases)', () => {
+        // case: produces the contract record with camelCase field names
+        {
+            const evidence = buildEvidence(validInput());
 
-        expect(evidence).toEqual({
-            schemaVersion: EVIDENCE_SCHEMA_VERSION,
-            repository: 'acme/widget',
-            issueId: '12',
-            issueUrl: 'https://github.com/acme/widget/issues/12',
-            trigger: 'configured-match',
-            authenticatedLogin: 'mecha-bot',
-            correlationId: '0f1c1f0a-0d2e-4a4e-9a0a-1d2b3c4d5e6f',
-            detectedAt: '2026-09-26T12:00:00.000Z',
-            panelGeneration: GENERATION,
-        });
-        expect(Object.keys(evidence)).toHaveLength(EVIDENCE_FIELD_COUNT);
-    });
+            expect(evidence).toEqual({
+                schemaVersion: EVIDENCE_SCHEMA_VERSION,
+                repository: 'acme/widget',
+                issueId: '12',
+                issueUrl: 'https://github.com/acme/widget/issues/12',
+                trigger: 'configured-match',
+                authenticatedLogin: 'mecha-bot',
+                correlationId: '0f1c1f0a-0d2e-4a4e-9a0a-1d2b3c4d5e6f',
+                detectedAt: '2026-09-26T12:00:00.000Z',
+                panelGeneration: GENERATION,
+            });
+            expect(Object.keys(evidence)).toHaveLength(EVIDENCE_FIELD_COUNT);
+        }
+        // case: rejects every malformed input shape the contract refuses
+        {
+            const malformed: readonly (readonly [string, EvidenceInput])[] = [
+                ['a non-GitHub issue URL', { ...validInput(), issueUrl: 'https://example.com/issue/12' }],
+                ['a non-positive issue number', { ...validInput(), issueNumber: 0 }],
+                ['an empty login', { ...validInput(), authenticatedLogin: '  ' }],
+                ['an empty correlation id', { ...validInput(), correlationId: '' }],
+                ['a timestamp that is not RFC 3339', { ...validInput(), detectedAt: 'yesterday' }],
+                ['a non-positive panel generation', { ...validInput(), panelGeneration: 0 }],
+            ];
 
-    it('rejects every malformed input shape the contract refuses', () => {
-        const malformed: readonly (readonly [string, EvidenceInput])[] = [
-            ['a non-GitHub issue URL', { ...validInput(), issueUrl: 'https://example.com/issue/12' }],
-            ['a non-positive issue number', { ...validInput(), issueNumber: 0 }],
-            ['an empty login', { ...validInput(), authenticatedLogin: '  ' }],
-            ['an empty correlation id', { ...validInput(), correlationId: '' }],
-            ['a timestamp that is not RFC 3339', { ...validInput(), detectedAt: 'yesterday' }],
-            ['a non-positive panel generation', { ...validInput(), panelGeneration: 0 }],
-        ];
-
-        for (const [shape, input] of malformed) {
-            expect(() => buildEvidence(input), shape).toThrow(EvidenceError);
+            for (const [shape, input] of malformed) {
+                expect(() => buildEvidence(input), shape).toThrow(EvidenceError);
+            }
         }
     });
 });
 
 describe('evidence serialization', () => {
-    it('round-trips through JSON and reads back', () => {
-        const evidence = buildEvidence(validInput());
-        const stored = parseJsonValue(serializeEvidence(evidence));
+    it('round-trips through JSON and reads back (+3 cases)', () => {
+        // case: round-trips through JSON and reads back
+        {
+            const evidence = buildEvidence(validInput());
+            const stored = parseJsonValue(serializeEvidence(evidence));
 
-        expect(readEvidence(stored)).toEqual(evidence);
-    });
+            expect(readEvidence(stored)).toEqual(evidence);
+        }
+        // case: contains no secret-shaped material
+        {
+            const json = serializeEvidence(buildEvidence(validInput()));
+            expect(json).not.toMatch(/\bgh[pousr]_[A-Za-z0-9]{20,}/);
+            expect(json).not.toMatch(/\bAuthorization\s*:/);
+        }
+        // case: asserts redaction before it is stored
+        {
+            const evidence = buildEvidence(validInput());
+            expect(() => assertEvidenceRedacted(evidence)).not.toThrow();
+        }
+        // case: rejects a stored record this build must not read
+        {
+            const wrongVersion: JsonValue = { ...buildEvidence(validInput()), schemaVersion: 'other' };
+            expect(readEvidence(wrongVersion), 'a foreign schema version').toBeNull();
 
-    it('contains no secret-shaped material', () => {
-        const json = serializeEvidence(buildEvidence(validInput()));
-        expect(json).not.toMatch(/\bgh[pousr]_[A-Za-z0-9]{20,}/);
-        expect(json).not.toMatch(/\bAuthorization\s*:/);
-    });
+            const partial: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
+            delete partial.detectedAt;
+            expect(readEvidence(partial), 'a record missing a required field').toBeNull();
 
-    it('asserts redaction before it is stored', () => {
-        const evidence = buildEvidence(validInput());
-        expect(() => assertEvidenceRedacted(evidence)).not.toThrow();
-    });
-
-    it('rejects a stored record this build must not read', () => {
-        const wrongVersion: JsonValue = { ...buildEvidence(validInput()), schemaVersion: 'other' };
-        expect(readEvidence(wrongVersion), 'a foreign schema version').toBeNull();
-
-        const partial: Record<string, JsonValue> = { ...buildEvidence(validInput()) };
-        delete partial.detectedAt;
-        expect(readEvidence(partial), 'a record missing a required field').toBeNull();
-
-        expect(readEvidence('not-an-object'), 'a string').toBeNull();
-        expect(readEvidence(), 'an absent value').toBeNull();
-        expect(readEvidence(null), 'null').toBeNull();
+            expect(readEvidence('not-an-object'), 'a string').toBeNull();
+            expect(readEvidence(), 'an absent value').toBeNull();
+            expect(readEvidence(null), 'null').toBeNull();
+        }
     });
 });
 

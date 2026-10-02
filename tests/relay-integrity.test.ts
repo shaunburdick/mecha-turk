@@ -357,209 +357,222 @@ function bodyOf(relay: Harness, key: string): string {
 }
 
 describe('relay dispatch order (FR-024, FR-028)', () => {
-    it('reserves, starts, records, reports, acknowledges, then reads the agent back', async () => {
-        const relay = harness();
+    it('reserves, starts, records, reports, acknowledges, th… (+3 cases)', async () => {
+        // case: reserves, starts, records, reports, acknowledges, then reads the agent back
+        {
+            const relay = harness();
 
-        await dispatchClaimedRun(relay.rt, claimedRun());
-        // The read-back is detached from the tick (AC-125): drain it so the
-        // contract order below is asserted rather than raced.
-        await drainVerifications(relay.rt);
+            await dispatchClaimedRun(relay.rt, claimedRun());
+            // The read-back is detached from the tick (AC-125): drain it so the
+            // contract order below is asserted rather than raced.
+            await drainVerifications(relay.rt);
 
-        expect(dispatchTimeline(relay.timeline)).toEqual([
-            `POST ${RUN_PATH}/reserve`,
-            `startSession:${CORRELATION}`,
-            'record',
-            `POST ${RUN_PATH}/dispatched`,
-            'ack',
-            'GET /v1/config',
-            `openSession:${SESSION_ID}`,
-            `POST ${RUN_PATH}/verification`,
-        ]);
-    });
+            expect(dispatchTimeline(relay.timeline)).toEqual([
+                `POST ${RUN_PATH}/reserve`,
+                `startSession:${CORRELATION}`,
+                'record',
+                `POST ${RUN_PATH}/dispatched`,
+                'ack',
+                'GET /v1/config',
+                `openSession:${SESSION_ID}`,
+                `POST ${RUN_PATH}/verification`,
+            ]);
+        }
+        // case: reports exactly one result carrying the token, the attempt, and the session
+        {
+            const relay = harness();
 
-    it('reports exactly one result carrying the token, the attempt, and the session', async () => {
-        const relay = harness();
+            await dispatchClaimedRun(relay.rt, claimedRun());
 
-        await dispatchClaimedRun(relay.rt, claimedRun());
+            const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/dispatched`)) as Record<string, unknown>;
+            expect(body).toEqual({
+                correlationId: CORRELATION,
+                attempt: 1,
+                dispatchToken: TOKEN,
+                sessionId: SESSION_ID,
+            });
+        }
+        // case: never reaches the host when the service refuses the reserve
+        {
+            const relay = harness({
+                ...OK_ROUTES,
+                [`POST ${RUN_PATH}/reserve`]: {
+                    status: 409,
+                    body: JSON.stringify({ error: { code: 'stale-lease', message: 'lease expired' } }),
+                },
+            });
 
-        const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/dispatched`)) as Record<string, unknown>;
-        expect(body).toEqual({
-            correlationId: CORRELATION,
-            attempt: 1,
-            dispatchToken: TOKEN,
-            sessionId: SESSION_ID,
-        });
-    });
+            await dispatchClaimedRun(relay.rt, claimedRun());
 
-    it('never reaches the host when the service refuses the reserve', async () => {
-        const relay = harness({
-            ...OK_ROUTES,
-            [`POST ${RUN_PATH}/reserve`]: {
-                status: 409,
-                body: JSON.stringify({ error: { code: 'stale-lease', message: 'lease expired' } }),
-            },
-        });
+            expect(relay.timeline).toEqual([`POST ${RUN_PATH}/reserve`]);
+            expect(relay.rt.state.bindings.note).toContain('stale-lease');
+        }
+        // case: never reaches the host when the service answers an unreadable authorization
+        {
+            const relay = harness({
+                ...OK_ROUTES,
+                [`POST ${RUN_PATH}/reserve`]: {
+                    status: 200, body: '{"correlationId":"mt-run-ffffffffffffffffffffffff"}' },
+            });
 
-        await dispatchClaimedRun(relay.rt, claimedRun());
+            await dispatchClaimedRun(relay.rt, claimedRun());
 
-        expect(relay.timeline).toEqual([`POST ${RUN_PATH}/reserve`]);
-        expect(relay.rt.state.bindings.note).toContain('stale-lease');
-    });
-
-    it('never reaches the host when the service answers an unreadable authorization', async () => {
-        const relay = harness({
-            ...OK_ROUTES,
-            [`POST ${RUN_PATH}/reserve`]: { status: 200, body: '{"correlationId":"mt-run-ffffffffffffffffffffffff"}' },
-        });
-
-        await dispatchClaimedRun(relay.rt, claimedRun());
-
-        expect(relay.timeline).toEqual([`POST ${RUN_PATH}/reserve`]);
+            expect(relay.timeline).toEqual([`POST ${RUN_PATH}/reserve`]);
+        }
     });
 });
 
 describe('guard refusals are reported, never dispatched (FR-042)', () => {
-    it('posts blocked with the lease and the declared reason, and no result', async () => {
-        const relay = harness();
-        relay.rt.state.bindings.bindings = [];
+    it('posts blocked with the lease and the declared reason… (+2 cases)', async () => {
+        // case: posts blocked with the lease and the declared reason, and no result
+        {
+            const relay = harness();
+            relay.rt.state.bindings.bindings = [];
 
-        await dispatchClaimedRun(relay.rt, claimedRun());
+            await dispatchClaimedRun(relay.rt, claimedRun());
 
-        expect(relay.timeline).toEqual([`POST ${RUN_PATH}/blocked`]);
-        const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/blocked`)) as Record<string, unknown>;
-        expect(body).toEqual({
-            correlationId: CORRELATION,
-            leaseId: LEASE_ID,
-            attempt: 1,
-            blockedReason: 'binding-missing',
-            detail: 'binding "bnd-relay-1" is no longer in this tab',
-            guidance: 're-create the repository binding, then retry',
-        });
-    });
+            expect(relay.timeline).toEqual([`POST ${RUN_PATH}/blocked`]);
+            const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/blocked`)) as Record<string, unknown>;
+            expect(body).toEqual({
+                correlationId: CORRELATION,
+                leaseId: LEASE_ID,
+                attempt: 1,
+                blockedReason: 'binding-missing',
+                detail: 'binding "bnd-relay-1" is no longer in this tab',
+                guidance: 're-create the repository binding, then retry',
+            });
+        }
+        // case: reports a disabled binding rather than treating it as dispatchable
+        {
+            const relay = harness();
+            relay.rt.state.bindings.bindings = [{ ...activeBinding(), state: 'disabled' }];
 
-    it('reports a disabled binding rather than treating it as dispatchable', async () => {
-        const relay = harness();
-        relay.rt.state.bindings.bindings = [{ ...activeBinding(), state: 'disabled' }];
+            await dispatchClaimedRun(relay.rt, claimedRun());
 
-        await dispatchClaimedRun(relay.rt, claimedRun());
+            expect(relay.timeline).toEqual([`POST ${RUN_PATH}/blocked`]);
+            const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/blocked`)) as Record<string, unknown>;
+            expect(body.detail).toContain('disabled');
+        }
+        // case: posts blocked for a project the host will not resolve
+        {
+            const relay = harness(OK_ROUTES, { projects: [] });
 
-        expect(relay.timeline).toEqual([`POST ${RUN_PATH}/blocked`]);
-        const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/blocked`)) as Record<string, unknown>;
-        expect(body.detail).toContain('disabled');
-    });
+            await dispatchClaimedRun(relay.rt, claimedRun());
 
-    it('posts blocked for a project the host will not resolve', async () => {
-        const relay = harness(OK_ROUTES, { projects: [] });
-
-        await dispatchClaimedRun(relay.rt, claimedRun());
-
-        expect(relay.timeline).toEqual([`POST ${RUN_PATH}/blocked`]);
-        const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/blocked`)) as Record<string, unknown>;
-        expect(body.blockedReason).toBe('project-missing');
+            expect(relay.timeline).toEqual([`POST ${RUN_PATH}/blocked`]);
+            const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/blocked`)) as Record<string, unknown>;
+            expect(body.blockedReason).toBe('project-missing');
+        }
     });
 });
 
 describe('the handled list is keyed correlationId#attempt (FR-034)', () => {
-    it('keys one attempt and never re-dispatches it within the mount', async () => {
-        const relay = harness();
-        const run = claimedRun();
+    it('keys one attempt and never re-dispatches it within t… (+2 cases)', async () => {
+        // case: keys one attempt and never re-dispatches it within the mount
+        {
+            const relay = harness();
+            const run = claimedRun();
 
-        expect(handledKey(run)).toBe(`${CORRELATION}#1`);
-        await dispatchClaimedRun(relay.rt, run);
-        await dispatchClaimedRun(relay.rt, run);
+            expect(handledKey(run)).toBe(`${CORRELATION}#1`);
+            await dispatchClaimedRun(relay.rt, run);
+            await dispatchClaimedRun(relay.rt, run);
 
-        expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
-        expect(relay.rt.state.relay.handled).toEqual([`${CORRELATION}#1`]);
-    });
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
+            expect(relay.rt.state.relay.handled).toEqual([`${CORRELATION}#1`]);
+        }
+        // case: dispatches the same run again once the service hands it back on a new attempt
+        {
+            const relay = harness();
+            await dispatchClaimedRun(relay.rt, claimedRun());
 
-    it('dispatches the same run again once the service hands it back on a new attempt', async () => {
-        const relay = harness();
-        await dispatchClaimedRun(relay.rt, claimedRun());
+            const reissued = claimedRun({
+                attempt: 2,
+                lease: { ...claimedRun().lease, attempt: 2, leaseId: 'lse-89abcdef89abcdef89abcdef' },
+            });
+            await dispatchClaimedRun(relay.rt, reissued);
 
-        const reissued = claimedRun({
-            attempt: 2,
-            lease: { ...claimedRun().lease, attempt: 2, leaseId: 'lse-89abcdef89abcdef89abcdef' },
-        });
-        await dispatchClaimedRun(relay.rt, reissued);
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(2);
+            expect(relay.rt.state.relay.handled).toEqual([`${CORRELATION}#1`, `${CORRELATION}#2`]);
+        }
+        // case: does not authorize a re-dispatch when the result report fails (FR-034)
+        {
+            const relay = harness({
+                ...OK_ROUTES,
+                [`POST ${RUN_PATH}/dispatched`]: {
+                    status: 503,
+                    body: JSON.stringify({ error: { code: 'storage-unavailable', message: 'store down' } }),
+                },
+            });
 
-        expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(2);
-        expect(relay.rt.state.relay.handled).toEqual([`${CORRELATION}#1`, `${CORRELATION}#2`]);
-    });
+            await dispatchClaimedRun(relay.rt, claimedRun());
+            await dispatchClaimedRun(relay.rt, claimedRun());
 
-    it('does not authorize a re-dispatch when the result report fails (FR-034)', async () => {
-        const relay = harness({
-            ...OK_ROUTES,
-            [`POST ${RUN_PATH}/dispatched`]: {
-                status: 503,
-                body: JSON.stringify({ error: { code: 'storage-unavailable', message: 'store down' } }),
-            },
-        });
-
-        await dispatchClaimedRun(relay.rt, claimedRun());
-        await dispatchClaimedRun(relay.rt, claimedRun());
-
-        expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
+        }
     });
 });
 
 describe('the relay dispatches only what it was offered, leased (FR-035)', () => {
-    it('dispatches nothing and says so when the offer carries no lease', async () => {
-        const offer = JSON.parse(JSON.stringify(claimedRun())) as Record<string, unknown>;
-        delete offer.lease;
-        const relay = harness({
-            [PENDING_GET]: {
-                status: 200,
-                body: JSON.stringify({ events: [offer], status: [], auditWritten: true }),
-            },
-        });
+    it('dispatches nothing and says so when the offer carrie… (+4 cases)', async () => {
+        // case: dispatches nothing and says so when the offer carries no lease
+        {
+            const offer = JSON.parse(JSON.stringify(claimedRun())) as Record<string, unknown>;
+            delete offer.lease;
+            const relay = harness({
+                [PENDING_GET]: {
+                    status: 200,
+                    body: JSON.stringify({ events: [offer], status: [], auditWritten: true }),
+                },
+            });
 
-        await pollRelay(relay.rt);
+            await pollRelay(relay.rt);
 
-        expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
-        expect(relay.timeline.filter((entry) => entry === `POST ${RUN_PATH}/reserve`)).toHaveLength(0);
-    });
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
+            expect(relay.timeline.filter((entry) => entry === `POST ${RUN_PATH}/reserve`)).toHaveLength(0);
+        }
+        // case: dispatches nothing when an offered run is not in the state it was offered in
+        {
+            const offer = JSON.parse(JSON.stringify(claimedRun())) as Record<string, unknown>;
+            offer.state = 'claimed';
+            const relay = harness({
+                [PENDING_GET]: {
+                    status: 200,
+                    body: JSON.stringify({ events: [offer], status: [], auditWritten: true }),
+                },
+            });
 
-    it('dispatches nothing when an offered run is not in the state it was offered in', async () => {
-        const offer = JSON.parse(JSON.stringify(claimedRun())) as Record<string, unknown>;
-        offer.state = 'claimed';
-        const relay = harness({
-            [PENDING_GET]: {
-                status: 200,
-                body: JSON.stringify({ events: [offer], status: [], auditWritten: true }),
-            },
-        });
+            await pollRelay(relay.rt);
 
-        await pollRelay(relay.rt);
+            expect(relay.timeline).toEqual([PENDING_GET]);
+        }
+        // case: dispatches an empty offer without touching the host
+        {
+            const relay = harness({ [PENDING_GET]: { status: 200, body: claimBody([]) } });
 
-        expect(relay.timeline).toEqual([PENDING_GET]);
-    });
+            await pollRelay(relay.rt);
 
-    it('dispatches an empty offer without touching the host', async () => {
-        const relay = harness({ [PENDING_GET]: { status: 200, body: claimBody([]) } });
+            expect(relay.timeline).toEqual([PENDING_GET]);
+            expect(relay.rt.state.relay.lastPollAt).not.toBeNull();
+        }
+        // case: surfaces a degraded claim trail instead of implying one exists (FR-063)
+        {
+            const relay = harness({
+                ...OK_ROUTES,
+                [PENDING_GET]: { status: 200, body: claimBody([claimedRun()], false) },
+            });
 
-        await pollRelay(relay.rt);
+            await pollRelay(relay.rt);
 
-        expect(relay.timeline).toEqual([PENDING_GET]);
-        expect(relay.rt.state.relay.lastPollAt).not.toBeNull();
-    });
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
+        }
+        // case: reads a well-formed offer end to end through the parser
+        {
+            const parsed = parsePendingBody(claimBody([claimedRun()]));
 
-    it('surfaces a degraded claim trail instead of implying one exists (FR-063)', async () => {
-        const relay = harness({
-            ...OK_ROUTES,
-            [PENDING_GET]: { status: 200, body: claimBody([claimedRun()], false) },
-        });
-
-        await pollRelay(relay.rt);
-
-        expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
-    });
-
-    it('reads a well-formed offer end to end through the parser', () => {
-        const parsed = parsePendingBody(claimBody([claimedRun()]));
-
-        expect(parsed?.runs).toHaveLength(1);
-        expect(parsed?.runs[0]?.lease.leaseId).toBe(LEASE_ID);
-        expect(parsed?.auditWritten).toBe(true);
+            expect(parsed?.runs).toHaveLength(1);
+            expect(parsed?.runs[0]?.lease.leaseId).toBe(LEASE_ID);
+            expect(parsed?.auditWritten).toBe(true);
+        }
     });
 });
 
@@ -663,97 +676,102 @@ describe('detection-to-session round trips (NFR-101, AC-127, SC-110)', () => {
 });
 
 describe('bounded growth is asserted, not assumed (AC-129, NFR-107)', () => {
-    it('holds 200 references inside the dispatch excerpt, with a visible cut', () => {
-        const excerpt = 'r'.repeat(SOURCE_EXCERPT_MAX_CHARS);
-        const sources: readonly ContextSource[] = Array.from({ length: MAX_SOURCE_REFERENCES }, (_unused, index) => ({
-            origin: index === 0 ? ASSIGNMENT_KIND : `comment:${index}`,
-            kind: index === 0 ? ASSIGNMENT_KIND : MENTION_KIND,
-            detectedAt: FIXTURE_TIMESTAMP,
-            url: `https://github.com/${REPOSITORY}/issues/7#issuecomment-${index}`,
-            excerpt,
-        }));
-        expect(sources).toHaveLength(MAX_SOURCE_REFERENCES);
-
-        const context = buildBoundedContext({
-            repository: REPOSITORY,
-            issue: {
-                issueNumber: 7,
-                title: ISSUE_TITLE,
-                url: `https://github.com/${REPOSITORY}/issues/7`,
-                state: 'open',
-                body: null,
-                assignees: [LOGIN],
-                isPullRequest: false,
-            },
-            authenticatedLogin: LOGIN,
-            correlationId: CORRELATION,
-            sources,
-        });
-
-        // The budget is FR-014's own per-dispatch figure, and the cut is
-        // marked rather than silent: a 200-reference run can never blow it.
-        expect(context.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
-    });
-
-    it('keeps the attempt history at its cap however many attempts a run records', () => {
-        const [seed] = seededRuns(1).runs;
-        if (seed === undefined) {
-            throw new Error('the attempt-history fixture opened no run');
-        }
-
-        let run = seed;
-        for (let attempt = 1; attempt <= MAX_ATTEMPT_RECORDS + 12; attempt += 1) {
-            const record: DispatchAttempt = {
-                attempt,
-                dispatchToken: null,
-                reservedAt: null,
-                outcome: null,
-                sessionId: null,
-                reason: null,
-                resultReportedAt: null,
-            };
-            run = { ...run, attempt, attempts: attemptHistory({ ...run, attempt }, record) };
-        }
-
-        expect(run.attempts).toHaveLength(MAX_ATTEMPT_RECORDS);
-        expect(run.attempts.at(-1)?.attempt).toBe(MAX_ATTEMPT_RECORDS + 12);
-        expect(run.attempts[0]?.attempt).toBe(13);
-    });
-
-    it('evicts the oldest acknowledged record once the panel holds its cap', async () => {
-        const relay = harness();
-        const total = MAX_RECORDED_ATTEMPTS + RECORDED_ATTEMPT_OVERFLOW;
-
-        for (let attempt = 1; attempt <= total; attempt += 1) {
-            await dispatchClaimedRun(relay.rt, claimedRun({
-                attempt,
-                lease: { ...claimedRun().lease, attempt, leaseId: `lse-${attempt.toString(16).padStart(24, '0')}` },
+    it('holds 200 references inside the dispatch excerpt, wi… (+3 cases)', async () => {
+        // case: holds 200 references inside the dispatch excerpt, with a visible cut
+        {
+            const excerpt = 'r'.repeat(SOURCE_EXCERPT_MAX_CHARS);
+            const sources: readonly ContextSource[] = Array.from({ length: MAX_SOURCE_REFERENCES }, (
+                _unused, index
+            ) => ({
+                origin: index === 0 ? ASSIGNMENT_KIND : `comment:${index}`,
+                kind: index === 0 ? ASSIGNMENT_KIND : MENTION_KIND,
+                detectedAt: FIXTURE_TIMESTAMP,
+                url: `https://github.com/${REPOSITORY}/issues/7#issuecomment-${index}`,
+                excerpt,
             }));
+            expect(sources).toHaveLength(MAX_SOURCE_REFERENCES);
+
+            const context = buildBoundedContext({
+                repository: REPOSITORY,
+                issue: {
+                    issueNumber: 7,
+                    title: ISSUE_TITLE,
+                    url: `https://github.com/${REPOSITORY}/issues/7`,
+                    state: 'open',
+                    body: null,
+                    assignees: [LOGIN],
+                    isPullRequest: false,
+                },
+                authenticatedLogin: LOGIN,
+                correlationId: CORRELATION,
+                sources,
+            });
+
+            // The budget is FR-014's own per-dispatch figure, and the cut is
+            // marked rather than silent: a 200-reference run can never blow it.
+            expect(context.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
         }
-        await drainVerifications(relay.rt);
+        // case: keeps the attempt history at its cap however many attempts a run records
+        {
+            const [seed] = seededRuns(1).runs;
+            if (seed === undefined) {
+                throw new Error('the attempt-history fixture opened no run');
+            }
 
-        const attempts = storedAttempts(relay.storage);
-        expect(attempts).toHaveLength(MAX_RECORDED_ATTEMPTS);
-        // Eviction walks the oldest **acknowledged** entry first (data-model §3),
-        // so the survivors are exactly the newest cap worth — bounded growth,
-        // observed rather than assumed.
-        expect(attempts[0]?.attempt).toBe(RECORDED_ATTEMPT_OVERFLOW + 1);
-        expect(attempts.at(-1)?.attempt).toBe(total);
-        expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(total);
-    });
+            let run = seed;
+            for (let attempt = 1; attempt <= MAX_ATTEMPT_RECORDS + 12; attempt += 1) {
+                const record: DispatchAttempt = {
+                    attempt,
+                    dispatchToken: null,
+                    reservedAt: null,
+                    outcome: null,
+                    sessionId: null,
+                    reason: null,
+                    resultReportedAt: null,
+                };
+                run = { ...run, attempt, attempts: attemptHistory({ ...run, attempt }, record) };
+            }
 
-    it('projects at most the run-history cap however many runs exist', () => {
-        const seeded = seededRuns(MAX_LISTED_EVENTS + RUN_HISTORY_OVERFLOW);
-        expect(seeded.runs.length).toBeGreaterThan(MAX_LISTED_EVENTS);
+            expect(run.attempts).toHaveLength(MAX_ATTEMPT_RECORDS);
+            expect(run.attempts.at(-1)?.attempt).toBe(MAX_ATTEMPT_RECORDS + 12);
+            expect(run.attempts[0]?.attempt).toBe(13);
+        }
+        // case: evicts the oldest acknowledged record once the panel holds its cap
+        {
+            const relay = harness();
+            const total = MAX_RECORDED_ATTEMPTS + RECORDED_ATTEMPT_OVERFLOW;
 
-        const rows = projectRunHistory({
-            runs: seeded.runs,
-            deliveries: seeded.deliveries,
-            cap: MAX_LISTED_EVENTS,
-        });
+            for (let attempt = 1; attempt <= total; attempt += 1) {
+                await dispatchClaimedRun(relay.rt, claimedRun({
+                    attempt,
+                    lease: { ...claimedRun().lease, attempt, leaseId: `lse-${attempt.toString(16).padStart(24, '0')}` },
+                }));
+            }
+            await drainVerifications(relay.rt);
 
-        expect(rows).toHaveLength(MAX_LISTED_EVENTS);
-        expect(rows.length).toBeLessThan(seeded.runs.length);
+            const attempts = storedAttempts(relay.storage);
+            expect(attempts).toHaveLength(MAX_RECORDED_ATTEMPTS);
+            // Eviction walks the oldest **acknowledged** entry first (data-model §3),
+            // so the survivors are exactly the newest cap worth — bounded growth,
+            // observed rather than assumed.
+            expect(attempts[0]?.attempt).toBe(RECORDED_ATTEMPT_OVERFLOW + 1);
+            expect(attempts.at(-1)?.attempt).toBe(total);
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(total);
+        }
+        // case: projects at most the run-history cap however many runs exist
+        {
+            const seeded = seededRuns(MAX_LISTED_EVENTS + RUN_HISTORY_OVERFLOW);
+            expect(seeded.runs.length).toBeGreaterThan(MAX_LISTED_EVENTS);
+
+            const rows = projectRunHistory({
+                runs: seeded.runs,
+                deliveries: seeded.deliveries,
+                cap: MAX_LISTED_EVENTS,
+            });
+
+            expect(rows).toHaveLength(MAX_LISTED_EVENTS);
+            expect(rows.length).toBeLessThan(seeded.runs.length);
+        }
     });
 });
 
@@ -780,75 +798,78 @@ function promptedRoutes(): RouteTable {
 }
 
 describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, FR-053)', () => {
-    it('adds no round trip: still claim, reserve, startSession (+0, NFR-120)', async () => {
-        const relay = harness(promptedRoutes());
-        await pollRelay(relay.rt);
+    it('adds no round trip: still claim, reserve, startSessi… (+2 cases)', async () => {
+        // case: adds no round trip: still claim, reserve, startSession (+0, NFR-120)
+        {
+            const relay = harness(promptedRoutes());
+            await pollRelay(relay.rt);
 
-        const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
-        expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
-        expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
-    });
+            const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
+            expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
+            expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+        }
+        // case: carries the text exactly once — inside the message — and nowhere else
+        {
+            const relay = harness(promptedRoutes());
+            await pollRelay(relay.rt);
 
-    it('carries the text exactly once — inside the message — and nowhere else', async () => {
-        const relay = harness(promptedRoutes());
-        await pollRelay(relay.rt);
+            const request = relay.sessionRequest();
+            const parsed = JSON.parse(request) as {
+                readonly text: string;
+                readonly data: Record<string, unknown>;
+            };
 
-        const request = relay.sessionRequest();
-        const parsed = JSON.parse(request) as {
-            readonly text: string;
-            readonly data: Record<string, unknown>;
-        };
+            // Exactly once, and inside `text`: the operator's block leads, and the
+            // machine's frame follows it (004 FR-030, AC-130).
+            expect(request.split(PROMPT_TEXT).length - 1).toBe(1);
+            expect(parsed.text.indexOf(PROMPT_TEXT)).toBeLessThan(parsed.text.indexOf('Mecha Turk dispatch'));
 
-        // Exactly once, and inside `text`: the operator's block leads, and the
-        // machine's frame follows it (004 FR-030, AC-130).
-        expect(request.split(PROMPT_TEXT).length - 1).toBe(1);
-        expect(parsed.text.indexOf(PROMPT_TEXT)).toBeLessThan(parsed.text.indexOf('Mecha Turk dispatch'));
+            // The machine-readable half carries the reference, never a copy (FR-037).
+            expect(parsed.data.promptPresent).toBe(true);
+            expect(parsed.data.promptFingerprint).toBe(PROMPT_FINGERPRINT);
+            expect(parsed.data.promptLength).toBe([...PROMPT_TEXT].length);
+            expect(JSON.stringify(parsed.data)).not.toContain(PROMPT_TEXT);
 
-        // The machine-readable half carries the reference, never a copy (FR-037).
-        expect(parsed.data.promptPresent).toBe(true);
-        expect(parsed.data.promptFingerprint).toBe(PROMPT_FINGERPRINT);
-        expect(parsed.data.promptLength).toBe([...PROMPT_TEXT].length);
-        expect(JSON.stringify(parsed.data)).not.toContain(PROMPT_TEXT);
+            // And no other surface the panel owns receives it (FR-011, AC-144).
+            expect(JSON.stringify(relay.storage)).not.toContain(PROMPT_TEXT);
+            expect(JSON.stringify(relay.rt.state.ledger)).not.toContain(PROMPT_TEXT);
+            expect(JSON.stringify(relay.rt.state.bindings)).not.toContain(PROMPT_TEXT);
+        }
+        // case: composes a prompt-less dispatch byte-identically to the pre-004 frame (SC-121)
+        {
+            const relay = harness();
+            await pollRelay(relay.rt);
 
-        // And no other surface the panel owns receives it (FR-011, AC-144).
-        expect(JSON.stringify(relay.storage)).not.toContain(PROMPT_TEXT);
-        expect(JSON.stringify(relay.rt.state.ledger)).not.toContain(PROMPT_TEXT);
-        expect(JSON.stringify(relay.rt.state.bindings)).not.toContain(PROMPT_TEXT);
-    });
+            const parsed = JSON.parse(relay.sessionRequest()) as {
+                readonly text: string;
+                readonly data: Record<string, unknown>;
+            };
+            const frame = buildBoundedContext({
+                repository: REPOSITORY,
+                issue: {
+                    issueNumber: 7,
+                    title: ISSUE_TITLE,
+                    url: `https://github.com/${REPOSITORY}/issues/7`,
+                    state: 'open',
+                    body: null,
+                    assignees: [LOGIN],
+                    isPullRequest: false,
+                },
+                authenticatedLogin: LOGIN,
+                correlationId: CORRELATION,
+                sources: [],
+            });
 
-    it('composes a prompt-less dispatch byte-identically to the pre-004 frame (SC-121)', async () => {
-        const relay = harness();
-        await pollRelay(relay.rt);
-
-        const parsed = JSON.parse(relay.sessionRequest()) as {
-            readonly text: string;
-            readonly data: Record<string, unknown>;
-        };
-        const frame = buildBoundedContext({
-            repository: REPOSITORY,
-            issue: {
-                issueNumber: 7,
-                title: ISSUE_TITLE,
-                url: `https://github.com/${REPOSITORY}/issues/7`,
-                state: 'open',
-                body: null,
-                assignees: [LOGIN],
-                isPullRequest: false,
-            },
-            authenticatedLogin: LOGIN,
-            correlationId: CORRELATION,
-            sources: [],
-        });
-
-        // No fence, no blank line, no note about the absence — the message is
-        // what this build produced before the feature existed.
-        expect(parsed.text).not.toContain('OPERATOR STARTING PROMPT');
-        expect(parsed.text).toBe(frame);
-        expect(parsed.text.startsWith('Mecha Turk dispatch (automated')).toBe(true);
-        expect(parsed.data).toMatchObject({
-            promptPresent: false,
-            promptFingerprint: null,
-            promptLength: null,
-        });
+            // No fence, no blank line, no note about the absence — the message is
+            // what this build produced before the feature existed.
+            expect(parsed.text).not.toContain('OPERATOR STARTING PROMPT');
+            expect(parsed.text).toBe(frame);
+            expect(parsed.text.startsWith('Mecha Turk dispatch (automated')).toBe(true);
+            expect(parsed.data).toMatchObject({
+                promptPresent: false,
+                promptFingerprint: null,
+                promptLength: null,
+            });
+        }
     });
 });

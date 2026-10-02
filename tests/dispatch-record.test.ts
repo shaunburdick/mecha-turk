@@ -108,235 +108,251 @@ function runtimeWith(initial: Readonly<Record<string, JsonValue>> = {}): {
 }
 
 describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
-    it('reads a wiped or never-written key as an empty record', async () => {
-        const { rt } = runtimeWith();
+    it('reads a wiped or never-written key as an empty recor… (+3 cases)', async () => {
+        // case: reads a wiped or never-written key as an empty record
+        {
+            const { rt } = runtimeWith();
 
-        const read = await loadDispatchRecord(rt);
+            const read = await loadDispatchRecord(rt);
 
-        expect(read.ok).toBe(true);
-        if (read.ok) {
-            expect(read.document.attempts).toEqual([]);
-            expect(unacknowledgedAttempts(read.document)).toEqual([]);
+            expect(read.ok).toBe(true);
+            if (read.ok) {
+                expect(read.document.attempts).toEqual([]);
+                expect(unacknowledgedAttempts(read.document)).toEqual([]);
+            }
         }
-    });
+        // case: refuses a present document this build must not half-apply
+        {
+            const { rt } = runtimeWith({
+                [DISPATCH_STORAGE_KEY]: { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts: [{ attempt: 1 }] },
+            });
 
-    it('refuses a present document this build must not half-apply', async () => {
-        const { rt } = runtimeWith({
-            [DISPATCH_STORAGE_KEY]: { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts: [{ attempt: 1 }] },
-        });
+            expect(await loadDispatchRecord(rt)).toEqual({ ok: false });
+        }
+        // case: refuses an unknown schema version rather than guessing at it
+        {
+            expect(readDispatchRecord({ schemaVersion: 'dispatch-attempts-99', attempts: [] })).toBeNull();
+        }
+        // case: reports a storage failure as unreadable rather than as "nothing to reconcile"
+        {
+            const rt = createTestRuntime(
+                fakeHost({
+                    storage: {
+                        ...createStorageDouble().storage,
+                        get: () => Promise.reject(new Error('HOST_STORAGE_GONE')),
+                    },
+                }),
+            );
 
-        expect(await loadDispatchRecord(rt)).toEqual({ ok: false });
-    });
-
-    it('refuses an unknown schema version rather than guessing at it', () => {
-        expect(readDispatchRecord({ schemaVersion: 'dispatch-attempts-99', attempts: [] })).toBeNull();
-    });
-
-    it('reports a storage failure as unreadable rather than as "nothing to reconcile"', async () => {
-        const rt = createTestRuntime(
-            fakeHost({
-                storage: {
-                    ...createStorageDouble().storage,
-                    get: () => Promise.reject(new Error('HOST_STORAGE_GONE')),
-                },
-            }),
-        );
-
-        expect(await loadDispatchRecord(rt)).toEqual({ ok: false });
+            expect(await loadDispatchRecord(rt)).toEqual({ ok: false });
+        }
     });
 });
 
 describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
-    it('stores the outcome with acknowledged false, before any report', async () => {
-        const { rt, storage } = runtimeWith();
+    it('stores the outcome with acknowledged false, before a… (+3 cases)', async () => {
+        // case: stores the outcome with acknowledged false, before any report
+        {
+            const { rt, storage } = runtimeWith();
 
-        const written = await recordDispatchOutcome(rt, {
-            correlationId: CORRELATION,
-            runKey: RUN_KEY,
-            attempt: 1,
-            dispatchToken: TOKEN,
-            outcome: { kind: 'dispatched', sessionId: 'ses_1' },
-        });
-
-        expect(written).toBe(true);
-        expect(storage.operations).toEqual([`get:${DISPATCH_STORAGE_KEY}`, `set:${DISPATCH_STORAGE_KEY}`]);
-        const read = await loadDispatchRecord(rt);
-        expect(read.ok).toBe(true);
-        if (read.ok) {
-            expect(read.document.attempts).toHaveLength(1);
-            expect(read.document.attempts[0]).toMatchObject({
+            const written = await recordDispatchOutcome(rt, {
                 correlationId: CORRELATION,
+                runKey: RUN_KEY,
                 attempt: 1,
-                outcome: 'dispatched',
-                sessionId: 'ses_1',
-                reason: null,
-                acknowledged: false,
+                dispatchToken: TOKEN,
+                outcome: { kind: 'dispatched', sessionId: 'ses_1' },
             });
+
+            expect(written).toBe(true);
+            expect(storage.operations).toEqual([`get:${DISPATCH_STORAGE_KEY}`, `set:${DISPATCH_STORAGE_KEY}`]);
+            const read = await loadDispatchRecord(rt);
+            expect(read.ok).toBe(true);
+            if (read.ok) {
+                expect(read.document.attempts).toHaveLength(1);
+                expect(read.document.attempts[0]).toMatchObject({
+                    correlationId: CORRELATION,
+                    attempt: 1,
+                    outcome: 'dispatched',
+                    sessionId: 'ses_1',
+                    reason: null,
+                    acknowledged: false,
+                });
+            }
         }
-    });
+        // case: stores a failure reason with no session id
+        {
+            const { rt } = runtimeWith();
 
-    it('stores a failure reason with no session id', async () => {
-        const { rt } = runtimeWith();
-
-        await recordDispatchOutcome(rt, {
-            correlationId: CORRELATION,
-            runKey: RUN_KEY,
-            attempt: 1,
-            dispatchToken: TOKEN,
-            outcome: { kind: 'failed', reason: 'bootstrap-failed' },
-        });
-
-        const read = await loadDispatchRecord(rt);
-        expect(read.ok).toBe(true);
-        if (read.ok) {
-            expect(read.document.attempts[0]).toMatchObject({
-                outcome: 'failed',
-                sessionId: null,
-                reason: 'bootstrap-failed',
-            });
-        }
-    });
-
-    it('refuses to persist a record its own parser would reject', async () => {
-        const { rt, storage } = runtimeWith();
-
-        const written = await recordDispatchOutcome(rt, {
-            correlationId: CORRELATION,
-            runKey: RUN_KEY,
-            attempt: 1,
-            dispatchToken: 'not-a-token',
-            outcome: { kind: 'dispatched', sessionId: 'ses_1' },
-        });
-
-        expect(written).toBe(false);
-        expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
-    });
-
-    it('appends newest last so a remount replays attempts in order', async () => {
-        const { rt } = runtimeWith();
-        const record = async (attemptNumber: number): Promise<boolean> =>
             await recordDispatchOutcome(rt, {
                 correlationId: CORRELATION,
                 runKey: RUN_KEY,
-                attempt: attemptNumber,
+                attempt: 1,
                 dispatchToken: TOKEN,
-                outcome: { kind: 'failed', reason: 'no-session' },
+                outcome: { kind: 'failed', reason: 'bootstrap-failed' },
             });
 
-        expect(await record(1)).toBe(true);
-        expect(await record(2)).toBe(true);
+            const read = await loadDispatchRecord(rt);
+            expect(read.ok).toBe(true);
+            if (read.ok) {
+                expect(read.document.attempts[0]).toMatchObject({
+                    outcome: 'failed',
+                    sessionId: null,
+                    reason: 'bootstrap-failed',
+                });
+            }
+        }
+        // case: refuses to persist a record its own parser would reject
+        {
+            const { rt, storage } = runtimeWith();
 
-        const read = await loadDispatchRecord(rt);
-        expect(read.ok).toBe(true);
-        if (read.ok) {
-            expect(read.document.attempts.map((entry) => entry.attempt)).toEqual([1, 2]);
+            const written = await recordDispatchOutcome(rt, {
+                correlationId: CORRELATION,
+                runKey: RUN_KEY,
+                attempt: 1,
+                dispatchToken: 'not-a-token',
+                outcome: { kind: 'dispatched', sessionId: 'ses_1' },
+            });
+
+            expect(written).toBe(false);
+            expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
+        }
+        // case: appends newest last so a remount replays attempts in order
+        {
+            const { rt } = runtimeWith();
+            const record = async (attemptNumber: number): Promise<boolean> =>
+                await recordDispatchOutcome(rt, {
+                    correlationId: CORRELATION,
+                    runKey: RUN_KEY,
+                    attempt: attemptNumber,
+                    dispatchToken: TOKEN,
+                    outcome: { kind: 'failed', reason: 'no-session' },
+                });
+
+            expect(await record(1)).toBe(true);
+            expect(await record(2)).toBe(true);
+
+            const read = await loadDispatchRecord(rt);
+            expect(read.ok).toBe(true);
+            if (read.ok) {
+                expect(read.document.attempts.map((entry) => entry.attempt)).toEqual([1, 2]);
+            }
         }
     });
 });
 
 describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
-    it('flips the named attempt and leaves every other record alone', async () => {
-        const { rt } = runtimeWith({
-            [DISPATCH_STORAGE_KEY]: stored(document([
-                attempt({ attempt: 1, acknowledged: false }),
-                attempt({ correlationId: OTHER_CORRELATION, attempt: 1, acknowledged: false }),
-                attempt({ attempt: 2, acknowledged: false }),
-            ])),
-        });
+    it('flips the named attempt and leaves every other recor… (+1 cases)', async () => {
+        // case: flips the named attempt and leaves every other record alone
+        {
+            const { rt } = runtimeWith({
+                [DISPATCH_STORAGE_KEY]: stored(document([
+                    attempt({ attempt: 1, acknowledged: false }),
+                    attempt({ correlationId: OTHER_CORRELATION, attempt: 1, acknowledged: false }),
+                    attempt({ attempt: 2, acknowledged: false }),
+                ])),
+            });
 
-        expect(await acknowledgeDispatch({ rt, correlationId: CORRELATION, attempt: 1 })).toBe(true);
+            expect(await acknowledgeDispatch({ rt, correlationId: CORRELATION, attempt: 1 })).toBe(true);
 
-        const read = await loadDispatchRecord(rt);
-        expect(read.ok).toBe(true);
-        if (read.ok) {
-            expect(read.document.attempts.map((entry) => entry.acknowledged)).toEqual([true, false, false]);
+            const read = await loadDispatchRecord(rt);
+            expect(read.ok).toBe(true);
+            if (read.ok) {
+                expect(read.document.attempts.map((entry) => entry.acknowledged)).toEqual([true, false, false]);
+            }
         }
-    });
+        // case: changes nothing — and writes nothing — for an attempt it never recorded
+        {
+            const { rt, storage } = runtimeWith({
+                [DISPATCH_STORAGE_KEY]: stored(document([attempt({ attempt: 3, acknowledged: false })])),
+            });
 
-    it('changes nothing — and writes nothing — for an attempt it never recorded', async () => {
-        const { rt, storage } = runtimeWith({
-            [DISPATCH_STORAGE_KEY]: stored(document([attempt({ attempt: 3, acknowledged: false })])),
-        });
-
-        expect(await acknowledgeDispatch({ rt, correlationId: CORRELATION, attempt: 4 })).toBe(false);
-        expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
+            expect(await acknowledgeDispatch({ rt, correlationId: CORRELATION, attempt: 4 })).toBe(false);
+            expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
+        }
     });
 });
 
 describe('cap and eviction (NFR-107, FR-024 durability)', () => {
-    it('holds at 50 by evicting the oldest acknowledged record first', () => {
-        const full = document(
-            Array.from({ length: MAX_RECORDED_ATTEMPTS }, (_unused, index) =>
-                attempt({ attempt: index + 1, acknowledged: true })),
-        );
+    it('holds at 50 by evicting the oldest acknowledged reco… (+2 cases)', () => {
+        // case: holds at 50 by evicting the oldest acknowledged record first
+        {
+            const full = document(
+                Array.from({ length: MAX_RECORDED_ATTEMPTS }, (_unused, index) =>
+                    attempt({ attempt: index + 1, acknowledged: true })),
+            );
 
-        const capped = appendAttempt(full, attempt({ attempt: 99, acknowledged: false }));
+            const capped = appendAttempt(full, attempt({ attempt: 99, acknowledged: false }));
 
-        expect(capped.attempts).toHaveLength(MAX_RECORDED_ATTEMPTS);
-        expect(capped.attempts[0]?.attempt).toBe(2);
-        expect(capped.attempts.at(-1)?.attempt).toBe(99);
-        expect(capped.attempts.at(-1)?.acknowledged).toBe(false);
-    });
+            expect(capped.attempts).toHaveLength(MAX_RECORDED_ATTEMPTS);
+            expect(capped.attempts[0]?.attempt).toBe(2);
+            expect(capped.attempts.at(-1)?.attempt).toBe(99);
+            expect(capped.attempts.at(-1)?.acknowledged).toBe(false);
+        }
+        // case: never takes an unacknowledged record to make room
+        {
+            const mixed = document([
+                attempt({ attempt: 1, acknowledged: false }),
+                ...Array.from({ length: MAX_RECORDED_ATTEMPTS - 1 }, (_unused, index) =>
+                    attempt({ attempt: index + 2, acknowledged: true })),
+            ]);
 
-    it('never takes an unacknowledged record to make room', () => {
-        const mixed = document([
-            attempt({ attempt: 1, acknowledged: false }),
-            ...Array.from({ length: MAX_RECORDED_ATTEMPTS - 1 }, (_unused, index) =>
-                attempt({ attempt: index + 2, acknowledged: true })),
-        ]);
+            const capped = appendAttempt(mixed, attempt({ attempt: 99, acknowledged: false }));
 
-        const capped = appendAttempt(mixed, attempt({ attempt: 99, acknowledged: false }));
+            expect(capped.attempts).toHaveLength(MAX_RECORDED_ATTEMPTS);
+            expect(capped.attempts[0]).toMatchObject({ attempt: 1, acknowledged: false });
+            expect(capped.attempts.at(-1)?.attempt).toBe(99);
+        }
+        // case: prefers the durability of an unacknowledged record over the count
+        {
+            // Nothing is acknowledged, so there is no victim the contract permits;
+            // dropping one would destroy the only evidence a session exists.
+            const allOpen = document(
+                Array.from({ length: MAX_RECORDED_ATTEMPTS + 5 }, (_unused, index) =>
+                    attempt({ attempt: index + 1, acknowledged: false })),
+            );
 
-        expect(capped.attempts).toHaveLength(MAX_RECORDED_ATTEMPTS);
-        expect(capped.attempts[0]).toMatchObject({ attempt: 1, acknowledged: false });
-        expect(capped.attempts.at(-1)?.attempt).toBe(99);
-    });
+            const capped = appendAttempt(allOpen, attempt({ attempt: 999, acknowledged: false }));
 
-    it('prefers the durability of an unacknowledged record over the count', () => {
-        // Nothing is acknowledged, so there is no victim the contract permits;
-        // dropping one would destroy the only evidence a session exists.
-        const allOpen = document(
-            Array.from({ length: MAX_RECORDED_ATTEMPTS + 5 }, (_unused, index) =>
-                attempt({ attempt: index + 1, acknowledged: false })),
-        );
-
-        const capped = appendAttempt(allOpen, attempt({ attempt: 999, acknowledged: false }));
-
-        expect(capped.attempts).toHaveLength(MAX_RECORDED_ATTEMPTS + 6);
-        expect(capped.attempts.every((entry) => !entry.acknowledged)).toBe(true);
+            expect(capped.attempts).toHaveLength(MAX_RECORDED_ATTEMPTS + 6);
+            expect(capped.attempts.every((entry) => !entry.acknowledged)).toBe(true);
+        }
     });
 });
 
 describe('redaction posture (T-019, research §R3)', () => {
-    it('passes a stored dispatch token byte-identically', () => {
-        const json = JSON.stringify(document([attempt()]));
+    it('passes a stored dispatch token byte-identically (+2 cases)', async () => {
+        // case: passes a stored dispatch token byte-identically
+        {
+            const json = JSON.stringify(document([attempt()]));
 
-        expect(() => assertRedacted(DISPATCH_STORAGE_KEY, json)).not.toThrow();
-        expect(json).toContain(TOKEN);
-    });
+            expect(() => assertRedacted(DISPATCH_STORAGE_KEY, json)).not.toThrow();
+            expect(json).toContain(TOKEN);
+        }
+        // case: still refuses a credential-shaped value sitting beside the token
+        {
+            const json = JSON.stringify(document([attempt({ reason: PAT })]));
 
-    it('still refuses a credential-shaped value sitting beside the token', () => {
-        const json = JSON.stringify(document([attempt({ reason: PAT })]));
+            expect(() => assertRedacted(DISPATCH_STORAGE_KEY, json)).toThrow(RedactionError);
+        }
+        // case: refuses to write a document the guard rejects
+        {
+            const { rt, storage } = runtimeWith({
+                // Hand-edited storage carrying a credential: the record still parses
+                // (a reason is a reason), and the redaction guard is what stops it
+                // from being written back out.
+                [DISPATCH_STORAGE_KEY]: stored(document([attempt({
+                    outcome: 'failed', sessionId: null, reason: PAT })])),
+            });
 
-        expect(() => assertRedacted(DISPATCH_STORAGE_KEY, json)).toThrow(RedactionError);
-    });
-
-    it('refuses to write a document the guard rejects', async () => {
-        const { rt, storage } = runtimeWith({
-            // Hand-edited storage carrying a credential: the record still parses
-            // (a reason is a reason), and the redaction guard is what stops it
-            // from being written back out.
-            [DISPATCH_STORAGE_KEY]: stored(document([attempt({ outcome: 'failed', sessionId: null, reason: PAT })])),
-        });
-
-        expect(await recordDispatchOutcome(rt, {
-            correlationId: CORRELATION,
-            runKey: RUN_KEY,
-            attempt: 1,
-            dispatchToken: TOKEN,
-            outcome: { kind: 'failed', reason: 'no-session' },
-        })).toBe(false);
-        expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
+            expect(await recordDispatchOutcome(rt, {
+                correlationId: CORRELATION,
+                runKey: RUN_KEY,
+                attempt: 1,
+                dispatchToken: TOKEN,
+                outcome: { kind: 'failed', reason: 'no-session' },
+            })).toBe(false);
+            expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
+        }
     });
 });
 

@@ -93,13 +93,19 @@ const NON_RUN_EVENTS: readonly string[] = ['consent', 'account.verified'];
 /** The running loop every case drives. */
 let loop: DispatchLoop;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     loop = await startDispatchLoop();
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await loop.shutdown();
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Read one correlation identifier's rows through the product's own route.
@@ -202,84 +208,91 @@ async function driveLifecycle(): Promise<Run> {
 }
 
 describe('T-032 one run reconstructs from its correlation identifier alone', () => {
-    it('returns every lifecycle row in order, on the run’s own id, ending where the run stands', async () => {
-        const run = await driveLifecycle();
-        expect(run.state).toBe(DISPATCHED_STATE);
+    it('returns every lifecycle row in order, on the run’s o… (+1 cases)', async () => {
+        // case: returns every lifecycle row in order, on the run’s own id, ending where the run stands
+        {
+            const run = await driveLifecycle();
+            expect(run.state).toBe(DISPATCHED_STATE);
 
-        const rows = await auditFor(run.correlationId);
+            const rows = await auditFor(run.correlationId);
 
-        // In order and complete: `seq` ascends, never repeats, never gaps
-        // (SC-104's "reconstructable ... with prior state, new state, reason").
-        const seqs = rows.map((row) => row.seq);
-        expect(seqs.length).toBeGreaterThan(LIFECYCLE_ORDER.length);
-        expect(seqs).toEqual([...seqs].sort((left, right) => left - right));
-        expect(new Set(seqs).size).toBe(seqs.length);
+            // In order and complete: `seq` ascends, never repeats, never gaps
+            // (SC-104's "reconstructable ... with prior state, new state, reason").
+            const seqs = rows.map((row) => row.seq);
+            expect(seqs.length).toBeGreaterThan(LIFECYCLE_ORDER.length);
+            expect(seqs).toEqual([...seqs].sort((left, right) => left - right));
+            expect(new Set(seqs).size).toBe(seqs.length);
 
-        // The correlation identifier is the run's, byte-identically, on every
-        // row — the specific defect 003 closed (FR-062, AC-116).
-        for (const row of rows) {
-            expect(row.correlationId).toBe(run.correlationId);
+            // The correlation identifier is the run's, byte-identically, on every
+            // row — the specific defect 003 closed (FR-062, AC-116).
+            for (const row of rows) {
+                expect(row.correlationId).toBe(run.correlationId);
+            }
+
+            // The chain itself, in the order the product answers it.
+            const lifecycle = rows.filter((row) => Object.hasOwn(STATE_AFTER, row.eventType));
+            expect(lifecycle.map((row) => row.eventType)).toEqual(LIFECYCLE_ORDER);
+            for (const row of lifecycle) {
+                expect(row.entity).toEqual({ kind: 'run', id: run.correlationId });
+            }
+
+            // Reading that chain against the vocabulary ends at the state the run
+            // history reports — the reconstruction is faithful, not merely present.
+            const chain = lifecycle.map((row) => STATE_AFTER[row.eventType]);
+            expect(chain.at(-1)).toBe(run.state);
+            expect(run.session?.sessionId).toBe(SESSION_ID);
+
+            // The rows that record a transition with a cause name it: prior state,
+            // the attempt before and after, and the operator's own words.
+            const retry = lifecycle.find((row) => row.eventType === 'dispatch.retry');
+            expect(retry?.details).toMatchObject({
+                priorState: 'failed',
+                attemptBefore: 1,
+                attemptAfter: 2,
+                causeReport: RETRY_CAUSE,
+            });
+            const abandoned = lifecycle.find((row) => row.eventType === 'dispatch.abandoned');
+            expect(abandoned?.decision).toBe('no-session');
+            expect(abandoned?.details).toMatchObject({ reason: ABANDON_REASON });
+            const result = lifecycle.find((row) => row.eventType === 'dispatch.result');
+            expect(result?.decision).toBe('dispatched');
+            expect(result?.details).toMatchObject({ sessionId: SESSION_ID });
         }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: excludes rows that are not about a run while keeping their own identifiers
+        {
+            await appendAudit(loop.store, {
+                eventType: 'consent',
+                actorSource: 'panel',
+                entity: { kind: 'service', id: 'mecha-turk' },
+                reason: 'service capability granted',
+            });
+            await appendAudit(loop.store, {
+                eventType: 'account.verified',
+                actorSource: 'service',
+                entity: { kind: 'account', id: '77331' },
+                reason: 'credential verified',
+            });
+            const run = await driveLifecycle();
 
-        // The chain itself, in the order the product answers it.
-        const lifecycle = rows.filter((row) => Object.hasOwn(STATE_AFTER, row.eventType));
-        expect(lifecycle.map((row) => row.eventType)).toEqual(LIFECYCLE_ORDER);
-        for (const row of lifecycle) {
-            expect(row.entity).toEqual({ kind: 'run', id: run.correlationId });
-        }
+            const filtered = await auditFor(run.correlationId);
+            const types = filtered.map((row) => row.eventType);
+            expect(types.filter((type) => NON_RUN_EVENTS.includes(type))).toEqual([]);
+            // Forward traceability still holds: the run's own detections match it
+            // (FR-050's correlation table), so a scan observation is traceable
+            // forwards into the run that absorbed it (AC-118).
+            expect(types).toContain('delivery.detected');
 
-        // Reading that chain against the vocabulary ends at the state the run
-        // history reports — the reconstruction is faithful, not merely present.
-        const chain = lifecycle.map((row) => STATE_AFTER[row.eventType]);
-        expect(chain.at(-1)).toBe(run.state);
-        expect(run.session?.sessionId).toBe(SESSION_ID);
-
-        // The rows that record a transition with a cause name it: prior state,
-        // the attempt before and after, and the operator's own words.
-        const retry = lifecycle.find((row) => row.eventType === 'dispatch.retry');
-        expect(retry?.details).toMatchObject({
-            priorState: 'failed',
-            attemptBefore: 1,
-            attemptAfter: 2,
-            causeReport: RETRY_CAUSE,
-        });
-        const abandoned = lifecycle.find((row) => row.eventType === 'dispatch.abandoned');
-        expect(abandoned?.decision).toBe('no-session');
-        expect(abandoned?.details).toMatchObject({ reason: ABANDON_REASON });
-        const result = lifecycle.find((row) => row.eventType === 'dispatch.result');
-        expect(result?.decision).toBe('dispatched');
-        expect(result?.details).toMatchObject({ sessionId: SESSION_ID });
-    });
-
-    it('excludes rows that are not about a run while keeping their own identifiers', async () => {
-        await appendAudit(loop.store, {
-            eventType: 'consent',
-            actorSource: 'panel',
-            entity: { kind: 'service', id: 'mecha-turk' },
-            reason: 'service capability granted',
-        });
-        await appendAudit(loop.store, {
-            eventType: 'account.verified',
-            actorSource: 'service',
-            entity: { kind: 'account', id: '77331' },
-            reason: 'credential verified',
-        });
-        const run = await driveLifecycle();
-
-        const filtered = await auditFor(run.correlationId);
-        const types = filtered.map((row) => row.eventType);
-        expect(types.filter((type) => NON_RUN_EVENTS.includes(type))).toEqual([]);
-        // Forward traceability still holds: the run's own detections match it
-        // (FR-050's correlation table), so a scan observation is traceable
-        // forwards into the run that absorbed it (AC-118).
-        expect(types).toContain('delivery.detected');
-
-        const all = await unfilteredAudit();
-        const foreign = all.filter((row) => NON_RUN_EVENTS.includes(row.eventType));
-        expect(foreign).toHaveLength(NON_RUN_EVENTS.length);
-        for (const row of foreign) {
-            expect(row.correlationId).not.toBe(run.correlationId);
-            expect(row.entity.kind).not.toBe('run');
+            const all = await unfilteredAudit();
+            const foreign = all.filter((row) => NON_RUN_EVENTS.includes(row.eventType));
+            expect(foreign).toHaveLength(NON_RUN_EVENTS.length);
+            for (const row of foreign) {
+                expect(row.correlationId).not.toBe(run.correlationId);
+                expect(row.entity.kind).not.toBe('run');
+            }
         }
     });
 });

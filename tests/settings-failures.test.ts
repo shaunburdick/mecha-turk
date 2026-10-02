@@ -285,103 +285,109 @@ const storeRead: Answer = () => ({ status: 503, body: errorBody(STORE_CODE) });
 const grantRead: Answer = () => ({ status: 401, body: errorBody('unauthorized') });
 
 describe('a read the service could not answer keeps the tab readable (AC-129, AC-140, FR-060)', () => {
-    it('AC-129: an unreachable service reads *service not running — settings read-only*', async () => {
-        const view = await mountSettings(unreachableRead);
+    it('AC-129: an unreachable service reads *service not ru… (+3 cases)', async () => {
+        // case: AC-129: an unreachable service reads *service not running — settings read-only*
+        {
+            const view = await mountSettings(unreachableRead);
 
-        expect(notice()).toContain(NOT_RUNNING);
-        expect(inputCount()).toBe(0);
-        expect(view.rt.settingsUi?.saveBox.hidden).toBe(true);
-        expect(view.rt.settingsUi?.armBox.hidden).toBe(true);
-        view.dispose();
-    });
-
-    it('AC-140: static content and the reason are present, and no number that did not come from a read', async () => {
-        const view = await mountSettings(unreachableRead);
-        const rendered = recordedStrings().join('\n');
-
-        expect(rendered).toContain('Settings');
-        // The one digit this surface legitimately carries is the route's own
-        // version segment; strip it and nothing numeric is left (AC-140).
-        expect(rendered.replaceAll(CONFIG_ROUTE, '')).not.toMatch(/\d/);
-        view.dispose();
-    });
-
-    it('AC-131: an unauthorised read renders *not authorised*, with no retry loop', async () => {
-        const view = await mountSettings(grantRead);
-
-        expect(notice()).toContain(NOT_AUTHORISED);
-        expect(view.rt.settingsUi?.saveBox.hidden).toBe(true);
-        expect(inputCount()).toBe(0);
-        // One read, and no second: the grant is the host's to give, and the
-        // panel does not retry its way around it (constitution II).
-        expect(view.requests).toHaveLength(1);
-        view.dispose();
-    });
-
-    it('SC-111: three read states, three distinct causes, no input control in any of them', async () => {
-        const answers: readonly Answer[] = [unreachableRead, storeRead, grantRead];
-        const painted: string[] = [];
-        for (const answer of answers) {
-            const view = await mountSettings(answer);
-            painted.push(notice());
+            expect(notice()).toContain(NOT_RUNNING);
             expect(inputCount()).toBe(0);
+            expect(view.rt.settingsUi?.saveBox.hidden).toBe(true);
+            expect(view.rt.settingsUi?.armBox.hidden).toBe(true);
+            view.dispose();
+        }
+        // case: AC-140: static content and the reason are present, and no number that did not come from a read
+        {
+            const view = await mountSettings(unreachableRead);
+            const rendered = recordedStrings().join('\n');
+
+            expect(rendered).toContain('Settings');
+            // The one digit this surface legitimately carries is the route's own
+            // version segment; strip it and nothing numeric is left (AC-140).
+            expect(rendered.replaceAll(CONFIG_ROUTE, '')).not.toMatch(/\d/);
+            view.dispose();
+        }
+        // case: AC-131: an unauthorised read renders *not authorised*, with no retry loop
+        {
+            const view = await mountSettings(grantRead);
+
+            expect(notice()).toContain(NOT_AUTHORISED);
+            expect(view.rt.settingsUi?.saveBox.hidden).toBe(true);
+            expect(inputCount()).toBe(0);
+            // One read, and no second: the grant is the host's to give, and the
+            // panel does not retry its way around it (constitution II).
             expect(view.requests).toHaveLength(1);
             view.dispose();
         }
+        // case: SC-111: three read states, three distinct causes, no input control in any of them
+        {
+            const answers: readonly Answer[] = [unreachableRead, storeRead, grantRead];
+            const painted: string[] = [];
+            for (const answer of answers) {
+                const view = await mountSettings(answer);
+                painted.push(notice());
+                expect(inputCount()).toBe(0);
+                expect(view.requests).toHaveLength(1);
+                view.dispose();
+            }
 
-        expect(new Set(painted).size).toBe(3);
-        expect(painted[0]).toContain(NOT_RUNNING);
-        expect(painted[1]).toContain(PREREQUISITE);
-        expect(painted[2]).toContain(NOT_AUTHORISED);
+            expect(new Set(painted).size).toBe(3);
+            expect(painted[0]).toContain(NOT_RUNNING);
+            expect(painted[1]).toContain(PREREQUISITE);
+            expect(painted[2]).toContain(NOT_AUTHORISED);
+        }
     });
 });
 
 describe('a failed read marks the values it keeps (006 AC-134)', () => {
-    it('AC-134: the values stay visible, marked stale, with the cause named', async () => {
-        let reads = 0;
-        const view = await mountSettings((request) => {
-            if (request.method !== 'GET' || request.path !== CONFIG_ROUTE) {
-                return { status: DEFAULT_STATUS, body: DEFAULT_BODY };
+    it('AC-134: the values stay visible, marked stale, with … (+1 cases)', async () => {
+        // case: AC-134: the values stay visible, marked stale, with the cause named
+        {
+            let reads = 0;
+            const view = await mountSettings((request) => {
+                if (request.method !== 'GET' || request.path !== CONFIG_ROUTE) {
+                    return { status: DEFAULT_STATUS, body: DEFAULT_BODY };
+                }
+
+                reads += 1;
+
+                return reads === 1
+                    ? { status: 200, body: envelopeBody() }
+                    : { status: 503, body: errorBody(STORE_CODE) };
+            });
+            expect(view.rt.state.settingsTab.stale).toBe(false);
+
+            // The tab's own re-read control: the second read fails.
+            const refresh = mounts.log.find(
+                (mount) => mount.key === 'mountButton'
+                    && (mount.props as { readonly label?: string }).label === 'Refresh configuration',
+            );
+            if (refresh === undefined) {
+                throw new Error('no re-read control was mounted');
             }
 
-            reads += 1;
+            (refresh.props as { readonly onClick: () => void }).onClick();
+            await tick();
 
-            return reads === 1
-                ? { status: 200, body: envelopeBody() }
-                : { status: 503, body: errorBody(STORE_CODE) };
-        });
-        expect(view.rt.state.settingsTab.stale).toBe(false);
-
-        // The tab's own re-read control: the second read fails.
-        const refresh = mounts.log.find(
-            (mount) => mount.key === 'mountButton'
-                && (mount.props as { readonly label?: string }).label === 'Refresh configuration',
-        );
-        if (refresh === undefined) {
-            throw new Error('no re-read control was mounted');
+            const slice = view.rt.state.settingsTab;
+            expect(slice.stale).toBe(true);
+            // The document is still there, so the rows are still on screen…
+            expect(slice.doc).not.toBeNull();
+            // …and the notice says why the new read failed *and* how old the
+            // values it is showing are (FR-019, FR-061).
+            expect(notice()).toContain(PREREQUISITE);
+            expect(notice()).toContain(String(slice.at));
+            view.dispose();
         }
+        // case: a first read that never landed is not stale — there is nothing to be stale about
+        {
+            const view = await mountSettings(storeRead);
 
-        (refresh.props as { readonly onClick: () => void }).onClick();
-        await tick();
-
-        const slice = view.rt.state.settingsTab;
-        expect(slice.stale).toBe(true);
-        // The document is still there, so the rows are still on screen…
-        expect(slice.doc).not.toBeNull();
-        // …and the notice says why the new read failed *and* how old the
-        // values it is showing are (FR-019, FR-061).
-        expect(notice()).toContain(PREREQUISITE);
-        expect(notice()).toContain(String(slice.at));
-        view.dispose();
-    });
-
-    it('a first read that never landed is not stale — there is nothing to be stale about', async () => {
-        const view = await mountSettings(storeRead);
-
-        expect(view.rt.state.settingsTab.stale).toBe(false);
-        expect(view.rt.state.settingsTab.phase).toBe('failed');
-        expect(view.rt.state.settingsTab.doc).toBeNull();
-        view.dispose();
+            expect(view.rt.state.settingsTab.stale).toBe(false);
+            expect(view.rt.state.settingsTab.phase).toBe('failed');
+            expect(view.rt.state.settingsTab.doc).toBeNull();
+            view.dispose();
+        }
     });
 });
 
@@ -422,85 +428,92 @@ describe('a failed write names its own cause, never a refusal (006 T-023, AC-130
         },
     ];
 
-    it('AC-130 – AC-133: each cause renders its own copy, and none renders the refusal copy', async () => {
-        for (const failure of cases) {
-            const view = await mountForWrite(failure.put);
+    it('AC-130 – AC-133: each cause renders its own copy, an… (+3 cases)', async () => {
+        // case: AC-130 – AC-133: each cause renders its own copy, and none renders the refusal copy
+        {
+            for (const failure of cases) {
+                const view = await mountForWrite(failure.put);
+                await saveOnce();
+
+                const slice = view.rt.state.settingsTab;
+                expect(slice.edit.saveState).toBe('failed');
+                expect(slice.edit.failure?.cause).toBe(failure.cause);
+                const rendered = recordedStrings().join('\n');
+                expect(rendered, `${failure.cause} copy missing`).toContain(failure.expect);
+                expect(rendered).not.toContain('The service refused these values.');
+                view.dispose();
+                mounts.log.length = 0;
+            }
+        }
+        // case: AC-133: an unexpected failure renders its correlation identifier as copyable text
+        {
+            const view = await mountForWrite(() => ({ status: 500, body: errorBody('internal', 'mt-cfg-7') }));
+            await saveOnce();
+
+            expect(recordedStrings().join('\n')).toContain('Correlation id: mt-cfg-7');
+            expect(view.rt.state.settingsTab.edit.failure?.correlationId).toBe('mt-cfg-7');
+            view.dispose();
+        }
+        // case: AC-130/AC-133: a failure issues one write and nothing after it — no automatic retry
+        {
+            for (const failure of cases) {
+                const view = await mountForWrite(failure.put);
+                await saveOnce();
+
+                // One read, one write, and no second of either (FR-061, FR-064).
+                expect(view.requests).toHaveLength(2);
+                view.dispose();
+                mounts.log.length = 0;
+            }
+        }
+        // case: a refusal still renders the service issues, so the split has not moved
+        {
+            const view = await mountForWrite(() => ({ status: 422, body: REFUSAL }));
             await saveOnce();
 
             const slice = view.rt.state.settingsTab;
-            expect(slice.edit.saveState).toBe('failed');
-            expect(slice.edit.failure?.cause).toBe(failure.cause);
-            const rendered = recordedStrings().join('\n');
-            expect(rendered, `${failure.cause} copy missing`).toContain(failure.expect);
-            expect(rendered).not.toContain('The service refused these values.');
+            expect(slice.edit.saveState).toBe('refused');
+            expect(slice.edit.failure).toBeNull();
             view.dispose();
-            mounts.log.length = 0;
         }
-    });
-
-    it('AC-133: an unexpected failure renders its correlation identifier as copyable text', async () => {
-        const view = await mountForWrite(() => ({ status: 500, body: errorBody('internal', 'mt-cfg-7') }));
-        await saveOnce();
-
-        expect(recordedStrings().join('\n')).toContain('Correlation id: mt-cfg-7');
-        expect(view.rt.state.settingsTab.edit.failure?.correlationId).toBe('mt-cfg-7');
-        view.dispose();
-    });
-
-    it('AC-130/AC-133: a failure issues one write and nothing after it — no automatic retry', async () => {
-        for (const failure of cases) {
-            const view = await mountForWrite(failure.put);
-            await saveOnce();
-
-            // One read, one write, and no second of either (FR-061, FR-064).
-            expect(view.requests).toHaveLength(2);
-            view.dispose();
-            mounts.log.length = 0;
-        }
-    });
-
-    it('a refusal still renders the service issues, so the split has not moved', async () => {
-        const view = await mountForWrite(() => ({ status: 422, body: REFUSAL }));
-        await saveOnce();
-
-        const slice = view.rt.state.settingsTab;
-        expect(slice.edit.saveState).toBe('refused');
-        expect(slice.edit.failure).toBeNull();
-        view.dispose();
     });
 });
 
 describe('the copy each cause gets is its own (006 SC-111, FR-061 – FR-063)', () => {
-    it('gives the four write causes four different sentences, none of them a refusal', () => {
-        const causes: readonly SettingsFailureCause[] = ['store', 'unauthorised', 'transport', 'unexpected'];
-        const lines = causes.map((cause) => FAILURE_LINES[cause]);
+    it('gives the four write causes four different sentences… (+2 cases)', () => {
+        // case: gives the four write causes four different sentences, none of them a refusal
+        {
+            const causes: readonly SettingsFailureCause[] = ['store', 'unauthorised', 'transport', 'unexpected'];
+            const lines = causes.map((cause) => FAILURE_LINES[cause]);
 
-        expect(new Set(lines).size).toBe(4);
-        for (const line of lines) {
-            expect(line).not.toContain('refused these values');
+            expect(new Set(lines).size).toBe(4);
+            for (const line of lines) {
+                expect(line).not.toContain('refused these values');
+            }
         }
-    });
+        // case: gives the read its own three sentences, the transport one being AC-129s wording
+        {
+            const bodies = [
+                readFailureBody('service unreachable'),
+                readFailureBody('service answered 503'),
+                readFailureBody('service answered 401'),
+            ];
 
-    it('gives the read its own three sentences, the transport one being AC-129s wording', () => {
-        const bodies = [
-            readFailureBody('service unreachable'),
-            readFailureBody('service answered 503'),
-            readFailureBody('service answered 401'),
-        ];
+            expect(new Set(bodies).size).toBe(3);
+            expect(bodies[0]).toContain(NOT_RUNNING);
+            expect(bodies[1]).toContain(PREREQUISITE);
+            expect(bodies[2]).toContain(NOT_AUTHORISED);
+        }
+        // case: adds the correlation id only when the answer carried one
+        {
+            const plain = writeFailure({ code: 'internal', problem: 'service answered 500', correlationId: null });
+            const traced = writeFailure({
+                code: 'internal', problem: 'service answered 500', correlationId: 'mt-cfg-9' });
 
-        expect(new Set(bodies).size).toBe(3);
-        expect(bodies[0]).toContain(NOT_RUNNING);
-        expect(bodies[1]).toContain(PREREQUISITE);
-        expect(bodies[2]).toContain(NOT_AUTHORISED);
-    });
-
-    it('adds the correlation id only when the answer carried one', () => {
-        const plain = writeFailure({ code: 'internal', problem: 'service answered 500', correlationId: null });
-        const traced = writeFailure({ code: 'internal', problem: 'service answered 500', correlationId: 'mt-cfg-9' });
-
-        expect(writeFailureLines(plain)).toHaveLength(1);
-        expect(writeFailureLines(traced)).toHaveLength(2);
-        expect(writeFailureLines(traced)[1]).toBe('Correlation id: mt-cfg-9');
+            expect(writeFailureLines(plain)).toHaveLength(1);
+            expect(writeFailureLines(traced)).toHaveLength(2);
+            expect(writeFailureLines(traced)[1]).toBe('Correlation id: mt-cfg-9');
+        }
     });
 });
 
@@ -518,47 +531,50 @@ async function savedWith(body: string): Promise<SettingsMount> {
 }
 
 describe('a save whose audit row never landed still shows as saved (006 T-024, AC-139)', () => {
-    it('AC-139: `auditWritten: false` renders a visible warning naming the missing row', async () => {
-        const view = await savedWith(JSON.stringify({
-            config: { ...DEFAULT_CONFIG, intervalMs: 120_000 },
-            auditWritten: false,
-        }));
+    it('AC-139: `auditWritten: false` renders a visible warn… (+2 cases)', async () => {
+        // case: AC-139: `auditWritten: false` renders a visible warning naming the missing row
+        {
+            const view = await savedWith(JSON.stringify({
+                config: { ...DEFAULT_CONFIG, intervalMs: 120_000 },
+                auditWritten: false,
+            }));
 
-        const slice = view.rt.state.settingsTab;
-        expect(slice.edit.saveState).toBe('saved');
-        expect(slice.edit.auditWritten).toBe(false);
-        const rendered = recordedStrings().join('\n');
-        // The save is shown *and* the gap is shown — never one instead of the other.
-        expect(rendered).toContain('Saved.');
-        expect(rendered).toContain(AUDIT_MISSING_LINE);
-        expect(AUDIT_MISSING_LINE).toContain(CONFIG_EVENT);
-        view.dispose();
-    });
+            const slice = view.rt.state.settingsTab;
+            expect(slice.edit.saveState).toBe('saved');
+            expect(slice.edit.auditWritten).toBe(false);
+            const rendered = recordedStrings().join('\n');
+            // The save is shown *and* the gap is shown — never one instead of the other.
+            expect(rendered).toContain('Saved.');
+            expect(rendered).toContain(AUDIT_MISSING_LINE);
+            expect(AUDIT_MISSING_LINE).toContain(CONFIG_EVENT);
+            view.dispose();
+        }
+        // case: AC-139: a write whose row landed renders no such warning
+        {
+            const view = await savedWith(JSON.stringify({
+                config: { ...DEFAULT_CONFIG, intervalMs: 120_000 },
+                auditWritten: true,
+            }));
 
-    it('AC-139: a write whose row landed renders no such warning', async () => {
-        const view = await savedWith(JSON.stringify({
-            config: { ...DEFAULT_CONFIG, intervalMs: 120_000 },
-            auditWritten: true,
-        }));
+            expect(view.rt.state.settingsTab.edit.auditWritten).toBe(true);
+            expect(recordedStrings().join('\n')).not.toContain(AUDIT_MISSING_LINE);
+            view.dispose();
+        }
+        // case: the contract write shape — `{ config, auditWritten }` with no projection — still renders
+        {
+            const view = await savedWith(JSON.stringify({
+                config: { ...DEFAULT_CONFIG, intervalMs: 120_000 },
+                auditWritten: true,
+            }));
 
-        expect(view.rt.state.settingsTab.edit.auditWritten).toBe(true);
-        expect(recordedStrings().join('\n')).not.toContain(AUDIT_MISSING_LINE);
-        view.dispose();
-    });
-
-    it('the contract write shape — `{ config, auditWritten }` with no projection — still renders', async () => {
-        const view = await savedWith(JSON.stringify({
-            config: { ...DEFAULT_CONFIG, intervalMs: 120_000 },
-            auditWritten: true,
-        }));
-
-        const slice = view.rt.state.settingsTab;
-        expect(slice.edit.saveState).toBe('saved');
-        expect(slice.doc?.config.intervalMs).toBe(120_000);
-        expect(slice.edit.draft.intervalMs).toBe('120000');
-        expect(slice.edit.blocked).toBeNull();
-        expect(slice.edit.confirm).toBeNull();
-        view.dispose();
+            const slice = view.rt.state.settingsTab;
+            expect(slice.edit.saveState).toBe('saved');
+            expect(slice.doc?.config.intervalMs).toBe(120_000);
+            expect(slice.edit.draft.intervalMs).toBe('120000');
+            expect(slice.edit.blocked).toBeNull();
+            expect(slice.edit.confirm).toBeNull();
+            view.dispose();
+        }
     });
 });
 
@@ -580,24 +596,27 @@ describe('AC-137 panel half: a configuration row keeps its own id, and a run vie
         }],
     });
 
-    it('renders a configuration row under its own correlation identifier', () => {
-        const rows = parseAuditBody(CONFIG_ROW);
-        expect(rows).toHaveLength(1);
+    it('renders a configuration row under its own correlatio… (+1 cases)', () => {
+        // case: renders a configuration row under its own correlation identifier
+        {
+            const rows = parseAuditBody(CONFIG_ROW);
+            expect(rows).toHaveLength(1);
 
-        const text = auditStatusText({
-            status: 'ready',
-            correlationId: rows?.[0]?.correlationId ?? '',
-            rows: rows ?? [],
-            note: '',
-        });
-        expect(text).toContain(CONFIG_ROW_ID);
-        expect(rows?.[0]?.eventType).toBe(CONFIG_EVENT);
-    });
-
-    it('keeps the panel audit read run-filtered, so a configuration row cannot enter it', () => {
-        // The service compares `correlationId` byte for byte (003 contract §2),
-        // and a configuration row mints an id no run ever owns (FR-074) — so
-        // asking for a run's trail can never return one.
-        expect(auditPath('mt-run-1')).toBe('/v1/audit?correlationId=mt-run-1');
+            const text = auditStatusText({
+                status: 'ready',
+                correlationId: rows?.[0]?.correlationId ?? '',
+                rows: rows ?? [],
+                note: '',
+            });
+            expect(text).toContain(CONFIG_ROW_ID);
+            expect(rows?.[0]?.eventType).toBe(CONFIG_EVENT);
+        }
+        // case: keeps the panel audit read run-filtered, so a configuration row cannot enter it
+        {
+            // The service compares `correlationId` byte for byte (003 contract §2),
+            // and a configuration row mints an id no run ever owns (FR-074) — so
+            // asking for a run's trail can never return one.
+            expect(auditPath('mt-run-1')).toBe('/v1/audit?correlationId=mt-run-1');
+        }
     });
 });

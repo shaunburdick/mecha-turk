@@ -109,7 +109,8 @@ const LEGACY_CLAIMED_AT: string = sweepClockFixture().legacyRow.claimedAt;
 let running: TestService | null = null;
 let scratch: string | null = null;
 
-afterEach(async () => {
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork1 = async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
@@ -119,7 +120,9 @@ afterEach(async () => {
         await rm(scratch, { recursive: true, force: true });
         scratch = null;
     }
-});
+};
+
+afterEach(afterEachWork1);
 
 /**
  * Seed the store from the fixture, then assert the shape a first boot needs.
@@ -215,70 +218,75 @@ function bootDiagnostics(input: {
 }
 
 describe('T-010 boot sweep ordering', () => {
-    it('recovers a stranded claim before the first claim answer (FR-032)', async () => {
-        const dataDir = await seedStrandedClaim();
-        running = await startTestService({ dataDir });
+    it('recovers a stranded claim before the first claim ans… (+1 cases)', async () => {
+        // case: recovers a stranded claim before the first claim answer (FR-032)
+        {
+            const dataDir = await seedStrandedClaim();
+            running = await startTestService({ dataDir });
 
-        const swept = await running.handle.swept;
-        const claimed = await claim(running);
-        const store = openHarnessStore(running);
-        const before = bootDiagnostics({ service: running, swept, claim: claimed });
+            const swept = await running.handle.swept;
+            const claimed = await claim(running);
+            const store = openHarnessStore(running);
+            const before = bootDiagnostics({ service: running, swept, claim: claimed });
 
-        // The run was adopted as a claimed run holding an expired synthetic
-        // lease, and the boot pass put it back to waiting before the listener
-        // ever answered a claim.
-        expect(swept.recoveries.map((recovery) => recovery.eventType), before).toEqual([LEASE_EXPIRED_EVENT]);
-        expect(swept.auditWritten, before).toBe(true);
-        expect(claimed, before).toHaveLength(1);
-        expect(claimed[0]?.issueNumber).toBe(404);
-        expect(claimed[0]?.lease.expiresAt).not.toBe(LEGACY_CLAIMED_AT);
-        const rows = await leaseExpiryRows(store);
-        expect(rows).toHaveLength(1);
-        expect((rows[0] as { details: { migrationRecovery: boolean } }).details.migrationRecovery).toBe(true);
-    });
+            // The run was adopted as a claimed run holding an expired synthetic
+            // lease, and the boot pass put it back to waiting before the listener
+            // ever answered a claim.
+            expect(swept.recoveries.map((recovery) => recovery.eventType), before).toEqual([LEASE_EXPIRED_EVENT]);
+            expect(swept.auditWritten, before).toBe(true);
+            expect(claimed, before).toHaveLength(1);
+            expect(claimed[0]?.issueNumber).toBe(404);
+            expect(claimed[0]?.lease.expiresAt).not.toBe(LEGACY_CLAIMED_AT);
+            const rows = await leaseExpiryRows(store);
+            expect(rows).toHaveLength(1);
+            expect((rows[0] as { details: { migrationRecovery: boolean } }).details.migrationRecovery).toBe(true);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: leaves a live lease alone across a restart, and recovers the same run once
+        {
+            const dataDir = await seedStrandedClaim();
+            const first = await startTestService({ dataDir });
 
-    it('leaves a live lease alone across a restart, and recovers the same run once', async () => {
-        const dataDir = await seedStrandedClaim();
-        const first = await startTestService({ dataDir });
+            // Boot 1's outcome is a precondition, asserted **before** the restart:
+            // a first boot that silently degraded (store refused, boot pass threw)
+            // would leave the legacy row un-recovered, and the run it then adopted
+            // would look, on the next boot, like a live lease being recovered as
+            // migration recovery — which is exactly the failure T-045 root-caused.
+            const firstSwept = await first.handle.swept;
+            const firstClaim = await claim(first);
+            const before = bootDiagnostics({ service: first, swept: firstSwept, claim: firstClaim });
+            expect(firstSwept.recoveries.map((recovery) => recovery.eventType), before).toEqual([LEASE_EXPIRED_EVENT]);
+            expect(firstSwept.auditWritten, before).toBe(true);
+            expect(firstClaim, before).toHaveLength(1);
+            expect(firstClaim[0]?.correlationId, before).toMatch(/^mt-run-[0-9a-f]{24}$/);
+            // The lease the restart must not touch is live for the whole configured
+            // duration, asserted as stamp arithmetic rather than as "the test ran
+            // fast enough" — the service clock is the only clock in the comparison.
+            const lease = firstClaim[0]?.lease;
+            expect(
+                Date.parse(String(lease?.expiresAt)) - Date.parse(String(lease?.issuedAt)),
+                before,
+            ).toBe(DEFAULT_LEASE_MS);
+            await first.shutdown();
 
-        // Boot 1's outcome is a precondition, asserted **before** the restart:
-        // a first boot that silently degraded (store refused, boot pass threw)
-        // would leave the legacy row un-recovered, and the run it then adopted
-        // would look, on the next boot, like a live lease being recovered as
-        // migration recovery — which is exactly the failure T-045 root-caused.
-        const firstSwept = await first.handle.swept;
-        const firstClaim = await claim(first);
-        const before = bootDiagnostics({ service: first, swept: firstSwept, claim: firstClaim });
-        expect(firstSwept.recoveries.map((recovery) => recovery.eventType), before).toEqual([LEASE_EXPIRED_EVENT]);
-        expect(firstSwept.auditWritten, before).toBe(true);
-        expect(firstClaim, before).toHaveLength(1);
-        expect(firstClaim[0]?.correlationId, before).toMatch(/^mt-run-[0-9a-f]{24}$/);
-        // The lease the restart must not touch is live for the whole configured
-        // duration, asserted as stamp arithmetic rather than as "the test ran
-        // fast enough" — the service clock is the only clock in the comparison.
-        const lease = firstClaim[0]?.lease;
-        expect(
-            Date.parse(String(lease?.expiresAt)) - Date.parse(String(lease?.issuedAt)),
-            before,
-        ).toBe(DEFAULT_LEASE_MS);
-        await first.shutdown();
+            const second = await startTestService({ dataDir });
+            running = second;
+            const secondClaim = await claim(second);
+            const store = openHarnessStore(second);
 
-        const second = await startTestService({ dataDir });
-        running = second;
-        const secondClaim = await claim(second);
-        const store = openHarnessStore(second);
-
-        // The first start recovered the stranded claim and the panel then leased
-        // it. A restart must not steal a live lease — the panel holding it may
-        // be mid-dispatch — so the second boot sweep finds nothing to do and
-        // the same run is not offered twice.
-        const swept = await second.handle.swept;
-        expect(swept.recoveries).toEqual([]);
-        expect(secondClaim).toEqual([]);
-        const rows = await leaseExpiryRows(store);
-        expect(rows).toHaveLength(1);
-        expect(rows.map((row) => (row as { correlationId: string }).correlationId))
-            .toEqual(firstClaim.map((run) => run.correlationId));
+            // The first start recovered the stranded claim and the panel then leased
+            // it. A restart must not steal a live lease — the panel holding it may
+            // be mid-dispatch — so the second boot sweep finds nothing to do and
+            // the same run is not offered twice.
+            const swept = await second.handle.swept;
+            expect(swept.recoveries).toEqual([]);
+            expect(secondClaim).toEqual([]);
+            const rows = await leaseExpiryRows(store);
+            expect(rows).toHaveLength(1);
+            expect(rows.map((row) => (row as { correlationId: string }).correlationId))
+                .toEqual(firstClaim.map((run) => run.correlationId));
+        }
     });
 });
 
@@ -320,33 +328,38 @@ describe('T-045 the pass adopts under the stamp it judges with', () => {
 });
 
 describe('T-010 the periodic sweep', () => {
-    it('names its recoveries in the service log without any secret', async () => {
-        const dataDir = await seedStrandedClaim();
-        running = await startTestService({ dataDir });
-        await running.handle.swept;
+    it('names its recoveries in the service log without any … (+1 cases)', async () => {
+        // case: names its recoveries in the service log without any secret
+        {
+            const dataDir = await seedStrandedClaim();
+            running = await startTestService({ dataDir });
+            await running.handle.swept;
 
-        const recoveries = running.logLines.filter((line) => line.includes(SWEEP_LOG_MESSAGE));
+            const recoveries = running.logLines.filter((line) => line.includes(SWEEP_LOG_MESSAGE));
 
-        expect(recoveries).toHaveLength(1);
-        expect(recoveries[0]).toContain(LEASE_EXPIRED_EVENT);
-        expect(recoveries[0]).not.toContain('octocat');
-        expect(recoveries[0]).not.toMatch(/gh[pousr]_[A-Za-z0-9]{16,}/);
-    });
+            expect(recoveries).toHaveLength(1);
+            expect(recoveries[0]).toContain(LEASE_EXPIRED_EVENT);
+            expect(recoveries[0]).not.toContain('octocat');
+            expect(recoveries[0]).not.toMatch(/gh[pousr]_[A-Za-z0-9]{16,}/);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: stops on shutdown, leaving the timer to the process exit
+        {
+            const root = await mkdtemp(join(tmpdir(), 'mecha-turk-sweep-timer-'));
+            scratch = root;
+            const store = await openStore({ dataDir: join(root, 'store') });
+            const lines: string[] = [];
+            const log = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
 
-    it('stops on shutdown, leaving the timer to the process exit', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'mecha-turk-sweep-timer-'));
-        scratch = root;
-        const store = await openStore({ dataDir: join(root, 'store') });
-        const lines: string[] = [];
-        const log = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
+            const loop = startSweep({ store, log });
+            loop.stop();
 
-        const loop = startSweep({ store, log });
-        loop.stop();
-
-        // An unref'd timer does not hold the event loop open, so the process
-        // would exit here even with the sweep armed; stopping it explicitly is
-        // what keeps a shutdown from re-arming one more pass.
-        expect(lines).toEqual([]);
+            // An unref'd timer does not hold the event loop open, so the process
+            // would exit here even with the sweep armed; stopping it explicitly is
+            // what keeps a shutdown from re-arming one more pass.
+            expect(lines).toEqual([]);
+        }
     });
 });
 

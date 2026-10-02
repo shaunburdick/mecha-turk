@@ -135,16 +135,22 @@ let dataDir = '';
 /** Open store handle the cases plant and trim through. */
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-trim-'));
     dataDir = join(tempRoot, 'store');
     await mkdir(dataDir, { recursive: true });
     store = await openStore({ dataDir });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Build a capturing logger, so a pass's own line can be asserted.
@@ -270,525 +276,578 @@ async function trimRows(): Promise<readonly AuditEntry[]> {
 }
 
 describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', () => {
-    it('removes only unprotected rows, oldest first, across all seventeen 003 event types', async () => {
-        await plantSubjects();
-        // Chain A: an opener that is not itself run-scoped, the seventeen
-        // lifecycle types in the middle, and the outcome last.
-        const chain = SEVENTEEN_RUN_TYPES.map((eventType, index) =>
-            trailRow({ seq: index + 2, eventType, correlationId: CHAIN_RUN, timestamp: LONG_AGO }),);
-        const rows = [
-            trailRow({ seq: 1, eventType: DELIVERY_DETECTED, correlationId: CHAIN_RUN, timestamp: LONG_AGO }),
-            ...chain,
-            trailRow({ seq: 19, eventType: CONFIG_CHANGED, correlationId: 'chain-config', timestamp: LONG_AGO }),
-            trailRow({ seq: 20, eventType: 'policy.decision', correlationId: 'chain-policy', timestamp: LONG_AGO }),
-            trailRow({
-                seq: 21,
-                eventType: ACCOUNT_VERIFIED,
-                correlationId: 'chain-account',
-                timestamp: LONG_AGO,
-                entityKind: 'account',
-                entityId: LIVE_ACCOUNT_ID,
-            }),
-            trailRow({
-                seq: 22,
-                eventType: BINDING_DISABLED,
-                correlationId: 'chain-binding',
-                timestamp: LONG_AGO,
-                entityKind: 'binding',
-                entityId: LIVE_BINDING_ID,
-            }),
-            trailRow({ seq: 23, eventType: SERVICE_STARTED, correlationId: 'chain-service', timestamp: LONG_AGO }),
-            trailRow({ seq: 24, eventType: 'consent', correlationId: 'chain-consent', timestamp: LONG_AGO }),
-            trailRow({ seq: 25, eventType: DELIVERY_DETECTED, correlationId: 'chain-plain', timestamp: LONG_AGO }),
-            trailRow({ seq: 26, eventType: 'poll.observation', correlationId: 'chain-fresh', timestamp: RECENT }),
-            trailRow({
-                seq: 27,
-                eventType: 'account.deleted',
-                correlationId: 'chain-gone',
-                timestamp: LONG_AGO,
-                entityKind: 'account',
-                entityId: GONE_ACCOUNT_ID,
-            }),
-            // A chain whose opener is run-scoped and only row: it is both.
-            trailRow({ seq: 28, eventType: RUN_CREATED, correlationId: 'chain-solo', timestamp: LONG_AGO }),
-        ];
-        await plantTrail(rows);
-        expect(new Set(rows.map((row) => String(row.eventType))).size).toBeGreaterThanOrEqual(19);
+    it('removes only unprotected rows, oldest first, across … (+3 cases)', async () => {
+        // case: removes only unprotected rows, oldest first, across all seventeen 003 event types
+        {
+            await plantSubjects();
+            // Chain A: an opener that is not itself run-scoped, the seventeen
+            // lifecycle types in the middle, and the outcome last.
+            const chain = SEVENTEEN_RUN_TYPES.map((eventType, index) =>
+                trailRow({ seq: index + 2, eventType, correlationId: CHAIN_RUN, timestamp: LONG_AGO }),);
+            const rows = [
+                trailRow({ seq: 1, eventType: DELIVERY_DETECTED, correlationId: CHAIN_RUN, timestamp: LONG_AGO }),
+                ...chain,
+                trailRow({ seq: 19, eventType: CONFIG_CHANGED, correlationId: 'chain-config', timestamp: LONG_AGO }),
+                trailRow({ seq: 20, eventType: 'policy.decision', correlationId: 'chain-policy', timestamp: LONG_AGO }),
+                trailRow({
+                    seq: 21,
+                    eventType: ACCOUNT_VERIFIED,
+                    correlationId: 'chain-account',
+                    timestamp: LONG_AGO,
+                    entityKind: 'account',
+                    entityId: LIVE_ACCOUNT_ID,
+                }),
+                trailRow({
+                    seq: 22,
+                    eventType: BINDING_DISABLED,
+                    correlationId: 'chain-binding',
+                    timestamp: LONG_AGO,
+                    entityKind: 'binding',
+                    entityId: LIVE_BINDING_ID,
+                }),
+                trailRow({ seq: 23, eventType: SERVICE_STARTED, correlationId: 'chain-service', timestamp: LONG_AGO }),
+                trailRow({ seq: 24, eventType: 'consent', correlationId: 'chain-consent', timestamp: LONG_AGO }),
+                trailRow({ seq: 25, eventType: DELIVERY_DETECTED, correlationId: 'chain-plain', timestamp: LONG_AGO }),
+                trailRow({ seq: 26, eventType: 'poll.observation', correlationId: 'chain-fresh', timestamp: RECENT }),
+                trailRow({
+                    seq: 27,
+                    eventType: 'account.deleted',
+                    correlationId: 'chain-gone',
+                    timestamp: LONG_AGO,
+                    entityKind: 'account',
+                    entityId: GONE_ACCOUNT_ID,
+                }),
+                // A chain whose opener is run-scoped and only row: it is both.
+                trailRow({ seq: 28, eventType: RUN_CREATED, correlationId: 'chain-solo', timestamp: LONG_AGO }),
+            ];
+            await plantTrail(rows);
+            expect(new Set(rows.map((row) => String(row.eventType))).size).toBeGreaterThanOrEqual(19);
 
-        const outcome = await trimAudit({ store, log: capturingLogger().log, config: configWith(), now: NOW });
+            const outcome = await trimAudit({ store, log: capturingLogger().log, config: configWith(), now: NOW });
 
-        // Eighteen rows went: the fourteen middle lifecycle rows that are
-        // neither the opener, the outcome, the final hop, nor the creation
-        // row, plus the four unprotected aged rows. Nothing protected, nothing
-        // fresh.
-        expect(outcome.removed).toBe(18);
-        expect(outcome.limitReached).toBe(DAY_WINDOW);
-        expect(outcome.minimalReferencesPreserved).toBe(9);
-        const trail = await storedTrail();
-        expect(trail.map((entry) => entry.seq)).toEqual([1, 2, 15, 18, 19, 20, 21, 22, 26, 28, 29]);
-        // Survivors keep their original numbers — a trim never renumbers — and
-        // the row it appended is the only one carrying the trim vocabulary.
-        expect(trail.filter((entry) => entry.eventType === TRIM_EVENT).map((entry) => entry.seq)).toEqual([29]);
-        // Every run chain keeps its opener **and** its outcome, sharing one id,
-        // plus the hop that recorded the final state and the creation row.
-        const chainRows = trail.filter((entry) => entry.correlationId === CHAIN_RUN);
-        expect(chainRows.map((entry) => entry.seq)).toEqual([1, 2, 15, 18]);
-        expect(chainRows[0]?.eventType).toBe(DELIVERY_DETECTED);
-        expect(chainRows[1]?.eventType).toBe(RUN_CREATED);
-        expect(chainRows[2]?.eventType).toBe('run.dead_lettered');
-        expect(chainRows[3]?.eventType).toBe('dispatch.refused');
-        // The row records exactly what it took, by seq, and why.
-        const [trimmed] = await trimRows();
-        expect(trimmed).toBeDefined();
-        expect(trimmed?.details).toEqual({
-            entriesRemoved: 18,
-            oldestSeq: 3,
-            newestSeq: 27,
-            limitReached: DAY_WINDOW,
-            minimalReferencesPreserved: 9,
-            malformedLinesDropped: 0,
-        });
-        expect(trimmed?.decision).toBe('trimmed');
-        expect(trimmed?.actorSource).toBe('service');
-        expect(trimmed?.entity).toEqual({ kind: 'service', id: 'configuration' });
-        expect(trimmed?.reason).toContain(DAY_WINDOW);
-    });
+            // Eighteen rows went: the fourteen middle lifecycle rows that are
+            // neither the opener, the outcome, the final hop, nor the creation
+            // row, plus the four unprotected aged rows. Nothing protected, nothing
+            // fresh.
+            expect(outcome.removed).toBe(18);
+            expect(outcome.limitReached).toBe(DAY_WINDOW);
+            expect(outcome.minimalReferencesPreserved).toBe(9);
+            const trail = await storedTrail();
+            expect(trail.map((entry) => entry.seq)).toEqual([1, 2, 15, 18, 19, 20, 21, 22, 26, 28, 29]);
+            // Survivors keep their original numbers — a trim never renumbers — and
+            // the row it appended is the only one carrying the trim vocabulary.
+            expect(trail.filter((entry) => entry.eventType === TRIM_EVENT).map((entry) => entry.seq)).toEqual([29]);
+            // Every run chain keeps its opener **and** its outcome, sharing one id,
+            // plus the hop that recorded the final state and the creation row.
+            const chainRows = trail.filter((entry) => entry.correlationId === CHAIN_RUN);
+            expect(chainRows.map((entry) => entry.seq)).toEqual([1, 2, 15, 18]);
+            expect(chainRows[0]?.eventType).toBe(DELIVERY_DETECTED);
+            expect(chainRows[1]?.eventType).toBe(RUN_CREATED);
+            expect(chainRows[2]?.eventType).toBe('run.dead_lettered');
+            expect(chainRows[3]?.eventType).toBe('dispatch.refused');
+            // The row records exactly what it took, by seq, and why.
+            const [trimmed] = await trimRows();
+            expect(trimmed).toBeDefined();
+            expect(trimmed?.details).toEqual({
+                entriesRemoved: 18,
+                oldestSeq: 3,
+                newestSeq: 27,
+                limitReached: DAY_WINDOW,
+                minimalReferencesPreserved: 9,
+                malformedLinesDropped: 0,
+            });
+            expect(trimmed?.decision).toBe('trimmed');
+            expect(trimmed?.actorSource).toBe('service');
+            expect(trimmed?.entity).toEqual({ kind: 'service', id: 'configuration' });
+            expect(trimmed?.reason).toContain(DAY_WINDOW);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: keeps a chronologically ordered run\'s final-state row and creation row
+        {
+            // The order a dispatched run really writes in: detection opens the
+            // chain, the run is created, the panel claims and reserves, the result
+            // records the final state (and its reason), and only afterwards does
+            // the warn-only read-back land. The chain's latest run-scoped row is
+            // therefore *not* the row that carries the outcome, which is the case
+            // a fixture ordered by vocabulary name never reached (003 FR-065).
+            const chronology = [
+                DELIVERY_DETECTED,
+                RUN_CREATED,
+                'dispatch.claimed',
+                'dispatch.reserved',
+                DISPATCH_RESULT,
+                AGENT_VERIFIED,
+            ];
+            await plantTrail(
+                chronology.map((eventType, index) =>
+                    trailRow({ seq: index + 1, eventType, correlationId: CHAIN_CHRONOLOGICAL, timestamp: LONG_AGO }),),
+            );
 
-    it('keeps a chronologically ordered run\'s final-state row and creation row', async () => {
-        // The order a dispatched run really writes in: detection opens the
-        // chain, the run is created, the panel claims and reserves, the result
-        // records the final state (and its reason), and only afterwards does
-        // the warn-only read-back land. The chain's latest run-scoped row is
-        // therefore *not* the row that carries the outcome, which is the case
-        // a fixture ordered by vocabulary name never reached (003 FR-065).
-        const chronology = [
-            DELIVERY_DETECTED,
-            RUN_CREATED,
-            'dispatch.claimed',
-            'dispatch.reserved',
-            DISPATCH_RESULT,
-            AGENT_VERIFIED,
-        ];
-        await plantTrail(
-            chronology.map((eventType, index) =>
-                trailRow({ seq: index + 1, eventType, correlationId: CHAIN_CHRONOLOGICAL, timestamp: LONG_AGO }),),
-        );
+            const outcome = await trimAudit({ store, log: capturingLogger().log, config: configWith(), now: NOW });
 
-        const outcome = await trimAudit({ store, log: capturingLogger().log, config: configWith(), now: NOW });
+            // Four survive — opener, creation, final state, warn-only tail — and
+            // exactly the two middle observations go: a chain whose outcome *is*
+            // its latest row still loses its middle, so the wider protection is
+            // the final-state row and the subject, not the whole chain.
+            expect(outcome.removed).toBe(2);
+            expect(outcome.limitReached).toBe(DAY_WINDOW);
+            expect(outcome.minimalReferencesPreserved).toBe(4);
+            const chronological = await storedTrail();
+            const chain = chronological.filter((entry) => entry.correlationId === CHAIN_CHRONOLOGICAL);
+            expect(chain.map((entry) => entry.seq)).toEqual([1, 2, 5, 6]);
+            expect(chain.map((entry) => entry.eventType)).toEqual([
+                DELIVERY_DETECTED,
+                RUN_CREATED,
+                DISPATCH_RESULT,
+                AGENT_VERIFIED,
+            ]);
+            const [trimmed] = await trimRows();
+            expect(trimmed).toBeDefined();
+            expect(trimmed?.details).toEqual({
+                entriesRemoved: 2,
+                oldestSeq: 3,
+                newestSeq: 4,
+                limitReached: DAY_WINDOW,
+                minimalReferencesPreserved: 4,
+                malformedLinesDropped: 0,
+            });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: protects account and binding rows only while their subject still exists
+        {
+            await plantSubjects();
+            await plantTrail([
+                trailRow({
+                    seq: 1,
+                    eventType: ACCOUNT_VERIFIED,
+                    correlationId: 'chain-live-account',
+                    timestamp: LONG_AGO,
+                    entityKind: 'account',
+                    entityId: LIVE_ACCOUNT_ID,
+                }),
+                trailRow({
+                    seq: 2,
+                    eventType: BINDING_DISABLED,
+                    correlationId: 'chain-live-binding',
+                    timestamp: LONG_AGO,
+                    entityKind: 'binding',
+                    entityId: LIVE_BINDING_ID,
+                }),
+                trailRow({
+                    seq: 3,
+                    eventType: 'account.deleted',
+                    correlationId: 'chain-gone-account',
+                    timestamp: LONG_AGO,
+                    entityKind: 'account',
+                    entityId: GONE_ACCOUNT_ID,
+                }),
+                trailRow({
+                    seq: 4,
+                    eventType: BINDING_DISABLED,
+                    correlationId: 'chain-gone-binding',
+                    timestamp: LONG_AGO,
+                    entityKind: 'binding',
+                    entityId: GONE_BINDING_ID,
+                }),
+            ]);
+            const { log } = capturingLogger();
 
-        // Four survive — opener, creation, final state, warn-only tail — and
-        // exactly the two middle observations go: a chain whose outcome *is*
-        // its latest row still loses its middle, so the wider protection is
-        // the final-state row and the subject, not the whole chain.
-        expect(outcome.removed).toBe(2);
-        expect(outcome.limitReached).toBe(DAY_WINDOW);
-        expect(outcome.minimalReferencesPreserved).toBe(4);
-        const chronological = await storedTrail();
-        const chain = chronological.filter((entry) => entry.correlationId === CHAIN_CHRONOLOGICAL);
-        expect(chain.map((entry) => entry.seq)).toEqual([1, 2, 5, 6]);
-        expect(chain.map((entry) => entry.eventType)).toEqual([
-            DELIVERY_DETECTED,
-            RUN_CREATED,
-            DISPATCH_RESULT,
-            AGENT_VERIFIED,
-        ]);
-        const [trimmed] = await trimRows();
-        expect(trimmed).toBeDefined();
-        expect(trimmed?.details).toEqual({
-            entriesRemoved: 2,
-            oldestSeq: 3,
-            newestSeq: 4,
-            limitReached: DAY_WINDOW,
-            minimalReferencesPreserved: 4,
-            malformedLinesDropped: 0,
-        });
-    });
+            const first = await trimAudit({ store, log, config: configWith(), now: NOW });
 
-    it('protects account and binding rows only while their subject still exists', async () => {
-        await plantSubjects();
-        await plantTrail([
-            trailRow({
-                seq: 1,
-                eventType: ACCOUNT_VERIFIED,
-                correlationId: 'chain-live-account',
-                timestamp: LONG_AGO,
-                entityKind: 'account',
-                entityId: LIVE_ACCOUNT_ID,
-            }),
-            trailRow({
-                seq: 2,
-                eventType: BINDING_DISABLED,
-                correlationId: 'chain-live-binding',
-                timestamp: LONG_AGO,
-                entityKind: 'binding',
-                entityId: LIVE_BINDING_ID,
-            }),
-            trailRow({
-                seq: 3,
-                eventType: 'account.deleted',
-                correlationId: 'chain-gone-account',
-                timestamp: LONG_AGO,
-                entityKind: 'account',
-                entityId: GONE_ACCOUNT_ID,
-            }),
-            trailRow({
-                seq: 4,
-                eventType: BINDING_DISABLED,
-                correlationId: 'chain-gone-binding',
-                timestamp: LONG_AGO,
-                entityKind: 'binding',
-                entityId: GONE_BINDING_ID,
-            }),
-        ]);
-        const { log } = capturingLogger();
+            expect(first.removed).toBe(2);
+            expect(first.minimalReferencesPreserved).toBe(2);
+            const afterFirstPass = await storedTrail();
+            expect(afterFirstPass.map((entry) => entry.seq)).toEqual([1, 2, 5]);
 
-        const first = await trimAudit({ store, log, config: configWith(), now: NOW });
+            // The subject goes away: its row is no longer a minimal reference and
+            // the next pass removes it, exactly as 002's data model describes.
+            await rm(join(dataDir, 'accounts', `${LIVE_ACCOUNT_ID}.json`));
+            await store.writeJson('bindings.json', []);
 
-        expect(first.removed).toBe(2);
-        expect(first.minimalReferencesPreserved).toBe(2);
-        const afterFirstPass = await storedTrail();
-        expect(afterFirstPass.map((entry) => entry.seq)).toEqual([1, 2, 5]);
+            const second = await trimAudit({ store, log, config: configWith(), now: NOW });
 
-        // The subject goes away: its row is no longer a minimal reference and
-        // the next pass removes it, exactly as 002's data model describes.
-        await rm(join(dataDir, 'accounts', `${LIVE_ACCOUNT_ID}.json`));
-        await store.writeJson('bindings.json', []);
+            expect(second.removed).toBe(2);
+            expect(second.minimalReferencesPreserved).toBe(0);
+            const trail = await storedTrail();
+            // Only the two trim rows remain: neither subject's references do.
+            expect(trail.map((entry) => entry.seq)).toEqual([5, 6]);
+            expect(
+                trail.filter((entry) => entry.entity.kind === 'account' || entry.entity.kind === 'binding'),
+            ).toEqual([]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: writes nothing when both limits are satisfied
+        {
+            const rows = [
+                trailRow({ seq: 1, eventType: SERVICE_STARTED, correlationId: 'chain-fresh', timestamp: RECENT }),
+                trailRow({ seq: 2, eventType: DELIVERY_DETECTED, correlationId: 'chain-fresh-2', timestamp: RECENT }),
+            ];
+            await plantTrail(rows);
+            const before = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
 
-        const second = await trimAudit({ store, log, config: configWith(), now: NOW });
+            const outcome = await trimAudit({
+                store,
+                log: capturingLogger().log,
+                config: configWith(),
+                now: NOW,
+            });
 
-        expect(second.removed).toBe(2);
-        expect(second.minimalReferencesPreserved).toBe(0);
-        const trail = await storedTrail();
-        // Only the two trim rows remain: neither subject's references do.
-        expect(trail.map((entry) => entry.seq)).toEqual([5, 6]);
-        expect(
-            trail.filter((entry) => entry.entity.kind === 'account' || entry.entity.kind === 'binding'),
-        ).toEqual([]);
-    });
-
-    it('writes nothing when both limits are satisfied', async () => {
-        const rows = [
-            trailRow({ seq: 1, eventType: SERVICE_STARTED, correlationId: 'chain-fresh', timestamp: RECENT }),
-            trailRow({ seq: 2, eventType: DELIVERY_DETECTED, correlationId: 'chain-fresh-2', timestamp: RECENT }),
-        ];
-        await plantTrail(rows);
-        const before = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
-
-        const outcome = await trimAudit({
-            store,
-            log: capturingLogger().log,
-            config: configWith(),
-            now: NOW,
-        });
-
-        expect(outcome).toEqual({ removed: 0, limitReached: null, minimalReferencesPreserved: 0 });
-        expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(before);
-        expect(await trimRows()).toEqual([]);
+            expect(outcome).toEqual({ removed: 0, limitReached: null, minimalReferencesPreserved: 0 });
+            expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(before);
+            expect(await trimRows()).toEqual([]);
+        }
     });
 });
 
 describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
-    it('lands the trail at or below auditMaxEntries, counting its own trim row', async () => {
-        await plantTrail(
-            Array.from({ length: 10 }, (_, index) =>
+    it('lands the trail at or below auditMaxEntries, countin… (+5 cases)', async () => {
+        // case: lands the trail at or below auditMaxEntries, counting its own trim row
+        {
+            await plantTrail(
+                Array.from({ length: 10 }, (_, index) =>
+                    trailRow({
+                        seq: index + 1,
+                        eventType: SERVICE_STARTED,
+                        correlationId: `chain-${index}`,
+                        timestamp: RECENT,
+                    }),),
+            );
+
+            const outcome = await trimAudit({
+                store,
+                log: capturingLogger().log,
+                config: configWith({ auditMaxEntries: 5 }),
+                now: NOW,
+            });
+
+            expect(outcome.removed).toBe(6);
+            expect(outcome.limitReached).toBe('entry-cap');
+            const trail = await storedTrail();
+            expect(trail).toHaveLength(5);
+            expect(trail.map((entry) => entry.seq)).toEqual([7, 8, 9, 10, 11]);
+            const afterCapPass = await trimRows();
+            expect(afterCapPass.map((entry) => entry.seq)).toEqual([11]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: stays at the cap on a second pass instead of oscillating one row per cycle
+        {
+            await plantTrail(
+                Array.from({ length: 10 }, (_, index) =>
+                    trailRow({
+                        seq: index + 1,
+                        eventType: SERVICE_STARTED,
+                        correlationId: `chain-${index}`,
+                        timestamp: RECENT,
+                    }),),
+            );
+            const { log } = capturingLogger();
+            const config = configWith({ auditMaxEntries: 5 });
+            await trimAudit({ store, log, config, now: NOW });
+            const afterFirst = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
+
+            const second = await trimAudit({ store, log, config, now: NOW });
+
+            // Exactly at the cap: nothing to remove, so nothing is written.
+            expect(second.removed).toBe(0);
+            expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(afterFirst);
+            expect(await trimRows()).toHaveLength(1);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never removes a protected row to satisfy a cap, and records the excess
+        {
+            const protectedRows = Array.from({ length: 8 }, (_, index) =>
                 trailRow({
                     seq: index + 1,
+                    eventType: index % 2 === 0 ? CONFIG_CHANGED : 'policy.decision',
+                    correlationId: `chain-decisions-${index}`,
+                    timestamp: LONG_AGO,
+                }),);
+            const trimmable = Array.from({ length: 4 }, (_, index) =>
+                trailRow({
+                    seq: index + 9,
                     eventType: SERVICE_STARTED,
-                    correlationId: `chain-${index}`,
+                    correlationId: `chain-ordinary-${index}`,
+                    // Fresh rows: only the cap can take them, so the row records
+                    // `entry-cap` rather than the day window that did not trip.
                     timestamp: RECENT,
-                }),),
-        );
+                }),);
+            await plantTrail([...protectedRows, ...trimmable]);
 
-        const outcome = await trimAudit({
-            store,
-            log: capturingLogger().log,
-            config: configWith({ auditMaxEntries: 5 }),
-            now: NOW,
-        });
+            const outcome = await trimAudit({
+                store,
+                log: capturingLogger().log,
+                config: configWith({ auditMaxEntries: 5 }),
+                now: NOW,
+            });
 
-        expect(outcome.removed).toBe(6);
-        expect(outcome.limitReached).toBe('entry-cap');
-        const trail = await storedTrail();
-        expect(trail).toHaveLength(5);
-        expect(trail.map((entry) => entry.seq)).toEqual([7, 8, 9, 10, 11]);
-        const afterCapPass = await trimRows();
-        expect(afterCapPass.map((entry) => entry.seq)).toEqual([11]);
-    });
-
-    it('stays at the cap on a second pass instead of oscillating one row per cycle', async () => {
-        await plantTrail(
-            Array.from({ length: 10 }, (_, index) =>
+            expect(outcome.removed).toBe(4);
+            expect(outcome.minimalReferencesPreserved).toBe(8);
+            const trail = await storedTrail();
+            // Nine rows for a cap of five: the protected set is the difference,
+            // and every decision row is still there with its original `seq`.
+            expect(trail.map((entry) => entry.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 13]);
+            const [trimmed] = await trimRows();
+            expect(trimmed?.details.minimalReferencesPreserved).toBe(8);
+            expect(trimmed?.details.limitReached).toBe('entry-cap');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: does not oscillate when the protected set sits exactly at the cap
+        {
+            // Six protected rows for a cap of six: after the first pass the trail
+            // is those six plus the record of the removal, so the previous
+            // `audit.trimmed` row is the *only* row a cap-driven walk can still
+            // reach. Taking it to make room for the row that would record the
+            // taking is a rewrite every cycle forever, and it destroys the one
+            // thing that explains the trail's own seq gaps.
+            const protectedRows = Array.from({ length: 6 }, (_, index) =>
                 trailRow({
                     seq: index + 1,
+                    eventType: CONFIG_CHANGED,
+                    correlationId: `chain-at-cap-${index}`,
+                    timestamp: LONG_AGO,
+                }),);
+            const trimmable = Array.from({ length: 5 }, (_, index) =>
+                trailRow({
+                    seq: index + 7,
                     eventType: SERVICE_STARTED,
-                    correlationId: `chain-${index}`,
+                    correlationId: `chain-at-cap-ordinary-${index}`,
                     timestamp: RECENT,
-                }),),
-        );
-        const { log } = capturingLogger();
-        const config = configWith({ auditMaxEntries: 5 });
-        await trimAudit({ store, log, config, now: NOW });
-        const afterFirst = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
+                }),);
+            await plantTrail([...protectedRows, ...trimmable]);
+            const { log } = capturingLogger();
+            const config = configWith({ auditMaxEntries: 6 });
 
-        const second = await trimAudit({ store, log, config, now: NOW });
+            const first = await trimAudit({ store, log, config, now: NOW });
 
-        // Exactly at the cap: nothing to remove, so nothing is written.
-        expect(second.removed).toBe(0);
-        expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(afterFirst);
-        expect(await trimRows()).toHaveLength(1);
-    });
+            expect(first.removed).toBe(5);
+            expect(first.limitReached).toBe('entry-cap');
+            expect(first.minimalReferencesPreserved).toBe(6);
+            const afterFirst = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
 
-    it('never removes a protected row to satisfy a cap, and records the excess', async () => {
-        const protectedRows = Array.from({ length: 8 }, (_, index) =>
-            trailRow({
-                seq: index + 1,
-                eventType: index % 2 === 0 ? CONFIG_CHANGED : 'policy.decision',
-                correlationId: `chain-decisions-${index}`,
+            const second = await trimAudit({ store, log, config, now: NOW });
+
+            // Protected-at-cap settles: no removal, no row, byte-identical file.
+            expect(second.removed).toBe(0);
+            expect(second.limitReached).toBeNull();
+            expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(afterFirst);
+            expect(await trimRows()).toHaveLength(1);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: ages a previous trim row out under the day window while the cap leaves it alone
+        {
+            const protectedRows = Array.from({ length: 4 }, (_, index) =>
+                trailRow({
+                    seq: index + 1,
+                    eventType: CONFIG_CHANGED,
+                    correlationId: `chain-window-${index}`,
+                    timestamp: LONG_AGO,
+                }),);
+            const staleTrim = trailRow({
+                seq: 5,
+                eventType: TRIM_EVENT,
+                correlationId: 'chain-window-trim',
                 timestamp: LONG_AGO,
-            }),);
-        const trimmable = Array.from({ length: 4 }, (_, index) =>
-            trailRow({
-                seq: index + 9,
-                eventType: SERVICE_STARTED,
-                correlationId: `chain-ordinary-${index}`,
-                // Fresh rows: only the cap can take them, so the row records
-                // `entry-cap` rather than the day window that did not trip.
-                timestamp: RECENT,
-            }),);
-        await plantTrail([...protectedRows, ...trimmable]);
+            });
+            await plantTrail([...protectedRows, staleTrim]);
 
-        const outcome = await trimAudit({
-            store,
-            log: capturingLogger().log,
-            config: configWith({ auditMaxEntries: 5 }),
-            now: NOW,
-        });
+            // The cap never trips, so the only limit that can take the old record
+            // is the day window — and it does. Cap-exempt is not age-exempt.
+            const outcome = await trimAudit({ store, log: capturingLogger().log, config: configWith(), now: NOW });
 
-        expect(outcome.removed).toBe(4);
-        expect(outcome.minimalReferencesPreserved).toBe(8);
-        const trail = await storedTrail();
-        // Nine rows for a cap of five: the protected set is the difference,
-        // and every decision row is still there with its original `seq`.
-        expect(trail.map((entry) => entry.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 13]);
-        const [trimmed] = await trimRows();
-        expect(trimmed?.details.minimalReferencesPreserved).toBe(8);
-        expect(trimmed?.details.limitReached).toBe('entry-cap');
-    });
+            expect(outcome.removed).toBe(1);
+            expect(outcome.limitReached).toBe(DAY_WINDOW);
+            expect(outcome.minimalReferencesPreserved).toBe(4);
+            const trail = await storedTrail();
+            expect(trail.map((entry) => entry.seq)).toEqual([1, 2, 3, 4, 6]);
+            const rows = await trimRows();
+            expect(rows.map((entry) => entry.seq)).toEqual([6]);
+            expect(rows[0]?.details).toMatchObject({ entriesRemoved: 1, limitReached: DAY_WINDOW });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: writes nothing at all when every row is protected, however far over the cap
+        {
+            const rows = Array.from({ length: 6 }, (_, index) =>
+                trailRow({
+                    seq: index + 1,
+                    eventType: CONFIG_CHANGED,
+                    correlationId: `chain-${index}`,
+                    timestamp: LONG_AGO,
+                }),);
+            await plantTrail(rows);
+            const before = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
 
-    it('does not oscillate when the protected set sits exactly at the cap', async () => {
-        // Six protected rows for a cap of six: after the first pass the trail
-        // is those six plus the record of the removal, so the previous
-        // `audit.trimmed` row is the *only* row a cap-driven walk can still
-        // reach. Taking it to make room for the row that would record the
-        // taking is a rewrite every cycle forever, and it destroys the one
-        // thing that explains the trail's own seq gaps.
-        const protectedRows = Array.from({ length: 6 }, (_, index) =>
-            trailRow({
-                seq: index + 1,
-                eventType: CONFIG_CHANGED,
-                correlationId: `chain-at-cap-${index}`,
-                timestamp: LONG_AGO,
-            }),);
-        const trimmable = Array.from({ length: 5 }, (_, index) =>
-            trailRow({
-                seq: index + 7,
-                eventType: SERVICE_STARTED,
-                correlationId: `chain-at-cap-ordinary-${index}`,
-                timestamp: RECENT,
-            }),);
-        await plantTrail([...protectedRows, ...trimmable]);
-        const { log } = capturingLogger();
-        const config = configWith({ auditMaxEntries: 6 });
+            const outcome = await trimAudit({
+                store,
+                log: capturingLogger().log,
+                config: configWith({ auditMaxEntries: 2 }),
+                now: NOW,
+            });
 
-        const first = await trimAudit({ store, log, config, now: NOW });
-
-        expect(first.removed).toBe(5);
-        expect(first.limitReached).toBe('entry-cap');
-        expect(first.minimalReferencesPreserved).toBe(6);
-        const afterFirst = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
-
-        const second = await trimAudit({ store, log, config, now: NOW });
-
-        // Protected-at-cap settles: no removal, no row, byte-identical file.
-        expect(second.removed).toBe(0);
-        expect(second.limitReached).toBeNull();
-        expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(afterFirst);
-        expect(await trimRows()).toHaveLength(1);
-    });
-
-    it('ages a previous trim row out under the day window while the cap leaves it alone', async () => {
-        const protectedRows = Array.from({ length: 4 }, (_, index) =>
-            trailRow({
-                seq: index + 1,
-                eventType: CONFIG_CHANGED,
-                correlationId: `chain-window-${index}`,
-                timestamp: LONG_AGO,
-            }),);
-        const staleTrim = trailRow({
-            seq: 5,
-            eventType: TRIM_EVENT,
-            correlationId: 'chain-window-trim',
-            timestamp: LONG_AGO,
-        });
-        await plantTrail([...protectedRows, staleTrim]);
-
-        // The cap never trips, so the only limit that can take the old record
-        // is the day window — and it does. Cap-exempt is not age-exempt.
-        const outcome = await trimAudit({ store, log: capturingLogger().log, config: configWith(), now: NOW });
-
-        expect(outcome.removed).toBe(1);
-        expect(outcome.limitReached).toBe(DAY_WINDOW);
-        expect(outcome.minimalReferencesPreserved).toBe(4);
-        const trail = await storedTrail();
-        expect(trail.map((entry) => entry.seq)).toEqual([1, 2, 3, 4, 6]);
-        const rows = await trimRows();
-        expect(rows.map((entry) => entry.seq)).toEqual([6]);
-        expect(rows[0]?.details).toMatchObject({ entriesRemoved: 1, limitReached: DAY_WINDOW });
-    });
-
-    it('writes nothing at all when every row is protected, however far over the cap', async () => {
-        const rows = Array.from({ length: 6 }, (_, index) =>
-            trailRow({
-                seq: index + 1,
-                eventType: CONFIG_CHANGED,
-                correlationId: `chain-${index}`,
-                timestamp: LONG_AGO,
-            }),);
-        await plantTrail(rows);
-        const before = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
-
-        const outcome = await trimAudit({
-            store,
-            log: capturingLogger().log,
-            config: configWith({ auditMaxEntries: 2 }),
-            now: NOW,
-        });
-
-        // Nothing was removed, so nothing is recorded: a row describing a
-        // removal that did not happen would be worse than no row (FR-053).
-        expect(outcome.removed).toBe(0);
-        expect(outcome.minimalReferencesPreserved).toBe(6);
-        expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(before);
-        expect(await trimRows()).toEqual([]);
+            // Nothing was removed, so nothing is recorded: a row describing a
+            // removal that did not happen would be worse than no row (FR-053).
+            expect(outcome.removed).toBe(0);
+            expect(outcome.minimalReferencesPreserved).toBe(6);
+            expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(before);
+            expect(await trimRows()).toEqual([]);
+        }
     });
 });
 
 describe('audit trim: durability (006 T-012, FR-053, FR-055)', () => {
-    it('leaves the file byte-identical and appends no row when the rewrite fails', async () => {
-        await plantTrail([
-            trailRow({ seq: 1, eventType: SERVICE_STARTED, correlationId: 'chain-a', timestamp: LONG_AGO }),
-            trailRow({ seq: 2, eventType: 'consent', correlationId: 'chain-b', timestamp: LONG_AGO }),
-        ]);
-        const before = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
-        const failing: ServiceStore = {
-            ...store,
-            writeLines: () => Promise.reject(new Error('disk full')),
-        };
+    it('leaves the file byte-identical and appends no row wh… (+3 cases)', async () => {
+        // case: leaves the file byte-identical and appends no row when the rewrite fails
+        {
+            await plantTrail([
+                trailRow({ seq: 1, eventType: SERVICE_STARTED, correlationId: 'chain-a', timestamp: LONG_AGO }),
+                trailRow({ seq: 2, eventType: 'consent', correlationId: 'chain-b', timestamp: LONG_AGO }),
+            ]);
+            const before = await readFile(join(dataDir, AUDIT_FILE), 'utf8');
+            const failing: ServiceStore = {
+                ...store,
+                writeLines: () => Promise.reject(new Error('disk full')),
+            };
 
-        await expect(
-            trimAudit({ store: failing, log: capturingLogger().log, config: configWith(), now: NOW }),
-        ).rejects.toThrow('disk full');
+            await expect(
+                trimAudit({ store: failing, log: capturingLogger().log, config: configWith(), now: NOW }),
+            ).rejects.toThrow('disk full');
 
-        expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(before);
-        expect(await trimRows()).toEqual([]);
-    });
+            expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(before);
+            expect(await trimRows()).toEqual([]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never renumbers seq across two consecutive passes
+        {
+            await plantTrail(
+                Array.from({ length: 12 }, (_, index) =>
+                    trailRow({
+                        seq: index + 1,
+                        eventType: SERVICE_STARTED,
+                        correlationId: `chain-${index}`,
+                        timestamp: RECENT,
+                    }),),
+            );
+            const { log } = capturingLogger();
+            const config = configWith({ auditMaxEntries: 8 });
 
-    it('never renumbers seq across two consecutive passes', async () => {
-        await plantTrail(
-            Array.from({ length: 12 }, (_, index) =>
-                trailRow({
-                    seq: index + 1,
-                    eventType: SERVICE_STARTED,
-                    correlationId: `chain-${index}`,
-                    timestamp: RECENT,
-                }),),
-        );
-        const { log } = capturingLogger();
-        const config = configWith({ auditMaxEntries: 8 });
+            const first = await trimAudit({ store, log, config, now: NOW });
+            expect(first.removed).toBe(5);
+            const trailAfterFirst = await storedTrail();
+            const afterFirst = trailAfterFirst.map((entry) => entry.seq);
+            expect(afterFirst).toEqual([6, 7, 8, 9, 10, 11, 12, 13]);
 
-        const first = await trimAudit({ store, log, config, now: NOW });
-        expect(first.removed).toBe(5);
-        const trailAfterFirst = await storedTrail();
-        const afterFirst = trailAfterFirst.map((entry) => entry.seq);
-        expect(afterFirst).toEqual([6, 7, 8, 9, 10, 11, 12, 13]);
+            const second = await trimAudit({ store, log, config, now: NOW });
+            expect(second.removed).toBe(0);
+            const trailAfterSecond = await storedTrail();
+            const afterSecond = trailAfterSecond.map((entry) => entry.seq);
+            expect(afterSecond).toEqual(afterFirst);
 
-        const second = await trimAudit({ store, log, config, now: NOW });
-        expect(second.removed).toBe(0);
-        const trailAfterSecond = await storedTrail();
-        const afterSecond = trailAfterSecond.map((entry) => entry.seq);
-        expect(afterSecond).toEqual(afterFirst);
+            // A later append still continues the trail's own sequence.
+            expect(Math.max(...afterSecond)).toBe(13);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: serializes with an append so a row written meanwhile survives the rewrite
+        {
+            await plantTrail(
+                Array.from({ length: 6 }, (_, index) =>
+                    trailRow({
+                        seq: index + 1,
+                        eventType: SERVICE_STARTED,
+                        correlationId: `chain-${index}`,
+                        timestamp: RECENT,
+                    }),),
+            );
+            const { log } = capturingLogger();
+            const config = configWith({ auditMaxEntries: 4 });
 
-        // A later append still continues the trail's own sequence.
-        expect(Math.max(...afterSecond)).toBe(13);
-    });
+            // The append starts while the pass is working its way through the
+            // chain; whichever side of the rewrite it lands on, neither the row nor
+            // the removals can consume the other (FR-055's serialization clause).
+            const appending = appendAudit(store, {
+                eventType: ACCOUNT_VERIFIED,
+                actorSource: 'service',
+                entity: { kind: 'account', id: LIVE_ACCOUNT_ID },
+            });
+            const outcome = await trimAudit({ store, log, config, now: NOW });
+            await appending;
 
-    it('serializes with an append so a row written meanwhile survives the rewrite', async () => {
-        await plantTrail(
-            Array.from({ length: 6 }, (_, index) =>
-                trailRow({
-                    seq: index + 1,
-                    eventType: SERVICE_STARTED,
-                    correlationId: `chain-${index}`,
-                    timestamp: RECENT,
-                }),),
-        );
-        const { log } = capturingLogger();
-        const config = configWith({ auditMaxEntries: 4 });
+            expect(outcome.removed).toBeGreaterThanOrEqual(3);
+            const trail = await storedTrail();
+            expect(trail.some((entry) => entry.eventType === ACCOUNT_VERIFIED)).toBe(true);
+            expect(trail.some((entry) => entry.eventType === TRIM_EVENT)).toBe(true);
+            const seqs = trail.map((entry) => entry.seq);
+            expect(new Set(seqs).size).toBe(seqs.length);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: records unreadable lines it erases, and leaves them alone when it does not trim
+        {
+            const rows = [
+                trailRow({ seq: 1, eventType: SERVICE_STARTED, correlationId: 'chain-torn-a', timestamp: LONG_AGO }),
+                trailRow({ seq: 2, eventType: SERVICE_STARTED, correlationId: 'chain-torn-b', timestamp: LONG_AGO }),
+            ];
+            // A torn write: valid JSON up to the cut, nothing after it. The reader
+            // counts the line and skips it; a rewrite would take it for good.
+            const torn = '{"seq":9,"timestamp":"2026-0';
+            await writeFile(
+                join(dataDir, AUDIT_FILE),
+                `${rows.map((row) => JSON.stringify(row)).join('\n')}\n${torn}\n`,
+                'utf8',
+            );
+            const { log, lines } = capturingLogger();
 
-        // The append starts while the pass is working its way through the
-        // chain; whichever side of the rewrite it lands on, neither the row nor
-        // the removals can consume the other (FR-055's serialization clause).
-        const appending = appendAudit(store, {
-            eventType: ACCOUNT_VERIFIED,
-            actorSource: 'service',
-            entity: { kind: 'account', id: LIVE_ACCOUNT_ID },
-        });
-        const outcome = await trimAudit({ store, log, config, now: NOW });
-        await appending;
+            // A pass that removes nothing rewrites nothing, so the torn line is
+            // still on disk — and the read that skipped it already warned.
+            const idle = await trimAudit({ store, log, config: configWith({ auditRetentionDays: 3650 }), now: NOW });
+            expect(idle.removed).toBe(0);
+            expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toContain(torn);
+            expect(lines.some((line) => line.includes('unreadable lines'))).toBe(true);
 
-        expect(outcome.removed).toBeGreaterThanOrEqual(3);
-        const trail = await storedTrail();
-        expect(trail.some((entry) => entry.eventType === ACCOUNT_VERIFIED)).toBe(true);
-        expect(trail.some((entry) => entry.eventType === TRIM_EVENT)).toBe(true);
-        const seqs = trail.map((entry) => entry.seq);
-        expect(new Set(seqs).size).toBe(seqs.length);
-    });
-
-    it('records unreadable lines it erases, and leaves them alone when it does not trim', async () => {
-        const rows = [
-            trailRow({ seq: 1, eventType: SERVICE_STARTED, correlationId: 'chain-torn-a', timestamp: LONG_AGO }),
-            trailRow({ seq: 2, eventType: SERVICE_STARTED, correlationId: 'chain-torn-b', timestamp: LONG_AGO }),
-        ];
-        // A torn write: valid JSON up to the cut, nothing after it. The reader
-        // counts the line and skips it; a rewrite would take it for good.
-        const torn = '{"seq":9,"timestamp":"2026-0';
-        await writeFile(
-            join(dataDir, AUDIT_FILE),
-            `${rows.map((row) => JSON.stringify(row)).join('\n')}\n${torn}\n`,
-            'utf8',
-        );
-        const { log, lines } = capturingLogger();
-
-        // A pass that removes nothing rewrites nothing, so the torn line is
-        // still on disk — and the read that skipped it already warned.
-        const idle = await trimAudit({ store, log, config: configWith({ auditRetentionDays: 3650 }), now: NOW });
-        expect(idle.removed).toBe(0);
-        expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toContain(torn);
-        expect(lines.some((line) => line.includes('unreadable lines'))).toBe(true);
-
-        // The pass that *does* rewrite carries the count onto the row that
-        // describes it, so the drop is auditable instead of silent.
-        const outcome = await trimAudit({ store, log, config: configWith(), now: NOW });
-        expect(outcome.removed).toBe(2);
-        const [trimmed] = await trimRows();
-        expect(trimmed?.details).toEqual({
-            entriesRemoved: 2,
-            oldestSeq: 1,
-            newestSeq: 2,
-            limitReached: DAY_WINDOW,
-            minimalReferencesPreserved: 0,
-            malformedLinesDropped: 1,
-        });
-        expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).not.toContain(torn);
+            // The pass that *does* rewrite carries the count onto the row that
+            // describes it, so the drop is auditable instead of silent.
+            const outcome = await trimAudit({ store, log, config: configWith(), now: NOW });
+            expect(outcome.removed).toBe(2);
+            const [trimmed] = await trimRows();
+            expect(trimmed?.details).toEqual({
+                entriesRemoved: 2,
+                oldestSeq: 1,
+                newestSeq: 2,
+                limitReached: DAY_WINDOW,
+                minimalReferencesPreserved: 0,
+                malformedLinesDropped: 1,
+            });
+            expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).not.toContain(torn);
+        }
     });
 });

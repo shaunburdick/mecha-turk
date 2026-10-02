@@ -240,111 +240,117 @@ function prerequisiteOf(state: PanelState, id: PrerequisiteId): Prerequisite {
 }
 
 describe('first-run prerequisites (FR-071, AC-122)', () => {
-    it('renders all five on a fresh install, each with a state and a remediation', () => {
-        const items = derivePrerequisites(freshState());
+    it('renders all five on a fresh install, each with a sta… (+5 cases)', () => {
+        // case: renders all five on a fresh install, each with a state and a remediation
+        {
+            const items = derivePrerequisites(freshState());
 
-        expect(items.map((item) => item.id)).toEqual(PREREQUISITE_IDS);
-        expect(items).toHaveLength(5);
-        for (const item of items) {
-            expect(ALLOWED_STATES).toContain(item.state);
-            expect(item.title.trim()).not.toBe('');
-            expect(item.detail.trim()).not.toBe('');
-            expect(item.remediation.trim()).not.toBe('');
+            expect(items.map((item) => item.id)).toEqual(PREREQUISITE_IDS);
+            expect(items).toHaveLength(5);
+            for (const item of items) {
+                expect(ALLOWED_STATES).toContain(item.state);
+                expect(item.title.trim()).not.toBe('');
+                expect(item.detail.trim()).not.toBe('');
+                expect(item.remediation.trim()).not.toBe('');
 
-            const line = prerequisiteLine(item);
-            expect(line).toContain(item.title);
-            expect(line).toContain(prerequisiteStateLabel(item.state));
-            expect(line).toContain(item.remediation);
+                const line = prerequisiteLine(item);
+                expect(line).toContain(item.title);
+                expect(line).toContain(prerequisiteStateLabel(item.state));
+                expect(line).toContain(item.remediation);
+            }
         }
-    });
+        // case: reads the Default Agent pin as not checkable, and never as met
+        {
+            for (const state of [freshState(), configuredState()]) {
+                const pin = prerequisiteOf(state, IDS.defaultAgent);
 
-    it('reads the Default Agent pin as not checkable, and never as met', () => {
-        for (const state of [freshState(), configuredState()]) {
-            const pin = prerequisiteOf(state, IDS.defaultAgent);
-
-            expect(pin.state).toBe(NOT_CHECKABLE);
-            expect(pin.state).not.toBe(MET);
-            // It says how to satisfy it even though it cannot check it, and
-            // names the first dispatch as the thing that actually checks it
-            // (003 FR-072; 005 FR-037).
-            expect(pin.remediation).toContain('project-manager');
-            expect(pin.remediation).toMatch(/Session Defaults/);
-            expect(pin.detail).toMatch(/cannot read/);
+                expect(pin.state).toBe(NOT_CHECKABLE);
+                expect(pin.state).not.toBe(MET);
+                // It says how to satisfy it even though it cannot check it, and
+                // names the first dispatch as the thing that actually checks it
+                // (003 FR-072; 005 FR-037).
+                expect(pin.remediation).toContain('project-manager');
+                expect(pin.remediation).toMatch(/Session Defaults/);
+                expect(pin.detail).toMatch(/cannot read/);
+            }
         }
-    });
+        // case: holds a fresh install to plan D12: zero bindings is met, not a nag
+        {
+            const state = freshState();
 
-    it('holds a fresh install to plan D12: zero bindings is met, not a nag', () => {
-        const state = freshState();
+            expect(prerequisiteOf(state, IDS.registeredProject).state).toBe(MET);
+            expect(prerequisiteOf(state, IDS.tokenScopes).state).toBe(NOT_MET);
+            // The retired service-capability item is gone for good: no state can
+            // derive it any more (002 v1.9.0, 005 v1.7.0).
+            const ids = derivePrerequisites(state).map((item) => item.id);
 
-        expect(prerequisiteOf(state, IDS.registeredProject).state).toBe(MET);
-        expect(prerequisiteOf(state, IDS.tokenScopes).state).toBe(NOT_MET);
-        // The retired service-capability item is gone for good: no state can
-        // derive it any more (002 v1.9.0, 005 v1.7.0).
-        const ids = derivePrerequisites(state).map((item) => item.id);
+            expect(ids).not.toContain('service-capability');
+        }
+        // case: sees an unregistered project on a binding as unmet
+        {
+            const state = configuredState();
+            state.bindings.bindings = [bindingWith('')];
 
-        expect(ids).not.toContain('service-capability');
-    });
+            const project = prerequisiteOf(state, IDS.registeredProject);
+            expect(project.state).toBe(NOT_MET);
+            expect(project.remediation).toMatch(/never creates a project/);
+        }
+        // case: checks OpenChamber running only once the host has answered
+        {
+            expect(prerequisiteOf(freshState(), IDS.openchamberRunning).state).toBe(NOT_CHECKABLE);
+            expect(prerequisiteOf(configuredState(), IDS.openchamberRunning).state).toBe(MET);
+        }
+        // case: says the desktop-or-web surface is not checkable rather than guessing
+        {
+            const surface = prerequisiteOf(configuredState(), IDS.desktopOrWeb);
 
-    it('sees an unregistered project on a binding as unmet', () => {
-        const state = configuredState();
-        state.bindings.bindings = [bindingWith('')];
-
-        const project = prerequisiteOf(state, IDS.registeredProject);
-        expect(project.state).toBe(NOT_MET);
-        expect(project.remediation).toMatch(/never creates a project/);
-    });
-
-    it('checks OpenChamber running only once the host has answered', () => {
-        expect(prerequisiteOf(freshState(), IDS.openchamberRunning).state).toBe(NOT_CHECKABLE);
-        expect(prerequisiteOf(configuredState(), IDS.openchamberRunning).state).toBe(MET);
-    });
-
-    it('says the desktop-or-web surface is not checkable rather than guessing', () => {
-        const surface = prerequisiteOf(configuredState(), IDS.desktopOrWeb);
-
-        expect(surface.state).toBe(NOT_CHECKABLE);
+            expect(surface.state).toBe(NOT_CHECKABLE);
+        }
     });
 });
 
 describe('the unmet notice outside the section (FR-073)', () => {
-    it('raises a notice naming the unmet scopes', () => {
-        const state = freshState();
-        state.bindings.accounts = [
-            {
-                numericUserId: ACCOUNT_ID,
-                login: ACCOUNT_LOGIN,
-                displayName: null,
-                usable: true,
-                scope: VERDICT_MISSING,
-            },
-        ];
+    it('raises a notice naming the unmet scopes (+3 cases)', () => {
+        // case: raises a notice naming the unmet scopes
+        {
+            const state = freshState();
+            state.bindings.accounts = [
+                {
+                    numericUserId: ACCOUNT_ID,
+                    login: ACCOUNT_LOGIN,
+                    displayName: null,
+                    usable: true,
+                    scope: VERDICT_MISSING,
+                },
+            ];
 
-        const notice = prerequisiteNotice(derivePrerequisites(state));
+            const notice = prerequisiteNotice(derivePrerequisites(state));
 
-        expect(notice).not.toBeNull();
-        expect(notice?.body).toContain(SCOPES_TITLE);
-        expect(notice?.body).toContain(PREREQUISITES_HEADING);
-    });
+            expect(notice).not.toBeNull();
+            expect(notice?.body).toContain(SCOPES_TITLE);
+            expect(notice?.body).toContain(PREREQUISITES_HEADING);
+        }
+        // case: raises it for a fresh install, whose scopes are genuinely unmet
+        {
+            const notice = prerequisiteNotice(derivePrerequisites(freshState()));
 
-    it('raises it for a fresh install, whose scopes are genuinely unmet', () => {
-        const notice = prerequisiteNotice(derivePrerequisites(freshState()));
+            expect(notice?.body).toContain(SCOPES_TITLE);
+            // The removed prerequisite's title must never ride back into the copy.
+            expect(notice?.body).not.toContain('Service capability approval');
+        }
+        // case: never raises it for met or not-checkable items
+        {
+            // The configured state still has two not-checkable prerequisites (the
+            // pin and the surface) — neither may nag, and neither may show met.
+            expect(prerequisiteNotice(derivePrerequisites(configuredState()))).toBeNull();
+            expect(prerequisiteOf(configuredState(), IDS.desktopOrWeb).state).toBe(NOT_CHECKABLE);
+        }
+        // case: repaints nothing, quietly, on a runtime with no mounted section
+        {
+            const runtime = createTestRuntime(fakeHost());
 
-        expect(notice?.body).toContain(SCOPES_TITLE);
-        // The removed prerequisite's title must never ride back into the copy.
-        expect(notice?.body).not.toContain('Service capability approval');
-    });
-
-    it('never raises it for met or not-checkable items', () => {
-        // The configured state still has two not-checkable prerequisites (the
-        // pin and the surface) — neither may nag, and neither may show met.
-        expect(prerequisiteNotice(derivePrerequisites(configuredState()))).toBeNull();
-        expect(prerequisiteOf(configuredState(), IDS.desktopOrWeb).state).toBe(NOT_CHECKABLE);
-    });
-
-    it('repaints nothing, quietly, on a runtime with no mounted section', () => {
-        const runtime = createTestRuntime(fakeHost());
-
-        expect(() => repaintPrerequisites(runtime)).not.toThrow();
+            expect(() => repaintPrerequisites(runtime)).not.toThrow();
+        }
     });
 });
 
@@ -385,79 +391,88 @@ function mountedNotice(): {
 }
 
 describe('the mounted notice tracks the derivation (FR-073, owner review 2026-09-30)', () => {
-    it('shows the banner for unmet scopes and hides it once the evidence lands', () => {
-        const { rt, box } = mountedNotice();
+    it('shows the banner for unmet scopes and hides it once … (+1 cases)', () => {
+        // case: shows the banner for unmet scopes and hides it once the evidence lands
+        {
+            const { rt, box } = mountedNotice();
 
-        // The missing scope verdict is what raises the banner at mount.
-        expect(box.hidden).toBe(false);
-        expect(prerequisiteNotice(derivePrerequisites(rt.state))).not.toBeNull();
+            // The missing scope verdict is what raises the banner at mount.
+            expect(box.hidden).toBe(false);
+            expect(prerequisiteNotice(derivePrerequisites(rt.state))).not.toBeNull();
 
-        // The account's matrix comes back all-ok on the next read.
-        rt.state.bindings.accounts = [
-            { numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, displayName: null, usable: true, scope: VERDICT_OK },
-        ];
-        repaintPrerequisites(rt);
+            // The account's matrix comes back all-ok on the next read.
+            rt.state.bindings.accounts = [
+                { numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, displayName: null, usable: true, scope: VERDICT_OK },
+            ];
+            repaintPrerequisites(rt);
 
-        // The observation is what clears it — nothing to accept anywhere.
-        expect(prerequisiteNotice(derivePrerequisites(rt.state))).toBeNull();
-        expect(box.hidden).toBe(true);
-    });
+            // The observation is what clears it — nothing to accept anywhere.
+            expect(prerequisiteNotice(derivePrerequisites(rt.state))).toBeNull();
+            expect(box.hidden).toBe(true);
+        }
+        // case: keeps the banner up while the unmet item stays unmet
+        {
+            const { rt, box } = mountedNotice();
 
-    it('keeps the banner up while the unmet item stays unmet', () => {
-        const { rt, box } = mountedNotice();
+            repaintPrerequisites(rt);
 
-        repaintPrerequisites(rt);
-
-        expect(box.hidden).toBe(false);
-        expect(prerequisiteNotice(derivePrerequisites(rt.state))?.body).toContain(SCOPES_TITLE);
+            expect(box.hidden).toBe(false);
+            expect(prerequisiteNotice(derivePrerequisites(rt.state))?.body).toContain(SCOPES_TITLE);
+        }
     });
 });
 
 describe('account scope evidence (FR-071, fail-closed parsing)', () => {
-    it('reads a missing capability as a missing verdict', () => {
-        const body = JSON.stringify({
-            accounts: [
-                { numericUserId: PARSED_ID, login: PARSED_LOGIN, state: ACTIVE, scopeCheck: matrix(VERDICT_MISSING) },
-            ],
-        });
+    it('reads a missing capability as a missing verdict (+3 cases)', () => {
+        // case: reads a missing capability as a missing verdict
+        {
+            const body = JSON.stringify({
+                accounts: [
+                    { numericUserId: PARSED_ID, login: PARSED_LOGIN, state: ACTIVE, scopeCheck: matrix(
+                        VERDICT_MISSING
+                    ) },
+                ],
+            });
 
-        expect(parseAccountsBody(body)?.[0]?.scope).toBe(VERDICT_MISSING);
-    });
+            expect(parseAccountsBody(body)?.[0]?.scope).toBe(VERDICT_MISSING);
+        }
+        // case: reads an all-ok matrix as ok
+        {
+            const body = JSON.stringify({
+                accounts: [
+                    { numericUserId: PARSED_ID, login: PARSED_LOGIN, state: ACTIVE, scopeCheck: matrix(VERDICT_OK) },
+                ],
+            });
 
-    it('reads an all-ok matrix as ok', () => {
-        const body = JSON.stringify({
-            accounts: [
-                { numericUserId: PARSED_ID, login: PARSED_LOGIN, state: ACTIVE, scopeCheck: matrix(VERDICT_OK) },
-            ],
-        });
+            expect(parseAccountsBody(body)?.[0]?.scope).toBe(VERDICT_OK);
+        }
+        // case: leaves the verdict absent when the DTO carries no matrix this build reads
+        {
+            const body = JSON.stringify({ accounts: [{
+                numericUserId: PARSED_ID, login: PARSED_LOGIN, state: ACTIVE }] });
+            const unreadable = JSON.stringify({
+                accounts: [
+                    {
+                        numericUserId: PARSED_ID,
+                        login: PARSED_LOGIN,
+                        state: ACTIVE,
+                        scopeCheck: { checkedAt: FIXTURE_STAMP, results: { metadata: 'maybe' } },
+                    },
+                ],
+            });
 
-        expect(parseAccountsBody(body)?.[0]?.scope).toBe(VERDICT_OK);
-    });
+            expect(parseAccountsBody(body)?.[0]).not.toHaveProperty('scope');
+            expect(parseAccountsBody(unreadable)?.[0]).not.toHaveProperty('scope');
+        }
+        // case: treats an unusable account as no evidence at all
+        {
+            const state = freshState();
+            state.bindings.accounts = [
+                { numericUserId: PARSED_ID, login: PARSED_LOGIN, displayName: null, usable: false, scope: VERDICT_OK },
+            ];
 
-    it('leaves the verdict absent when the DTO carries no matrix this build reads', () => {
-        const body = JSON.stringify({ accounts: [{ numericUserId: PARSED_ID, login: PARSED_LOGIN, state: ACTIVE }] });
-        const unreadable = JSON.stringify({
-            accounts: [
-                {
-                    numericUserId: PARSED_ID,
-                    login: PARSED_LOGIN,
-                    state: ACTIVE,
-                    scopeCheck: { checkedAt: FIXTURE_STAMP, results: { metadata: 'maybe' } },
-                },
-            ],
-        });
-
-        expect(parseAccountsBody(body)?.[0]).not.toHaveProperty('scope');
-        expect(parseAccountsBody(unreadable)?.[0]).not.toHaveProperty('scope');
-    });
-
-    it('treats an unusable account as no evidence at all', () => {
-        const state = freshState();
-        state.bindings.accounts = [
-            { numericUserId: PARSED_ID, login: PARSED_LOGIN, displayName: null, usable: false, scope: VERDICT_OK },
-        ];
-
-        expect(prerequisiteOf(state, IDS.tokenScopes).state).toBe(NOT_MET);
+            expect(prerequisiteOf(state, IDS.tokenScopes).state).toBe(NOT_MET);
+        }
     });
 });
 

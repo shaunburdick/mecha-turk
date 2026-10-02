@@ -243,29 +243,34 @@ function mapEntryCovers(entry: string, name: string): boolean {
 }
 
 describe('L2 module vocabulary: the renamed files are the only ones that exist (005 T-003)', () => {
-    it('reads a real panel source tree rather than an empty directory', () => {
-        expect(panelModules().length).toBeGreaterThan(40);
-    });
-
-    it('has no src/repos*.ts and no src/runs*.ts module left behind (FR-024)', () => {
-        const retired = panelModules().filter((name) => RETIRED_MODULE_PATTERNS.some((pattern) => pattern.test(name)));
-
-        expect(retired).toEqual([]);
-    });
-
-    it('has every module the rename produced, so a reverted git mv fails here', () => {
-        const names = new Set(panelModules());
-
-        for (const expected of RENAMED_MODULES) {
-            expect(names.has(expected), `${SRC_DIR}/${expected} must exist after the L2 rename`).toBe(true);
+    it('reads a real panel source tree rather than an empty … (+3 cases)', () => {
+        // case: reads a real panel source tree rather than an empty directory
+        {
+            expect(panelModules().length).toBeGreaterThan(40);
         }
-    });
+        // case: has no src/repos*.ts and no src/runs*.ts module left behind (FR-024)
+        {
+            const retired = panelModules().filter((name) => RETIRED_MODULE_PATTERNS.some((pattern) => pattern.test(
+                name
+            )));
 
-    it('fails on a retired name rather than passing vacuously', () => {
-        const candidates = ['bindings.ts', 'repos.ts', 'runs-ui.ts'];
-        const reverted = candidates.filter((name) => RETIRED_MODULE_PATTERNS.some((pattern) => pattern.test(name)));
+            expect(retired).toEqual([]);
+        }
+        // case: has every module the rename produced, so a reverted git mv fails here
+        {
+            const names = new Set(panelModules());
 
-        expect(reverted).toEqual(['repos.ts', 'runs-ui.ts']);
+            for (const expected of RENAMED_MODULES) {
+                expect(names.has(expected), `${SRC_DIR}/${expected} must exist after the L2 rename`).toBe(true);
+            }
+        }
+        // case: fails on a retired name rather than passing vacuously
+        {
+            const candidates = ['bindings.ts', 'repos.ts', 'runs-ui.ts'];
+            const reverted = candidates.filter((name) => RETIRED_MODULE_PATTERNS.some((pattern) => pattern.test(name)));
+
+            expect(reverted).toEqual(['repos.ts', 'runs-ui.ts']);
+        }
     });
 });
 
@@ -273,67 +278,76 @@ describe('every src/** import resolves to a file that exists (005 T-003)', () =>
     /** Repository-relative path the synthetic fixtures pretend to live at. */
     const SYNTHETIC_PATH = 'src/example.ts';
 
-    it('scans the panel modules rather than nothing', () => {
-        expect(scanModules([SRC_DIR]).length).toBeGreaterThan(40);
-    });
+    it('scans the panel modules rather than nothing (+3 cases)', () => {
+        // case: scans the panel modules rather than nothing
+        {
+            expect(scanModules([SRC_DIR]).length).toBeGreaterThan(40);
+        }
+        // case: resolves every relative specifier in the tree
+        {
+            expect(unresolvedImports(scanModules([SRC_DIR]))).toEqual([]);
+        }
+        // case: reports a specifier that names a file that is not there
+        {
+            const text = "import { thing } from './gone.ts';";
+            const synthetic: readonly ScannedModule[] = [{ path: SYNTHETIC_PATH, text }];
 
-    it('resolves every relative specifier in the tree', () => {
-        expect(unresolvedImports(scanModules([SRC_DIR]))).toEqual([]);
-    });
+            expect(unresolvedImports(synthetic)).toEqual([{ from: SYNTHETIC_PATH, specifier: './gone.ts' }]);
+        }
+        // case: ignores package specifiers, which are the host SDK and Node
+        {
+            const text = "import { readFileSync } from 'node:fs';\nexport { thing } from './real.ts';";
 
-    it('reports a specifier that names a file that is not there', () => {
-        const text = "import { thing } from './gone.ts';";
-        const synthetic: readonly ScannedModule[] = [{ path: SYNTHETIC_PATH, text }];
-
-        expect(unresolvedImports(synthetic)).toEqual([{ from: SYNTHETIC_PATH, specifier: './gone.ts' }]);
-    });
-
-    it('ignores package specifiers, which are the host SDK and Node', () => {
-        const text = "import { readFileSync } from 'node:fs';\nexport { thing } from './real.ts';";
-
-        expect(relativeSpecifiers(text)).toEqual(['./real.ts']);
+            expect(relativeSpecifiers(text)).toEqual(['./real.ts']);
+        }
     });
 });
 
 describe('the L4 domain vocabulary FR-022 retains is still present (005 T-003)', () => {
-    it('finds every retained term somewhere in the scanned source', () => {
-        const corpus = scanModules(L4_SCAN_DIRS)
-            .map((module) => module.text)
-            .join('\n');
+    it('finds every retained term somewhere in the scanned s… (+1 cases)', () => {
+        // case: finds every retained term somewhere in the scanned source
+        {
+            const corpus = scanModules(L4_SCAN_DIRS)
+                .map((module) => module.text)
+                .join('\n');
 
-        expect(corpus.length).toBeGreaterThan(1000);
+            expect(corpus.length).toBeGreaterThan(1000);
 
-        for (const { token, note } of RETAINED_L4) {
-            expect(corpus.includes(token), `${token} (${note}) must survive the L2 rename`).toBe(true);
+            for (const { token, note } of RETAINED_L4) {
+                expect(corpus.includes(token), `${token} (${note}) must survive the L2 rename`).toBe(true);
+            }
         }
-    });
+        // case: reads a corpus wide enough to matter
+        {
+            const modules = scanModules(L4_SCAN_DIRS);
 
-    it('reads a corpus wide enough to matter', () => {
-        const modules = scanModules(L4_SCAN_DIRS);
-
-        expect(modules.some((module) => module.path.startsWith('src/'))).toBe(true);
-        expect(modules.some((module) => module.path.startsWith('service/'))).toBe(true);
-        expect(modules.some((module) => module.path.startsWith('tests/'))).toBe(true);
+            expect(modules.some((module) => module.path.startsWith('src/'))).toBe(true);
+            expect(modules.some((module) => module.path.startsWith('service/'))).toBe(true);
+            expect(modules.some((module) => module.path.startsWith('tests/'))).toBe(true);
+        }
     });
 });
 
 describe("AGENTS.md's panel module map lists every file src/ contains (005 T-003)", () => {
-    it('reads the map section rather than an empty one', () => {
-        expect(panelModuleMapEntries().length).toBeGreaterThan(20);
-    });
+    it('reads the map section rather than an empty one (+2 cases)', () => {
+        // case: reads the map section rather than an empty one
+        {
+            expect(panelModuleMapEntries().length).toBeGreaterThan(20);
+        }
+        // case: leaves no src module off the map
+        {
+            const entries = panelModuleMapEntries();
+            const missing = panelModules().filter((name) => !entries.some((entry) => mapEntryCovers(entry, name)));
 
-    it('leaves no src module off the map', () => {
-        const entries = panelModuleMapEntries();
-        const missing = panelModules().filter((name) => !entries.some((entry) => mapEntryCovers(entry, name)));
-
-        expect(missing).toEqual([]);
-    });
-
-    it('treats a wildcard as a wildcard and an exact name as exact', () => {
-        expect(mapEntryCovers('handoff*.ts', 'handoff-status.ts')).toBe(true);
-        expect(mapEntryCovers('handoff*.ts', 'session.ts')).toBe(false);
-        expect(mapEntryCovers('json.ts', 'json.ts')).toBe(true);
-        expect(mapEntryCovers('json.ts', 'jsonx.ts')).toBe(false);
+            expect(missing).toEqual([]);
+        }
+        // case: treats a wildcard as a wildcard and an exact name as exact
+        {
+            expect(mapEntryCovers('handoff*.ts', 'handoff-status.ts')).toBe(true);
+            expect(mapEntryCovers('handoff*.ts', 'session.ts')).toBe(false);
+            expect(mapEntryCovers('json.ts', 'json.ts')).toBe(true);
+            expect(mapEntryCovers('json.ts', 'jsonx.ts')).toBe(false);
+        }
     });
 });
 
@@ -526,47 +540,50 @@ function withoutMappingSection(text: string): string {
 }
 
 describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', () => {
-    it('mounts all six tabs, so the scan is not vacuous', async () => {
-        const strings = await renderedSixTabs();
+    it('mounts all six tabs, so the scan is not vacuous (+4 cases)', async () => {
+        // case: mounts all six tabs, so the scan is not vacuous
+        {
+            const strings = await renderedSixTabs();
 
-        expect(strings.length).toBeGreaterThan(40);
-        for (const label of ['Status', 'Dispatches', 'Bindings', 'Accounts', 'Settings', 'About']) {
-            expect(strings).toContain(label);
+            expect(strings.length).toBeGreaterThan(40);
+            for (const label of ['Status', 'Dispatches', 'Bindings', 'Accounts', 'Settings', 'About']) {
+                expect(strings).toContain(label);
+            }
         }
-    });
+        // case: renders no retired noun in any of the six tabs
+        {
+            const rendered = await renderedSixTabs();
 
-    it('renders no retired noun in any of the six tabs', async () => {
-        const rendered = await renderedSixTabs();
+            // **No exemption.** The About tab's short mapping list was the one
+            // source the scan skipped — it is supposed to carry the retired words
+            // as history — and the 2026-10-01 scrub removed it (005 v1.6.0), so
+            // every string the six tabs hand the SDK is scanned now.
+            expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], rendered.join('\n'))).toEqual([]);
+        }
+        // case: renders no retired noun in the row-level labels the tabs export
+        {
+            const labels = [RETRY_LABEL, RESOLVE_LABEL, RETURN_LABEL, AUDIT_BUTTON_LABEL].join('\n');
 
-        // **No exemption.** The About tab's short mapping list was the one
-        // source the scan skipped — it is supposed to carry the retired words
-        // as history — and the 2026-10-01 scrub removed it (005 v1.6.0), so
-        // every string the six tabs hand the SDK is scanned now.
-        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], rendered.join('\n'))).toEqual([]);
-    });
+            expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], labels)).toEqual([]);
+        }
+        // case: bites on every retired shape, so the scan cannot pass vacuously
+        {
+            const sample = 'the Runs list — the Repositories tab — Run shows a reason';
 
-    it('renders no retired noun in the row-level labels the tabs export', () => {
-        const labels = [RETRY_LABEL, RESOLVE_LABEL, RETURN_LABEL, AUDIT_BUTTON_LABEL].join('\n');
+            expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], sample)).toHaveLength(3);
+            expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'the run key')).toHaveLength(1);
+            // The two shapes that must keep working: the imperative verb and the
+            // retained identifiers.
+            expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'Run OpenChamber on web')).toEqual([]);
+            expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'runs.json runKey mt-run-1')).toEqual([]);
+        }
+        // case: README.md names neither retired noun outside its mapping (AC-140)
+        {
+            const text = withoutMappingSection(readFileSync(resolve(ROOT, 'README.md'), 'utf8'));
 
-        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], labels)).toEqual([]);
-    });
-
-    it('bites on every retired shape, so the scan cannot pass vacuously', () => {
-        const sample = 'the Runs list — the Repositories tab — Run shows a reason';
-
-        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], sample)).toHaveLength(3);
-        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'the run key')).toHaveLength(1);
-        // The two shapes that must keep working: the imperative verb and the
-        // retained identifiers.
-        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'Run OpenChamber on web')).toEqual([]);
-        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'runs.json runKey mt-run-1')).toEqual([]);
-    });
-
-    it('README.md names neither retired noun outside its mapping (AC-140)', () => {
-        const text = withoutMappingSection(readFileSync(resolve(ROOT, 'README.md'), 'utf8'));
-
-        expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], text)).toEqual([]);
-        // Not vacuous: the imperative use of the word still reads as English.
+            expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], text)).toEqual([]);
+            // Not vacuous: the imperative use of the word still reads as English.
+        }
     });
 });
 

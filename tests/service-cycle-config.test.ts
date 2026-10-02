@@ -85,15 +85,21 @@ let dataDir = '';
 /** Open store handle for the tests that read through the real store. */
 let store: ServiceStore;
 
-beforeEach(async () => {
+/** Per-test setup the merged cases re-run by name. */
+const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-cycle-config-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
-});
+};
 
-afterEach(async () => {
+beforeEach(beforeEachWork1);
+
+/** Per-test teardown the merged cases re-run by name. */
+const afterEachWork2 = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-});
+};
+
+afterEach(afterEachWork2);
 
 /**
  * Build a logger that records every line it is asked to write.
@@ -298,50 +304,57 @@ function issuePage(count: number, updatedAt: string): string {
 }
 
 describe('one configuration read per cycle (006 T-007, FR-055)', () => {
-    it('reads config.json exactly once, however many bindings the cycle walks', async () => {
-        await writeBindings({
-            store,
-            bindings: [fixtureBinding(BINDING_A), fixtureBinding(BINDING_B), fixtureBinding(BINDING_C)],
-        });
-        await writeAccount(store, fixtureAccount());
-        await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, perPage: SAVED_PER_PAGE });
-        const { log } = capturingLogger();
-        const { poller, calls } = recordingPoller([assignmentIssue(7, UPDATED_IN_WINDOW)]);
-        let configReads = 0;
+    it('reads config.json exactly once, however many binding… (+1 cases)', async () => {
+        // case: reads config.json exactly once, however many bindings the cycle walks
+        {
+            await writeBindings({
+                store,
+                bindings: [fixtureBinding(BINDING_A), fixtureBinding(BINDING_B), fixtureBinding(BINDING_C)],
+            });
+            await writeAccount(store, fixtureAccount());
+            await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, perPage: SAVED_PER_PAGE });
+            const { log } = capturingLogger();
+            const { poller, calls } = recordingPoller([assignmentIssue(7, UPDATED_IN_WINDOW)]);
+            let configReads = 0;
 
-        const cycle = await runScanCycle({
-            store: countingStore(store, () => {
-                configReads += 1;
-            }),
-            log,
-            poller,
-        });
+            const cycle = await runScanCycle({
+                store: countingStore(store, () => {
+                    configReads += 1;
+                }),
+                log,
+                poller,
+            });
 
-        expect(cycle.bindings).toHaveLength(3);
-        expect(configReads).toBe(1);
-        // The one read is what every consumer ran on: the page size and the
-        // ladder the calls received are the stored document's own values.
-        expect(calls.map((call) => call.pace.perPage)).toEqual([SAVED_PER_PAGE, SAVED_PER_PAGE, SAVED_PER_PAGE]);
-        expect(calls[0]?.pace.retry).toEqual({
-            maxAttempts: DEFAULT_CONFIG.retryMaxAttempts,
-            baseMs: DEFAULT_CONFIG.retryBaseMs,
-            maxMs: DEFAULT_CONFIG.retryMaxMs,
-        });
-    });
+            expect(cycle.bindings).toHaveLength(3);
+            expect(configReads).toBe(1);
+            // The one read is what every consumer ran on: the page size and the
+            // ladder the calls received are the stored document's own values.
+            expect(calls.map((call) => call.pace.perPage)).toEqual([SAVED_PER_PAGE, SAVED_PER_PAGE, SAVED_PER_PAGE]);
+            expect(calls[0]?.pace.retry).toEqual({
+                maxAttempts: DEFAULT_CONFIG.retryMaxAttempts,
+                baseMs: DEFAULT_CONFIG.retryBaseMs,
+                maxMs: DEFAULT_CONFIG.retryMaxMs,
+            });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: degrades an unreadable document to the documented defaults, with one warn line
+        {
+            await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
+            await writeAccount(store, fixtureAccount());
+            const { log, lines } = capturingLogger();
+            const { poller, calls } = recordingPoller([assignmentIssue(7, UPDATED_IN_WINDOW)]);
 
-    it('degrades an unreadable document to the documented defaults, with one warn line', async () => {
-        await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
-        await writeAccount(store, fixtureAccount());
-        const { log, lines } = capturingLogger();
-        const { poller, calls } = recordingPoller([assignmentIssue(7, UPDATED_IN_WINDOW)]);
+            const cycle = await runScanCycle({ store: brokenConfigStore(store), log, poller });
 
-        const cycle = await runScanCycle({ store: brokenConfigStore(store), log, poller });
-
-        // The cycle never throws and the binding is still walked.
-        expect(cycle.bindings).toHaveLength(1);
-        expect(lines.some((line) => line.includes('cycle configuration read failed'))).toBe(true);
-        // Defaults, not a half-read document: `DEFAULT_CONFIG.perPage` is 30.
-        expect(calls[0]?.pace.perPage).toBe(DEFAULT_CONFIG.perPage);
+            // The cycle never throws and the binding is still walked.
+            expect(cycle.bindings).toHaveLength(1);
+            expect(lines.some((line) => line.includes('cycle configuration read failed'))).toBe(true);
+            // Defaults, not a half-read document: `DEFAULT_CONFIG.perPage` is 30.
+            expect(calls[0]?.pace.perPage).toBe(DEFAULT_CONFIG.perPage);
+        }
     });
 });
 
@@ -419,53 +432,64 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
     /** A page that fills a 12-item cap, so paging asks for a second page. */
     const FULL_PAGE = issuePage(SAVED_PER_PAGE, UPDATED_IN_WINDOW);
 
-    it('asks for per_page=12 and stops at two pages, never a third', async () => {
-        const { poller, requested } = realPoller(FULL_PAGE);
+    it('asks for per_page=12 and stops at two pages, never a… (+2 cases)', async () => {
+        // case: asks for per_page=12 and stops at two pages, never a third
+        {
+            const { poller, requested } = realPoller(FULL_PAGE);
 
-        const result = await poller.listOpenIssues({
-            token: FIXTURE_TOKEN,
-            owner: 'acme',
-            name: 'widget',
-            since: null,
-            pace: paceFor(SAVED_PER_PAGE),
-        });
+            const result = await poller.listOpenIssues({
+                token: FIXTURE_TOKEN,
+                owner: 'acme',
+                name: 'widget',
+                since: null,
+                pace: paceFor(SAVED_PER_PAGE),
+            });
 
-        expect(result.kind).toBe('ok');
-        expect(requested.map((url) => url.searchParams.get('page'))).toEqual(['1', '2']);
-        expect(requested.map((url) => url.searchParams.get('per_page'))).toEqual(['12', '12']);
-        expect(NUMERIC_BOUNDS.perPage.max).toBe(30);
-        for (const url of requested) {
-            expect(Number(url.searchParams.get('per_page'))).toBeLessThanOrEqual(NUMERIC_BOUNDS.perPage.max);
+            expect(result.kind).toBe('ok');
+            expect(requested.map((url) => url.searchParams.get('page'))).toEqual(['1', '2']);
+            expect(requested.map((url) => url.searchParams.get('per_page'))).toEqual(['12', '12']);
+            expect(NUMERIC_BOUNDS.perPage.max).toBe(30);
+            for (const url of requested) {
+                expect(Number(url.searchParams.get('per_page'))).toBeLessThanOrEqual(NUMERIC_BOUNDS.perPage.max);
+            }
         }
-    });
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: stops after the first page when it does not fill the cap
+        {
+            const { poller, requested } = realPoller(issuePage(SAVED_PER_PAGE - 1, UPDATED_IN_WINDOW));
 
-    it('stops after the first page when it does not fill the cap', async () => {
-        const { poller, requested } = realPoller(issuePage(SAVED_PER_PAGE - 1, UPDATED_IN_WINDOW));
+            const result = await poller.listOpenPulls({
+                token: FIXTURE_TOKEN,
+                owner: 'acme',
+                name: 'widget',
+                pace: paceFor(SAVED_PER_PAGE),
+            });
 
-        const result = await poller.listOpenPulls({
-            token: FIXTURE_TOKEN,
-            owner: 'acme',
-            name: 'widget',
-            pace: paceFor(SAVED_PER_PAGE),
-        });
+            expect(result.kind).toBe('ok');
+            expect(requested).toHaveLength(1);
+            expect(requested[0]?.searchParams.get('per_page')).toBe(String(SAVED_PER_PAGE));
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: never asks for more than the field maximum, even at the ceiling
+        {
+            const { poller, requested } = realPoller(issuePage(1, UPDATED_IN_WINDOW));
 
-        expect(result.kind).toBe('ok');
-        expect(requested).toHaveLength(1);
-        expect(requested[0]?.searchParams.get('per_page')).toBe(String(SAVED_PER_PAGE));
-    });
+            await poller.listOpenIssues({
+                token: FIXTURE_TOKEN,
+                owner: 'acme',
+                name: 'widget',
+                since: null,
+                pace: paceFor(NUMERIC_BOUNDS.perPage.max),
+            });
 
-    it('never asks for more than the field maximum, even at the ceiling', async () => {
-        const { poller, requested } = realPoller(issuePage(1, UPDATED_IN_WINDOW));
-
-        await poller.listOpenIssues({
-            token: FIXTURE_TOKEN,
-            owner: 'acme',
-            name: 'widget',
-            since: null,
-            pace: paceFor(NUMERIC_BOUNDS.perPage.max),
-        });
-
-        expect(requested).toHaveLength(1);
-        expect(requested[0]?.searchParams.get('per_page')).toBe('30');
+            expect(requested).toHaveLength(1);
+            expect(requested[0]?.searchParams.get('per_page')).toBe('30');
+        }
     });
 });

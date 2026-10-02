@@ -257,95 +257,98 @@ describe('reconciliation is idempotent (FR-025)', () => {
 });
 
 describe('reconciliation is never silent (FR-025)', () => {
-    it('warns with the run named when the service refuses throughout, and still polls', async () => {
-        const relay = harness({
-            ...okRoutes(),
-            [`POST ${dispatchedPath(RUN_A)}`]: {
-                status: 503,
-                body: JSON.stringify({ error: { code: 'storage-unavailable', message: 'store starting' } }),
-            },
-        });
-        await record(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A, attempt: 1, outcome: {
-            kind: 'dispatched',
-            sessionId: SESSION_ID,
-        } });
+    it('warns with the run named when the service refuses th… (+3 cases)', async () => {
+        // case: warns with the run named when the service refuses throughout, and still polls
+        {
+            const relay = harness({
+                ...okRoutes(),
+                [`POST ${dispatchedPath(RUN_A)}`]: {
+                    status: 503,
+                    body: JSON.stringify({ error: { code: 'storage-unavailable', message: 'store starting' } }),
+                },
+            });
+            await record(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A, attempt: 1, outcome: {
+                kind: 'dispatched',
+                sessionId: SESSION_ID,
+            } });
 
-        const outcome = await reconcileDispatchAttempts(relay.rt);
+            const outcome = await reconcileDispatchAttempts(relay.rt);
 
-        expect(outcome.warning).not.toBeNull();
-        expect(relay.rt.state.status.tone).toBe('warning');
-        expect(relay.rt.state.status.body).toContain(RUN_A);
+            expect(outcome.warning).not.toBeNull();
+            expect(relay.rt.state.status.tone).toBe('warning');
+            expect(relay.rt.state.status.body).toContain(RUN_A);
 
-        // Reconciliation failure must not wedge the panel: it still claims.
-        startRelayPolling(relay.rt);
-        try {
-            await Promise.resolve();
-            expect(relay.timeline).toContain(PENDING_GET);
-        } finally {
-            stopRelayPolling(relay.rt);
+            // Reconciliation failure must not wedge the panel: it still claims.
+            startRelayPolling(relay.rt);
+            try {
+                await Promise.resolve();
+                expect(relay.timeline).toContain(PENDING_GET);
+            } finally {
+                stopRelayPolling(relay.rt);
+            }
         }
-    });
+        // case: puts the service\'s own refusal copy on the panel note (contract §2)
+        {
+            const relay = harness({
+                ...okRoutes(),
+                [`POST ${dispatchedPath(RUN_A)}`]: {
+                    status: 409,
+                    body: JSON.stringify({ error: { code: 'invalid-transition', message: 'already dispatched' } }),
+                },
+            });
+            await record(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A, attempt: 1, outcome: {
+                kind: 'dispatched',
+                sessionId: SESSION_ID,
+            } });
 
-    it('puts the service\'s own refusal copy on the panel note (contract §2)', async () => {
-        const relay = harness({
-            ...okRoutes(),
-            [`POST ${dispatchedPath(RUN_A)}`]: {
-                status: 409,
-                body: JSON.stringify({ error: { code: 'invalid-transition', message: 'already dispatched' } }),
-            },
-        });
-        await record(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A, attempt: 1, outcome: {
-            kind: 'dispatched',
-            sessionId: SESSION_ID,
-        } });
+            const outcome = await reconcileDispatchAttempts(relay.rt);
 
-        const outcome = await reconcileDispatchAttempts(relay.rt);
+            expect(outcome.outstanding).toEqual([RUN_A]);
+            expect(relay.rt.state.bindings.note).toContain(RUN_A);
+            expect(relay.rt.state.status.body).toContain(RUN_A);
+        }
+        // case: stops at the budget and names the run it never reached
+        {
+            const relay = harness();
+            await record(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A, attempt: 1, outcome: {
+                kind: 'dispatched',
+                sessionId: SESSION_ID,
+            } });
+            await record(relay.rt, { correlationId: RUN_B, runKey: RUN_KEY_B, attempt: 1, outcome: {
+                kind: 'dispatched',
+                sessionId: SESSION_ID,
+            } });
 
-        expect(outcome.outstanding).toEqual([RUN_A]);
-        expect(relay.rt.state.bindings.note).toContain(RUN_A);
-        expect(relay.rt.state.status.body).toContain(RUN_A);
-    });
+            let ticks = 0;
+            const clock = (): number => {
+                ticks += 1;
 
-    it('stops at the budget and names the run it never reached', async () => {
-        const relay = harness();
-        await record(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A, attempt: 1, outcome: {
-            kind: 'dispatched',
-            sessionId: SESSION_ID,
-        } });
-        await record(relay.rt, { correlationId: RUN_B, runKey: RUN_KEY_B, attempt: 1, outcome: {
-            kind: 'dispatched',
-            sessionId: SESSION_ID,
-        } });
+                // Call 1 arms the pass, call 2 admits the first run, call 3 is past
+                // the budget — so the pass reports exactly one of the two.
+                return ticks <= 2 ? 0 : RECONCILE_BUDGET_MS + 1_000;
+            };
+            const outcome = await reconcileDispatchAttempts(relay.rt, { now: clock });
 
-        let ticks = 0;
-        const clock = (): number => {
-            ticks += 1;
+            expect(outcome.attempted).toBe(1);
+            expect(outcome.acknowledged).toBe(1);
+            expect(outcome.outstanding).toEqual([RUN_B]);
+            expect(relay.rt.state.status.body).toContain(RUN_B);
+            expect(relay.rt.state.status.body).not.toContain(RUN_A);
+        }
+        // case: warns when the record itself is unreadable, and reports nothing
+        {
+            const relay = harness();
+            await relay.rt.host.storage.set(DISPATCH_STORAGE_KEY, {
+                schemaVersion: 'dispatch-attempts-99',
+                attempts: [],
+            });
 
-            // Call 1 arms the pass, call 2 admits the first run, call 3 is past
-            // the budget — so the pass reports exactly one of the two.
-            return ticks <= 2 ? 0 : RECONCILE_BUDGET_MS + 1_000;
-        };
-        const outcome = await reconcileDispatchAttempts(relay.rt, { now: clock });
+            const outcome = await reconcileDispatchAttempts(relay.rt);
 
-        expect(outcome.attempted).toBe(1);
-        expect(outcome.acknowledged).toBe(1);
-        expect(outcome.outstanding).toEqual([RUN_B]);
-        expect(relay.rt.state.status.body).toContain(RUN_B);
-        expect(relay.rt.state.status.body).not.toContain(RUN_A);
-    });
-
-    it('warns when the record itself is unreadable, and reports nothing', async () => {
-        const relay = harness();
-        await relay.rt.host.storage.set(DISPATCH_STORAGE_KEY, {
-            schemaVersion: 'dispatch-attempts-99',
-            attempts: [],
-        });
-
-        const outcome = await reconcileDispatchAttempts(relay.rt);
-
-        expect(outcome.attempted).toBe(0);
-        expect(relay.timeline).toEqual([]);
-        expect(relay.rt.state.status.tone).toBe('warning');
+            expect(outcome.attempted).toBe(0);
+            expect(relay.timeline).toEqual([]);
+            expect(relay.rt.state.status.tone).toBe('warning');
+        }
     });
 });
 

@@ -48,68 +48,71 @@ function capturingLogger(level: 'debug' | 'info' | 'warn' | 'error'): {
 }
 
 describe('createLogger carries a threshold that can be moved (006 FR-033)', () => {
-    it('admits an entry that was dropped a moment before, once the level is lowered', () => {
-        const { log, lines } = capturingLogger('info');
+    it('admits an entry that was dropped a moment before, on… (+4 cases)', () => {
+        // case: admits an entry that was dropped a moment before, once the level is lowered
+        {
+            const { log, lines } = capturingLogger('info');
 
-        log.debug(BEFORE);
-        expect(lines).toHaveLength(0);
+            log.debug(BEFORE);
+            expect(lines).toHaveLength(0);
 
-        log.setLevel('debug');
-        log.debug(AFTER);
+            log.setLevel('debug');
+            log.debug(AFTER);
 
-        expect(lines).toHaveLength(1);
-        expect(lines[0]).toContain(AFTER);
-    });
+            expect(lines).toHaveLength(1);
+            expect(lines[0]).toContain(AFTER);
+        }
+        // case: drops an entry that was admitted a moment before, once the level is raised
+        {
+            const { log, lines } = capturingLogger('debug');
 
-    it('drops an entry that was admitted a moment before, once the level is raised', () => {
-        const { log, lines } = capturingLogger('debug');
+            log.info(BEFORE);
+            expect(lines).toHaveLength(1);
 
-        log.info(BEFORE);
-        expect(lines).toHaveLength(1);
+            log.setLevel('error');
+            log.info(AFTER);
+            expect(lines).toHaveLength(1);
 
-        log.setLevel('error');
-        log.info(AFTER);
-        expect(lines).toHaveLength(1);
+            log.warn('also dropped');
+            expect(lines).toHaveLength(1);
 
-        log.warn('also dropped');
-        expect(lines).toHaveLength(1);
+            log.error('still written');
+            expect(lines).toHaveLength(2);
+        }
+        // case: judges every entry at the current threshold, never the construction one
+        {
+            const { log, lines } = capturingLogger('error');
 
-        log.error('still written');
-        expect(lines).toHaveLength(2);
-    });
+            log.setLevel('warn');
+            log.warn('first');
+            log.setLevel('info');
+            log.info('second');
+            log.setLevel('error');
+            log.info('third');
 
-    it('judges every entry at the current threshold, never the construction one', () => {
-        const { log, lines } = capturingLogger('error');
+            expect(lines.map((line) => JSON.parse(line) as { readonly message: string }).map((entry) => entry.message))
+                .toEqual(['first', 'second']);
+        }
+        // case: keeps the redaction pass exactly as it was, at every threshold (NFR-102)
+        {
+            const { log, lines } = capturingLogger('error');
+            log.setLevel('error');
 
-        log.setLevel('warn');
-        log.warn('first');
-        log.setLevel('info');
-        log.info('second');
-        log.setLevel('error');
-        log.info('third');
+            log.error('credential in a field', { detail: TOKEN_VALUE });
 
-        expect(lines.map((line) => JSON.parse(line) as { readonly message: string }).map((entry) => entry.message))
-            .toEqual(['first', 'second']);
-    });
+            expect(lines).toHaveLength(1);
+            expect(lines[0]).toContain(REDACTED);
+            expect(lines[0]).not.toContain(TOKEN_VALUE);
+        }
+        // case: takes no effect on entries already written
+        {
+            const { log, lines } = capturingLogger('debug');
+            log.debug(BEFORE);
 
-    it('keeps the redaction pass exactly as it was, at every threshold (NFR-102)', () => {
-        const { log, lines } = capturingLogger('error');
-        log.setLevel('error');
+            log.setLevel('error');
 
-        log.error('credential in a field', { detail: TOKEN_VALUE });
-
-        expect(lines).toHaveLength(1);
-        expect(lines[0]).toContain(REDACTED);
-        expect(lines[0]).not.toContain(TOKEN_VALUE);
-    });
-
-    it('takes no effect on entries already written', () => {
-        const { log, lines } = capturingLogger('debug');
-        log.debug(BEFORE);
-
-        log.setLevel('error');
-
-        expect(lines).toHaveLength(1);
-        expect(lines[0]).toContain(BEFORE);
+            expect(lines).toHaveLength(1);
+            expect(lines[0]).toContain(BEFORE);
+        }
     });
 });

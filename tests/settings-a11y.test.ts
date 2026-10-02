@@ -195,101 +195,110 @@ function configurationLabels(render: TabRender): readonly string[] {
 }
 
 describe('the configuration is editable in exactly one tab (006 AC-141, SC-113, FR-019)', () => {
-    it('mounts every documented field as a control in Settings, and nowhere else', async () => {
-        const renders = await renderAllTabs(runtime());
+    it('mounts every documented field as a control in Settin… (+1 cases)', async () => {
+        // case: mounts every documented field as a control in Settings, and nowhere else
+        {
+            const renders = await renderAllTabs(runtime());
 
-        for (const render of renders.filter((entry) => entry.id !== 'settings')) {
-            expect(configurationLabels(render), `${render.id} rendered a configuration control`).toEqual([]);
+            for (const render of renders.filter((entry) => entry.id !== 'settings')) {
+                expect(configurationLabels(render), `${render.id} rendered a configuration control`).toEqual([]);
+            }
+
+            const settings = renders.find((render) => render.id === 'settings');
+            expect(settings).toBeDefined();
+            // Counted, not listed: this fails at zero (the surface disappeared)
+            // as surely as at two (a second rendering appeared).
+            expect(configurationLabels(settings as TabRender)).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
         }
+        // case: AC-141: the poll interval is rendered on Settings, and on no other tab but Status
+        {
+            const renders = await renderAllTabs(runtime());
 
-        const settings = renders.find((render) => render.id === 'settings');
-        expect(settings).toBeDefined();
-        // Counted, not listed: this fails at zero (the surface disappeared)
-        // as surely as at two (a second rendering appeared).
-        expect(configurationLabels(settings as TabRender)).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
-    });
+            // Status owns the *effective* value and Settings the *configured* one
+            // (005 FR-039) — its own line is asserted in tests/status-tab.test.ts;
+            // what is asserted here is the half this suite can see: Settings says
+            // it and the four tabs that own neither value say nothing about it.
+            const settings = renders.find((render) => render.id === 'settings');
+            expect(settings?.strings.join('\n')).toContain('intervalMs');
 
-    it('AC-141: the poll interval is rendered on Settings, and on no other tab but Status', async () => {
-        const renders = await renderAllTabs(runtime());
-
-        // Status owns the *effective* value and Settings the *configured* one
-        // (005 FR-039) — its own line is asserted in tests/status-tab.test.ts;
-        // what is asserted here is the half this suite can see: Settings says
-        // it and the four tabs that own neither value say nothing about it.
-        const settings = renders.find((render) => render.id === 'settings');
-        expect(settings?.strings.join('\n')).toContain('intervalMs');
-
-        for (const id of ['bindings', 'dispatches', 'accounts', 'about']) {
-            const render = renders.find((entry) => entry.id === id);
-            expect(render?.strings.join('\n'), `${id} renders the poll interval`).not.toContain('intervalMs');
+            for (const id of ['bindings', 'dispatches', 'accounts', 'about']) {
+                const render = renders.find((entry) => entry.id === id);
+                expect(render?.strings.join('\n'), `${id} renders the poll interval`).not.toContain('intervalMs');
+            }
         }
     });
 });
 
 describe('the other tabs grow no configuration or credential control (006 AC-142, FR-082)', () => {
-    it('mounts none on Bindings, Dispatches, Accounts, or About', async () => {
-        const renders = await renderAllTabs(runtime());
+    it('mounts none on Bindings, Dispatches, Accounts, or Ab… (+1 cases)', async () => {
+        // case: mounts none on Bindings, Dispatches, Accounts, or About
+        {
+            const renders = await renderAllTabs(runtime());
 
-        for (const id of ['bindings', 'dispatches', 'accounts', 'about']) {
-            const render = renders.find((entry) => entry.id === id);
-            expect(render, `${id} did not mount`).toBeDefined();
-            expect(configurationLabels(render as TabRender)).toEqual([]);
+            for (const id of ['bindings', 'dispatches', 'accounts', 'about']) {
+                const render = renders.find((entry) => entry.id === id);
+                expect(render, `${id} did not mount`).toBeDefined();
+                expect(configurationLabels(render as TabRender)).toEqual([]);
+            }
         }
-    });
+        // case: mounts no password field anywhere, and no credential word on Settings
+        {
+            const renders = await renderAllTabs(runtime());
 
-    it('mounts no password field anywhere, and no credential word on Settings', async () => {
-        const renders = await renderAllTabs(runtime());
+            for (const render of renders) {
+                const passworded = render.props.filter((props) => props.password === true);
+                expect(passworded, `${render.id} mounted a password field`).toEqual([]);
+            }
 
-        for (const render of renders) {
-            const passworded = render.props.filter((props) => props.password === true);
-            expect(passworded, `${render.id} mounted a password field`).toEqual([]);
+            const settings = renders.find((render) => render.id === 'settings');
+            // Whole words only: `dispatch` contains the letters `pat`, and this
+            // claim is about credential *labels*, not about substrings.
+            const credential = /\b(token|credential|pat|password)\b/i;
+            const labelled = (settings?.labels ?? []).filter((label) => credential.test(label));
+            expect(labelled).toEqual([]);
         }
-
-        const settings = renders.find((render) => render.id === 'settings');
-        // Whole words only: `dispatch` contains the letters `pat`, and this
-        // claim is about credential *labels*, not about substrings.
-        const credential = /\b(token|credential|pat|password)\b/i;
-        const labelled = (settings?.labels ?? []).filter((label) => credential.test(label));
-        expect(labelled).toEqual([]);
     });
 });
 
 describe('every configuration control is operable and named (006 FR-018, FR-039, NFR-107)', () => {
-    it('names each with its field, its unit or its absence, and its boundary', async () => {
-        const renders = await renderAllTabs(runtime());
-        const settings = renders.find((render) => render.id === 'settings');
-        const controls = (settings?.props ?? []).filter((props) => typeof props.onChange === 'function');
+    it('names each with its field, its unit or its absence, … (+1 cases)', async () => {
+        // case: names each with its field, its unit or its absence, and its boundary
+        {
+            const renders = await renderAllTabs(runtime());
+            const settings = renders.find((render) => render.id === 'settings');
+            const controls = (settings?.props ?? []).filter((props) => typeof props.onChange === 'function');
 
-        expect(controls).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
-        for (const props of controls) {
-            const label = String(props.label);
-            // The name and the boundary are the load-bearing halves (FR-039).
-            const named = Object.keys(DEFAULT_CONFIG).find((field) => label.startsWith(`${field} (`));
-            expect(named, `a control was mounted without naming its field: ${label}`).toBeDefined();
-            // The unit slot is always filled — with the unit, or with the
-            // words that say there is none (FR-014).
-            expect(label).toMatch(/\(([^)]+)\)/);
-            expect(label).toMatch(
-                /takes effect immediately|in effect from the next poll|in effect from the next dispatch/,
-            );
-            // Operable: the handler that makes it so is on the mount itself.
-            expect(typeof props.onChange).toBe('function');
+            expect(controls).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
+            for (const props of controls) {
+                const label = String(props.label);
+                // The name and the boundary are the load-bearing halves (FR-039).
+                const named = Object.keys(DEFAULT_CONFIG).find((field) => label.startsWith(`${field} (`));
+                expect(named, `a control was mounted without naming its field: ${label}`).toBeDefined();
+                // The unit slot is always filled — with the unit, or with the
+                // words that say there is none (FR-014).
+                expect(label).toMatch(/\(([^)]+)\)/);
+                expect(label).toMatch(
+                    /takes effect immediately|in effect from the next poll|in effect from the next dispatch/,
+                );
+                // Operable: the handler that makes it so is on the mount itself.
+                expect(typeof props.onChange).toBe('function');
+            }
         }
-    });
+        // case: offers exactly one save, discard, and restore control (FR-012, FR-045)
+        {
+            const renders = await renderAllTabs(runtime());
+            const settings = renders.find((render) => render.id === 'settings');
+            const labels = settings?.labels ?? [];
 
-    it('offers exactly one save, discard, and restore control (FR-012, FR-045)', async () => {
-        const renders = await renderAllTabs(runtime());
-        const settings = renders.find((render) => render.id === 'settings');
-        const labels = settings?.labels ?? [];
-
-        expect(labels.filter((label) => label === 'Save configuration')).toHaveLength(1);
-        expect(labels.filter((label) => label === 'Discard changes')).toHaveLength(1);
-        expect(labels.filter((label) => label === 'Restore defaults')).toHaveLength(1);
-        const handlers = (settings?.props ?? []).filter(
-            (props) => props.label === 'Save configuration' || props.label === 'Discard changes',
-        );
-        for (const props of handlers) {
-            expect(typeof props.onClick).toBe('function');
+            expect(labels.filter((label) => label === 'Save configuration')).toHaveLength(1);
+            expect(labels.filter((label) => label === 'Discard changes')).toHaveLength(1);
+            expect(labels.filter((label) => label === 'Restore defaults')).toHaveLength(1);
+            const handlers = (settings?.props ?? []).filter(
+                (props) => props.label === 'Save configuration' || props.label === 'Discard changes',
+            );
+            for (const props of handlers) {
+                expect(typeof props.onClick).toBe('function');
+            }
         }
     });
 });
