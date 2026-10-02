@@ -31,7 +31,7 @@ import { repositoryLabel } from '../../src/config.ts';
 import { DEFAULT_CONFIG, CONFIG_FILE, configFromStore, parseStoredConfig } from '../config.ts';
 import { readAccount } from '../accounts/store.ts';
 import { readBindings } from '../bindings-read.ts';
-import { promptSnapshotOf } from '../prompt.ts';
+import { resolvePromptSnapshot } from '../prompt.ts';
 import { runRetentionPasses } from '../retention.ts';
 import type { ServiceConfig } from '../config.ts';
 import type { BindingRecord } from '../bindings.ts';
@@ -416,11 +416,16 @@ async function scanBinding(input: {
         store: deps.store,
         log: deps.log,
         incoming: listed.events,
-        // The same binding object that produced `projectId`/`worktreeOption`
-        // for these events is the one this snapshot comes from, so the three
-        // cannot disagree (004 FR-015: "at the same moment").
-        prompt: promptSnapshotOf(binding),
-    });    return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
+        // The same records that produced `projectId`/`worktreeOption` for
+        // these events resolve this snapshot — this cycle's configuration
+        // (global tier), the account this scan read (account tier), and the
+        // binding being scanned (binding tier) — so resolution and project
+        // resolution cannot disagree (004 FR-015: "at the same moment";
+        // FR-080: resolved once, at detection). A tier the records do not
+        // carry is unset and contributes nothing (FR-071).
+        prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
+    });
+    return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
 }
 
 /**

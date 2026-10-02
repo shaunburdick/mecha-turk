@@ -35,7 +35,7 @@ import { createEvent, enqueueEvents, readEvents, EVENTS_FILE } from '../service/
 import { SCAN_STATE_FILE } from '../service/poll/scan.ts';
 import { readRunsDocument } from '../service/poll/runs.ts';
 import { SERVICE_SCHEMA_VERSION, openStore } from '../service/store/index.ts';
-import { promptFingerprint, promptSnapshotOf } from '../service/prompt.ts';
+import { promptFingerprint, resolvePromptSnapshot } from '../service/prompt.ts';
 import { composeFirstMessage } from '../src/prompt.ts';
 import { buildBoundedContext } from '../src/session.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
@@ -192,7 +192,9 @@ interface SeededBytes {
  * @returns The bytes and identifiers the upgrade must not disturb.
  */
 async function seedPre004Store(prompt: string | null = null): Promise<SeededBytes> {
-    const snapshot = prompt === null ? null : promptSnapshotOf({ startingPrompt: prompt });
+    const snapshot = prompt === null
+        ? null
+        : resolvePromptSnapshot({ global: null, account: null, binding: { startingPrompt: prompt } });
     await enqueueEvents({
         store,
         log: LOGGER,

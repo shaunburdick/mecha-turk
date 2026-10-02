@@ -1596,6 +1596,31 @@ var RESERVED_MARKER_PREFIXES = ["--- BEGIN ", "--- END "];
 var NEWLINE = `
 `;
 var PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
+var PROMPT_SOURCE_ORDER = ["global", "account", "binding"];
+function isPromptSource(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const order = PROMPT_SOURCE_ORDER;
+  return order.includes(value);
+}
+function isPromptSourceList(value) {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+  let previous = -1;
+  for (const element of value) {
+    if (!isPromptSource(element)) {
+      return false;
+    }
+    const index = PROMPT_SOURCE_ORDER.indexOf(element);
+    if (index <= previous) {
+      return false;
+    }
+    previous = index;
+  }
+  return true;
+}
 var LAST_FORBIDDEN_LOW_CODE_POINT = 8;
 var TAB_CODE_POINT = 9;
 var LINE_FEED_CODE_POINT = 10;
@@ -1694,13 +1719,61 @@ function promptFingerprint(text) {
   const digest = createHash("sha256").update(text, "utf8").digest("hex");
   return `${PROMPT_FINGERPRINT_PREFIX}${digest.slice(0, FINGERPRINT_HEX_CHARS)}`;
 }
-function promptSnapshotOf(record) {
+function promptTierOf(record) {
   const verdict = validateStartingPrompt(record.startingPrompt);
   if (!verdict.ok || verdict.prompt === null) {
     return null;
   }
   const text = verdict.prompt;
   return { text, fingerprint: promptFingerprint(text), length: countCodePoints(text) };
+}
+var TIER_GAP = `
+
+`;
+function composePromptBody(tiers) {
+  const set = [];
+  for (const tier of [tiers.global, tiers.account, tiers.binding]) {
+    if (tier !== null && tier !== "") {
+      set.push(tier);
+    }
+  }
+  return set.join(TIER_GAP);
+}
+function resolveTier(record) {
+  if (record === undefined || record === null) {
+    return { state: "unset" };
+  }
+  if (typeof record !== "object" || Array.isArray(record)) {
+    return { state: "refused" };
+  }
+  const verdict = validateStartingPrompt(record.startingPrompt);
+  if (!verdict.ok) {
+    return { state: "refused" };
+  }
+  return verdict.prompt === null ? { state: "unset" } : { state: "set", text: verdict.prompt };
+}
+function resolvePromptSnapshot(tiers) {
+  const resolved = {
+    global: resolveTier(tiers.global),
+    account: resolveTier(tiers.account),
+    binding: resolveTier(tiers.binding)
+  };
+  if (PROMPT_SOURCE_ORDER.some((source) => resolved[source].state === "refused")) {
+    return null;
+  }
+  const text = composePromptBody({
+    global: resolved.global.state === "set" ? resolved.global.text : null,
+    account: resolved.account.state === "set" ? resolved.account.text : null,
+    binding: resolved.binding.state === "set" ? resolved.binding.text : null
+  });
+  if (text === "") {
+    return null;
+  }
+  const sources = PROMPT_SOURCE_ORDER.filter((source) => resolved[source].state === "set");
+  return { text, fingerprint: promptFingerprint(text), length: countCodePoints(text), sources };
+}
+function promptStackMaxCodePoints(sourceCount) {
+  return sourceCount * STARTING_PROMPT_MAX_CODE_POINTS + 2 * (sourceCount - 1);
 }
 function storedText(candidate) {
   const { text } = candidate;
@@ -1714,20 +1787,31 @@ function storedLength(candidate) {
   const { length } = candidate;
   return typeof length === "number" && Number.isInteger(length) && length > 0 ? length : null;
 }
+function storedSources(candidate) {
+  const { sources } = candidate;
+  if (!Array.isArray(sources) || sources.length === 0 || !isPromptSourceList(sources)) {
+    return null;
+  }
+  return sources;
+}
 function readStoredSnapshot(candidate) {
   const text = storedText(candidate);
   const fingerprint = storedFingerprint(candidate);
   const length = storedLength(candidate);
-  if (text === null || fingerprint === null || length === null) {
+  const sources = storedSources(candidate);
+  if (text === null || fingerprint === null || length === null || sources === null) {
     return null;
   }
   if (countCodePoints(text) !== length) {
     return null;
   }
-  if (length > STARTING_PROMPT_MAX_CODE_POINTS || findSecretLeak(text) !== null) {
+  if (length > promptStackMaxCodePoints(sources.length)) {
     return null;
   }
-  return { text, fingerprint, length };
+  if (findSecretLeak(text) !== null) {
+    return null;
+  }
+  return { text, fingerprint, length, sources };
 }
 function parseStoredPromptSnapshot(raw) {
   if (raw === undefined || raw === null) {
@@ -5024,7 +5108,7 @@ async function recordPromptChanges(input) {
   let rows = 0;
   for (const binding of input.bindings) {
     observed.add(binding.bindingId);
-    const snapshot = promptSnapshotOf(binding);
+    const snapshot = promptTierOf(binding);
     const current = snapshot === null ? null : snapshot.fingerprint;
     const previous = state.baseline.get(binding.bindingId) ?? null;
     state.baseline.set(binding.bindingId, current);
@@ -8356,7 +8440,7 @@ async function scanBinding(input) {
     store: deps.store,
     log: deps.log,
     incoming: listed.events,
-    prompt: promptSnapshotOf(binding)
+    prompt: resolvePromptSnapshot({ global: deps.config, account, binding })
   });
   return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
 }

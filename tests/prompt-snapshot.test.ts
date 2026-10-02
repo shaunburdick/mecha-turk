@@ -1,18 +1,26 @@
 /**
- * The prompt snapshot on the run (004 T-006; FR-015, FR-019, FR-053,
- * AC-138, AC-142).
+ * The prompt snapshot on the run (004 T-006/T-018; FR-015, FR-019, FR-053,
+ * FR-080, FR-086, FR-087, AC-138, AC-142).
  *
- * The snapshot is the property that makes a dispatch reproducible: it is taken
- * from **the same binding object that produced the run's `projectId` and
- * `worktreeOption`**, at the same moment, and nothing re-reads the binding
- * afterwards. So what is asserted here is that:
+ * The snapshot is the property that makes a dispatch reproducible: it is
+ * resolved **from the same records that produced the run's `projectId` and
+ * `worktreeOption`**, at the same moment, and nothing re-reads them
+ * afterwards. Since 004 v1.4.0 that snapshot is the *composed* body — three
+ * tiers stacked once, one fingerprint over the body, one source list beside
+ * it — so what is asserted here is that:
  *
+ * - the resolver stacks the set tiers in order, one blank line apart, and
+ *   returns `null` when none is set (FR-080, FR-071);
+ * - a binding-only body is byte-identical to the tier text, so its
+ *   fingerprint is the shipped single-tier value (FR-086);
  * - a run keeps the text it was queued with across a later edit (AC-138);
  * - a coalescing delivery never replaces the snapshot of the run it joins;
  * - the delivery rows gain **no field at all** — `events.json` for the same
  *   detection is byte-identical with and without a prompt (FR-053);
- * - the run parser refuses a malformed snapshot instead of half-applying it,
- *   while a row written before this feature parses unchanged (AC-142).
+ * - the run parser refuses a malformed snapshot — including one without its
+ *   `sources` or over its own stack bound — instead of half-applying it,
+ *   while a row written before this feature parses unchanged (AC-142,
+ *   FR-087, AGENTS.md invariant 8).
  *
  * Offline: a temp store per test, fixed stamps, no network and no timers.
  */
@@ -30,9 +38,19 @@ import {
 import { applyEnqueue } from '../service/poll/runs-join.ts';
 import { RUNS_SCHEMA_VERSION, parseRunsDocument } from '../service/poll/runs-parse.ts';
 import { RUNS_FILE, emptyRunsDocument } from '../service/poll/runs.ts';
-import { PROMPT_FINGERPRINT_PATTERN, promptFingerprint, promptSnapshotOf } from '../service/prompt.ts';
+import {
+    PROMPT_FINGERPRINT_PATTERN,
+    STARTING_PROMPT_MAX_CODE_POINTS,
+    composePromptBody,
+    promptFingerprint,
+    promptStackMaxCodePoints,
+    promptTierOf,
+    resolvePromptSnapshot,
+} from '../service/prompt.ts';
+import { PROMPT_SOURCE_ORDER, isPromptSourceList } from '../src/prompt.ts';
 import { openStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
+import type { PromptSnapshot } from '../service/prompt.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 
 /** Stamp every fixture carries, so no test depends on the clock. */
@@ -46,6 +64,12 @@ const PROMPT_A = 'Reproduce first, then patch.';
 
 /** The same binding's instruction after an operator edit. */
 const PROMPT_B = 'Reproduce first, then patch, and say so in the summary.';
+
+/** The global tier's text the resolution cases stack (004 FR-080). */
+const GLOBAL_TEXT = 'Global context.';
+
+/** The account tier's text the resolution cases stack (004 FR-080). */
+const ACCOUNT_TEXT = 'Account context.';
 
 /** Log sink shared by every reader this suite drives. */
 const LOG_LINES: string[] = [];
@@ -75,6 +99,18 @@ function bindingWith(prompt: string): { readonly bindingId: string; readonly sta
     return { bindingId: BINDING_ID, startingPrompt: prompt };
 }
 
+/**
+ * The snapshot the production resolver builds for a binding-only run: the
+ * same three-tier entry point `service/poll/loop.ts` calls, with only the
+ * binding tier set (004 FR-080, FR-086).
+ *
+ * @param prompt - The binding tier's text.
+ * @returns The composed snapshot; `null` only if the validator refuses it.
+ */
+function bindingSnapshot(prompt: string): PromptSnapshot | null {
+    return resolvePromptSnapshot({ global: null, account: null, binding: bindingWith(prompt) });
+}
+
 /** Build an assignment fixture for one issue. */
 function assignment(issueNumber: number): EventSnapshot {
     return {
@@ -102,8 +138,8 @@ interface EnqueueCall {
     readonly store: ServiceStore;
     /** The detections to enqueue. */
     readonly snapshots: readonly EventSnapshot[];
-    /** The scanning binding's snapshot, when it has one. */
-    readonly prompt?: ReturnType<typeof promptSnapshotOf>;
+    /** The resolved snapshot for this detection, when the run has one. */
+    readonly prompt?: PromptSnapshot | null;
 }
 
 /**
@@ -155,19 +191,20 @@ function storedDocumentWith(prompt: unknown, present: boolean): unknown {
 }
 
 describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC-138)', () => {
-    it('snapshots the text, fingerprint, and length of the b… (+3 cases)', async () => {
-        // case: snapshots the text, fingerprint, and length of the binding in hand
+    it('snapshots the body, fingerprint, length, and sources… (+3 cases)', async () => {
+        // case: snapshots the body, fingerprint, length, and sources of the binding in hand
         {
-            const snapshot = promptSnapshotOf(bindingWith(PROMPT_A));
+            const snapshot = bindingSnapshot(PROMPT_A);
             expect(snapshot).toEqual({
                 text: PROMPT_A,
                 fingerprint: promptFingerprint(PROMPT_A),
                 length: [...PROMPT_A].length,
+                sources: ['binding'],
             });
             expect(snapshot?.fingerprint).toMatch(PROMPT_FINGERPRINT_PATTERN);
-            // Unset bindings snapshot to nothing, and that is a complete answer.
+            // Unset bindings resolve to nothing, and that is a complete answer.
             const unset: { readonly startingPrompt?: string } = {};
-            expect(promptSnapshotOf(unset)).toBeNull();
+            expect(resolvePromptSnapshot({ global: null, account: null, binding: unset })).toBeNull();
         }
         await afterEachWork2();
         await beforeEachWork1();
@@ -178,13 +215,13 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
             const first = await enqueueInto({
                 store,
                 snapshots: [assignment(11)],
-                prompt: promptSnapshotOf(bindingWith(PROMPT_A)),
+                prompt: bindingSnapshot(PROMPT_A),
             });
             // The operator edits the binding; the *next* detection uses the new text.
             const second = await enqueueInto({
                 store,
                 snapshots: [assignment(12)],
-                prompt: promptSnapshotOf(bindingWith(PROMPT_B)),
+                prompt: bindingSnapshot(PROMPT_B),
             });
 
             const runs = rawRuns(JSON.parse(second.runs));
@@ -193,17 +230,20 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
                 text: PROMPT_A,
                 fingerprint: promptFingerprint(PROMPT_A),
                 length: [...PROMPT_A].length,
+                sources: ['binding'],
             });
             expect(runs[1]?.prompt).toEqual({
                 text: PROMPT_B,
                 fingerprint: promptFingerprint(PROMPT_B),
                 length: [...PROMPT_B].length,
+                sources: ['binding'],
             });
             // The first write's bytes for the first run never changed afterwards.
             expect(rawRuns(JSON.parse(first.runs))[0]?.prompt).toEqual({
                 text: PROMPT_A,
                 fingerprint: promptFingerprint(PROMPT_A),
                 length: [...PROMPT_A].length,
+                sources: ['binding'],
             });
         }
         await afterEachWork2();
@@ -212,7 +252,7 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
         await beforeEachWork1();
         // case: never lets a coalescing delivery replace the run’s own snapshot
         {
-            await enqueueInto({ store, snapshots: [assignment(12)], prompt: promptSnapshotOf(bindingWith(PROMPT_A)) });
+            await enqueueInto({ store, snapshots: [assignment(12)], prompt: bindingSnapshot(PROMPT_A) });
             const afterJoin = await enqueueInto({
                 store,
                 snapshots: [{
@@ -221,7 +261,7 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
                     origin: 'body',
                     triggerNote: 'body mention',
                 }],
-                prompt: promptSnapshotOf(bindingWith(PROMPT_B)),
+                prompt: bindingSnapshot(PROMPT_B),
             });
 
             const runs = rawRuns(JSON.parse(afterJoin.runs));
@@ -230,6 +270,7 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
                 text: PROMPT_A,
                 fingerprint: promptFingerprint(PROMPT_A),
                 length: [...PROMPT_A].length,
+                sources: ['binding'],
             });
             expect(runs[0]?.referenceCount).toBe(2);
         }
@@ -248,7 +289,7 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
                 const first = await enqueueInto({
                     store: promptedStore,
                     snapshots: [assignment(7)],
-                    prompt: promptSnapshotOf(bindingWith(PROMPT_A)),
+                    prompt: bindingSnapshot(PROMPT_A),
                 });
                 const second = await enqueueInto({ store: plainStore, snapshots: [assignment(7)] });
 
@@ -269,7 +310,7 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
 });
 
 describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)', () => {
-    it('parses a row written before this feature, with no pr… (+5 cases)', async () => {
+    it('parses a row written before this feature, with no pr… (+6 cases)', async () => {
         // case: parses a row written before this feature, with no prompt member (AC-142)
         {
             const document = parseRunsDocument(storedDocumentWith(undefined, false));
@@ -290,17 +331,35 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: parses a well-formed snapshot
+        // case: parses a well-formed snapshot, and a stacked body up to its own bound
         {
             const document = parseRunsDocument(storedDocumentWith({
                 text: PROMPT_A,
                 fingerprint: promptFingerprint(PROMPT_A),
                 length: [...PROMPT_A].length,
+                sources: ['binding'],
             }, true));
             expect(document?.runs[0]?.prompt).toEqual({
                 text: PROMPT_A,
                 fingerprint: promptFingerprint(PROMPT_A),
                 length: [...PROMPT_A].length,
+                sources: ['binding'],
+            });
+            // A three-tier body may legally reach 6,004 code points
+            // (FR-085): the stack bound, not the per-tier cap, is the
+            // ceiling — exactly at the bound still parses.
+            const stacked = 'x'.repeat(6_004);
+            const atBound = parseRunsDocument(storedDocumentWith({
+                text: stacked,
+                fingerprint: promptFingerprint(stacked),
+                length: 6_004,
+                sources: ['global', 'account', 'binding'],
+            }, true));
+            expect(atBound?.runs[0]?.prompt).toEqual({
+                text: stacked,
+                fingerprint: promptFingerprint(stacked),
+                length: 6_004,
+                sources: ['global', 'account', 'binding'],
             });
         }
         await afterEachWork2();
@@ -319,17 +378,31 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
         await beforeEachWork1();
         // case: refuses a malformed fingerprint, an over-cap text, a wrong length, and a credential
         {
+            // Every case carries a valid `sources` list so the refusal comes
+            // from the rule it names, never from the missing-member rule.
             const cases: readonly unknown[] = [
                 // Wrong prefix, wrong digest length, uppercase: none is the format.
-                { text: PROMPT_A, fingerprint: 'mtp-zzzz', length: [...PROMPT_A].length },
-                { text: PROMPT_A, fingerprint: promptFingerprint(PROMPT_A).slice(0, 30), length: [...PROMPT_A].length },
+                {
+                    text: PROMPT_A,
+                    fingerprint: 'mtp-zzzz',
+                    length: [...PROMPT_A].length,
+                    sources: ['binding'],
+                },
+                {
+                    text: PROMPT_A,
+                    fingerprint: promptFingerprint(PROMPT_A).slice(0, 30),
+                    length: [...PROMPT_A].length,
+                    sources: ['binding'],
+                },
                 // The recorded length disagrees with the recorded text.
-                { text: PROMPT_A, fingerprint: promptFingerprint(PROMPT_A), length: 3 },
-                // One code point over the cap, even though text and length agree.
+                { text: PROMPT_A, fingerprint: promptFingerprint(PROMPT_A), length: 3, sources: ['binding'] },
+                // One code point over a binding-only row's stack bound (the
+                // per-tier cap), even though text and length agree.
                 {
                     text: 'x'.repeat(2_001),
                     fingerprint: promptFingerprint('x'.repeat(2_001)),
                     length: 2_001,
+                    sources: ['binding'],
                 },
                 // Credential-shaped text refused at the save boundary must never
                 // have been stored; a hand edit that puts it there is refused too.
@@ -337,6 +410,43 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
                     text: `push with ghp_${'f'.repeat(30)}`,
                     fingerprint: promptFingerprint(`push with ghp_${'f'.repeat(30)}`),
                     length: [...`push with ghp_${'f'.repeat(30)}`].length,
+                    sources: ['binding'],
+                },
+            ];
+
+            for (const snapshot of cases) {
+                expect(parseRunsDocument(storedDocumentWith(snapshot, true)), JSON.stringify(snapshot)).toBeNull();
+            }
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses `sources` that are absent, empty, unknown, out of order, or over the bound
+        {
+            const base = {
+                text: PROMPT_A,
+                fingerprint: promptFingerprint(PROMPT_A),
+                length: [...PROMPT_A].length,
+            };
+            const overBound = 'x'.repeat(6_005);
+            const cases: readonly unknown[] = [
+                // Absent: no defaulting branch exists to complete it (FR-087).
+                base,
+                // Present-but-unset disagreements: empty and non-array.
+                { ...base, sources: [] },
+                { ...base, sources: 'binding' },
+                // Unknown, out of order, duplicated.
+                { ...base, sources: ['repo'] },
+                { ...base, sources: ['binding', 'global'] },
+                { ...base, sources: ['global', 'global'] },
+                // One code point past the stack bound its own sources name
+                // (FR-085, research R-1): 6,004 is the ceiling for three tiers.
+                {
+                    text: overBound,
+                    fingerprint: promptFingerprint(overBound),
+                    length: 6_005,
+                    sources: ['global', 'account', 'binding'],
                 },
             ];
 
@@ -357,6 +467,85 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
             if (read.status === 'quarantined') {
                 expect(read.quarantinePath).toContain(RUNS_FILE);
             }
+        }
+    });
+});
+
+describe('T-018 the resolver stacks the set tiers once (FR-080, FR-086, FR-087)', () => {
+    it('resolves the set tiers in order, or answers null (+5 cases)', () => {
+        // case: the resolution matrix — all three, global-only, account+binding, binding-only, none
+        {
+            const global = { startingPrompt: GLOBAL_TEXT };
+            const account = { startingPrompt: ACCOUNT_TEXT };
+            const binding = bindingWith(PROMPT_A);
+
+            const all = resolvePromptSnapshot({ global, account, binding });
+            // Body bytes: global + "\n\n" + account + "\n\n" + binding, and
+            // nothing else — no tier labels, no extra blank line (FR-084).
+            expect(all?.text).toBe(`${GLOBAL_TEXT}\n\n${ACCOUNT_TEXT}\n\n${PROMPT_A}`);
+            expect(all?.sources).toEqual(['global', 'account', 'binding']);
+            expect(resolvePromptSnapshot({ global, account: null, binding: null })?.sources).toEqual(['global']);
+            expect(resolvePromptSnapshot({ global, account: null, binding: null })?.text).toBe(GLOBAL_TEXT);
+            expect(resolvePromptSnapshot({ global: null, account, binding })?.sources)
+                .toEqual(['account', 'binding']);
+            expect(resolvePromptSnapshot({ global: null, account, binding })?.text)
+                .toBe(`${ACCOUNT_TEXT}\n\n${PROMPT_A}`);
+            expect(resolvePromptSnapshot({ global: null, account: null, binding })?.sources).toEqual(['binding']);
+            // No tier set — not even an empty record — answers null: no body,
+            // no fingerprint, no fence (FR-071, FR-032).
+            expect(resolvePromptSnapshot({ global: null, account: null, binding: null })).toBeNull();
+            expect(resolvePromptSnapshot({ global: {}, account: {}, binding: {} })).toBeNull();
+        }
+        // case: one fingerprint over the body; binding-only equals the shipped single-tier value
+        {
+            const body = `${GLOBAL_TEXT}\n\n${PROMPT_A}`;
+            const stacked = resolvePromptSnapshot({
+                global: { startingPrompt: GLOBAL_TEXT },
+                account: null,
+                binding: bindingWith(PROMPT_A),
+            });
+            expect(stacked?.fingerprint).toBe(promptFingerprint(body));
+            expect(stacked?.fingerprint).toMatch(PROMPT_FINGERPRINT_PATTERN);
+            // A binding-only body *is* the tier text, so its fingerprint is
+            // the value the shipped single-tier build derived — the golden
+            // identity FR-084 and FR-086 pin (research: pure function of the body).
+            const bindingOnly = bindingSnapshot(PROMPT_A);
+            expect(bindingOnly?.fingerprint).toBe(promptFingerprint(PROMPT_A));
+            expect(bindingOnly?.fingerprint).toBe(promptTierOf(bindingWith(PROMPT_A))?.fingerprint);
+        }
+        // case: sources follow the order by construction — ordered, duplicate-free, all known
+        {
+            const snapshot = resolvePromptSnapshot({
+                global: { startingPrompt: GLOBAL_TEXT },
+                account: { startingPrompt: ACCOUNT_TEXT },
+                binding: bindingWith(PROMPT_A),
+            });
+            expect(snapshot?.sources).toEqual([...PROMPT_SOURCE_ORDER]);
+            expect(snapshot === null ? null : isPromptSourceList(snapshot.sources)).toBe(true);
+        }
+        // case: composePromptBody joins set tiers with exactly one blank line, or answers ''
+        {
+            expect(composePromptBody({ global: 'g', account: 'a', binding: 'b' })).toBe('g\n\na\n\nb');
+            expect(composePromptBody({ global: null, account: null, binding: 'b' })).toBe('b');
+            expect(composePromptBody({ global: 'g', account: null, binding: 'b' })).toBe('g\n\nb');
+            expect(composePromptBody({ global: null, account: null, binding: null })).toBe('');
+        }
+        // case: the stack bound is n × cap + 2 × (n − 1) — 6,004 for three tiers (FR-085, R-1)
+        {
+            expect(promptStackMaxCodePoints(1)).toBe(STARTING_PROMPT_MAX_CODE_POINTS);
+            expect(promptStackMaxCodePoints(2)).toBe(2 * STARTING_PROMPT_MAX_CODE_POINTS + 2);
+            expect(promptStackMaxCodePoints(3)).toBe(6_004);
+        }
+        // case: a tier the validator refuses composes nothing at all — never a partial body (FR-028)
+        {
+            expect(resolvePromptSnapshot({
+                global: { startingPrompt: GLOBAL_TEXT },
+                account: null,
+                binding: { startingPrompt: `ghp_${'d'.repeat(30)}` },
+            })).toBeNull();
+            // The members are records read structurally; a value that is not a
+            // record is refused rather than quietly read as unset (invariant 8).
+            expect(resolvePromptSnapshot({ global: 'not a record', account: null, binding: null })).toBeNull();
         }
     });
 });

@@ -1,6 +1,7 @@
 /**
- * The starting-prompt domain: validation, fingerprint, and snapshot (004
- * FR-010, FR-016, FR-020–FR-028; data-model §2).
+ * The starting-prompt domain: validation, fingerprint, snapshot, and the
+ * three-tier resolution that feeds one (004 FR-010, FR-016, FR-020–FR-028,
+ * FR-080, FR-086, FR-087; data-model §2 and §4).
  *
  * One function — {@link validateStartingPrompt} — is the save boundary *and*
  * the read boundary for a binding's prompt (plan D2), so a hand-edited
@@ -30,16 +31,25 @@
 import { createHash } from 'node:crypto';
 import {
     PROMPT_FINGERPRINT_PATTERN,
+    PROMPT_SOURCE_ORDER,
     countCodePoints,
     hasIllegalControlChar,
     hasReservedMarkerLine,
+    isPromptSourceList,
     normaliseLineEndings,
     trimPrompt,
 } from '../src/prompt.ts';
+import type { PromptSource } from '../src/prompt.ts';
 import { findSecretLeak } from '../src/redaction.ts';
 
 /** Re-exported so the service stays the one import path for prompt rules. */
 export { PROMPT_FINGERPRINT_PATTERN };
+
+/**
+ * The tier vocabulary re-exported (data-model §6): one declaration in the
+ * browser-safe module, one import path for every service writer.
+ */
+export type { PromptSource };
 
 /**
  * The stored prompt's cap, in Unicode code points after trimming (004 FR-020).
@@ -191,27 +201,51 @@ export function promptFingerprint(text: string): string {
 }
 
 /**
- * The prompt as a queued record snapshots it (004 `### Key Entities`;
- * data-model §2.3).
+ * One tier's validated text — what a per-tier change row records (004
+ * FR-086, FR-088; data-model §4.2).
+ *
+ * The change rows' fingerprint is **this tier's own** hash of its own text,
+ * never the composed body's: per-tier change is recorded where the change
+ * happened, and only a run's snapshot stacks (FR-086). A binding-only tier
+ * and a binding-only body happen to hash the same bytes, which is exactly
+ * the golden-identity property FR-084 pins.
  */
-export interface PromptSnapshot {
+export interface TierPrompt {
     /** Normalised, trimmed, at most the cap, never empty. */
     readonly text: string;
-    /** `mtp-<sha256 hex[0:32]>`, derived from `text`. */
+    /** `mtp-<sha256 hex[0:32]>`, derived from this tier's `text`. */
     readonly fingerprint: string;
     /** `[...text].length` in Unicode code points. */
     readonly length: number;
 }
 
 /**
- * Build a snapshot for a record that may carry a prompt.
+ * The prompt as a queued record snapshots it: the **composed block body**
+ * (004 `### Key Entities`; FR-080, FR-086, FR-087; data-model §4.2).
+ */
+export interface PromptSnapshot {
+    /** Set tiers joined by exactly one blank line, global → account → binding. */
+    readonly text: string;
+    /** `mtp-<sha256 hex[0:32]>`, derived from `text` — one hash over the body (FR-086). */
+    readonly fingerprint: string;
+    /** `[...text].length` in Unicode code points — the body the fence wraps. */
+    readonly length: number;
+    /** Contributing tiers: ordered, duplicate-free, never empty (FR-087). */
+    readonly sources: readonly PromptSource[];
+}
+
+/**
+ * Build one **tier's** triple for a record that may carry a prompt — the
+ * shape per-tier change rows record (renamed from `promptSnapshotOf` at 004
+ * v1.4.0, so no caller can mistake a tier for a run's stacked snapshot;
+ * a run's snapshot comes from {@link resolvePromptSnapshot}).
  *
  * Structural on purpose — it names only the member it reads, so
  * `service/prompt.ts` never imports `service/bindings.ts` and the two cannot
  * form a cycle.
  *
  * @param record - A binding-shaped record, or anything else.
- * @returns The snapshot, or `null` when the prompt is unset **or** unusable.
+ * @returns The tier's triple, or `null` when the prompt is unset **or** unusable.
  *
  * The unusable case cannot reach here in practice — the read path quarantines
  * a file whose prompt fails validation before the poll loop ever sees a
@@ -219,10 +253,10 @@ export interface PromptSnapshot {
  * coercion: nothing is stored, nothing is dispatched, and no fingerprint is
  * derived from text the validator refused.
  */
-export function promptSnapshotOf(record: {
+export function promptTierOf(record: {
     /** The stored prompt, when the record carries one. */
     readonly startingPrompt?: string;
-}): PromptSnapshot | null {
+}): TierPrompt | null {
     const verdict = validateStartingPrompt(record.startingPrompt);
     if (!verdict.ok || verdict.prompt === null) {
         return null;
@@ -231,6 +265,162 @@ export function promptSnapshotOf(record: {
     const text = verdict.prompt;
 
     return { text, fingerprint: promptFingerprint(text), length: countCodePoints(text) };
+}
+
+/** The one blank line FR-080 puts between consecutive set tiers (2 code points). */
+const TIER_GAP = '\n\n';
+
+/**
+ * Stack the set tiers into one block body (004 FR-080, FR-084).
+ *
+ * Exactly one blank line between **consecutive set** tiers, in the fixed
+ * order global → account → binding; a tier that is `null` contributes
+ * nothing — no empty line, no placeholder, no note (FR-071). The body is
+ * **built, never parsed**: tier boundaries come from these three named
+ * members and never from searching the text (FR-033, FR-084), so a tier's
+ * own internal blank lines are ordinary operator text and nothing ever
+ * re-splits the result.
+ *
+ * Inputs must already be validated and normalised — that is
+ * {@link resolvePromptSnapshot}'s job; this function only stacks.
+ *
+ * @param tiers - Each tier's validated text, or `null` when unset.
+ * @returns The composed body; `''` when no tier is set.
+ */
+export function composePromptBody(tiers: {
+    /** The global tier's text (`config.json`), or `null` when unset. */
+    readonly global: string | null;
+    /** The account tier's text (the account record), or `null` when unset. */
+    readonly account: string | null;
+    /** The binding tier's text (the binding record), or `null` when unset. */
+    readonly binding: string | null;
+}): string {
+    const set: string[] = [];
+    for (const tier of [tiers.global, tiers.account, tiers.binding]) {
+        if (tier !== null && tier !== '') {
+            set.push(tier);
+        }
+    }
+
+    return set.join(TIER_GAP);
+}
+
+/** What one tier resolved to: set with text, unset, or refused (FR-071, FR-028). */
+type ResolvedTier =
+    /** Absent or empty: contributes nothing to the composition (FR-071). */
+    | { readonly state: 'unset' }
+    /** Validated, normalised text ready to stack. */
+    | { readonly state: 'set'; readonly text: string }
+    /** A set tier the validator refused: no snapshot composes at all (FR-028). */
+    | { readonly state: 'refused' };
+
+/**
+ * Resolve one tier's store record to its state (data-model §4.2).
+ *
+ * The member is read **structurally**: all three stores hold the tier under
+ * the same `startingPrompt` name (data-model's one-field-name convention),
+ * so the resolver imports neither `ServiceConfig`, `Account`, nor
+ * `BindingRecord`, and every tier passes the single `validateStartingPrompt`
+ * (FR-083). An explicit `null`/`undefined` record, or a record without the
+ * member, is *unset* — a complete state that contributes nothing (FR-071);
+ * anything that is not a record at all is a refusal, never a default
+ * (AGENTS.md invariant 8).
+ *
+ * @param record - The configuration, account, or binding record, or `null`.
+ * @returns The tier's state.
+ */
+function resolveTier(record: unknown): ResolvedTier {
+    if (record === undefined || record === null) {
+        return { state: 'unset' };
+    }
+
+    if (typeof record !== 'object' || Array.isArray(record)) {
+        return { state: 'refused' };
+    }
+
+    const verdict = validateStartingPrompt((record as Record<string, unknown>).startingPrompt);
+    if (!verdict.ok) {
+        return { state: 'refused' };
+    }
+
+    return verdict.prompt === null ? { state: 'unset' } : { state: 'set', text: verdict.prompt };
+}
+
+/**
+ * Resolve the three tiers into the one snapshot a queued record stores (004
+ * FR-080, FR-015, FR-086, FR-087; data-model §4.2).
+ *
+ * Called at detection with **the same records that produced the run's
+ * `projectId`/`worktreeOption`** — the cycle's effective configuration, the
+ * account the scan already read, the binding being scanned — so resolution
+ * and project resolution are one moment rather than a timing assumption.
+ * Each tier validates on its own through {@link validateStartingPrompt} —
+ * never coerced, never substituted — the set tiers stack in FR-080's order
+ * ({@link composePromptBody}), one fingerprint is derived over the body
+ * (FR-086), and `sources` follows the set tiers **by construction**: a
+ * filter of {@link PROMPT_SOURCE_ORDER}, so ordered and duplicate-free
+ * before any reader checks it (FR-087).
+ *
+ * Returns `null` when **no** tier is set — no body, no fingerprint, no
+ * sources: the composition then emits no fence and the message is the
+ * pre-004 bytes (FR-071, FR-032) — and also when a passed tier is unusable:
+ * FR-028's last resort, nothing composed from text the validator refused,
+ * which the stores' own read paths quarantine long before this runs.
+ *
+ * @param tiers - The three tier records: configuration, account, binding.
+ * @returns The composed snapshot, or `null` when nothing usable is set.
+ */
+export function resolvePromptSnapshot(tiers: {
+    /** This cycle's effective configuration (the global tier's record). */
+    readonly global: unknown;
+    /** The account record this binding names (the account tier's record). */
+    readonly account: unknown;
+    /** The binding record being scanned (the binding tier's record). */
+    readonly binding: unknown;
+}): PromptSnapshot | null {
+    const resolved: Record<PromptSource, ResolvedTier> = {
+        global: resolveTier(tiers.global),
+        account: resolveTier(tiers.account),
+        binding: resolveTier(tiers.binding),
+    };
+
+    if (PROMPT_SOURCE_ORDER.some((source) => resolved[source].state === 'refused')) {
+        return null;
+    }
+
+    const text = composePromptBody({
+        global: resolved.global.state === 'set' ? resolved.global.text : null,
+        account: resolved.account.state === 'set' ? resolved.account.text : null,
+        binding: resolved.binding.state === 'set' ? resolved.binding.text : null,
+    });
+    if (text === '') {
+        return null;
+    }
+
+    const sources = PROMPT_SOURCE_ORDER.filter((source) => resolved[source].state === 'set');
+
+    return { text, fingerprint: promptFingerprint(text), length: countCodePoints(text), sources };
+}
+
+/**
+ * The stack bound for a body that stacks `sourceCount` tiers (004 FR-085;
+ * research **R-1**, data-model §4.2).
+ *
+ * `n × cap + 2 × (n − 1)`: every set tier is capped at
+ * {@link STARTING_PROMPT_MAX_CODE_POINTS} code points on its own, and the
+ * body joins consecutive set tiers with exactly one 2-code-point blank line
+ * per gap — gaps counted only between tiers present, so three tiers give
+ * `3 × 2,000 + 2 × 2 = 6,004`. The run reader cross-checks a stored body's
+ * `length` against this figure and the row's own `sources` count, which is
+ * how a hand-edited row is held to FR-085 **without ever re-splitting the
+ * body** (FR-084: structure is built, never parsed).
+ *
+ * @param sourceCount - How many tiers the body stacks; a set body stacks at
+ *   least one (`n = 1` answers the per-tier cap itself).
+ * @returns The most code points that body may hold.
+ */
+export function promptStackMaxCodePoints(sourceCount: number): number {
+    return sourceCount * STARTING_PROMPT_MAX_CODE_POINTS + 2 * (sourceCount - 1);
 }
 
 /** What a stored `prompt` member holds, once it has been read (data-model §3). */
@@ -264,7 +454,30 @@ function storedLength(candidate: Record<string, unknown>): number | null {
 }
 
 /**
- * Validate the three stored members against each other and against the secret
+ * Read the stored `sources` member: a non-empty, ordered, duplicate-free
+ * list of known tiers (004 FR-087; data-model §5).
+ *
+ * Absent, `null`, empty, non-array, out-of-order, duplicated, or unknown all
+ * **refuse** — there is no defaulting branch, because the feature has never
+ * been released (spec row 32): no legitimate record can lack the member, and
+ * one that arrived anyway is refused rather than completed on its behalf
+ * (AGENTS.md invariant 8).
+ *
+ * @param candidate - The stored `prompt` member, already known to be a record.
+ * @returns The list, or `null` when it cannot stand as `promptSources`.
+ */
+function storedSources(candidate: Record<string, unknown>): readonly PromptSource[] | null {
+    const { sources } = candidate;
+
+    if (!Array.isArray(sources) || sources.length === 0 || !isPromptSourceList(sources)) {
+        return null;
+    }
+
+    return sources;
+}
+
+/**
+ * Validate the stored members against each other and against the secret
  * rule the save boundary applied.
  *
  * @param candidate - The stored `prompt` member, already known to be a record.
@@ -274,7 +487,8 @@ function readStoredSnapshot(candidate: Record<string, unknown>): PromptSnapshot 
     const text = storedText(candidate);
     const fingerprint = storedFingerprint(candidate);
     const length = storedLength(candidate);
-    if (text === null || fingerprint === null || length === null) {
+    const sources = storedSources(candidate);
+    if (text === null || fingerprint === null || length === null || sources === null) {
         return null;
     }
 
@@ -282,14 +496,24 @@ function readStoredSnapshot(candidate: Record<string, unknown>): PromptSnapshot 
         return null;
     }
 
-    // The cap and the secret rule the save boundary applied: a hand-edited
-    // run row must not smuggle an oversized or credential-shaped instruction
-    // onto the claim answer (004 FR-019 by analogy, FR-020, NFR-121).
-    if (length > STARTING_PROMPT_MAX_CODE_POINTS || findSecretLeak(text) !== null) {
+    // The stack bound rather than the per-tier cap (FR-085, research R-1):
+    // a legitimate three-tier body reaches 6,004 code points, so the ceiling
+    // a row may claim is the one its own `sources` count describes — while a
+    // single-tier row still answers 2,000, exactly what the shipped reader
+    // enforced, and a row claiming more tiers than any body could stack is
+    // refused with it.
+    if (length > promptStackMaxCodePoints(sources.length)) {
         return null;
     }
 
-    return { text, fingerprint, length };
+    // The cap and the secret rule the save boundary applied: a hand-edited
+    // run row must not smuggle an oversized or credential-shaped instruction
+    // onto the claim answer (004 FR-019 by analogy, FR-020, NFR-121).
+    if (findSecretLeak(text) !== null) {
+        return null;
+    }
+
+    return { text, fingerprint, length, sources };
 }
 
 /**
@@ -300,7 +524,10 @@ function readStoredSnapshot(candidate: Record<string, unknown>): PromptSnapshot 
  * algorithm change into a quarantine of every stored run. The stored text
  * still answers the secret rule the save boundary applied, so a hand-edited
  * run row cannot smuggle a credential onto the claim answer (004 FR-019 by
- * analogy, NFR-121).
+ * analogy, NFR-121), and `sources` must be present, non-empty, ordered, and
+ * duplicate-free, with `length` inside the stack bound it names (FR-085,
+ * FR-087): a present `prompt` without `sources` refuses the document, never
+ * defaults one (spec row 32, AGENTS.md invariant 8).
  *
  * @param raw - The stored value, or `undefined` when the member is absent.
  * @returns The reading, or `null` when a **present** value is unusable —

@@ -29,7 +29,7 @@ import { createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { AUDIT_PATH } from '../service/routes/audit.ts';
 import { DISPATCHED_PATH, RESERVE_PATH } from '../service/routes/dispatch.ts';
 import { EVENTS_PATH, EVENTS_PENDING_PATH } from '../service/routes/events.ts';
-import { promptFingerprint, promptSnapshotOf } from '../service/prompt.ts';
+import { promptFingerprint, resolvePromptSnapshot } from '../service/prompt.ts';
 import { findSecretLeak } from '../src/redaction.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import { startTestService } from './support/service.ts';
@@ -145,7 +145,9 @@ interface SeedInput {
 /** Enqueue detections through the production path, optionally with a prompt. */
 async function seed(input: SeedInput): Promise<void> {
     const { service, snapshots } = input;
-    const snapshot = input.prompt === null ? null : promptSnapshotOf({ startingPrompt: input.prompt });
+    const snapshot = input.prompt === null
+        ? null
+        : resolvePromptSnapshot({ global: null, account: null, binding: { startingPrompt: input.prompt } });
     await enqueueEvents({
         store: storeOf(service),
         log: LOGGER,

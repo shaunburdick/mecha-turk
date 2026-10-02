@@ -16,7 +16,7 @@
 
 import { createEvent, enqueueEvents } from '../../service/poll/events.ts';
 import type { EventSnapshot } from '../../service/poll/events.ts';
-import { promptSnapshotOf } from '../../service/prompt.ts';
+import { resolvePromptSnapshot } from '../../service/prompt.ts';
 import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceStore } from '../../service/store/index.ts';
 import { PROJECT_ID } from './panel.ts';
@@ -139,7 +139,9 @@ async function enqueueThroughQueue(input: {
     readonly prompt: string | undefined;
 }): Promise<void> {
     const incoming = input.inputs.flatMap((subject) => eventsFor(subject));
-    const snapshot = input.prompt === undefined ? null : promptSnapshotOf({ startingPrompt: input.prompt });
+    const snapshot = input.prompt === undefined
+        ? null
+        : resolvePromptSnapshot({ global: null, account: null, binding: { startingPrompt: input.prompt } });
     const queued = { store: input.store, log: input.log, incoming };
     await enqueueEvents(snapshot === null ? queued : { ...queued, prompt: snapshot });
 }

@@ -268,9 +268,10 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
     // The `prompt` member is read through the prompt domain's own stored-shape
     // validator (004 FR-019 by analogy, plan D11): absent or `null` is a run
     // queued with no prompt — the plain reading every pre-004 row keeps —
-    // while a **present** value that is over-cap, wrongly fingerprinted, or
+    // while a **present** value that is over its stack bound, wrongly
+    // fingerprinted, missing a well-formed `sources` list, or
     // credential-shaped refuses the row, and therefore the document (004
-    // FR-028, NFR-121).
+    // FR-028, FR-087, NFR-121).
     const prompt = parseStoredPromptSnapshot(raw.prompt);
     if (
         scalars === null

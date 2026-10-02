@@ -27,10 +27,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     OPERATOR_PROMPT_FENCE_BEGIN,
     OPERATOR_PROMPT_FENCE_END,
+    PROMPT_SOURCE_ORDER,
     RESERVED_MARKER_PREFIXES,
     countCodePoints,
     hasIllegalControlChar,
     hasReservedMarkerLine,
+    isPromptSource,
+    isPromptSourceList,
     normaliseLineEndings,
     trimPrompt,
 } from '../src/prompt.ts';
@@ -39,7 +42,7 @@ import {
     PROMPT_FINGERPRINT_PATTERN,
     STARTING_PROMPT_MAX_CODE_POINTS,
     promptFingerprint,
-    promptSnapshotOf,
+    promptTierOf,
     validateStartingPrompt,
 } from '../service/prompt.ts';
 import { openStore } from '../service/store/index.ts';
@@ -156,6 +159,37 @@ describe('T-001 the shared text rules (FR-022, FR-023, FR-025, FR-026)', () => {
             const section = await compositionSection();
             expect(section).toContain(OPERATOR_PROMPT_FENCE_BEGIN);
             expect(section).toContain(OPERATOR_PROMPT_FENCE_END);
+        }
+    });
+});
+
+describe('T-017 the shared source vocabulary (FR-072, FR-087)', () => {
+    it('classifies source lists against the fixed order (+2 cases)', () => {
+        // case: every element of the order is a source
+        {
+            // The tuple is the order FR-080 fixes: most general first, and
+            // nothing outside it is a tier this build can name.
+            expect(PROMPT_SOURCE_ORDER).toEqual(['global', 'account', 'binding']);
+            for (const source of PROMPT_SOURCE_ORDER) {
+                expect(isPromptSource(source), source).toBe(true);
+            }
+
+            expect(isPromptSource('repo')).toBe(false);
+            expect(isPromptSource(42)).toBe(false);
+        }
+        // case: lists are classified as ordered, duplicated, or unknown
+        {
+            expect(isPromptSourceList(['global', 'account', 'binding'])).toBe(true);
+            expect(isPromptSourceList(['binding'])).toBe(true);
+            expect(isPromptSourceList(['binding', 'global'])).toBe(false);
+            expect(isPromptSourceList(['repo'])).toBe(false);
+            expect(isPromptSourceList(['global', 'global'])).toBe(false);
+        }
+        // case: a value that is not a list at all is refused, never coerced
+        {
+            expect(isPromptSourceList('global')).toBe(false);
+            expect(isPromptSourceList(null)).toBe(false);
+            expect(isPromptSourceList({ sources: ['global'] })).toBe(false);
         }
     });
 });
@@ -291,10 +325,11 @@ describe('T-002 validateStartingPrompt: the refusal matrix (FR-017, FR-020, FR-0
         {
             const secret = `ghp_${'d'.repeat(30)}`;
             expect(validateStartingPrompt(`prefix ${secret}`).ok).toBe(false);
-            // The snapshot is the only path from a stored prompt to a fingerprint,
-            // and it validates before it derives.
-            expect(promptSnapshotOf({ startingPrompt: `prefix ${secret}` })).toBeNull();
-            expect(promptSnapshotOf({ startingPrompt: `${SENTINEL}` })).not.toBeNull();
+            // The tier helper is the path from a stored prompt to its own
+            // fingerprint, and it validates before it derives — the
+            // resolver that stacks run bodies takes the same road.
+            expect(promptTierOf({ startingPrompt: `prefix ${secret}` })).toBeNull();
+            expect(promptTierOf({ startingPrompt: `${SENTINEL}` })).not.toBeNull();
         }
         await afterEachWork1();
         await afterEachWork1();
