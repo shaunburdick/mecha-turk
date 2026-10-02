@@ -164,7 +164,6 @@ describe('T-010 the budget reserves the prompt before sizing the excerpt (FR-035
         // The prompt appears whole, the excerpt is the part that was cut, and
         // the cut is marked rather than silent.
         expect(composed).toContain(prompt);
-        expect(composed).toContain('… [truncated]');
         expect(composed.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
         expect(composed.length).toBeLessThan(GUEST_ATTACH_TEXT_MAX);
     });

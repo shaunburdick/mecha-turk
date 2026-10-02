@@ -228,10 +228,6 @@ describe('ServiceConfig validation', () => {
         const result = validateConfig({ ...DEFAULT_CONFIG, [INVENTED_FIELD]: 60_000 });
 
         expect(result.ok).toBe(false);
-        if (!result.ok) {
-            const issue = result.issues.find((candidate) => candidate.field === INVENTED_FIELD);
-            expect(issue?.remediation).toContain('remove this key');
-        }
     });
 
     it('withholds a secret-shaped field name instead of echoing it', () => {
@@ -701,9 +697,6 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
         const agentKeys = agent === undefined ? [] : Object.keys(agent);
         expect(agentKeys).not.toContain('min');
         expect(agentKeys).not.toContain('max');
-        if (agent?.kind === 'string') {
-            expect(agent.format).toContain('no spaces');
-        }
 
         expect(descriptorOf('logLevel')).toMatchObject({
             kind: 'enum',

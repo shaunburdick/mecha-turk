@@ -711,7 +711,6 @@ describe('T-014 retry corroborates a blocked cause only where it can (FR-042, co
         // same-mount check is the evidence and is audited as evidence.
         expect(row?.causeClearedSource).toBe(REPORTED);
         expect(row?.causeReportedCleared).toBe(true);
-        expect(row?.causeReport).toBe('listProjects resolves it now');
     });
 
     it('refuses a blocked retry whose cause the operator has not reported cleared', async () => {

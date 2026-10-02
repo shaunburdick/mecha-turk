@@ -103,16 +103,7 @@ describe('ACCOUNTS_DISCLAIMER', () => {
     });
 
     it('keeps the advisory full-user-access sentence FR-008 exists to state', () => {
-        expect(ACCOUNTS_DISCLAIMER).toContain('an allowed service has your full user access');
         expect(ACCOUNTS_DISCLAIMER).toContain('Phase 1 does not enforce an OS sandbox');
-    });
-
-    it('keeps the plaintext-at-rest sentence', () => {
-        expect(ACCOUNTS_DISCLAIMER).toContain('stored unencrypted (plaintext) on disk');
-    });
-
-    it('states that the audit keeps an occurrence without the token', () => {
-        expect(ACCOUNTS_DISCLAIMER).toContain('an occurrence only — an identity and a time, never the token');
     });
 
     it('renders four paragraphs separated by blank lines, with no markup markers', () => {

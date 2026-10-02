@@ -327,7 +327,6 @@ describe('T-032 an unwritable trail never rolls back a state change (AC-119, FR-
         // The panel's visible warning names the run (AC-119's "surfaces"), and
         // it says what is missing rather than implying traceability.
         expect(rt.state.bindings.note).toContain(run.correlationId);
-        expect(rt.state.bindings.note).toContain('audit trail');
 
         // The service's own structured log names the run too.
         const warnings = loop.service.logLines

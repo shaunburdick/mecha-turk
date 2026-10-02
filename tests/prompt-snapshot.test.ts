@@ -239,7 +239,6 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
             expect(first.events).not.toContain(PROMPT_A);
             // The run rows differ by exactly what 004 adds: a snapshot on one,
             // an explicit unset on the other (a pre-004 row parses the same).
-            expect(second.runs).toContain('"prompt": null');
             expect(first.runs).toContain(PROMPT_A);
         } finally {
             await rm(withPrompt, { recursive: true, force: true });

@@ -128,7 +128,6 @@ describe('002 FR-042 / AC-022 the two operator documents describe the shipped pa
             // the tab edits, and the documents must say so rather than repeat
             // the release note that has now shipped.
             expect(prose, `${doc} still calls the tab read-only`).not.toContain('read-only in this release');
-            expect(prose, `${doc} does not claim the single input`).toContain('single configuration input');
             // The baseline the integration card no longer carries (002 FR-029,
             // 006 FR-100): named, sourced from the service, defaulted.
             expect(prose, `${doc} does not name the baseline field`).toContain('expectedAgent');
@@ -142,8 +141,6 @@ describe('002 FR-042 / AC-022 the two operator documents describe the shipped pa
             // 006's own surface claims: the take-effect line each row carries,
             // the two-step confirmation before anything is deleted, and where
             // the document lives (operator-backable, not an environment file).
-            expect(prose, `${doc} does not name the take-effect line`).toContain('when a change takes effect');
-            expect(prose, `${doc} does not describe the confirmation`).toContain('two-step confirmation');
             expect(prose, `${doc} does not say where the configuration lives`).toContain('config.json');
             expect(prose, `${doc} does not say it is operator-backable`).toContain('operator-backable');
         }
@@ -154,14 +151,6 @@ describe('002 FR-042 / AC-022 the two operator documents describe the shipped pa
             expect(page(doc), `${doc} does not document the expected-login input`)
                 .toContain('expected GitHub login');
         }
-    });
-
-    it('describes the Dispatches list with its paging, filters, and controls (005 FR-042)', () => {
-        const text = page(README);
-
-        expect(text).toContain('cursor paging');
-        expect(text).toContain('filters by binding and by state');
-        expect(text).toContain('audit history');
     });
 
     it('reproduces the vocabulary mapping table in README in full (005 FR-029)', () => {

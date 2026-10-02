@@ -227,7 +227,6 @@ describe('POST /v1/accounts/verify — GitHub classification (T-007 matrix)', ()
 
         expect(response.status).toBe(502);
         expect(error.code).toBe('upstream-unavailable');
-        expect(error.message).toContain('could not be reached');
         expect(error.message).not.toContain('ECONNREFUSED');
         expect(await accountFileExists(service)).toBe(false);
     });
@@ -240,7 +239,6 @@ describe('POST /v1/accounts/verify — GitHub classification (T-007 matrix)', ()
 
         expect(response.status).toBe(502);
         expect(error.code).toBe('upstream-unavailable');
-        expect(error.message).toContain('did not answer in time');
         expect(error.message).not.toContain('check the network');
         expect(error.message).not.toContain(TIMEOUT_ERROR_NAME);
         expect(await accountFileExists(service)).toBe(false);

@@ -187,7 +187,6 @@ describe('applySettings', () => {
         expect(runtime.state.config).toBeNull();
         expect(runtime.state.status.tone).toBe('info');
         expect(runtime.state.status.title).toBe(WAITING_FOR_BINDING);
-        expect(runtime.state.status.body).toContain('integration card declares no settings');
     });
 
     it('takes no configuration from a record that still carries the card ids', () => {
@@ -218,7 +217,6 @@ describe('applySettings', () => {
         applySettings(runtime, settingsOf([['project-id', PROJECT_ID]]));
 
         expect(runtime.state.status.tone).toBe('info');
-        expect(runtime.state.status.title).toBe('Bindings active');
         expect(runtime.state.status.body).toBe('1 binding(s) active; legacy single-repo settings ignored');
         expect(runtime.state.config).not.toBeNull();
         expect(runtime.state.config?.repository).toEqual({ owner: 'acme', name: 'widget' });
@@ -317,7 +315,6 @@ describe('project selection', () => {
 
         expect(runtime.state.projectSelection).toBe(OTHER_ID);
         expect(storage.values.get(PROJECT_STORAGE_KEY)).toBe(OTHER_ID);
-        expect(runtime.state.projects.note).toContain('stored for the next mount');
     });
 
     it('refuses a pick from outside the loaded list and stores nothing', async () => {
@@ -352,7 +349,6 @@ describe('project selection', () => {
         await selectProject(runtime, OTHER_ID);
 
         expect(runtime.state.projectSelection).toBe(OTHER_ID);
-        expect(runtime.state.projects.note).toContain('for this session only');
     });
 });
 

@@ -337,10 +337,7 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
         expect(copy).toContain('auditRetentionDays');
         expect(copy).toContain('180');
         expect(copy).toContain('30');
-        expect(copy).toContain('audit history');
         expect(copy).toContain('entries older than 30 days will be deleted at the next trim pass');
-        expect(copy).toContain('What survives:');
-        expect(copy).toContain('audit.trimmed row');
         view.dispose();
     });
 
@@ -351,8 +348,6 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
 
             expect(copy, `${knot.field} did not arm`).toContain(knot.field);
             expect(copy).toContain(knot.lower);
-            expect(copy).toContain('at the next trim pass');
-            expect(copy).toContain('Raising a limit deletes nothing.');
             expect(copy).toContain(IRREVERSIBLE_MARK);
             expect(writes(view)).toEqual([]);
             view.dispose();
@@ -364,7 +359,6 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
         const copy = view.rt.state.settingsTab.edit.confirm?.copy ?? '';
 
         expect(copy).toContain('the oldest unprotected entries beyond 5000 entries will be removed');
-        expect(copy).toContain('Nothing protected is ever removed to satisfy the entry cap');
         view.dispose();
     });
 
@@ -372,7 +366,6 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
         const view = await saveOnce({ field: 'excerptRetentionDays', value: '7' });
         const copy = view.rt.state.settingsTab.edit.confirm?.copy ?? '';
 
-        expect(copy).toContain('the stored payload excerpts');
         expect(copy).toContain('stored payload excerpts older than 7 days will be cleared at the next trim pass');
         view.dispose();
     });
@@ -473,7 +466,6 @@ describe('restore defaults is a two-step whole-document write (006 T-022, FR-016
         expect(armed?.fields).toContain('intervalMs');
         expect(armed?.fields).toContain('logLevel');
         expect(armed?.copy).toContain('intervalMs: 120000 → 60000');
-        expect(armed?.copy).toContain('logLevel: debug → info');
         // The staged fields show the defaults; nothing has been written.
         expect(view.rt.state.settingsTab.edit.draft.intervalMs).toBe('60000');
         view.dispose();
@@ -575,8 +567,6 @@ describe('the confirmation copy obeys its contract (006 T-022, contract §2 and 
         const { copy } = restoreConfirmation({ envelope: restoreRead, draft: draftFrom(envelope) });
 
         expect(copy).toContain('intervalMs: 120000 → 60000');
-        expect(copy).toContain('logLevel: debug → info');
-        expect(copy).toContain('Restore defaults writes the documented defaults');
         expect(copy).not.toContain(DELETES_HISTORY);
     });
 

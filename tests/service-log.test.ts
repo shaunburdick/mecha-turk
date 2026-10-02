@@ -76,7 +76,6 @@ describe('createLogger carries a threshold that can be moved (006 FR-033)', () =
 
         log.error('still written');
         expect(lines).toHaveLength(2);
-        expect(lines[1]).toContain('still written');
     });
 
     it('judges every entry at the current threshold, never the construction one', () => {

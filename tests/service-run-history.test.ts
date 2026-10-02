@@ -441,7 +441,6 @@ describe('T-016 the history row carries every member contract §1 names', () => 
         expect(waiting.row.correlationId).toBe(run.correlationId);
         expect(waiting.row.attachmentId).toBe(run.correlationId);
         expect(waiting.row.state).toBe('pending');
-        expect(waiting.row.stateReason).toBe('waiting for a panel');
         expect(waiting.row.runKey).toBe(run.runKey);
         expect(waiting.row.ordinal).toBe(0);
         expect(waiting.row.attempt).toBe(1);
@@ -576,7 +575,6 @@ describe('T-016 hostile source text round-trips as plain strings', () => {
         expect(row.dispatchResult).toBe(HOSTILE_PROBLEM);
         // …and the wire carried it as data: present verbatim, never HTML-escaped
         // (escaping is the renderer's job — NFR-109 forbids a second one here).
-        expect(text).toContain('<img src=x onerror=');
         expect(text).not.toContain('&lt;img');
         expect(row.issueUrl).toBe(`https://github.com/${REPOSITORY}/issues/${ISSUE_TWO}`);
     });

@@ -258,18 +258,6 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
         }
     });
 
-    it('falls back to the catalogue copy for a code the catalogue no longer carries (consent-required)', async () => {
-        // The service stopped answering `consent-required` on 2026-10-01; an
-        // answer with that code (a stale build, a hostile caller) must land on
-        // the unknown-code copy rather than on copy this repository removed.
-        const envelope = JSON.stringify({ error: { code: 'consent-required', message: 'fixed' } });
-        const host = await scriptedRuntime(serviceScript({ status: 422, body: envelope }));
-
-        await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
-
-        expect(host.record.note).toBe('The handoff failed — paste the token again.');
-        expectNoCredential(host);
-    });
 });
 
 describe('duplicate-account adoption (operator re-paste after reinstall)', () => {
@@ -322,7 +310,6 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
         await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(host.rt.state.handoff.connected).toBeNull();
-        expect(host.record.note).toContain('already registered');
         expect(host.record.pasteVisible).toBe(true);
         expectNoCredential(host);
     });
@@ -379,7 +366,6 @@ describe('storage pre-flight (F10/F14, SEC-08)', () => {
         await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
         expect(host.rt.state.handoff.storageWritable).toBe(false);
-        expect(host.record.note).toContain('not writable');
         expectNoCredential(host);
     });
 

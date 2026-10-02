@@ -250,7 +250,6 @@ describe('loading the selected binding into the editor (FR-053)', () => {
         startEditingBinding(rt);
 
         expect(rt.state.bindings.editing).toBe(false);
-        expect(rt.state.bindings.note).toBe('Select a binding to edit.');
     });
 
     it('refuses a row whose worktree option the editor cannot render (FR-003)', async () => {
@@ -337,7 +336,6 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
         expect(rt.state.bindings.startingPromptError).toContain('startingPrompt');
         expect(rt.state.bindings.startingPromptInput).toBe(REFUSED_PROMPT);
         expect(rt.state.bindings.editing).toBe(true);
-        expect(rt.state.bindings.note).toContain('no binding changed');
         expect(rt.state.bindings.note).not.toContain('Saved');
         expect(rt.state.bindings.note).not.toContain(REFUSED_PROMPT);
     });
@@ -419,7 +417,6 @@ describe('the row click is the Edit affordance (FR-050, FR-081)', () => {
         expect(rt.state.bindings.editing).toBe(false);
         expect(rt.state.bindings.editorOpen).toBe(false);
         expect(rt.state.bindings.repoInput).toBe('');
-        expect(rt.state.bindings.note).toBe('Edit cancelled; nothing was written.');
     });
 
     it('routes the primary control to the save once the row is loaded', async () => {

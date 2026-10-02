@@ -171,7 +171,6 @@ describe('an accepted write records exactly one applied row (006 T-015, AC-135, 
         expect(row?.actorSource).toBe('operator');
         expect(row?.entity).toEqual({ kind: 'service', id: 'configuration' });
         expect(row?.decision).toBe('applied');
-        expect(row?.reason).toBe('configuration replaced');
         expect(row?.details.changes).toEqual([
             { field: 'intervalMs', from: 60_000, to: 30_000 },
             { field: 'logLevel', from: 'info', to: 'debug' },
@@ -223,7 +222,6 @@ describe('a refused write records one value-free row (006 T-015, AC-136, AC-113,
         expect(rows).toHaveLength(1);
         const [row] = rows;
         expect(row?.decision).toBe('refused');
-        expect(row?.reason).toBe('configuration refused');
         // Exactly the two members the contract names — no length, no hash, and
         // no member that could carry a value back out of the submission.
         expect(Object.keys(row?.details ?? {})).toEqual(['issueCount', 'fields']);

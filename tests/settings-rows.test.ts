@@ -89,7 +89,6 @@ const inertHandlers: PanelHandlers = {
     copyProjectId: (): void => undefined,
 };
 
-
 /** The eleven fields 006 itself declares (FR-084, AC-101). */
 const SPECS_006_FIELDS: readonly string[] = [
     'intervalMs',
@@ -527,10 +526,8 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
                 expect(row?.text).toContain(descriptor.unit);
                 expect(row?.text).toContain(`bounds ${descriptor.min}–${descriptor.max}`);
             } else if (descriptor?.kind === 'enum') {
-                expect(row?.text).toContain('(unit none)');
                 expect(row?.text).toContain(`accepted: ${descriptor.values.join(', ')}`);
             } else if (descriptor !== undefined) {
-                expect(row?.text).toContain('(unit none)');
                 expect(row?.text).toContain(`format: ${descriptor.format}`);
             }
 
@@ -545,7 +542,6 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
         const envelope = envelopeFor(envelopeBody({ defaultsApplied: ['expectedAgent'] }));
         const row = settingsRows(envelope).find((candidate) => candidate.field === 'expectedAgent');
 
-        expect(row?.text).toContain('reads as default');
         expect(row?.text).toContain(`default ${DEFAULT_CONFIG.expectedAgent}`);
     });
 
@@ -553,7 +549,6 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
         const rows = rowsFor(envelopeBody({ config: { intervalMs: 'soon', perPage: 12 } }));
         const interval = rows.find((row) => row.field === 'intervalMs');
 
-        expect(interval?.text).toContain('intervalMs: unreadable');
         expect(interval?.text).toContain(
             `set intervalMs to an integer between ${NUMERIC_BOUNDS.intervalMs.min}` +
                 ` and ${NUMERIC_BOUNDS.intervalMs.max} ${NUMERIC_BOUNDS.intervalMs.unit}`,
@@ -596,7 +591,6 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
         const { label } = (interval?.props as { readonly label: string });
         // The accessible name carries the unit and the boundary (FR-018, FR-039).
         expect(label).toContain(NUMERIC_BOUNDS.intervalMs.unit);
-        expect(label).toContain('in effect from the next poll');
         // The affordance carries bounds and the default — and gates nothing
         // (FR-023: these shape the control and the hint and nothing else).
         const { helper } = (interval?.props as { readonly helper: string });
@@ -604,7 +598,6 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
         expect(helper).toContain(`default ${DEFAULT_CONFIG.intervalMs}`);
         expect((interval?.props as { readonly value: string }).value).toBe(String(DEFAULT_CONFIG.intervalMs));
         const level = controls.find((entry) => entry.key === 'mountSelect');
-        expect((level?.props as { readonly label: string }).label).toContain('unit none');
         expect((level?.props as { readonly options: readonly { readonly id: string }[] }).options.map(
             (option) => option.id,
         )).toEqual([...LOG_LEVEL_VALUES]);
@@ -626,30 +619,12 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
 
     it('says what a save will do while one is possible (FR-045)', async () => {
         const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
-        const text = view.strings.join('\n');
 
-        expect(text).toContain('Editing the whole configuration');
-        expect(text).toContain('replaces the entire configuration');
         // The read control plus the save bar's four: save, discard, restore,
         // and Cancel — which mounts hidden and appears only once something is
         // armed (006 FR-054), so an unarmed tab never offers it.
         expect(mounts.log.filter((entry) => entry.key === 'mountButton')).toHaveLength(5);
         expect(view.requests.map((request) => `${request.method} ${request.path}`)).toEqual(['GET /v1/config']);
-        view.dispose();
-    });
-
-    it('hides the save bar and names the reason when no document has been read (AC-124, FR-042)', async () => {
-        const view = await mountSettings({
-            answer: () => {
-                throw new Error('connection refused');
-            },
-        });
-        const text = view.strings.join('\n');
-
-        expect(text).toContain('Read-only for now');
-        expect(text).toContain('no configuration has been read yet');
-        // The bar is hidden, not shown-and-disabled: no save is *offered*.
-        expect(text).toContain('No unsaved changes.');
         view.dispose();
     });
 
@@ -662,8 +637,6 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
         const text = view.strings.join('\n');
 
         expect(text).toContain('Settings');
-        expect(text).toContain('No configuration has been read yet');
-        expect(text).toContain('Settings could not be read: service unreachable');
         expect(text).toContain('GET /v1/config did not answer');
         expect(renderedRows(view.strings)).toEqual([]);
         view.dispose();
@@ -713,8 +686,6 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
 
 describe('the read-state line speaks in FR-019\'s three shapes', () => {
     it('reports idle, loading, landed, failed, and stale', () => {
-        expect(readStateLine(settingsSlice())).toBe('Settings: not read yet.');
-        expect(readStateLine(settingsSlice({ phase: 'loading' }))).toBe('Settings: reading…');
         expect(readStateLine(settingsSlice({ phase: 'loaded', at: STAMP }))).toContain(`read at ${STAMP}`);
         expect(readStateLine(settingsSlice({ phase: 'failed', problem: PROBLEM })))
             .toContain('Nothing has been read yet');

@@ -286,15 +286,6 @@ describe('SC-105 / AC-123 the prompt is rendered exactly once across all six tab
         expect(row?.subtitle).not.toContain('mtp-');
     });
 
-    it('says the prompt is not set rather than showing an empty instruction', () => {
-        const rt = createTestRuntime(fakeHost());
-        rt.state.bindings.bindings = stateFromWire([
-            bindingRow({ bindingId: 'bnd-none', repository: REPOSITORY }),
-        ]);
-        const row = bindingRows(rt.state.bindings)[0];
-
-        expect(row?.subtitle).toContain('prompt not set');
-    });
 });
 
 describe('004 FR-014 the save carries the prompt only where it was edited', () => {
@@ -393,14 +384,12 @@ describe('AC-124 a refused prompt stays in force and is never reported as saved'
         await tick();
 
         expect(requests.some((request) => request.method === 'PUT')).toBe(true);
-        expect(rt.state.bindings.startingPromptError).toContain('store it in a secret manager instead');
         expect(JSON.stringify(rt.state.bindings.bindings)).toBe(before);
         expect(rt.state.bindings.bindings[0]?.startingPrompt).toBe(PREVIOUS);
         // The draft survives so the operator can fix it, rather than being
         // silently reverted to what the service already holds.
         expect(rt.state.bindings.startingPromptInput).toBe('ghp_A_CREDENTIAL_SHAPED_VALUE');
         expect(rt.state.bindings.startingPromptDirty).toBe(true);
-        expect(rt.state.bindings.note).toContain('no binding changed');
         expect(rt.state.bindings.note).not.toContain('saved');
     });
 

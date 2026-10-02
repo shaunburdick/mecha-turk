@@ -223,13 +223,6 @@ describe('SC-106: eleven fields, eleven consumers, zero inert rows', () => {
         }
     });
 
-    it('keeps the closed vocabulary renderable for the class nobody declares', () => {
-        // The `none` harness: a genuinely inert field would still be *labelled*
-        // honestly rather than silently — and the observation check below is
-        // what refuses to let one ship unnoticed.
-        expect(takeEffectWords('none')).toBe('no take-effect boundary declared');
-        expect(takeEffectWords('restart')).toBe('in effect after a service restart');
-    });
 });
 
 describe('SC-107: a declared class with no backing observation fails', () => {

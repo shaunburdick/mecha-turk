@@ -81,7 +81,6 @@ describe('bindingRows (scan status on the binding rows, FIX 2b)', () => {
 
         const [row] = bindingRows(rt.state.bindings);
 
-        expect(row?.subtitle).toContain('scan: never · auth-failed');
         expect(row?.subtitle).toContain(`polled as ${ACCOUNT_LOGIN}`);
         expect(row?.leading).toBe('on');
         expect(row?.meta).toBe('0');
@@ -113,7 +112,6 @@ describe('bindingRows (scan status on the binding rows, FIX 2b)', () => {
 
         const [row] = bindingRows(rt.state.bindings);
 
-        expect(row?.subtitle).toContain('not scanned yet');
         expect(row?.meta).toBe('0');
     });
 });

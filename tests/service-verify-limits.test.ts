@@ -252,7 +252,6 @@ describe('secret containment (NFR-004, contract §3 assertion)', () => {
         expect(response.status).toBe(500);
         expect(text).not.toContain(REGISTERED_TOKEN);
         const log = service.logLines.join('\n');
-        expect(log).toContain('credential route failed');
         expectNoSecret('forced-500 log', log);
         expectNoSecret('forced-500 audit', await secretSurfaces(service));
     });

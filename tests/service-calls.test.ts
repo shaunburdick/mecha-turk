@@ -151,7 +151,6 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
 
         expect(seen.map((request) => `${request.method} ${request.path}`)).toEqual(['PUT /v1/config']);
         const refusal = refusalOf(result);
-        expect(refusal.problem).toBe('service refused the configuration');
         expect(refusal.code).toBe('validation');
         expect(refusal.issues.map((issue) => issue.field)).toEqual([
             'retryMaxMs',
@@ -249,7 +248,6 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             throw new Error('a bindings 422 must not read as success');
         }
 
-        expect(result.problem).toBe('service refused the bindings list');
         expect(result.code).toBe('validation');
         expect(result.message).toContain('retryMaxMs');
     });

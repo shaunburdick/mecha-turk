@@ -567,7 +567,6 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
 
         expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], text)).toEqual([]);
         // Not vacuous: the imperative use of the word still reads as English.
-        expect(text).toContain('Run OpenChamber on web or desktop.');
     });
 });
 

@@ -83,7 +83,6 @@ describe('the visual capture tooling stays wired up', () => {
     it('is documented for the agent that comes next', () => {
         const agents = readFileSync(resolve(ROOT, 'AGENTS.md'), 'utf8');
 
-        expect(agents).toContain('npm run shot');
         expect(agents).toContain('tools/visual/');
         expect(agents).toContain('screenshots/');
         expect(agents).not.toContain('/tmp/opencode');

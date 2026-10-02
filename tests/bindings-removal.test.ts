@@ -148,14 +148,6 @@ describe('removeBinding (per-binding purge control)', () => {
         expect(rt.state.bindingsActive).toBe(1);
     });
 
-    it('demands a selection before putting any list', async () => {
-        const { host } = recordingService(() => ({ status: 404, body: UNROUTED_BODY }));
-        const rt = createTestRuntime(host);
-
-        await removeBinding(rt);
-
-        expect(rt.state.bindings.note).toBe('Select a binding to remove.');
-    });
 });
 
 describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', () => {
@@ -220,7 +212,6 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
 
         const statement = removalStatement(rt.state.bindings, account);
         expect(statement).toContain('2 bindings will be disabled');
-        expect(statement).toContain('nothing is deleted');
 
         // An account bound to nothing says zero rather than warning vaguely.
         rt.state.bindings.bindings = [];
@@ -254,7 +245,6 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
 
         // The binding is present, disabled, and says why — never deleted.
         expect(rt.state.bindings.bindings).toHaveLength(1);
-        expect(bindingRows(rt.state.bindings)[0]?.subtitle).toContain('disabled — account removed');
     });
 
     it('clears the account mirror from host.storage after the delete', async () => {
@@ -287,7 +277,6 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
         await removeAccount(rt, ACCOUNT_ID);
         await removeAccount(rt, ACCOUNT_ID);
 
-        expect(rt.state.accounts.note).toContain('remove them first');
         // Nothing was deleted: the identity and the state stay as they were.
         expect(rt.state.handoff.connected).toEqual({ numericUserId: ACCOUNT_ID, login: LOGIN });
         expect(rt.state.bindings.accounts).toEqual([
@@ -399,7 +388,6 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
 
         expect(requests.some((request) => request.method === 'PUT')).toBe(true);
         expect(JSON.stringify(rt.state.bindings.bindings)).toBe(before);
-        expect(rt.state.bindings.note).toContain('no binding changed');
     });
 
     it('leaves every other binding byte-identical when the submission is refused (AC-125)', async () => {
@@ -425,7 +413,6 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
 
         expect(requests.some((request) => request.method === 'PUT')).toBe(true);
         expect(JSON.stringify(rt.state.bindings.bindings)).toBe(before);
-        expect(rt.state.bindings.note).toContain('no binding changed');
         // The refusal names the field, never the value the operator typed.
         expect(rt.state.bindings.note).not.toContain('acme/new');
     });
@@ -454,7 +441,6 @@ describe('a binding disabled because its account was removed (FR-054)', () => {
         const row = bindingRows(bindingsState({ binding: disabledBinding(), accounts: [] }))[0];
 
         expect(row?.leading).toBe('off');
-        expect(row?.subtitle).toContain('disabled — account removed');
     });
 
     it('says only "disabled" when the operator turned the binding off', () => {

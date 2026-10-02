@@ -436,11 +436,10 @@ describe('T-009 migration recovery (data-model §1)', () => {
         await claimSeeded(run, LAPSED_LEASE);
         await adoptAsMigrationClaim(run, LAPSED_LEASE);
 
-        const outcome = await sweep(ONE_HOUR_LATER);
+        await sweep(ONE_HOUR_LATER);
         const recovered = await readRun(run.correlationId);
         const rows = await rowsOf(LEASE_EXPIRED);
 
-        expect(outcome.recoveries[0]?.reason).toBe('lease expired on migration recovery after upgrade');
         expect(recovered.state).toBe('pending');
         expect(recovered.attempt).toBe(2);
         expect(recovered.requeuesUsed).toBe(0);

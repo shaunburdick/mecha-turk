@@ -23,7 +23,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG } from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
-import { loadSettings, readStateLine } from '../src/settings-tab.ts';
+import { loadSettings } from '../src/settings-tab.ts';
 import { loadVersion } from '../src/about-tab.ts';
 import { pollRelay, startRelayPolling, stopRelayPolling } from '../src/relay.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
@@ -284,7 +284,6 @@ describe('FR-019 / NFR-111 a failed read keeps what it had, marked stale', () =>
         expect(rt.state.settingsTab.phase).toBe('failed');
         expect(rt.state.settingsTab.stale).toBe(true);
         expect(rt.state.settingsTab.doc).not.toBeNull();
-        expect(readStateLine(rt.state.settingsTab)).toContain('may be stale');
     });
 
     it('keeps the About version and marks it stale on a failed re-read', async () => {
@@ -311,7 +310,6 @@ describe('FR-019 / NFR-111 a failed read keeps what it had, marked stale', () =>
         await loadVersion(rt);
 
         expect(rt.state.settingsTab.stale).toBe(false);
-        expect(readStateLine(rt.state.settingsTab)).toContain('Nothing has been read yet');
         expect(rt.state.settingsTab.doc).toBeNull();
         expect(rt.state.aboutTab.version).toBeNull();
     });

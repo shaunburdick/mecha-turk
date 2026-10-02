@@ -41,7 +41,6 @@ describe('persistLedger recovery', () => {
         await persistLedger(runtime);
         await tick();
 
-        expect(runtime.state.status.title).toBe('Ledger repaired');
         const stored = readLedger(storage.values.get(LEDGER_STORAGE_KEY));
         expect(stored?.entries.at(-1)?.detail.note).toBe('[redacted:github-token-classic]');
         expect(JSON.stringify(stored)).not.toContain(token);

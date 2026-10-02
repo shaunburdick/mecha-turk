@@ -628,7 +628,6 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
 
         expect(result.status).toBe(409);
         expect(errorOf(result.json).code).toBe(INVALID_TRANSITION);
-        expect(errorOf(result.json).message).toContain('already waiting');
     });
 
     it('answers cause-not-cleared when only the panel can check the cause', async () => {

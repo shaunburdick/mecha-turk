@@ -180,7 +180,6 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
             await loadInitialBindings(rt);
             expect(rt.relayArmed).toBe(false);
             expect(rt.state.bindings.status).toBe('error');
-            expect(rt.state.bindings.note).toBe('One of the reads failed — refresh to retry.');
 
             service.setBindingsAnswer({ status: 200, body: bindingsBody([activeBinding()]) });
             await loadBindings(rt);

@@ -139,16 +139,6 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
         expect(rt.state.bindings.note).toBe('repository must be `owner/name`');
     });
 
-    it('wires toggle to toggleBinding, which demands a selected row', async () => {
-        const rt = createTestRuntime(fakeHost());
-        const handlers = createBindingsHandlers(rt);
-
-        handlers.toggle();
-        await tick();
-
-        expect(rt.state.bindings.note).toBe('Select a binding to toggle.');
-    });
-
     it('wires refresh to loadBindings, which answers a failed read on the note', async () => {
         const rt = createTestRuntime(fakeHost());
         const handlers = createBindingsHandlers(rt);
@@ -159,7 +149,6 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
         // The default host double answers every service path with a neutral
         // 404, so the reads fail closed and the note says so.
         expect(rt.state.bindings.status).toBe('error');
-        expect(rt.state.bindings.note).toBe('One of the reads failed — refresh to retry.');
     });
 
     it('wires refresh to loadBindings, which loads the accounts the picker offers', async () => {

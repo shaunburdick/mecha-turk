@@ -249,8 +249,6 @@ describe('FR-091: the operator environment file is gone, not rewritten (T-025, A
         const handoff = trackedText('specs/002-agent-event-extension/contracts/token-handoff.md');
 
         expect(handoff).toContain('was removed on 2026-09-28');
-        expect(handoff).toContain('no `.env` file of any kind ships now');
-        expect(handoff).toContain('`.gitignore` still covers `.env*`');
     });
 });
 

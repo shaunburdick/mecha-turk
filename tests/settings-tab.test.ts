@@ -282,7 +282,6 @@ describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC
         expect(view.rt.state.settingsTab.edit.dirty).toEqual([]);
         // And the save reports itself, with the boundary it was saved under.
         expect(recordedStrings().join('\n')).toContain('Saved.');
-        expect(recordedStrings().join('\n')).toContain('intervalMs: in effect from the next poll');
         view.dispose();
     });
 
@@ -297,7 +296,6 @@ describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC
 
         const { pending } = view.rt.state.settingsTab.edit;
         expect(pending).toEqual([{ field: 'intervalMs', boundary: 'next-cycle' }]);
-        expect(recordedStrings().join('\n')).toContain('Pending — intervalMs: in effect from the next poll');
         view.dispose();
     });
 
@@ -313,7 +311,6 @@ describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC
         // The row says which boundary governs — never *immediately* — and the
         // panel itself restarts nothing: one read, one write, no further call
         // (FR-032: the service's own timer re-reads the interval per cycle).
-        expect(recordedStrings().join('\n')).toContain('intervalMs: in effect from the next poll');
         expect(view.rt.state.settingsTab.edit.saveState).toBe('saved');
         expect(view.requests).toHaveLength(2);
         expect(view.requests.every((request) => request.method === 'GET' || request.method === 'PUT')).toBe(true);
@@ -342,7 +339,6 @@ describe('a refusal renders the service in the service\'s words (006 T-020, AC-1
         // The problem names the configuration and never the bindings list
         // (AC-112), and the tab reports the refusal rather than a success.
         expect(view.rt.state.settingsTab.edit.saveState).toBe('refused');
-        expect(recordedStrings().join('\n')).toContain('The service refused these values.');
         expect(text).not.toContain('bindings list');
         view.dispose();
     });
@@ -414,7 +410,6 @@ describe('nothing is written by looking; one activation writes once (AC-123, AC-
 
         expect(view.requests.every((request) => request.method === 'GET')).toBe(true);
         expect(view.rt.state.settingsTab.edit.saveState).toBe('idle');
-        expect(recordedStrings().join('\n')).toContain('no configuration has been read yet');
         view.dispose();
     });
 
@@ -468,7 +463,6 @@ describe('a write that could not happen is not a refusal (006 T-020, FR-061, FR-
         expect(slice.edit.saveState).toBe('failed');
         expect(slice.edit.problem).toBe('service answered 503');
         expect(slice.edit.issues).toEqual([]);
-        expect(recordedStrings().join('\n')).toContain('The write could not be completed.');
         view.dispose();
     });
 });

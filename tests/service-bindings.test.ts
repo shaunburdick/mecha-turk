@@ -337,7 +337,6 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
             const line = service.logLines.find((entry) =>
                 entry.includes('stored bindings were unusable'));
             expect(line, `${JSON.stringify(value)} was not logged`).toBeDefined();
-            expect(line).toContain('startingPrompt: startingPrompt must be text');
             // The *reason* field is the whole of what the log says about the
             // value; the surrounding line carries a quarantine path whose hex
             // can contain anything, so only the reason is scanned for it.

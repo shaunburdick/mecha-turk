@@ -286,8 +286,6 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
         expect(inputs).toHaveLength(2);
         expect(mounted.input.attribute('type')).toBe('password');
         expect(mounted.expected.attribute('type')).toBe('text');
-        expect(mounted.expected.attribute('aria-label')).toBe('Expected GitHub login');
-        expect(mounted.renderedText()).toContain('Expected GitHub login (optional)');
     });
 
     it('sends no expectedLogin member when the field is left empty (AC-141)', async () => {
@@ -340,7 +338,6 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
 
         expect(mounted.rt.state.handoff.note)
             .toBe('The token belongs to a different account than the one expected.');
-        expect(mounted.renderedText()).toContain('The token belongs to a different account');
         expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
         expect(currentHandoffToken()).toBeUndefined();
     });

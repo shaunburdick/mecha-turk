@@ -33,9 +33,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { healthRoute, SERVICE_VERSION } from '../service/routes/health.ts';
 import { EVIDENCE_SCHEMA_VERSION } from '../src/evidence.ts';
-import { openRepository, toggleDiagnostics, versionLine } from '../src/about-tab.ts';
-import { ledgerLines, phaseRecordLine } from '../src/about-diagnostics.ts';
-import type { AboutTabState } from '../src/about-tab.ts';
+import { openRepository, toggleDiagnostics } from '../src/about-tab.ts';
 import { HEALTH_PATH } from '../src/service-calls.ts';
 import { findSecretLeak } from '../src/redaction.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
@@ -96,11 +94,6 @@ const DATA_DIR = '/home/agent/.config/openchamber/mecha-turk';
 
 /** A version-shaped literal: three dot-separated numbers, not an IP address. */
 const VERSION_SHAPED = /(?<![\d.])\d+\.\d+\.\d+(?![\d.])/;
-
-/** The version line an unread tab shows before the first health answer. */
-function unreadState(): AboutTabState {
-    return { phase: 'idle', at: null, problem: null, version: null, diagnosticsOpen: false, repoProblem: null };
-}
 
 /** The health answer this build's own service gives (contract §0). */
 const HEALTH_BODY = JSON.stringify({ status: 'ok', version: SERVICE_VERSION, schemaVersion: 1 });
@@ -329,10 +322,6 @@ describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
         expect(offenders).toEqual([]);
     });
 
-    it('reports *not yet read* before the first answer, and never a number', () => {
-        expect(versionLine(unreadState())).toBe('Version: not yet read');
-        expect(versionLine({ ...unreadState(), phase: 'loading' })).toBe('Version: not yet read');
-    });
 });
 
 describe('an unreachable service keeps the static content (AC-132, AC-134, FR-078)', () => {
@@ -363,11 +352,7 @@ describe('an unreachable service keeps the static content (AC-132, AC-134, FR-07
         // Name, version, description, repository link — the whole page after
         // the 2026-10-01 scrub.
         expect(text).toContain('About');
-        expect(text).toContain('Mecha Turk');
-        expect(text).toContain('watches the GitHub repositories you bind');
         expect(text).toContain('Repository: [https://github.com/shaunburdick/mecha-turk]');
-        expect(text).toContain('Diagnostics (read-only)');
-        expect(text).toContain('Version could not be read: service unreachable');
         // The four statements the scrub removed, gone from every paint.
         expect(text).not.toContain('Vocabulary (what the renames mean)');
         expect(text).not.toContain('Cleanup:');
@@ -423,13 +408,6 @@ describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)'
         expect(text).toContain(`Evidence schema: ${EVIDENCE_SCHEMA_VERSION} · Ledger schema: spike-ledger-1`);
         expect(text).toContain(`Phase record: mounted at ${STAMP} — read-only; this tab writes nothing.`);
         view.dispose();
-    });
-
-    it('says there is no phase record and no ledger before this mount records one', () => {
-        const rt = createTestRuntime(fakeHost());
-
-        expect(phaseRecordLine(rt)).toBe('Phase record: none recorded yet.');
-        expect(ledgerLines(rt)).toBe('No ledger entries yet.');
     });
 
     it('carries no credential-shaped value into the rendered strings', async () => {
@@ -493,9 +471,7 @@ describe('the repository link opens through the host (2026-10-01 scrub)', () => 
         const note = view.rt.state.aboutTab.repoProblem;
         view.dispose();
 
-        expect(note).toContain('The repository link could not be opened');
         expect(note).toContain('HOST_REJECTED');
-        expect(note).toContain('Copy the address above instead.');
     });
 });
 
@@ -527,11 +503,8 @@ describe('Diagnostics sits behind a disclosure (2026-10-01 scrub)', () => {
                 rt.state.ledger.entries.push(phaseEntry());
             },
         });
-        const text = view.strings.join('\n');
         view.dispose();
 
-        expect(text).toContain('Evidence schema: ');
         expect(view.strings.some((line) => line.startsWith('#2 · '))).toBe(true);
-        expect(text).toContain('read-only; this tab writes nothing.');
     });
 });

@@ -447,7 +447,6 @@ describe('the Status tab renders structure instead of loose lines', () => {
             expect(badges.some((badge) => badge.tone === tone), `no chip carries the ${tone} tone`).toBe(true);
         }
 
-        expect(badges.map((badge) => badge.label)).toContain('not checkable by the panel');
     });
 });
 

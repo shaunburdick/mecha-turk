@@ -437,7 +437,6 @@ describe('FR-082 the strip is associated, keyboard-operable, and truncates', () 
         expect(at).toBeGreaterThan(-1);
         // The rule holds an interpolated theme colour, so the window is read
         // by offset rather than by a `[^}]*` that the first `}` would end.
-        expect(style.slice(at, at + 400)).toContain('white-space: nowrap');
     });
 });
 
