@@ -262,6 +262,7 @@ function hostileRun(): RunRow {
         promptPresent: false,
         promptFingerprint: null,
         promptLength: null,
+        promptSources: null,
     };
 }
 

@@ -729,6 +729,57 @@ describe('004 the field is documented, and the editor it points at is the shippe
 });
 
 /* ------------------------------------------------------------------------- *
+ * T-032 one rendering per tier value, in the shipped bytes and the sources
+ * (004 FR-089; 005 FR-051, SC-105, AC-123)
+ *
+ * The runtime half of the gate lives in `tests/bindings-prompt.test.ts`,
+ * which renders all six tabs and counts the elements carrying each tier's
+ * sentinel. This is the static half: the three sites FR-089 permits are the
+ * sites that exist — no fourth hand-authored field, and the projected row's
+ * guidance with exactly one author so it can render exactly once.
+ * ------------------------------------------------------------------------- */
+
+describe('T-032 the three permitted tier sites are the only sites (005 FR-051, AC-123)', () => {
+    it('ships the binding field and bakes no second author of the guidance (+2 cases)', () => {
+        // case: the shipped panel bundle carries the binding tier's one field
+        {
+            const bundle = readFileSync(BUNDLE, UTF8);
+
+            expect(bundle).toContain('Starting prompt for dispatches from this repository');
+            // The global tier's guidance is the service's own `format`
+            // prose, read off `GET /v1/config` and rendered as text (006
+            // FR-014, 004 research R-4) — so it is authored once, on the
+            // wire, and a panel-side copy of that sentence would be the
+            // second author this rule exists to prevent.
+            expect(bundle).not.toContain('text sent to the agent verbatim');
+            expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('text sent to the agent verbatim');
+        }
+        // case: the panel sources hand-author exactly two prompt labels — the binding site and the account site
+        {
+            const labelled = scanSources()
+                .filter((file) => file.path.startsWith('src/'))
+                .filter((file) => file.text.includes('Starting prompt for dispatches from'))
+                .map((file) => file.path)
+                .sort();
+
+            expect(labelled).toEqual(['src/accounts-rows.ts', 'src/bindings-prompt.ts']);
+            const account = scanSources().find((file) => file.path === 'src/accounts-rows.ts');
+            expect(account?.text).toContain('Starting prompt for dispatches from this account');
+        }
+        // case: the third site names itself from the descriptor the service sent
+        {
+            // Settings is the projected site: its row's label is composed
+            // from `descriptor.name`, so the global tier has no hand-authored
+            // label anywhere — a fourth site cannot hide behind this file's
+            // own copy, and the row that renders arrives with the projection.
+            const settings = scanSources().find((file) => file.path === 'src/settings-rows.ts');
+
+            expect(settings?.text).toMatch(/\$\{descriptor\.name\} \(\$\{unit\}\) —/);
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
  * 006 Settings surface and offline posture (T-028: FR-085, FR-086, NFR-102,
  * AC-144, AC-145, SC-112)
  *

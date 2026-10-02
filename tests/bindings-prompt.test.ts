@@ -1,20 +1,29 @@
 /**
- * The starting prompt renders **exactly once** in the whole panel (005 T-021:
- * FR-051, FR-052, SC-105, AC-123, AC-124; 004 FR-014).
+ * Each starting-prompt **tier value** renders exactly once in the whole panel
+ * (005 T-021 as re-cut at 005 v1.9.0 / 004 v1.3.0: SC-105, FR-051, FR-052,
+ * AC-123, AC-124; 004 FR-014, FR-063, FR-064, FR-089, AC-144).
  *
- * Three promises are asserted here:
+ * Four promises are asserted here:
  *
- * 1. **SC-105 / AC-123** — mounting all six tab bodies and counting every SDK
- *    mount whose props carry the prompt text answers **one**, which is the
- *    count that fails at zero (the field vanished) and at two (a second
- *    surface started carrying an operator instruction). The count is taken
- *    from the mounts themselves rather than from a source scan, because a
- *    string can sit in the source and never reach the DOM — or the reverse.
- * 2. **The wire shape** (004 FR-014) — an untouched prompt is **absent** from
+ * 1. **T-032 / SC-105 / AC-123** — mounting all six tab bodies over a seeded
+ *    **global**, **account**, and **binding** prompt (three distinct
+ *    sentinels) and counting every element whose current props carry each one
+ *    answers **one** for each — the count that fails at zero (the site
+ *    vanished) and at two (a second surface started carrying a tier's value)
+ *    alike. The count is taken from the mounts themselves rather than from a
+ *    source scan, because a string can sit in the source and never reach the
+ *    DOM — or the reverse — and each element counts once however many
+ *    repaints it received.
+ * 2. **T-039** — the binding tier's field carries FR-063's five-fact
+ *    guidance and FR-064's honest `not set`, with no panel-side validation
+ *    of its own: the service stays the only validator (plan D24), a refusal
+ *    keeps the field's slot without echoing the value, and the row summary
+ *    shows presence and length only.
+ * 3. **The wire shape** (004 FR-014) — an untouched prompt is **absent** from
  *    the whole-file PUT, and a cleared one travels as an explicit empty value
  *    on exactly one row. Both are asserted on the raw request body, because
  *    "the key is missing" is a fact about bytes, not about an object.
- * 3. **AC-124** — a refusal lands at the field with the service's own
+ * 4. **AC-124** — a refusal lands at the field with the service's own
  *    remediation, the previously stored prompt stays in force, and nothing is
  *    reported as saved.
  *
@@ -24,18 +33,23 @@
 
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_CONFIG } from '../service/config.ts';
+import { configSchema } from '../service/config-schema.ts';
+import { selectAccountRow } from '../src/accounts-tab.ts';
+import { accountRows } from '../src/accounts-rows.ts';
 import { createBindingsHandlers, mountBindingsTabBody } from '../src/bindings-mount.ts';
 import { bindingRows } from '../src/bindings-rows.ts';
-import { STARTING_PROMPT_LABEL } from '../src/bindings-prompt.ts';
+import { PROMPT_GUIDANCE, PROMPT_NOT_SET, STARTING_PROMPT_LABEL } from '../src/bindings-prompt.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { PanelBinding } from '../src/bindings-service.ts';
-import { BINDINGS_PATH } from '../src/service-calls.ts';
+import { BINDINGS_PATH, CONFIG_PATH } from '../src/service-calls.ts';
 import { fakeDom } from './support/dom.ts';
 import { FIXTURE_TIMESTAMP, createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { ACCOUNT_TIER_SENTINEL, BINDING_TIER_SENTINEL, GLOBAL_TIER_SENTINEL } from './support/prompt-tiers.ts';
 
 /**
  * Every SDK mount the six tab bodies performed, and the props it carried.
@@ -106,9 +120,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     return stubbed;
 });
 
-/** The prompt text every count below looks for. */
-const SENTINEL = 'SC105-SENTINEL-STARTING-PROMPT-TEXT';
-
 /** The member a whole-file save carries the prompt under (004 FR-014). */
 const PROMPT_KEY = 'startingPrompt';
 
@@ -170,6 +181,15 @@ const REFUSAL = JSON.stringify({
         message: 'startingPrompt: this value looks like a credential; store it in a secret manager instead',
     },
 });
+
+/** A credential-shaped draft the service refuses, for the field's slot (004 FR-024). */
+const CREDENTIAL_VALUE = 'ghp_A_CREDENTIAL_SHAPED_VALUE';
+
+/**
+ * Over FR-020's 2,000-code-point cap *and* credential-shaped: two refusals
+ * the panel must never pre-empt with a check of its own (004 plan D24).
+ */
+const OVER_CAP_CREDENTIAL = `ghp_${'x'.repeat(2_100)}`;
 
 /**
  * Build one binding as `GET /v1/bindings` serializes it.
@@ -242,24 +262,95 @@ function echoService(): { readonly host: ReturnType<typeof fakeHost>; readonly r
 }
 
 /**
- * Build a runtime whose stored bindings carry the sentinel prompt.
+ * Clear the mount journal so one case starts from an empty pane.
  *
- * @returns The runtime and the pane's handler table.
+ * Ids are counted out of the log itself (see the mock above), so they
+ * re-align with it the moment it clears; `updates` goes with it because a
+ * repaint left over from an earlier case would otherwise be laid over this
+ * case's field — the one guess the journal exists to make impossible.
  */
-function editorRuntime(): {
+function freshJournal(): void {
+    mounts.log.length = 0;
+    mounts.updates.length = 0;
+}
+
+/**
+ * Mount the Bindings body over rows a case supplies, with nothing selected.
+ *
+ * The add form and the row editor both start from this shape, so a case
+ * states the rows it is about and the posture it opens them in — and the
+ * body is mounted (rather than only its state built) because the promises
+ * under test are about what reaches the field, not about what sits in
+ * state.
+ *
+ * @param input - The binding rows to load, and the service to mount against.
+ * @returns The runtime, the pane's handler table, and the service double.
+ */
+function promptEditor(input: {
+    /** Binding rows exactly as `GET /v1/bindings` serializes them. */
+    readonly rows: readonly unknown[];
+    /** The service double; an echoing one by default, so a save answers from its own body. */
+    readonly service?: ReturnType<typeof echoService>;
+}): {
     /** The runtime under test. */
     readonly rt: ReturnType<typeof createTestRuntime>;
     /** The pane's handler table. */
     readonly handlers: ReturnType<typeof createBindingsHandlers>;
+    /** The service double the writes land on. */
+    readonly service: ReturnType<typeof echoService>;
 } {
-    const rt = createTestRuntime(echoService().host);
-    rt.state.bindings.bindings = stateFromWire([
-        bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: SENTINEL }),
-        bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY, startingPrompt: PREVIOUS }),
-    ]);
+    const service = input.service ?? echoService();
+    const rt = createTestRuntime(service.host);
+    rt.state.bindings.bindings = stateFromWire(input.rows);
     rt.state.bindings.status = 'ready';
+    rt.state.bindings.accounts = [
+        { numericUserId: ACCOUNT_ID, login: LOGIN, displayName: null, usable: true, scope: 'ok' },
+    ];
+    freshJournal();
+    mountBindingsTabBody({ rt, root: fakeDom().root });
 
-    return { rt, handlers: createBindingsHandlers(rt) };
+    return { rt, handlers: createBindingsHandlers(rt), service };
+}
+
+/**
+ * Build a service that **refuses** one bindings save and accepts the next.
+ *
+ * The refusal is what puts the service's copy into the field's slot; the
+ * acceptance is what retires it again. One double, because the flow under
+ * test is the operator's own: fix the value, save again, and watch the slot
+ * return to FR-063's guidance.
+ *
+ * @returns The service and the legs it recorded.
+ */
+function refuseThenAcceptService(): {
+    /** Every request the panel made, in order. */
+    readonly requests: GuestRequest[];
+    /** The host double that recorded them. */
+    readonly host: ReturnType<typeof fakeHost>;
+} {
+    const requests: GuestRequest[] = [];
+    let saves = 0;
+
+    return {
+        requests,
+        host: fakeHost({
+            serviceRequest: async (request): Promise<GuestRequestResult> => {
+                requests.push(request);
+                if (request.method !== 'PUT') {
+                    return { status: 404, body: UNROUTED };
+                }
+
+                saves += 1;
+                if (saves === 1) {
+                    return { status: 422, body: REFUSAL };
+                }
+
+                const sent = JSON.parse(request.body ?? '{}') as { readonly bindings?: readonly unknown[] };
+
+                return { status: 200, body: JSON.stringify({ bindings: sent.bindings ?? [], status: [] }) };
+            },
+        }),
+    };
 }
 
 /**
@@ -278,47 +369,194 @@ function putBody(requests: readonly GuestRequest[]): string {
     return put.body ?? '';
 }
 
-describe('SC-105 / AC-123 the prompt is rendered exactly once across all six tabs', () => {
-    it('counts one SDK mount carrying the prompt text (+1 cases)', () => {
-        // case: counts one SDK mount carrying the prompt text
-        {
-            mounts.log.length = 0;
-            const { rt, handlers } = editorRuntime();
-            // The field opens on what the service holds for the selected row —
-            // the same path the pane's own select handler takes (004 FR-012).
-            handlers.selectBinding(EDITED_ID);
-            expect(rt.state.bindings.startingPromptInput).toBe(SENTINEL);
+/* -------------------------------------------------------------------- *
+ * T-032 / SC-105 / AC-123 — one rendering per tier value (004 FR-089;
+ * 005 FR-051, SC-105, AC-123 as re-cut at 005 v1.9.0)
+ * -------------------------------------------------------------------- */
 
+/**
+ * The global tier's answer to `GET /v1/config`, with its sentinel in it.
+ *
+ * Assembled from the service's own projection, so the Settings row this
+ * counts is the row the service would really declare — same descriptors,
+ * same order, same cap — with only the value swapped for the sentinel.
+ *
+ * @returns The response body.
+ */
+function globalTierBody(): string {
+    return JSON.stringify({
+        config: { ...DEFAULT_CONFIG, startingPrompt: GLOBAL_TIER_SENTINEL },
+        fields: configSchema(),
+        source: 'stored',
+        defaultsApplied: [],
+    });
+}
+
+/**
+ * A host that answers the one read the Settings body performs on
+ * activation, and nothing else.
+ *
+ * The bindings and accounts tiers are seeded the way a landed `GET` leaves
+ * them (`status: 'ready'`, so neither body re-reads), and Status's own read
+ * fails before it ever reaches the config — so each tier reaches the DOM
+ * through the one site FR-089 names for it, which is what gets counted.
+ *
+ * @returns The host double.
+ */
+function tierHost(): ReturnType<typeof fakeHost> {
+    return fakeHost({
+        serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
+            if (request.method === 'GET' && request.path === CONFIG_PATH) {
+                return { status: 200, body: globalTierBody() };
+            }
+
+            return { status: 404, body: UNROUTED };
+        },
+    });
+}
+
+/**
+ * Read one mount's props as the object the count compares over.
+ *
+ * @param raw - Whatever the SDK primitive was handed.
+ * @returns The props as a plain record (a bare string prop reads as `text`).
+ */
+function propsOf(raw: unknown): Record<string, unknown> {
+    if (typeof raw === 'string') {
+        return { text: raw };
+    }
+
+    if (typeof raw === 'object' && raw !== null) {
+        return { ...(raw as Record<string, unknown>) };
+    }
+
+    return {};
+}
+
+/**
+ * Every rendered **element** whose current props carry `sentinel`, in mount
+ * order.
+ *
+ * An element is one mount, and each repaint its own handle received is laid
+ * over that mount's props in journal order (the harness records every
+ * update under the mount it was issued to), so a field that mounts empty
+ * and is painted with the text a beat later still counts as **one**
+ * element — while a second element carrying the same text counts as two,
+ * which is the duplication AC-123 fails on.
+ *
+ * @param sentinel - The text to look for.
+ * @returns The elements carrying it, each named by its SDK primitive.
+ */
+function elementsCarrying(sentinel: string): readonly { readonly key: string }[] {
+    const seen: Record<string, number> = {};
+    const carrying: { readonly key: string }[] = [];
+
+    for (const entry of mounts.log) {
+        const id = seen[entry.key] ?? 0;
+        seen[entry.key] = id + 1;
+        const props = propsOf(entry.props);
+
+        for (const update of mounts.updates) {
+            if (update.key === entry.key && update.id === id) {
+                Object.assign(props, update.props);
+            }
+        }
+
+        if (JSON.stringify(props).includes(sentinel)) {
+            carrying.push({ key: entry.key });
+        }
+    }
+
+    return carrying;
+}
+
+describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six tabs', () => {
+    it('counts exactly one element carrying each tier sentinel (+2 cases)', async () => {
+        // Each tier is opened the way an operator opens it: the binding row
+        // click loads that binding's text into the editor, the account row
+        // click loads that account's into its field.
+        freshJournal();
+        const rt = createTestRuntime(tierHost());
+        rt.state.bindings.bindings = stateFromWire([
+            bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: BINDING_TIER_SENTINEL }),
+            bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY, startingPrompt: PREVIOUS }),
+        ]);
+        rt.state.bindings.status = 'ready';
+        rt.state.bindings.accounts = [{
+            numericUserId: ACCOUNT_ID,
+            login: LOGIN,
+            displayName: null,
+            startingPrompt: ACCOUNT_TIER_SENTINEL,
+            usable: true,
+            scope: 'ok',
+        }];
+        const handlers = createBindingsHandlers(rt);
+        handlers.selectBinding(EDITED_ID);
+        selectAccountRow(rt, ACCOUNT_ID);
+
+        // case: each of the three tier values is carried by exactly one element
+        {
             const dom = fakeDom();
             mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
             for (const id of TAB_IDS) {
                 rt.shell?.activate(id);
             }
+            // The Settings body's one read is what puts the global tier on
+            // its row; one macrotask lands it (the Settings suite settles
+            // its read the same way).
+            await tick();
 
-            const rendered = mounts.log.filter((entry) => JSON.stringify(entry.props ?? null).includes(SENTINEL));
-
-            // The count that fails at 0 (the field vanished) and at 2 (a second
-            // surface started carrying an operator instruction) alike.
-            expect(rendered).toHaveLength(1);
-            expect(rendered[0]?.key).toBe(TEXT_FIELD);
             // Not vacuous: the six bodies really mounted, and a text field is
-            // among them rather than an empty log agreeing with itself.
+            // among them rather than an empty journal agreeing with itself.
             expect(mounts.log.length).toBeGreaterThan(TAB_IDS.length);
             expect(mounts.log.some((entry) => entry.key === TEXT_FIELD)).toBe(true);
 
-            rt.shell?.dispose();
+            for (const [tier, sentinel] of [
+                ['global', GLOBAL_TIER_SENTINEL],
+                ['account', ACCOUNT_TIER_SENTINEL],
+                ['binding', BINDING_TIER_SENTINEL],
+            ] as const) {
+                const carrying = elementsCarrying(sentinel);
+                // The criterion fails at 0 (the site vanished) and at 2 (a
+                // second surface started carrying a tier's value) alike.
+                expect(carrying, `${tier} tier rendered ${carrying.length} times`).toHaveLength(1);
+                // …and it landed on the site FR-089 names for that tier.
+                expect(carrying[0]?.key, `${tier} tier's one carrier`).toBe(TEXT_FIELD);
+            }
         }
-        // case: shows presence and length on the row, never the text and never a fingerprint
+
+        // case: the counter itself answers 0 and 2 alike — it is not shaped to answer 1
         {
-            const { rt } = editorRuntime();
-            const row = bindingRows(rt.state.bindings)[0];
-
-            expect(row?.subtitle).toContain(`prompt set · ${SENTINEL.length} chars`);
-            expect(row?.subtitle).not.toContain(SENTINEL);
-            expect(row?.subtitle).not.toContain('mtp-');
+            // Nothing carries this: a vanished field would read this way
+            // rather than the count agreeing with itself.
+            expect(elementsCarrying('SC105-NO-SUCH-SENTINEL-AT-ALL')).toHaveLength(0);
+            // Several empty prompt fields do carry this word (FR-064's
+            // placeholder on every tier's surface), so two elements carrying
+            // one text read as 2+, never as 1.
+            expect(elementsCarrying(PROMPT_NOT_SET).length).toBeGreaterThan(1);
         }
-    });
 
+        // case: row summaries carry presence and length only — never a tier's text, never a fingerprint
+        {
+            const bindingSummary = bindingRows(rt.state.bindings);
+            expect(bindingSummary[0]?.subtitle).toContain(
+                `prompt set · ${[...BINDING_TIER_SENTINEL].length} chars`,
+            );
+            expect(bindingSummary[0]?.subtitle).not.toContain(BINDING_TIER_SENTINEL);
+            expect(bindingSummary[0]?.subtitle).not.toContain('mtp-');
+            expect(bindingSummary[1]?.subtitle).not.toContain(PREVIOUS);
+
+            const accountSummary = accountRows(rt.state.bindings);
+            expect(accountSummary[0]?.subtitle).toContain(
+                `prompt set · ${[...ACCOUNT_TIER_SENTINEL].length} chars`,
+            );
+            expect(accountSummary[0]?.subtitle).not.toContain(ACCOUNT_TIER_SENTINEL);
+            expect(accountSummary[0]?.subtitle).not.toContain('mtp-');
+        }
+
+        stopRelayPolling(rt);
+        rt.shell?.dispose();
+    });
 });
 
 describe('004 FR-014 the save carries the prompt only where it was edited', () => {
@@ -469,19 +707,6 @@ const EDIT_PROMPT = 'Reproduce the report before changing anything.';
 
 /** Repository the add form saves in the add-mode case. */
 const NEW_REPOSITORY = 'acme/brand-new';
-
-/**
- * Clear the mount journal so one case starts from an empty pane.
- *
- * Ids are counted out of the log itself (see the mock above), so they
- * re-align with it the moment it clears; `updates` goes with it because a
- * repaint left over from an earlier case would otherwise be laid over this
- * case's field — the one guess the journal exists to make impossible.
- */
-function freshJournal(): void {
-    mounts.log.length = 0;
-    mounts.updates.length = 0;
-}
 
 /**
  * The starting-prompt field's props as they stand right now.
@@ -641,5 +866,145 @@ describe('the prompt field takes input in both editor modes (005 FR-051, 004 FR-
         expect(rt.state.bindings.startingPromptDirty).toBe(false);
         expect(rt.state.bindings.startingPromptError).toBeNull();
         releaseBindings({ rt, handlers, service });
+    });
+});
+
+describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-144)', () => {
+    it('conveys the five facts beside a field that validates nothing (+5 cases)', async () => {
+        // case: the five facts travel beside a selected row's field
+        {
+            const { rt, handlers, service } = promptEditor({
+                rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS })],
+            });
+            handlers.selectBinding(EDITED_ID);
+            const props = promptFieldProps();
+
+            expect(props.helper).toBe(PROMPT_GUIDANCE);
+            // FR-063's five, word by word: verbatim, no placeholders, the
+            // pinned Default Agent the text cannot change, the refusal
+            // shape, and the cap — a helper carrying four of them fails here.
+            for (const fact of ['verbatim', 'placeholders', 'Default Agent', 'refused', '2,000']) {
+                expect(String(props.helper), fact).toContain(fact);
+            }
+            releaseBindings({ rt, handlers, service });
+        }
+
+        // case: the guidance travels with the field in add mode too (FR-089)
+        {
+            const { rt, handlers, service } = promptEditor({
+                rows: [bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY })],
+            });
+            handlers.newBinding();
+            const props = promptFieldProps();
+
+            // No row is selected by design in add mode — the state an idle
+            // "select a binding" line used to live in — and the five facts
+            // and the honest absence are here all the same.
+            expect(rt.state.bindings.selectedBinding).toBeNull();
+            expect(props.helper).toBe(PROMPT_GUIDANCE);
+            expect(props.value).toBe('');
+            expect(props.placeholder).toBe(PROMPT_NOT_SET);
+            releaseBindings({ rt, handlers, service });
+        }
+
+        // case: an unset tier reads *not set*, a set one reads its text (FR-064)
+        {
+            const unset = promptEditor({
+                rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY })],
+            });
+            unset.handlers.selectBinding(EDITED_ID);
+            const empty = promptFieldProps();
+
+            // Honest absence: the slot an empty instruction box would occupy
+            // states the state — the same word Settings and Accounts use.
+            expect(empty.value).toBe('');
+            expect(empty.placeholder).toBe(PROMPT_NOT_SET);
+            expect(empty.helper).toBe(PROMPT_GUIDANCE);
+            releaseBindings(unset);
+
+            const set = promptEditor({
+                rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS })],
+            });
+            set.handlers.selectBinding(EDITED_ID);
+            const filled = promptFieldProps();
+
+            expect(filled.value).toBe(PREVIOUS);
+            // The word stays the field's placeholder; a value is what hides
+            // it, exactly as on the two sibling surfaces.
+            expect(filled.placeholder).toBe(PROMPT_NOT_SET);
+            releaseBindings(set);
+        }
+
+        // case: the service stays the only validator — the field shapes nothing (plan D24)
+        {
+            const { rt, handlers, service } = promptEditor({
+                rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS })],
+            });
+            handlers.selectBinding(EDITED_ID);
+            // Both things the service refuses — over FR-020's cap *and*
+            // credential-shaped — pass through byte for byte: the panel
+            // holds no cap, no shape rule, and no length check of its own.
+            typeIntoPromptField(OVER_CAP_CREDENTIAL);
+
+            expect(rt.state.bindings.startingPromptInput).toBe(OVER_CAP_CREDENTIAL);
+            expect(rt.state.bindings.startingPromptDirty).toBe(true);
+            expect(rt.state.bindings.startingPromptError).toBeNull();
+            // Typing alone never talks to the service either: the one
+            // validator is reached by the save this case does not make.
+            expect(service.requests).toHaveLength(0);
+            releaseBindings({ rt, handlers, service });
+        }
+
+        // case: the refusal takes the field's slot, and the guidance returns once the service accepts
+        {
+            const service = refuseThenAcceptService();
+            const { rt, handlers } = promptEditor({
+                rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS })],
+                service,
+            });
+            handlers.selectBinding(EDITED_ID);
+            typeIntoPromptField(CREDENTIAL_VALUE);
+
+            handlers.submit();
+            await tick();
+
+            const { message } = (JSON.parse(REFUSAL) as { readonly error: { readonly message: string } }).error;
+            const refused = promptFieldProps();
+            // The service's own copy takes the slot FR-063's guidance was
+            // resting in — the same slot, the service's words, and never the
+            // value it refused (FR-052, FR-085).
+            expect(refused.helper).toBe(message);
+            expect(String(refused.helper)).not.toContain(CREDENTIAL_VALUE);
+            expect(String(refused.helper)).not.toContain(PROMPT_GUIDANCE);
+            expect(rt.state.bindings.bindings[0]?.startingPrompt).toBe(PREVIOUS);
+
+            // The operator fixes the value and saves again: the service
+            // accepts, the refusal clears, and what the field rests on is
+            // the guidance once more.
+            handlers.setStartingPrompt(`${PREVIOUS} Then the release notes.`);
+            handlers.submit();
+            await tick();
+
+            expect(rt.state.bindings.startingPromptError).toBeNull();
+            expect(promptFieldProps().helper).toBe(PROMPT_GUIDANCE);
+            releaseBindings({ rt, handlers, service });
+        }
+
+        // case: the row summary carries presence and length only — never the text, never a fingerprint
+        {
+            const { rt, handlers, service } = promptEditor({
+                rows: [
+                    bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS }),
+                    bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY }),
+                ],
+            });
+            const [set, unset] = bindingRows(rt.state.bindings);
+
+            expect(set?.subtitle).toContain(`prompt set · ${[...PREVIOUS].length} chars`);
+            expect(set?.subtitle).not.toContain(PREVIOUS);
+            expect(set?.subtitle).not.toContain('mtp-');
+            expect(unset?.subtitle).toContain('prompt not set');
+            releaseBindings({ rt, handlers, service });
+        }
     });
 });

@@ -24,6 +24,7 @@
 
 import { readClaimPrompt } from './prompt-wire.ts';
 import { asRecord, fieldsHoldText, parseJsonObject, textOrEmpty, textOrNull } from './json.ts';
+import type { PromptSource } from './prompt.ts';
 import type { BindingStatusRow, EventKind } from './bindings-service.ts';
 import { eventKindOf, readStatusRows } from './bindings-service.ts';
 
@@ -129,6 +130,14 @@ export interface ClaimedRun {
     readonly promptFingerprint: string | null;
     /** Code points of the normalised text, or `null` when none. */
     readonly promptLength: number | null;
+    /**
+     * Tiers that produced the block, most general first, or `null` when none
+     * (004 FR-087): a duplicate-free subsequence of `global, account, binding`.
+     *
+     * Read by the same closed reader as the other three members, so a list the
+     * build cannot stand behind refuses the run — never a defaulted source.
+     */
+    readonly promptSources: readonly PromptSource[] | null;
     /**
      * The text the composition fences — **claim transport only**.
      *

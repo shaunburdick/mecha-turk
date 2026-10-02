@@ -31,30 +31,27 @@ import {
     editAccounts,
     removeAccount,
     saveDisplayName,
+    saveStartingPrompt,
     toggleRotation,
 } from './accounts-actions.ts';
 import { loadBindings } from './bindings.ts';
-import { accountRows, armLabel, detailText } from './accounts-rows.ts';
+import { accountFieldView, accountRows, armLabel, detailText } from './accounts-rows.ts';
+import { PROFILE_MEMBERS, setMemberEdit } from './accounts-state.ts';
+import type { AccountMember, AccountsHandlers } from './accounts-state.ts';
 import { mountDetailChips } from './accounts-chips.ts';
 import type { DetailChips } from './accounts-chips.ts';
 import { refresh } from './panel-ui.ts';
 import { createBlock, mountColumnHead, mountStyledText } from './style.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** Callbacks the mounted Accounts body invokes. */
-export interface AccountsHandlers {
-    /** The operator opened one account row. */
-    readonly selectAccount: (id: string) => void;
-    /** The operator asked for a fresh accounts read. */
-    readonly refresh: () => void;
-    /** The operator typed into the display-name field (FR-066). */
-    readonly setDisplayName: (value: string) => void;
-    /** The operator saved the display name (FR-066, AC-130). */
-    readonly submitDisplayName: () => void;
-    /** The operator armed or cancelled the token rotation (FR-064). */
-    readonly rotateToken: () => void;
-    /** The operator armed, then confirmed, the removal (FR-055, FR-065). */
-    readonly removeAccount: () => void;
+/** One profile member's field and save control, as the pane carries them. */
+export interface MemberControls {
+    /** The field itself — the one element that ever holds its draft. */
+    readonly field: TextFieldHandle;
+    /** The control that writes this member alone through the profile `PUT`. */
+    readonly save: ButtonHandle;
+    /** Release both handles (FR-017). */
+    readonly dispose: () => void;
 }
 
 /** The Accounts body handle: the mounted element and its repaint handles. */
@@ -73,10 +70,8 @@ export interface AccountsBody {
     readonly detailChips: DetailChips;
     /** The selected account's state, connection, scope, and remediation. */
     readonly detail: TextHandle;
-    /** The selected account's operator display label (FR-066). */
-    readonly displayNameField: TextFieldHandle;
-    /** Writes the display name through the narrow route (FR-066). */
-    readonly saveDisplayName: ButtonHandle;
+    /** The two editable profile members' fields, keyed by member (FR-066, FR-089). */
+    readonly members: Readonly<Record<AccountMember, MemberControls>>;
     /** Two-step Rotate-token control (FR-064). */
     readonly rotateToken: ButtonHandle;
     /** Two-step Remove-account control (FR-055, FR-065). */
@@ -122,7 +117,8 @@ const SELECTED_HEADING = 'Selected account';
 const LIST_COLUMNS: readonly string[] = ['Lifecycle', 'Account', 'Bindings'];
 
 /**
- * Repaint the open row: its words, its label field, and its two confirmations.
+ * Repaint the open row: its words, both members' fields, and the two
+ * confirmations.
  *
  * @param rt - Panel runtime.
  * @param view - The mounted body.
@@ -133,17 +129,24 @@ function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
         (candidate) => candidate.numericUserId === accounts.selected,
     );
     const id = selected?.numericUserId ?? null;
-    const editable = id !== null && accounts.displayNameRow === id;
 
     view.detailBox.hidden = selected === undefined;
     view.detail.update({ text: detailText({ bindings, accounts, selected }) });
     view.detailChips.paint(selected ?? null);
-    view.displayNameField.update({
-        value: accounts.displayNameDraft,
-        disabled: !editable,
-        helper: accounts.displayNameError ?? '',
-    });
-    view.saveDisplayName.update({ disabled: !editable });
+    // One repaint path for both members: each field reads the same view its
+    // mount built, so a draft, a refusal, and FR-064's not-set state cannot
+    // disagree with what the mount showed (FR-063, FR-064, FR-085).
+    for (const member of PROFILE_MEMBERS) {
+        const painted = accountFieldView(member, { accounts, account: selected });
+        const control = view.members[member];
+        control.field.update({
+            value: painted.value,
+            disabled: painted.disabled,
+            helper: painted.helper,
+            placeholder: painted.placeholder,
+        });
+        control.save.update({ disabled: painted.disabled });
+    }
     view.rotateToken.update({
         label: armLabel({
             armed: accounts.rotateArmed,
@@ -184,14 +187,10 @@ export function repaintAccountsBody(rt: PanelRuntime, view: AccountsBody): void 
 }
 
 /**
- * Mount the relocated one-shot handoff group (FR-060, FR-061 as re-cut by
- * 002 v1.9.0).
- *
- * Paste → connect, and nothing between them: the Accept/Decline step is gone
- * (product-owner order 2026-10-01), with the storage pre-flight and the
- * one-shot paste the panel has always run, now pointed at the container the
- * shell created for the Accounts tab. The substance the consent copy carried
- * is the static disclaimer mounted beneath the Accounts list.
+ * Mount the relocated one-shot handoff group: paste → connect, with the
+ * static disclaimer beneath it and no Accept/Decline step (002 FR-060 as
+ * re-cut at v1.9.0 — the substance the consent copy carried is that
+ * disclaimer).
  *
  * @param rt - Panel runtime whose handoff state the group renders.
  * @param pane - Pane root the group mounts into.
@@ -221,8 +220,7 @@ interface ListBoard {
 }
 
 /**
- * Mount the status line, the list, its refresh, the note, and the static
- * disclaimer beneath them (002 FR-008 as re-cut at v1.9.0).
+ * Mount the status line, list, refresh, note, and the disclaimer, as re-cut at v1.9.0 (002 FR-008).
  *
  * @param input - Runtime, pane root, and the callbacks the controls invoke.
  * @returns The handles the body carries.
@@ -261,75 +259,86 @@ function mountListBoard(input: {
 }
 
 /**
- * Mount the display-name field and its save control (FR-066).
+ * Mount one profile member's field and its save control (FR-066, 004 FR-089).
  *
- * @param input - The detail box to mount into and the callbacks to wire.
+ * Both members mount the same way — the draft/label flow the display name
+ * shipped with — because the two saves are one helper behind one route (004
+ * FR-082), and a second shape would be a second place the flow could be got
+ * wrong. The field renders the words `accountFieldView` derives, so mount
+ * and repaint can never disagree (FR-063's guidance, FR-064's not-set state).
+ *
+ * @param input - The runtime, the pane, the member, and its callbacks.
  * @returns The field, the button, and their disposer.
  */
-function mountDisplayNameControls(input: {
+function mountMemberControls(input: {
+    /** Runtime whose state the field mounts from. */
+    readonly rt: PanelRuntime;
     /** Detail box the controls mount into. */
     readonly pane: HTMLElement;
-    /** Callbacks the controls invoke. */
+    /** Which profile member this pair edits. */
+    readonly member: AccountMember;
+    /** Callbacks the field and the save control invoke. */
     readonly handlers: AccountsHandlers;
-}): {
-    /** The display-name field itself. */
-    readonly nameField: TextFieldHandle;
-    /** Writes the label through the narrow route. */
-    readonly saveName: ButtonHandle;
-    /** Release both handles (FR-017). */
-    readonly dispose: () => void;
-} {
-    const nameField = mountTextField(input.pane, {
-        label: 'Display name for this account',
-        value: '',
-        placeholder: 'Shown in the list instead of the login',
-        disabled: true,
-        onChange: (value) => input.handlers.setDisplayName(value),
+}): MemberControls {
+    const { rt, pane, member, handlers } = input;
+    const view = accountFieldView(member, { accounts: rt.state.accounts, account: undefined });
+    const onChange = member === 'displayName' ? handlers.setDisplayName : handlers.setStartingPrompt;
+    const onSave = member === 'displayName' ? handlers.submitDisplayName : handlers.submitStartingPrompt;
+    const field = mountTextField(pane, {
+        label: view.label,
+        value: view.value,
+        placeholder: view.placeholder,
+        ...(view.multiline ? { multiline: true, rows: 4 } : {}),
+        disabled: view.disabled,
+        helper: view.helper,
+        onChange,
     });
-    const saveName = mountButton(input.pane, {
-        label: 'Save display name',
+    const save = mountButton(pane, {
+        label: view.saveLabel,
         variant: 'secondary',
-        disabled: true,
-        onClick: input.handlers.submitDisplayName,
+        disabled: view.disabled,
+        onClick: onSave,
     });
 
     return {
-        nameField,
-        saveName,
+        field,
+        save,
         dispose: (): void => {
-            nameField.dispose();
-            saveName.dispose();
+            field.dispose();
+            save.dispose();
         },
     };
 }
 
 /**
- * Mount the selected row's controls: display name, rotate, and remove.
+ * Mount the selected row's controls: both profile members, rotate, and remove.
  *
  * They live **inside** the detail box, so a row with nothing selected hides
  * them with it — a control that acts on a selection cannot exist without one.
  *
- * @param input - The detail box to mount into and the callbacks to wire.
- * @returns The four handles plus their disposer.
+ * @param input - The runtime, the detail box, and the callbacks to wire.
+ * @returns The handles plus their disposer.
  */
 function mountDetailControls(input: {
+    /** Runtime whose state the fields mount from. */
+    readonly rt: PanelRuntime;
     /** Detail box the controls mount into. */
     readonly pane: HTMLElement;
     /** Callbacks the controls invoke. */
     readonly handlers: AccountsHandlers;
 }): {
-    /** Display-name field (FR-066). */
-    readonly displayNameField: TextFieldHandle;
-    /** Saves the display name (FR-066). */
-    readonly saveDisplayName: ButtonHandle;
+    /** The two editable members' controls, keyed by member (FR-066, FR-089). */
+    readonly members: Readonly<Record<AccountMember, MemberControls>>;
     /** Two-step rotation control (FR-064). */
     readonly rotateToken: ButtonHandle;
     /** Two-step removal control (FR-055, FR-065). */
     readonly removeAccount: ButtonHandle;
-    /** Release the four handles (FR-017). */
+    /** Release every handle (FR-017). */
     readonly dispose: () => void;
 } {
-    const label = mountDisplayNameControls(input);
+    const mount = (member: AccountMember): MemberControls =>
+        mountMemberControls({ rt: input.rt, pane: input.pane, member, handlers: input.handlers });
+    const members = { displayName: mount('displayName'), startingPrompt: mount('startingPrompt') };
     const rotateRow = mountButton(input.pane, {
         label: ROTATE_IDLE_LABEL,
         variant: 'outline',
@@ -344,12 +353,12 @@ function mountDetailControls(input: {
     });
 
     return {
-        displayNameField: label.nameField,
-        saveDisplayName: label.saveName,
+        members,
         rotateToken: rotateRow,
         removeAccount: removeRow,
         dispose: (): void => {
-            label.dispose();
+            members.displayName.dispose();
+            members.startingPrompt.dispose();
             rotateRow.dispose();
             removeRow.dispose();
         },
@@ -362,7 +371,7 @@ interface AccountsParts {
     readonly board: ListBoard;
     /** The open row's own line. */
     readonly detail: TextHandle;
-    /** The open row's display-name, rotation, and removal controls. */
+    /** The open row's two member fields, rotation, and removal controls. */
     readonly controls: ReturnType<typeof mountDetailControls>;
     /** The open row's card, which doubles as its heading's wrapper. */
     readonly detailBox: HTMLElement;
@@ -427,7 +436,7 @@ export function mountAccountsBody(input: {
     detailBox.hidden = true;
     const detailChips = mountDetailChips(detailBox);
     const detail = mountText(detailBox, { text: '' });
-    const controls = mountDetailControls({ pane: detailBox, handlers });
+    const controls = mountDetailControls({ rt, pane: detailBox, handlers });
 
     const view: AccountsBody = {
         pane,
@@ -437,8 +446,7 @@ export function mountAccountsBody(input: {
         detailBox,
         detailChips,
         detail,
-        displayNameField: controls.displayNameField,
-        saveDisplayName: controls.saveDisplayName,
+        members: controls.members,
         rotateToken: controls.rotateToken,
         removeAccount: controls.removeAccount,
         note: board.note,
@@ -459,9 +467,10 @@ export function mountAccountsBody(input: {
 /**
  * Record the account row the operator opened (FR-062).
  *
- * Selecting a different row closes whatever the previous one had open: the
- * display-name draft and both armed controls belong to a row, and carrying
- * them across would let a confirm step fire against the wrong account.
+ * Selecting a different row closes whatever the previous one had open: both
+ * members' drafts and both armed controls belong to a row, and carrying them
+ * across would let a confirm step — or a save — fire against the wrong
+ * account (FR-066, 004 FR-089).
  *
  * @param rt - Panel runtime.
  * @param id - Numeric user id of the row the operator selected.
@@ -474,14 +483,13 @@ export function selectAccountRow(rt: PanelRuntime, id: string): void {
     const { accounts, bindings } = rt.state;
     if (accounts.selected !== id) {
         const opened = bindings.accounts.find((candidate) => candidate.numericUserId === id);
-        // The draft belongs to the row it was loaded for — that is what makes
-        // a saved display name impossible to apply to the wrong account —
-        // and both confirmations belong to the row too, so an armed click can
-        // never fire against the account the operator just opened.
+        // Each draft belongs to the row it was loaded for — that is what makes
+        // a saved member impossible to apply to the wrong account — and both
+        // confirmations belong to the row too, so an armed click can never
+        // fire against the account the operator just opened.
         accounts.selected = id;
-        accounts.displayNameRow = id;
-        accounts.displayNameDraft = opened?.displayName ?? '';
-        accounts.displayNameError = null;
+        setMemberEdit({ accounts, member: 'displayName', row: id, value: opened?.displayName ?? '' });
+        setMemberEdit({ accounts, member: 'startingPrompt', row: id, value: opened?.startingPrompt ?? '' });
         accounts.removeArmed = null;
         accounts.rotateArmed = null;
     }
@@ -492,9 +500,8 @@ export function selectAccountRow(rt: PanelRuntime, id: string): void {
 /**
  * Map the Accounts body's callbacks onto the existing actions.
  *
- * Every row-scoped callback resolves the open row first: the detail block
- * only ever describes one account, so a control with no selection simply
- * does nothing rather than acting on the first row it finds.
+ * Every row-scoped callback resolves the open row first, so a control with
+ * no selection does nothing rather than acting on the first row it finds.
  *
  * @param rt - Panel runtime the actions read and repaint.
  * @returns The handler table for {@link mountAccountsBody}.
@@ -513,6 +520,19 @@ export function createAccountsHandlers(rt: PanelRuntime): AccountsHandlers {
                 void saveDisplayName(rt, {
                     numericUserId: accounts.selected,
                     value: accounts.displayNameDraft,
+                });
+            }
+        },
+        setStartingPrompt: (value) => editAccounts(rt, {
+            startingPromptDraft: value,
+            startingPromptError: null,
+        }),
+        submitStartingPrompt: (): void => {
+            const { accounts } = rt.state;
+            if (accounts.selected !== null) {
+                void saveStartingPrompt(rt, {
+                    numericUserId: accounts.selected,
+                    value: accounts.startingPromptDraft,
                 });
             }
         },

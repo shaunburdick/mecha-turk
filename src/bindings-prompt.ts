@@ -1,11 +1,17 @@
 /**
  * The binding editor's starting-prompt field (005 FR-051, FR-052; 004 FR-014).
  *
- * Exactly one element in the whole panel carries the operator's starting
- * prompt, and this is it: a multiline field in the Bindings editor, fed from
- * `GET /v1/bindings`'s `startingPrompt` and never from an audit fingerprint.
- * The row summary renders presence and length only, so this module — and
- * nothing else — is the one place the text can reach the DOM (FR-051).
+ * Exactly one element carries *this binding's* starting prompt, and this is
+ * it: a multiline field in the Bindings editor, fed from `GET /v1/bindings`'s
+ * `startingPrompt` and never from an audit fingerprint. The row summary
+ * renders presence and length only, so this module — and nothing else — is
+ * the one place this binding's text can reach the DOM (005 FR-051 as re-cut
+ * at v1.9.0: one rendering *per tier value*; this is the binding tier's).
+ *
+ * The field also carries the two rules that belong to every surface a tier
+ * is rendered on (004 FR-089, AC-144): FR-063's five-fact guidance beside
+ * the input, and FR-064's honest `not set` in the value slot while nothing
+ * is set.
  *
  * **The field has no button of its own.** It is a field of the binding's
  * form, so the editor's own primary control writes it with everything else
@@ -34,11 +40,39 @@ import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
 /** What the field is, in 005 FR-051's words (the operator's instruction). */
 export const STARTING_PROMPT_LABEL = 'Starting prompt for dispatches from this repository';
 
-/** Help under the field while nothing is wrong with it. */
-const PROMPT_HELPER = 'Sent first in every dispatch from this binding.';
+/**
+ * FR-063's guidance, fixed beside the binding-tier field (004 FR-089: the
+ * guidance travels with *every* surface that renders a tier, and AC-144 names
+ * this one).
+ *
+ * The five facts, in the operator's terms: the text is sent **verbatim**;
+ * there are **no placeholders**; the session runs the operator's **pinned
+ * Default Agent**, which this text cannot change; a **credential-shaped
+ * value is refused** rather than stored; and there is a **length cap** —
+ * the same substance `accounts-rows.ts` states on the Accounts tab and the
+ * service's `format` states for the Settings row, with this field's own
+ * first sentence kept, because *sent first in every dispatch from this
+ * binding* is what the field is.
+ *
+ * It is fixed copy on purpose: a panel sentence that measured or refused
+ * anything would be a second validator disagreeing with the one the service
+ * runs (004 plan D24), so this states what happens and gates nothing.
+ */
+export const PROMPT_GUIDANCE =
+    'Sent first in every dispatch from this binding, to the agent verbatim — there are no '
+    + 'placeholders, and the session runs the pinned Default Agent, which this text cannot change. '
+    + 'A credential-shaped value is refused rather than stored, and the cap is 2,000 characters.';
 
-/** Help under the field before a binding is selected to edit. */
-const PROMPT_IDLE = 'Select a binding to edit its starting prompt.';
+/**
+ * FR-064's honest-absence word, shown in the value slot while the field is
+ * empty.
+ *
+ * An empty text box reads as an empty instruction the agent will receive;
+ * this says otherwise instead — the same word the Settings row and the
+ * Accounts field use, so an unset tier reads as one state on all three
+ * surfaces (004 FR-064).
+ */
+export const PROMPT_NOT_SET = 'not set';
 
 /**
  * Read the service's refusal **if it belongs to the prompt field** (FR-052).
@@ -93,10 +127,10 @@ export function mountBindingPrompt(input: {
         field: mountTextField(input.pane, {
             label: STARTING_PROMPT_LABEL,
             value: state.startingPromptInput,
-            placeholder: 'Leave untouched to keep the prompt that is stored',
+            placeholder: PROMPT_NOT_SET,
             multiline: true,
             rows: 4,
-            helper: state.selectedBinding === null ? PROMPT_IDLE : PROMPT_HELPER,
+            helper: PROMPT_GUIDANCE,
             onChange: (value) => input.handlers.setStartingPrompt(value),
         }),
     };
@@ -108,33 +142,29 @@ export function mountBindingPrompt(input: {
  * The refusal is rendered **as the field's own helper**, directly under the
  * input, because FR-052 asks for a *field-level* refusal with its
  * remediation — and the service's copy never echoes what was submitted, so it
- * can be shown verbatim (FR-085).
+ * can be shown verbatim (FR-085). It is the only thing that displaces
+ * FR-063's guidance: the guidance is the field's resting state, and it comes
+ * back the moment the service accepts the next save.
  *
- * Two different questions get two different answers here, and conflating them
- * is what made the field dead in add mode:
- *
- * - **the helper follows the selection** — before a row is selected the field
- *   says so, which is the copy an operator sees whether the editor was opened
- *   by a row click or by *New binding*;
- * - **the input follows the editor** — a form the operator has open is
- *   typeable in both modes. *New binding* selects no row *by design* (the
- *   add form's own signal throughout), so keying `disabled` off the selection
- *   disabled the field exactly where it was being used, leaving it rendered
- *   but unfocusable.
+ * What the input shows does not depend on the selection: a form the operator
+ * has open is typeable in both modes, and *New binding* selects no row *by
+ * design* (the add form's own signal throughout). That is also why the
+ * guidance is unconditional — an idle line telling an operator who is
+ * creating a binding to *select* one is copy FR-063 never asked for, and
+ * FR-089 applies the five facts to this field whether or not a row is
+ * selected. Only the readiness of the form still follows the selection.
  *
  * @param rt - Panel runtime.
  * @param controls - The mounted field.
  */
 export function repaintBindingPrompt(rt: PanelRuntime, controls: BindingPromptControls): void {
     const state = rt.state.bindings;
-    const selected = state.selectedBinding !== null && state.status !== 'loading';
-    const help = state.startingPromptError ?? (selected ? PROMPT_HELPER : PROMPT_IDLE);
     const typeable = state.editorOpen && state.status !== 'loading';
 
     controls.field.update({
         value: state.startingPromptInput,
         disabled: !typeable,
-        helper: help,
+        helper: state.startingPromptError ?? PROMPT_GUIDANCE,
     });
 }
 

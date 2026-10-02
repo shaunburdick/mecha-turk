@@ -209,6 +209,41 @@ function typeInto(field: string, value: string): void {
 }
 
 /**
+ * Find one field's mounted control, as the operator's tab would hold it.
+ *
+ * @param field - Field name (the label starts with it).
+ * @returns The props the control was mounted with.
+ */
+function fieldProps(field: string): {
+    /** The accessible name: name, unit slot, and boundary (006 FR-018). */
+    readonly label: string;
+    /** What the value slot holds. */
+    readonly value: string;
+    /** What an empty value slot states (004 FR-064). */
+    readonly placeholder?: string;
+    /** The affordance under the field (006 FR-014). */
+    readonly helper: string;
+    /** The handler that makes it operable. */
+    readonly onChange: (next: string) => void;
+} {
+    const entry = mounts.log.find(
+        (mount) => mount.key === 'mountTextField'
+            && (mount.props as { readonly label?: string }).label?.startsWith(field) === true,
+    );
+    if (entry === undefined) {
+        throw new Error(`no control for ${field} was mounted`);
+    }
+
+    return entry.props as {
+        readonly label: string;
+        readonly value: string;
+        readonly placeholder?: string;
+        readonly helper: string;
+        readonly onChange: (next: string) => void;
+    };
+}
+
+/**
  * Run one save activation and let the answer land.
  *
  * @param view - The mounted body.
@@ -473,5 +508,51 @@ describe('a write that could not happen is not a refusal (006 T-020, FR-061, FR-
         expect(slice.edit.problem).toBe('service answered 503');
         expect(slice.edit.issues).toEqual([]);
         view.dispose();
+    });
+});
+
+describe('the twelfth row rides the descriptor (004 T-030; 006 FR-010, FR-014, FR-081)', () => {
+    it('mounts the prompt row with FR-064\'s state and the decla… (+2 cases)', async () => {
+        const descriptor = configSchema().find((candidate) => candidate.name === 'startingPrompt');
+        if (descriptor?.kind !== 'string') {
+            throw new Error('the service projects no string descriptor for startingPrompt');
+        }
+
+        // case: mounts the prompt row with FR-064's state and the declared guidance
+        {
+            const view = await mountSettings({ answer: scriptedAnswer({}) });
+            const control = fieldProps('startingPrompt');
+
+            // The value slot states the absence — never an empty box that
+            // reads as an empty instruction (004 FR-064)…
+            expect(control.value).toBe('');
+            expect(control.placeholder).toBe('not set');
+            // …the guidance under it is the service's own `format` prose,
+            // rendered as text (research R-4)…
+            expect(control.helper).toContain(`format: ${descriptor.format}`);
+            expect(control.helper).toContain(`max ${descriptor.maxLength} characters`);
+            // …and the control is still the input: named with the field, its
+            // unit slot, and the boundary, and operable from the keyboard
+            // through its own handler (006 FR-018, NFR-107).
+            expect(control.label).toBe('startingPrompt (unit none) — in effect from the next poll');
+            expect(typeof control.onChange).toBe('function');
+            view.dispose();
+        }
+        // case: a set tier's value lands in that one control, and the rows keep the descriptor's order
+        {
+            const prompt = 'Review every change against the ticket before approving.';
+            const view = await mountSettings({
+                answer: scriptedAnswer({ config: envelopeBody({ ...DEFAULT_CONFIG, startingPrompt: prompt }) }),
+            });
+
+            expect(fieldProps('startingPrompt').value).toBe(prompt);
+            // The tab's rows are the projection's rows, in the projection's
+            // order, with the twelfth field last (006 FR-010 — one list, and
+            // this feature adds no thirteenth row).
+            const fields = view.rt.state.settingsTab.doc?.fields.map((candidate) => candidate.name) ?? [];
+            expect(fields).toEqual(configSchema().map((candidate) => candidate.name));
+            expect(fields[fields.length - 1]).toBe('startingPrompt');
+            view.dispose();
+        }
     });
 });

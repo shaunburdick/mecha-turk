@@ -261,7 +261,7 @@ carrying either or both members, and a claim/row/audit read carrying `promptSour
 any host call, and renders each new tier exactly once. Independent test (US6): drive a claimed run
 with three tiers through the fake host and byte-compare; render all six tabs and count sentinels.
 
-- [ ] **T-027** [US4/US6] **The closed reader** — `src/prompt.ts`, `src/prompt-wire.ts`,
+- [x] **T-027** [US4/US6] **The closed reader** — `src/prompt.ts`, `src/prompt-wire.ts`,
   `src/claim-service.ts`, `src/session.ts` (FR-087, FR-037, AC-151): `PromptReference` gains
   `promptSources: readonly PromptSource[] | null`; `readPromptReference` refuses (returns `null`)
   when a present reference carries no list, an empty list, an unknown tier, an out-of-order or
@@ -274,13 +274,13 @@ with three tiers through the fake host and byte-compare; render all six tabs and
   lists refuse the entry and the answer; unset answers `false + null`; the serialized
   `startSession` request carries `data.promptSources` and still **one** occurrence of the block text
   (inside `text`); no `promptText` is written to `host.storage`, the ledger, or any copy.
-- [ ] **T-028** [US4/US6] The dispatch row's line — `src/dispatches-service.ts`,
+- [x] **T-028** [US4/US6] The dispatch row's line — `src/dispatches-service.ts`,
   `src/dispatches-rows.ts` (FR-052, FR-087): `RunRow` inherits `promptSources`; the prompt phrase
   becomes `prompt set · global+account+binding · mtp-… · N chars` (sources joined in order) / `prompt
   not set`, through the existing non-HTML path — **never the text**. *Tests*
   (`tests/dispatches.test.ts`): both states render; an unknown source string renders as inert text;
   a run with no tier renders `prompt not set`.
-- [ ] **T-029** [P] [US6] The **budget floor** — `src/relay-attempt.ts` (FR-085, AC-147, SC-132):
+- [x] **T-029** [P] [US6] The **budget floor** — `src/relay-attempt.ts` (FR-085, AC-147, SC-132):
   after composing, refuse when `composed.length > CONTEXT_MAX_CHARS` **before**
   `host.startSession()` — no session started, nothing truncated — with a remediation naming the
   contributing tiers from `promptSources`, reported through the existing failed-attempt `problem`
@@ -289,7 +289,7 @@ with three tiers through the fake host and byte-compare; render all six tabs and
   validation) composes, refuses, and issues **zero** host calls; the remediation names
   `global`/`account`/`binding` as applicable; a maximal legal three-tier composition passes the
   floor untouched.
-- [ ] **T-030** [P] [US6] The **Settings row** — `src/settings-rows.ts` (+ `tests/settings-rows.*`,
+- [x] **T-030** [P] [US6] The **Settings row** — `src/settings-rows.ts` (+ `tests/settings-rows.*`,
   `tests/settings-tab.test.ts`) (FR-064, FR-081, FR-089; 006 FR-010, FR-014, FR-081): the twelfth
   row appears from the descriptor with **no row-list edit**; an empty string field shows the
   **not-set word** in its value slot (FR-064 — never an empty box that reads as an instruction) and
@@ -298,7 +298,7 @@ with three tiers through the fake host and byte-compare; render all six tabs and
   descriptor order; the not-set word appears for `''` and the value for a set tier; the row's
   helper/label come from the descriptor, never from a panel literal; the cross-check against the
   service's declaration still holds.
-- [ ] **T-031** [P] [US6] The **Accounts field** — `src/bindings-service.ts`, `src/service-calls.ts`,
+- [x] **T-031** [P] [US6] The **Accounts field** — `src/bindings-service.ts`, `src/service-calls.ts`,
   `src/accounts-state.ts`, `src/accounts-tab.ts`, `src/accounts-actions.ts`, `src/accounts-rows.ts`
   (FR-063, FR-064, FR-082, FR-089; 005 FR-051, FR-066): `PanelAccount` gains `startingPrompt`
   (fail-closed parse — a non-string refuses the entry); `service-calls.ts` swaps the
@@ -318,7 +318,22 @@ with three tiers through the fake host and byte-compare; render all six tabs and
   and body — the old `…/display-name` assertion is re-cut here); a refused save renders the
   remediation, changes nothing, and leaves the stored value intact; the summary never carries the
   value; `host.storage` receives no copy.
-- [ ] **T-032** [US6] **One rendering per tier value** — `tests/bundle.test.ts` +
+- [x] **T-039** [US6] *(added at the Wave-3 checkpoint, 2026-10-02)* **The binding tier's
+  guidance and not-set state** — `src/bindings-prompt.ts` (+ `tests/bindings-prompt.test.ts`)
+  (FR-063, FR-064, FR-089; AC-144): the Bindings editor's field still carries only
+  `PROMPT_HELPER` = *"Sent first in every dispatch from this binding."* — one sentence, none of
+  FR-063's five facts. FR-089 makes FR-063 and FR-064 apply to **every** surface that renders a
+  tier, and AC-144 names this field: the guidance must convey that the text is sent verbatim,
+  that there are no placeholders, that the session's agent is the operator's pinned Default Agent
+  and the text cannot change it, that a credential-shaped value is refused rather than stored,
+  and that there is a length cap; the empty field must show the honest **not set** word rather
+  than an empty box (FR-064), matching what T-030 did for Settings and T-031 for Accounts.
+  Service stays the only validator (plan D24); a service refusal keeps rendering in the existing
+  slot without echoing the value; the row summary keeps presence/length only. *Tests*
+  (`tests/bindings-prompt.test.ts`): the five facts are conveyed; `not set` shows when unset and
+  the value when set; no panel-side validation introduced; the refusal slot unchanged; the row
+  summary never carries the value.
+- [x] **T-032** [US6] **One rendering per tier value** — `tests/bundle.test.ts` +
   `tests/bindings-prompt.test.ts`/`tests/accounts-ui.test.ts`/`tests/settings-rows.test.ts`
   (FR-089; 005 FR-051, SC-105, AC-123): seed a global, an account, and a binding prompt with three
   distinct sentinels, render all six tabs, count rendered elements carrying each sentinel —

@@ -10,9 +10,15 @@
  * - {@link buildBoundedContext} reserves the prompt block *before* it sizes the
  *   excerpt budget, so the excerpt is the part that shortens and the prompt
  *   never does;
- * - `parsePendingBody` reads the claim answer's four prompt members fail
- *   closed — most importantly the contract's iff, `promptText` non-null **iff**
- *   `promptPresent`.
+ * - `parsePendingBody` reads the claim answer's five prompt members fail
+ *   closed — the contract's iff, `promptText` non-null **iff** `promptPresent`,
+ *   and FR-087's source list: a present reference carries a non-empty
+ *   `promptSources`, an absent one `null`, and one refused entry refuses the
+ *   whole answer;
+ * - {@link budgetFloorProblem} is the fail-closed floor (004 FR-085): a
+ *   composed message over {@link CONTEXT_MAX_CHARS} is refused with a
+ *   remediation naming the contributing tiers — never shortened, because a
+ *   maximal legal composition never trips it in the first place.
  *
  * Offline: pure functions over fixed fixtures, no host, no service, no clock.
  */
@@ -26,6 +32,7 @@ import {
     composeFirstMessage,
     promptBlockChars,
 } from '../src/prompt.ts';
+import { budgetFloorProblem } from '../src/relay-attempt.ts';
 import { CONTEXT_MAX_CHARS, buildBoundedContext, buildStartSessionRequest } from '../src/session.ts';
 import type { GitHubIssue } from '../src/github.ts';
 import { testConfig, testEvidence } from './support/panel.ts';
@@ -183,28 +190,38 @@ describe('T-010 the budget reserves the prompt before sizing the excerpt (FR-035
     });
 });
 
-describe('T-010 buildStartSessionRequest: the reference, never a second copy (FR-037, AC-130)', () => {
-    it('adds the three scalars to `data` and never the text (+2 cases)', () => {
-        // case: adds the three scalars to `data` and never the text
+describe('T-010 buildStartSessionRequest: the reference, never a second copy (FR-037, FR-087, AC-130)', () => {
+    it('adds the four members to `data` and never the text (+2 cases)', () => {
+        // case: adds the four members to `data` and never the text
         {
             const request = buildStartSessionRequest({
                 config: testConfig(),
                 evidence: testEvidence(),
                 issue: goldenIssue(),
                 context: composeFirstMessage({ prompt: PROMPT, frame: GOLDEN_FRAME }),
-                prompt: { promptPresent: true, promptFingerprint: FINGERPRINT, promptLength: [...PROMPT].length },
+                prompt: {
+                    promptPresent: true,
+                    promptFingerprint: FINGERPRINT,
+                    promptLength: [...PROMPT].length,
+                    promptSources: ['binding'],
+                },
             });
 
             expect(request.data).toMatchObject({
                 promptPresent: true,
                 promptFingerprint: FINGERPRINT,
                 promptLength: [...PROMPT].length,
+                promptSources: ['binding'],
             });
             expect(JSON.stringify(request.data)).not.toContain(PROMPT);
-            // The text is exactly where FR-030 puts it: the attachment's `text`.
-            expect(request.text).toContain(PROMPT);
+            // The text is exactly where FR-030 puts it: the attachment's `text`,
+            // and there it appears exactly once (004 AC-151, T-027). An absent
+            // `text` reads as `''` and fails the containment check below.
+            const text = request.text ?? '';
+            expect(text).toContain(PROMPT);
+            expect(text.split(PROMPT).length - 1).toBe(1);
         }
-        // case: writes the explicit unset triple when no prompt is offered (the spike path)
+        // case: writes the explicit unset quartet when no prompt is offered (the spike path)
         {
             const request = buildStartSessionRequest({
                 config: testConfig(),
@@ -217,6 +234,7 @@ describe('T-010 buildStartSessionRequest: the reference, never a second copy (FR
                 promptPresent: false,
                 promptFingerprint: null,
                 promptLength: null,
+                promptSources: null,
             });
             expect(request.text).toBe(GOLDEN_FRAME);
         }
@@ -227,7 +245,12 @@ describe('T-010 buildStartSessionRequest: the reference, never a second copy (FR
                 evidence: testEvidence(),
                 issue: goldenIssue(),
                 context: composeFirstMessage({ prompt: PROMPT, frame: GOLDEN_FRAME }),
-                prompt: { promptPresent: true, promptFingerprint: FINGERPRINT, promptLength: [...PROMPT].length },
+                prompt: {
+                    promptPresent: true,
+                    promptFingerprint: FINGERPRINT,
+                    promptLength: [...PROMPT].length,
+                    promptSources: ['binding'],
+                },
             });
 
             // The prompt is text, never a selector: whatever it names, the
@@ -287,6 +310,7 @@ function claimEntry(overrides: Record<string, unknown> = {}): Record<string, unk
         promptPresent: false,
         promptFingerprint: null,
         promptLength: null,
+        promptSources: null,
         promptText: null,
         ...overrides,
     };
@@ -302,9 +326,9 @@ function parseOne(entry: Record<string, unknown>): ReturnType<typeof parsePendin
     return parsePendingBody(JSON.stringify({ events: [entry], status: [], auditWritten: true }));
 }
 
-describe('T-009 the claim DTO reads the four prompt members, fail closed (FR-015, AC-130)', () => {
-    it('parses an unset entry, with all four members explici… (+5 cases)', () => {
-        // case: parses an unset entry, with all four members explicit
+describe('T-009 the claim DTO reads the five prompt members, fail closed (FR-015, FR-087, AC-130)', () => {
+    it('parses an unset entry, with all five members explici… (+5 cases)', () => {
+        // case: parses an unset entry, with all five members explicit
         {
             const parsed = parseOne(claimEntry());
             expect(parsed?.runs).toHaveLength(1);
@@ -312,6 +336,7 @@ describe('T-009 the claim DTO reads the four prompt members, fail closed (FR-015
                 promptPresent: false,
                 promptFingerprint: null,
                 promptLength: null,
+                promptSources: null,
                 promptText: null,
             });
         }
@@ -321,6 +346,7 @@ describe('T-009 the claim DTO reads the four prompt members, fail closed (FR-015
                 promptPresent: true,
                 promptFingerprint: FINGERPRINT,
                 promptLength: [...PROMPT].length,
+                promptSources: ['binding'],
                 promptText: PROMPT,
             }));
 
@@ -328,6 +354,7 @@ describe('T-009 the claim DTO reads the four prompt members, fail closed (FR-015
                 promptPresent: true,
                 promptFingerprint: FINGERPRINT,
                 promptLength: [...PROMPT].length,
+                promptSources: ['binding'],
                 promptText: PROMPT,
             });
         }
@@ -341,6 +368,7 @@ describe('T-009 the claim DTO reads the four prompt members, fail closed (FR-015
                 promptPresent: true,
                 promptFingerprint: FINGERPRINT,
                 promptLength: [...PROMPT].length,
+                promptSources: ['binding'],
                 promptText: null,
             }))).toBeNull();
         }
@@ -350,12 +378,14 @@ describe('T-009 the claim DTO reads the four prompt members, fail closed (FR-015
                 promptPresent: true,
                 promptFingerprint: 'mtp-zzzz',
                 promptLength: 1,
+                promptSources: ['binding'],
                 promptText: 'x',
             }))).toBeNull();
             expect(parseOne(claimEntry({
                 promptPresent: true,
                 promptFingerprint: FINGERPRINT,
                 promptLength: 1.5,
+                promptSources: ['binding'],
                 promptText: 'x',
             }))).toBeNull();
 
@@ -369,8 +399,162 @@ describe('T-009 the claim DTO reads the four prompt members, fail closed (FR-015
                 promptPresent: true,
                 promptFingerprint: FINGERPRINT,
                 promptLength: 3,
+                promptSources: ['binding'],
                 promptText: PROMPT,
             }))).toBeNull();
+        }
+    });
+});
+
+/** A present claim entry, valid in every member the hostile cases below leave alone. */
+const PRESENT_ENTRY = {
+    promptPresent: true,
+    promptFingerprint: FINGERPRINT,
+    promptLength: [...PROMPT].length,
+    promptText: PROMPT,
+};
+
+/** The four hostile source lists AC-151 names, each one a refusal. */
+const HOSTILE_SOURCES: readonly (readonly [string, readonly string[]])[] = [
+    ['an unknown tier', ['repo']],
+    ['an out-of-order list', ['binding', 'global']],
+    ['a duplicated list', ['global', 'global']],
+    ['an empty list', []],
+];
+
+describe('T-027 the closed reader refuses the `promptSources` it cannot stand behind (FR-087, AC-151)', () => {
+    it('refuses each hostile list, and one refusal refuses the whole… (+7 cases)', () => {
+        // case: each hostile list refuses its own entry
+        {
+            for (const [label, list] of HOSTILE_SOURCES) {
+                const parsed = parseOne(claimEntry({ ...PRESENT_ENTRY, promptSources: [...list] }));
+
+                expect(parsed, `a present reference carrying ${label} must be refused`).toBeNull();
+            }
+        }
+        // case: one refused entry refuses the whole answer, never a partial one
+        {
+            for (const [label, list] of HOSTILE_SOURCES) {
+                const answer = parsePendingBody(JSON.stringify({
+                    events: [claimEntry(), claimEntry({ ...PRESENT_ENTRY, promptSources: [...list] })],
+                    status: [],
+                    auditWritten: true,
+                }));
+
+                expect(answer, `${label} must refuse the whole answer`).toBeNull();
+            }
+        }
+        // case: a present reference carrying no list at all is refused (never defaulted)
+        {
+            const noList = claimEntry({ ...PRESENT_ENTRY });
+            delete noList.promptSources;
+
+            expect(parseOne(noList)).toBeNull();
+        }
+        // case: an unset entry that omits the member is refused — `null` must be explicit
+        {
+            const unsetNoList = claimEntry();
+            delete unsetNoList.promptSources;
+
+            expect(parseOne(unsetNoList)).toBeNull();
+        }
+        // case: a `null` list on a present reference is refused
+        {
+            expect(parseOne(claimEntry({ ...PRESENT_ENTRY, promptSources: null }))).toBeNull();
+        }
+        // case: any list on an absent reference is refused (presence disagreement)
+        {
+            expect(parseOne(claimEntry({ promptSources: ['binding'] }))).toBeNull();
+            expect(parseOne(claimEntry({ promptSources: [] }))).toBeNull();
+        }
+        // case: the full ordered stack parses — the accepted shape is closed, not starved
+        {
+            const parsed = parseOne(claimEntry({
+                ...PRESENT_ENTRY,
+                promptSources: ['global', 'account', 'binding'],
+            }));
+
+            expect(parsed?.runs[0]).toMatchObject({ promptSources: ['global', 'account', 'binding'] });
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * T-029 — the budget floor
+ * (FR-085, AC-147, SC-132)
+ * ------------------------------------------------------------------------- */
+
+/** One maximal tier: 2,000 code points, the per-tier cap FR-020 sets. */
+const MAXIMAL_TIER = 'x'.repeat(2_000);
+
+/**
+ * The maximal three-tier prompt body: 3 × 2,000 code points plus the two
+ * blank-line gaps FR-080 puts between the tiers actually present — **6,004**,
+ * the figure FR-085 states after v1.4.1's correction.
+ */
+const MAXIMAL_THREE_TIERS = [MAXIMAL_TIER, MAXIMAL_TIER, MAXIMAL_TIER].join('\n\n');
+
+/** A message one character past the bound the floor holds. */
+const ONE_OVER = CONTEXT_MAX_CHARS + 1;
+
+describe('T-029 the budget floor refuses over-budget, never truncating (FR-085, AC-147, SC-132)', () => {
+    it('passes a maximal three-tier composition untouched… (+4 cases)', () => {
+        // case: a maximal three-tier composition (6,004) passes the floor untouched
+        {
+            expect(MAXIMAL_THREE_TIERS.length).toBe(6_004);
+
+            const frame = buildBoundedContext({
+                repository: GOLDEN_REPOSITORY,
+                issue: { ...goldenIssue(), body: 'y'.repeat(20_000) },
+                authenticatedLogin: GOLDEN_LOGIN,
+                correlationId: CORRELATION,
+                reservedChars: promptBlockChars(MAXIMAL_THREE_TIERS),
+            });
+            const composed = composeFirstMessage({ prompt: MAXIMAL_THREE_TIERS, frame });
+
+            // Whole stack present — no tier shortened — and inside both budgets,
+            // so a legal composition never reaches a refusal (AC-147's first half).
+            expect(composed).toContain(MAXIMAL_THREE_TIERS);
+            expect(composed.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
+            expect(composed.length).toBeLessThan(GUEST_ATTACH_TEXT_MAX);
+            expect(budgetFloorProblem({ composed, sources: ['global', 'account', 'binding'] })).toBeNull();
+        }
+        // case: an over-budget message is refused, naming every contributing tier
+        {
+            const problem = budgetFloorProblem({
+                composed: 'x'.repeat(ONE_OVER),
+                sources: ['global', 'account', 'binding'],
+            });
+
+            expect(problem).not.toBeNull();
+            expect(problem).toContain('global, account, binding');
+            // The remediation states what was *not* done: no truncation, no session.
+            expect(problem).toContain('nothing was truncated');
+            expect(problem).toContain('no session was started');
+            // And it fits what the run-scoped routes accept (1,000 characters).
+            expect((problem ?? '').length).toBeLessThanOrEqual(1_000);
+        }
+        // case: names only the tiers that are present
+        {
+            const problem = budgetFloorProblem({ composed: 'x'.repeat(ONE_OVER), sources: ['binding'] });
+
+            expect(problem).toContain('binding');
+            expect(problem).not.toContain('global');
+            expect(problem).not.toContain('account');
+        }
+        // case: the bound itself passes — the floor is `>` and not `>=`
+        {
+            expect(budgetFloorProblem({
+                composed: 'x'.repeat(CONTEXT_MAX_CHARS),
+                sources: ['global'],
+            })).toBeNull();
+        }
+        // case: an overrun no tier can explain still refuses, and says so honestly
+        {
+            const problem = budgetFloorProblem({ composed: 'x'.repeat(ONE_OVER), sources: null });
+
+            expect(problem).not.toBeNull();
+            expect(problem).toContain('none named');
         }
     });
 });

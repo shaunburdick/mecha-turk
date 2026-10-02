@@ -51,6 +51,7 @@ import type { AuditViewState } from '../src/audit-view.ts';
 import { EVENTS_PATH, auditPath, requeuePath, resolvePath, retryPath } from '../src/service-calls.ts';
 import type { PanelRuntime, DispatchesState } from '../src/panel-state.ts';
 import type { RunReference, RunRow } from '../src/dispatches-service.ts';
+import type { PromptSource } from '../src/prompt.ts';
 import {
     DEFAULT_BODY,
     DEFAULT_STATUS,
@@ -169,6 +170,7 @@ function runFixture(overrides: Partial<RunRow> = {}): RunRow {
         promptPresent: false,
         promptFingerprint: null,
         promptLength: null,
+        promptSources: null,
         ...overrides,
     };
 }
@@ -507,14 +509,19 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
                     + ' · prompt not set',
             );
         }
-        // case: shows prompt presence, fingerprint, and length — and never the text (004 FR-052, AC-139)
+        // case: shows prompt presence, tier sources, fingerprint, and length — never the text (004 FR-052, AC-139)
         {
             const fingerprint = 'mtp-0123456789abcdef0123456789abcdef';
             const set = dispatchRows(runsState({
-                rows: [runFixture({ promptPresent: true, promptFingerprint: fingerprint, promptLength: 340 })],
+                rows: [runFixture({
+                    promptPresent: true,
+                    promptFingerprint: fingerprint,
+                    promptLength: 340,
+                    promptSources: ['binding'],
+                })],
                 status: 'ready',
             }));
-            expect(set[0]?.subtitle).toContain(`prompt set · ${fingerprint} · 340 chars`);
+            expect(set[0]?.subtitle).toContain(`prompt set · binding · ${fingerprint} · 340 chars`);
 
             // The row never holds the instruction: there is no member for it to
             // hold, so `host.storage` can only ever receive the reference.
@@ -528,7 +535,12 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
             // is the renderer's own posture with a value it was handed anyway.
             const hostile = '<img src=x onerror="steal()">';
             const rows = dispatchRows(runsState({
-                rows: [runFixture({ promptPresent: true, promptFingerprint: hostile, promptLength: 1 })],
+                rows: [runFixture({
+                    promptPresent: true,
+                    promptFingerprint: hostile,
+                    promptLength: 1,
+                    promptSources: ['binding'],
+                })],
                 status: 'ready',
             }));
 
@@ -642,6 +654,100 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
             expect(uncompared?.subtitle).not.toContain('mismatch');
             // No expectation was missed, so the state keeps its own tone.
             expect(uncompared?.badge).toEqual({ label: 'dispatched', tone: 'success' });
+        }
+    });
+});
+
+describe('T-028 the row’s prompt line (sources, fingerprint, length — never the text)', () => {
+    /** Fingerprint every set-reference case in this block carries. */
+    const FINGERPRINT = 'mtp-0123456789abcdef0123456789abcdef';
+
+    it('names the contributing tiers beside the fingerprint (+4 cases)', () => {
+        // case: joins every set tier in stacking order, between "prompt set" and the fingerprint (FR-072, FR-087)
+        {
+            const set = dispatchRows(runsState({
+                rows: [runFixture({
+                    promptPresent: true,
+                    promptFingerprint: FINGERPRINT,
+                    promptLength: 512,
+                    promptSources: ['global', 'account', 'binding'],
+                })],
+                status: 'ready',
+            }));
+
+            expect(set[0]?.subtitle).toContain(
+                `prompt set · global+account+binding · ${FINGERPRINT} · 512 chars`,
+            );
+        }
+        // case: joins a partial list in the order the reader accepted it, most general first (FR-087)
+        {
+            const partial = dispatchRows(runsState({
+                rows: [runFixture({
+                    promptPresent: true,
+                    promptFingerprint: FINGERPRINT,
+                    promptLength: 64,
+                    promptSources: ['global', 'binding'],
+                })],
+                status: 'ready',
+            }));
+
+            expect(partial[0]?.subtitle).toContain(`prompt set · global+binding · ${FINGERPRINT} · 64 chars`);
+        }
+        // case: renders an unknown source string as inert text through the non-HTML path (FR-087, NFR-127)
+        {
+            // The closed reader refuses an unknown tier before a row can parse
+            // (T-027), so this is the renderer's own posture with a value it was
+            // handed anyway — the same stance the hostile-fingerprint case above
+            // takes. The list primitive writes the subtitle through `textContent`,
+            // so the marker arrives verbatim: no escaping hides it from the
+            // operator, and no path could evaluate it.
+            const marker = '<img src=x onerror="steal()"> <script>alert(1)</script>';
+            const rows = dispatchRows(runsState({
+                rows: [{
+                    ...runFixture({
+                        promptPresent: true,
+                        promptFingerprint: FINGERPRINT,
+                        promptLength: 12,
+                    }),
+                    promptSources: [marker] as unknown as readonly PromptSource[],
+                }],
+                status: 'ready',
+            }));
+            const subtitle = rows[0]?.subtitle ?? '';
+
+            expect(subtitle).toContain(`prompt set · ${marker} · ${FINGERPRINT} · 12 chars`);
+            expect(subtitle).not.toContain('&lt;');
+        }
+        // case: a run with no tier renders `prompt not set` and never a "set" line (FR-087's iff)
+        {
+            const untiered = dispatchRows(runsState({
+                rows: [runFixture({
+                    promptPresent: false,
+                    promptFingerprint: null,
+                    promptLength: null,
+                    promptSources: null,
+                })],
+                status: 'ready',
+            }));
+            expect(untiered[0]?.subtitle).toContain('prompt not set');
+            expect(untiered[0]?.subtitle).not.toContain('prompt set ·');
+
+            // A present reference with no tier to name is a state the reader
+            // refuses outright, so the renderer only has to hold the line: no
+            // empty source segment may print between the two separators.
+            const noSources = dispatchRows(runsState({
+                rows: [{
+                    ...runFixture({
+                        promptPresent: true,
+                        promptFingerprint: FINGERPRINT,
+                        promptLength: 8,
+                    }),
+                    promptSources: [],
+                }],
+                status: 'ready',
+            }));
+            expect(noSources[0]?.subtitle).toContain('prompt not set');
+            expect(noSources[0]?.subtitle).not.toContain('prompt set ·');
         }
     });
 });

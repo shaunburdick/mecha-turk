@@ -30,7 +30,8 @@
 import type { ListItem } from '@openchamber/sdk/ui';
 import { elapsedSince } from './bindings-rows.ts';
 import type { BindingsTabState } from './panel-state.ts';
-import type { AccountsTabState } from './accounts-state.ts';
+import type { AccountsTabState, AccountMember } from './accounts-state.ts';
+import { memberDraft, memberRefusal, memberRow } from './accounts-state.ts';
 import type { PanelAccount } from './bindings-service.ts';
 
 /**
@@ -215,6 +216,29 @@ export function bindingsBacked(bindings: BindingsTabState, account: PanelAccount
 }
 
 /**
+ * The prompt words an account's row summary carries: presence and length
+ * only — never the text, never a fingerprint (005 FR-051 as amended by 004
+ * v1.3.0: one rendering *per tier value*, and the account tier's value
+ * renders only in its own field).
+ *
+ * Length is counted the way 004 caps the text — by code point, so a
+ * supplementary character is one and not two — and an account whose tier is
+ * unset (004 FR-082) says so rather than showing nothing, because *absent*
+ * is a state an operator should be able to read.
+ *
+ * @param account - The account being rendered.
+ * @returns `prompt set · N chars`, or `prompt not set`.
+ */
+export function accountPromptSummary(account: PanelAccount): string {
+    const { startingPrompt } = account;
+    if (startingPrompt === undefined || startingPrompt === null) {
+        return 'prompt not set';
+    }
+
+    return `prompt set · ${[...startingPrompt].length} chars`;
+}
+
+/**
  * Compose one account row (FR-062, FR-083).
  *
  * @param bindings - The Bindings tab's state, for the binding count.
@@ -236,6 +260,7 @@ export function accountRow(bindings: BindingsTabState, account: PanelAccount): L
     }
 
     parts.push(bindingsPhrase(bindingsBacked(bindings, account)));
+    parts.push(accountPromptSummary(account));
 
     return {
         id: account.numericUserId,
@@ -277,6 +302,7 @@ export function accountDetail(bindings: BindingsTabState, account: PanelAccount)
         verifiedPhrase(account),
         scopePhrase(account),
         bindingsPhrase(bindingsBacked(bindings, account)),
+        accountPromptSummary(account),
     ];
     if (account.state === 'error' && typeof account.errorReason === 'string') {
         parts.push(`error: ${account.errorReason}`);
@@ -406,4 +432,121 @@ export function armLabel(input: {
     readonly idleLabel: string;
 }): string {
     return input.id !== null && input.armed === input.id ? input.armedLabel : input.idleLabel;
+}
+
+/** The display-name field's label, its purpose line, and its save control (FR-066). */
+const DISPLAY_NAME_LABEL = 'Display name for this account';
+
+/** Help under the label field: what the member does, never a value. */
+const DISPLAY_NAME_HINT = 'Shown in the list instead of the login';
+
+/** The label field's save control (FR-066's draft/save flow). */
+const DISPLAY_NAME_SAVE_LABEL = 'Save display name';
+
+/**
+ * The account-tier field's label and save control (004 FR-089).
+ *
+ * The binding tier's label says *from this repository*; this one says *from
+ * this account*, so two fields carrying two different values never read as
+ * one — the single-rendering rule is about a *value*, and distinct labels
+ * keep the surfaces distinct too (005 FR-051).
+ */
+export const ACCOUNT_PROMPT_LABEL = 'Starting prompt for dispatches from this account';
+
+/** The prompt field's save control (004 FR-089). */
+const ACCOUNT_PROMPT_SAVE_LABEL = 'Save starting prompt';
+
+/**
+ * FR-063's guidance, fixed beside the account-tier field (research R-4: the
+ * Settings row takes its guidance from the service-declared `format`, the
+ * Accounts field carries a fixed helper of its own).
+ *
+ * All five facts FR-063 requires the surface to convey, in the operator's
+ * terms: sent verbatim, no placeholders, the pinned Default Agent, the
+ * refusal shape, and the cap. It is *fixed* copy on purpose — a panel
+ * sentence must never become a second validator that disagrees with the one
+ * the service runs (004 plan D24).
+ */
+export const ACCOUNT_PROMPT_GUIDANCE =
+    'Sent to the agent verbatim — there are no placeholders, and the text cannot change the '
+    + 'pinned Default Agent. A credential-shaped value is refused rather than stored, and the '
+    + 'cap is 2,000 characters.';
+
+/**
+ * FR-064's honest-absence word, rendered where the prompt's text would be.
+ *
+ * An empty text box reads as an empty instruction the agent will receive;
+ * this says otherwise in the one slot an empty editor leaves visible.
+ */
+export const ACCOUNT_PROMPT_NOT_SET = 'not set';
+
+/** What one profile member's field and save control render right now. */
+export interface AccountFieldView {
+    /** The field's accessible name (FR-081). */
+    readonly label: string;
+    /** The save control's label. */
+    readonly saveLabel: string;
+    /** The draft the input holds. */
+    readonly value: string;
+    /** Shown only while the input is empty — never typed into the value. */
+    readonly placeholder: string;
+    /** The service's refusal when there is one, else this field's help. */
+    readonly helper: string;
+    /** Whether the field can be typed into (it needs an open row). */
+    readonly disabled: boolean;
+    /** Whether the input is multiline — the prompt is, the label is not. */
+    readonly multiline: boolean;
+}
+
+/**
+ * Derive one profile member's field from state (FR-066, FR-063, FR-064).
+ *
+ * Pure, and the only place either field's words are decided, so mount and
+ * repaint cannot drift apart and a test can read the copy without a DOM.
+ * The service stays the single save boundary (004 plan D24): nothing here
+ * validates, lengths, or shapes the draft — it only says what to show and
+ * whether the row the draft was loaded for is still the one on screen.
+ *
+ * @param member - Which editable member to describe.
+ * @param input - The tab's working state and the open row, if any.
+ * @returns The words and posture the field renders with.
+ */
+export function accountFieldView(
+    member: AccountMember,
+    input: {
+        /** The Accounts tab's working state. */
+        readonly accounts: AccountsTabState;
+        /** The open row, or `undefined` when nothing is selected. */
+        readonly account: PanelAccount | undefined;
+    },
+): AccountFieldView {
+    const { accounts, account } = input;
+    const value = memberDraft(accounts, member);
+    const refusal = memberRefusal(accounts, member);
+    // Editable only while the open row *is* the row on screen: nothing
+    // selected, or a draft that outlived its selection, both read as disabled
+    // (FR-066's open-row guard, 004 FR-089's per-account field).
+    const disabled = memberRow(accounts, member) !== account?.numericUserId;
+
+    if (member === 'displayName') {
+        return {
+            label: DISPLAY_NAME_LABEL,
+            saveLabel: DISPLAY_NAME_SAVE_LABEL,
+            value,
+            placeholder: DISPLAY_NAME_HINT,
+            helper: refusal ?? '',
+            disabled,
+            multiline: false,
+        };
+    }
+
+    return {
+        label: ACCOUNT_PROMPT_LABEL,
+        saveLabel: ACCOUNT_PROMPT_SAVE_LABEL,
+        value,
+        placeholder: ACCOUNT_PROMPT_NOT_SET,
+        helper: refusal ?? ACCOUNT_PROMPT_GUIDANCE,
+        disabled,
+        multiline: true,
+    };
 }

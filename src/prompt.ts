@@ -289,11 +289,14 @@ export function hasIllegalControlChar(text: string): boolean {
 }
 
 /**
- * The prompt reference the machine-readable `data` carries (004 FR-037).
+ * The prompt reference the machine-readable `data` carries (004 FR-037, FR-087).
  *
- * Three scalars and **never the text**: the instruction travels once, in the
- * message's `text`, so a second copy in `data` would be exactly the duplicate
- * 004 FR-037 forbids.
+ * Three scalars, the ordered source list, and **never the text**: the
+ * instruction travels once, in the message's `text`, so a second copy in
+ * `data` would be exactly the duplicate 004 FR-037 forbids. The list names
+ * which tiers produced the block — everywhere the fingerprint is (FR-087) —
+ * and its presence is part of the reference's iff: a present reference holds
+ * a non-empty {@link PromptSource} list, an absent one holds `null`.
  */
 export interface PromptReference {
     /** Whether the run carried a starting prompt. */
@@ -302,6 +305,8 @@ export interface PromptReference {
     readonly promptFingerprint: string | null;
     /** Code points of the normalised text, or `null` when none. */
     readonly promptLength: number | null;
+    /** Tiers that contributed, most general first, or `null` when none (004 FR-087). */
+    readonly promptSources: readonly PromptSource[] | null;
 }
 
 /**

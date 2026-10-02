@@ -83,7 +83,8 @@ export interface RunVerification {
 }
 
 /** One run, as `GET /v1/events` projects it: credential-free, and carrying the
- * prompt's {@link PromptReference} — presence, fingerprint, length, never text. */
+ * prompt's {@link PromptReference} — presence, the ordered `promptSources`
+ * tier list, fingerprint, length, never text (FR-052, FR-087). */
 export interface RunRow extends PromptReference {
     /** **The run's correlation id**: row key and every run-operation path segment. */
     readonly id: string;
