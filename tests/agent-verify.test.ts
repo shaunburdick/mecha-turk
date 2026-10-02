@@ -9,22 +9,24 @@
  * FR-041). These tests drive that flow through a host double that records
  * the order of the two calls (the subscription must land first — the host
  * replays its current snapshot to a late subscriber, so subscribing second
- * would be a race), then covers the four outcomes: match, mismatch, absent
- * agent, and timeout, plus the "the session could not be opened at all"
- * branch, plus the two-case baseline split (configured vs defaulted). The
+ * would be a race), then covers the five outcomes: match, mismatch, absent
+ * agent, timeout, and the *uncompared* read-back a blank baseline produces,
+ * plus the "the session could not be opened at all" branch, plus the
+ * three-way baseline provenance (configured vs defaulted vs unset). The
  * recorder and the relay wiring are asserted end to end so the
  * warning a live dispatch shows cannot silently go missing.
  */
 
 import { describe, expect, it } from 'vitest';
 import type { SessionSnapshot } from '@openchamber/sdk';
+import { DEFAULT_CONFIG } from '../service/config.ts';
 import {
     AGENT_VERIFY_TIMEOUT_MS,
     drainVerifications,
-    verificationNotice,
     verifyAgentAfterDispatch,
     verifySessionAgent,
 } from '../src/agent-verify.ts';
+import { verificationNotice } from '../src/agent-verify-copy.ts';
 import { dispatchClaimedRun } from '../src/relay.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { SpikeHost } from '../src/session.ts';
@@ -50,6 +52,9 @@ const EXPECTED_AGENT = 'project-manager';
 
 /** Deliberately tiny wait budget so the timeout path stays fast in tests. */
 const TEST_TIMEOUT_MS = 20;
+
+/** The configuration route every baseline read goes through. */
+const CONFIG_ROUTE = '/v1/config';
 
 /**
  * Build a session snapshot for the fixture session.
@@ -245,7 +250,7 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
 });
 
 describe('verificationNotice (warn-only copy)', () => {
-    it('shows a success banner for a match (+3 cases)', () => {
+    it('shows a success banner for a match (+6 cases)', () => {
         // case: shows a success banner for a match
         {
             const notice = verificationNotice({ status: 'match', agent: EXPECTED_AGENT, expected: EXPECTED_AGENT });
@@ -279,6 +284,34 @@ describe('verificationNotice (warn-only copy)', () => {
             expect(notice.tone).toBe('warning');
             expect(notice.body).not.toContain('ghp_abcdefghijklmnopqrstuvwx');
             expect(notice.body).toContain('[redacted:github-token-classic]');
+        }
+        // case: states the observation without judging it when no baseline is configured
+        {
+            // 002 FR-029 as amended: the mismatch warning fires only when a real
+            // baseline exists and differs, so a blank one is plain information.
+            const notice = verificationNotice({ status: 'uncompared', agent: 'executor', expected: '' });
+
+            expect(notice.tone).toBe('info');
+            expect(notice.title).toContain('not compared');
+            expect(notice.body).toContain("runs on 'executor'");
+            expect(notice.body).toContain('no comparison baseline is configured');
+            expect(notice.body).not.toContain('mismatch');
+        }
+        // case: reports an unreadable agent under no baseline without inventing an expectation
+        {
+            const notice = verificationNotice({ status: 'uncompared', agent: null, expected: '' });
+
+            expect(notice.tone).toBe('info');
+            expect(notice.body).toContain('reported no agent');
+            expect(notice.body).not.toContain("expected '");
+        }
+        // case: drops the expected-agent clause when the timeout has no baseline
+        {
+            const notice = verificationNotice({ status: 'timeout', expected: '', timeoutMs: 15_000 });
+
+            expect(notice.tone).toBe('warning');
+            expect(notice.body).toContain('within 15s.');
+            expect(notice.body).not.toContain("expected '");
         }
     });
 });
@@ -342,15 +375,37 @@ const HISTORY_PAGE = {
 };
 
 /**
+ * The `GET /v1/config` answer a configured baseline arrives in.
+ *
+ * @param expectedAgent - The baseline the document carries.
+ * @returns The response body, shaped the way the service sends it.
+ */
+function baselineBody(expectedAgent: string): string {
+    return JSON.stringify({ config: { ...DEFAULT_CONFIG, expectedAgent } });
+}
+
+/**
  * Run {@link verifyAgentAfterDispatch} against a host reporting one agent.
  *
  * @param agent - Agent the session reports; omit to report none.
+ * @param configBody - Body `GET /v1/config` answers with; omit it to model a
+ *   service that carries no usable baseline (002 FR-029 case (ii)).
  * @returns The runtime the verification recorded into.
  */
-async function recordedVerification(agent?: string): Promise<PanelRuntime> {
+async function recordedVerification(agent?: string, configBody?: string): Promise<PanelRuntime> {
     const double = verifyHost({ onOpen: snapshot(agent) });
     const rt = createTestRuntime(
-        fakeHost({ onSession: double.host.onSession, openSession: double.host.openSession }),
+        fakeHost({
+            onSession: double.host.onSession,
+            openSession: double.host.openSession,
+            serviceRequest: async (request) => {
+                if (request.method === 'GET' && request.path === CONFIG_ROUTE) {
+                    return configBody === undefined ? { status: 404, body: '{}' } : { status: 200, body: configBody };
+                }
+
+                return { status: 200, body: '{"verification":{"ok":true}}' };
+            },
+        }),
     );
 
     await verifyAgentAfterDispatch({ rt, correlationId: CORRELATION, attempt: 1, sessionId: SESSION });
@@ -359,10 +414,10 @@ async function recordedVerification(agent?: string): Promise<PanelRuntime> {
 }
 
 describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
-    it('records agentVerified with the observed agent on a m… (+1 cases)', async () => {
+    it('records agentVerified with the observed agent on a m… (+2 cases)', async () => {
         // case: records agentVerified with the observed agent on a match
         {
-            const rt = await recordedVerification(EXPECTED_AGENT);
+            const rt = await recordedVerification(EXPECTED_AGENT, baselineBody(EXPECTED_AGENT));
             const entry = rt.state.ledger.entries.at(-1);
 
             expect(entry?.kind).toBe('session');
@@ -370,11 +425,12 @@ describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
             expect(entry?.detail.agentVerified).toBe(true);
             expect(entry?.detail.observedAgent).toBe(EXPECTED_AGENT);
             expect(entry?.detail.verification).toBe('match');
+            expect(entry?.detail.baselineProvenance).toBe('configured');
             expect(rt.state.dispatches.agentNotice?.tone).toBe('success');
         }
         // case: records a failed verification and warns without blocking on a mismatch
         {
-            const rt = await recordedVerification('executor');
+            const rt = await recordedVerification('executor', baselineBody(EXPECTED_AGENT));
             const entry = rt.state.ledger.entries.at(-1);
 
             expect(entry?.detail.agentVerified).toBe(false);
@@ -383,6 +439,25 @@ describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
             expect(rt.state.dispatches.agentNotice?.tone).toBe('warning');
             expect(rt.state.dispatches.agentNotice?.body).toContain("session agent was 'executor'");
             // M9 is warn-only: the copy must say the session keeps running.
+        }
+        // case: records the observation and *not* a verdict when no baseline is configured
+        {
+            // 002 FR-029 as amended: a blank or unreadable baseline means there
+            // is nothing to compare against, so the read-back still reports the
+            // observed agent and its provenance — and claims no mismatch from
+            // an absence.
+            const rt = await recordedVerification(EXPECTED_AGENT);
+            const entry = rt.state.ledger.entries.at(-1);
+
+            expect(entry?.kind).toBe('session');
+            expect(entry?.detail.agentVerified).toBe(false);
+            expect(entry?.detail.observedAgent).toBe(EXPECTED_AGENT);
+            expect(entry?.detail.expectedAgent).toBe('');
+            expect(entry?.detail.verification).toBe('uncompared');
+            expect(entry?.detail.baselineProvenance).toBe('defaulted');
+            expect(rt.state.dispatches.agentNotice?.tone).toBe('info');
+            expect(rt.state.dispatches.agentNotice?.title).toContain('not compared');
+            expect(rt.state.dispatches.agentNotice?.body).not.toContain('mismatch');
         }
     });
 });
@@ -439,6 +514,12 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
             },
             serviceRequest: async (request) => {
                 calls.push(`${request.method} ${request.path}`);
+                // A configured baseline, so this read-back is a real
+                // comparison: 'executor' then mismatches it and warns (002 FR-029).
+                if (request.method === 'GET' && request.path === CONFIG_ROUTE) {
+                    return { status: 200, body: baselineBody(EXPECTED_AGENT) };
+                }
+
                 if (request.method === 'GET' && request.path === '/v1/events/pending') {
                     return {
                         status: 200,
@@ -542,7 +623,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             serviceRequest: async (request) => {
                 paths.push(`${request.method} ${request.path}`);
                 bodies.push(request.body);
-                if (request.method === 'GET' && request.path === '/v1/config') {
+                if (request.method === 'GET' && request.path === CONFIG_ROUTE) {
                     return configBody === undefined
                         ? { status: 404, body: '{}' }
                         : { status: 200, body: configBody };
@@ -571,10 +652,10 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
         return JSON.parse(body) as Record<string, unknown>;
     }
 
-    it('posts a match as evidence with its attempt and the b… (+5 cases)', async () => {
+    it('posts a match as evidence with its attempt and the b… (+6 cases)', async () => {
         // case: posts a match as evidence with its attempt and the baseline it used
         {
-            const report = await reported(EXPECTED_AGENT);
+            const report = await reported(EXPECTED_AGENT, baselineBody(EXPECTED_AGENT));
 
             expect(report.paths).toEqual(READ_BACK_PATHS);
             expect(reportBody(report)).toEqual({
@@ -590,7 +671,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
         }
         // case: posts a mismatch as warn-only evidence and changes no run state
         {
-            const report = await reported('executor');
+            const report = await reported('executor', baselineBody(EXPECTED_AGENT));
             const body = reportBody(report);
 
             expect(body.ok).toBe(false);
@@ -603,7 +684,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
         }
         // case: posts an unreadable agent as no observation, with the note that says so
         {
-            const body = reportBody(await reported());
+            const body = reportBody(await reported(undefined, baselineBody(EXPECTED_AGENT)));
 
             expect(body.ok).toBe(false);
             expect(body.observedAgent).toBeNull();
@@ -623,27 +704,50 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(entry?.detail.baselineProvenance).toBe('configured');
             expect(entry?.detail.agentVerified).toBe(true);
         }
-        // case: falls back to the documented default when the config read does not answer
+        // case: posts a blank baseline as *no comparison*, with `unset` provenance
+        {
+            // The document was read and the value is blank: the operator's own
+            // statement that no baseline is configured (006 FR-100(b) as
+            // amended). The report still files — with the observed agent and
+            // the absence named — and no mismatch warning fires.
+            const report = await reported(EXPECTED_AGENT, baselineBody(''));
+            const body = reportBody(report);
+
+            expect(report.paths).toEqual(READ_BACK_PATHS);
+            expect(body.expectedAgent).toBe('');
+            expect(body.ok).toBe(false);
+            expect(body.observedAgent).toBe(EXPECTED_AGENT);
+            expect(body.note).toBe('no baseline is configured, so nothing was compared');
+
+            const entry = report.rt.state.ledger.entries.at(-1);
+            expect(entry?.detail.expectedAgent).toBe('');
+            expect(entry?.detail.observedAgent).toBe(EXPECTED_AGENT);
+            expect(entry?.detail.baselineProvenance).toBe('unset');
+            expect(entry?.detail.verification).toBe('uncompared');
+            expect(report.rt.state.dispatches.agentNotice?.tone).toBe('info');
+        }
+        // case: answers a defaulted (blank) baseline when the config read does not
         {
             // 002 FR-029 case (ii): the field is absent, the document is
             // unreadable, or the service is unreachable — all three answer the
-            // default with `provenance: 'defaulted'` and the run proceeds.
+            // documented (blank) default with `provenance: 'defaulted'`, and the
+            // run proceeds to verification comparing nothing.
             const report = await reported(EXPECTED_AGENT);
 
             expect(report.paths[0]).toBe(READ_BACK_PATHS[0]);
             const body = reportBody(report);
-            expect(body.expectedAgent).toBe(EXPECTED_AGENT);
-            expect(body.ok).toBe(true);
+            expect(body.expectedAgent).toBe('');
+            expect(body.ok).toBe(false);
 
             const entry = report.rt.state.ledger.entries.at(-1);
-            expect(entry?.detail.expectedAgent).toBe(EXPECTED_AGENT);
+            expect(entry?.detail.expectedAgent).toBe('');
             expect(entry?.detail.baselineProvenance).toBe('defaulted');
+            expect(entry?.detail.verification).toBe('uncompared');
         }
-        // case: defaults when the document is present but carries no usable value
+        // case: reads no usable baseline from a document that carries no usable value
         {
             const unusable = [
                 '{"config":{}}',
-                '{"config":{"expectedAgent":"   "}}',
                 '{"config":{"expectedAgent":42}}',
                 '{"config":"not-an-object"}',
                 'not json at all',
@@ -652,30 +756,45 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             for (const document of unusable) {
                 const report = await reported(EXPECTED_AGENT, document);
 
-                expect(reportBody(report).expectedAgent).toBe(EXPECTED_AGENT);
+                expect(reportBody(report).expectedAgent).toBe('');
                 expect(report.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe('defaulted');
             }
+
+            // A blank *string* member is a value the document really carried, so
+            // it reads as `unset` — the operator's own blank — rather than as an
+            // unreadable document.
+            const blank = await reported(EXPECTED_AGENT, '{"config":{"expectedAgent":"   "}}');
+            expect(reportBody(blank).expectedAgent).toBe('');
+            expect(blank.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe('unset');
         }
     });
 
-    it('never blocks for the baseline’s own absence: a match… (+2 cases)', async () => {
-        // case: never blocks for the baseline’s own absence: a matching agent verifies
+    it('never blocks for the baseline’s own absence: it repo… (+2 cases)', async () => {
+        // case: never blocks, and never claims a mismatch, for the baseline's own absence
         {
-            // AC-023: a missing baseline alone must not produce
-            // `blocked:agent-mismatch`; only an observed mismatch or an
-            // unreadable observed agent does.
+            // AC-023 / 002 FR-029 as amended: a missing baseline alone must not
+            // produce `blocked:agent-mismatch` — and it does not even claim a
+            // mismatch, because there was nothing to compare against. The
+            // read-back reports the observation and the absence instead.
             const report = await reported(EXPECTED_AGENT);
+            const body = reportBody(report);
 
-            expect(reportBody(report).ok).toBe(true);
-            expect(report.rt.state.dispatches.agentNotice?.tone).toBe('success');
+            expect(body.expectedAgent).toBe('');
+            expect(body.ok).toBe(false);
+            expect(body.observedAgent).toBe(EXPECTED_AGENT);
+            expect(report.rt.state.dispatches.agentNotice?.tone).toBe('info');
+            expect(report.rt.state.dispatches.agentNotice?.body).not.toContain('mismatch');
+            // Warn-only still: the read-back armed nothing and moved no run.
+            expect(report.rt.state.dispatches.rows).toEqual([]);
+            expect(report.rt.state.dispatches.pendingAction).toBeNull();
         }
-        // case: still warns when the observed agent differs from a defaulted baseline
+        // case: still warns when the observed agent differs from a configured baseline
         {
-            const report = await reported('executor');
+            const report = await reported('executor', baselineBody(EXPECTED_AGENT));
 
             expect(reportBody(report).ok).toBe(false);
             expect(report.rt.state.dispatches.agentNotice?.tone).toBe('warning');
-            expect(report.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe('defaulted');
+            expect(report.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe('configured');
         }
         // case: never holds the relay tick while the read-back waits (AC-125)
         {
@@ -699,6 +818,12 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
                 },
                 serviceRequest: async (request) => {
                     calls.push(`${request.method} ${request.path}`);
+                    // A configured baseline, so the delivered 'executor' is a
+                    // mismatch the banner warns about (002 FR-029).
+                    if (request.method === 'GET' && request.path === CONFIG_ROUTE) {
+                        return { status: 200, body: baselineBody(EXPECTED_AGENT) };
+                    }
+
                     if (request.method === 'GET' && request.path === '/v1/events/pending') {
                         return {
                             status: 200,

@@ -621,6 +621,47 @@ async function reconcileInterruptedAccounts(deps) {
   return { examined: stranded.length, marked, restored };
 }
 
+// service/config-agent.ts
+var EXPECTED_AGENT_RULE = {
+  maxLength: 80,
+  format: "letters, digits, and . _ - @ : / (a single token, no spaces); empty means no baseline",
+  pattern: /^[A-Za-z0-9.@/_:-]+$/
+};
+function expectedAgentIssue(value) {
+  if (typeof value !== "string") {
+    return [
+      {
+        field: "expectedAgent",
+        remediation: "set expectedAgent to a string; leave it empty for no baseline"
+      }
+    ];
+  }
+  const text = value.trim();
+  if (text.length > EXPECTED_AGENT_RULE.maxLength) {
+    return [
+      {
+        field: "expectedAgent",
+        remediation: `set expectedAgent to at most ${EXPECTED_AGENT_RULE.maxLength} characters`
+      }
+    ];
+  }
+  if (text === "") {
+    return [];
+  }
+  if (!EXPECTED_AGENT_RULE.pattern.test(text)) {
+    return [
+      {
+        field: "expectedAgent",
+        remediation: "set expectedAgent to letters, digits, and . _ - @ : / with no spaces"
+      }
+    ];
+  }
+  if (findSecretLeak(text) !== null) {
+    return [{ field: "expectedAgent", remediation: "set expectedAgent to an agent name, not a credential" }];
+  }
+  return [];
+}
+
 // service/http.ts
 var LOOPBACK_HOST = "127.0.0.1";
 var MAX_TARGET_CHARS = 2000;
@@ -739,11 +780,6 @@ var NUMERIC_BOUNDS = {
   resultDeadlineMs: { min: 30000, max: 600000, unit: "milliseconds" }
 };
 var NUMERIC_FIELDS = Object.keys(NUMERIC_BOUNDS);
-var EXPECTED_AGENT_RULE = {
-  maxLength: 80,
-  format: "letters, digits, and . _ - @ : / (a single token, no spaces)",
-  pattern: /^[A-Za-z0-9.@/_:-]+$/
-};
 var DEFAULT_CONFIG = {
   intervalMs: 60000,
   overlapMs: 600000,
@@ -757,7 +793,7 @@ var DEFAULT_CONFIG = {
   leaseMs: 120000,
   resultDeadlineMs: 120000,
   logLevel: "info",
-  expectedAgent: "project-manager"
+  expectedAgent: ""
 };
 function isLogLevel(value) {
   return typeof value === "string" && LOG_LEVELS.has(value);
@@ -803,32 +839,6 @@ function unknownFieldIssue(key) {
 }
 function isKnownField(key) {
   return Object.hasOwn(DEFAULT_CONFIG, key);
-}
-function expectedAgentIssue(value) {
-  const text = typeof value === "string" ? value.trim() : "";
-  if (text === "") {
-    return [{ field: "expectedAgent", remediation: "set expectedAgent to a non-empty agent name" }];
-  }
-  if (text.length > EXPECTED_AGENT_RULE.maxLength) {
-    return [
-      {
-        field: "expectedAgent",
-        remediation: `set expectedAgent to at most ${EXPECTED_AGENT_RULE.maxLength} characters`
-      }
-    ];
-  }
-  if (!EXPECTED_AGENT_RULE.pattern.test(text)) {
-    return [
-      {
-        field: "expectedAgent",
-        remediation: "set expectedAgent to letters, digits, and . _ - @ : / with no spaces"
-      }
-    ];
-  }
-  if (findSecretLeak(text) !== null) {
-    return [{ field: "expectedAgent", remediation: "set expectedAgent to an agent name, not a credential" }];
-  }
-  return [];
 }
 function collectIssues(raw) {
   const issues = [];
@@ -2069,7 +2079,7 @@ function parseVerification(raw) {
     return null;
   }
   const { expectedAgent, ok, at, observedAgent, note } = raw;
-  const agent = readText(expectedAgent);
+  const agent = readString(expectedAgent);
   const matched = readFlag(ok);
   const stamped = readStamp(at);
   if (agent === null || matched === null || stamped === null || observedAgent !== null && typeof observedAgent !== "string" || note !== null && typeof note !== "string") {
@@ -6504,6 +6514,13 @@ function textMember(value, bound = MAX_BODY_TEXT_CHARS) {
   const trimmed = value.trim();
   return trimmed.length === 0 || trimmed.length > bound ? null : trimmed;
 }
+function baselineMember(value, bound = MAX_BODY_TEXT_CHARS) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > bound ? null : trimmed;
+}
 function flagMember(value, fallback) {
   return typeof value === "boolean" ? value : fallback;
 }
@@ -7204,8 +7221,12 @@ function readReadBack(request, correlationId) {
     return parsed;
   }
   const { fields, attempt } = parsed;
+  const overlongBaseline = overLongTextResponse(fields, ["expectedAgent"]);
+  if (overlongBaseline !== null) {
+    return overlongBaseline;
+  }
   const sessionId = textMember(fields.sessionId);
-  const expectedAgent = textMember(fields.expectedAgent);
+  const expectedAgent = baselineMember(fields.expectedAgent);
   if (sessionId === null || expectedAgent === null) {
     return errorResponse(STATUS.validation, {
       code: "validation",

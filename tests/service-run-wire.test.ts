@@ -806,7 +806,7 @@ describe('T-043h §7 and §8 never require attempt', () => {
 });
 
 describe('T-043e an over-long optional free-text member is refused, not dropped', () => {
-    it('refuses an over-long causeReport on a retry, naming … (+3 cases)', async () => {
+    it('refuses an over-long causeReport on a retry, naming … (+4 cases)', async () => {
         // case: refuses an over-long causeReport on a retry, naming the field
         {
             const service = await startSeededService();
@@ -888,6 +888,48 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
 
             expect(result.status).toBe(422);
             expect(errorOf(result.json).message).toContain('observedAgent');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: accepts a blank baseline, and still refuses an absent one (002 FR-029 as amended)
+        {
+            const service = await startSeededService();
+            const run = await driveTo(48, 'dispatched');
+
+            const blank = await post(service, {
+                path: bound(VERIFICATION_PATH, run.correlationId),
+                body: {
+                    correlationId: run.correlationId,
+                    attempt: 1,
+                    sessionId: SEEDED_SESSION,
+                    expectedAgent: '',
+                    observedAgent: PROBE_AGENT,
+                    ok: false,
+                    note: 'no baseline is configured, so nothing was compared',
+                },
+            });
+
+            // A blank baseline is a real answer — *no baseline configured* — so
+            // the report files with the absence stored instead of being refused
+            // as a missing member.
+            expect(blank.status).toBe(200);
+            expect(await readRun(run.correlationId).then((found) => found.verification)).toMatchObject({
+                observedAgent: PROBE_AGENT,
+                expectedAgent: '',
+                ok: false,
+            });
+
+            const missing = await post(service, {
+                path: bound(VERIFICATION_PATH, run.correlationId),
+                body: { correlationId: run.correlationId, attempt: 1, sessionId: SEEDED_SESSION },
+            });
+
+            // The member itself stays required: the whole-document rule 006
+            // FR-100(b) states for the config is the same rule the body keeps.
+            expect(missing.status).toBe(422);
+            expect(errorOf(missing.json).message).toContain('expectedAgent');
         }
     });
 });

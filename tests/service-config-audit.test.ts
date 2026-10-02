@@ -55,6 +55,9 @@ const CONFIG_CHANGED_EVENT = 'config.changed';
 /** A level outside the closed set; it must never reach the row. */
 const BAD_LEVEL = 'verbose';
 
+/** A baseline outside the charset rule; it must never reach the row. */
+const BAD_AGENT = 'project manager';
+
 /** A value outside `intervalMs`'s bounds; it must never reach the row. */
 const ABSURD_INTERVAL = 999_999_999;
 
@@ -222,7 +225,10 @@ describe('a refused write records one value-free row (006 T-015, AC-136, AC-113,
             logLevel: BAD_LEVEL,
             retryBaseMs: 60_000,
             retryMaxMs: 5_000,
-            expectedAgent: '   ',
+            // A space: a value the charset rule still refuses. Blank is
+            // accepted since 006 FR-100(c) as amended, so it would produce no
+            // issue at all — this row is about *refusals* being value-free.
+            expectedAgent: BAD_AGENT,
             [FOREIGN_KEY]: FOREIGN_VALUE,
         };
 
@@ -249,6 +255,7 @@ describe('a refused write records one value-free row (006 T-015, AC-136, AC-113,
         const serialized = JSON.stringify(row);
         expect(serialized).not.toContain(String(ABSURD_INTERVAL));
         expect(serialized).not.toContain(BAD_LEVEL);
+        expect(serialized).not.toContain(BAD_AGENT);
         expect(serialized).not.toContain(FOREIGN_KEY);
         expect(serialized).not.toContain(FOREIGN_VALUE);
         expect(serialized).not.toContain('   ');

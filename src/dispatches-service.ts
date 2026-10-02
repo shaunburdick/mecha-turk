@@ -338,8 +338,12 @@ function parseVerification(value: unknown): RunVerification | null | undefined {
         return undefined;
     }
 
-    const expectedAgent = requiredText(record, 'expectedAgent');
-    if (expectedAgent === null || typeof record.ok !== 'boolean') {
+    // `expectedAgent` is type-checked rather than required non-empty: a blank
+    // value is the documented *no baseline configured* the panel reports when
+    // the operator pinned none (002 FR-029 as amended), and a run row must not
+    // fail to parse over it. Its absence or a non-string still fails.
+    const baseline: unknown = record.expectedAgent;
+    if (typeof baseline !== 'string' || typeof record.ok !== 'boolean') {
         return undefined;
     }
 
@@ -353,7 +357,7 @@ function parseVerification(value: unknown): RunVerification | null | undefined {
         return undefined;
     }
 
-    return { observedAgent, expectedAgent, ok: record.ok, note };
+    return { observedAgent, expectedAgent: baseline, ok: record.ok, note };
 }
 
 /**

@@ -332,12 +332,19 @@ export function projectGuidanceLines(input: ProjectGuidanceInput): readonly stri
 /**
  * The agent pin's three shapes, none of which is "ok" by default (FR-033).
  *
+ * A blank baseline reads as *no comparison baseline configured* rather than as
+ * an empty name, and a read-back taken against one is reported as an
+ * observation that was **not compared** — never as a mismatch (002 FR-029 as
+ * amended at v1.10.0).
+ *
  * @param view - The parsed status document.
  * @returns One or two lines describing what is known about the pin.
  */
 export function agentPinLines(view: StatusView): readonly string[] {
     const { verification, expectedAgent } = view.agentPin;
-    const baseline = expectedAgent === null ? [] : [`Configured baseline: ${expectedAgent}`];
+    const baseline = expectedAgent === null
+        ? []
+        : [expectedAgent === '' ? 'No comparison baseline configured.' : `Configured baseline: ${expectedAgent}`];
 
     if (verification.kind === 'none') {
         return [
@@ -354,11 +361,13 @@ export function agentPinLines(view: StatusView): readonly string[] {
     }
 
     const observed = verification.observedAgent ?? 'unreadable';
-    const verdict = verification.ok ? 'matched' : 'did not match';
+    const verdict = verification.expectedAgent === ''
+        ? 'was read back without comparison (no baseline configured)'
+        : `${verification.ok ? 'matched' : 'did not match'} ${verification.expectedAgent}`;
 
     return [
         ...baseline,
-        `Last verification: ${observed} ${verdict} ${verification.expectedAgent} at ${verification.at}.`,
+        `Last verification: ${observed} ${verdict} at ${verification.at}.`,
     ];
 }
 

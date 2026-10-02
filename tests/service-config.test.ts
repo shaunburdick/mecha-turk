@@ -108,8 +108,8 @@ const PRE_AGENT_CONFIG: Readonly<Record<string, unknown>> = Object.fromEntries(
 /** Field name 006 adds; one literal, one home. */
 const AGENT_FIELD = 'expectedAgent';
 
-/** Documented default for {@link AGENT_FIELD}. */
-const AGENT_DEFAULT = 'project-manager';
+/** Documented default for {@link AGENT_FIELD}: *no baseline configured*. */
+const AGENT_DEFAULT = '';
 
 /** A baseline every rule accepts; used for the trimmed round trip and an accepted save. */
 const ACCEPTED_AGENT = 'codex-reviewer';
@@ -523,13 +523,17 @@ interface ConfigEnvelope {
 }
 
 describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
-    /** One case per documented refusal, with the remediation contract §4 fixes. */
+    /**
+     * One case per documented refusal, with the remediation contract §4 fixes.
+     *
+     * **Blank is not among them** (006 FR-100(c) as amended at v1.5.0): empty
+     * after trimming is the documented *no baseline configured*, so it is
+     * accepted and asserted in its own case below. What the rule still refuses
+     * is everything else about the value — length, charset, credential shape —
+     * plus an absent or non-string member, because the whole-document rule is
+     * untouched (FR-100(b)).
+     */
     const REFUSALS: readonly { readonly case: string; readonly value: string; readonly remediation: string }[] = [
-        {
-            case: 'empty after trimming',
-            value: '   ',
-            remediation: 'set expectedAgent to a non-empty agent name',
-        },
         {
             case: 'longer than 80 characters',
             value: 'a'.repeat(81),
@@ -576,6 +580,74 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
             if (result.ok) {
                 expect(result.config[AGENT_FIELD]).toBe(ACCEPTED_AGENT);
             }
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: accepts a blank baseline (006 FR-100(c) as amended) and still
+        // refuses an absent or non-string member (FR-100(b), whole-document)
+        {
+            for (const blank of ['', '   ', '\t']) {
+                const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: blank });
+
+                expect(result.ok, `${JSON.stringify(blank)} must be a valid baseline`).toBe(true);
+                if (result.ok) {
+                    expect(result.config[AGENT_FIELD]).toBe('');
+                }
+            }
+
+            for (const absent of [null, 42, ['project-manager']]) {
+                const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: absent });
+
+                expect(result.ok, `${typeof absent} must be refused`).toBe(false);
+                if (!result.ok) {
+                    const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
+                    expect(issue?.remediation).toBe(
+                        'set expectedAgent to a string; leave it empty for no baseline',
+                    );
+                }
+            }
+
+            // The whole-document rule refuses an omitted key (FR-100(b)), even
+            // though a blank *value* is accepted above.
+            const result = validateConfig({ ...PRE_AGENT_CONFIG });
+
+            expect(result.ok, 'an omitted key must be refused').toBe(false);
+            if (!result.ok) {
+                expect(result.issues.map((issue) => issue.field)).toContain(AGENT_FIELD);
+            }
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: an explicitly blank baseline round-trips, and the read-side
+        // backfill never resurrects a name over it (absent vs present-but-empty)
+        {
+            const service = await startServiceForTest();
+            const put = await service.call(CONFIG_PATH, {
+                method: 'PUT',
+                body: JSON.stringify({ ...DEFAULT_CONFIG, [AGENT_FIELD]: '' }),
+            });
+            const read = await service.call(CONFIG_PATH);
+            const envelope: ConfigEnvelope = await read.json();
+            const stored = JSON.parse(
+                await readFile(join(service.dataDir, CONFIG_FILE), 'utf8'),
+            ) as Record<string, unknown>;
+
+            expect(put.status).toBe(200);
+            expect(read.status).toBe(200);
+            expect(envelope.config[AGENT_FIELD]).toBe('');
+            // Present-but-empty is *configured*: `defaultsApplied` keys off
+            // absence only, so nothing fills the blank with a default.
+            expect(envelope.source).toBe('stored');
+            expect(envelope.defaultsApplied).toEqual([]);
+            expect(stored[AGENT_FIELD]).toBe('');
+
+            // The other half: a document that omits the key is filled with the
+            // (blank) default and *is* reported as filled.
+            await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_AGENT_CONFIG), 'utf8');
+            const backfilledResponse = await service.call(CONFIG_PATH);
+            const backfilled: ConfigEnvelope = await backfilledResponse.json();
+            expect(backfilled.defaultsApplied).toEqual([AGENT_FIELD]);
+            expect(backfilled.config[AGENT_FIELD]).toBe('');
         }
         await afterEachWork1();
         await afterEachWork1();

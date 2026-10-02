@@ -30,13 +30,20 @@
  * The comparison baseline is **the service's**, not the manifest's: 002
  * FR-041 emptied the integration card, so `readVerificationBaseline` takes it
  * from `GET /v1/config`'s `expectedAgent` per verification, with 002 FR-029's
- * two-case split kept intact — an observed agent that differs or cannot be
- * read blocks as before, while a missing baseline falls back to the
- * documented default, lets the run proceed, and records its provenance as
- * `configured` or `defaulted`.
+ * split kept intact — an observed agent that differs from a **configured**
+ * baseline (or cannot be read) still warns as before, while a baseline that is
+ * blank or unreadable means **there is nothing to compare against**: the
+ * read-back still records the observed agent, its provenance reads
+ * `unset`/`defaulted`, and no mismatch is claimed from an absence.
+ *
+ * The documented default is the **empty string** (product-owner order,
+ * 2026-10-01: *"Default Agent pin should default to blank, not everyone is
+ * going to use project-manager"*), so a fresh installation compares nothing
+ * until an operator pins a baseline of their own.
  */
 
 import type { SessionSnapshot } from '@openchamber/sdk';
+import { readBackNote, verificationNotice } from './agent-verify-copy.ts';
 import { DEFAULT_EXPECTED_AGENT } from './config.ts';
 import { nowIso } from './ids.ts';
 import { parseJsonObject } from './json.ts';
@@ -47,42 +54,43 @@ import { CONFIG_PATH, serviceGet, servicePost, verificationPath } from './servic
 import type { ServiceRequester } from './service-calls.ts';
 import { describeError } from './session.ts';
 import type { SpikeHost } from './session.ts';
-import type { PanelRuntime, PanelStatus } from './panel-state.ts';
+import type { PanelRuntime } from './panel-state.ts';
 
 /** How long one verification waits for the session snapshot, in milliseconds. */
 export const AGENT_VERIFY_TIMEOUT_MS = 15_000;
 
-/** Milliseconds in one second; used to phrase the timeout for the operator. */
-const MS_PER_SECOND = 1_000;
-
 /**
- * Which baseline a verification judged against (002 FR-029's two-case split).
+ * Which baseline a verification judged against (002 FR-029's split).
  *
- * The distinction is recorded so a match or a mismatch months later is
- * explainable: a result decided against the documented default says so, and
- * a result decided against the operator's own configuration says that.
+ * The distinction is recorded so a result months later is explainable: one
+ * decided against the operator's own configuration says so, one that had
+ * nothing to compare against says **why** it had nothing — the document was
+ * never read, or it was read and the value is blank. Nothing here names an
+ * agent the operator never chose.
  */
 export type BaselineProvenance =
     /** `GET /v1/config` carried a parseable, non-blank `expectedAgent`. */
     | 'configured'
-    /** The document was unreadable or carried no value; the default is in force. */
-    | 'defaulted';
+    /** The document could not be read; the documented (blank) default is in force. */
+    | 'defaulted'
+    /** The document was read and its `expectedAgent` is blank: no baseline configured. */
+    | 'unset';
 
 /** One verification's comparison baseline and where it came from. */
 export interface VerificationBaseline {
-    /** Agent the observed session is judged against. */
+    /** Agent the observed session is judged against; `""` when there is none. */
     readonly agent: string;
-    /** Whether the service configured this baseline or the documented default supplied it. */
+    /** Whether the service configured this baseline, or why it is absent. */
     readonly provenance: BaselineProvenance;
 }
 
 /**
- * The documented default, as an explicitly *defaulted* baseline.
+ * The documented default — the empty string — as a *defaulted* baseline.
  *
  * 002 FR-029 case (ii): a service that cannot be reached, a document written
  * before the field existed, and a value that fails to parse all land here —
- * the run **proceeds to verification** on `project-manager` rather than
- * being blocked for the baseline's own absence.
+ * the run **proceeds to verification** with `agent: ''`, which the caller
+ * reads as *no comparison is possible* rather than as a name to compare with.
  */
 const DEFAULTED_BASELINE: VerificationBaseline = {
     agent: DEFAULT_EXPECTED_AGENT,
@@ -92,11 +100,13 @@ const DEFAULTED_BASELINE: VerificationBaseline = {
 /**
  * Read one baseline out of a `GET /v1/config` answer, fail closed.
  *
- * Every shape the document could take that is not a non-blank string member
- * reads as *defaulted*; nothing is coerced and nothing is guessed.
+ * Every shape the document could take that is not a string member reads as
+ * *defaulted*; a string member that is blank after trimming reads as *unset* —
+ * the operator's own statement that no baseline is configured. Nothing is
+ * coerced and nothing is guessed, and neither absence is dressed up as a name.
  *
  * @param body - Response body text (unchecked).
- * @returns The configured baseline, or the documented default.
+ * @returns The configured baseline, or an absent one with the reason it is absent.
  */
 function baselineFromConfig(body: string): VerificationBaseline {
     const root = parseJsonObject(body);
@@ -112,7 +122,7 @@ function baselineFromConfig(body: string): VerificationBaseline {
 
     const trimmed = raw.trim();
     if (trimmed === '') {
-        return DEFAULTED_BASELINE;
+        return { agent: '', provenance: 'unset' };
     }
 
     return { agent: trimmed, provenance: 'configured' };
@@ -124,8 +134,8 @@ function baselineFromConfig(body: string): VerificationBaseline {
  * One `GET /v1/config` per verification — the baseline is read fresh each
  * time so a value saved after a dispatch is in force for the next one, with
  * no restart and no service-side consumer. A transport failure, a non-2xx
- * answer, and an unparseable document all answer the documented default with
- * `provenance: 'defaulted'`; this function never rejects.
+ * answer, and an unparseable document all answer the documented (blank)
+ * default with `provenance: 'defaulted'`; this function never rejects.
  *
  * @param serviceRequest - The host's service bridge.
  * @returns The baseline to judge this dispatch against, and its provenance.
@@ -158,6 +168,8 @@ export type AgentVerification =
     | { readonly status: 'match'; readonly agent: string; readonly expected: string }
     /** The session reported another agent, or none at all. */
     | { readonly status: 'mismatch'; readonly agent: string | null; readonly expected: string }
+    /** No baseline to judge against: the agent was read back and **not compared**. */
+    | { readonly status: 'uncompared'; readonly agent: string | null; readonly expected: '' }
     /** No snapshot for this session arrived inside the timeout. */
     | { readonly status: 'timeout'; readonly expected: string; readonly timeoutMs: number }
     /** The session could not be opened at all; the problem is redacted. */
@@ -191,6 +203,11 @@ type VerifyGate =
  * pass: the SDK documents the field as present "when the session has it",
  * so its absence is an unreadable answer, not a matching one.
  *
+ * An empty `expected` is the other special case, and it is the *opposite* of
+ * a pass: there is no baseline, so there is nothing to be right or wrong
+ * about. The agent is still reported — an observation is evidence whether or
+ * not anyone configured a comparison — but the outcome is `uncompared`.
+ *
  * @param input - The snapshot (or `null` on timeout), the expected agent,
  *   and the budget the caller waited with, for the timeout copy.
  * @returns The verification outcome.
@@ -198,7 +215,7 @@ type VerifyGate =
 function judgeSnapshot(input: {
     /** Snapshot for the requested session, or `null` when the budget ran out. */
     readonly snapshot: SessionSnapshot | null;
-    /** Agent the run should report. */
+    /** Agent the run should report; `""` when no baseline is configured. */
     readonly expected: string;
     /** Budget the caller waited with. */
     readonly timeoutMs: number;
@@ -209,6 +226,10 @@ function judgeSnapshot(input: {
     }
 
     const agent = snapshot.agent ?? null;
+
+    if (expected === '') {
+        return { status: 'uncompared', agent, expected };
+    }
 
     return agent === null || agent !== expected
         ? { status: 'mismatch', agent, expected }
@@ -277,80 +298,20 @@ export async function verifySessionAgent(inputs: VerifyAgentInputs): Promise<Age
 }
 
 /**
- * Build the runs-area banner for one verification outcome.
+ * The agent one outcome actually observed, or `null` when there was none.
  *
- * Every non-match outcome is a warning, never a block: the session keeps
- * running and the relay keeps dispatching — M9 tells the operator which
- * agent answered, it does not play bouncer. The match outcome gets its own
- * banner so the evidence an operator looks for on a live dispatch is on
- * screen the moment it exists.
- *
- * @param result - Outcome the verification reached.
- * @returns The banner content, already redacted.
- */
-export function verificationNotice(result: AgentVerification): PanelStatus {
-    const expected = `expected '${result.expected}'`;
-    const keepRunning = 'Warning only — the session keeps running, nothing was blocked.';
-    switch (result.status) {
-        case 'match':
-            return {
-                tone: 'success',
-                title: 'Session agent verified',
-                body: `The dispatched session runs on '${result.agent}' (${expected}).`,
-            };
-        case 'mismatch':
-            return {
-                tone: 'warning',
-                title: 'Session agent mismatch',
-                body: result.agent === null
-                    ? `Dispatched, but the session reported no agent (${expected}). ${keepRunning}`
-                    : `Dispatched, but the session agent was '${result.agent}' (${expected}). ${keepRunning}`,
-            };
-        case 'timeout': {
-            const seconds = Math.floor(result.timeoutMs / MS_PER_SECOND);
-            return {
-                tone: 'warning',
-                title: 'Session agent unreadable',
-                body: [
-                    `Dispatched, but the session agent was not readable within ${seconds}s`,
-                    `(${expected}). ${keepRunning}`,
-                ].join(' '),
-            };
-        }
-        case 'unavailable':
-            return {
-                tone: 'warning',
-                title: 'Session agent not verified',
-                body: [
-                    'Dispatched, but the session could not be opened to read its agent:',
-                    `${redact(result.problem)} (${expected}). ${keepRunning}`,
-                ].join(' '),
-            };
-    }
-}
-
-/**
- * Phrase the read-back for the service's `note` member (contract §5).
+ * `uncompared` counts as an observation: with no baseline the read-back still
+ * reports what the session said, because an observation is evidence whether or
+ * not anyone configured a comparison (002 FR-029 as amended). The two failure
+ * outcomes answer `null` — nothing was observed, only a reason it was not.
  *
  * @param result - Outcome the verification reached.
- * @returns The note, or `null` when there is nothing to add to the evidence.
+ * @returns The observed agent, or `null`.
  */
-function readBackNote(result: AgentVerification): string | null {
-    switch (result.status) {
-        case 'match':
-            return null;
-        case 'mismatch':
-            return result.agent === null
-                ? 'the session reported no agent'
-                : `observed ${result.agent} differs from the baseline`;
-        case 'timeout': {
-            const seconds = Math.floor(result.timeoutMs / MS_PER_SECOND);
-
-            return `the agent was not readable within ${seconds}s`;
-        }
-        case 'unavailable':
-            return `the session could not be opened: ${redact(result.problem)}`;
-    }
+function observedAgentOf(result: AgentVerification): string | null {
+    return result.status === 'match' || result.status === 'mismatch' || result.status === 'uncompared'
+        ? result.agent
+        : null;
 }
 
 /**
@@ -367,13 +328,13 @@ function recordReadBack(input: {
     readonly sessionId: string;
     /** Outcome the verification reached. */
     readonly result: AgentVerification;
-    /** Baseline the judgment used (002 FR-029's comparison agent). */
+    /** Baseline the judgment used (002 FR-029's comparison agent; `""` when none). */
     readonly expected: string;
-    /** Where that baseline came from: `configured`, or the documented default. */
+    /** Where that baseline came from: `configured`, `defaulted`, or `unset`. */
     readonly provenance: BaselineProvenance;
 }): void {
     const { rt, correlationId, sessionId, result, expected, provenance } = input;
-    const observedAgent = result.status === 'match' || result.status === 'mismatch' ? result.agent : null;
+    const observedAgent = observedAgentOf(result);
     appendEntryAndPersist(rt, {
         at: nowIso(),
         kind: 'session',
@@ -417,7 +378,7 @@ async function postReadBack(input: {
     readonly expected: string;
 }): Promise<void> {
     const { rt, correlationId, attempt, sessionId, result, expected } = input;
-    const observedAgent = result.status === 'match' || result.status === 'mismatch' ? result.agent : null;
+    const observedAgent = observedAgentOf(result);
     const posted = await servicePost({
         serviceRequest: rt.host.serviceRequest,
         path: verificationPath(correlationId),
@@ -475,10 +436,12 @@ export async function verifyAgentAfterDispatch(inputs: {
     const { rt, correlationId, attempt, sessionId } = inputs;
     try {
         // 002 FR-029: the comparison baseline comes from `GET /v1/config`'s
-        // `expectedAgent`, read fresh for this verification. A missing or
-        // unreadable field falls back to the documented default and the run
-        // still proceeds — only an observed agent that differs from the
-        // baseline, or that cannot be read, is the fail-closed condition.
+        // `expectedAgent`, read fresh for this verification. A missing,
+        // unreadable, or explicitly blank field means **no baseline** — the
+        // read-back still runs and still records what the session reported,
+        // with its provenance, but nothing is compared against it. Only an
+        // observed agent that differs from a configured baseline, or that
+        // cannot be read, is the fail-closed condition.
         const baseline = await readVerificationBaseline(rt.host.serviceRequest);
         if (tornDown(rt)) {
             return;

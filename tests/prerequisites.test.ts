@@ -268,9 +268,14 @@ describe('first-run prerequisites (FR-071, AC-122)', () => {
                 expect(pin.state).not.toBe(MET);
                 // It says how to satisfy it even though it cannot check it, and
                 // names the first dispatch as the thing that actually checks it
-                // (003 FR-072; 005 FR-037).
-                expect(pin.remediation).toContain('project-manager');
+                // (003 FR-072; 005 FR-037 — both require the setting's *path*,
+                // neither prescribes a value). Since 002 v1.10.0 / 006 v1.5.0
+                // the default is blank, so the line pins the operator's own
+                // choice, not a name the owner refused to assume.
                 expect(pin.remediation).toMatch(/Session Defaults/);
+                expect(pin.remediation).toContain('the agent you want dispatches to run on');
+                expect(pin.remediation).toContain('expectedAgent');
+                expect(pin.remediation).not.toContain('project-manager');
                 expect(pin.detail).toMatch(/cannot read/);
             }
         }

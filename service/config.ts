@@ -25,6 +25,7 @@
  */
 
 import { findSecretLeak } from '../src/redaction.ts';
+import { expectedAgentIssue } from './config-agent.ts';
 import { isRecord } from './json.ts';
 import type { JsonReadResult } from './store/index.ts';
 import type { LogLevel, ServiceLogger } from './log.ts';
@@ -96,8 +97,12 @@ export interface ServiceConfig {
      *
      * The service only serves it — `GET /v1/config` hands the value to the
      * panel, which posts it with each verification read-back. The value is a
-     * single token (never credential-shaped), trimmed on write, and the
-     * documented default doubles as the fallback for a missing baseline.
+     * single token (never credential-shaped), trimmed on write, and **empty is
+     * a first-class value**: it is the documented *no baseline configured*
+     * state, in which verification records the observed agent and compares
+     * nothing (002 FR-029 as amended at v1.10.0; 006 FR-100(b)(c) as amended
+     * at v1.5.0). The documented default is the empty string, so a fresh store
+     * starts with no baseline rather than presuming one.
      */
     readonly expectedAgent: string;
 }
@@ -150,25 +155,6 @@ type NumericField = keyof typeof NUMERIC_BOUNDS;
 /** Numeric fields, derived so the list can never drift from the bounds. */
 const NUMERIC_FIELDS = Object.keys(NUMERIC_BOUNDS) as readonly NumericField[];
 
-/**
- * The one string field's rule, in the same declaration style as the bounds
- * (006 FR-100(c), contract §4).
- *
- * `format` is the service-authored prose the wire carries as a descriptor's
- * `format` member — rendered as text by the panel, never compiled into a
- * second validator (FR-023). `pattern` is the validator's own gate: one
- * token of letters, digits, and `. _ - @ : /`, so a pasted credential (or
- * anything containing a space or control character) never reaches the store.
- */
-export const EXPECTED_AGENT_RULE = {
-    /** Host ceiling for an agent name (002 research §R4, `GUEST_SESSION_AGENT_MAX`). */
-    maxLength: 80,
-    /** Allowed characters, rendered verbatim on the field's row. */
-    format: 'letters, digits, and . _ - @ : / (a single token, no spaces)',
-    /** The charset gate itself; the hyphen sits last so it reads literally. */
-    pattern: /^[A-Za-z0-9.@/_:-]+$/,
-} as const;
-
 /** The configuration a fresh store starts with. */
 export const DEFAULT_CONFIG: ServiceConfig = {
     intervalMs: 60_000,
@@ -183,7 +169,10 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     leaseMs: 120_000,
     resultDeadlineMs: 120_000,
     logLevel: 'info',
-    expectedAgent: 'project-manager',
+    // Blank, not a name: the documented default is *no baseline configured*
+    // (006 FR-100(b) as amended at v1.5.0 — "not everyone is going to use
+    // project-manager").
+    expectedAgent: '',
 };
 
 /**
@@ -278,48 +267,6 @@ function unknownFieldIssue(key: string): ConfigIssue {
  */
 function isKnownField(key: string): boolean {
     return Object.hasOwn(DEFAULT_CONFIG, key);
-}
-
-/**
- * Check the one string field against its rule (006 FR-100(c)).
- *
- * The four refusals answer in a fixed order — empty after trimming, over the
- * length ceiling, outside the charset, credential-shaped — and each remediation
- * is built from the declaration, never from the submission, so a `422` can
- * never become a reflection oracle for a pasted token.
- *
- * @param value - Candidate value; a missing or non-string member counts as empty.
- * @returns Zero or one issue.
- */
-function expectedAgentIssue(value: unknown): readonly ConfigIssue[] {
-    const text = typeof value === 'string' ? value.trim() : '';
-    if (text === '') {
-        return [{ field: 'expectedAgent', remediation: 'set expectedAgent to a non-empty agent name' }];
-    }
-
-    if (text.length > EXPECTED_AGENT_RULE.maxLength) {
-        return [
-            {
-                field: 'expectedAgent',
-                remediation: `set expectedAgent to at most ${EXPECTED_AGENT_RULE.maxLength} characters`,
-            },
-        ];
-    }
-
-    if (!EXPECTED_AGENT_RULE.pattern.test(text)) {
-        return [
-            {
-                field: 'expectedAgent',
-                remediation: 'set expectedAgent to letters, digits, and . _ - @ : / with no spaces',
-            },
-        ];
-    }
-
-    if (findSecretLeak(text) !== null) {
-        return [{ field: 'expectedAgent', remediation: 'set expectedAgent to an agent name, not a credential' }];
-    }
-
-    return [];
 }
 
 /**

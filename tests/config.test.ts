@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_CONFIG } from '../service/config.ts';
 import {
     DEFAULT_EXPECTED_AGENT,
     DEFAULT_POLL_INTERVAL_MS,
@@ -120,14 +121,19 @@ describe('rendering helpers', () => {
 
 describe('documented defaults', () => {
     /**
-     * 002 FR-029 case (ii): a missing or unreadable `expectedAgent` on
-     * `GET /v1/config` falls back to the documented default, and the outcome
-     * records that the baseline was defaulted. The default is the agent the
-     * setup step names, so the two can never disagree. FR-017's default
+     * 002 FR-029 as amended (v1.10.0) and 006 FR-100(b) as amended (v1.5.0):
+     * the baseline default is **blank**, so a missing or unreadable
+     * `expectedAgent` on `GET /v1/config` resolves to *no baseline to compare
+     * against* and the outcome records why (`defaulted` / `unset`). The
+     * product owner's order, verbatim: "Default Agent pin should default to
+     * blank, not everyone is going to use project-manager." FR-017's default
      * cadence is pinned the same way, matched by the service configuration.
      */
     it('pins the agent fallback and the poll cadence to their documented values', () => {
-        expect(DEFAULT_EXPECTED_AGENT).toBe('project-manager');
+        expect(DEFAULT_EXPECTED_AGENT).toBe('');
         expect(DEFAULT_POLL_INTERVAL_MS).toBe(60_000);
+        // The panel's fallback and the service's default are one value: a
+        // fresh store and a failed read answer the same blank baseline.
+        expect(DEFAULT_EXPECTED_AGENT).toBe(DEFAULT_CONFIG.expectedAgent);
     });
 });

@@ -8,9 +8,13 @@
  * 1. **The scan** (AC-106). 005's cross-check asserted that the panel's
  *    declaration matched the service's; 006 reversed it: the panel source
  *    contains **no** configuration literal at all, with exactly one
- *    documented exception (`DEFAULT_EXPECTED_AGENT`, pinned to
- *    `DEFAULT_CONFIG.expectedAgent`). The check is shown to bite by running
- *    the same rules over a pasted stand-in.
+ *    documented exception (`DEFAULT_EXPECTED_AGENT`, whose value is pinned to
+ *    `DEFAULT_CONFIG.expectedAgent` — blank since 006 v1.5.0 / 002 v1.10.0).
+ *    The default-string rule keys on the **declaration shape**
+ *    (`default:`/`defaultValue:`/`DEFAULT_EXPECTED_AGENT =` followed by a
+ *    quoted *token*), so it still flags a second default literal of any value
+ *    while ignoring prose that happens to begin with the word. The check is
+ *    shown to bite by running the same rules over a pasted stand-in.
  * 2. **The rows** — built from the projection, eleven against an 006-only
  *    fixture and thirteen against the combined one, every row carrying name,
  *    unit-or-*none*, bounds-or-format, value, and the class words the service's
@@ -150,6 +154,18 @@ const CLASS_WINDOW = 6;
 const UNIT_LITERALS: readonly string[] = [...new Set(Object.values(NUMERIC_BOUNDS).map((bounds) => bounds.unit))];
 
 /**
+ * One default written as a string literal: `defaultValue: '…'`,
+ * `default: '…'`, or `DEFAULT_EXPECTED_AGENT = '…'`, with the value captured.
+ *
+ * The shape, not the value, is what identifies it: the documented default is
+ * blank since 006 v1.5.0, so scanning for a *value* would either match every
+ * empty string in the panel or match none. A quoted value containing whitespace
+ * is prose (a banner's message, a label), never an agent-shaped default, so the
+ * scan skips those rather than mistaking copy for configuration.
+ */
+const STRING_DEFAULT_PATTERN = /(?:\bdefaultValue\s*:|\bdefault\s*:|DEFAULT_EXPECTED_AGENT\s*=)\s*'([^']*)'/;
+
+/**
  * Report every configuration literal the scan looks for in one file.
  *
  * @param source - One panel source file.
@@ -162,7 +178,7 @@ function configurationLiteralsIn(source: PanelSource): {
     readonly declarationNumbers: readonly string[];
     /** The level set's sentinel, which a copied enum would carry. */
     readonly levelSentinel: boolean;
-    /** Default strings, by name (the allow-list keys off these). */
+    /** Default strings, by declaration shape (the allow-list keys off these). */
     readonly stringDefaults: readonly { readonly value: string; readonly line: number }[];
     /** Lines carrying a class token *and* a field name — a claim about a row. */
     readonly attachedClasses: readonly string[];
@@ -175,8 +191,15 @@ function configurationLiteralsIn(source: PanelSource): {
     const levelSentinel = source.text.includes("'debug'");
     const stringDefaults = lines
         .map((line, index) => ({ line: index + 1, text: line }))
-        .filter((line) => line.text.includes(`'${DEFAULT_CONFIG.expectedAgent}'`))
-        .map((line) => ({ value: DEFAULT_CONFIG.expectedAgent, line: line.line }));
+        .flatMap((line) => {
+            const match = STRING_DEFAULT_PATTERN.exec(line.text);
+            const value = match?.[1];
+            if (value === undefined || (value !== '' && /\s/.test(value))) {
+                return [];
+            }
+
+            return [{ value, line: line.line }];
+        });
     const attachedClasses = lines.flatMap((line, index) => {
         if (!CLASS_TOKENS.some((token) => line.includes(`'${token}'`))) {
             return [];
@@ -459,13 +482,19 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
             const sources = await panelSources();
             const occurrences = sources.flatMap((source) =>
                 configurationLiteralsIn(source).stringDefaults.map((entry) => ({
-                    file: source.name, line: entry.line })),);
+                    file: source.name,
+                    value: entry.value,
+                    line: entry.line })),);
 
             // Exactly one entry in the allow-list, and it is the pinned constant
             // plan X7 records (research Q3's ruling): the verification baseline
-            // that has to exist before the first successful config read.
+            // that has to exist before the first successful config read. Its
+            // *value* is the service's own default — blank since 006 v1.5.0 /
+            // 002 v1.10.0 — so a second default literal carrying any other
+            // value cannot hide behind the exception.
             expect(occurrences).toHaveLength(1);
             expect(occurrences[0]?.file).toBe('config.ts');
+            expect(occurrences[0]?.value).toBe(DEFAULT_CONFIG.expectedAgent);
             expect(DEFAULT_EXPECTED_AGENT).toBe(DEFAULT_CONFIG.expectedAgent);
         }
         // case: never attaches a take-effect class to a field
@@ -494,7 +523,12 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
             expect(found.units).toEqual(['milliseconds']);
             expect(found.declarationNumbers.length).toBeGreaterThan(0);
             expect(found.levelSentinel).toBe(true);
-            expect(found.stringDefaults).toHaveLength(1);
+            // The default rule bites on a *second* default literal even though
+            // the documented default is now blank: the stand-in declares
+            // `project-manager`, which is exactly the copy the scan exists to
+            // catch, and it is caught by shape rather than by matching a value.
+            expect(found.stringDefaults.map((entry) => entry.value)).toEqual(['project-manager']);
+            expect(found.stringDefaults.some((entry) => entry.value !== DEFAULT_CONFIG.expectedAgent)).toBe(true);
             expect(found.attachedClasses.length).toBeGreaterThan(0);
         }
     });
@@ -549,6 +583,10 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             const row = settingsRows(envelope).find((candidate) => candidate.field === 'expectedAgent');
 
             expect(row?.text).toContain(`default ${DEFAULT_CONFIG.expectedAgent}`);
+            expect(row?.text).toContain('reads as default');
+            // The blank default is rendered as itself: the row never invents a
+            // baseline the operator never configured (FR-028, NFR-112).
+            expect(row?.text).not.toContain('project-manager');
         }
         // case: renders an unreadable value with its remediation and never a default (AC-116)
         {

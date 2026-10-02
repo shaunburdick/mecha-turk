@@ -269,6 +269,11 @@ export function parseSession(raw: unknown): SessionRef | null {
 /**
  * Validate the recorded verification outcome.
  *
+ * `expectedAgent` is read as a **string** rather than as non-empty text: a
+ * blank value is the documented *no baseline configured* a read-back against
+ * an unpinned baseline records (002 FR-029 as amended), and a run document
+ * must never be quarantined over it.
+ *
  * @param raw - Candidate value.
  * @returns The verification, or `null` when malformed.
  */
@@ -278,7 +283,7 @@ export function parseVerification(raw: unknown): RunVerification | null {
     }
 
     const { expectedAgent, ok, at, observedAgent, note } = raw;
-    const agent = readText(expectedAgent);
+    const agent = readString(expectedAgent);
     const matched = readFlag(ok);
     const stamped = readStamp(at);
     if (

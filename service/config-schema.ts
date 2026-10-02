@@ -15,7 +15,8 @@
  * a cycle and the validator free of wire concerns.
  */
 
-import { DEFAULT_CONFIG, EXPECTED_AGENT_RULE, LOG_LEVEL_VALUES, NUMERIC_BOUNDS } from './config.ts';
+import { DEFAULT_CONFIG, LOG_LEVEL_VALUES, NUMERIC_BOUNDS } from './config.ts';
+import { EXPECTED_AGENT_RULE } from './config-agent.ts';
 import type { LogLevel } from './log.ts';
 import type { ServiceConfig } from './config.ts';
 

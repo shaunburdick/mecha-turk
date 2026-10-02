@@ -36,7 +36,7 @@ import { requeueDispatch, resolveDispatch, retryDispatch } from '../poll/run-ope
 import { recordVerification } from '../poll/run-verify.ts';
 import type { ResolveDecision } from '../poll/run-operate.ts';
 import { refuseRunRequest, runAnswer, runOutcomeResponse, unknownRunResponse } from './run-answer.ts';
-import { flagMember, overLongTextResponse, sessionIdIssue, textMember } from './run-fields.ts';
+import { baselineMember, flagMember, overLongTextResponse, sessionIdIssue, textMember } from './run-fields.ts';
 import {
     RUN_SCOPE_PREFIX,
     isRefusal,
@@ -333,7 +333,11 @@ interface ReadBack {
     readonly sessionId: string;
     /** The agent the read-back observed, or `null` when unreadable. */
     readonly observedAgent: string | null;
-    /** The agent the binding expected. */
+    /**
+     * The comparison baseline the panel judged against, or `""` when none is
+     * configured (002 FR-029 as amended — an empty baseline is the absence of
+     * a baseline, never a refusal of the report).
+     */
     readonly expectedAgent: string;
     /** Whether the two matched. */
     readonly ok: boolean;
@@ -360,8 +364,17 @@ function readReadBack(request: RouteRequest, correlationId: string): ReadBack | 
     }
 
     const { fields, attempt } = parsed;
+    // An over-long baseline names itself; the bound is a refusal, never a
+    // truncation, and a blank one is not over-long (it says nothing).
+    const overlongBaseline = overLongTextResponse(fields, ['expectedAgent']);
+    if (overlongBaseline !== null) {
+        return overlongBaseline;
+    }
+
     const sessionId = textMember(fields.sessionId);
-    const expectedAgent = textMember(fields.expectedAgent);
+    // Blank is a real answer here — *no baseline configured* — so this reader
+    // is `textMember` minus its emptiness rule (002 FR-029 as amended).
+    const expectedAgent = baselineMember(fields.expectedAgent);
     if (sessionId === null || expectedAgent === null) {
         return errorResponse(STATUS.validation, {
             code: 'validation',

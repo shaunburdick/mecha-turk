@@ -64,6 +64,31 @@ export function textMember(value: unknown, bound: number = MAX_BODY_TEXT_CHARS):
 }
 
 /**
+ * Read a verification report's comparison baseline (002 FR-029 as amended).
+ *
+ * Unlike {@link textMember}, an **empty** value is a real answer rather than an
+ * absent one: `""` is the documented *no baseline configured*, and the report
+ * must still file so the read-back's observed agent reaches the run and the
+ * trail with its absence named instead of papered over. Absent, non-string, and
+ * over-long members are still the contract §5 refusal — the member is required,
+ * only its emptiness is permitted.
+ *
+ * @param value - The member as received.
+ * @param bound - Longest value accepted.
+ * @returns The trimmed text, possibly empty, or `null` when the member is
+ *   absent, not a string, or over the bound.
+ */
+export function baselineMember(value: unknown, bound: number = MAX_BODY_TEXT_CHARS): string | null {
+    if (typeof value !== 'string') {
+        return null;
+    }
+
+    const trimmed = value.trim();
+
+    return trimmed.length > bound ? null : trimmed;
+}
+
+/**
  * Read one boolean member, answering the fallback when it is absent.
  *
  * @param value - The member as received.

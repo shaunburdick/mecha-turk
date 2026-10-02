@@ -465,7 +465,8 @@ describe('fail-closed document and row validation', () => {
                 ],
                 ['session', {
                     sessionId: '', attachmentId: 'mt-run-0', dispatchedAt: STAMP, title: 't', sourceUrl: 'u' }],
-                ['verification', { observedAgent: null, expectedAgent: '', ok: true, note: null, at: STAMP }],
+                ['verification', { observedAgent: null, expectedAgent: null, ok: true, note: null, at: STAMP }],
+                ['verification', { observedAgent: null, expectedAgent: 42, ok: true, note: null, at: STAMP }],
                 ['verification', { observedAgent: null, expectedAgent: 'pm', ok: 'yes', note: null, at: STAMP }],
                 ['sourceReferences', [{ ...fixtureReference(), origin: 'comment:abc' }]],
                 ['sourceReferences', [{ ...fixtureReference(), kind: 'assignmente' }]],
@@ -486,6 +487,13 @@ describe('fail-closed document and row validation', () => {
         {
             expect(parseRun(fixtureRun())).not.toBeNull();
             expect(parseRun(without('lease', 'reservation', 'session', 'verification'))).not.toBeNull();
+            // A read-back against no baseline is a record, not a malformed one:
+            // `expectedAgent: ''` is the documented *no baseline configured*
+            // (002 FR-029 as amended), so a run document never quarantines over it.
+            const blankBaseline = fixtureRun({
+                verification: { observedAgent: 'executor', expectedAgent: '', ok: false, note: null, at: STAMP },
+            });
+            expect(parseRun(blankBaseline)).not.toBeNull();
         }
         await afterEachWork2();
         await beforeEachWork1();

@@ -62,14 +62,17 @@ export const DEFAULT_POLL_INTERVAL_MS = 60_000;
 /**
  * Documented default for the agent-verification baseline (002 FR-029).
  *
- * OpenChamber's Settings → Sessions → Session Defaults → Default Agent is
- * the documented setup step, and `project-manager` is the agent it names.
- * The panel cannot read that host setting, so this constant is the value a
- * missing or unreadable `expectedAgent` on `GET /v1/config` falls back to —
- * with `provenance: 'defaulted'` recorded next to the verification outcome,
- * never silently.
+ * **Blank, on purpose.** The product owner's order of 2026-10-01, verbatim:
+ * *"Default Agent pin should default to blank, not everyone is going to use
+ * project-manager."* OpenChamber's Settings → Sessions → Session Defaults →
+ * Default Agent is the documented setup step an operator completes with
+ * whichever agent they want dispatches to run on; this constant is what the
+ * panel uses when `GET /v1/config` carries no usable `expectedAgent`, and an
+ * empty answer means **no baseline to compare against** — the read-back then
+ * records the observed agent with its provenance (`defaulted` or `unset`)
+ * and compares nothing, never against a name the operator never chose.
  */
-export const DEFAULT_EXPECTED_AGENT = 'project-manager';
+export const DEFAULT_EXPECTED_AGENT = '';
 
 /** Characters GitHub allows in an owner or repository name. */
 const REPOSITORY_PART_PATTERN = /^[A-Za-z0-9_.-]+$/;

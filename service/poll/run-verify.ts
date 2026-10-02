@@ -75,6 +75,12 @@ function judgeVerification(input: {
  * reservation exactly as they stood. A mismatch receives no further automated
  * handling, ever.
  *
+ * A report whose `expectedAgent` is `""` is a read-back against **no configured
+ * baseline** (002 FR-029 as amended): nothing was compared, and this stores the
+ * observed agent beside the empty baseline so the absence — not a fabricated
+ * match — is what the row says. Verdict, note, and state rules are otherwise
+ * untouched.
+ *
  * @param input - Store, logger, the run, the attempt the panel names, the
  *   session read back, the observed and expected agents, the verdict, a note,
  *   and an injectable service clock.
@@ -94,7 +100,7 @@ export async function recordVerification(input: {
     readonly sessionId: string;
     /** The agent the read-back observed, or `null` when unreadable. */
     readonly observedAgent: string | null;
-    /** The agent the binding expected. */
+    /** Baseline judged against; `""` means none configured and nothing compared. */
     readonly expectedAgent: string;
     /** Whether the two matched. */
     readonly ok: boolean;

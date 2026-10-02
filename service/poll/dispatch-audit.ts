@@ -341,6 +341,12 @@ export function resolvedRow(input: {
  * name and the decision differ: the read-back is warn-only (FR-043), so a
  * mismatch is recorded and shown and then never acted on again.
  *
+ * A report carrying `expectedAgent: ""` is a read-back against **no configured
+ * baseline**: nothing was compared, and the row records the observed agent
+ * beside the empty baseline so the absence is legible in the trail months
+ * later. The panel renders that case as *observed, not compared* — never as a
+ * mismatch — and no run state changes either way (002 FR-029 as amended).
+ *
  * @param input - The run, the session read back, and the recorded outcome.
  * @returns The row to append.
  */

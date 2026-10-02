@@ -598,7 +598,7 @@ describe('binding rows (FR-032, AC-104, AC-105)', () => {
 });
 
 describe('the agent pin (FR-033, AC-106)', () => {
-    it('reads not checkable before any dispatch, and names t… (+1 cases)', () => {
+    it('reads not checkable before any dispatch, and names t… (+2 cases)', () => {
         // case: reads not checkable before any dispatch, and names the first dispatch
         {
             const lines = agentPinLines(viewOf(statusFixture()));
@@ -619,6 +619,26 @@ describe('the agent pin (FR-033, AC-106)', () => {
             const lines = agentPinLines(viewOf(withMember('agentPin', agentPin)));
 
             expect(lines[1]).toContain('executor');
+        }
+        // case: names a blank baseline as unset and its read-back as not compared (002 FR-029)
+        {
+            // `ok: false` with an empty baseline is *no comparison*, and the
+            // Status tab must not render it as a mismatch the panel never made.
+            const agentPin = agentPinFixture({
+                expectedAgent: '',
+                lastVerification: {
+                    observedAgent: 'executor',
+                    expectedAgent: '',
+                    ok: false,
+                    at: STAMP,
+                },
+            });
+            const lines = agentPinLines(viewOf(withMember('agentPin', agentPin)));
+
+            expect(lines[0]).toBe('No comparison baseline configured.');
+            expect(lines[1]).toContain('executor');
+            expect(lines[1]).toContain('without comparison');
+            expect(lines.join(' ')).not.toContain('did not match');
         }
     });
 });

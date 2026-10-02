@@ -1010,7 +1010,7 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
 });
 
 describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)', () => {
-    it('records a matching read-back without moving the run (+4 cases)', async () => {
+    it('records a matching read-back without moving the run (+5 cases)', async () => {
         // case: records a matching read-back without moving the run
         {
             const run = await seedRun({ issueNumber: 50, state: DISPATCHED, sessionId: 'ses_v1' });
@@ -1145,6 +1145,47 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
 
             expect(outcome.status).toBe('refused');
             expect(await rowsOf(VERIFIED_ROW)).toEqual([]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: records a blank baseline as the absence it is, changing no state
+        {
+            // `expectedAgent: ''` is 002 FR-029's *no baseline configured*: the
+            // read-back still files — the observation is evidence — but nothing
+            // was compared, and the stored row must say so through the empty
+            // baseline and the note rather than inventing an expectation. (The
+            // audit vocabulary names only `agent.verified` / `agent.mismatch`,
+            // so an uncompared read-back lands under the latter with `expected`
+            // empty — flagged for adjudication rather than widened here.)
+            const run = await seedRun({ issueNumber: 55, state: DISPATCHED, sessionId: 'ses_v5' });
+            const before = await readRun(run.correlationId);
+
+            const outcome = await recordVerification({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                sessionId: 'ses_v5',
+                observedAgent: EXPECTED_AGENT,
+                expectedAgent: '',
+                ok: false,
+                note: 'no baseline is configured, so nothing was compared',
+                now: NOW,
+            });
+
+            expect(outcome.status).toBe('applied');
+            const stored = await readRun(run.correlationId);
+            expect(stored.state).toBe(before.state);
+            expect(stored.verification).toMatchObject({
+                observedAgent: EXPECTED_AGENT,
+                expectedAgent: '',
+                ok: false,
+                note: 'no baseline is configured, so nothing was compared',
+            });
+            const [row] = await rowsOf(MISMATCH_ROW);
+            expect(row).toMatchObject({ expectedAgent: '', observedAgent: EXPECTED_AGENT });
         }
     });
 });

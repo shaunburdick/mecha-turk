@@ -34,7 +34,6 @@
  */
 
 import type { Tone } from '@openchamber/sdk/ui';
-import { DEFAULT_EXPECTED_AGENT } from './config.ts';
 import { PROJECT_REGISTRATION_ROUTES } from './project-picker.ts';
 import type { PanelState } from './panel-state.ts';
 import type { PanelAccount, PanelBinding } from './bindings-service.ts';
@@ -139,19 +138,21 @@ export function prerequisiteTone(state: PrerequisiteState): Tone {
 /**
  * The Default Agent pin: checkable only after a dispatch (FR-072).
  *
- * The name in the remediation is {@link DEFAULT_EXPECTED_AGENT}, the
- * documented default 002 FR-029 falls back to when `GET /v1/config` carries
- * no `expectedAgent`: the prerequisite describes the documented setup step,
- * which is exactly that default, so the line cannot go stale when the
- * baseline itself is read per verification.
+ * The remediation names the **setting path** and no agent name, because the
+ * default is blank since 006 v1.5.0 / 002 v1.10.0 (product-owner order:
+ * *"Default Agent pin should default to blank, not everyone is going to use
+ * project-manager"*). Prescribing an agent here would tell every operator the
+ * same thing the owner just refused to assume, so the line asks for the agent
+ * **they** want dispatches to run on and names the matching `expectedAgent`
+ * baseline the comparison actually reads.
  *
  * @returns The prerequisite, always `not-checkable` and never `met`.
  */
 function defaultAgentPin(): Prerequisite {
     const remediation =
-        `Set Settings → Sessions → Session Defaults → Default Agent to ${DEFAULT_EXPECTED_AGENT}; ` +
-        'the first dispatch is what checks it — every dispatch reads the session back afterwards and ' +
-        'warns when the session reports another agent.';
+        'Set Settings → Sessions → Session Defaults → Default Agent to the agent you want dispatches to run on, ' +
+        'and set the matching baseline in Settings → expectedAgent; the first dispatch is what checks it — ' +
+        'every dispatch reads the session back afterwards and warns when the session reports another agent.';
 
     return {
         id: IDS.defaultAgent,

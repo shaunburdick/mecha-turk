@@ -460,7 +460,7 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
 });
 
 describe('T-024 honest rows (reason line, references, verification)', () => {
-    it('carries a reason line for every state the model can … (+5 cases)', () => {
+    it('carries a reason line for every state the model can … (+6 cases)', () => {
         // case: carries a reason line for every state the model can reach (FR-074)
         {
             const states: readonly RunRow['state'][] = [
@@ -617,6 +617,31 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
                 status: 'ready',
             }))[0];
             expect(unreadable?.badge?.tone).toBe('warning');
+        }
+        // case: reports a read-back against no baseline as observed, never as a mismatch (002 FR-029)
+        {
+            // `expectedAgent: ''` is the documented *no baseline configured*: the
+            // row still names the observed agent, and neither the phrase nor the
+            // badge may claim a mismatch the comparison never made.
+            const uncompared = dispatchRows(runsState({
+                rows: [runFixture({
+                    state: 'dispatched',
+                    dispatchResult: SESSION_RESULT,
+                    verification: {
+                        observedAgent: EXPECTED_AGENT,
+                        expectedAgent: '',
+                        ok: false,
+                        note: 'no baseline is configured, so nothing was compared',
+                    },
+                })],
+                status: 'ready',
+            }))[0];
+
+            expect(uncompared?.subtitle).toContain(`agent read back: ${EXPECTED_AGENT}`);
+            expect(uncompared?.subtitle).toContain('no baseline is configured');
+            expect(uncompared?.subtitle).not.toContain('mismatch');
+            // No expectation was missed, so the state keeps its own tone.
+            expect(uncompared?.badge).toEqual({ label: 'dispatched', tone: 'success' });
         }
     });
 });

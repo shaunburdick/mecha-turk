@@ -16,7 +16,7 @@
  * stamps the caller injects — no test ever waits on a clock (NFR-112).
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -32,6 +32,7 @@ import { drainVerifications } from '../../src/agent-verify.ts';
 import { DISPATCH_STORAGE_KEY } from '../../src/dispatch-record.ts';
 import { parsePendingBody } from '../../src/claim-service.ts';
 import { EVENTS_PENDING_PATH, serviceGet } from '../../src/service-calls.ts';
+import { CONFIG_FILE, DEFAULT_CONFIG } from '../../service/config.ts';
 import { createLogger } from '../../service/log.ts';
 import { readRunsDocument } from '../../service/poll/runs.ts';
 import { writeRunsDocument } from '../../service/poll/runs-document.ts';
@@ -103,7 +104,7 @@ const ROOT_REMOVE_RETRY_MS = 50;
 /** Stamp a fixture-aged lease reads as expired against (the service's clock). */
 const EXPIRED_LEASE_STAMP = '2000-01-01T00:00:00.000Z';
 
-/** Agent the fixture host's read-back reports, matching the panel's default. */
+/** Agent the fixture host's read-back reports; the loop's config pins it as the baseline. */
 export const EXPECTED_AGENT = 'project-manager';
 
 /** Header name a forwarded JSON body carries, as a computed object key. */
@@ -441,12 +442,22 @@ async function startLoopService(dataDir: string): Promise<TestService> {
 /**
  * Start one loop: a temp store and the real service serving it.
  *
+ * The store starts with a **configured** comparison baseline matching the
+ * fixture host's session agent: the shipped default is blank (006 v1.5.0 —
+ * *no baseline, no comparison*), and these suites assert read-backs that
+ * verify end to end, which needs an operator who pinned one (002 FR-029).
+ *
  * @returns The loop, ready for fixtures and mounts.
  */
 export async function startDispatchLoop(): Promise<DispatchLoop> {
     const root = await mkdtemp(join(tmpdir(), TEMP_PREFIX));
     const dataDir = join(root, 'store');
     await mkdir(dataDir, { recursive: true });
+    await writeFile(
+        join(dataDir, CONFIG_FILE),
+        JSON.stringify({ ...DEFAULT_CONFIG, expectedAgent: EXPECTED_AGENT }),
+        'utf8',
+    );
 
     let service = await startLoopService(dataDir);
     const sessions: string[] = [];

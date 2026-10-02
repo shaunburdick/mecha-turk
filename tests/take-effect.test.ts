@@ -22,9 +22,12 @@
  * The `next-dispatch` class is observed here directly (AC-155), because it is
  * the one class whose consumer the panel owns end to end: a saved baseline is
  * read per verification, with no restart and no cycle boundary in between, an
- * in-flight verification keeps the baseline it started with, and a missing or
- * unreadable one falls back to the documented default **with its provenance
- * recorded** — never blocking a run on the baseline's own absence.
+ * in-flight verification keeps the baseline it started with, and a missing,
+ * unreadable, or explicitly **blank** one means **no comparison is possible** —
+ * the read-back still records the observed agent with its provenance
+ * (`defaulted` or `unset`), never blocks a run on the baseline's own absence,
+ * and never claims a mismatch from an absence either (002 FR-029 as amended at
+ * v1.10.0).
  *
  * Offline: fixtures, a fake host, and local files (FR-086).
  */
@@ -76,11 +79,17 @@ const SAVED_AGENT = 'other-agent';
 /** The baseline one in-flight verification started with. */
 const FIRST_AGENT = 'first-agent';
 
+/** The agent the fixture session reports — nobody pinned it until a config says so. */
+const REPORTED_AGENT = 'project-manager';
+
 /** Provenance recorded when the documented default supplied the baseline. */
 const DEFAULTED = 'defaulted';
 
 /** Provenance recorded when the stored document supplied the baseline. */
 const CONFIGURED = 'configured';
+
+/** Provenance recorded when the document itself carried a blank baseline. */
+const UNSET = 'unset';
 
 /** The class nine of 006's fields declare: effective from the next poll cycle. */
 const NEXT_CYCLE: TakeEffectClass = 'next-cycle';
@@ -385,7 +394,7 @@ function startVerification(run: VerificationRun, id: string): Promise<void> {
 }
 
 describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verification', () => {
-    it('compares against the saved value with no restart and… (+4 cases)', async () => {
+    it('compares against the saved value with no restart and… (+5 cases)', async () => {
         // case: compares against the saved value with no restart and no cycle boundary between
         {
             const run = verificationRun(SAVED_AGENT);
@@ -434,49 +443,67 @@ describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verific
             // start, and neither borrowed the other's.
             expect(run.reads()).toBe(2);
         }
-        // case: defaults to the documented agent with its provenance recorded, and never blocks on it
+        // case: records a defaulted blank baseline and compares nothing when the field is absent
         {
-            const run = verificationRun(DEFAULT_EXPECTED_AGENT);
+            const run = verificationRun(REPORTED_AGENT);
             run.setConfig(configBody());
 
             await startVerification(run, `${RUN_ID}-missing`);
 
             // The default is the documented one, pinned to the service's own
-            // declaration rather than retyped (002 FR-029, plan X7).
+            // declaration rather than retyped (002 FR-029, plan X7) — and since
+            // 006 v1.5.0 / 002 v1.10.0 it is **blank**, so this read-back has
+            // nothing to compare the observed agent against.
             expect(DEFAULT_EXPECTED_AGENT).toBe(DEFAULT_CONFIG.expectedAgent);
-            expect(reportOf(run)).toMatchObject({ expectedAgent: DEFAULT_EXPECTED_AGENT, ok: true });
-
-            const entry = run.rt.state.ledger.entries.at(-1);
-            expect(entry?.detail.baselineProvenance).toBe(DEFAULTED);
-            expect(entry?.detail.agentVerified).toBe(true);
-            // The outcome records *which* baseline was used — and a defaulted one
-            // that matched leaves the run verified rather than blocked.
-            expect(entry?.detail.verification).toBe('match');
-        }
-        // case: defaults the same way when the read itself fails
-        {
-            const run = verificationRun(DEFAULT_EXPECTED_AGENT);
-            run.setConfig(null);
-
-            await startVerification(run, `${RUN_ID}-unreadable`);
-
-            expect(reportOf(run)).toMatchObject({ expectedAgent: DEFAULT_EXPECTED_AGENT, ok: true });
-            expect(run.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe(DEFAULTED);
-        }
-        // case: warns — and does not block — when the observed agent differs from a defaulted baseline
-        {
-            const run = verificationRun('executor');
-            run.setConfig(null);
-
-            await startVerification(run, `${RUN_ID}-mismatch`);
+            expect(DEFAULT_EXPECTED_AGENT).toBe('');
+            expect(reportOf(run)).toMatchObject({ expectedAgent: '', ok: false });
 
             const entry = run.rt.state.ledger.entries.at(-1);
             expect(entry?.detail.baselineProvenance).toBe(DEFAULTED);
             expect(entry?.detail.agentVerified).toBe(false);
+            // The outcome records *which* baseline was in force — an absence is
+            // named as one, never as a match and never as a mismatch.
+            expect(entry?.detail.verification).toBe('uncompared');
+            expect(run.rt.state.dispatches.agentNotice?.tone).toBe('info');
+        }
+        // case: answers the same blank baseline when the read itself fails
+        {
+            const run = verificationRun(REPORTED_AGENT);
+            run.setConfig(null);
+
+            await startVerification(run, `${RUN_ID}-unreadable`);
+
+            expect(reportOf(run)).toMatchObject({ expectedAgent: '', ok: false });
+            expect(run.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe(DEFAULTED);
+        }
+        // case: reads an explicitly blank baseline as `unset` — the operator's own answer
+        {
+            const run = verificationRun(REPORTED_AGENT);
+            run.setConfig(configBody(''));
+
+            await startVerification(run, `${RUN_ID}-unset`);
+
+            expect(reportOf(run)).toMatchObject({ expectedAgent: '', ok: false });
+            const entry = run.rt.state.ledger.entries.at(-1);
+            expect(entry?.detail.expectedAgent).toBe('');
+            expect(entry?.detail.baselineProvenance).toBe(UNSET);
+            expect(entry?.detail.verification).toBe('uncompared');
+            expect(run.rt.state.dispatches.agentNotice?.tone).toBe('info');
+        }
+        // case: warns — and does not block — when the observed agent differs from a configured baseline
+        {
+            const run = verificationRun('executor');
+            run.setConfig(configBody(SAVED_AGENT));
+
+            await startVerification(run, `${RUN_ID}-mismatch`);
+
+            const entry = run.rt.state.ledger.entries.at(-1);
+            expect(entry?.detail.baselineProvenance).toBe(CONFIGURED);
+            expect(entry?.detail.agentVerified).toBe(false);
             // Warn-only: the banner carries the mismatch, and no run state was
             // written — a baseline problem is never a block (002 FR-029).
             expect(run.rt.state.dispatches.agentNotice?.tone).toBe('warning');
-            expect(reportOf(run)).toMatchObject({ ok: false, expectedAgent: DEFAULT_EXPECTED_AGENT });
+            expect(reportOf(run)).toMatchObject({ ok: false, expectedAgent: SAVED_AGENT });
         }
     });
 });

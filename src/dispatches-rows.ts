@@ -187,12 +187,16 @@ function stateTone(state: RunState): Tone {
  * session actually runs is not the one the binding expected — but it never
  * softens the error tone of a parked run, and it can never produce a success.
  *
+ * A read-back against **no configured baseline** (`expectedAgent === ''`)
+ * changes nothing: there was no expectation to miss, so the run keeps the
+ * tone its own state earns (002 FR-029 as amended at v1.10.0).
+ *
  * @param row - Run to judge.
  * @returns The tone the badge renders with.
  */
 function badgeTone(row: RunRow): Tone {
     const base = stateTone(row.state);
-    if (row.verification === null || row.verification.ok) {
+    if (row.verification === null || row.verification.ok || row.verification.expectedAgent === '') {
         return base;
     }
 
@@ -369,6 +373,10 @@ function referencePhrase(row: RunRow): string | null {
 /**
  * Compose the agent read-back line: which agent, and whether it matched.
  *
+ * An empty `expectedAgent` is the documented *no baseline configured*, so the
+ * line reports the observation and the absence together and never the word
+ * *mismatch* — nothing was compared (002 FR-029 as amended at v1.10.0).
+ *
  * @param verification - The recorded read-back.
  * @returns The line, naming the observed agent, the expected one, the verdict,
  *   and the service's own note when there is one (FR-043, AC-125).
@@ -376,6 +384,12 @@ function referencePhrase(row: RunRow): string | null {
 function verificationPhrase(verification: RunVerification): string {
     const observed = verification.observedAgent ?? 'unreadable';
     const expected = verification.expectedAgent;
+    if (expected === '') {
+        const reason = verification.note ?? 'no baseline configured, so nothing was compared';
+
+        return `agent read back: ${observed} — ${reason}`;
+    }
+
     if (verification.ok) {
         return `agent verified: ${observed} (expected ${expected})`;
     }
