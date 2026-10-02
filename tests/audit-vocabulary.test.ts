@@ -8,7 +8,7 @@
  * trail they wrote. What is asserted here is what the spec's `## Audit
  * Vocabulary`, its correlation table, and NFR-106 say that trail must contain:
  *
- * - **all sixteen types**, each with the actor, the decision, and the `details`
+ * - **all seventeen types**, each with the actor, the decision, and the `details`
  *   keys the vocabulary table names (AC-115's "sample of every vocabulary
  *   entry … with its required `details`");
  * - **one `dispatch.refused` row per refusing operation**, including the
@@ -25,7 +25,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { findSecretLeak } from '../src/redaction.ts';
 import type { AuditEntry } from '../service/audit.ts';
-import { shutdownDispatchCorpus } from './support/dispatch-corpus.ts';
+import { EXPECTED_AGENT, shutdownDispatchCorpus } from './support/dispatch-corpus.ts';
 import { driveDispatchCorpus } from './support/dispatch-drive.ts';
 import type { DispatchCorpus } from './support/dispatch-corpus.ts';
 
@@ -42,7 +42,7 @@ const FINGERPRINT_PATTERN = /^tokfp-/;
 const TOKEN_PATTERN = /dtk-[0-9a-f]{8,}/;
 
 /**
- * Vocabulary row names, one constant each: the sixteen lifecycle types the
+ * Vocabulary row names, one constant each: the seventeen lifecycle types the
  * spec's `## Audit Vocabulary` defines, the refusal row FR-003 adds, and the
  * detection row whose correlation id is assigned at enqueue (FR-050).
  */
@@ -62,6 +62,7 @@ const BLOCKED_ROW = 'run.blocked';
 const DEAD_LETTERED_ROW = 'run.dead_lettered';
 const VERIFIED_ROW = 'agent.verified';
 const MISMATCH_ROW = 'agent.mismatch';
+const UNCOMPARED_ROW = 'agent.uncompared';
 const REFUSAL_ROW = 'dispatch.refused';
 const DETECTED_ROW = 'delivery.detected';
 
@@ -90,7 +91,7 @@ interface VocabularyEntry {
 }
 
 /**
- * The sixteen lifecycle types, transcribed from the spec's `## Audit
+ * The seventeen lifecycle types, transcribed from the spec's `## Audit
  * Vocabulary` (and data-model §4.2, which spells the dead-letter row with the
  * underscore the service writes — the spec table's hyphen is the outlier its
  * own amendment history contradicts: "including `run.dead_lettered`").
@@ -201,9 +202,18 @@ const VOCABULARY: readonly VocabularyEntry[] = [
         decision: 'warn',
         details: ['sessionId', 'observedAgent', 'expectedAgent', 'note'],
     },
+    {
+        // 003 v1.7.0's third read-back row: the provenance is required here
+        // because it is the answer to *why* nothing was compared — a compared
+        // row already carries the baseline it compared against.
+        eventType: UNCOMPARED_ROW,
+        actor: 'panel',
+        decision: 'observed',
+        details: ['sessionId', 'observedAgent', 'expectedAgent', 'baselineProvenance', 'note'],
+    },
 ];
 
-/** The sixteen types plus the refusal row: everything a run's chain owns. */
+/** The seventeen types plus the refusal row: everything a run's chain owns. */
 const LIFECYCLE_TYPES: ReadonlySet<string> = new Set([...VOCABULARY.map((entry) => entry.eventType), REFUSAL_ROW]);
 
 /** The corpus the suite asserts over, driven once for every test below. */
@@ -238,7 +248,7 @@ function rowsOf(trail: readonly AuditEntry[], eventType: string): readonly Audit
     return trail.filter((entry) => entry.eventType === eventType);
 }
 
-/** Every lifecycle row: the sixteen types plus the refusal row. */
+/** Every lifecycle row: the seventeen types plus the refusal row. */
 function lifecycleRows(trail: readonly AuditEntry[]): readonly AuditEntry[] {
     return trail.filter((entry) => LIFECYCLE_TYPES.has(entry.eventType));
 }
@@ -269,8 +279,8 @@ function firstSeqFor(input: {
 }
 
 describe('AC-115 every vocabulary entry is present with its required details', () => {
-    it('writes all sixteen types with the actor, decision, a… (+2 cases)', () => {
-        // case: writes all sixteen types with the actor, decision, and details the table names
+    it('writes all seventeen types with the actor, decision, a… (+3 cases)', () => {
+        // case: writes all seventeen types with the actor, decision, and details the table names
         {
             const { trail } = driven();
             expect(new Set(trail.map((entry) => entry.eventType)).size).toBeGreaterThanOrEqual(
@@ -345,6 +355,33 @@ describe('AC-115 every vocabulary entry is present with its required details', (
                 expect(typeof row.details.priorState).toBe('string');
             }
         }
+        // case: records a blank-baseline read-back as its own row, with the absence and no expectation
+        {
+            const { trail, adoptedRunId } = driven();
+            const [uncompared] = rowsOf(trail, UNCOMPARED_ROW);
+            if (uncompared === undefined) {
+                throw new Error('the trail carries no agent.uncompared row');
+            }
+
+            // The Default Agent pin is blank by default (002 v1.10.0), so this
+            // is the usual read-back: observed, never compared, and saying so
+            // in its own words — an empty expectation, the provenance that
+            // explains it, and a decision that is an observation rather than a
+            // verdict (003 v1.7.0).
+            expect(uncompared.actorSource).toBe('panel');
+            expect(uncompared.correlationId).toBe(adoptedRunId);
+            expect(uncompared.decision).toBe('observed');
+            expect(uncompared.details.expectedAgent).toBe('');
+            expect(uncompared.details.observedAgent).toBe(EXPECTED_AGENT);
+            expect(uncompared.details.baselineProvenance).toBe('unset');
+
+            // The contrast that keeps the third row honest: a comparison that
+            // really happened still records the baseline it differed from, so
+            // the empty expectation above is the absence and not a formatting
+            // habit.
+            const [mismatch] = rowsOf(trail, MISMATCH_ROW);
+            expect(mismatch?.details.expectedAgent).toBe(EXPECTED_AGENT);
+        }
     });
 });
 
@@ -396,6 +433,7 @@ describe('FR-062 every lifecycle row carries the run correlation id', () => {
                 DUPLICATE_ROW,
                 VERIFIED_ROW,
                 MISMATCH_ROW,
+                UNCOMPARED_ROW,
             ].map((eventType) => firstSeqFor({ trail, eventType, correlationId: adoptedRunId }));
 
             expect(chain.every((seq) => !Number.isNaN(seq))).toBe(true);

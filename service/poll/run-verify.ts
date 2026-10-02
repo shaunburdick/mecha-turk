@@ -29,7 +29,7 @@ import { refused } from './run-operate.ts';
 import type { OperationResult } from './run-operate.ts';
 import { STALE_LEASE_CODE, refuse, staleAttemptMessage } from './run-refusal.ts';
 import type { RunRefusal } from './run-refusal.ts';
-import type { Run, RunVerification } from './runs-types.ts';
+import type { BaselineProvenance, Run, RunVerification } from './runs-types.ts';
 
 /** The wire code every verdict in this module carries. */
 const INVALID_TRANSITION = 'invalid-transition';
@@ -76,14 +76,15 @@ function judgeVerification(input: {
  * handling, ever.
  *
  * A report whose `expectedAgent` is `""` is a read-back against **no configured
- * baseline** (002 FR-029 as amended): nothing was compared, and this stores the
+ * baseline** (002 FR-029 case (ii)): nothing was compared, and this stores the
  * observed agent beside the empty baseline so the absence — not a fabricated
- * match — is what the row says. Verdict, note, and state rules are otherwise
+ * match — is what the row says, under `agent.uncompared` rather than
+ * `agent.mismatch` (003 v1.7.0). Verdict, note, and state rules are otherwise
  * untouched.
  *
  * @param input - Store, logger, the run, the attempt the panel names, the
- *   session read back, the observed and expected agents, the verdict, a note,
- *   and an injectable service clock.
+ *   session read back, the observed and expected agents, where that baseline
+ *   came from, the verdict, a note, and an injectable service clock.
  * @returns The run with its recorded read-back, or the refusal.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
@@ -102,6 +103,8 @@ export async function recordVerification(input: {
     readonly observedAgent: string | null;
     /** Baseline judged against; `""` means none configured and nothing compared. */
     readonly expectedAgent: string;
+    /** Where that baseline came from; recorded on the uncompared row (002 FR-029). */
+    readonly baselineProvenance: BaselineProvenance;
     /** Whether the two matched. */
     readonly ok: boolean;
     /** Note explaining a mismatch or an unreadable read-back. */
@@ -115,13 +118,8 @@ export async function recordVerification(input: {
             return await refused({ ...input, run, operation: 'verification', refusal });
         }
 
-        const verification: RunVerification = {
-            observedAgent: input.observedAgent,
-            expectedAgent: input.expectedAgent,
-            ok: input.ok,
-            note: input.note,
-            at: now,
-        };
+        const { observedAgent, expectedAgent, ok, note } = input;
+        const verification: RunVerification = { observedAgent, expectedAgent, ok, note, at: now };
         // Every other member is spread through unchanged: warn-only means the
         // read-back is data on the run, not a transition of it.
         const read: Run = { ...run, verification, updatedAt: now };
@@ -134,7 +132,7 @@ export async function recordVerification(input: {
                 store: input.store,
                 log: input.log,
                 correlationId: read.correlationId,
-                row: verificationRow({ run: read, verification }),
+                row: verificationRow({ run: read, verification, baselineProvenance: input.baselineProvenance }),
             }),
         };
     });

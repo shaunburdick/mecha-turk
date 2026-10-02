@@ -139,7 +139,7 @@ const RUN_OPERATIONS: readonly OperationFixture[] = [
     {
         name: 'verification',
         path: VERIFICATION_PATH,
-        body: { sessionId: 'ses_probe', expectedAgent: PROBE_AGENT },
+        body: { sessionId: 'ses_probe', expectedAgent: PROBE_AGENT, baselineProvenance: 'configured' },
     },
 ];
 
@@ -223,6 +223,7 @@ function storageProbes(store: ServiceStore, log: ServiceLogger): readonly Storag
                 sessionId: 'ses_probe',
                 observedAgent: PROBE_AGENT,
                 expectedAgent: PROBE_AGENT,
+                baselineProvenance: 'configured',
                 ok: true,
                 note: null,
             }),

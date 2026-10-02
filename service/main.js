@@ -5899,18 +5899,26 @@ function resolvedRow(input) {
     }
   };
 }
+function readBackVerdict(input) {
+  if (!input.compared) {
+    return { eventType: "agent.uncompared", decision: "observed" };
+  }
+  return input.matched ? { eventType: "agent.verified", decision: "verified" } : { eventType: "agent.mismatch", decision: "warn" };
+}
 function verificationRow(input) {
   const { verification } = input;
-  const matched = verification.ok;
+  const compared = verification.expectedAgent !== "";
+  const verdict = readBackVerdict({ compared, matched: compared && verification.ok });
   return {
-    eventType: matched ? "agent.verified" : "agent.mismatch",
+    eventType: verdict.eventType,
     actorSource: PANEL_ACTOR,
     ...runRow(input.run),
-    decision: matched ? "verified" : "warn",
+    decision: verdict.decision,
     details: {
       sessionId: input.run.session?.sessionId ?? "",
       observedAgent: verification.observedAgent,
       expectedAgent: verification.expectedAgent,
+      ...compared ? {} : { baselineProvenance: input.baselineProvenance },
       note: rowText(verification.note)
     }
   };
@@ -6521,6 +6529,31 @@ function baselineMember(value, bound = MAX_BODY_TEXT_CHARS) {
   const trimmed = value.trim();
   return trimmed.length > bound ? null : trimmed;
 }
+var PROVENANCE_SHAPE_FIX = "send one of configured, defaulted, unset — where the comparison baseline came from";
+function provenanceMember(value) {
+  if (value === "configured" || value === "defaulted" || value === "unset") {
+    return value;
+  }
+  return null;
+}
+function provenanceIssue(provenance, expectedAgent) {
+  const configured = provenance === "configured";
+  const hasBaseline = expectedAgent !== "";
+  if (configured !== hasBaseline) {
+    return {
+      field: "baselineProvenance",
+      remediation: "send 'configured' with a non-blank expectedAgent, " + "or 'defaulted' or 'unset' with an empty one"
+    };
+  }
+  return null;
+}
+function readProvenance(fields, expectedAgent) {
+  const provenance = provenanceMember(fields.baselineProvenance);
+  if (provenance === null) {
+    return { field: "baselineProvenance", remediation: PROVENANCE_SHAPE_FIX };
+  }
+  return provenanceIssue(provenance, expectedAgent) ?? provenance;
+}
 function flagMember(value, fallback) {
   return typeof value === "boolean" ? value : fallback;
 }
@@ -7038,13 +7071,8 @@ async function recordVerification(input) {
     if (refusal !== null) {
       return await refused({ ...input, run, operation: "verification", refusal });
     }
-    const verification = {
-      observedAgent: input.observedAgent,
-      expectedAgent: input.expectedAgent,
-      ok: input.ok,
-      note: input.note,
-      at: now
-    };
+    const { observedAgent, expectedAgent, ok, note } = input;
+    const verification = { observedAgent, expectedAgent, ok, note, at: now };
     const read = { ...run, verification, updatedAt: now };
     await persist(read);
     return {
@@ -7054,7 +7082,7 @@ async function recordVerification(input) {
         store: input.store,
         log: input.log,
         correlationId: read.correlationId,
-        row: verificationRow({ run: read, verification })
+        row: verificationRow({ run: read, verification, baselineProvenance: input.baselineProvenance })
       })
     };
   });
@@ -7215,6 +7243,21 @@ async function handleResolve(context, request) {
     success: (run, auditWritten) => runAnswer({ correlationId, run, auditWritten })
   });
 }
+function readReportMembers(fields, expectedAgent) {
+  const provenance = readProvenance(fields, expectedAgent);
+  if (typeof provenance !== "string") {
+    return validationResponse([provenance]);
+  }
+  const overlong = overLongTextResponse(fields, ["observedAgent", "note"]);
+  if (overlong !== null) {
+    return overlong;
+  }
+  return {
+    baselineProvenance: provenance,
+    observedAgent: textMember(fields.observedAgent),
+    note: textMember(fields.note)
+  };
+}
 function readReadBack(request, correlationId) {
   const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: {} });
   if (isRefusal(parsed)) {
@@ -7237,20 +7280,11 @@ function readReadBack(request, correlationId) {
   if (sessionIssue !== null) {
     return validationResponse([sessionIssue]);
   }
-  const observedAgent = textMember(fields.observedAgent);
-  const note = textMember(fields.note);
-  const overlong = overLongTextResponse(fields, ["observedAgent", "note"]);
-  if (overlong !== null) {
-    return overlong;
+  const members = readReportMembers(fields, expectedAgent);
+  if ("status" in members) {
+    return members;
   }
-  return {
-    attempt,
-    sessionId,
-    expectedAgent,
-    observedAgent,
-    ok: flagMember(fields.ok, false),
-    note
-  };
+  return { attempt, sessionId, expectedAgent, ...members, ok: flagMember(fields.ok, false) };
 }
 async function handleVerification(context, request) {
   const { store } = context;

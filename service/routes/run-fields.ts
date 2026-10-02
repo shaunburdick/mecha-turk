@@ -22,6 +22,7 @@
 
 import { validationResponse } from '../http.ts';
 import type { FieldIssue, HttpResponse } from '../http.ts';
+import type { BaselineProvenance } from '../poll/runs-types.ts';
 
 /** Longest free-text body member the operations accept. */
 export const MAX_BODY_TEXT_CHARS = 1_000;
@@ -86,6 +87,88 @@ export function baselineMember(value: unknown, bound: number = MAX_BODY_TEXT_CHA
     const trimmed = value.trim();
 
     return trimmed.length > bound ? null : trimmed;
+}
+
+/**
+ * The remediation a missing or unknown provenance is answered with, so the
+ * `422` names the member and states the vocabulary rather than echoing what
+ * arrived (SEC-11 / contract §1).
+ */
+const PROVENANCE_SHAPE_FIX = 'send one of configured, defaulted, unset — where the comparison baseline came from';
+
+/**
+ * Read a verification report's baseline provenance (002 FR-029 case (ii);
+ * 003 v1.7.0, contract §5).
+ *
+ * Required and closed: `configured` (a real value was read), `defaulted` (the
+ * document could not be read), or `unset` (read and found blank). Anything
+ * else — absent, not a string, or outside the three — answers `null`, which
+ * {@link readProvenance} turns into the `422` this member owes: without the
+ * word, an `agent.uncompared` row could not say *why* no baseline was in force,
+ * and 002 FR-029 case (ii) requires it to.
+ *
+ * @param value - The member as received.
+ * @returns The provenance, or `null` when it is absent or out of vocabulary.
+ */
+function provenanceMember(value: unknown): BaselineProvenance | null {
+    if (value === 'configured' || value === 'defaulted' || value === 'unset') {
+        return value;
+    }
+
+    return null;
+}
+
+/**
+ * The `422` a provenance that contradicts its own baseline owes, or `null`
+ * when the two agree.
+ *
+ * The pair is a single fact stated twice — a baseline exists iff the
+ * provenance that admits to reading one (`configured`) was sent — so a report
+ * claiming `configured` against an empty baseline (or `defaulted`/`unset`
+ * against a real one) would record a reason its own body disproves. Fail
+ * closed: name the field and state the rule, never pick the half that seems
+ * likelier (AGENTS invariant 8).
+ *
+ * @param provenance - The provenance the report claimed.
+ * @param expectedAgent - The baseline the same report carried.
+ * @returns The issue naming the rule, or `null` when the two agree.
+ */
+function provenanceIssue(provenance: BaselineProvenance, expectedAgent: string): FieldIssue | null {
+    const configured = provenance === 'configured';
+    const hasBaseline = expectedAgent !== '';
+    if (configured !== hasBaseline) {
+        return {
+            field: 'baselineProvenance',
+            remediation: "send 'configured' with a non-blank expectedAgent, "
+                + "or 'defaulted' or 'unset' with an empty one",
+        };
+    }
+
+    return null;
+}
+
+/**
+ * Read a verification report's provenance and check it against that report's
+ * own baseline (contract §5 as 003 v1.7.0 widens it).
+ *
+ * One entry point so the route reads as a single step: the member is required,
+ * it is closed to three words, and it must agree with the emptiness of
+ * `expectedAgent` it arrived beside.
+ *
+ * @param fields - The body's members.
+ * @param expectedAgent - The baseline the same body carried.
+ * @returns The provenance, or the `422` issue naming what was wrong with it.
+ */
+export function readProvenance(
+    fields: Readonly<Record<string, unknown>>,
+    expectedAgent: string,
+): BaselineProvenance | FieldIssue {
+    const provenance = provenanceMember(fields.baselineProvenance);
+    if (provenance === null) {
+        return { field: 'baselineProvenance', remediation: PROVENANCE_SHAPE_FIX };
+    }
+
+    return provenanceIssue(provenance, expectedAgent) ?? provenance;
 }
 
 /**

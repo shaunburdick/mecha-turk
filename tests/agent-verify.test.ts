@@ -664,6 +664,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
                 sessionId: SESSION,
                 observedAgent: EXPECTED_AGENT,
                 expectedAgent: EXPECTED_AGENT,
+                baselineProvenance: 'configured',
                 ok: true,
                 note: null,
             });
@@ -715,6 +716,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
 
             expect(report.paths).toEqual(READ_BACK_PATHS);
             expect(body.expectedAgent).toBe('');
+            expect(body.baselineProvenance).toBe('unset');
             expect(body.ok).toBe(false);
             expect(body.observedAgent).toBe(EXPECTED_AGENT);
             expect(body.note).toBe('no baseline is configured, so nothing was compared');
@@ -737,6 +739,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(report.paths[0]).toBe(READ_BACK_PATHS[0]);
             const body = reportBody(report);
             expect(body.expectedAgent).toBe('');
+            expect(body.baselineProvenance).toBe('defaulted');
             expect(body.ok).toBe(false);
 
             const entry = report.rt.state.ledger.entries.at(-1);

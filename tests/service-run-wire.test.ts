@@ -806,7 +806,7 @@ describe('T-043h §7 and §8 never require attempt', () => {
 });
 
 describe('T-043e an over-long optional free-text member is refused, not dropped', () => {
-    it('refuses an over-long causeReport on a retry, naming … (+4 cases)', async () => {
+    it('refuses an over-long causeReport on a retry, naming … (+5 cases)', async () => {
         // case: refuses an over-long causeReport on a retry, naming the field
         {
             const service = await startSeededService();
@@ -883,6 +883,7 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
                     sessionId: SEEDED_SESSION,
                     expectedAgent: PROBE_AGENT,
                     observedAgent: OVER_LONG_TEXT,
+                    baselineProvenance: 'configured',
                 },
             });
 
@@ -906,6 +907,7 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
                     sessionId: SEEDED_SESSION,
                     expectedAgent: '',
                     observedAgent: PROBE_AGENT,
+                    baselineProvenance: 'unset',
                     ok: false,
                     note: 'no baseline is configured, so nothing was compared',
                 },
@@ -930,6 +932,44 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             // FR-100(b) states for the config is the same rule the body keeps.
             expect(missing.status).toBe(422);
             expect(errorOf(missing.json).message).toContain('expectedAgent');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a baseline provenance that is missing or contradicts its own baseline
+        {
+            // The provenance is the reason an `agent.uncompared` row can say
+            // *why* nothing was compared (002 FR-029 case (ii); contract §5 as
+            // 003 v1.7.0 widens it), so a report that skips it — or that sends
+            // one its own `expectedAgent` disproves — is refused naming the
+            // field rather than filed with a plausible-looking guess.
+            const service = await startSeededService();
+            const run = await driveTo(49, 'dispatched');
+            const common = { correlationId: run.correlationId, attempt: 1, sessionId: SEEDED_SESSION };
+            const path = bound(VERIFICATION_PATH, run.correlationId);
+
+            const absent = await post(service, {
+                path,
+                body: { ...common, expectedAgent: '', observedAgent: PROBE_AGENT, ok: false },
+            });
+
+            expect(absent.status).toBe(422);
+            expect(errorOf(absent.json).message).toContain('baselineProvenance');
+
+            const contradicted = await post(service, {
+                path,
+                body: {
+                    ...common,
+                    expectedAgent: '',
+                    observedAgent: PROBE_AGENT,
+                    baselineProvenance: 'configured',
+                    ok: false,
+                },
+            });
+
+            expect(contradicted.status).toBe(422);
+            expect(errorOf(contradicted.json).message).toContain('baselineProvenance');
+            // Neither report half-applied: nothing was recorded at all.
+            expect(await readRun(run.correlationId).then((found) => found.verification)).toBeNull();
         }
     });
 });
@@ -1015,6 +1055,7 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
                     sessionId: SEEDED_SESSION,
                     expectedAgent: PROBE_AGENT,
                     observedAgent: PROBE_AGENT,
+                    baselineProvenance: 'configured',
                     ok: true,
                 },
             });

@@ -34,9 +34,17 @@ import { errorResponse, STATUS, storageUnavailableResponse, validationResponse }
 import type { HttpResponse } from '../http.ts';
 import { requeueDispatch, resolveDispatch, retryDispatch } from '../poll/run-operate.ts';
 import { recordVerification } from '../poll/run-verify.ts';
+import type { BaselineProvenance } from '../poll/runs-types.ts';
 import type { ResolveDecision } from '../poll/run-operate.ts';
 import { refuseRunRequest, runAnswer, runOutcomeResponse, unknownRunResponse } from './run-answer.ts';
-import { baselineMember, flagMember, overLongTextResponse, sessionIdIssue, textMember } from './run-fields.ts';
+import {
+    baselineMember,
+    flagMember,
+    overLongTextResponse,
+    readProvenance,
+    sessionIdIssue,
+    textMember,
+} from './run-fields.ts';
 import {
     RUN_SCOPE_PREFIX,
     isRefusal,
@@ -339,10 +347,65 @@ interface ReadBack {
      * a baseline, never a refusal of the report).
      */
     readonly expectedAgent: string;
+    /**
+     * Where that baseline came from: `configured`, `defaulted`, or `unset`
+     * (002 FR-029 case (ii); contract §5 as 003 v1.7.0 widens it).
+     *
+     * Required even when it will not be stored, because it is the difference
+     * between a comparison that was made and one that could not be — which is
+     * what picks `agent.uncompared` over `agent.mismatch`.
+     */
+    readonly baselineProvenance: BaselineProvenance;
     /** Whether the two matched. */
     readonly ok: boolean;
     /** Note explaining a mismatch or an unreadable read-back. */
     readonly note: string | null;
+}
+
+/** §5's own members after every shared check has passed. */
+interface ReportMembers {
+    /** Where the comparison baseline came from: `configured`/`defaulted`/`unset`. */
+    readonly baselineProvenance: BaselineProvenance;
+    /** The agent the read-back observed, or `null` when unreadable. */
+    readonly observedAgent: string | null;
+    /** Note explaining a mismatch or an unreadable read-back. */
+    readonly note: string | null;
+}
+
+/**
+ * Read §5's own members: the baseline's provenance, then the two optional
+ * free-text fields.
+ *
+ * Split from {@link readReadBack} because both owe a `422` of their own and
+ * neither is about the *run identity* — a report whose provenance contradicts
+ * the baseline it arrived beside would record a reason its own body disproves
+ * (contract §5 as 003 v1.7.0 widens it; 002 FR-029 case (ii)), and an
+ * unbounded observed agent or note would land uncut in a durable row (T-043e).
+ *
+ * @param fields - The body's members.
+ * @param expectedAgent - The baseline the same body carried.
+ * @returns The members, or the `422` naming whichever of them failed.
+ */
+function readReportMembers(
+    fields: Readonly<Record<string, unknown>>,
+    expectedAgent: string,
+): ReportMembers | HttpResponse {
+    const provenance = readProvenance(fields, expectedAgent);
+    // `typeof` is the discriminator: the other arm is the `FieldIssue`.
+    if (typeof provenance !== 'string') {
+        return validationResponse([provenance]);
+    }
+
+    const overlong = overLongTextResponse(fields, ['observedAgent', 'note']);
+    if (overlong !== null) {
+        return overlong;
+    }
+
+    return {
+        baselineProvenance: provenance,
+        observedAgent: textMember(fields.observedAgent),
+        note: textMember(fields.note),
+    };
 }
 
 /**
@@ -389,24 +452,15 @@ function readReadBack(request: RouteRequest, correlationId: string): ReadBack | 
         return validationResponse([sessionIssue]);
     }
 
-    // The observed agent and the operator's note land in `agent.verified` /
-    // `agent.mismatch`, so an over-long optional member is a `422` naming the
-    // field rather than a silently absent one (T-043e).
-    const observedAgent = textMember(fields.observedAgent);
-    const note = textMember(fields.note);
-    const overlong = overLongTextResponse(fields, ['observedAgent', 'note']);
-    if (overlong !== null) {
-        return overlong;
+    // §5's own members, each with its own refusal: the provenance must agree
+    // with the baseline it arrived beside, and an over-long optional member is
+    // a `422` naming the field rather than a silently absent one (T-043e).
+    const members = readReportMembers(fields, expectedAgent);
+    if ('status' in members) {
+        return members;
     }
 
-    return {
-        attempt,
-        sessionId,
-        expectedAgent,
-        observedAgent,
-        ok: flagMember(fields.ok, false),
-        note,
-    };
+    return { attempt, sessionId, expectedAgent, ...members, ok: flagMember(fields.ok, false) };
 }
 
 /**

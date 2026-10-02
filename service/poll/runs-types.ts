@@ -144,6 +144,19 @@ export interface RunVerification {
     readonly at: string;
 }
 
+/**
+ * Where a verification report's comparison baseline came from (002 FR-029
+ * case (ii); 003 v1.7.0).
+ *
+ * Only the panel can know this — it is the party that read `GET /v1/config` —
+ * so it travels on the report and lands on the `agent.uncompared` row beside
+ * the observed agent as the answer to *why* nothing was compared, recorded
+ * rather than inferred. The service checks it against the baseline's emptiness
+ * instead of trusting it: `configured` exactly when `expectedAgent` is
+ * non-blank, `defaulted`/`unset` exactly when it is empty.
+ */
+export type BaselineProvenance = 'configured' | 'defaulted' | 'unset';
+
 /** One run: the unit of dispatch (FR-010, data-model §2.2). */
 export interface Run {
     /** FR-010 tuple, human-readable by design. */

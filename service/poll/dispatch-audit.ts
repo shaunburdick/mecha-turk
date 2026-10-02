@@ -41,7 +41,7 @@ import type { AuditInput } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { buildDispatchTokenFingerprint } from './run-key.ts';
-import type { Run, RunState, RunVerification } from './runs-types.ts';
+import type { BaselineProvenance, Run, RunState, RunVerification } from './runs-types.ts';
 
 
 /** Entity kind every run-scoped lifecycle row names (FR-061). */
@@ -335,19 +335,54 @@ export function resolvedRow(input: {
 }
 
 /**
- * `agent.verified` / `agent.mismatch` — the post-dispatch agent read-back.
+ * The vocabulary name and decision one agent read-back owes (003 v1.7.0).
  *
- * One builder for both because the details are identical and only the vocabulary
- * name and the decision differ: the read-back is warn-only (FR-043), so a
- * mismatch is recorded and shown and then never acted on again.
+ * Split out of {@link verificationRow} for the one rule it encodes: the axis
+ * only exists where a comparison did. A blank baseline has no verdict to
+ * record, so it answers `observed` before `ok` is ever consulted — which is
+ * what keeps the usual read-back from landing under `agent.mismatch`.
  *
- * A report carrying `expectedAgent: ""` is a read-back against **no configured
- * baseline**: nothing was compared, and the row records the observed agent
- * beside the empty baseline so the absence is legible in the trail months
- * later. The panel renders that case as *observed, not compared* — never as a
- * mismatch — and no run state changes either way (002 FR-029 as amended).
+ * @param input - Whether a baseline existed to compare against, and whether
+ *   the comparison matched (consulted only when one did).
+ * @returns The row's event type and its decision.
+ */
+function readBackVerdict(input: {
+    /** Whether a configured baseline was there to compare against. */
+    readonly compared: boolean;
+    /** Whether the comparison matched; meaningless when nothing was compared. */
+    readonly matched: boolean;
+}): { readonly eventType: string; readonly decision: string } {
+    if (!input.compared) {
+        return { eventType: 'agent.uncompared', decision: 'observed' };
+    }
+
+    return input.matched
+        ? { eventType: 'agent.verified', decision: 'verified' }
+        : { eventType: 'agent.mismatch', decision: 'warn' };
+}
+
+/**
+ * `agent.verified` / `agent.mismatch` / `agent.uncompared` — the post-dispatch
+ * agent read-back (003 v1.7.0).
  *
- * @param input - The run, the session read back, and the recorded outcome.
+ * One builder for all three because the details are identical and only the
+ * vocabulary name, the decision, and one extra member differ: the read-back is
+ * warn-only (FR-043), so a mismatch is recorded and shown and then never acted
+ * on again.
+ *
+ * **Which row is chosen by whether a comparison was possible, never by whether
+ * an agent was seen.** A report carrying `expectedAgent: ""` is a read-back
+ * against **no configured baseline** (002 FR-029 case (ii)): nothing was
+ * compared, so no verdict exists to record — `ok` cannot make one true, and
+ * `agent.mismatch` is unreachable while the baseline is empty. That row is
+ * `agent.uncompared`, decision `observed`, and it carries the baseline's
+ * provenance (`defaulted` / `unset`) beside the empty `expectedAgent` so the
+ * absence is legible in the trail months later. The panel renders that case as
+ * *observed, not compared* — never as a mismatch — and no run state changes
+ * either way.
+ *
+ * @param input - The run, the recorded outcome, and where the baseline the
+ *   report judged against came from.
  * @returns The row to append.
  */
 export function verificationRow(input: {
@@ -355,19 +390,27 @@ export function verificationRow(input: {
     readonly run: Run;
     /** The recorded read-back outcome. */
     readonly verification: RunVerification;
+    /** Where the comparison baseline came from (002 FR-029 case (ii)). */
+    readonly baselineProvenance: BaselineProvenance;
 }): AuditInput {
     const { verification } = input;
-    const matched = verification.ok;
+    // A blank baseline means nothing was compared, whatever `ok` claims: the
+    // verdict axis only exists where a configured baseline does.
+    const compared = verification.expectedAgent !== '';
+    const verdict = readBackVerdict({ compared, matched: compared && verification.ok });
 
     return {
-        eventType: matched ? 'agent.verified' : 'agent.mismatch',
+        eventType: verdict.eventType,
         actorSource: PANEL_ACTOR,
         ...runRow(input.run),
-        decision: matched ? 'verified' : 'warn',
+        decision: verdict.decision,
         details: {
             sessionId: input.run.session?.sessionId ?? '',
             observedAgent: verification.observedAgent,
             expectedAgent: verification.expectedAgent,
+            // Only the uncompared row records a provenance: a comparison
+            // against a configured baseline already says which baseline it was.
+            ...(compared ? {} : { baselineProvenance: input.baselineProvenance }),
             note: rowText(verification.note),
         },
     };

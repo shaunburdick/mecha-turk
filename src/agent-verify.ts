@@ -21,11 +21,11 @@
  * else lands as a warning banner in the dispatches area plus a ledger entry.
  * Nothing here stops the session or blocks the event. Since 003 (T-027) the
  * read-back is also **posted to the service** — `POST …/verification`, contract
- * §5 — which writes `agent.verified` / `agent.mismatch` on the run and stores
- * `run.verification` for the run-history projection, **changing no state**:
- * the panel-side record and the service-side trail say the same thing, and a
- * report the service refuses surfaces as a visible warning rather than as a
- * silent gap (FR-043, FR-063).
+ * §5 — which writes `agent.verified` / `agent.mismatch` / `agent.uncompared`
+ * on the run and stores `run.verification` for the run-history projection,
+ * **changing no state**: the panel-side record and the service-side trail say
+ * the same thing, and a report the service refuses surfaces as a visible
+ * warning rather than as a silent gap (FR-043, FR-063).
  *
  * The comparison baseline is **the service's**, not the manifest's: 002
  * FR-041 emptied the integration card, so `readVerificationBaseline` takes it
@@ -374,10 +374,10 @@ async function postReadBack(input: {
     readonly sessionId: string;
     /** Outcome the verification reached. */
     readonly result: AgentVerification;
-    /** Baseline the judgment used. */
-    readonly expected: string;
+    /** The baseline the judgment used, and where it came from (002 FR-029). */
+    readonly baseline: VerificationBaseline;
 }): Promise<void> {
-    const { rt, correlationId, attempt, sessionId, result, expected } = input;
+    const { rt, correlationId, attempt, sessionId, result, baseline } = input;
     const observedAgent = observedAgentOf(result);
     const posted = await servicePost({
         serviceRequest: rt.host.serviceRequest,
@@ -387,7 +387,11 @@ async function postReadBack(input: {
             attempt,
             sessionId,
             observedAgent,
-            expectedAgent: expected,
+            expectedAgent: baseline.agent,
+            // 002 FR-029 case (ii): the service cannot know which of the three
+            // absences this is, and the `agent.uncompared` row records it — so
+            // the word travels with the report instead of being guessed there.
+            baselineProvenance: baseline.provenance,
             ok: result.status === 'match',
             note: readBackNote(result),
         }),
@@ -410,8 +414,9 @@ async function postReadBack(input: {
  * failing verification can never delay (or lose) the run's own record. The
  * outcome lands three places: as a `session` ledger entry correlated to the
  * run, as the runs-area banner, and — since 003 T-027 — as the service's own
- * `agent.verified` / `agent.mismatch` row behind `POST …/verification`, which
- * is warn-only by construction (the route never changes run state).
+ * read-back row (`agent.verified`, `agent.mismatch`, or `agent.uncompared`)
+ * behind `POST …/verification`, which is warn-only by construction (the route
+ * never changes run state).
  *
  * The relay starts this **detached from its tick** and tracks it on
  * {@link PanelRuntime.pendingVerifications}: the read-back keeps its own
@@ -461,7 +466,7 @@ export async function verifyAgentAfterDispatch(inputs: {
             expected,
             provenance: baseline.provenance,
         });
-        await postReadBack({ rt, correlationId, attempt, sessionId, result, expected });
+        await postReadBack({ rt, correlationId, attempt, sessionId, result, baseline });
     } catch (cause) {
         if (rt.disposed) {
             return;

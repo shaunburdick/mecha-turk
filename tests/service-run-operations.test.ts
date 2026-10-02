@@ -97,6 +97,7 @@ const RESOLVED_ROW = 'dispatch.resolved';
 const REFUSED_ROW = 'dispatch.refused';
 const VERIFIED_ROW = 'agent.verified';
 const MISMATCH_ROW = 'agent.mismatch';
+const UNCOMPARED_ROW = 'agent.uncompared';
 
 let tempRoot = '';
 let store: ServiceStore;
@@ -1023,6 +1024,7 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
                 sessionId: 'ses_v1',
                 observedAgent: EXPECTED_AGENT,
                 expectedAgent: EXPECTED_AGENT,
+                baselineProvenance: 'configured',
                 ok: true,
                 note: null,
                 now: NOW,
@@ -1057,6 +1059,7 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
                 sessionId: 'ses_v2',
                 observedAgent: SPACE_BUNNY,
                 expectedAgent: EXPECTED_AGENT,
+                baselineProvenance: 'configured',
                 ok: false,
                 note: 'agent differs from the expected baseline',
                 now: NOW,
@@ -1070,7 +1073,22 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
             expect(stored.reservation).toBeNull();
             expect(stored.verification).toMatchObject({ observedAgent: SPACE_BUNNY, ok: false });
             const [mismatch] = await rowsOf(MISMATCH_ROW);
-            expect(mismatch).toMatchObject({ observedAgent: SPACE_BUNNY });
+            if (mismatch === undefined) {
+                throw new Error('the trail carries no agent.mismatch row for a baseline that differed');
+            }
+
+            expect(mismatch).toMatchObject({
+                observedAgent: SPACE_BUNNY,
+                expectedAgent: EXPECTED_AGENT,
+            });
+            // A compared row owes no provenance — only `agent.uncompared`
+            // records one — and this mismatch is not that row wearing a
+            // verdict it did not earn.
+            expect(Object.hasOwn(mismatch, 'baselineProvenance')).toBe(false);
+            expect(await rowsOf(UNCOMPARED_ROW)).toEqual([]);
+            const entries = await trail();
+            const [warned] = entries.filter((entry) => entry.eventType === MISMATCH_ROW);
+            expect(warned?.decision).toBe('warn');
         }
         await afterEachWork2();
         await beforeEachWork1();
@@ -1088,6 +1106,7 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
                 sessionId: 'ses_v3',
                 observedAgent: null,
                 expectedAgent: EXPECTED_AGENT,
+                baselineProvenance: 'configured',
                 ok: false,
                 note: 'the read-back timed out',
                 now: NOW,
@@ -1113,6 +1132,7 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
                 sessionId: 'ses_someone_else',
                 observedAgent: EXPECTED_AGENT,
                 expectedAgent: EXPECTED_AGENT,
+                baselineProvenance: 'configured',
                 ok: true,
                 note: null,
                 now: NOW,
@@ -1138,6 +1158,7 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
                 sessionId: 'ses_none',
                 observedAgent: EXPECTED_AGENT,
                 expectedAgent: EXPECTED_AGENT,
+                baselineProvenance: 'configured',
                 ok: true,
                 note: null,
                 now: NOW,
@@ -1150,15 +1171,14 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: records a blank baseline as the absence it is, changing no state
+        // case: records a blank baseline as `agent.uncompared`, never as a mismatch
         {
             // `expectedAgent: ''` is 002 FR-029's *no baseline configured*: the
             // read-back still files — the observation is evidence — but nothing
-            // was compared, and the stored row must say so through the empty
-            // baseline and the note rather than inventing an expectation. (The
-            // audit vocabulary names only `agent.verified` / `agent.mismatch`,
-            // so an uncompared read-back lands under the latter with `expected`
-            // empty — flagged for adjudication rather than widened here.)
+            // was compared, so the row is `agent.uncompared` with decision
+            // `observed`, the empty baseline, and the provenance that says why
+            // (003 v1.7.0). `agent.mismatch` would claim a difference nobody
+            // configured, which is exactly what the third type exists to stop.
             const run = await seedRun({ issueNumber: 55, state: DISPATCHED, sessionId: 'ses_v5' });
             const before = await readRun(run.correlationId);
 
@@ -1170,6 +1190,7 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
                 sessionId: 'ses_v5',
                 observedAgent: EXPECTED_AGENT,
                 expectedAgent: '',
+                baselineProvenance: 'unset',
                 ok: false,
                 note: 'no baseline is configured, so nothing was compared',
                 now: NOW,
@@ -1184,8 +1205,24 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
                 ok: false,
                 note: 'no baseline is configured, so nothing was compared',
             });
-            const [row] = await rowsOf(MISMATCH_ROW);
-            expect(row).toMatchObject({ expectedAgent: '', observedAgent: EXPECTED_AGENT });
+            const entries = await trail();
+            const [row] = entries.filter((entry) => entry.eventType === UNCOMPARED_ROW);
+            if (row === undefined) {
+                throw new Error('the trail carries no agent.uncompared row for the blank baseline');
+            }
+
+            expect(row.decision).toBe('observed');
+            expect(row.actorSource).toBe('panel');
+            expect(row.correlationId).toBe(run.correlationId);
+            expect(row.details).toMatchObject({
+                observedAgent: EXPECTED_AGENT,
+                expectedAgent: '',
+                baselineProvenance: 'unset',
+            });
+            // The two proofs this case owes: no comparison happened, so no
+            // verdict row may exist beside the observation.
+            expect(await rowsOf(MISMATCH_ROW)).toEqual([]);
+            expect(await rowsOf(VERIFIED_ROW)).toEqual([]);
         }
     });
 });
@@ -1459,6 +1496,7 @@ describe('T-014 no audit row carries a dispatch token value (FR-061)', () => {
             sessionId: 'ses_scan',
             observedAgent: EXPECTED_AGENT,
             expectedAgent: EXPECTED_AGENT,
+            baselineProvenance: 'configured',
             ok: true,
             note: null,
             now: NOW,

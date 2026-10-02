@@ -15,9 +15,9 @@
  * the fourth parks the run (`dispatch.lease-expired` ×3, `run.dead_lettered`);
  * return to waiting, block, retry, reserve → coalesce → abandon, reserve →
  * wedge (`dispatch.unconfirmed`) → resolve, reserve → dispatch
- * (`dispatch.result`) → repeat (`dispatch.duplicate-report`) → read back both
- * ways (`agent.verified`, `agent.mismatch`); and one subject is enqueued last
- * so `run.created` lands on a run nothing ever claimed.
+ * (`dispatch.result`) → repeat (`dispatch.duplicate-report`) → read back three
+ * ways (`agent.verified`, `agent.mismatch`, `agent.uncompared`); and one
+ * subject is enqueued last so `run.created` lands on a run nothing ever claimed.
  */
 
 import { ABANDON_PATH, BLOCKED_PATH, DISPATCHED_PATH, RESERVE_PATH } from '../../service/routes/dispatch.ts';
@@ -363,13 +363,22 @@ async function driveResultPhase(context: DriveContext): Promise<Run> {
     return await readRun(context.store, context.correlationId);
 }
 
-/** File the read-back twice: once matching, once mismatching (FR-043). */
+/**
+ * File the read-back three ways: matching, mismatching, and with no baseline
+ * to compare against at all (FR-043; 003 v1.7.0's third row).
+ *
+ * The third report is the one a fresh install produces by default — the
+ * Default Agent pin is blank — so the corpus drives it deliberately: it must
+ * land as `agent.uncompared` beside the other two, never as a mismatch for a
+ * comparison that never happened.
+ */
 async function driveVerificationPhase(context: DriveContext & { readonly run: Run }): Promise<void> {
     const readBack = {
         correlationId: context.correlationId,
         attempt: context.run.attempt,
         sessionId: SESSION_ID,
         expectedAgent: EXPECTED_AGENT,
+        baselineProvenance: 'configured',
     };
     const path = bound(VERIFICATION_PATH, context.correlationId);
 
@@ -384,6 +393,19 @@ async function driveVerificationPhase(context: DriveContext & { readonly run: Ru
         step: 'mismatching read-back',
         path,
         body: { ...readBack, observedAgent: OTHER_AGENT, ok: false, note: 'the read-back named a different agent' },
+    });
+    await expectApplied({
+        ...context,
+        step: 'read-back with no baseline',
+        path,
+        body: {
+            ...readBack,
+            expectedAgent: '',
+            baselineProvenance: 'unset',
+            observedAgent: EXPECTED_AGENT,
+            ok: false,
+            note: 'no baseline is configured, so nothing was compared',
+        },
     });
 }
 

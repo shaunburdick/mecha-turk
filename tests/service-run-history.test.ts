@@ -539,6 +539,7 @@ describe('T-016 the history row carries every member contract §1 names', () => 
                 sessionId: SESSION_ID,
                 expectedAgent: PROBE_AGENT,
                 observedAgent: PROBE_AGENT,
+                baselineProvenance: 'configured',
                 ok: true,
             },
         });

@@ -71,11 +71,11 @@
             }
         ],
         "agentPin": {
-            "expectedAgent": "project-manager",
+            "expectedAgent": null,
             "lastVerification": {
                 "observedAgent": "project-manager",
-                "expectedAgent": "project-manager",
-                "ok": true,
+                "expectedAgent": "",
+                "ok": false,
                 "at": "2026-09-30T18:04:11.000Z"
             }
         },
@@ -103,7 +103,7 @@
             "leaseMs": 120000,
             "resultDeadlineMs": 120000,
             "logLevel": "info",
-            "expectedAgent": "project-manager"
+            "expectedAgent": ""
         },
         "fields": [
             {
@@ -222,9 +222,9 @@
                 "name": "expectedAgent",
                 "kind": "string",
                 "unit": null,
-                "format": "letters, digits, and . _ - @ : / (a single token, no spaces)",
+                "format": "letters, digits, and . _ - @ : / (a single token, no spaces); empty means no baseline",
                 "maxLength": 80,
-                "default": "project-manager",
+                "default": "",
                 "takesEffect": "next-dispatch"
             }
         ],
@@ -578,9 +578,9 @@
                 },
                 "verification": {
                     "observedAgent": "project-manager",
-                    "expectedAgent": "project-manager",
-                    "ok": true,
-                    "note": null
+                    "expectedAgent": "",
+                    "ok": false,
+                    "note": "no baseline is configured, so nothing was compared"
                 },
                 "detectedAt": "2026-09-30T19:58:00.000Z",
                 "claimedAt": "2026-09-30T19:58:00.000Z",
