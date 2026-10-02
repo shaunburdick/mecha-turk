@@ -241,10 +241,13 @@ export interface PromptSnapshot {
  * a run's snapshot comes from {@link resolvePromptSnapshot}).
  *
  * Structural on purpose — it names only the member it reads, so
- * `service/prompt.ts` never imports `service/bindings.ts` and the two cannot
- * form a cycle.
+ * `service/prompt.ts` never imports `service/bindings.ts` (or the account and
+ * configuration records) and none of them can form a cycle. The member is
+ * typed `string | null` so the account record — which stores the tier as an
+ * explicit `null` when unset — reads through the same helper as a binding's
+ * absent key (004 FR-083: one rule set, three stores).
  *
- * @param record - A binding-shaped record, or anything else.
+ * @param record - A binding-, account-, or configuration-shaped record.
  * @returns The tier's triple, or `null` when the prompt is unset **or** unusable.
  *
  * The unusable case cannot reach here in practice — the read path quarantines
@@ -254,8 +257,8 @@ export interface PromptSnapshot {
  * derived from text the validator refused.
  */
 export function promptTierOf(record: {
-    /** The stored prompt, when the record carries one. */
-    readonly startingPrompt?: string;
+    /** The stored prompt, when the record carries one; `null` reads as unset. */
+    readonly startingPrompt?: string | null;
 }): TierPrompt | null {
     const verdict = validateStartingPrompt(record.startingPrompt);
     if (!verdict.ok || verdict.prompt === null) {

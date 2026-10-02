@@ -207,6 +207,7 @@ function fixtureAccount(): Account {
         login: ACCOUNT_LOGIN,
         expectedLogin: null,
         displayName: null,
+        startingPrompt: null,
         credential: { token: 'fixture-token-not-a-real-credential', kind: 'classic', verifiedAt: CREATED_AT },
         scopeCheck: { checkedAt: CREATED_AT, results: scopeResults('ok') },
         state: 'active',

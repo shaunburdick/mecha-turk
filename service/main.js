@@ -287,6 +287,359 @@ async function appendAudit(store, input) {
   });
 }
 
+// service/prompt.ts
+import { createHash } from "node:crypto";
+
+// src/prompt.ts
+var RESERVED_MARKER_PREFIXES = ["--- BEGIN ", "--- END "];
+var NEWLINE = `
+`;
+var PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
+var PROMPT_SOURCE_ORDER = ["global", "account", "binding"];
+function isPromptSource(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const order = PROMPT_SOURCE_ORDER;
+  return order.includes(value);
+}
+function isPromptSourceList(value) {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+  let previous = -1;
+  for (const element of value) {
+    if (!isPromptSource(element)) {
+      return false;
+    }
+    const index = PROMPT_SOURCE_ORDER.indexOf(element);
+    if (index <= previous) {
+      return false;
+    }
+    previous = index;
+  }
+  return true;
+}
+var LAST_FORBIDDEN_LOW_CODE_POINT = 8;
+var TAB_CODE_POINT = 9;
+var LINE_FEED_CODE_POINT = 10;
+var FORBIDDEN_MIDDLE_START = 11;
+var FORBIDDEN_MIDDLE_END = 31;
+var FORBIDDEN_UPPER_START = 127;
+var FORBIDDEN_UPPER_END = 159;
+function trimPrompt(text) {
+  return text.trim();
+}
+function normaliseLineEndings(text) {
+  let folded = "";
+  for (let index = 0;index < text.length; index += 1) {
+    if (text[index] !== "\r") {
+      folded += text[index] ?? "";
+      continue;
+    }
+    folded += NEWLINE;
+    if (text[index + 1] === `
+`) {
+      index += 1;
+    }
+  }
+  return folded;
+}
+function countCodePoints(text) {
+  return [...text].length;
+}
+function hasReservedMarkerLine(text) {
+  const prefixes = RESERVED_MARKER_PREFIXES;
+  return text.split(NEWLINE).some((line) => prefixes.some((prefix) => line.startsWith(prefix)));
+}
+function isForbiddenControl(codePoint) {
+  if (codePoint <= LAST_FORBIDDEN_LOW_CODE_POINT) {
+    return true;
+  }
+  if (codePoint === TAB_CODE_POINT || codePoint === LINE_FEED_CODE_POINT) {
+    return false;
+  }
+  if (codePoint >= FORBIDDEN_MIDDLE_START && codePoint <= FORBIDDEN_MIDDLE_END) {
+    return true;
+  }
+  return codePoint >= FORBIDDEN_UPPER_START && codePoint <= FORBIDDEN_UPPER_END;
+}
+function hasIllegalControlChar(text) {
+  for (const character of text) {
+    if (isForbiddenControl(character.codePointAt(0) ?? 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// service/prompt.ts
+var STARTING_PROMPT_MAX_CODE_POINTS = 2000;
+var PROMPT_FINGERPRINT_PREFIX = "mtp-";
+var FINGERPRINT_HEX_CHARS = 32;
+var REMEDIATION_TYPE = "startingPrompt must be text; send it absent or null to leave the starting prompt unset";
+var REMEDIATION_CAP = `startingPrompt must be at most ${STARTING_PROMPT_MAX_CODE_POINTS}` + " characters (Unicode code points) after trimming";
+var REMEDIATION_CONTROL = "startingPrompt must not contain null or control characters other than newline and tab";
+var REMEDIATION_MARKER = "startingPrompt must not contain a line beginning with" + ' "--- BEGIN " or "--- END " (reserved composition markers)';
+function credentialRemediation(label) {
+  return `startingPrompt must not contain credential-shaped material (matched shape: ${label})`;
+}
+function refuse(remediation) {
+  return { ok: false, issue: { field: "startingPrompt", remediation } };
+}
+function validateStartingPrompt(raw) {
+  if (raw === undefined || raw === null) {
+    return { ok: true, prompt: null };
+  }
+  if (typeof raw !== "string") {
+    return refuse(REMEDIATION_TYPE);
+  }
+  const trimmed = trimPrompt(raw);
+  if (trimmed === "") {
+    return { ok: true, prompt: null };
+  }
+  const text = normaliseLineEndings(trimmed);
+  if (countCodePoints(text) > STARTING_PROMPT_MAX_CODE_POINTS) {
+    return refuse(REMEDIATION_CAP);
+  }
+  if (hasIllegalControlChar(text)) {
+    return refuse(REMEDIATION_CONTROL);
+  }
+  if (hasReservedMarkerLine(text)) {
+    return refuse(REMEDIATION_MARKER);
+  }
+  const label = findSecretLeak(text);
+  if (label !== null) {
+    return refuse(credentialRemediation(label));
+  }
+  return { ok: true, prompt: text };
+}
+function promptFingerprint(text) {
+  const digest = createHash("sha256").update(text, "utf8").digest("hex");
+  return `${PROMPT_FINGERPRINT_PREFIX}${digest.slice(0, FINGERPRINT_HEX_CHARS)}`;
+}
+function promptTierOf(record) {
+  const verdict = validateStartingPrompt(record.startingPrompt);
+  if (!verdict.ok || verdict.prompt === null) {
+    return null;
+  }
+  const text = verdict.prompt;
+  return { text, fingerprint: promptFingerprint(text), length: countCodePoints(text) };
+}
+var TIER_GAP = `
+
+`;
+function composePromptBody(tiers) {
+  const set = [];
+  for (const tier of [tiers.global, tiers.account, tiers.binding]) {
+    if (tier !== null && tier !== "") {
+      set.push(tier);
+    }
+  }
+  return set.join(TIER_GAP);
+}
+function resolveTier(record) {
+  if (record === undefined || record === null) {
+    return { state: "unset" };
+  }
+  if (typeof record !== "object" || Array.isArray(record)) {
+    return { state: "refused" };
+  }
+  const verdict = validateStartingPrompt(record.startingPrompt);
+  if (!verdict.ok) {
+    return { state: "refused" };
+  }
+  return verdict.prompt === null ? { state: "unset" } : { state: "set", text: verdict.prompt };
+}
+function resolvePromptSnapshot(tiers) {
+  const resolved = {
+    global: resolveTier(tiers.global),
+    account: resolveTier(tiers.account),
+    binding: resolveTier(tiers.binding)
+  };
+  if (PROMPT_SOURCE_ORDER.some((source) => resolved[source].state === "refused")) {
+    return null;
+  }
+  const text = composePromptBody({
+    global: resolved.global.state === "set" ? resolved.global.text : null,
+    account: resolved.account.state === "set" ? resolved.account.text : null,
+    binding: resolved.binding.state === "set" ? resolved.binding.text : null
+  });
+  if (text === "") {
+    return null;
+  }
+  const sources = PROMPT_SOURCE_ORDER.filter((source) => resolved[source].state === "set");
+  return { text, fingerprint: promptFingerprint(text), length: countCodePoints(text), sources };
+}
+function promptStackMaxCodePoints(sourceCount) {
+  return sourceCount * STARTING_PROMPT_MAX_CODE_POINTS + 2 * (sourceCount - 1);
+}
+function storedText(candidate) {
+  const { text } = candidate;
+  return typeof text === "string" && text !== "" ? text : null;
+}
+function storedFingerprint(candidate) {
+  const { fingerprint } = candidate;
+  return typeof fingerprint === "string" && PROMPT_FINGERPRINT_PATTERN.test(fingerprint) ? fingerprint : null;
+}
+function storedLength(candidate) {
+  const { length } = candidate;
+  return typeof length === "number" && Number.isInteger(length) && length > 0 ? length : null;
+}
+function storedSources(candidate) {
+  const { sources } = candidate;
+  if (!Array.isArray(sources) || sources.length === 0 || !isPromptSourceList(sources)) {
+    return null;
+  }
+  return sources;
+}
+function readStoredSnapshot(candidate) {
+  const text = storedText(candidate);
+  const fingerprint = storedFingerprint(candidate);
+  const length = storedLength(candidate);
+  const sources = storedSources(candidate);
+  if (text === null || fingerprint === null || length === null || sources === null) {
+    return null;
+  }
+  if (countCodePoints(text) !== length) {
+    return null;
+  }
+  if (length > promptStackMaxCodePoints(sources.length)) {
+    return null;
+  }
+  if (findSecretLeak(text) !== null) {
+    return null;
+  }
+  return { text, fingerprint, length, sources };
+}
+function parseStoredPromptSnapshot(raw) {
+  if (raw === undefined || raw === null) {
+    return { status: "unset" };
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const snapshot = readStoredSnapshot(raw);
+  return snapshot === null ? null : { status: "set", snapshot };
+}
+
+// service/account-prompt-audit.ts
+var ACCOUNT_PROMPT_UPDATED_EVENT = "account.prompt-updated";
+var observationStates = new WeakMap;
+function stateFor(store) {
+  let state = observationStates.get(store);
+  if (state === undefined) {
+    state = { baseline: new Map, seeded: false, chain: Promise.resolve() };
+    observationStates.set(store, state);
+  }
+  return state;
+}
+async function seedBaseline(store, baseline) {
+  const trail = await store.readLines(AUDIT_FILE, parseAuditEntry);
+  const highest = new Map;
+  for (const entry of trail.entries) {
+    if (entry.eventType !== ACCOUNT_PROMPT_UPDATED_EVENT || entry.entity.kind !== "account") {
+      continue;
+    }
+    const { id: numericUserId } = entry.entity;
+    const recorded = entry.details.promptFingerprint;
+    const fingerprint = entry.details.promptPresent === true && typeof recorded === "string" ? recorded : null;
+    const prior = highest.get(numericUserId);
+    if (prior === undefined || entry.seq > prior.seq) {
+      highest.set(numericUserId, { seq: entry.seq, fingerprint });
+    }
+  }
+  for (const [numericUserId, value] of highest) {
+    baseline.set(numericUserId, value.fingerprint);
+  }
+}
+async function runAccountPromptChain(store, task) {
+  const state = stateFor(store);
+  const start = async () => {
+    if (!state.seeded) {
+      await seedBaseline(store, state.baseline);
+      state.seeded = true;
+    }
+    return await task();
+  };
+  const run = state.chain.then(start, start);
+  state.chain = run;
+  return await run;
+}
+async function appendAccountPromptChange(input) {
+  const present = input.current !== null;
+  let decision;
+  if (input.current === null) {
+    decision = "cleared";
+  } else {
+    decision = input.previousFingerprint === null ? "set" : "changed";
+  }
+  await appendAudit(input.store, {
+    eventType: ACCOUNT_PROMPT_UPDATED_EVENT,
+    actorSource: input.actor,
+    entity: { kind: "account", id: input.numericUserId },
+    correlationId: newCorrelationId(),
+    decision,
+    reason: null,
+    details: {
+      promptPresent: present,
+      promptFingerprint: input.current?.fingerprint ?? null,
+      promptLength: input.current?.length ?? 0,
+      previousFingerprint: input.previousFingerprint
+    }
+  });
+}
+async function recordOneChange(context) {
+  const { input, account, snapshot, current, previous } = context;
+  try {
+    await appendAccountPromptChange({
+      store: input.store,
+      numericUserId: account.numericUserId,
+      current: snapshot,
+      previousFingerprint: previous,
+      actor: input.actor
+    });
+    return 1;
+  } catch (cause) {
+    input.log.warn("account prompt change audit row could not be appended", {
+      numericUserId: account.numericUserId,
+      promptFingerprint: current,
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return 0;
+  }
+}
+async function recordAccountPromptChanges(input) {
+  const state = stateFor(input.store);
+  const observed = new Set;
+  let rows = 0;
+  for (const account of input.accounts) {
+    observed.add(account.numericUserId);
+    const snapshot = promptTierOf(account);
+    const current = snapshot === null ? null : snapshot.fingerprint;
+    const previous = state.baseline.get(account.numericUserId) ?? null;
+    state.baseline.set(account.numericUserId, current);
+    if (previous === current) {
+      continue;
+    }
+    rows += await recordOneChange({ input, account, snapshot, current, previous });
+  }
+  for (const numericUserId of input.absent ?? []) {
+    state.baseline.delete(numericUserId);
+  }
+  if (input.complete === true) {
+    for (const numericUserId of state.baseline.keys()) {
+      if (!observed.has(numericUserId)) {
+        state.baseline.delete(numericUserId);
+      }
+    }
+  }
+  return rows;
+}
+async function observeAccountPromptChanges(input) {
+  return await runAccountPromptChain(input.store, async () => await recordAccountPromptChanges(input));
+}
+
 // service/accounts/model.ts
 var ACCOUNT_STATES = new Set([
   "pending_handoff",
@@ -359,8 +712,13 @@ function readAccountStrings(raw) {
     updatedAt
   };
 }
-function parseStoredAccount(raw) {
+function parseStoredAccount(raw, note) {
   if (!isRecord(raw) || !isNumericUserId(raw.numericUserId)) {
+    return null;
+  }
+  const prompt = validateStartingPrompt(raw.startingPrompt);
+  if (!prompt.ok) {
+    note.reason ??= `${prompt.issue.field}: ${prompt.issue.remediation}`;
     return null;
   }
   const strings = readAccountStrings(raw);
@@ -376,6 +734,7 @@ function parseStoredAccount(raw) {
   return {
     numericUserId: raw.numericUserId,
     ...strings,
+    startingPrompt: prompt.prompt,
     credential: raw.credential,
     scopeCheck: raw.scopeCheck,
     state: raw.state,
@@ -388,6 +747,7 @@ function toAccountDto(account) {
     login: account.login,
     expectedLogin: account.expectedLogin,
     displayName: account.displayName,
+    startingPrompt: account.startingPrompt,
     state: account.state,
     connectionState: account.connectionState,
     verifiedAt: account.verifiedAt,
@@ -454,21 +814,34 @@ function accountPath(numericUserId) {
   return `${ACCOUNTS_DIR}/${numericUserId}${ACCOUNT_FILE_SUFFIX}`;
 }
 function reportQuarantine(input) {
-  const { result, subject, log } = input;
-  if (result.status === "quarantined" && log !== undefined) {
+  const { result, subject, log, note } = input;
+  if (result.status === "quarantined") {
     log.warn("stored record was unusable and has been set aside", {
       subject,
-      quarantinePath: result.quarantinePath
+      quarantinePath: result.quarantinePath,
+      ...note.reason === null ? {} : { reason: note.reason }
     });
   }
 }
-async function readAccount(input) {
+async function readAccountUnobserved(input) {
   const { store, numericUserId, log } = input;
-  const result = await store.readJson(accountPath(numericUserId), parseStoredAccount);
-  reportQuarantine({ result, subject: `account ${numericUserId}`, log });
+  const note = { reason: null };
+  const result = await store.readJson(accountPath(numericUserId), (raw) => parseStoredAccount(raw, note));
+  reportQuarantine({ result, subject: `account ${numericUserId}`, log, note });
   return result.status === "ok" ? result.value : null;
 }
-async function listAccounts(store, log) {
+async function readAccount(input) {
+  const account = await readAccountUnobserved(input);
+  await observeAccountPromptChanges({
+    store: input.store,
+    log: input.log,
+    accounts: account === null ? [] : [account],
+    ...account === null ? { absent: [input.numericUserId] } : {},
+    actor: "service"
+  });
+  return account;
+}
+async function listAccountsUnobserved(store, log) {
   const names = await store.listDir(ACCOUNTS_DIR);
   const accounts = [];
   for (const name of names) {
@@ -479,12 +852,17 @@ async function listAccounts(store, log) {
     if (!isNumericUserId(id)) {
       continue;
     }
-    const account = await readAccount({ store, numericUserId: id, log });
+    const account = await readAccountUnobserved({ store, numericUserId: id, log });
     if (account !== null) {
       accounts.push(account);
     }
   }
   return accounts.sort((left, right) => left.numericUserId.localeCompare(right.numericUserId));
+}
+async function listAccounts(store, log) {
+  const accounts = await listAccountsUnobserved(store, log);
+  await observeAccountPromptChanges({ store, log, accounts, complete: true, actor: "service" });
+  return accounts;
 }
 async function writeAccount(store, account) {
   await store.writeJson(accountPath(account.numericUserId), account);
@@ -662,6 +1040,20 @@ function expectedAgentIssue(value) {
   return [];
 }
 
+// service/config-prompt.ts
+function startingPromptIssue(value) {
+  if (typeof value !== "string") {
+    return [
+      {
+        field: "startingPrompt",
+        remediation: "set startingPrompt to a string; leave it empty for an unset global tier"
+      }
+    ];
+  }
+  const verdict = validateStartingPrompt(value);
+  return verdict.ok ? [] : [verdict.issue];
+}
+
 // service/http.ts
 var LOOPBACK_HOST = "127.0.0.1";
 var MAX_TARGET_CHARS = 2000;
@@ -793,7 +1185,8 @@ var DEFAULT_CONFIG = {
   leaseMs: 120000,
   resultDeadlineMs: 120000,
   logLevel: "info",
-  expectedAgent: ""
+  expectedAgent: "",
+  startingPrompt: ""
 };
 function isLogLevel(value) {
   return typeof value === "string" && LOG_LEVELS.has(value);
@@ -852,6 +1245,7 @@ function collectIssues(raw) {
     });
   }
   issues.push(...expectedAgentIssue(raw.expectedAgent));
+  issues.push(...startingPromptIssue(raw.startingPrompt));
   issues.push(...retryOrderIssue(raw));
   for (const key of Object.keys(raw)) {
     if (!isKnownField(key)) {
@@ -881,6 +1275,13 @@ function readExpectedAgent(raw) {
   }
   return value.trim();
 }
+function readStartingPrompt(raw) {
+  const verdict = validateStartingPrompt(raw.startingPrompt);
+  if (!verdict.ok) {
+    throw new Error("validated configuration is missing startingPrompt");
+  }
+  return verdict.prompt ?? "";
+}
 function buildConfig(raw) {
   return {
     intervalMs: readNumber(raw, "intervalMs"),
@@ -895,7 +1296,8 @@ function buildConfig(raw) {
     leaseMs: readNumber(raw, "leaseMs"),
     resultDeadlineMs: readNumber(raw, "resultDeadlineMs"),
     logLevel: readLogLevel(raw),
-    expectedAgent: readExpectedAgent(raw)
+    expectedAgent: readExpectedAgent(raw),
+    startingPrompt: readStartingPrompt(raw)
   };
 }
 function validateConfig(raw) {
@@ -1215,7 +1617,7 @@ function bindingIdsOf(probe) {
 }
 async function existingAccountIds(input) {
   try {
-    const accounts = await listAccounts(input.store, input.log);
+    const accounts = await listAccountsUnobserved(input.store, input.log);
     return new Set(accounts.map((account) => account.numericUserId));
   } catch (cause) {
     input.log.warn("audit trim could not list accounts", {
@@ -1586,242 +1988,6 @@ class StorageUnavailableError extends Error {
   constructor(message, cause) {
     super(message, cause === undefined ? undefined : { cause });
   }
-}
-
-// service/prompt.ts
-import { createHash } from "node:crypto";
-
-// src/prompt.ts
-var RESERVED_MARKER_PREFIXES = ["--- BEGIN ", "--- END "];
-var NEWLINE = `
-`;
-var PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
-var PROMPT_SOURCE_ORDER = ["global", "account", "binding"];
-function isPromptSource(value) {
-  if (typeof value !== "string") {
-    return false;
-  }
-  const order = PROMPT_SOURCE_ORDER;
-  return order.includes(value);
-}
-function isPromptSourceList(value) {
-  if (!Array.isArray(value)) {
-    return false;
-  }
-  let previous = -1;
-  for (const element of value) {
-    if (!isPromptSource(element)) {
-      return false;
-    }
-    const index = PROMPT_SOURCE_ORDER.indexOf(element);
-    if (index <= previous) {
-      return false;
-    }
-    previous = index;
-  }
-  return true;
-}
-var LAST_FORBIDDEN_LOW_CODE_POINT = 8;
-var TAB_CODE_POINT = 9;
-var LINE_FEED_CODE_POINT = 10;
-var FORBIDDEN_MIDDLE_START = 11;
-var FORBIDDEN_MIDDLE_END = 31;
-var FORBIDDEN_UPPER_START = 127;
-var FORBIDDEN_UPPER_END = 159;
-function trimPrompt(text) {
-  return text.trim();
-}
-function normaliseLineEndings(text) {
-  let folded = "";
-  for (let index = 0;index < text.length; index += 1) {
-    if (text[index] !== "\r") {
-      folded += text[index] ?? "";
-      continue;
-    }
-    folded += NEWLINE;
-    if (text[index + 1] === `
-`) {
-      index += 1;
-    }
-  }
-  return folded;
-}
-function countCodePoints(text) {
-  return [...text].length;
-}
-function hasReservedMarkerLine(text) {
-  const prefixes = RESERVED_MARKER_PREFIXES;
-  return text.split(NEWLINE).some((line) => prefixes.some((prefix) => line.startsWith(prefix)));
-}
-function isForbiddenControl(codePoint) {
-  if (codePoint <= LAST_FORBIDDEN_LOW_CODE_POINT) {
-    return true;
-  }
-  if (codePoint === TAB_CODE_POINT || codePoint === LINE_FEED_CODE_POINT) {
-    return false;
-  }
-  if (codePoint >= FORBIDDEN_MIDDLE_START && codePoint <= FORBIDDEN_MIDDLE_END) {
-    return true;
-  }
-  return codePoint >= FORBIDDEN_UPPER_START && codePoint <= FORBIDDEN_UPPER_END;
-}
-function hasIllegalControlChar(text) {
-  for (const character of text) {
-    if (isForbiddenControl(character.codePointAt(0) ?? 0)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// service/prompt.ts
-var STARTING_PROMPT_MAX_CODE_POINTS = 2000;
-var PROMPT_FINGERPRINT_PREFIX = "mtp-";
-var FINGERPRINT_HEX_CHARS = 32;
-var REMEDIATION_TYPE = "startingPrompt must be text; send it absent or null to leave the starting prompt unset";
-var REMEDIATION_CAP = `startingPrompt must be at most ${STARTING_PROMPT_MAX_CODE_POINTS}` + " characters (Unicode code points) after trimming";
-var REMEDIATION_CONTROL = "startingPrompt must not contain null or control characters other than newline and tab";
-var REMEDIATION_MARKER = "startingPrompt must not contain a line beginning with" + ' "--- BEGIN " or "--- END " (reserved composition markers)';
-function credentialRemediation(label) {
-  return `startingPrompt must not contain credential-shaped material (matched shape: ${label})`;
-}
-function refuse(remediation) {
-  return { ok: false, issue: { field: "startingPrompt", remediation } };
-}
-function validateStartingPrompt(raw) {
-  if (raw === undefined || raw === null) {
-    return { ok: true, prompt: null };
-  }
-  if (typeof raw !== "string") {
-    return refuse(REMEDIATION_TYPE);
-  }
-  const trimmed = trimPrompt(raw);
-  if (trimmed === "") {
-    return { ok: true, prompt: null };
-  }
-  const text = normaliseLineEndings(trimmed);
-  if (countCodePoints(text) > STARTING_PROMPT_MAX_CODE_POINTS) {
-    return refuse(REMEDIATION_CAP);
-  }
-  if (hasIllegalControlChar(text)) {
-    return refuse(REMEDIATION_CONTROL);
-  }
-  if (hasReservedMarkerLine(text)) {
-    return refuse(REMEDIATION_MARKER);
-  }
-  const label = findSecretLeak(text);
-  if (label !== null) {
-    return refuse(credentialRemediation(label));
-  }
-  return { ok: true, prompt: text };
-}
-function promptFingerprint(text) {
-  const digest = createHash("sha256").update(text, "utf8").digest("hex");
-  return `${PROMPT_FINGERPRINT_PREFIX}${digest.slice(0, FINGERPRINT_HEX_CHARS)}`;
-}
-function promptTierOf(record) {
-  const verdict = validateStartingPrompt(record.startingPrompt);
-  if (!verdict.ok || verdict.prompt === null) {
-    return null;
-  }
-  const text = verdict.prompt;
-  return { text, fingerprint: promptFingerprint(text), length: countCodePoints(text) };
-}
-var TIER_GAP = `
-
-`;
-function composePromptBody(tiers) {
-  const set = [];
-  for (const tier of [tiers.global, tiers.account, tiers.binding]) {
-    if (tier !== null && tier !== "") {
-      set.push(tier);
-    }
-  }
-  return set.join(TIER_GAP);
-}
-function resolveTier(record) {
-  if (record === undefined || record === null) {
-    return { state: "unset" };
-  }
-  if (typeof record !== "object" || Array.isArray(record)) {
-    return { state: "refused" };
-  }
-  const verdict = validateStartingPrompt(record.startingPrompt);
-  if (!verdict.ok) {
-    return { state: "refused" };
-  }
-  return verdict.prompt === null ? { state: "unset" } : { state: "set", text: verdict.prompt };
-}
-function resolvePromptSnapshot(tiers) {
-  const resolved = {
-    global: resolveTier(tiers.global),
-    account: resolveTier(tiers.account),
-    binding: resolveTier(tiers.binding)
-  };
-  if (PROMPT_SOURCE_ORDER.some((source) => resolved[source].state === "refused")) {
-    return null;
-  }
-  const text = composePromptBody({
-    global: resolved.global.state === "set" ? resolved.global.text : null,
-    account: resolved.account.state === "set" ? resolved.account.text : null,
-    binding: resolved.binding.state === "set" ? resolved.binding.text : null
-  });
-  if (text === "") {
-    return null;
-  }
-  const sources = PROMPT_SOURCE_ORDER.filter((source) => resolved[source].state === "set");
-  return { text, fingerprint: promptFingerprint(text), length: countCodePoints(text), sources };
-}
-function promptStackMaxCodePoints(sourceCount) {
-  return sourceCount * STARTING_PROMPT_MAX_CODE_POINTS + 2 * (sourceCount - 1);
-}
-function storedText(candidate) {
-  const { text } = candidate;
-  return typeof text === "string" && text !== "" ? text : null;
-}
-function storedFingerprint(candidate) {
-  const { fingerprint } = candidate;
-  return typeof fingerprint === "string" && PROMPT_FINGERPRINT_PATTERN.test(fingerprint) ? fingerprint : null;
-}
-function storedLength(candidate) {
-  const { length } = candidate;
-  return typeof length === "number" && Number.isInteger(length) && length > 0 ? length : null;
-}
-function storedSources(candidate) {
-  const { sources } = candidate;
-  if (!Array.isArray(sources) || sources.length === 0 || !isPromptSourceList(sources)) {
-    return null;
-  }
-  return sources;
-}
-function readStoredSnapshot(candidate) {
-  const text = storedText(candidate);
-  const fingerprint = storedFingerprint(candidate);
-  const length = storedLength(candidate);
-  const sources = storedSources(candidate);
-  if (text === null || fingerprint === null || length === null || sources === null) {
-    return null;
-  }
-  if (countCodePoints(text) !== length) {
-    return null;
-  }
-  if (length > promptStackMaxCodePoints(sources.length)) {
-    return null;
-  }
-  if (findSecretLeak(text) !== null) {
-    return null;
-  }
-  return { text, fingerprint, length, sources };
-}
-function parseStoredPromptSnapshot(raw) {
-  if (raw === undefined || raw === null) {
-    return { status: "unset" };
-  }
-  if (typeof raw !== "object" || Array.isArray(raw)) {
-    return null;
-  }
-  const snapshot = readStoredSnapshot(raw);
-  return snapshot === null ? null : { status: "set", snapshot };
 }
 
 // service/poll/run-key.ts
@@ -4245,7 +4411,6 @@ function guardCredentialRoute(handler) {
 var ACCOUNTS_PATH = "/v1/accounts";
 var ACCOUNT_TOKEN_PATH = `${ACCOUNTS_PATH}/:numericUserId/token`;
 var ACCOUNT_PATH = `${ACCOUNTS_PATH}/:numericUserId`;
-var ACCOUNT_DISPLAY_NAME_PATH = `${ACCOUNTS_PATH}/:numericUserId/display-name`;
 var FORCE_QUERY_FLAG = "force";
 var FORCE_QUERY_VALUE = "1";
 var ROTATION_ID_MISMATCH = "the new token belongs to a different GitHub account than this one";
@@ -4264,12 +4429,6 @@ function bindingsRefusalResponse(count) {
     code: "invalid-transition",
     message: `${count} binding(s) still reference this account — remove them, or confirm a force delete`
   });
-}
-function displayNameBodyRefusal() {
-  return validationResponse([{
-    field: "displayName",
-    remediation: "the body must carry displayName, as text or null"
-  }]);
 }
 function pathAccountId(request) {
   const raw = request.params.numericUserId;
@@ -4361,7 +4520,7 @@ async function prepareRotation(input) {
   if (!parsed.ok) {
     return { ok: false, response: parsed.response };
   }
-  const account = input.pathId === null ? null : await readAccount({ store: input.store, numericUserId: input.pathId });
+  const account = input.pathId === null ? null : await readAccount({ store: input.store, numericUserId: input.pathId, log: input.log });
   if (input.pathId === null || account === null) {
     return { ok: false, response: unknownAccountResponse() };
   }
@@ -4372,7 +4531,12 @@ async function handleRotateToken(context, request) {
   if (store === null) {
     return storageUnavailableResponse();
   }
-  const prepared = await prepareRotation({ store, pathId: pathAccountId(request), body: request.body });
+  const prepared = await prepareRotation({
+    store,
+    log: context.log,
+    pathId: pathAccountId(request),
+    body: request.body
+  });
   if (!prepared.ok) {
     return prepared.response;
   }
@@ -4430,7 +4594,7 @@ async function handleDeleteAccount(context, request) {
     return storageUnavailableResponse();
   }
   const pathId = pathAccountId(request);
-  const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId });
+  const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId, log: context.log });
   if (pathId === null || account === null) {
     return unknownAccountResponse();
   }
@@ -4446,32 +4610,6 @@ async function handleDeleteAccount(context, request) {
   await recordAccountDeleted(store, pathId);
   return { status: STATUS.ok, body: { removed: true } };
 }
-async function handleSetDisplayName(context, request) {
-  const { store } = context;
-  if (store === null) {
-    return storageUnavailableResponse();
-  }
-  const pathId = pathAccountId(request);
-  const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId });
-  if (pathId === null || account === null) {
-    return unknownAccountResponse();
-  }
-  const { body } = request;
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    return displayNameBodyRefusal();
-  }
-  const record = body;
-  if (!("displayName" in record)) {
-    return displayNameBodyRefusal();
-  }
-  const validation = validateDisplayName(record.displayName);
-  if (!validation.ok) {
-    return validationResponse([validation.issue]);
-  }
-  const updated = { ...account, displayName: validation.displayName, updatedAt: nowIso() };
-  await writeAccount(store, updated);
-  return { status: STATUS.ok, body: { account: toAccountDto(updated) } };
-}
 var listAccountsRoute = {
   method: "GET",
   path: ACCOUNTS_PATH,
@@ -4482,15 +4620,124 @@ var rotateTokenRoute = {
   path: ACCOUNT_TOKEN_PATH,
   handler: guardCredentialRoute(handleRotateToken)
 };
-var setDisplayNameRoute = {
-  method: "PUT",
-  path: ACCOUNT_DISPLAY_NAME_PATH,
-  handler: guardCredentialRoute(handleSetDisplayName)
-};
 var deleteAccountRoute = {
   method: "DELETE",
   path: ACCOUNT_PATH,
   handler: guardCredentialRoute(handleDeleteAccount)
+};
+
+// service/routes/account-profile.ts
+function profileBodyRefusal() {
+  return {
+    field: "body",
+    remediation: "supply displayName, startingPrompt, or both — the body carries neither"
+  };
+}
+function unexpectedProfileMemberIssue(key) {
+  const shape = findSecretLeak(key);
+  if (shape !== null) {
+    return {
+      field: "body",
+      remediation: `the body must not carry credential-shaped member names (matched shape: ${shape})`
+    };
+  }
+  return {
+    field: key,
+    remediation: "the account profile body is a closed set — supply displayName, startingPrompt, or both"
+  };
+}
+function readProfileKey(input) {
+  const { key, record, scratch } = input;
+  if (key === "displayName") {
+    scratch.carried.add(key);
+    const verdict = validateDisplayName(record.displayName);
+    if (verdict.ok) {
+      scratch.displayName = { present: true, value: verdict.displayName };
+    } else {
+      scratch.issues.push(verdict.issue);
+    }
+    return;
+  }
+  if (key === "startingPrompt") {
+    scratch.carried.add(key);
+    const verdict = validateStartingPrompt(record.startingPrompt);
+    if (verdict.ok) {
+      scratch.startingPrompt = { present: true, value: verdict.prompt };
+    } else {
+      scratch.issues.push(verdict.issue);
+    }
+    return;
+  }
+  scratch.issues.push(unexpectedProfileMemberIssue(key));
+}
+function profileBodyOf(raw) {
+  if (!isRecord(raw)) {
+    return { ok: false, issues: [profileBodyRefusal()] };
+  }
+  const scratch = {
+    issues: [],
+    carried: new Set,
+    displayName: { present: false },
+    startingPrompt: { present: false }
+  };
+  for (const key of Object.keys(raw)) {
+    readProfileKey({ key, record: raw, scratch });
+  }
+  if (scratch.carried.size === 0) {
+    scratch.issues.push(profileBodyRefusal());
+  }
+  return scratch.issues.length > 0 ? { ok: false, issues: scratch.issues } : { ok: true, body: { displayName: scratch.displayName, startingPrompt: scratch.startingPrompt } };
+}
+async function runProfileWrite(input) {
+  const { store, log, numericUserId } = input;
+  return await runAccountPromptChain(store, async () => {
+    const stored = await readAccountUnobserved({ store, numericUserId, log });
+    if (stored === null) {
+      return { kind: "missing" };
+    }
+    const parsed = profileBodyOf(input.body);
+    if (!parsed.ok) {
+      return { kind: "refused", issues: parsed.issues };
+    }
+    await recordAccountPromptChanges({ store, log, accounts: [stored], actor: "service" });
+    const updated = {
+      ...stored,
+      ...parsed.body.displayName.present ? { displayName: parsed.body.displayName.value } : {},
+      ...parsed.body.startingPrompt.present ? { startingPrompt: parsed.body.startingPrompt.value } : {},
+      updatedAt: nowIso()
+    };
+    await writeAccount(store, updated);
+    await recordAccountPromptChanges({ store, log, accounts: [updated], actor: "operator" });
+    return { kind: "ok", account: updated };
+  });
+}
+async function handleAccountProfile(context, request) {
+  const { store } = context;
+  if (store === null) {
+    return storageUnavailableResponse();
+  }
+  const pathId = pathAccountId(request);
+  if (pathId === null) {
+    return unknownAccountResponse();
+  }
+  const outcome = await runProfileWrite({
+    store,
+    log: context.log,
+    numericUserId: pathId,
+    body: request.body
+  });
+  if (outcome.kind === "missing") {
+    return unknownAccountResponse();
+  }
+  if (outcome.kind === "refused") {
+    return validationResponse(outcome.issues);
+  }
+  return { status: STATUS.ok, body: { account: toAccountDto(outcome.account) } };
+}
+var putAccountProfileRoute = {
+  method: "PUT",
+  path: ACCOUNT_PATH,
+  handler: guardCredentialRoute(handleAccountProfile)
 };
 
 // service/routes/audit.ts
@@ -4569,8 +4816,10 @@ var TAKE_EFFECT = {
   leaseMs: NEXT_CYCLE,
   resultDeadlineMs: NEXT_CYCLE,
   logLevel: "immediate",
-  expectedAgent: "next-dispatch"
+  expectedAgent: "next-dispatch",
+  startingPrompt: NEXT_CYCLE
 };
+var STARTING_PROMPT_FORMAT = "text sent to the agent verbatim, with no placeholders; " + `at most ${STARTING_PROMPT_MAX_CODE_POINTS} code points after trimming; ` + "credential-shaped, reserved-marker, and control characters refused rather than stored; " + "empty means the global prompt tier is unset; the session still runs the pinned Default Agent, " + "which this text cannot change";
 function configSchema() {
   const numericFields = Object.keys(NUMERIC_BOUNDS);
   const descriptors = numericFields.map((field) => ({
@@ -4599,16 +4848,44 @@ function configSchema() {
     default: DEFAULT_CONFIG.expectedAgent,
     takesEffect: TAKE_EFFECT.expectedAgent
   });
+  descriptors.push({
+    name: "startingPrompt",
+    kind: "string",
+    unit: null,
+    format: STARTING_PROMPT_FORMAT,
+    maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
+    default: DEFAULT_CONFIG.startingPrompt,
+    takesEffect: TAKE_EFFECT.startingPrompt
+  });
   return descriptors;
 }
 
 // service/config-audit.ts
+var CONFIG_CHANGED_EVENT = "config.changed";
 var WITHHELD = "<withheld>";
 var APPLIED_REASON = "configuration replaced";
 var REFUSED_REASON = "configuration refused";
+function configPromptFingerprint(text) {
+  const tier = promptTierOf({ startingPrompt: text ?? null });
+  return tier === null ? null : tier.fingerprint;
+}
+var PROMPT_FINGERPRINT_PATTERN2 = /^mtp-[0-9a-f]{32}$/;
+function recordedConfigPromptFingerprint(value) {
+  return typeof value === "string" && PROMPT_FINGERPRINT_PATTERN2.test(value) ? value : null;
+}
+function recordedValue(field, value) {
+  if (field !== "startingPrompt") {
+    return value;
+  }
+  return configPromptFingerprint(typeof value === "string" ? value : null);
+}
 function configChanges(previous, next) {
   const fields = Object.keys(DEFAULT_CONFIG).filter((field) => previous[field] !== next[field]).sort((left, right) => left.localeCompare(right));
-  return fields.map((field) => ({ field, from: previous[field], to: next[field] }));
+  return fields.map((field) => ({
+    field,
+    from: recordedValue(field, previous[field]),
+    to: recordedValue(field, next[field])
+  }));
 }
 function takeEffectOf(changes) {
   const takesEffect = {};
@@ -4631,8 +4908,8 @@ function refusedFields(issues) {
 async function appendConfigApplied(input) {
   try {
     await appendAudit(input.store, {
-      eventType: "config.changed",
-      actorSource: "operator",
+      eventType: CONFIG_CHANGED_EVENT,
+      actorSource: input.actor ?? "operator",
       entity: { kind: "service", id: CONFIGURATION_ENTITY_ID },
       decision: "applied",
       reason: APPLIED_REASON,
@@ -4664,7 +4941,7 @@ async function appendConfigRefused(input) {
   }
   try {
     await appendAudit(input.store, {
-      eventType: "config.changed",
+      eventType: CONFIG_CHANGED_EVENT,
       actorSource: "operator",
       entity: { kind: "service", id: CONFIGURATION_ENTITY_ID },
       decision: "refused",
@@ -4682,6 +4959,93 @@ async function appendConfigRefused(input) {
     });
     return false;
   }
+}
+
+// service/config-prompt-observe.ts
+var observationStates2 = new WeakMap;
+function stateFor2(store) {
+  let state = observationStates2.get(store);
+  if (state === undefined) {
+    state = { baseline: null, seeded: false, chain: Promise.resolve() };
+    observationStates2.set(store, state);
+  }
+  return state;
+}
+function startingPromptChangeOf(details) {
+  const { changes } = details;
+  if (!Array.isArray(changes)) {
+    return null;
+  }
+  for (const change of changes) {
+    if (isRecord(change) && change.field === "startingPrompt") {
+      return { to: change.to };
+    }
+  }
+  return null;
+}
+function baselineFromTrail(entries) {
+  let highestSeq = 0;
+  let baseline = null;
+  for (const entry of entries) {
+    if (entry.eventType !== CONFIG_CHANGED_EVENT || entry.seq <= highestSeq) {
+      continue;
+    }
+    const change = startingPromptChangeOf(entry.details);
+    if (change === null) {
+      continue;
+    }
+    highestSeq = entry.seq;
+    baseline = recordedConfigPromptFingerprint(change.to);
+  }
+  return baseline;
+}
+async function ensureSeeded(input) {
+  if (input.state.seeded) {
+    return true;
+  }
+  try {
+    const trail = await input.store.readLines(AUDIT_FILE, parseAuditEntry);
+    input.state.baseline = baselineFromTrail(trail.entries);
+    input.state.seeded = true;
+    return true;
+  } catch (cause) {
+    input.log.warn("configuration prompt baseline could not be established", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return false;
+  }
+}
+async function runConfigPromptChain(store, task) {
+  const state = stateFor2(store);
+  const run = state.chain.then(task, task);
+  state.chain = run;
+  return await run;
+}
+async function recordConfigPromptChanges(input) {
+  const state = stateFor2(input.store);
+  if (!await ensureSeeded({ store: input.store, state, log: input.log })) {
+    return 0;
+  }
+  const current = configPromptFingerprint(input.config.startingPrompt);
+  const previous = state.baseline;
+  state.baseline = current;
+  if (previous === current) {
+    return 0;
+  }
+  const written = await appendConfigApplied({
+    store: input.store,
+    log: input.log,
+    actor: input.actor,
+    changes: [{ field: "startingPrompt", from: previous, to: current }]
+  });
+  return written ? 1 : 0;
+}
+async function advanceConfigPromptBaseline(input) {
+  const state = stateFor2(input.store);
+  if (!await ensureSeeded({ store: input.store, state, log: input.log })) {
+    return;
+  }
+  state.baseline = configPromptFingerprint(input.config.startingPrompt);
 }
 
 // service/routes/config.ts
@@ -4702,6 +5066,19 @@ async function handleGetConfig(context) {
     }
   };
 }
+async function runConfigWrite(input) {
+  const { store, log, candidate } = input;
+  return await runConfigPromptChain(store, async () => {
+    const previous = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
+    await recordConfigPromptChanges({ store, log, config: previous.config, actor: "service" });
+    const changes = configChanges(previous.config, candidate);
+    await store.writeJson(CONFIG_FILE, candidate);
+    log.setLevel(candidate.logLevel);
+    const auditWritten = changes.length === 0 ? true : await appendConfigApplied({ store, log, changes });
+    await advanceConfigPromptBaseline({ store, log, config: candidate });
+    return auditWritten;
+  });
+}
 async function handlePutConfig(context, request) {
   const validation = validateConfig(request.body);
   if (!validation.ok) {
@@ -4711,11 +5088,11 @@ async function handlePutConfig(context, request) {
   if (context.store === null) {
     return storageUnavailableResponse();
   }
-  const previous = configFromStore(await context.store.readJson(CONFIG_FILE, parseStoredConfig), context.log);
-  const changes = configChanges(previous.config, validation.config);
-  await context.store.writeJson(CONFIG_FILE, validation.config);
-  context.log.setLevel(validation.config.logLevel);
-  const auditWritten = changes.length === 0 ? true : await appendConfigApplied({ store: context.store, log: context.log, changes });
+  const auditWritten = await runConfigWrite({
+    store: context.store,
+    log: context.log,
+    candidate: validation.config
+  });
   return { status: STATUS.ok, body: { config: validation.config, auditWritten } };
 }
 var getConfigRoute = {
@@ -5007,16 +5384,16 @@ async function writeBindings(input) {
 
 // service/prompt-audit.ts
 var PROMPT_UPDATED_EVENT = "binding.prompt-updated";
-var observationStates = new WeakMap;
-function stateFor(store) {
-  let state = observationStates.get(store);
+var observationStates3 = new WeakMap;
+function stateFor3(store) {
+  let state = observationStates3.get(store);
   if (state === undefined) {
     state = { baseline: new Map, seeded: false, chain: Promise.resolve() };
-    observationStates.set(store, state);
+    observationStates3.set(store, state);
   }
   return state;
 }
-async function seedBaseline(store, baseline) {
+async function seedBaseline2(store, baseline) {
   const trail = await store.readLines(AUDIT_FILE, parseAuditEntry);
   const highest = new Map;
   for (const entry of trail.entries) {
@@ -5039,10 +5416,10 @@ async function seedBaseline(store, baseline) {
   }
 }
 async function runPromptChain(store, task) {
-  const state = stateFor(store);
+  const state = stateFor3(store);
   const start = async () => {
     if (!state.seeded) {
-      await seedBaseline(store, state.baseline);
+      await seedBaseline2(store, state.baseline);
       state.seeded = true;
     }
     return await task();
@@ -5082,7 +5459,7 @@ function dropUnobserved(state, observed) {
     }
   }
 }
-async function recordOneChange(context) {
+async function recordOneChange2(context) {
   const { input, binding, snapshot, current, previous } = context;
   try {
     await appendPromptChange({
@@ -5103,7 +5480,7 @@ async function recordOneChange(context) {
   }
 }
 async function recordPromptChanges(input) {
-  const state = stateFor(input.store);
+  const state = stateFor3(input.store);
   const observed = new Set;
   let rows = 0;
   for (const binding of input.bindings) {
@@ -5115,7 +5492,7 @@ async function recordPromptChanges(input) {
     if (previous === current) {
       continue;
     }
-    rows += await recordOneChange({ input, binding, snapshot, current, previous });
+    rows += await recordOneChange2({ input, binding, snapshot, current, previous });
   }
   dropUnobserved(state, observed);
   return rows;
@@ -5237,12 +5614,19 @@ function deliveryView(input) {
 }
 function promptViewOf(run) {
   if (run.prompt === null) {
-    return { promptPresent: false, promptFingerprint: null, promptLength: null, promptText: null };
+    return {
+      promptPresent: false,
+      promptFingerprint: null,
+      promptLength: null,
+      promptSources: null,
+      promptText: null
+    };
   }
   return {
     promptPresent: true,
     promptFingerprint: run.prompt.fingerprint,
     promptLength: run.prompt.length,
+    promptSources: run.prompt.sources,
     promptText: run.prompt.text
   };
 }
@@ -5560,12 +5944,18 @@ function verificationViewOf(run) {
 }
 function promptViewOf2(run) {
   if (run.prompt === null) {
-    return { promptPresent: false, promptFingerprint: null, promptLength: null };
+    return {
+      promptPresent: false,
+      promptFingerprint: null,
+      promptLength: null,
+      promptSources: null
+    };
   }
   return {
     promptPresent: true,
     promptFingerprint: run.prompt.fingerprint,
-    promptLength: run.prompt.length
+    promptLength: run.prompt.length,
+    promptSources: run.prompt.sources
   };
 }
 function historyRowOf(input) {
@@ -5883,7 +6273,8 @@ function promptDetails(run) {
     bindingId: run.bindingId,
     promptPresent: run.prompt !== null,
     promptFingerprint: run.prompt === null ? null : run.prompt.fingerprint,
-    promptLength: run.prompt === null ? null : run.prompt.length
+    promptLength: run.prompt === null ? null : run.prompt.length,
+    promptSources: run.prompt === null ? null : run.prompt.sources
   };
 }
 function reservedRow(input) {
@@ -7697,6 +8088,7 @@ async function persistVerified(attempt) {
     login: outcome.identity.login,
     expectedLogin: credential.expectedLogin,
     displayName: null,
+    startingPrompt: null,
     credential: { token: credential.token, kind: outcome.credentialKind, verifiedAt: at },
     scopeCheck: outcome.scopeCheck,
     state: "active",
@@ -7788,7 +8180,7 @@ var ROUTES = [
   auditRoute,
   verifyRoute,
   rotateTokenRoute,
-  setDisplayNameRoute,
+  putAccountProfileRoute,
   deleteAccountRoute,
   reserveRoute,
   dispatchedRoute,
@@ -8054,6 +8446,40 @@ async function sweepOnce(input) {
   return { recoveries: planned.recoveries, auditWritten: written.every(Boolean) };
 }
 
+// service/poll/cycle-config.ts
+function describeKind(cause) {
+  return cause instanceof Error ? cause.name : typeof cause;
+}
+async function currentIntervalMs(store, log) {
+  if (store === null) {
+    return DEFAULT_CONFIG.intervalMs;
+  }
+  try {
+    const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
+    return config.intervalMs;
+  } catch (cause) {
+    log.warn("poll interval read failed", { errorKind: describeKind(cause) });
+    return DEFAULT_CONFIG.intervalMs;
+  }
+}
+async function readCycleConfig(input) {
+  try {
+    return await runConfigPromptChain(input.store, async () => {
+      const { config } = configFromStore(await input.store.readJson(CONFIG_FILE, parseStoredConfig), input.log);
+      await recordConfigPromptChanges({
+        store: input.store,
+        log: input.log,
+        config,
+        actor: "service"
+      });
+      return config;
+    });
+  } catch (cause) {
+    input.log.warn("cycle configuration read failed", { errorKind: describeKind(cause) });
+    return DEFAULT_CONFIG;
+  }
+}
+
 // service/poll/triggers.ts
 var BODY_EXCERPT_MAX_CHARS = 600;
 var AUTHOR_LOGIN_MAX_CHARS = 60;
@@ -8303,30 +8729,6 @@ function windowFor(input) {
 }
 
 // service/poll/loop.ts
-function describeKind(cause) {
-  return cause instanceof Error ? cause.name : typeof cause;
-}
-async function currentIntervalMs(store, log) {
-  if (store === null) {
-    return DEFAULT_CONFIG.intervalMs;
-  }
-  try {
-    const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
-    return config.intervalMs;
-  } catch (cause) {
-    log.warn("poll interval read failed", { errorKind: describeKind(cause) });
-    return DEFAULT_CONFIG.intervalMs;
-  }
-}
-async function readCycleConfig(input) {
-  try {
-    const { config } = configFromStore(await input.store.readJson(CONFIG_FILE, parseStoredConfig), input.log);
-    return config;
-  } catch (cause) {
-    input.log.warn("cycle configuration read failed", { errorKind: describeKind(cause) });
-    return DEFAULT_CONFIG;
-  }
-}
 function watchesAnything(binding) {
   const { assignment, mention, reviewRequest } = binding.triggers;
   return assignment || mention || reviewRequest;
@@ -8418,7 +8820,8 @@ async function collectScanEvents(input) {
 async function scanBinding(input) {
   const { deps, scanned, detectedAt, binding } = input;
   const blank = blankScan(binding);
-  const account = await readAccount({ store: deps.store, numericUserId: binding.accountNumericUserId });
+  const { store, log } = deps;
+  const account = await readAccount({ store, numericUserId: binding.accountNumericUserId, log });
   if (account === null || account.credential.token === "") {
     return { ...blank, skipped: "missing-account" };
   }

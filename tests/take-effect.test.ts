@@ -6,8 +6,8 @@
  * and SC-107 is what keeps it one: a class declared with no observation must
  * fail a suite somewhere. This file is that somewhere, in two halves:
  *
- * 1. **The declaration is counted** (SC-106): over 006's own eleven fields the
- *    projection must read nine `next-cycle`, one `immediate`, one
+ * 1. **The declaration is counted** (SC-106): over 006's own twelve fields the
+ *    projection must read ten `next-cycle`, one `immediate`, one
  *    `next-dispatch`, zero `restart`, zero `none`.
  * 2. **Every field the projection carries is pointed at the observation that
  *    proves its consumer runs** (SC-107). The observations themselves live
@@ -37,7 +37,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { SessionSnapshot } from '@openchamber/sdk';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { configSchema } from '../service/config-schema.ts';
+import { TAKE_EFFECT, configSchema } from '../service/config-schema.ts';
 import { verifyAgentAfterDispatch } from '../src/agent-verify.ts';
 import { DEFAULT_EXPECTED_AGENT } from '../src/config.ts';
 import { CONFIG_PATH, verificationPath } from '../src/service-calls.ts';
@@ -49,7 +49,7 @@ import { SESSION_ID, createTestRuntime, fakeHost } from './support/panel.ts';
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
 
-/** The eleven fields 006 declares (AC-101, SC-106); 003's two are counted apart. */
+/** The twelve fields 006 declares (AC-101, SC-106); 003's two are counted apart. */
 const SPECS_006_FIELDS: readonly string[] = [
     'intervalMs',
     'logLevel',
@@ -62,6 +62,7 @@ const SPECS_006_FIELDS: readonly string[] = [
     'auditMaxEntries',
     'excerptRetentionDays',
     'expectedAgent',
+    'startingPrompt',
 ];
 
 /** The run this file's verifications report against. */
@@ -91,7 +92,7 @@ const CONFIGURED = 'configured';
 /** Provenance recorded when the document itself carried a blank baseline. */
 const UNSET = 'unset';
 
-/** The class nine of 006's fields declare: effective from the next poll cycle. */
+/** The class ten of 006's fields declare: effective from the next poll cycle. */
 const NEXT_CYCLE: TakeEffectClass = 'next-cycle';
 
 /** The suite the three retry fields' ladder observation lives in. */
@@ -174,6 +175,13 @@ const OBSERVATIONS: Readonly<Record<string, Observation>> = {
         suite: 'tests/agent-verify.test.ts',
         marker: 'T-027 the read-back reaches the service',
     },
+    // 004's global tier: the cycle's configuration is the record the
+    // enqueue-time resolution reads it from, one read per cycle (004 FR-081).
+    startingPrompt: {
+        declared: NEXT_CYCLE,
+        suite: 'tests/prompt-snapshot.test.ts',
+        marker: 'resolves the set tiers in order, or answers null',
+    },
     leaseMs: {
         declared: NEXT_CYCLE,
         suite: 'tests/service-sweep.test.ts',
@@ -206,9 +214,9 @@ function descriptorOf(name: string): ReturnType<typeof configSchema>[number] {
     return descriptor;
 }
 
-describe('SC-106: eleven fields, eleven consumers, zero inert rows', () => {
-    it('counts 006\\\'s own eleven as nine next-cycle, one imm… (+1 cases)', () => {
-        // case: counts 006\'s own eleven as nine next-cycle, one immediate, one next-dispatch
+describe('SC-106: twelve fields, twelve consumers, zero inert rows', () => {
+    it('counts 006\\\'s own twelve as ten next-cycle, one imm… (+2 cases)', () => {
+        // case: counts 006\'s own twelve as ten next-cycle, one immediate, one next-dispatch
         {
             const histogram = new Map<string, number>();
             for (const name of SPECS_006_FIELDS) {
@@ -216,7 +224,7 @@ describe('SC-106: eleven fields, eleven consumers, zero inert rows', () => {
                 histogram.set(takesEffect, (histogram.get(takesEffect) ?? 0) + 1);
             }
 
-            expect(histogram.get(NEXT_CYCLE)).toBe(9);
+            expect(histogram.get(NEXT_CYCLE)).toBe(10);
             expect(histogram.get('immediate')).toBe(1);
             expect(histogram.get('next-dispatch')).toBe(1);
             expect(histogram.get('restart')).toBeUndefined();
@@ -232,6 +240,18 @@ describe('SC-106: eleven fields, eleven consumers, zero inert rows', () => {
                 expect(words).not.toBe('no take-effect boundary declared');
                 expect(words).not.toContain('changes nothing in this build');
             }
+        }
+        // case: the class table is exhaustive, and startingPrompt reads next-cycle
+        {
+            // `TAKE_EFFECT` is exhaustive over the document by construction, so
+            // this is the runtime half: a class declared for a key the document
+            // does not carry, or a document key with no class, fails here too.
+            const declaredFor = Object.keys(TAKE_EFFECT).sort();
+            const documented = Object.keys(DEFAULT_CONFIG).sort();
+
+            expect(declaredFor).toEqual(documented);
+            expect(TAKE_EFFECT.startingPrompt).toBe(NEXT_CYCLE);
+            expect(descriptorOf('startingPrompt').takesEffect).toBe(NEXT_CYCLE);
         }
     });
 

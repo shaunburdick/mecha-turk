@@ -26,7 +26,9 @@
 
 import { findSecretLeak } from '../src/redaction.ts';
 import { expectedAgentIssue } from './config-agent.ts';
+import { startingPromptIssue } from './config-prompt.ts';
 import { isRecord } from './json.ts';
+import { validateStartingPrompt } from './prompt.ts';
 import type { JsonReadResult } from './store/index.ts';
 import type { LogLevel, ServiceLogger } from './log.ts';
 
@@ -105,6 +107,27 @@ export interface ServiceConfig {
      * starts with no baseline rather than presuming one.
      */
     readonly expectedAgent: string;
+    /**
+     * The **global tier** of the layered starting prompt (004 FR-081; 006
+     * FR-010, FR-084 as amended at v1.6.0, which admits the field by name).
+     *
+     * The service serves it through the document `GET /v1/config` already
+     * returns and refuses it through the single validator every tier shares
+     * (004 FR-083): `collectIssues` routes the member through
+     * {@link startingPromptIssue}, whose only rule is
+     * {@link validateStartingPrompt}, so a whole-document `PUT` answers the
+     * same additive `422` — `field: 'startingPrompt'`, a remediation, and
+     * **never a character of the submission** — as any other field (006
+     * FR-040, FR-041).
+     *
+     * The **empty string is the documented default and means *unset***: an
+     * operator who has not chosen a global instruction has none, and the
+     * stored read fills a document predating the member with that blank
+     * rather than quarantining it, reporting the fill in `defaultsApplied` as
+     * a default, never as a configured value (004 FR-081's no-migration
+     * posture; 006 FR-028).
+     */
+    readonly startingPrompt: string;
 }
 
 /** One rejected field with the action that would fix it. */
@@ -173,6 +196,11 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     // (006 FR-100(b) as amended at v1.5.0 — "not everyone is going to use
     // project-manager").
     expectedAgent: '',
+    // Blank, not a placeholder: empty **is** the documented *unset* state of
+    // the global prompt tier (004 FR-081), and a document written before the
+    // field existed is filled with exactly this value (FR-018's no-migration
+    // rule), never with invented instruction text.
+    startingPrompt: '',
 };
 
 /**
@@ -289,6 +317,9 @@ function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
     }
 
     issues.push(...expectedAgentIssue(raw.expectedAgent));
+    // Directly after `expectedAgent`, so this list's order stays the order the
+    // schema projection pushes its descriptors in (006 AC-107).
+    issues.push(...startingPromptIssue(raw.startingPrompt));
     issues.push(...retryOrderIssue(raw));
     for (const key of Object.keys(raw)) {
         if (!isKnownField(key)) {
@@ -355,6 +386,30 @@ function readExpectedAgent(raw: Record<string, unknown>): string {
 }
 
 /**
+ * Read the validated global prompt tier.
+ *
+ * The stored value is the **normalised** text the validator produced — outer
+ * trim and line-ending normalisation applied — so a save/load round trip is
+ * stable, exactly like `expectedAgent`'s trimmed value (006 data-model §1.3),
+ * and *unset* is stored as the empty string the document declares as its
+ * default (004 FR-081). The validator is re-run rather than a second trimming
+ * rule being written here: one rule set at three save boundaries (004 FR-083)
+ * means the read cannot disagree with the write about what the text is.
+ *
+ * @param raw - Document that already passed {@link validateConfig}.
+ * @returns The stored text, `''` when the tier is unset.
+ * @throws {Error} When the value is unusable; see {@link readNumber}.
+ */
+function readStartingPrompt(raw: Record<string, unknown>): string {
+    const verdict = validateStartingPrompt(raw.startingPrompt);
+    if (!verdict.ok) {
+        throw new Error('validated configuration is missing startingPrompt');
+    }
+
+    return verdict.prompt ?? '';
+}
+
+/**
  * Assemble the typed configuration once every field has been checked.
  *
  * @param raw - Document that produced no issues.
@@ -375,6 +430,7 @@ function buildConfig(raw: Record<string, unknown>): ServiceConfig {
         resultDeadlineMs: readNumber(raw, 'resultDeadlineMs'),
         logLevel: readLogLevel(raw),
         expectedAgent: readExpectedAgent(raw),
+        startingPrompt: readStartingPrompt(raw),
     };
 }
 

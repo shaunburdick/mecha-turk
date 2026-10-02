@@ -24,8 +24,15 @@
  *
  * Offline: temp directories, the real loopback service, an injected sweep — no
  * host, no PAT, no network, no sleeping.
+ *
+ * 004 adds the fourth property, on the same route: the correlation-filtered
+ * read must also answer *which tiers produced this run* (`promptSources`,
+ * FR-087) while the written `audit.ndjson` carries no tier's text at all
+ * (FR-050, FR-053) — asserted here as a byte scan of the file itself.
  */
 
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { drainVerifications } from '../src/agent-verify.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
@@ -33,12 +40,14 @@ import { pollRelay } from '../src/relay.ts';
 import { reserveRun } from '../src/relay-gates.ts';
 import { EVENTS_PENDING_PATH, serviceGet } from '../src/service-calls.ts';
 import { AUDIT_FILE, appendAudit } from '../service/audit.ts';
+import { RUNS_FILE } from '../service/poll/runs.ts';
 import { AUDIT_PATH } from '../service/routes/audit.ts';
 import { ABANDON_PATH, RESERVE_PATH } from '../service/routes/dispatch.ts';
 import { RETRY_PATH } from '../service/routes/run-ops.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { Run } from '../service/poll/runs-types.ts';
-import { bound, expectStatus, post, readRun } from './support/dispatch-corpus.ts';
+import { bound, expectStatus, post, readRun, readRuns } from './support/dispatch-corpus.ts';
+import { BINDING_ID } from './support/fixture-enqueue.ts';
 import { offerFor, startDispatchLoop } from './support/dispatch-loop.ts';
 import { SESSION_ID } from './support/panel.ts';
 import type { DispatchLoop } from './support/dispatch-loop.ts';
@@ -57,6 +66,27 @@ const DISPATCHED_STATE = 'dispatched';
 
 /** The row a reservation writes (spec `## Audit Vocabulary`). */
 const RESERVED_EVENT = 'dispatch.reserved';
+
+/** The row a reported outcome writes (spec `## Audit Vocabulary`). */
+const RESULT_EVENT = 'dispatch.result';
+
+/** Issue the prompted run this suite dispatches (004 FR-050, FR-087). */
+const PROMPT_ISSUE = 62;
+
+/**
+ * The binding tier's text, as two independently scannable lines.
+ *
+ * Each line is scanned for **on its own**: a leaked row would carry the text
+ * JSON-escaped, so the joined string would never match the file even with
+ * every byte of it present in it.
+ */
+const TIER_SENTINEL_LINES: readonly string[] = [
+    'SENTINEL TIER ALPHA 4f9c: this line must never reach a row',
+    'SENTINEL TIER BETA 8a13: this line must never reach a row',
+];
+
+/** The tier text exactly as the run's snapshot stores it (FR-080: one block). */
+const TIER_SENTINEL = TIER_SENTINEL_LINES.join('\n');
 
 /**
  * The lifecycle chain one run's trail walks: event type → the state
@@ -77,7 +107,7 @@ const LIFECYCLE_CHAIN: readonly (readonly [string, string])[] = [
     ['dispatch.retry', 'pending'],
     ['dispatch.claimed', 'claimed'],
     [RESERVED_EVENT, 'starting'],
-    ['dispatch.result', DISPATCHED_STATE],
+    [RESULT_EVENT, DISPATCHED_STATE],
     ['agent.verified', DISPATCHED_STATE],
 ];
 
@@ -254,7 +284,7 @@ describe('T-032 one run reconstructs from its correlation identifier alone', () 
             const abandoned = lifecycle.find((row) => row.eventType === 'dispatch.abandoned');
             expect(abandoned?.decision).toBe('no-session');
             expect(abandoned?.details).toMatchObject({ reason: ABANDON_REASON });
-            const result = lifecycle.find((row) => row.eventType === 'dispatch.result');
+            const result = lifecycle.find((row) => row.eventType === RESULT_EVENT);
             expect(result?.decision).toBe('dispatched');
             expect(result?.details).toMatchObject({ sessionId: SESSION_ID });
         }
@@ -346,5 +376,69 @@ describe('T-032 an unwritable trail never rolls back a state change (AC-119, FR-
             .filter((line) => line.includes('dispatch operation could not record its row'));
         expect(warnings.length).toBeGreaterThan(0);
         expect(warnings.some((line) => line.includes(run.correlationId))).toBe(true);
+    });
+});
+
+describe('004 the dispatch rows name the prompt sources without its text (FR-050, FR-087)', () => {
+    it('answers both rows with presence, fingerprint, length, and sources under the run’s id', async () => {
+        // The run snapshots the sentinel at enqueue — the one place FR-053
+        // allows the text to live — so the file scan below has something to
+        // find and cannot pass by having nothing to search for.
+        await loop.enqueue({ issueNumber: PROMPT_ISSUE, prompt: TIER_SENTINEL });
+        const rt = loop.mount();
+        await pollRelay(rt);
+        await drainVerifications(rt);
+
+        const runs = await readRuns(loop.store);
+        expect(runs).toHaveLength(1);
+        const [run] = runs;
+        if (run === undefined) {
+            throw new Error('the prompted run was not stored');
+        }
+
+        const snapshot = run.prompt;
+        if (snapshot === null) {
+            throw new Error('the prompted run stored no prompt snapshot');
+        }
+
+        // The correlation-filtered read is the product's own route, so what it
+        // answers is what an operator would reconstruct from the identifier
+        // alone (SC-124, AC-117).
+        const rows = await auditFor(run.correlationId);
+        const sent = rows.filter((row) =>
+            row.eventType === RESERVED_EVENT || row.eventType === RESULT_EVENT);
+        expect(sent.map((row) => row.eventType).sort())
+            .toEqual([RESERVED_EVENT, RESULT_EVENT].sort());
+
+        for (const row of sent) {
+            expect(row.correlationId, `${row.eventType} correlation id`).toBe(run.correlationId);
+            expect(row.entity).toEqual({ kind: 'run', id: run.correlationId });
+            const { details } = row;
+            expect(details.bindingId, `${row.eventType} bindingId`).toBe(BINDING_ID);
+            expect(details.promptPresent, `${row.eventType} promptPresent`).toBe(true);
+            expect(details.promptFingerprint, `${row.eventType} promptFingerprint`)
+                .toBe(snapshot.fingerprint);
+            expect(details.promptLength, `${row.eventType} promptLength`).toBe(snapshot.length);
+            // Sources are the snapshot's own list — this run stacked exactly
+            // the binding tier, so the ordered answer is exactly that.
+            expect(details.promptSources, `${row.eventType} promptSources`).toEqual(['binding']);
+            expect(details.promptSources, `${row.eventType} promptSources`).toEqual(snapshot.sources);
+        }
+
+        // The written file, scanned byte for byte: `runs.json` holding the
+        // sentinel is what proves this scan can bite, and `audit.ndjson` —
+        // every retained row of it, not only this run's — must not hold a
+        // single line of it.
+        const runsBytes = await readFile(join(loop.service.dataDir, RUNS_FILE), 'utf8');
+        for (const line of TIER_SENTINEL_LINES) {
+            expect(runsBytes, 'the sentinel was never stored, so the scan proves nothing').toContain(line);
+        }
+
+        const auditBytes = await readFile(join(loop.service.dataDir, AUDIT_FILE), 'utf8');
+        expect(auditBytes, 'the trail holds no rows for the scan').toContain(run.correlationId);
+        expect(auditBytes, 'promptSources never reached the written trail').toContain('"promptSources"');
+        for (const line of TIER_SENTINEL_LINES) {
+            expect(auditBytes, `audit.ndjson carried a tier's text (${line})`).not.toContain(line);
+        }
     });
 });

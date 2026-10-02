@@ -93,6 +93,7 @@ const PROJECTED_FIELDS = [
     'promptPresent',
     'promptFingerprint',
     'promptLength',
+    'promptSources',
 ] as const;
 
 /** Build a header map without writing HTTP header names as object keys. */

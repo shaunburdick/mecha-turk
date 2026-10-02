@@ -9,19 +9,25 @@
  * transient state across restarts.
  */
 
+import { readdirSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ACCOUNT_PROMPT_UPDATED_EVENT } from '../service/account-prompt-audit.ts';
 import { ACCOUNTS_DIR, BINDINGS_FILE } from '../service/accounts/store.ts';
+import { readAuditEntries } from '../service/audit.ts';
+import { credentialRemediation, promptFingerprint } from '../service/prompt.ts';
 import {
     ACCOUNTS_PATH,
-    ACCOUNT_DISPLAY_NAME_PATH,
     ACCOUNT_PATH,
     ACCOUNT_TOKEN_PATH,
 } from '../service/routes/accounts.ts';
+import { ROUTES } from '../service/routes/index.ts';
 import { VERIFY_PATH } from '../service/routes/verify.ts';
 import { STATUS_PATH } from '../service/routes/status.ts';
+import { findSecretLeak } from '../src/redaction.ts';
+import type { AuditEntry } from '../service/audit.ts';
 import type { AccountDto } from '../service/accounts/model.ts';
 import type { GitHubVerifier } from '../service/github.ts';
 import { fakeGitHub, scriptedVerifier, userBody } from './support/github.ts';
@@ -55,6 +61,27 @@ const ACCOUNT_PATH_PARAM = ':numericUserId';
 
 /** Name of the append-only audit trail inside the data directory. */
 const AUDIT_FILE = 'audit.ndjson';
+
+/** The type-refusal fragment every non-text stored prompt carries (FR-017). */
+const TEXT_REQUIRED_FRAGMENT = 'must be text';
+
+/** The instruction seed wherever a tier must already be set. */
+const SEEDED_PROMPT = 'Always reproduce before patching.';
+
+/** The label seeded beside {@link SEEDED_PROMPT} whenever both members are set. */
+const SEEDED_LABEL = 'Platform team';
+
+/** The label the refusal tests keep in force across a refused write. */
+const KEPT_LABEL = 'Kept label';
+
+/** The label a two-member body writes over the first one. */
+const SECOND_LABEL = 'Second label';
+
+/** The prompt head every "never the text" scan looks for. */
+const PROMPT_HEAD = 'Reproduce first';
+
+/** The event a forced account removal writes (002 FR-035). */
+const ACCOUNT_DELETED_EVENT = 'account.deleted';
 
 /** Running harness instances, drained between tests. */
 const running: TestService[] = [];
@@ -406,7 +433,7 @@ describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7
             expect(response.status).toBe(200);
             expect(body.removed).toBe(true);
             await expect(stat(join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`))).rejects.toThrow();
-            expect(audit).toContain('account.deleted');
+            expect(audit).toContain(ACCOUNT_DELETED_EVENT);
         }
         await afterEachWork1();
         await afterEachWork1();
@@ -433,7 +460,7 @@ describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7
             expect(forced.status).toBe(200);
             expect(bindings).toEqual([{ ...binding, state: 'disabled' }]);
             expect(audit).toContain('binding.disabled');
-            expect(audit).toContain('account.deleted');
+            expect(audit).toContain(ACCOUNT_DELETED_EVENT);
         }
         await afterEachWork1();
         await afterEachWork1();
@@ -514,29 +541,83 @@ describe('F13 — startup reconciliation of interrupted handoffs', () => {
     });
 });
 
-/** The field name every display-name refusal on that route names. */
-const FIELD = 'displayName';
+/** The label member's field name, so a display-name refusal renders in place (005 §2). */
+const LABEL_FIELD = 'displayName';
+
+/** The prompt member's field name — identical at all three save paths (004 FR-083). */
+const PROMPT_FIELD = 'startingPrompt';
 
 /** A planted sentinel inside a credential-shaped value (AC-130). */
 const SENTINEL = 'zzPLANTEDzz';
 
+/** A planted sentinel no shape detector matches, planted as a custody key's value (invariant 6). */
+const CUSTODY_SENTINEL = 'zzCUSTODYzz';
+
+/** A reserved composition marker line, refused by the one prompt validator (004 FR-025). */
+const RESERVED_MARKER_LINE = '--- BEGIN OPERATOR STARTING PROMPT ---';
+
+/** The instruction this suite stores, changes, and scans every row for. */
+const PROMPT = 'Reproduce first, then patch. Do not widen the public API.';
+
+/** The same instruction with one character changed. */
+const NEXT_PROMPT = 'Reproduce first, then patch. Do not widen the public API!';
+
+/** The eleven custody and identity keys the profile body refuses by name (005 §2, invariant 6). */
+const CUSTODY_KEYS: readonly string[] = [
+    'credential',
+    'scopeCheck',
+    'state',
+    'connectionState',
+    'verifiedAt',
+    'errorReason',
+    'numericUserId',
+    'login',
+    'expectedLogin',
+    'createdAt',
+    'updatedAt',
+];
+
 /**
- * PUT one display-name body against a routed account path.
+ * The two path suffixes the 4–5 gate retired: one shipped and was deleted,
+ * one was never built (005 v1.10.0; 004 `## Clarifications` row 33).
+ */
+const RETIRED_SUFFIXES: readonly string[] = ['/display-name', '/starting-prompt'];
+
+
+/** One field refusal, as the `422 validation` envelope carries it. */
+interface Issue {
+    /** The offending field, or `'body'` for a structural refusal. */
+    readonly field: string;
+    /** How to fix it; never quotes what was received. */
+    readonly remediation: string;
+}
+
+/**
+ * Build the credential-shaped prompt every save path must refuse identically.
+ *
+ * @returns A value the shipped detector labels as a token shape (AC-150).
+ */
+function credentialPrompt(): string {
+    return `ghp_${SENTINEL}${'a'.repeat(36)}`;
+}
+
+/**
+ * PUT one account profile body against a routed account path.
  *
  * @param options - Harness instance, the path id, and the request body.
  * @returns The response.
  */
-function putDisplayNameAt(options: {
+function putProfileAt(options: {
     /** Harness instance to call. */
     readonly service: TestService;
-    /** Path id the label is written against. */
+    /** Path id the profile write runs against. */
     readonly userId: string;
     /** Request body exactly as the client would send it. */
     readonly body: string;
 }): Promise<Response> {
     const { service, userId, body } = options;
 
-    return service.call(ACCOUNT_DISPLAY_NAME_PATH.replace(ACCOUNT_PATH_PARAM, userId), {
+    return service.call(ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, userId), {
         method: 'PUT',
         headers: jsonHeaders(),
         body,
@@ -544,41 +625,53 @@ function putDisplayNameAt(options: {
 }
 
 /**
- * PUT one display-name body against the fixture account's path.
+ * PUT one profile body against the fixture account's path.
  *
  * @param service - Harness instance.
  * @param body - The request body exactly as the client would send it.
  * @returns The response.
  */
-function putDisplayName(service: TestService, body: string): Promise<Response> {
-    return putDisplayNameAt({ service, userId: String(ACCOUNT_ID), body });
+function putProfile(service: TestService, body: string): Promise<Response> {
+    return putProfileAt({ service, userId: String(ACCOUNT_ID), body });
 }
 
 /**
- * PUT one display-name body and report the response status alone.
+ * PUT one profile body and report the response status alone.
  *
  * @param service - Harness instance.
  * @param body - The request body exactly as the client would send it.
  * @returns The HTTP status the service answered.
  */
 async function putStatus(service: TestService, body: string): Promise<number> {
-    const response = await putDisplayName(service, body);
+    const response = await putProfile(service, body);
 
     return response.status;
 }
 
 /**
- * Read the refusal envelope's first issue.
+ * Read every issue a `422 validation` answer carries (invariant 6's list).
  *
- * @param response - The `422` answer.
- * @returns Its `field` and remediation.
+ * @param response - The refusal.
+ * @returns Its structured issues; an envelope listing none answers `[]`.
  */
-async function issueOf(response: Response): Promise<{ readonly field: string; readonly remediation: string }> {
+async function issuesOf(response: Response): Promise<readonly Issue[]> {
     const body = (await response.json()) as {
-        readonly error: { readonly issues: { readonly field: string; readonly remediation: string }[] };
+        readonly error: { readonly issues?: readonly Issue[] };
     };
 
-    return body.error.issues[0] ?? { field: '', remediation: '' };
+    return body.error.issues ?? [];
+}
+
+/**
+ * Read the first issue a `422 validation` answer carries.
+ *
+ * @param response - The refusal.
+ * @returns Its `field` and remediation, or an empty pair when none is listed.
+ */
+async function issueOf(response: Response): Promise<Issue> {
+    const issues = await issuesOf(response);
+
+    return issues[0] ?? { field: '', remediation: '' };
 }
 
 /**
@@ -601,43 +694,118 @@ function accountFileOf(service: TestService): string {
     return join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
 }
 
-describe('PUT /v1/accounts/:id/display-name — the one display-only field (005 FR-066)', () => {
-    it('stores a label, trims it, and changes nothing but th… (+5 cases)', async () => {
+/**
+ * The keys whose value differs between two stored documents.
+ *
+ * @param before - The document as it stood.
+ * @param after - The document after the write under test.
+ * @returns Every key whose serialized value changed.
+ */
+function changedKeys(before: Record<string, unknown>, after: Record<string, unknown>): readonly string[] {
+    return Object.keys(after).filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+}
+
+/**
+ * Every `account.prompt-updated` row in the service's own trail (FR-088).
+ *
+ * @param service - Harness instance whose store holds the trail.
+ * @returns The rows, oldest first.
+ * @throws {Error} When the harness started without a store.
+ */
+async function accountPromptRows(service: TestService): Promise<readonly AuditEntry[]> {
+    const { store } = service.handle;
+    if (store === null) {
+        throw new Error('the harness started without a store');
+    }
+
+    const entries = await readAuditEntries(store);
+
+    return entries.filter((entry) => entry.eventType === ACCOUNT_PROMPT_UPDATED_EVENT);
+}
+
+/**
+ * The `.ts` modules under `service/`, read as written (invariant 8).
+ *
+ * The route table and the accounts handlers are the surface the invariant is
+ * about; the whole directory is read because a retired path could hide in any
+ * other module's constant, builder, or comment.
+ *
+ * @returns Every service module's text.
+ */
+function serviceModuleTexts(): readonly string[] {
+    const root = resolve(import.meta.dirname, '..', 'service');
+
+    return readdirSync(root, { recursive: true })
+        .map((entry) => String(entry))
+        .filter((entry) => entry.endsWith('.ts'))
+        .map((entry) => readFileSync(resolve(root, entry), 'utf8'));
+}
+
+/**
+ * The `.ts` modules under `tests/`, read as written (invariant 8).
+ *
+ * @returns Every test module's text.
+ */
+function testModuleTexts(): readonly string[] {
+    const root = import.meta.dirname;
+
+    return readdirSync(root, { recursive: true })
+        .map((entry) => String(entry))
+        .filter((entry) => entry.endsWith('.ts'))
+        .map((entry) => readFileSync(resolve(root, entry), 'utf8'));
+}
+
+describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-066, 004 FR-082)', () => {
+    it('writes the label, and refuses anything that is not one of the two members (+6 cases)', async () => {
         // case: stores a label, trims it, and changes nothing but the label and its stamp
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
             const before = await storedAccount(service);
 
-            const response = await putDisplayName(service, JSON.stringify({ displayName: '  Octo platform  ' }));
+            const response = await putProfile(service, JSON.stringify({ displayName: '  Octo platform  ' }));
             const body = (await response.json()) as { readonly account: AccountDto };
 
             expect(response.status).toBe(200);
             expect('credential' in body.account).toBe(false);
+            // A label-only body leaves the prompt tier exactly where it was.
+            expect(body.account.startingPrompt).toBeNull();
 
             const after = await storedAccount(service);
-            const changed = Object.keys(after).filter((key) => JSON.stringify(after[key]) !== JSON.stringify(
-                before[key]
-            ));
-            expect(changed).toContain(FIELD);
-            expect(changed.filter((key) => key !== FIELD && key !== 'updatedAt')).toEqual([]);
+            expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+            const changed = changedKeys(before, after);
+            expect(changed).toContain(LABEL_FIELD);
+            expect(changed.filter((key) => key !== LABEL_FIELD && key !== 'updatedAt')).toEqual([]);
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses a body that does not carry the member, rather than no-oping
+        // case: refuses a body carrying neither member rather than no-oping (invariant 4)
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
             const file = accountFileOf(service);
             const before = await readFile(file, 'utf8');
+            const profilePath = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
 
-            const response = await putDisplayName(service, JSON.stringify({}));
-            const issue = await issueOf(response);
+            // `{}`, an array, an explicit `null`, and no body at all carry
+            // neither member; every one is a refusal, never a silent `200`.
+            for (const empty of [JSON.stringify({}), JSON.stringify([]), '']) {
+                const response = empty === ''
+                    ? await service.call(profilePath, { method: 'PUT', headers: jsonHeaders() })
+                    : await putProfile(service, empty);
+                const issues = await issuesOf(response);
 
-            expect(response.status).toBe(422);
-            expect(issue.field).toBe(FIELD);
-            expect(issue.remediation).not.toBe('');
-            expect(await readFile(file, 'utf8')).toBe(before);
+                expect(response.status, empty).toBe(422);
+                expect(issues, empty).toHaveLength(1);
+                expect(issues[0]?.field, empty).toBe('body');
+                expect(issues[0]?.remediation, empty).toContain(LABEL_FIELD);
+                expect(issues[0]?.remediation, empty).toContain(PROMPT_FIELD);
+                // Nothing written: not a byte of the record, no `updatedAt`,
+                // and no audit row for a refusal (004 FR-082).
+                expect(await readFile(file, 'utf8'), empty).toBe(before);
+            }
+
+            expect(await accountPromptRows(service)).toHaveLength(0);
         }
         await afterEachWork1();
         await afterEachWork1();
@@ -645,20 +813,18 @@ describe('PUT /v1/accounts/:id/display-name — the one display-only field (005 
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
-            await putDisplayName(service, JSON.stringify({ displayName: 'the label in force' }));
+            await putProfile(service, JSON.stringify({ displayName: 'the label in force' }));
             const file = accountFileOf(service);
             const before = await readFile(file, 'utf8');
             const submitted = `ghp_${SENTINEL}${'a'.repeat(24)}`;
 
-            const response = await putDisplayName(service, JSON.stringify({ displayName: submitted }));
+            const response = await putProfile(service, JSON.stringify({ displayName: submitted }));
             const text = await response.text();
-            const parsed = JSON.parse(text) as {
-                readonly error: { readonly issues: { readonly field: string; readonly remediation: string }[] };
-            };
-            const issue = parsed.error.issues[0] ?? { field: '', remediation: '' };
+            const parsed = JSON.parse(text) as { readonly error: { readonly issues?: readonly Issue[] } };
+            const issue = parsed.error.issues?.[0] ?? { field: '', remediation: '' };
 
             expect(response.status).toBe(422);
-            expect(issue.field).toBe(FIELD);
+            expect(issue.field).toBe(LABEL_FIELD);
             expect(text).not.toContain(SENTINEL);
             // The previous label stays in force, byte for byte.
             expect(await readFile(file, 'utf8')).toBe(before);
@@ -673,17 +839,17 @@ describe('PUT /v1/accounts/:id/display-name — the one display-only field (005 
             expect(await putStatus(service, JSON.stringify({ displayName: 'kept' }))).toBe(200);
             expect(await putStatus(service, JSON.stringify({ displayName: '   ' }))).toBe(200);
             const afterBlank = await storedAccount(service);
-            expect(afterBlank[FIELD]).toBeNull();
+            expect(afterBlank[LABEL_FIELD]).toBeNull();
 
             expect(await putStatus(service, JSON.stringify({ displayName: 'back again' }))).toBe(200);
             expect(await putStatus(service, JSON.stringify({ displayName: null }))).toBe(200);
             const afterNull = await storedAccount(service);
-            expect(afterNull[FIELD]).toBeNull();
+            expect(afterNull[LABEL_FIELD]).toBeNull();
 
-            const refused = await putDisplayName(service, JSON.stringify({ displayName: 42 }));
+            const refused = await putProfile(service, JSON.stringify({ displayName: 42 }));
             expect(refused.status).toBe(422);
             const issue = await issueOf(refused);
-            expect(issue.field).toBe(FIELD);
+            expect(issue.field).toBe(LABEL_FIELD);
         }
         await afterEachWork1();
         await afterEachWork1();
@@ -694,17 +860,17 @@ describe('PUT /v1/accounts/:id/display-name — the one display-only field (005 
 
             expect(await putStatus(service, JSON.stringify({ displayName: 'x'.repeat(80) }))).toBe(200);
 
-            const overCap = await putDisplayName(service, JSON.stringify({ displayName: 'x'.repeat(81) }));
+            const overCap = await putProfile(service, JSON.stringify({ displayName: 'x'.repeat(81) }));
             const capIssue = await issueOf(overCap);
             expect(overCap.status).toBe(422);
-            expect(capIssue.field).toBe(FIELD);
+            expect(capIssue.field).toBe(LABEL_FIELD);
             expect(capIssue.remediation).toContain('80');
 
-            const controlled = await putDisplayName(service, JSON.stringify({ displayName: 'badname\u0007x' }));
+            const controlled = await putProfile(service, JSON.stringify({ displayName: 'badname\u0007x' }));
 
             const controlIssue = await issueOf(controlled);
             expect(controlled.status).toBe(422);
-            expect(controlIssue.field).toBe(FIELD);
+            expect(controlIssue.field).toBe(LABEL_FIELD);
             expect(controlIssue.remediation).not.toContain('bad');
         }
         await afterEachWork1();
@@ -716,7 +882,7 @@ describe('PUT /v1/accounts/:id/display-name — the one display-only field (005 
             await verifyOk(service);
             const file = join(dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
             const legacy = await readStoredAccount(dataDir);
-            const withoutLabel = Object.fromEntries(Object.entries(legacy).filter(([key]) => key !== FIELD));
+            const withoutLabel = Object.fromEntries(Object.entries(legacy).filter(([key]) => key !== LABEL_FIELD));
             await writeFile(file, JSON.stringify(withoutLabel, null, 2), 'utf8');
             const bytes = await readFile(file, 'utf8');
 
@@ -728,22 +894,36 @@ describe('PUT /v1/accounts/:id/display-name — the one display-only field (005 
         }
     });
 
-    it('keeps the label when an upstream login rename refres… (+2 cases)', async () => {
-        // case: keeps the label when an upstream login rename refreshes the login (AC-128)
+    it('leaves both operator members byte-identical through a rotation and a rename (+2 cases)', async () => {
+        // case: AC-128 plus FR-082 — rotation and login rename touch neither member
         {
             const github = fakeGitHub({ user: USER_OK });
             const service = await startWithVerifier(github.verifier);
             await verifyOk(service);
-            expect(await putStatus(service, JSON.stringify({ displayName: 'Platform team' }))).toBe(200);
+            const seeded = await putProfile(service, JSON.stringify({
+                displayName: SEEDED_LABEL,
+                startingPrompt: SEEDED_PROMPT,
+            }));
+            expect(seeded.status).toBe(200);
+            const file = accountFileOf(service);
+            const before = await readFile(file, 'utf8');
             github.setScript({ user: USER_RENAMED });
 
             const rotated = await rotateToken({ service, token: `${REGISTERED_TOKEN}-rotated` });
             expect(rotated.status).toBe(200);
 
+            const after = await readFile(file, 'utf8');
+            const beforeDoc = JSON.parse(before) as Record<string, unknown>;
+            const afterDoc = JSON.parse(after) as Record<string, unknown>;
+            expect(afterDoc[LABEL_FIELD]).toBe(beforeDoc[LABEL_FIELD]);
+            expect(afterDoc[PROMPT_FIELD]).toBe(beforeDoc[PROMPT_FIELD]);
+
             const listed = await service.call(ACCOUNTS_PATH);
             const body = (await listed.json()) as { readonly accounts: readonly AccountDto[] };
 
             expect(body.accounts[0]?.login).toBe(ROTATED_LOGIN);
+            expect(body.accounts[0]?.displayName).toBe(SEEDED_LABEL);
+            expect(body.accounts[0]?.startingPrompt).toBe(SEEDED_PROMPT);
         }
         await afterEachWork1();
         await afterEachWork1();
@@ -768,11 +948,533 @@ describe('PUT /v1/accounts/:id/display-name — the one display-only field (005 
             const service = await startService({ user: USER_OK });
 
             const body = JSON.stringify({ displayName: 'nobody' });
-            const response = await putDisplayNameAt({ service, userId: '123456789', body });
+            const response = await putProfileAt({ service, userId: '123456789', body });
             const envelope = (await response.json()) as { error?: { code?: string } };
 
             expect(response.status).toBe(404);
             expect(envelope.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
         }
+    });
+});
+
+describe('the account tier on the record — member, DTO, quarantine (004 FR-082, FR-083)', () => {
+    it('reads absence and null as unset, rewriting nothing and observing nothing', async () => {
+        const dataDir = await sharedDataDir();
+        const service = await startService({ user: USER_OK }, dataDir);
+        await verifyOk(service);
+        const file = join(dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
+        const stored = await readStoredAccount(dataDir);
+
+        // Absence is the pre-004 shape; `null` is what this build writes for
+        // "unset". Both are the complete unset state: read as `null`, never
+        // quarantined, never repaired on read (FR-018, FR-071).
+        const withoutMember = Object.fromEntries(
+            Object.entries(stored).filter(([key]) => key !== PROMPT_FIELD),
+        );
+        await writeFile(file, JSON.stringify(withoutMember, null, 2), 'utf8');
+        const absentBytes = await readFile(file, 'utf8');
+
+        const absent = await service.call(ACCOUNTS_PATH);
+        const absentBody = (await absent.json()) as { readonly accounts: readonly AccountDto[] };
+        expect(absentBody.accounts[0]?.startingPrompt).toBeNull();
+        expect(await readFile(file, 'utf8')).toBe(absentBytes);
+
+        await writeFile(file, JSON.stringify({ ...withoutMember, [PROMPT_FIELD]: null }, null, 2), 'utf8');
+        const nullBytes = await readFile(file, 'utf8');
+
+        const nulled = await service.call(ACCOUNTS_PATH);
+        const nulledBody = (await nulled.json()) as { readonly accounts: readonly AccountDto[] };
+        expect(nulledBody.accounts[0]?.startingPrompt).toBeNull();
+        expect(await readFile(file, 'utf8')).toBe(nullBytes);
+
+        // The observed read appends nothing by itself: unset is a state, not
+        // a change (FR-071, FR-088).
+        expect(await accountPromptRows(service)).toHaveLength(0);
+    });
+
+    it('quarantines a violating stored prompt with a value-free reason', async () => {
+        const service = await startService({ user: USER_OK });
+        await verifyOk(service);
+        const file = accountFileOf(service);
+        const seeded = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+
+        const violations: readonly {
+            readonly label: string;
+            readonly value: unknown;
+            readonly reasonFragment: string;
+            readonly leak: string | null;
+        }[] = [
+            { label: 'a number', value: 7, reasonFragment: TEXT_REQUIRED_FRAGMENT, leak: null },
+            { label: 'a boolean', value: true, reasonFragment: TEXT_REQUIRED_FRAGMENT, leak: null },
+            { label: 'an object', value: { nested: true }, reasonFragment: TEXT_REQUIRED_FRAGMENT, leak: 'nested' },
+            {
+                label: 'a 2,001-code-point value',
+                value: 'q'.repeat(2_001),
+                reasonFragment: 'at most 2000',
+                leak: 'q'.repeat(64),
+            },
+            {
+                label: 'a credential shape',
+                value: credentialPrompt(),
+                reasonFragment: 'credential-shaped material',
+                leak: SENTINEL,
+            },
+            {
+                label: 'a reserved marker line',
+                value: RESERVED_MARKER_LINE,
+                reasonFragment: 'reserved composition markers',
+                leak: 'OPERATOR STARTING PROMPT',
+            },
+        ];
+
+        for (const violation of violations) {
+            await writeFile(file, JSON.stringify({ ...seeded, [PROMPT_FIELD]: violation.value }), 'utf8');
+
+            const response = await service.call(ACCOUNTS_PATH);
+            const body = (await response.json()) as { readonly accounts: readonly AccountDto[] };
+
+            // The record refuses as a whole, so there is no account to scan
+            // until the operator repairs the file (FR-082's edge case).
+            expect(body.accounts, violation.label).toEqual([]);
+
+            const lines = service.logLines.filter((entry) => entry.includes('stored record was unusable'));
+            const line = lines.at(-1);
+            expect(line, violation.label).toBeDefined();
+            const logged = JSON.parse(line ?? '{}') as { readonly reason?: unknown };
+            const reason = typeof logged.reason === 'string' ? logged.reason : '';
+            expect(reason, violation.label).toContain(`${PROMPT_FIELD}:`);
+            expect(reason, violation.label).toContain(violation.reasonFragment);
+            if (violation.leak !== null) {
+                expect(reason, violation.label).not.toContain(violation.leak);
+                expect(service.logLines.join('\n'), violation.label).not.toContain(violation.leak);
+            }
+
+            // Quarantined, not silently repaired: the file is set aside whole.
+            await expect(stat(file), violation.label).rejects.toThrow();
+        }
+
+        expect(await accountPromptRows(service)).toHaveLength(0);
+    });
+
+    it('rides through the F13 mark/restore, which spread the record (FR-082)', async () => {
+        const dataDir = await sharedDataDir();
+        const service = await startService({ user: USER_OK }, dataDir);
+        await verifyOk(service);
+        expect(await putStatus(service, JSON.stringify({
+            displayName: SEEDED_LABEL,
+            startingPrompt: SEEDED_PROMPT,
+        }))).toBe(200);
+        const file = join(dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`);
+        const seeded = await readStoredAccount(dataDir);
+        // Strand the record mid-handoff exactly as a crash would leave it.
+        await writeFile(file, JSON.stringify({ ...seeded, state: 'verifying' }), 'utf8');
+        await service.shutdown();
+
+        const restarted = await startService({ user: USER_RENAMED }, dataDir);
+        const summary = await restarted.handle.reconciled;
+        const after = await readStoredAccount(dataDir);
+
+        expect(summary).toMatchObject({ examined: 1, marked: 1, restored: 1 });
+        // Both operator members ride through mark *and* restore untouched:
+        // the spread constructions preserve the record by construction rather
+        // than rebuilding it field by field (FR-082, part (a) of T-023).
+        expect(after[LABEL_FIELD]).toBe(seeded[LABEL_FIELD]);
+        expect(after[PROMPT_FIELD]).toBe(seeded[PROMPT_FIELD]);
+        // The startup observation saw no difference, so it wrote no row.
+        expect(await accountPromptRows(restarted)).toHaveLength(1);
+    });
+});
+
+describe('PUT /v1/accounts/:numericUserId — invariant 5: exactly the supplied members', () => {
+    it('changes only the member each body named, plus updatedAt (+2 cases)', async () => {
+        // case: a one-member body changes that member only; the other is byte-identical
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+            expect(await putStatus(service, JSON.stringify({
+                displayName: 'Octo — platform',
+                startingPrompt: SEEDED_PROMPT,
+            }))).toBe(200);
+
+            const beforePrompt = await storedAccount(service);
+            expect(await putStatus(service, JSON.stringify({
+                startingPrompt: 'A different instruction entirely.',
+            }))).toBe(200);
+            const afterPrompt = await storedAccount(service);
+            expect(Object.keys(afterPrompt).sort()).toEqual(Object.keys(beforePrompt).sort());
+            expect(afterPrompt[LABEL_FIELD]).toBe(beforePrompt[LABEL_FIELD]);
+            const promptChanged = changedKeys(beforePrompt, afterPrompt);
+            expect(promptChanged).toContain(PROMPT_FIELD);
+            expect(promptChanged.filter((key) => key !== PROMPT_FIELD && key !== 'updatedAt')).toEqual([]);
+
+            const beforeLabel = afterPrompt;
+            expect(await putStatus(service, JSON.stringify({ displayName: 'Release rotation' }))).toBe(200);
+            const afterLabel = await storedAccount(service);
+            expect(afterLabel[PROMPT_FIELD]).toBe(beforeLabel[PROMPT_FIELD]);
+            const labelChanged = changedKeys(beforeLabel, afterLabel);
+            expect(labelChanged).toContain(LABEL_FIELD);
+            expect(labelChanged.filter((key) => key !== LABEL_FIELD && key !== 'updatedAt')).toEqual([]);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: a two-member body changes both, and null/"" clear only what they name
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+
+            const seeded = await putProfile(service, JSON.stringify({
+                displayName: 'First label',
+                startingPrompt: 'First instruction.',
+            }));
+            expect(seeded.status).toBe(200);
+            const before = await storedAccount(service);
+
+            expect(await putStatus(service, JSON.stringify({
+                displayName: SECOND_LABEL,
+                startingPrompt: 'Second instruction.',
+            }))).toBe(200);
+            const afterBoth = await storedAccount(service);
+            expect(Object.keys(afterBoth).sort()).toEqual(Object.keys(before).sort());
+            const both = changedKeys(before, afterBoth);
+            expect(both).toContain(LABEL_FIELD);
+            expect(both).toContain(PROMPT_FIELD);
+            expect(both.filter((key) => key !== LABEL_FIELD && key !== PROMPT_FIELD && key !== 'updatedAt'))
+                .toEqual([]);
+
+            // `null` clears the prompt and leaves the label byte-identical …
+            expect(await putStatus(service, JSON.stringify({ startingPrompt: null }))).toBe(200);
+            const promptCleared = await storedAccount(service);
+            expect(promptCleared[PROMPT_FIELD]).toBeNull();
+            expect(promptCleared[LABEL_FIELD]).toBe(SECOND_LABEL);
+
+            // … whitespace-only clears it too, and `""` clears only the label.
+            expect(await putStatus(service, JSON.stringify({ startingPrompt: 'Second instruction.' }))).toBe(200);
+            expect(await putStatus(service, JSON.stringify({ startingPrompt: '   ' }))).toBe(200);
+            const promptBlank = await storedAccount(service);
+            expect(promptBlank[PROMPT_FIELD]).toBeNull();
+            expect(promptBlank[LABEL_FIELD]).toBe(SECOND_LABEL);
+
+            expect(await putStatus(service, JSON.stringify({ displayName: '' }))).toBe(200);
+            const labelCleared = await storedAccount(service);
+            expect(labelCleared[LABEL_FIELD]).toBeNull();
+            expect(labelCleared[PROMPT_FIELD]).toBeNull();
+        }
+    });
+});
+
+describe('PUT /v1/accounts/:numericUserId — invariant 6: the eleven custody keys refused', () => {
+    it('names each key, echoes no value of it, and writes nothing (+1 cases)', async () => {
+        // case: every custody and identity key answers 422 by name with no echo
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+            expect(await putStatus(service, JSON.stringify({
+                displayName: KEPT_LABEL,
+                startingPrompt: 'Kept instruction.',
+            }))).toBe(200);
+            const file = accountFileOf(service);
+            const before = await readFile(file, 'utf8');
+            // The seed itself wrote its one `set` row; a refusal may not add
+            // a second.
+            const rowsBefore = await accountPromptRows(service);
+            expect(rowsBefore).toHaveLength(1);
+
+            for (const key of CUSTODY_KEYS) {
+                const response = await putProfile(service, JSON.stringify({ [key]: CUSTODY_SENTINEL }));
+                const text = await response.text();
+                const parsed = JSON.parse(text) as { readonly error: { readonly issues?: readonly Issue[] } };
+
+                expect(response.status, key).toBe(422);
+                expect(parsed.error.issues?.some((issue) => issue.field === key), key).toBe(true);
+                // The submitted value appears nowhere: not in the answer, and
+                // the record is byte-identical, so there is no `updatedAt`
+                // bump either (invariant 6).
+                expect(text, key).not.toContain(CUSTODY_SENTINEL);
+                expect(await readFile(file, 'utf8'), key).toBe(before);
+            }
+
+            expect(service.logLines.join('\n')).not.toContain(CUSTODY_SENTINEL);
+            expect(await accountPromptRows(service)).toHaveLength(rowsBefore.length);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: one complete list of issues, and nothing at all is written
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+            const file = accountFileOf(service);
+            const before = await readFile(file, 'utf8');
+
+            const response = await putProfile(service, JSON.stringify({
+                displayName: 'x'.repeat(81),
+                credential: CUSTODY_SENTINEL,
+            }));
+            const issues = await issuesOf(response);
+
+            expect(response.status).toBe(422);
+            expect(issues).toHaveLength(2);
+            expect(new Set(issues.map((issue) => issue.field))).toEqual(new Set([LABEL_FIELD, 'credential']));
+            expect(await readFile(file, 'utf8')).toBe(before);
+            expect(await accountPromptRows(service)).toHaveLength(0);
+        }
+    });
+
+    it('refuses one tier with the shared shape label and touches neither member (AC-150)', async () => {
+        const service = await startService({ user: USER_OK });
+        await verifyOk(service);
+        expect(await putStatus(service, JSON.stringify({
+            displayName: KEPT_LABEL,
+            startingPrompt: 'Kept instruction.',
+        }))).toBe(200);
+        const file = accountFileOf(service);
+        const before = await readFile(file, 'utf8');
+        const rowsBefore = await accountPromptRows(service);
+        expect(rowsBefore).toHaveLength(1);
+        const submitted = credentialPrompt();
+        const shape = findSecretLeak(submitted);
+        if (shape === null) {
+            throw new Error('the AC-150 sentinel must be credential-shaped');
+        }
+
+        const response = await putProfile(service, JSON.stringify({ [PROMPT_FIELD]: submitted }));
+        const text = await response.text();
+        const parsed = JSON.parse(text) as { readonly error: { readonly issues?: readonly Issue[] } };
+        const issue = parsed.error.issues?.[0] ?? { field: '', remediation: '' };
+
+        expect(response.status).toBe(422);
+        expect(issue.field).toBe(PROMPT_FIELD);
+        // Identical shape label to the bindings and configuration paths: the
+        // shared remediation builder is the one rule set (FR-083, AC-150).
+        expect(issue.remediation).toBe(credentialRemediation(shape));
+        expect(text).not.toContain(SENTINEL);
+        expect(service.logLines.join('\n')).not.toContain(SENTINEL);
+        // Both stored members and the stamp stay byte-identical: no partial
+        // application, no `updatedAt` bump, no second audit row
+        // (layered-prompt §5 invariant 3).
+        expect(await readFile(file, 'utf8')).toBe(before);
+        expect(await accountPromptRows(service)).toHaveLength(rowsBefore.length);
+    });
+});
+
+describe('the retired routes resolve nowhere (005 v1.10.0, account-display-name §4 invariant 8)', () => {
+    it('answers the unknown-route refusal for both and keeps no reference', async () => {
+        const service = await startService({ user: USER_OK });
+        await verifyOk(service);
+        const profilePath = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+
+        // No alias, no redirect, no legacy handler: each retired suffix reaches
+        // a path no route entry matches, so the pipeline answers its own
+        // `404 not-found` — not a `405`, which would mean a route existed.
+        for (const suffix of RETIRED_SUFFIXES) {
+            const response = await service.call(`${profilePath}${suffix}`, {
+                method: 'PUT',
+                headers: jsonHeaders(),
+                body: JSON.stringify({ displayName: 'nobody' }),
+            });
+            const envelope = (await response.json()) as { error?: { code?: string } };
+
+            expect(response.status, suffix).toBe(404);
+            expect(envelope.error?.code, suffix).toBe('not-found');
+        }
+
+        // The route table declares neither suffix under any method.
+        const paths = ROUTES.map((route) => route.path);
+        expect(paths.some((path) => path.endsWith('/display-name'))).toBe(false);
+        expect(paths.some((path) => path.endsWith('/starting-prompt'))).toBe(false);
+
+        // No service module — route table, handlers, or any other — names
+        // either retired path. This file names each suffix exactly once, in
+        // the probes above: a probe must name what it probes.
+        for (const text of serviceModuleTexts()) {
+            for (const suffix of RETIRED_SUFFIXES) {
+                expect(text.includes(suffix), suffix).toBe(false);
+            }
+        }
+
+        // The retired constant is no longer exported at all, so the type
+        // checker fails on any module that references it — and no test module
+        // does. (The panel's own path builder still names the label suffix
+        // until T-031 re-points it in Wave 3; that is a `src/` concern, not a
+        // route, handler, or service test of this build.)
+        const retiredReference = /import[^;]*ACCOUNT_DISPLAY_NAME_PATH/;
+        const retiredReferences = testModuleTexts().filter((text) => retiredReference.test(text));
+        expect(retiredReferences).toEqual([]);
+    });
+});
+
+describe('account.prompt-updated — one row per tier change, never the text (004 FR-088)', () => {
+    it('records set → change → clear as three chained rows with no text', async () => {
+        const service = await startService({ user: USER_OK });
+        await verifyOk(service);
+
+        expect(await putStatus(service, JSON.stringify({ startingPrompt: PROMPT }))).toBe(200);
+        expect(await putStatus(service, JSON.stringify({ startingPrompt: NEXT_PROMPT }))).toBe(200);
+        expect(await putStatus(service, JSON.stringify({ startingPrompt: null }))).toBe(200);
+
+        const rows = await accountPromptRows(service);
+        expect(rows).toHaveLength(3);
+        expect(rows.map((row) => row.decision)).toEqual(['set', 'changed', 'cleared']);
+        expect(rows.map((row) => row.actorSource)).toEqual(['operator', 'operator', 'operator']);
+        expect(rows.map((row) => row.entity)).toEqual([
+            { kind: 'account', id: String(ACCOUNT_ID) },
+            { kind: 'account', id: String(ACCOUNT_ID) },
+            { kind: 'account', id: String(ACCOUNT_ID) },
+        ]);
+        expect(rows.map((row) => row.details.previousFingerprint)).toEqual([
+            null,
+            promptFingerprint(PROMPT),
+            promptFingerprint(NEXT_PROMPT),
+        ]);
+        expect(rows.map((row) => row.details.promptFingerprint)).toEqual([
+            promptFingerprint(PROMPT),
+            promptFingerprint(NEXT_PROMPT),
+            null,
+        ]);
+        expect(rows.map((row) => row.details.promptPresent)).toEqual([true, true, false]);
+        expect(rows.map((row) => row.details.promptLength)).toEqual([
+            [...PROMPT].length,
+            [...NEXT_PROMPT].length,
+            0,
+        ]);
+
+        for (const row of rows) {
+            // Exactly the four scalars the contract fixes, nothing else.
+            expect(Object.keys(row.details).sort()).toEqual([
+                'previousFingerprint',
+                'promptFingerprint',
+                'promptLength',
+                'promptPresent',
+            ]);
+            expect(row.reason).toBeNull();
+            expect(row.correlationId).not.toMatch(/^mt-run-/);
+        }
+
+        const serialized = JSON.stringify(rows);
+        expect(serialized).not.toContain(PROMPT);
+        expect(serialized).not.toContain(NEXT_PROMPT);
+        expect(serialized).not.toContain(PROMPT_HEAD);
+    });
+
+    it('writes nothing for a label-only write or for a refusal (+1 cases)', async () => {
+        // case: a displayName-only write appends no row — a label is not a tier
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+            expect(await putStatus(service, JSON.stringify({ startingPrompt: PROMPT }))).toBe(200);
+            expect(await accountPromptRows(service)).toHaveLength(1);
+
+            expect(await putStatus(service, JSON.stringify({ displayName: 'Release rotation' }))).toBe(200);
+            expect(await accountPromptRows(service)).toHaveLength(1);
+
+            expect(await putStatus(service, JSON.stringify({ displayName: null }))).toBe(200);
+            expect(await accountPromptRows(service)).toHaveLength(1);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: a refused write leaves both stored members byte-identical and writes no row
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+            expect(await putStatus(service, JSON.stringify({
+                displayName: KEPT_LABEL,
+                startingPrompt: PROMPT,
+            }))).toBe(200);
+            const file = accountFileOf(service);
+            const before = await readFile(file, 'utf8');
+            const rowsBefore = await accountPromptRows(service);
+
+            const refused = await putProfile(service, JSON.stringify({ startingPrompt: 'q'.repeat(2_001) }));
+            expect(refused.status).toBe(422);
+            const issue = await issueOf(refused);
+            expect(issue.field).toBe(PROMPT_FIELD);
+
+            expect(await readFile(file, 'utf8')).toBe(before);
+            expect(await accountPromptRows(service)).toHaveLength(rowsBefore.length);
+        }
+    });
+
+    it('observes a hand edit exactly once as service, and nothing on restart (+1 cases)', async () => {
+        // case: a hand-edited account file is observed once with actor `service`
+        {
+            const service = await startService({ user: USER_OK });
+            await verifyOk(service);
+            const file = accountFileOf(service);
+            const stored = await readStoredAccount(service.dataDir);
+            await writeFile(file, JSON.stringify({ ...stored, [PROMPT_FIELD]: PROMPT }), 'utf8');
+
+            const first = await service.call(ACCOUNTS_PATH);
+            expect(first.status).toBe(200);
+
+            let rows = await accountPromptRows(service);
+            expect(rows).toHaveLength(1);
+            expect(rows[0]?.actorSource).toBe('service');
+            expect(rows[0]?.decision).toBe('set');
+            expect(rows[0]?.details.promptFingerprint).toBe(promptFingerprint(PROMPT));
+            expect(JSON.stringify(rows)).not.toContain(PROMPT_HEAD);
+
+            // Re-observing the same file appends nothing: the baseline moved.
+            const second = await service.call(ACCOUNTS_PATH);
+            expect(second.status).toBe(200);
+            rows = await accountPromptRows(service);
+            expect(rows).toHaveLength(1);
+            expect(service.logLines.join('\n')).not.toContain(PROMPT_HEAD);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: a restart over unchanged files writes zero rows
+        {
+            const dataDir = await sharedDataDir();
+            const first = await startService({ user: USER_OK }, dataDir);
+            await verifyOk(first);
+            expect(await putStatus(first, JSON.stringify({ startingPrompt: PROMPT }))).toBe(200);
+            expect(await accountPromptRows(first)).toHaveLength(1);
+            await first.shutdown();
+
+            const second = await startService({ user: USER_OK }, dataDir);
+            await second.handle.reconciled;
+            // Startup reconciliation already listed the custody, and this read
+            // lists it again: the trail seeds the baseline, so neither sees a
+            // difference the store does not carry.
+            const listed = await second.call(ACCOUNTS_PATH);
+            expect(listed.status).toBe(200);
+            expect(await accountPromptRows(second)).toHaveLength(1);
+            expect(await readFile(join(dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`), 'utf8')).toContain(PROMPT);
+        }
+    });
+
+    it('removes record and tier together and re-adds the account unset (AC-149)', async () => {
+        const service = await startService({ user: USER_OK });
+        await verifyOk(service);
+        expect(await putStatus(service, JSON.stringify({ startingPrompt: PROMPT }))).toBe(200);
+        expect(await accountPromptRows(service)).toHaveLength(1);
+
+        const binding = { bindingId: 'bind-1', accountNumericUserId: String(ACCOUNT_ID), state: 'active' };
+        await writeFile(join(service.dataDir, BINDINGS_FILE), JSON.stringify([binding]), 'utf8');
+        const path = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+
+        const forced = await service.call(`${path}?force=1`, { method: 'DELETE' });
+        expect(forced.status).toBe(200);
+        // The record is the tier's only home: it is gone with the record.
+        await expect(stat(accountFileOf(service))).rejects.toThrow();
+
+        const storedBindings = JSON.parse(
+            await readFile(join(service.dataDir, BINDINGS_FILE), 'utf8')
+        ) as { state: string }[];
+        expect(storedBindings).toEqual([{ ...binding, state: 'disabled' }]);
+        const audit = await readFile(join(service.dataDir, AUDIT_FILE), 'utf8');
+        expect(audit).toContain(ACCOUNT_DELETED_EVENT);
+        expect(await accountPromptRows(service)).toHaveLength(1);
+
+        // A re-added account — the same numeric id — reads unset: no seeding,
+        // and the deletion wrote no `cleared` row of its own (FR-071, FR-082).
+        const readded = await registerAccount(service);
+        expect(readded.status).toBe(201);
+        const listed = await service.call(ACCOUNTS_PATH);
+        const body = (await listed.json()) as { readonly accounts: readonly AccountDto[] };
+
+        expect(body.accounts).toHaveLength(1);
+        expect(body.accounts[0]?.numericUserId).toBe(String(ACCOUNT_ID));
+        expect(body.accounts[0]?.startingPrompt).toBeNull();
+        expect(await accountPromptRows(service)).toHaveLength(1);
     });
 });

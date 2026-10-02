@@ -16,24 +16,33 @@
  * 3. **The list request carries the configured page size** — `per_page` is
  *    the configured `perPage`, never above the field's own maximum of 30, and
  *    `MAX_LIST_PAGES` still bounds one scan at two pages (AC-150; 002 FR-020).
+ * 4. **The cycle observes the global prompt tier** — a `startingPrompt` edited
+ *    in `config.json` between two cycles writes exactly one `config.changed`
+ *    row with actor `service` and a fingerprinted pair, the arrival fill
+ *    writes none, a restart with the file unchanged writes none, and an
+ *    append that cannot reach disk warns without costing the cycle anything
+ *    (004 FR-088; 006 FR-070, FR-071).
  *
  * Everything runs on temp directories, fixture records, and a fake fetch: no
  * clock of our own, no network, no credential (FR-086).
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeAccount } from '../service/accounts/store.ts';
+import { AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
 import { writeBindings } from '../service/bindings.ts';
 import { CONFIG_FILE, DEFAULT_CONFIG, NUMERIC_BOUNDS } from '../service/config.ts';
+import { isRecord } from '../service/json.ts';
 import { createLogger } from '../service/log.ts';
 import { runScanCycle } from '../service/poll/loop.ts';
 import { createGitHubIssuePoller } from '../service/poll/poller-github.ts';
 import { SCAN_STATE_FILE, readScanState } from '../service/poll/scan.ts';
 import { openStore } from '../service/store/index.ts';
 import type { Account } from '../service/accounts/model.ts';
+import type { AuditEntry } from '../service/audit.ts';
 import type { BindingRecord } from '../service/bindings.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller, ListPace, PollIssue } from '../service/poll/poller-github.ts';
@@ -150,6 +159,7 @@ function fixtureAccount(): Account {
         login: ACCOUNT_LOGIN,
         expectedLogin: null,
         displayName: null,
+        startingPrompt: null,
         credential: { token: FIXTURE_TOKEN, kind: 'classic', verifiedAt: CREATED_AT },
         scopeCheck: { checkedAt: CREATED_AT, results: scopeResults('ok') },
         state: 'active',
@@ -491,5 +501,175 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
             expect(requested).toHaveLength(1);
             expect(requested[0]?.searchParams.get('per_page')).toBe('30');
         }
+    });
+});
+
+/** The vocabulary name 002 reserved for a configuration change (006 FR-070). */
+const CONFIG_CHANGED_EVENT = 'config.changed';
+
+/** The global tier's member, whose observation this suite drives (004 FR-081). */
+const PROMPT_FIELD = 'startingPrompt';
+
+/** The global tier's text this suite plants; a scan must never find it on disk. */
+const TIER_SENTINEL = 'Rotate the deploy keys every quarter, from the vault only.';
+
+/** The only shape a `startingPrompt` `from`/`to` may take in a row (004 FR-088). */
+const FINGERPRINT_PAIR = /^(mtp-[0-9a-f]{32}|null)$/;
+
+/** The shape of a *set* tier's side of the pair. */
+const FINGERPRINT = /^mtp-[0-9a-f]{32}$/;
+
+/** One `{ field, from, to }` triple as a row carries it (006 FR-071). */
+interface ChangeTriple {
+    /** Documented field that moved. */
+    readonly field: string;
+    /** What the row says was in force before. */
+    readonly from: unknown;
+    /** What the row says was put in force. */
+    readonly to: unknown;
+}
+
+/**
+ * Narrow one `changes` entry to the triple's three members.
+ *
+ * @param value - One entry as `unknown`, straight off the parsed row.
+ * @returns `true` only for a complete triple.
+ */
+function isChangeTriple(value: unknown): value is ChangeTriple {
+    return isRecord(value) && typeof value.field === 'string' && 'from' in value && 'to' in value;
+}
+
+/**
+ * The `config.changed` rows of one trail read, oldest first.
+ *
+ * @param trail - Every row the trail held.
+ * @returns The configuration rows alone.
+ */
+function configRows(trail: readonly AuditEntry[]): readonly AuditEntry[] {
+    return trail.filter((entry) => entry.eventType === CONFIG_CHANGED_EVENT);
+}
+
+/**
+ * Read a row's `changes` as triples, without casting anything through `any`.
+ *
+ * @param row - One stored row, or `undefined`.
+ * @returns Every entry that already has the triple's three members.
+ */
+function changesOf(row: AuditEntry | undefined): readonly ChangeTriple[] {
+    const changes = row?.details.changes;
+
+    return Array.isArray(changes) ? changes.filter(isChangeTriple) : [];
+}
+
+/**
+ * The `audit.ndjson` bytes as they sit on disk — the sentinel scan this
+ * property is judged by runs against the **file**, never an in-memory object
+ * (004 AC-151).
+ *
+ * @returns The whole trail, raw text.
+ */
+async function rawTrail(): Promise<string> {
+    return await readFile(join(dataDir, AUDIT_FILE), 'utf8');
+}
+
+describe('the cycle observes the global tier (004 FR-088, 006 FR-070, plan N7)', () => {
+    it('writes exactly one service row for a hand edit, and none when the file is read again', async () => {
+        await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, startingPrompt: TIER_SENTINEL });
+        const { log } = capturingLogger();
+        const { poller } = recordingPoller([]);
+
+        const cycle = await runScanCycle({ store, log, poller });
+
+        expect(cycle.bindings).toEqual([]);
+        const rows = configRows(await readAuditEntries(store));
+        expect(rows).toHaveLength(1);
+        const [row] = rows;
+        expect(row?.eventType).toBe(CONFIG_CHANGED_EVENT);
+        expect(row?.actorSource).toBe('service');
+        expect(row?.decision).toBe('applied');
+        expect(row?.entity).toEqual({ kind: 'service', id: 'configuration' });
+        const [change] = changesOf(row).filter((entry) => entry.field === PROMPT_FIELD);
+        expect(change?.from).toBeNull();
+        expect(String(change?.from)).toMatch(FINGERPRINT_PAIR);
+        expect(String(change?.to)).toMatch(FINGERPRINT);
+        expect(row?.details.takesEffect).toEqual({ startingPrompt: 'next-cycle' });
+        const raw = await rawTrail();
+        expect(raw).not.toContain(TIER_SENTINEL);
+        expect(raw).toContain(String(change?.to));
+        // The baseline moved with the row: reading the same file again owes
+        // nothing, so "exactly one row per change" holds for the second read.
+        await runScanCycle({ store, log, poller });
+        expect(configRows(await readAuditEntries(store))).toHaveLength(1);
+    });
+
+    it('writes none for the arrival fill: an absent member and the blank both read as unset', async () => {
+        // (a) A document predating the member — exactly what an upgrade
+        // installs — so the read fills it from the default and owes no row.
+        const withoutMember = JSON.stringify(
+            Object.fromEntries(Object.entries(DEFAULT_CONFIG).filter(([field]) => field !== PROMPT_FIELD)),
+        );
+        await writeFile(join(dataDir, CONFIG_FILE), withoutMember, 'utf8');
+        const { log } = capturingLogger();
+        const { poller } = recordingPoller([]);
+
+        await runScanCycle({ store, log, poller });
+
+        expect(configRows(await readAuditEntries(store))).toEqual([]);
+        expect(await readFile(join(dataDir, CONFIG_FILE), 'utf8')).toBe(withoutMember);
+
+        // (b) The blank that fill produces: `""` ≡ `null` ≡ a fresh baseline.
+        await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, startingPrompt: '' });
+
+        await runScanCycle({ store, log, poller });
+
+        expect(configRows(await readAuditEntries(store))).toEqual([]);
+    });
+
+    it('writes none after a restart with the file unchanged: the trail re-seeds the baseline', async () => {
+        await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, startingPrompt: TIER_SENTINEL });
+        const { log } = capturingLogger();
+        const { poller } = recordingPoller([]);
+        await runScanCycle({ store, log, poller });
+        expect(configRows(await readAuditEntries(store))).toHaveLength(1);
+
+        // A restart opens a fresh handle: the chain state that recorded the
+        // change is gone, and only the trail is left to establish what has
+        // already been recorded (no new store file, 004 NFR-129's posture).
+        const restarted = await openStore({ dataDir });
+
+        await runScanCycle({ store: restarted, log, poller });
+
+        expect(configRows(await readAuditEntries(restarted))).toHaveLength(1);
+        expect(await rawTrail()).not.toContain(TIER_SENTINEL);
+    });
+
+    it('warns when the append fails and still advances the baseline', async () => {
+        await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, startingPrompt: TIER_SENTINEL });
+        const { log, lines } = capturingLogger();
+        const { poller } = recordingPoller([]);
+        const append = store.appendLine.bind(store);
+        store.appendLine = async (path: string, entry: unknown): Promise<void> => {
+            if (path === AUDIT_FILE) {
+                throw new Error('disk full');
+            }
+
+            await append(path, entry);
+        };
+
+        await runScanCycle({ store, log, poller });
+
+        expect(lines.some((line) => line.includes('configuration change could not be recorded'))).toBe(true);
+        // The warn names the loss, never what the tier says (004 FR-053).
+        expect(lines.some((line) => line.includes(TIER_SENTINEL))).toBe(false);
+        expect(configRows(await readAuditEntries(store))).toEqual([]);
+
+        // The baseline moved anyway, so the cycle does not retry the lost row
+        // on every later read — which is what this second pass proves: with a
+        // stale baseline it would seed `null` from the empty trail, differ
+        // from the file, and append the row this pass would then succeed at.
+        store.appendLine = append;
+        await runScanCycle({ store, log, poller });
+
+        expect(configRows(await readAuditEntries(store))).toEqual([]);
     });
 });
