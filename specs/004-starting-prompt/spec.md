@@ -6,11 +6,11 @@
 
 **Created**: 2026-09-28
 
-**Last Updated**: 2026-09-28
+**Last Updated**: 2026-10-01 (amended to v1.2.0 — acceptance-evidence consolidation for change efficiency; no functional requirement, security rule, or AGENTS.md invariant changed)
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 
-**Status**: Approved (v1.0.0) — 2026-09-28. Specification content approved by the product owner on 2026-09-28; the three questions in `## Resolved Gate Questions` are confirmed against the defaults already encoded, recorded in `## Clarifications` rows 18–20, and the fourth (omission-preserves on a whole-file write) is confirmed as a technical default at row 21. Approval changed no requirement text, so the version stayed 1.0.0. Amended to v1.1.0 on 2026-09-28 by feature 005, which places this feature's field on the panel's Bindings tab and records the single-rendering rule that keeps it from appearing twice; it supersedes nothing in this document and changes no requirement text. See `## Amendment History`. Cleared for `/speckit.plan` (Phase 4). The normative body below is unchanged from the version submitted at the gate.
+**Status**: Amended to v1.2.0 on 2026-10-01 — acceptance evidence consolidated for change efficiency by product-owner order; FRs, security rules, and AGENTS.md invariants untouched (see `## Amendment History`). Approved (v1.0.0) — 2026-09-28. Specification content approved by the product owner on 2026-09-28; the three questions in `## Resolved Gate Questions` are confirmed against the defaults already encoded, recorded in `## Clarifications` rows 18–20, and the fourth (omission-preserves on a whole-file write) is confirmed as a technical default at row 21. Approval changed no requirement text, so the version stayed 1.0.0. Amended to v1.1.0 on 2026-09-28 by feature 005, which places this feature's field on the panel's Bindings tab and records the single-rendering rule that keeps it from appearing twice; it supersedes nothing in this document and changes no requirement text. See `## Amendment History`. Cleared for `/speckit.plan` (Phase 4). The normative body below is unchanged from the version submitted at the gate.
 
 **Dependencies**: Feature 002 `002-agent-event-extension` (v1.2.0 → **amended to v1.3.0 by this specification** → **v1.4.0 by 005**) and feature 003 `003-dispatch-integrity` (v1.0.0 → **amended to v1.1.0 by this specification** → **v1.2.0 by 005**). Credentials, custody, the binding model, the trigger set, polling, the dispatch mechanism, the agent pin, the run/delivery model, the dispatch-lifecycle audit vocabulary, the read-only-to-GitHub posture, and the dispatch state model all carry forward unchanged. This specification **extends** 002's dispatch payload and 003's audit row and run projection; it supersedes nothing. It is a **prerequisite of 005** (panel IA), which renders this field exactly once and specifies that rule as 005 FR-051. **Extended by** `005-panel-ia` v1.0.0 (see `## Amendment History`), which supersedes nothing here. 005 depends on this specification, not the reverse; this specification remains independent of 006 (settings CRUD).
 
@@ -18,6 +18,9 @@
 
 **Constitution**: `.specify/memory/constitution.md` v1.3.0 — Approved 2026-09-27 by product owner. Governing principles: **II (safe autonomy by default)** and **IV (human-visible auditability)**, with **VI (specification and verification before implementation)** supplying the testable-requirement discipline and **VII (thin orchestration boundary)** the constraint that the host keeps ownership of everything this feature touches.
 
+> 📝 **Amended 2026-10-01 (v1.2.0) — acceptance evidence consolidated for change efficiency.**
+> The test/acceptance-evidence layer was relaxed by product-owner order; the normative body below (FRs, NFRs, security rules) is unchanged. See `## Amendment History`.
+>
 ## Problem Statement
 
 A dispatch today begins with the machine's own words. The agent is handed a frame the extension composed — a correlation id, a repository, an issue number, a title, a URL, the machine account, a rule line, and a block of delimited untrusted issue text — and nothing else. That frame is a faithful description of *where the work came from*. It says nothing about *what the operator wants done with it*.
@@ -543,4 +546,31 @@ Amendments to this specification follow the same procedure and shape as the proj
 - **Downstream effect on the contract set**: no contract under `specs/002-agent-event-extension/contracts/` is superseded or versioned by this amendment. The binding record and the dispatch-list read change shape in Phase 4's contract work for 004's and 005's own reasons; nothing in this amendment adds a field to either.
 - **Approval status**: submitted for product-owner approval with feature 005 at the phase gate, 2026-09-28. The product owner approved **v1.0.0** on 2026-09-28; this v1.1.0 delta was written the same day and requires no re-approval of v1.0.0's content, which is byte-identical to what was approved. One of 005's four gate questions — whether the spike-era diagnostics survive as a read-only section in About — could in principle surface prompt-adjacent information there; the default recorded in 005 (`## Clarifications` row 22) is a read-only view that includes the evidence schema version and the ledger and **does not include prompt text or fingerprints**, which keeps this amendment's single-rendering rule intact whichever way the owner answers.
 
-**Version**: 1.1.0 | **Approved at**: 1.0.0 | **Last Amended**: 2026-09-28
+
+### v1.2.0 — 2026-10-01 (acceptance-evidence amendment; test strictness traded for change efficiency)
+
+- **Rationale**: the product owner's order, given verbatim on 2026-10-01: *"I'm ok relaxing the specs and ac to get the tests down. I'm worried about run efficiency but also change efficiency. With so many tests, will it be huge efforts to make small changes. This is a new product so there will need to be lots of fast pivots."* The review that opened the pass put the same worry the other way round: *"1600 tests feels like a lot of overlap for such a small project … get rid of at least half … especially the long running ones."* Change efficiency is the stated priority: exact-string pins on rendered copy, DOM shape tallies, whole-tree file-list scans, and one-`it`-per-scenario granularity each turn a small edit into a large proving exercise.
+
+- **Sequencing decision**: this is an **acceptance-evidence amendment only**. It relaxes *how the product is proven*, never *what the product must do*. No functional requirement, no NFR, no security rule, and no AGENTS.md invariant is weakened, deleted, or reworded; the normative body of this document is byte-identical before and after this entry. Superseded wording is quoted below rather than erased, as this document's amendment procedure requires.
+
+- **Superseded wording (quoted, now relaxed)**:
+
+  | Superseded mandate | What replaces it |
+  | --- | --- |
+  | every operator-facing string is asserted *exactly as written* in its own test | one representative proof per behaviour carries the guarantee; a wording pivot is allowed to cost **zero** test edits |
+  | every acceptance criterion and task owns a discrete `it()` | cases are consolidated into table-driven proofs with a `// case:` label per case, so the count falls without a case being dropped |
+  | the suite documents today's DOM shape — element counts, heading tallies, block shapes, alignment | the invariants stay (exactly one active body; a hidden element is not painted; headings exist for a11y; no HTML sink; the strip contract holds); the shape documentation goes |
+  | whole-tree scans exist to record today's file list | overlapping scans merged; the vocabulary, module-map, docs-negative, bundle-shape, containment, and config-authority guards all remain as scans |
+
+- **What the suite looks like after this amendment**: **1441 tests → 532**, across the same 101 test files, in two moves recorded as their own commits: 16 copy-only tests and 251 single-line prose assertions removed (`test: drop UI copy pins that only document today's wording`), then 886 scenario `it()`s folded into table-driven proofs that re-run their own `beforeEach`/`afterEach` by name (`test: fold 1421 tests into 532 table-driven proofs`). **The three security-floor proof files — `crash-permutations`, `dispatch-end-to-end`, `redaction` — were excluded from both passes and are untouched.**
+
+- **Security and invariant floor, explicitly retained**: secret and credential scans over bundles, audit rows, logs, ledger, and panel storage; the redaction proofs including the positive `[redacted:…]` format; store permissions `0700`/`0600`; bearer auth ordered before route and before consent; loopback-only binding; no GitHub-write call; no HTML sink; one session per run, proven by `dispatch-end-to-end` and by the crash permutations; fail-closed parsers refusing malformed input; zero suppressions, zero `any`, no `.skip`/`.only`.
+
+- **Requirements explicitly unchanged by this amendment**: every FR and NFR in this document, in full and verbatim — in this feature, the starting-prompt domain, its four refusals, the `mtp-` fingerprint, and the run snapshot; every security rule; every AGENTS.md invariant (committed bundles, the one-document-two-roles manifest, `sessions`+`prompt` only, kebab-case identity, the pinned SDK, fail closed, secrets never leaving the store). What moved is the **evidence layer**: the AC and SC test mandates. `ac-status.md` carries the consolidated mappings instead of the superseded per-string citations, and `tasks.md` is annotated where a task named a specific `it()`.
+
+- **Migration impact**: none. No stored field, no wire member, no audit row, no contract, and no fixture changes shape; nothing in `specs/002-agent-event-extension/contracts/` is versioned by this entry. Two demonstration pivots were run against the suite to price a change: rewording one Status line cost **1 failing test before, 0 after**; renaming one DOM wrapper cost **2 before, 1 after**.
+
+- **Approval status**: recorded by product-owner order of 2026-10-01. The owner explicitly authorised relaxing the specs and the acceptance criteria for change efficiency. Functional requirements, security rules, and AGENTS.md invariants were not inside that authorisation and were not touched.
+
+
+**Version**: 1.2.0 | **Approved at**: 1.0.0 | **Last Amended**: 2026-10-01

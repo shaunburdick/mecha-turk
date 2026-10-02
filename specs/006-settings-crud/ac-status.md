@@ -73,3 +73,20 @@ Traceability sweep run for this record: all **79** `FR-…` and all **55** `AC-�
 ## Criteria this feature does **not** claim
 
 None of 006's `AC-101`–`AC-155` is deferred. The out-of-scope guard in [tasks.md](./tasks.md) is unchanged and was checked at every wave: no GitHub write, no new tab, no run-state or prompt change, no `PATCH`/per-field endpoint/revision precondition, no `requeueBudget`, no capability, storage key, `SERVICE_VERSION`, or `version` change, no status-projection change, and no configuration in `host.storage`.
+
+
+## Amendment note — 2026-10-01 (acceptance evidence consolidated; spec v1.4.0)
+
+The mappings above are the record of *what proved what* when this feature was
+accepted. The suite behind them was consolidated on 2026-10-01 by product-owner
+order for change efficiency: **1441 tests → 532**, across the same 101 files.
+
+Nothing above stops being true — every criterion still has a proof — but a
+criterion may now be discharged by a **representative or table-driven case**
+rather than by a dedicated `it()`, and exact-wording pins were dropped where
+the wording is not itself a requirement. Where a row cites a per-string
+assertion, read it as citing the *behaviour* the string carried.
+
+**Functional requirements, security rules, and AGENTS.md's invariants are
+untouched.** The three security-floor proof files (`crash-permutations`,
+`dispatch-end-to-end`, `redaction`) were excluded from the consolidation.

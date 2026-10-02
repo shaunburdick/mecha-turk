@@ -121,3 +121,13 @@ Wave 4 (T-013 ∥ T-014 ∥ T-015 → T-016 final verify)
 ## Test expectations summary (each task's own gate)
 
 Fail-first where behaviour changes (validator refusals, preservation, composition, projection), golden literals for anything byte-identical, offline only (fake host / loopback service + temp dirs), **no `sleep`-based timing** (inject stamps; the observation chain is deterministic, so the race test schedules chain tasks instead of waiting on a clock), a seeded sentinel value scanned for in every persisted and rendered surface, and zero suppressions — a red lint or a red test is fixed, never muted.
+
+
+> **2026-10-01 — test consolidation note (spec amended for change efficiency).**
+> Every named test file still exists: **no file was renamed or deleted**, so the
+> paths in this document remain valid. What changed is granularity — the suite
+> went **1441 → 532 tests** by dropping copy-only pins and folding scenario
+> `it()`s into table-driven proofs. A task that names a specific `it()` should
+> be read as naming the *case* inside its merged proof; the `// case:` comment
+> in the file locates it. `crash-permutations.test.ts`,
+> `dispatch-end-to-end.test.ts`, and `redaction.test.ts` are untouched.

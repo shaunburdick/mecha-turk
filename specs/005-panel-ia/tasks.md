@@ -363,3 +363,13 @@ FR numbers are quoted exactly as written in `spec.md` v1.3.0; cross-spec require
 ## Test expectations summary (per task's own gate)
 
 Fail-first where behaviour changes (status literals, the paging/filter answer, `canRetry` → the affordance table, the prompt's exactly-once count, the settings cross-check), golden literals for anything that must stay byte-identical (consent text, migration projection, `SERVICE_VERSION`, manifest identity), offline only (fake host / loopback service on temp dirs / DOM helpers), **no `sleep`-based timing** (drive the poll view and the page state with injected stamps; the relay test instruments the fake host's call log rather than waiting on a clock), a planted sentinel scanned for in every refusal path, and **zero suppressions** — a red lint or a red test is fixed, never muted.
+
+
+> **2026-10-01 — test consolidation note (spec amended for change efficiency).**
+> Every named test file still exists: **no file was renamed or deleted**, so the
+> paths in this document remain valid. What changed is granularity — the suite
+> went **1441 → 532 tests** by dropping copy-only pins and folding scenario
+> `it()`s into table-driven proofs. A task that names a specific `it()` should
+> be read as naming the *case* inside its merged proof; the `// case:` comment
+> in the file locates it. `crash-permutations.test.ts`,
+> `dispatch-end-to-end.test.ts`, and `redaction.test.ts` are untouched.

@@ -170,3 +170,13 @@ Wave 5 (T-019, T-020, T-023 ‖ after W3's wire is stable; T-021 → T-022)  │
 ## Test expectations summary (per task's own gate)
 
 Every task names its files and its suite above; the standing rules: tests are written to **fail first** against current behaviour where behaviour changes (claim, result, handled list, states), offline only (fake host / loopback service + temp dirs), no `sleep`-based timing (inject stamps; the sweep exposes `sweepOnce` precisely so tests never wait on a clock), and zero suppressions — a red lint or a red test is fixed, never muted.
+
+
+> **2026-10-01 — test consolidation note (spec amended for change efficiency).**
+> Every named test file still exists: **no file was renamed or deleted**, so the
+> paths in this document remain valid. What changed is granularity — the suite
+> went **1441 → 532 tests** by dropping copy-only pins and folding scenario
+> `it()`s into table-driven proofs. A task that names a specific `it()` should
+> be read as naming the *case* inside its merged proof; the `// case:` comment
+> in the file locates it. `crash-permutations.test.ts`,
+> `dispatch-end-to-end.test.ts`, and `redaction.test.ts` are untouched.

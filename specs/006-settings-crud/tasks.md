@@ -311,3 +311,13 @@ Wave 11 (T-027 ──► T-028 ∥ T-029 ──► T-030)
 ## Out-of-scope guard (restated — check at every wave)
 
 No GitHub write. No new tab/drawer/second surface. No shell, mount, or teardown change. No run state, lease, token, transition, or dispatch-lifecycle row. No prompt work. No `PATCH`, no partial document, no revision precondition. No `MAX_LIST_PAGES`/`MAX_DISPATCHED_EVENTS`/`poll.duplicate` change. No correlation-indexed read API, no restore/export. No `requeueBudget`. No status-projection change. No capability, permission, host API, SDK re-pin, storage key, `SERVICE_VERSION`, or `version` bump. No configuration in `host.storage`.
+
+
+> **2026-10-01 — test consolidation note (spec amended for change efficiency).**
+> Every named test file still exists: **no file was renamed or deleted**, so the
+> paths in this document remain valid. What changed is granularity — the suite
+> went **1441 → 532 tests** by dropping copy-only pins and folding scenario
+> `it()`s into table-driven proofs. A task that names a specific `it()` should
+> be read as naming the *case* inside its merged proof; the `// case:` comment
+> in the file locates it. `crash-permutations.test.ts`,
+> `dispatch-end-to-end.test.ts`, and `redaction.test.ts` are untouched.
