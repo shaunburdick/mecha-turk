@@ -26,8 +26,10 @@ import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
  *    carry neither retired noun *as a noun*, with **no exempt source at all**
  *    — the short mapping list the About tab used to render was removed with
  *    the rest of that page by the 2026-10-01 product-owner scrub (005
- *    v1.6.0), so every string the six tabs hand the SDK is scanned — and test
- *    names follow their subject's layer (FR-028).
+ *    v1.6.0), and the readme's own mapping table went the same day under the
+ *    same owner's ruling (a user-oriented readme carries no rename history),
+ *    so every string the six tabs hand the SDK is scanned and `README.md` is
+ *    read whole — and test names follow their subject's layer (FR-028).
  *
  * The L1 scan reads what the tabs actually handed the SDK, recursively, so a
  * tab label or a list row title counts as much as a headline does.
@@ -514,31 +516,6 @@ async function renderedSixTabs(): Promise<readonly string[]> {
     return strings;
 }
 
-/**
- * Remove a document's vocabulary section, the one place the retired words
- * are supposed to appear (FR-029).
- *
- * @param text - The document to strip.
- * @returns The document without any `## …Vocabulary…` section.
- */
-function withoutMappingSection(text: string): string {
-    const lines = text.split('\n');
-    const kept: string[] = [];
-    let skipping = false;
-
-    for (const line of lines) {
-        if (line.startsWith('## ')) {
-            skipping = /vocabulary/i.test(line);
-        }
-
-        if (!skipping) {
-            kept.push(line);
-        }
-    }
-
-    return kept.join('\n');
-}
-
 describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', () => {
     it('mounts all six tabs, so the scan is not vacuous (+4 cases)', async () => {
         // case: mounts all six tabs, so the scan is not vacuous
@@ -577,9 +554,12 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'Run OpenChamber on web')).toEqual([]);
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'runs.json runKey mt-run-1')).toEqual([]);
         }
-        // case: README.md names neither retired noun outside its mapping (AC-140)
+        // case: README.md names neither retired noun anywhere in it (AC-140)
         {
-            const text = withoutMappingSection(readFileSync(resolve(ROOT, 'README.md'), 'utf8'));
+            // Read whole: the mapping table that used to be the one exempt
+            // section left the readme with the product owner's 2026-10-01
+            // ruling, so there is nothing left to strip before scanning.
+            const text = readFileSync(resolve(ROOT, 'README.md'), 'utf8');
 
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], text)).toEqual([]);
             // Not vacuous: the imperative use of the word still reads as English.

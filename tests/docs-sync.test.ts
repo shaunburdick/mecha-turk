@@ -18,8 +18,12 @@
  * The negative half of AC-022 is here too: neither document may instruct an
  * operator to configure anything through `MECHA_TURK_*` or a `.env` file, may
  * present a dead `specs/001-agent-event-orchestrator/` path, or may name a
- * retired tab — with one sanctioned exception, the vocabulary mapping table,
- * which exists precisely to carry the retired words as history.
+ * retired tab — **with no exemption at all**. The vocabulary mapping table
+ * that used to carry the retired words as history left `README.md` with the
+ * product owner's 2026-10-01 ruling (a user-oriented readme for an unreleased
+ * product carries no developer rename history), so the mapping now lives
+ * where it is normative — 005's own `## Vocabulary Mapping` — and these two
+ * documents are scanned whole.
  *
  * Everything here reads the local tree only (FR-086).
  */
@@ -40,8 +44,21 @@ const PAGES: readonly string[] = [README, 'specs/002-agent-event-extension/quick
 /** The six tabs FR-010 ships, which both documents must name. */
 const TABS: readonly string[] = ['Status', 'Dispatches', 'Bindings', 'Accounts', 'Settings', 'About'];
 
-/** The heading the full mapping table lives under (005 FR-029). */
-const VOCAB_HEADING = '## Vocabulary mapping';
+/**
+ * The heading the README's vocabulary-mapping table used to live under
+ * (005 FR-029), which the product owner removed from the readme on
+ * 2026-10-01. Kept as the name of the thing that must **not** come back, so
+ * the negative guard below fails loudly rather than silently if it does.
+ */
+const MAPPING_HEADING = '## Vocabulary mapping';
+
+/** The two mapping rows the readme carried, which are spec-only now. */
+const MAPPING_ROWS: readonly string[] = [
+    '| Runs (panel section) | **Dispatches** | L1 |',
+    '| Repositories (panel tab) | **Bindings** | L1 |',
+    '| `run` (entity, key, ordinal) | `run` | L4 |',
+    '| `GET /v1/events` and its operations | *retained* | L3 |',
+];
 
 /**
  * Shapes a retired noun takes when it is used rather than quoted: the bold
@@ -55,30 +72,6 @@ const RETIRED: readonly RegExp[] = [
     /Repos pane/,
     /Spike tab/,
 ];
-
-/**
- * Read one document with its vocabulary section removed — the one place the
- * retired words are supposed to appear (005 FR-029).
- *
- * @param page - Repository-relative path of the document.
- * @returns The document without any `## …Vocabulary…` section.
- */
-function withoutMapping(path: string): string {
-    const kept: string[] = [];
-    let skipping = false;
-
-    for (const line of readFileSync(resolve(ROOT, path), 'utf8').split('\n')) {
-        if (line.startsWith('## ')) {
-            skipping = /vocabulary/i.test(line);
-        }
-
-        if (!skipping) {
-            kept.push(line);
-        }
-    }
-
-    return kept.join('\n');
-}
 
 /**
  * Read one document whole.
@@ -154,15 +147,21 @@ describe('002 FR-042 / AC-022 the two operator documents describe the shipped pa
                     .toContain('expected GitHub login');
             }
         }
-        // case: reproduces the vocabulary mapping table in README in full (005 FR-029)
+        // case: carries no vocabulary-mapping table — the mapping is spec-only now
         {
             const text = page(README);
 
-            expect(text).toContain(VOCAB_HEADING);
-            expect(text).toContain('| Runs (panel section) | **Dispatches** | L1 |');
-            expect(text).toContain('| Repositories (panel tab) | **Bindings** | L1 |');
-            expect(text).toContain('| `run` (entity, key, ordinal) | `run` | L4 |');
-            expect(text).toContain('| `GET /v1/events` and its operations | *retained* | L3 |');
+            // The owner's 2026-10-01 ruling, verbatim in intent: this is a
+            // user-oriented readme for an unreleased product, so the rename
+            // history goes entirely — heading, prose, and every row. What the
+            // rows used to guard positively (the tabs really are called
+            // Dispatches and Bindings) is guarded by the negative scan below,
+            // which now covers the whole document with no exempt section.
+            expect(text, 'the README still introduces a vocabulary mapping')
+                .not.toContain(MAPPING_HEADING);
+            for (const row of MAPPING_ROWS) {
+                expect(text, `the README still carries the mapping row ${row}`).not.toContain(row);
+            }
         }
     });
 });
@@ -184,21 +183,22 @@ describe('002 AC-022 the negative half: no dead instruction and no retired tab',
                     .not.toContain('specs/001-agent-event-orchestrator/');
             }
         }
-        // case: names no retired tab outside the vocabulary mapping
+        // case: names no retired tab, in either document, with no exempt section
         {
             for (const doc of PAGES) {
-                const text = withoutMapping(doc);
+                const text = page(doc);
                 for (const retired of RETIRED) {
                     expect(retired.test(text), `${doc} uses a retired noun: ${retired.source}`).toBe(false);
                 }
             }
 
             // Not vacuous: the rule really does catch the shape it exists for,
-            // and the mapping section really is the only place it is allowed.
+            // and it now reads both documents whole — the mapping section that
+            // used to be the one sanctioned exemption left the readme, so the
+            // scan no longer strips anything before it looks.
             expect(RETIRED[0]?.test('the **Spike** tab')).toBe(true);
             expect(RETIRED[1]?.test('under **Runs**')).toBe(true);
-            expect(page(README)).toContain(VOCAB_HEADING);
-            expect(withoutMapping(README)).not.toContain(VOCAB_HEADING);
+            expect(page(README)).not.toContain(MAPPING_HEADING);
         }
     });
 });

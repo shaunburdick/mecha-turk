@@ -90,35 +90,6 @@ service configuration, not a card field — verification reads it through
 `GET /v1/config` and falls back to the documented default when the document
 does not carry it.
 
-## Vocabulary mapping
-
-The product says **Dispatches** for the unit of work and **Bindings** for the
-watched-repository configuration, everywhere a human reads it. The wire paths
-and the run domain keep their own names. This is the full mapping (005
-`## Vocabulary Mapping`, normative):
-
-| Today | 005 name | Layer | Disposition |
-| --- | --- | --- | --- |
-| Runs (panel section) | **Dispatches** | L1 | Renamed — one tab, one list |
-| Repositories (panel tab) | **Bindings** | L1 | Renamed — one tab |
-| "Run" on screen | **Dispatch** | L1 | Renamed — the row is a dispatch, the domain object is a run |
-| `src/runs*.ts` | `src/dispatches*.ts` | L2 | Renamed |
-| `src/repos*.ts` | `src/bindings*.ts` | L2 | Renamed |
-| `PanelState.repos` | `PanelState.bindings` | L2 | Renamed |
-| `ReposSection` | `BindingsSection` | L2 | Renamed |
-| `RepositoriesStatus` | `BindingsStatus` | L2 | Renamed |
-| `Repositories.activeTab` | *(deleted)* | L2 | Removed — the shell's single activation field replaces it |
-| "Spike" tab | *(deleted)* | L1, L2 | Retired — not hidden, not reachable |
-| `pendingPhase` | *Diagnostics* record | L2 | Renamed and moved — read-only in About |
-| `run` (entity, key, ordinal) | `run` | L4 | Retained — the domain object is still a run |
-| `attempt` | `attempt` | L4 | Retained |
-| `run.` audit prefix | `run.` | L4 | Retained |
-| `binding.` audit prefix | `binding.` | L4 | Retained |
-| `GET /v1/events` and its operations | *retained* | L3 | Retained — the panel maps Dispatches onto them |
-| `repositories` (status member) | `repositories` | L3 | Retained — rendered as **Bindings** |
-| `GET` / `PUT /v1/bindings` | *retained* | L3 | Retained — already correctly named |
-| panel id `mecha-turk` | *retained* | L3 | Retained |
-
 ## Requirements
 
 - **OpenChamber desktop or web.** (VS Code and mobile builds do not run
