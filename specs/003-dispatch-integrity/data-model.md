@@ -173,7 +173,7 @@ Both are additive to `GET/PUT /v1/config` (contract §1: additive within v1), va
 | Delivery rows (`delivery.detected`) | **the run's** — assigned at enqueue (correlation table) | `{ kind: 'delivery', id: <delivery id> }` |
 | Non-run rows (poll, checkpoint, scan-window reset, `delivery.recovered`, `consent`, `account.*`, `binding.*`, `config.changed`) | **its own** generated id, plus `details.deliveryIds` where the row concerns deliveries (FR-052) | as shipped |
 
-### 4.2 The sixteen lifecycle event types (spec `## Audit Vocabulary`, verbatim)
+### 4.2 The seventeen lifecycle event types (spec `## Audit Vocabulary`, verbatim)
 
 | `eventType` | Actor | Written when | `decision` | required `details` |
 | --- | --- | --- | --- | --- |
@@ -191,12 +191,13 @@ Both are additive to `GET/PUT /v1/config` (contract §1: additive within v1), va
 | `dispatch.resolved` | operator | unconfirmed resolved | `dispatched` \| `no-session` | prior state, note, the guidance the operator was shown |
 | `run.blocked` | panel | guard refused the dispatch | `blocked` | blocked reason, prior state, in-panel guidance offered |
 | `run.dead_lettered` | service | budget exhausted (or parked) | `dead-lettered` | attempts consumed, reason (+ `requeuesUsed`) |
-| `agent.verified` | panel | read-back matches | `verified` | session identifier, observed agent, expected agent |
-| `agent.mismatch` | panel | mismatch / unreadable / timeout | `warn` | session identifier, observed agent or null, expected agent, note |
+| `agent.verified` | panel | read-back matches a configured baseline | `verified` | session identifier, observed agent, expected agent |
+| `agent.mismatch` | panel | a configured baseline differs, or the read-back is unreadable / times out **against one** | `warn` | session identifier, observed agent or null, expected agent, note |
+| `agent.uncompared` | panel | read-back against **no configured baseline**: observed, never compared (003 v1.7.0) | `observed` | session identifier, observed agent or null, expected agent (**empty**), baseline provenance (`defaulted` \| `unset`), note |
 
 Event types outside this list are unchanged and keep their own identifiers (FR-052). `binding.prompt-updated` (004) will sit under a non-lifecycle `binding.` prefix — the vocabulary's prefixing scheme is why 003's write path must be additive, and it is.
 
-**One addition, justified by FR-003**: the sixteen types each describe a successful transition or a dedicated outcome, so refusals need their own row — `dispatch.refused` (actor `service`, decision `refused`, details: attempted operation, refusal code, prior state, attempt/lease/token reference). It keeps the `dispatch.` prefix (readable as lifecycle at a glance), leaves the sixteen untouched (AC-115 samples those, unchanged), carries the run's correlation id like every lifecycle row (FR-062), and is specified in [contracts/dispatch-authorization.md](./contracts/dispatch-authorization.md) §9, including the scope reading that panel-side no-ops which never reach the service are ledger entries, not service rows.
+**One addition, justified by FR-003**: the seventeen types each describe a successful transition or a dedicated outcome, so refusals need their own row — `dispatch.refused` (actor `service`, decision `refused`, details: attempted operation, refusal code, prior state, attempt/lease/token reference). It keeps the `dispatch.` prefix (readable as lifecycle at a glance), leaves the seventeen untouched (AC-115 samples those, unchanged), carries the run's correlation id like every lifecycle row (FR-062), and is specified in [contracts/dispatch-authorization.md](./contracts/dispatch-authorization.md) §9, including the scope reading that panel-side no-ops which never reach the service are ledger entries, not service rows.
 
 ### 4.3 Transition → row coverage (FR-044, AC-115 — the test matrix)
 
@@ -209,7 +210,7 @@ Event types outside this list are unchanged and keep their own identifiers (FR-0
 | `starting` → `dispatched` / `failed` | `dispatch.result` | `starting` → `failed` (abandon) | `dispatch.abandoned` |
 | `starting` → `unconfirmed` | `dispatch.unconfirmed` | duplicate result | `dispatch.duplicate-report` |
 | `failed` / `blocked:*` → `pending` (retry) | `dispatch.retry` | `unconfirmed` → `dispatched` / `pending` | `dispatch.resolved` |
-| `dead-lettered` → `pending` (return) | `dispatch.retry` | verification | `agent.verified` / `agent.mismatch` |
+| `dead-lettered` → `pending` (return) | `dispatch.retry` | verification | `agent.verified` / `agent.mismatch` / `agent.uncompared` |
 
 **FR-063 posture**: rows are appended *after* the durable state change; an append failure throws to a catch that (a) logs `warn` with the run named, (b) reports `auditWritten: false` on the response so the panel surfaces a visible warning naming the run, and (c) never rolls the state back. AC-119 simulates the failure against the store double.
 

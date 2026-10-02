@@ -1,6 +1,6 @@
 # Acceptance status: 003 Dispatch Integrity & Recovery
 
-**Feature**: `specs/003-dispatch-integrity` · **Spec**: v1.5.0 · **Recorded**: 2026-09-29 (Wave 8, T-036)
+**Feature**: `specs/003-dispatch-integrity` · **Spec**: v1.7.0 · **Recorded**: 2026-09-29 (Wave 8, T-036) · **Citing lines refreshed**: 2026-10-02 (003 v1.7.0 — AC-115's vocabulary count and AC-125's read-back outcomes gained `agent.uncompared`; no AC text changed)
 
 Per-AC status for **AC-101 – AC-129**, written as the final gate's record and
 kept small enough to paste into the pull-request description. Every "met" line
@@ -23,7 +23,7 @@ verify` (no live OpenChamber instance, no real PAT, no network).
 | AC-112 | met | `tests/service-run-authorize.test.ts` (a second authorization is refused; an existing session is named) + `tests/service-run-wire.test.ts` |
 | AC-113 | met | `tests/service-run-operations.test.ts` (retry under the same run key, references and prior attempts preserved) + `tests/dispatches.test.ts` (a failure is never toned as a success) + `tests/crash-permutations.test.ts` "operator retry" |
 | AC-114 | met | `tests/service-run-authorize.test.ts` (block report) and `tests/relay-integrity.test.ts` (guard refusals post `blocked`, never a result) + `tests/project-picker.test.ts` (no project-creation call exists) |
-| AC-115 | met | `tests/audit-vocabulary.test.ts` (all sixteen vocabulary entries present with their required `details`) + `tests/service-audit-read.test.ts` (one run's chain reconstructs in order; prior state and cause on the rows that record a transition — claim/reserve/result name their hop, and the vocabulary's hop→state table supplies the pair) |
+| AC-115 | met | `tests/audit-vocabulary.test.ts` (all seventeen vocabulary entries present with their required `details`, including `agent.uncompared`'s provenance) + `tests/service-audit-read.test.ts` (one run's chain reconstructs in order; prior state and cause on the rows that record a transition — claim/reserve/result name their hop, and the vocabulary's hop→state table supplies the pair) |
 | AC-116 | met | `tests/audit-vocabulary.test.ts` (no lifecycle row carries a fresh uuid) + `tests/service-audit-read.test.ts` (every row is byte-identical to the run's correlation id) |
 | AC-117 | met | `tests/service-audit-route.test.ts` (correlation filter, pagination, entries verbatim) + `tests/service-audit-read.test.ts` (one query reconstructs the run) + `src/audit-view.ts` (the operator's surface) |
 | AC-118 | met | `tests/service-audit-route.test.ts` and `tests/service-audit-read.test.ts` — poll/consent/credential rows keep their own identifiers and never match a run's filter, while the run's own detections still do |
@@ -33,7 +33,7 @@ verify` (no live OpenChamber instance, no real PAT, no network).
 | AC-122 | met | `tests/prerequisites.test.ts` — all six prerequisites with state and remediation, the Default Agent pin reads *not checkable*, and an unmet checkable item raises a notice |
 | AC-123 | met | `tests/dispatches.test.ts` — every state renders with a label and a reason line, and the affordance table offers an action only where the service accepts one (retry / resolve / return to waiting) |
 | AC-124 | met | `tests/session.test.ts` (project, worktree option, attachment id = correlation id, bounded excerpt) + `tests/relay-integrity.test.ts` (the host is called with the run's id) |
-| AC-125 | met | `tests/agent-verify.test.ts` (matched → `agent.verified`; mismatch/unreadable → `agent.mismatch` with a warning and no state change) + `tests/service-run-operations.test.ts` + `tests/dispatch-end-to-end.test.ts` |
+| AC-125 | met | `tests/agent-verify.test.ts` (matched → `agent.verified`; mismatch/unreadable against a configured baseline → `agent.mismatch` with a warning and no state change; a blank baseline → `agent.uncompared` on the wire with its provenance) + `tests/service-run-operations.test.ts` (blank baseline writes `agent.uncompared` and never `agent.mismatch`; a real baseline that differs still writes `agent.mismatch`) + `tests/audit-vocabulary.test.ts` + `tests/dispatch-end-to-end.test.ts` |
 | AC-126 | met | `tests/service-migration.test.ts` — T-005's mapping cases and T-030's full upgrade script: every row adopted, windows byte-identical, zero quarantine files, one `run.migrated` per run, the shipped problem result rendered `failed` and retryable, dispatched rows still terminal |
 | AC-127 | met | `tests/relay-integrity.test.ts` — one dispatch's detection-to-session timeline is the shipped round trip (the claim) plus exactly one more: the reserve. Round trips are counted, per the plan's risk register; no wall-clock assertion runs in CI |
 | AC-128 | met | `tests/bundle.test.ts` — every module under `src/` and `service/` is scanned, a GitHub API reference appears only in the three read-only gateways, no gateway builds a non-GET method, and the patterns carry bite-checks; `tests/project-picker.test.ts` covers the host surface |

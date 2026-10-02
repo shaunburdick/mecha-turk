@@ -142,16 +142,27 @@ Valid **only from `claimed` with the live lease** (a guard runs after claim, bef
 
 ## 5. Verification report — `POST /v1/events/:correlationId/verification`
 
-**Post-dispatch agent read-back result** (FR-043; audit `agent.verified`/`agent.mismatch` are panel-actor rows and the audit trail is service-owned).
+**Post-dispatch agent read-back result** (FR-043; audit `agent.verified` / `agent.mismatch` / `agent.uncompared` are panel-actor rows and the audit trail is service-owned).
 
 ```jsonc
 { "correlationId": "mt-run-…", "attempt": 1, "sessionId": "ses_…",
-  "observedAgent": "project-manager" | null, "expectedAgent": "project-manager",
+  "observedAgent": "project-manager" | null, "expectedAgent": "project-manager" | "",
+  "baselineProvenance": "configured" | "defaulted" | "unset",
   "ok": true | false, "note": "agent differs from the expected baseline" | null }
 // 200 → { "state": "dispatched", "verification": { … } }   // state never changes here
 ```
 
-Valid only for a run with a recorded session whose id matches. Writes `agent.verified` (`verified`) or `agent.mismatch` (`warn`) with details `{ sessionId, observedAgent, expectedAgent, note }`, stores `run.verification` for the run-history projection, and **changes no state** — warn-only: a mismatch never blocks, kills, or gets further automated handling (FR-043, AC-125).
+Valid only for a run with a recorded session whose id matches. `baselineProvenance` is **required** and is checked against `expectedAgent`'s emptiness, fail closed: `configured` exactly when the baseline is non-blank, `defaulted` or `unset` exactly when it is empty — a body that claims otherwise (or omits the member, or names a value outside the three) is a `422` naming `baselineProvenance`, never a partially applied report (002 FR-029 case (ii); FR-051). The three words are 002's own: `configured` = a real value was read, `defaulted` = the config document could not be read, `unset` = it was read and found blank.
+
+The row written is chosen by **whether a comparison was possible**, never by whether an agent was seen:
+
+| `expectedAgent` | `ok` | Row | Decision |
+| --- | --- | --- | --- |
+| non-blank | `true` | `agent.verified` | `verified` |
+| non-blank | `false` | `agent.mismatch` | `warn` |
+| `""` — whatever `ok` says | — | `agent.uncompared` | `observed` |
+
+All three carry details `{ sessionId, observedAgent, expectedAgent, note }`; `agent.uncompared` additionally carries the required `baselineProvenance`, and its `expectedAgent` is the **empty string** — the absence itself, never a name the operator never chose. A blank baseline therefore cannot produce `agent.mismatch`, even when the read-back itself failed: with `observedAgent: null` and the `note` naming the timeout, the row still says *not compared*, because there was nothing to differ from. Every report stores `run.verification` for the run-history projection and **changes no state** — warn-only: a mismatch never blocks, kills, or gets further automated handling (FR-043, AC-125), and an uncompared read-back warns about nothing at all — it is evidence, not a verdict.
 
 ---
 
@@ -219,7 +230,7 @@ Only from `unconfirmed` (else 409 `invalid-transition`). The panel must present 
 
 ## 9. The refusal row — `dispatch.refused`
 
-**FR-003 requires an audit row for every refusal in this specification**, while `## Audit Vocabulary`'s sixteen types each describe a *successful* transition or its dedicated outcome (a refused reserve is not a `dispatch.reserved`; a refused retry is not a `dispatch.retry`). One additional type carries them, so the sixteen stay exactly as specified:
+**FR-003 requires an audit row for every refusal in this specification**, while `## Audit Vocabulary`'s seventeen types each describe a *successful* transition or its dedicated outcome (a refused reserve is not a `dispatch.reserved`; a refused retry is not a `dispatch.retry`). One additional type carries them, so the seventeen stay exactly as specified:
 
 | `eventType` | Actor | Written when | `decision` | required `details` |
 | --- | --- | --- | --- | --- |
