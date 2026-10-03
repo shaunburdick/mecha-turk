@@ -202,13 +202,134 @@ specs/002-agent-event-extension/    # this artifact set
 ```text
 specs/002-agent-event-extension/
 ├── plan.md                      # this file
-├── research.md                  # NEW research only (R1–R7), sources stamped
+├── research.md                  # NEW research only (R1–R9), sources stamped
 ├── data-model.md                # both storage tiers, states, constraints
 ├── contracts/
 │   ├── panel-service.md         # HTTP contract: endpoints, auth, limits, errors
 │   ├── token-handoff.md         # SECURITY-GATED flow (security-auditor review is T-001)
 │   ├── events-carry-forward.md  # pointer + versioning note for 001 events.md
+│   ├── binding-allow-list.md    # NEW 2026-10-03: `allowedUsers` on the bindings grant
 │   └── README.md                # index and supersession pointers
 ├── quickstart.md                # dev/build/test/install walkthrough
-└── tasks.md                     # 35 tasks, security gate first, wave-ordered
+├── pm-handoff.md                # orchestration record (superseded 2026-10-03; see the note)
+└── tasks.md                     # 35 MVP tasks (delivered) + the issue-#9 block (Wave 9)
 ```
+
+---
+
+# Amendment record — 002 v1.11.0 (2026-10-03): the per-repository actor allow-list
+
+> **This section is a dated Phase-4 record added on 2026-10-03.** Everything
+> above it is the plan of 2026-09-27 and is retained as written. Nothing above
+> this line is re-cut: the v1.11.0 amendment is **additive** (FR-043 – FR-048,
+> NFR-011, SC-008, AC-024 – AC-027) and re-cuts no existing requirement, no
+> wire path, and no stored member's shape. This record plans **002's half only**
+> — the model and the field's validation. The **gate** is
+> [`003-dispatch-integrity/plan.md`](../003-dispatch-integrity/plan.md)'s
+> (003 v1.8.0) and the **rendering** is
+> [`005-panel-ia/plan.md`](../005-panel-ia/plan.md)'s (005 v1.11.0), because
+> each of those documents already owns the surface in question and this project
+> has never let one feature re-specify another's.
+
+## A.1 Scope of 002's half
+
+| Requirement | What 002 builds | Where |
+| --- | --- | --- |
+| FR-043 | `actorLogin` + `actorAttribution` on the normalized event's base snapshot; additively versioned event contract **1.2** | `service/poll/events-write.ts`, `service/poll/events-parse.ts`, `contracts/events-carry-forward.md` |
+| FR-044 | the closed two-value attribution basis; `direct` for comment- and issue-body mentions, `subject-author` for `assignment` and `review` | `service/poll/events-write.ts` (`actorAttributionOf`), `service/poll/triggers.ts`, `service/poll/loop.ts` |
+| FR-045 | attribution is mandatory and fail-closed for **all four** kinds; `isBotAuthor` reused; the unreadable-author check beside it given a name and an export; `PollPull.authorLogin`/`authorType` added | `service/poll/triggers.ts`, `service/poll/poller-entries.ts`, `service/poll/loop.ts` |
+| FR-046 | the actor **never** enters `buildEventId` | unchanged code, pinned by a byte-identity test |
+| FR-047 | `BindingRecord.allowedUsers?: string[]` — three states, case-insensitive comparison, `[]` a refusal, validated on **every** read and write | `service/bindings.ts`, `service/routes/bindings.ts` (unchanged — see D4), `contracts/binding-allow-list.md` |
+| FR-048 | one repository per binding, retained; no plural, no wildcard | no code — enforced by the existing single `repository` field; pinned by a test |
+| NFR-011 | attribution honesty is **record shape and copy**, not just data | `actorAttribution` is a closed union the parser refuses; the panel's wording is 005's |
+
+**Not 002's**: deciding whether a run may dispatch (003 v1.8.0's `dispatch-authorize.ts`),
+rendering any of it (005 v1.11.0), and the audit vocabulary (003's).
+
+## A.2 Module map delta (002's files only)
+
+| Module | Change | Requirements |
+| --- | --- | --- |
+| `service/bindings.ts` | `BindingRecord.allowedUsers?: readonly string[]`; a fifth field reader `bindingAllowedUsersOf`; wiring in `assembleBinding` and in `parseBinding`'s collect-every-refusal second pass; exported `isActorAllowed(login, allowedUsers)` as **the one** membership comparison in the codebase | FR-047 |
+| `service/poll/poller-entries.ts` | `PollPull.authorLogin` / `PollPull.authorType`, read from the pulls-list entry's `user` exactly as `readIssueEntry` / `readCommentEntry` do | FR-045 |
+| `service/poll/triggers.ts` | `isMentionableAuthor` **exported and renamed** to `isAttributableAuthor` (one predicate, four kinds); `PollPull` gains the author gate on the review path; every event builder sets `actorLogin` + `actorAttribution` | FR-043 – FR-045 |
+| `service/poll/loop.ts` | the `assignment` event builder sets the actor from `PollIssue.authorLogin` with basis `subject-author`, and drops an unreadable or bot-authored subject | FR-044, FR-045 |
+| `service/poll/events-write.ts` | `BaseEventSnapshot` gains `actorLogin` + `actorAttribution`; `createEvent` copies them onto the row. **`buildEventId` and `discriminatorOf` untouched** | FR-043, FR-046 |
+| `service/poll/events-parse.ts` | `QueuedEvent.actorLogin?: string` and `QueuedEvent.actorAttribution?: ActorAttribution` — **absentable**, both validated when present (an unrecognized basis refuses the row) | FR-043, 002 FR-024 |
+| `service/routes/bindings.ts` | **no change** — see D4 | FR-047 |
+| `contracts/events-carry-forward.md` | title → `v1 → v1.1 → v1.2`; a `schemaVersion 1.2` table | FR-043 |
+| `contracts/binding-allow-list.md` | **new** — the field's whole wire contract, on 004's `binding-prompt.md` as template | FR-047 |
+| `contracts/panel-service.md` | §2.3 gains one additive row for the member | FR-047 |
+
+## A.3 Key decisions — actor allow-list (added 2026-10-03)
+
+> Numbered `D1…D9` inside this amendment block. They do not continue the
+> "Stack decisions and why" list above (that list is 1–6 and belongs to
+> 2026-09-27); they are this amendment's own, exactly as 003's and 005's plans
+> carry their own `D`-series.
+
+| # | Decision | Rationale | Rejected alternative |
+| --- | --- | --- | --- |
+| **D1** | **`schemaVersion 1.2` is a contract-document version, not a stored member.** `events.json` rows gain `actorLogin` + `actorAttribution`; nothing gains a `schemaVersion` field, and `SERVICE_SCHEMA_VERSION` stays `1`. | The shipped event row has **no** version member (`service/poll/events-parse.ts`), so "the normalized-event schema is versioned additively to `1.2`" is a statement about `contracts/events-carry-forward.md`, which is where every prior version bump (1 → 1.1) is recorded. Adding a stored `schemaVersion` would make every pre-existing row fail its own version check, which quarantines the whole file on upgrade — precisely the migration the product owner ruled out on 2026-10-03. 003 set the precedent for the store marker: "a format this build understands" (data-model §2.6), and an additive field is not a new format. | A stored `schemaVersion` per row (fail-closed at the store boundary on every pre-existing row — a migration by side effect); bumping `SERVICE_SCHEMA_VERSION` (would report two different values for identical stores). |
+| **D2** | **The two actor members are absentable on the stored row and validated when present.** An unrecognized `actorAttribution` refuses the row; an absent one reads as *no attribution was recorded*. | 002 FR-043 requires both "validated on write and on read like every other member" and that "no existing member changes shape". A required member would fail every pre-existing row at parse time — D1's migration-by-side-effect again. The fail-closed duty lands at the **gate** instead: 003 FR-080 refuses a run whose references carry no readable actor, so absence is never read as permission. | Requiring both members (quarantines `events.json` on upgrade); defaulting an absent basis to `direct` (invents causation 002 FR-044 forbids). |
+| **D3** | **One predicate, four kinds: `isAttributableAuthor(login, type)` replaces the module-private `isMentionableAuthor` and is exported.** | FR-045(a) extends the *existing* judgement to all four kinds "by the two judgements this product already applies… reused rather than reinvented". Two names for one rule is two rules that drift — the exact defect class 003 exists to end. The export is deliberate and is named here because the task that introduces it must not have to re-derive that it may leave `triggers.ts`' surface. | Keeping `isMentionableAuthor` private and adding a sibling for assignment/review (two spellings of one judgement); putting the check in `loop.ts` (the assignment path would then own authorship, splitting it across two modules for one rule). |
+| **D4** | **`allowedUsers` rides the whole-file grant with **omission meaning unset**, not 004's omission-preserves.** The route needs **no change**: `parseBinding` treats an absent member as absent and `mergePrompts` only ever touches `startingPrompt`, so a submitted row without the key stores without it. | This is the one place the two amendments interact with no explicit ruling, so it is decided here and flagged for the gate. A login list is **enumerable** — the panel always knows it and can always state it — while a free-text prompt is genuinely ambiguous between "untouched" and "cleared", which is the whole reason 004 FR-014 preserves it. Under omission-preserves there is **no wire value that can express unset**: `[]` is a refusal (FR-047), `null` and `''` are forbidden by FR-047, and an absent key would preserve. A configured list would therefore be impossible to remove — a worse defect than the hypothetical erasure. See the flagged item in the handoff. | Extending 004 FR-014's omission-preserves to the new field (leaves unset unreachable, so the FR-047 refusal's own remediation — "remove the field" — becomes unactionable); a `policyMode` companion enum (002 v1.11.0's own entry already rejects it: it makes "restricted with nobody in it" a valid, quiet state). |
+| **D5** | **`allowedUsers` is validated on the stored spelling and compared case-insensitively; no lowercasing, no trimming, no de-duplication on read.** | AC-026 requires `['Alice','bob']` to "save and read back **byte-identically** while matching `alice`, `ALICE`, and `Bob`". A stored spelling change would break that assertion. GitHub logins are case-insensitive, and this document's own mention token already folds case (FR-015). | Normalizing to lower case on write (breaks byte-identity); rejecting duplicates or surrounding whitespace as separate refusals (each is an unnamed refusal, and both are harmless: a duplicate changes no answer, and whitespace around a login GitHub never issues is a typo the gate fails closed on anyway). |
+| **D6** | **No new refusals beyond the three FR-047 states, and **no list-length cap**.** The refusals are: not an array; an explicitly empty array; an element that is not a GitHub-shaped login. | FR-047 states "exactly three states and no fourth" and names the empty array as the one refusal; adding a length cap would be an unnamed refusal the operator can hit through no fault of their own. Boundedness is already carried by three existing bounds: the per-login length bound (research §R8), `MAX_BINDINGS = 100`, and the transport's own body cap. | A `MAX_ALLOWED_USERS` cap (an unnamed refusal; 100 bindings × 50 logins is 20 KB against a 60,000-character leg, so nothing unbounded is reachable). |
+| **D7** | **A `[bot]` login is accepted into the list and is inert; it is not a refusal.** | FR-045(c) and the `## Out of Scope` bullet are *capability* statements — "no bot event exists to be admitted", "bots are filtered at detection for every trigger kind" — and the detection-time filter is where the exclusion already lives. AC-025's own wording is the consequence form ("**cannot cause a bot event to be created, because none is**"), which is satisfied without a validator rule. Accepting it adds no refusal the specs do not name. | Refuse `[bot]` logins at save (adds a refusal FR-047 does not name, and FR-047's remediation vocabulary would grow a fourth clause; also risks refusing a legitimate human login that merely contains the substring). **Flagged**: if the owner reads FR-045(c) as a *validator* rule rather than a capability statement, D7 inverts and the refusal set grows by one — a one-line change with one extra test. |
+| **D8** | **The actor is bounded by the module's existing `AUTHOR_LOGIN_MAX_CHARS = 60`, not by a new constant.** | The value already bounds exactly this string in exactly this module (`triggers.ts`' `mentionEvent` trims the commenter with it). A second bound for the same field in the same file is two answers to one question. | A tighter GitHub-login bound on the stored actor (would truncate a real login on a legal-but-long one, producing an attribution that silently stops matching). |
+| **D9** | **One comparison helper, exported from the validator's module: `isActorAllowed(login, allowedUsers)`, called by 003's gate and by nothing else.** | FR-076 forbids a second membership comparison anywhere in the product, and FR-090 forbids a client-side copy of the rule. One exported predicate in the one module that owns the field is what makes that provable rather than aspirational — the proof is a scan asserting the helper's identifier appears in exactly two files (its own, and `dispatch-authorize.ts`). | Inlining `some(u => u.toLowerCase() === login.toLowerCase())` at the call site (a second implementation the specs explicitly refuse); a generic "policy matcher" abstraction (one predicate, one caller pair — an abstraction with no second use). |
+
+## A.4 Constitution alignment (v1.3.0) — carried forward, re-read for this amendment
+
+> The feature specs already record their constitutional alignment and the
+> product owner approved it at the gate; this table restates it for 002's half
+> rather than re-litigating it. **No principle is weakened; one is strengthened
+> (III) and one is applied harder than before (II).**
+
+| Principle / gate | How this amendment satisfies it |
+| --- | --- |
+| **I. Polling-first, contract-first** | The contract limitation that forces `subject-author` (GitHub's list feeds expose `assignees` and `requested_reviewers`, never the actor) is **recorded as a contract limitation** with its source (research §R8), not papered over; the event contract versions additively to 1.2 exactly as 1.1 did. |
+| **II. Safe autonomy by default** | The field exists for this principle. It does not weaken it in the one place it could: the **absent** state. Absent is a complete, valid, *discoverable* state (005 FR-092/FR-093 render it with a worded warning and a counted Status line), so "is this repository protected?" is never ambiguous. 002's own validator refuses the one ambiguous input (`[]`). |
+| **III. Durable and idempotent work** | **Strengthened.** FR-046 keeps the actor out of `buildEventId`, so a re-detected event is still one event and a changed allow-list can never manufacture duplicate work. |
+| **IV. Human-visible auditability** | Served twice: `actorAttribution` exists at all, so a row never records a guess as a fact (NFR-011); and the gate **records a refusal** rather than dropping anything silently (003 FR-077). |
+| **V. Minimal, self-hosted deployment** | No new process, dependency, container, capability, or permission; no new store file; no new endpoint. |
+| **VI. Specification and verification before implementation** | Why this is an amendment plus AC-024 – AC-027 and named tasks, rather than a code change. |
+| **VII. Thin orchestration boundary** | No host capability, no host call, no change to `host.startSession()` framing. |
+| **Quality gates** | Strict TS + lint, zero suppressions, no `any` (invariant 7); offline deterministic suites per task; `npm run verify` at every wave boundary; committed bundles rebuilt with every source change (invariant 1). |
+
+**`AGENTS.md` non-negotiable invariants — how 002's half touches each of the ten.**
+
+1. **Committed bundles ship** — every task in the block that changes `service/*.ts` ends with `npm run build` and the rebuilt `service/main.js` committed in the same commit (A-task wave boundary).
+2. **One document, two roles** — no `version` bump; `0.0.1` stands (a bump is a product-owner release decision). 3. **Capabilities** — untouched; `capabilities[]` stays `["sessions","prompt"]` and `contributes.service` gains no `permissions`. 4. **Kebab-case identity** — untouched; no storage key is added, renamed, or read. 5. **`SERVICE_VERSION`** — untouched, still pinned by `tests/service-server.test.ts`. 6. **SDK pin** — untouched. 7. **Zero suppressions, zero `any`** — binding to every task's gate; a new field type is `readonly string[]`, not `any`. 8. **Fail closed** — the load-bearing change: `allowedUsers` is validated on **every** read and write, `[]` is a refusal, and an unrecognized `actorAttribution` refuses a stored row. 9. **Secrets never leave the service store** — a GitHub login is public repository identity, **not a secret**; the permitted list lives only in `bindings.json` (0700/0600) and must appear in no audit row, run record, projection, ledger, `host.storage` value, or bundle (NFR-113; 003's proof task owns the scan). 10. **`extension-spike-1` is a wire contract** — untouched: the evidence schema version and the evidence record are not part of this feature, and the **event id format is explicitly not changed** (FR-046).
+
+## A.5 Risks and mitigations (this amendment only)
+
+| Risk | Mitigation |
+| --- | --- |
+| Adding members to the delivery row breaks a byte-identity assertion elsewhere (the ledger, the claim projection, `tests/service-events.test.ts`) | the members are **additive and absentable** (D2), and the wave-1 tasks' own gates include the untouched existing suites; `buildEventId` has an explicit byte-identity test (FR-046, AC-027) |
+| Attribution is added to `mention` and forgotten on `assignment`/`review` | D3's single predicate and one exported surface; the wave-1 proof task drives **all four** kinds and asserts the basis of each (AC-024) |
+| `PollPull.authorLogin` is `''` for most repos' pulls in practice | that is exactly FR-045(b)'s case: **no event**, dropped as non-actionable — not an empty actor. The proof task seeds an authorless PR and asserts zero events |
+| The gate reads `bindings.json` on a path that did not read it before (003's NFR-114 letter) | **flagged to the gate**; 003's plan records the reading adopted and the alternative. 002's half adds no read of its own |
+| A stored `allowedUsers: []` arrives from a hand edit and takes the whole bindings document out of service | that is **intended**: FR-047 makes it a refusal on read, and `bindings-read.ts` quarantines-with-a-log rather than fail-stuck, so the other bindings still read. Recorded here so the behaviour is expected rather than discovered |
+
+## A.6 Out-of-scope guard for the issue-#9 block (checked at every task)
+
+No enforcement of the list anywhere in 002's files — the gate is 003's
+(`dispatch-authorize.ts`), and a membership comparison in `triggers.ts`,
+`loop.ts`, or the route would be a second answer to the same question (D9).
+No audit row, no `blocked:` state, no `dispatch.refused` detail — 003's. No
+panel rendering — 005's, except the bindings parser's new member. No
+`FieldDescriptor` in `config.json` (006 is deliberately not amended). No
+per-binding `PATCH /v1/bindings/:bindingId` (recorded MVP-DEBT, not reopened).
+No migration, shim, fallback, or legacy default — the product owner ruled it
+directly, and a stored binding without the key **is** the absent state. No
+change to `buildEventId`, to `SERVICE_SCHEMA_VERSION`, to `SERVICE_VERSION`, to
+any storage key, to any capability, or to the SDK pin. No bot admission. No
+plural or wildcard `repository`. No shared/reusable list object.
+
+## A.7 Phase-6 task block for this amendment
+
+Consolidated across the three amended specs in
+[`tasks.md`](./tasks.md) §"Issue #9 block (2026-10-03)", where the wave graph
+and the routing recommendation live. 002's own tasks are `A-1 … A-7`.

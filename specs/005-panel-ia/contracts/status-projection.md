@@ -1,6 +1,6 @@
 # Contract: Status Projection — `GET /v1/status`
 
-**Spec**: 005 `## Wire Surface Delta` row **Status** · FR-030–FR-034, FR-026, FR-003 · SC-101, SC-102 · AC-102–AC-107
+**Spec**: 005 `## Wire Surface Delta` row **Status** · FR-030–FR-034, FR-026, FR-003 · **FR-093 (v1.11.0)** · SC-101, SC-102, **SC-113** · AC-102–AC-107, **AC-144, AC-146** · **Amended**: 2026-10-03 (the actor allow-list's Status surface; GitHub issue #9)
 
 ## 0. Supersession
 
@@ -49,7 +49,8 @@ The member name stays **`repositories`** (FR-026, confirmed Gate Question 1). Th
   { "bindingId": "bnd_…", "repository": "owner/name", "projectId": "…",
     "accountLogin": "octocat", "active": true,
     "lastScanAt": "2026-09-28T11:59:00Z", "lastError": null, "pendingCount": 2,
-    "readable": true }
+    "readable": true,
+    "actorPolicy": "open" | "restricted" }   // ADDED at 005 v1.11.0 (FR-093); never the logins
 ]
 ```
 
@@ -57,9 +58,13 @@ The member name stays **`repositories`** (FR-026, confirmed Gate Question 1). Th
 | --- | --- |
 | `bindingId`, `repository`, `projectId`, `accountLogin`, `active`, `lastScanAt`, `lastError`, `pendingCount` | built from the **same** `readStatusRows` the Bindings tab reads, so the two surfaces cannot disagree about a binding |
 | `readable` | **new**. `false` when the binding's scan row could not be read. **An unreadable binding appears with an unreadable marker; it is never omitted** — an omitted binding reads as a deleted one (AC-105) |
+| `actorPolicy` | **new at v1.11.0 (FR-093)**. The closed union `'open' \| 'restricted'`, derived from the binding this row is already built from: `'open'` when the binding carries **no** `allowedUsers`, `'restricted'` when it carries a non-empty one. **It never carries a login** — the permitted set's home is `bindings.json` and a copy of it in a document the panel renders is the liability, not the control (003 NFR-113, FR-091). `'restricted'` therefore always means **at least one** login, because an empty list cannot reach here (002 FR-047 refuses it at save *and* on read). **The panel's reader refuses an unrecognized value** rather than defaulting (fail-closed, `AGENTS.md` invariant 8) |
 
-- **Zero bindings → `[]`**, and that is an honest empty, not a placeholder.
-- The projection reads `scan-state.json` and `events.json` through their existing readers; a row whose underlying scan state fails to parse yields `readable: false`, never a dropped entry.
+- **Zero bindings → `[]`**, and that is an honest empty, not a placeholder. In that case the
+  panel's counted line renders as a **positive statement** — *every binding restricts who may
+  trigger* — never as an absent row or silence (FR-093, AC-144).
+- The projection reads `scan-state.json` and `events.json` through their existing readers; a row whose underlying scan state fails to parse yields `readable: false`, never a dropped entry. `actorPolicy` is derived from the **binding**, not from the scan state, so it remains truthful on a row that is otherwise unreadable.
+- **`actorPolicy` also rides the claim answer's `status` array**, because it is derived in the one `readStatusRows` projection that the Status route, the claim answer, and the Bindings tab all read (plan D17). That is additive within v1; the claim's other members are untouched, and 003 v1.8.0 adds **no** claim-answer member of its own.
 
 ## 3. `agentPin.lastVerification` — widened (FR-033)
 
@@ -98,3 +103,4 @@ The member already exists. After 002 FR-041 empties the manifest card, the panel
 5. **Unknown reason passthrough**: seeding an out-of-vocabulary `pausedReason` asserts it arrives byte-identical (FR-003).
 6. **Member-name stability**: the response still contains `repositories` (not `bindings`) and no existing member is renamed (FR-026, FR-023).
 7. **Credential scan**: the whole document passes the existing secret suites with no new exemptions (NFR-102).
+8. **`actorPolicy`, added at v1.11.0 (FR-093).** (a) A binding with no `allowedUsers` answers `'open'`; one with a populated list answers `'restricted'`; the value is derived from the binding, never from the panel or from a stored projection. (b) **No login appears anywhere in the document** — a scan over the whole answer, and over both committed bundles, finds no permitted login (003 NFR-113, FR-091). (c) An out-of-vocabulary `actorPolicy` **refuses the answer** in the panel's reader rather than defaulting (fail-closed). (d) The counted line renders *N of M bindings…*, renders **zero** as a positive statement, renders a service-unreachable status as **not available**, and names **no login and no repository** (AC-144). (e) No user-facing string uses *protected*, *restricted*, or *secure* about a binding this document reported as anything other than `restricted` (NFR-113, AC-146).

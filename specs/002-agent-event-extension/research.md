@@ -1,7 +1,7 @@
 # Research: Agent Event Extension (Production) — new findings only
 
 **Feature**: `specs/002-agent-event-extension`
-**Researched**: 2026-09-27
+**Researched**: 2026-09-27 · **Amended**: 2026-10-03 (§R8, §R9, for the actor allow-list — GitHub issue #9)
 **Scope**: Everything already settled in `specs/001-agent-event-orchestrator/research.md` (GitHub platform §a, OpenChamber platform §b) is **not** re-researched here — that file was the canonical record. **Historical-path note (2026-09-28, cleanup review):** the whole `specs/001-agent-event-orchestrator/` directory was removed in commit `110c0a2` when `README.md` and `AGENTS.md` shipped, so that citation is **stamped provenance, not a live link** — recover it with `git show 110c0a2^:specs/001-agent-event-orchestrator/research.md`. Where its §a/§b findings bind the production system they are restated as requirements in `spec.md` (FR-004, FR-010, FR-011, FR-029, FR-034, `## Setup Prerequisites`) and in `spec.md`'s `## Research and Platform Decisions` table; **every short-form `001 §…` reference later in this file reads against that same removed file and is covered by this note** — none is a live link. This document records only what 002's planning added, with sources and version stamps.
 
 **Sources used here** (all retrieved 2026-09-27):
@@ -115,8 +115,73 @@ Cadence/budget arithmetic and the budget controller that keeps NFR-003 are speci
 - No per-call agent/model/variant (001 §b.2) — unchanged; docs `/sdk/host/`: "The extension never picks them."
 - SDK pin `1.24.2` exact (`spike-evidence.md` §1 — **historical path**: that file was removed with the 001 directory in commit `110c0a2`; the pin is live in `package.json` and its provenance in `spec.md` NFR-008); `engines.openchamber: ">=1.24.0"`; re-pin to the host release before live execution (NFR-008).
 
+## R8. What GitHub's list feeds actually name about *who acted* (added 2026-10-03, for FR-044/FR-045)
+
+The allow-list needs an actor, and the three feeds the scan already lists do not
+agree on what they name. This is the finding that forces the `subject-author`
+proxy, and it is recorded as a **contract limitation of the provider**, not as a
+product choice.
+
+| Feed | Endpoint the scan already calls | Names the actor? | Names the actor of the *action*? |
+| --- | --- | --- | --- |
+| issues | `GET /repos/{owner}/{repo}/issues` | **yes** — `user` (the issue/PR **author**) | **no.** `assignees` is the *current* assignee set; GitHub's issues list exposes no `assigned_by`, no assign-event, and no timeline |
+| issue comments | `GET /repos/{owner}/{repo}/issues/comments` | **yes** — `user` is the **comment's** author | **yes**, because the comment *is* the action that triggered the mention |
+| pulls | `GET /repos/{owner}/{repo}/pulls` | **no** on this endpoint's own shape — the shipped reader takes `requested_reviewers`, `head.sha`, `base.ref`, `state`, `html_url`, `updated_at` | **no.** `requested_reviewers` is the current reviewer set; the list exposes no requester |
+
+- **Consequence, and it is why `PollPull` gains `authorLogin`/`authorType`**: the
+  review kind had **no identity at all** to attribute to. Both fields are read
+  from the entry's `user` object exactly as `readIssueEntry` and
+  `readCommentEntry` read theirs (`service/poll/poller-entries.ts`), including
+  the `''`-when-absent convention. No extra request, no new endpoint, no
+  additional rate cost — the field rides a response the scan already fetched.
+- **`user` is also where `type` lives**, so the bot judgement 002 FR-045 reuses
+  (`isBotAuthor`: a `[bot]` login suffix **or** `authorType === 'Bot'`) applies
+  identically on all three feeds. Nothing new is invented to detect a bot.
+- **A pull request is also listed as an issue** (the shipped reader already keys
+  off the `pull_request` marker for `PollIssue.isPullRequest`), so an
+  assignment on a PR is attributed from the issue-feed entry's `user` — the PR's
+  author — with basis `subject-author`, and the review trigger attributes from
+  the pulls-feed entry's `user`, the same person by construction.
+- **Verified against the shipped code, not from memory**: `readLogins` in
+  `poller-entries.ts` reads `assignees` / `requested_reviewers` as *login
+  arrays*, and `PollPull` (`poller-entries.ts:74`) has no author member — the
+  gap 002 FR-045 names.
+- **What this research does not do**: it does not propose a second API call to
+  close the gap. The per-issue `timeline` or `requested_reviewers` endpoint
+  would name the actor, at one extra request per trigger — a real cost against
+  SC-005's 1,500 requests/hour budget and a whole new pagination and failure
+  surface for a value the specification has already ruled is a **documented
+  proxy**. Recorded here so the choice is legible rather than assumed.
+
+## R9. GitHub login shape and length (added 2026-10-03, for FR-047's validation)
+
+The validator needs a definition of "a GitHub login" that is a **fact about
+GitHub** rather than a house rule, because the comparison is against a login
+GitHub itself issued.
+
+- **Alphabet**: alphanumeric, plus single hyphens between alphanumeric runs. A
+  login may not begin or end with a hyphen and may not contain consecutive
+  hyphens.
+- **Length**: at most **39** characters. A longer value can never match any
+  login GitHub issues, so refusing it at save is refusing an input that could
+  not have worked — the honest direction, and consistent with 002 FR-024's
+  refuse-malformed posture.
+- **Case**: GitHub logins are **case-insensitive** in practice — the same
+  repository reports them with the casing its owner chose. This is why 002
+  FR-047 compares case-insensitively and preserves the stored spelling, and it
+  is the same reason `mentionsLogin` folds case (FR-015).
+- **Bots**: an App or bot account's login carries a literal `[bot]` suffix. It
+  is syntactically a normal login, which is why the bot judgement checks the
+  suffix rather than the alphabet (and why plan D7 records that naming one is
+  accepted and inert rather than refused).
+- **Not a research dependency**: none of this needs a network call, a live host,
+  or a newer SDK. It is a fact about an API this project already polls, and it
+  is pinned by tests against fixtures rather than by a live probe — consistent
+  with the repository's offline testing rule (`AGENTS.md`).
+
 ## Open items this research leaves
 
 1. **Uninstall survival is an expectation, not a proof** (R2) — MUST-verify task T-033; docs claim gated on it.
 2. Live host build version was never recorded by the operator (001 §1 — *historical citation: the 001 record that carried it was removed in commit `110c0a2`; recover with `git show 110c0a2^:specs/001-agent-event-orchestrator/spike-evidence.md`*) — record it during T-033's live run.
 3. Whether the panel's `onSession` also fires without `openSession` (e.g. `navigation:'open'`) is *undocumented*; the plan does not depend on it, and tests pin only the documented path (R3).
+4. **002 v1.11.0 adds none.** R8 and R9 settle the two questions the allow-list raised (who the actor is, and what counts as a login) from the shipped readers and from GitHub's documented login rules. Three items the amendment raised are **not** research questions and are recorded as decisions or flags instead, each in the place that owns it: the `schemaVersion 1.2` question is plan D1, the omission-means-unset reading is plan D4, and the `[bot]`-entry reading is plan D7.
