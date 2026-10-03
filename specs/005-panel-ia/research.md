@@ -1,6 +1,6 @@
 # Research: Panel IA — Six Tabs — new findings only
 
-**Spec**: v1.11.0 · **Amended**: 2026-10-03 (§Q3, §Q4 — the actor allow-list's rendering, GitHub issue #9)
+**Spec**: v1.12.0 · **Amended**: 2026-10-03 (§Q3, §Q4 — the actor allow-list's rendering, GitHub issue #9)
 
 **Feature**: `specs/005-panel-ia` · **Spec**: v1.3.0 · **Date**: 2026-09-28
 

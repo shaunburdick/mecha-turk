@@ -1,6 +1,6 @@
 # Research: Dispatch Integrity & Recovery — new findings only
 
-**Feature**: `specs/003-dispatch-integrity` · **Spec**: v1.3.0 → **v1.8.0** · **Date**: 2026-09-28 · **Amended**: 2026-10-03 (§R5, for the actor allow-list gate — GitHub issue #9)
+**Feature**: `specs/003-dispatch-integrity` · **Spec**: v1.3.0 → **v1.10.0** · **Date**: 2026-09-28 · **Amended**: 2026-10-03 (§R5, for the actor allow-list gate — GitHub issue #9)
 
 This file answers only the questions **003** raises. Everything a platform question would otherwise re-open is already settled with stamped sources elsewhere; those are listed first and are *cited, not re-researched*.
 

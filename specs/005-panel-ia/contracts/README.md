@@ -1,6 +1,6 @@
 # Contracts index — `005-panel-ia`
 
-**Feature**: `specs/005-panel-ia` · **Spec**: v1.11.0 · **Date**: 2026-09-28 · **Amended**: 2026-10-02 for the account profile write (the 4–5 gate ruling) · **Amended**: 2026-10-03 for the actor allow-list's rendering (GitHub issue #9) · **Status**: binding for Phase 6. The *semantics* are fixed by the specification's `## Wire Surface Delta`; the field names, status codes, query parameters, and error codes below are this Phase-4 contract work, exactly as that section delegates them ("Phase 4 finalizes exact field names, status codes, and error codes").
+**Feature**: `specs/005-panel-ia` · **Spec**: v1.12.0 · **Date**: 2026-09-28 · **Amended**: 2026-10-02 for the account profile write (the 4–5 gate ruling) · **Amended**: 2026-10-03 for the actor allow-list's rendering (GitHub issue #9) · **Status**: binding for Phase 6. The *semantics* are fixed by the specification's `## Wire Surface Delta`; the field names, status codes, query parameters, and error codes below are this Phase-4 contract work, exactly as that section delegates them ("Phase 4 finalizes exact field names, status codes, and error codes").
 
 These files specify **only what changes on the panel↔service wire**. Transport rules, auth, body/size caps, the error envelope, and every unchanged operation stay in 002's [panel-service.md](../../002-agent-event-extension/contracts/panel-service.md) and 003's [contracts](../../003-dispatch-integrity/contracts/README.md), and are not restated here.
 
