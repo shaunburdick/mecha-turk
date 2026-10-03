@@ -348,8 +348,13 @@ the whole point (FR-078; `AGENTS.md` invariant 10 is a compatibility surface and
 twice already). It names the **denial** because a refusal a reader cannot attribute is not an
 explainable refusal (FR-077), and it names **no permitted login** because the permitted set's home
 is `bindings.json` and a copy of it in a retained file is a liability, not an audit aid (NFR-113).
-002 NFR-011 binds the wording: a row may never state that a denied actor *caused* anything — a
-`subject-author` row must say it is a proxy.
+002 NFR-011 binds the wording, and its **re-cut at 002 v1.12.0** binds it harder than v1.11.0 did:
+a row MUST NOT claim that GitHub fails to record the assigner or the reviewer, because **GitHub
+records both**, in `assigner` and `review_requester`. A legacy `subject-author` row — the only kind
+that can carry that basis, and only from a build that predates the correction — MUST be presented as
+what it is: attributed under the rule in force when it was written. **No new row carries it**, and
+`deniedAttributions` is **read, never written**; the detail is kept, and not dropped, because a detail
+key removed from a reader's vocabulary would make a real stored refusal row unreadable (FR-077).
 
 **`referenceWindow` is not one of this row's details (v1.10.0).** The member rides the **refusal
 envelope** (§1) and reaches the panel, which is its only reader; the row gains nothing by it. That is

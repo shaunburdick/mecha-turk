@@ -8,6 +8,19 @@
 
 **Note**: No application code is written in phases 4–5. Every decision below is decided and justified — there are no open option pairs.
 
+> ⚠️ **CORRECTION NOTICE (2026-10-03, spec 002 v1.12.0) — the attribution rows in this plan are obsolete.**
+> This plan's requirement-coverage table and its constitution-alignment table record the
+> `subject-author` proxy as the design for the `assignment` and `review` triggers, and record the
+> resulting "contract limitation" — *"GitHub's list feeds expose `assignees` and
+> `requested_reviewers`, never the actor"* — under Principle **I**. **Both are false.**
+> **GitHub records both actors**, in `assigner` and `review_requester` on the per-item events feed
+> `GET /repos/{owner}/{repo}/issues/{issue_number}/events`; the list feeds' silence was generalized
+> from two endpoints to the provider. Principle **I** is therefore **satisfied rather than strained**,
+> not recorded as a limitation. The rows below (`FR-044`, `service/poll/loop.ts`, Principle I) are
+> preserved as the record of what was planned and **must not be implemented as written**; the
+> corrected design is 002 **FR-044** *(re-cut)*, **FR-045** *(re-cut)*, **FR-049 – FR-052** *(new)*,
+> and `research.md` §R8 (rewritten). Every other row, decision, and module in this plan stands.
+
 ## Summary
 
 Ship the approved "Option B" architecture as **one OpenChamber extension package** containing (1) a **panel** — configuration, dispatch, verification, and observability UX — and (2) an **OpenChamber-hosted local guest service** — multi-account GitHub credential custody, outbound HTTPS polling with durable checkpoints and dedup, policy decisions, run lifecycle, and the service-owned audit trail. The panel reaches the service only through the documented `host.serviceRequest()` loopback proxy; the service never touches host APIs; neither half ever writes to GitHub.

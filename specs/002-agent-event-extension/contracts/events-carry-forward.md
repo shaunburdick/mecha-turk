@@ -1,6 +1,6 @@
 # Carry-forward: Normalized Event Contract v1 → v1.1 → v1.2
 
-**Feature**: `specs/002-agent-event-extension` · **Date**: 2026-09-27 · **Amended**: 2026-10-03 for `schemaVersion 1.2` (the actor allow-list, GitHub issue #9)
+**Feature**: `specs/002-agent-event-extension` · **Date**: 2026-09-27 · **Amended**: 2026-10-03 for `schemaVersion 1.2` (the actor allow-list, GitHub issue #9); **amended again the same day at spec v1.12.0** — `actorAttribution`'s producer narrows to `'direct'` only and `subject-author` becomes readable-but-unproduced. **No member is added, removed, renamed, or retyped by either amendment.**
 
 ## What carries forward unchanged
 
@@ -36,29 +36,49 @@ The production `Delivery` record is v1.2 because 002 v1.11.0 adds the **triggeri
 | The login the event is attributed to | `actorLogin` | FR-043 — a GitHub login, public repository identity, bounded by the module's existing 60-character author bound; credential-free by construction |
 | How that attribution was made | `actorAttribution` | FR-044 — the **closed** union `'direct' \| 'subject-author'`, validated on write and on read; an unrecognized value **refuses the record** rather than defaulting to a guess (002 FR-024) |
 
-`actorAttribution` is not cosmetic. It is the difference between a fact and an
-inference, and every surface that names the actor must honour it (NFR-011):
+`actorAttribution` is the **provenance** of the attribution, not a decoration on it, and every
+surface that names the actor must honour it (NFR-011). **What each value means, and — from
+spec v1.12.0 — which value this build writes**, because the two halves of that answer are different
+and conflating them is how the contract came to describe a mechanism that does not exist:
 
-- **`'direct'`** — GitHub itself named the author of the text that caused the
-  trigger: the comment's author for a comment mention, the issue's author for an
-  issue-body mention. This is **causation**; nothing is inferred.
-- **`'subject-author'`** — a **documented proxy**. GitHub's issues list exposes
-  `assignees` and never who assigned; its pulls list exposes `requested_reviewers`
-  and never who requested the review (see `../research.md` §R8 for the reading
-  verified against the shipped readers). The event is therefore attributed to the
-  **issue or pull-request author**, which is the closest identity the feed names
-  and is **not** the identity that acted. Both the `assignment` and the `review`
-  kinds use this basis. No other value is legal.
+- **`'direct'`** — GitHub itself named the identity that **performed the act**. Nothing is
+  inferred and nothing stands in. **This is the only value written at v1.12.0, for all four trigger
+  kinds**: the comment's author for a comment mention, the issue's author for an issue-body
+  mention, the naming `assigned` event's **`assigner`** for an assignment, and the naming
+  `review_requested` event's **`review_requester`** for a review request. The last two are read
+  from a per-item `GET /repos/{owner}/{repo}/issues/{issue_number}/events`, fetched only for an
+  already-detected candidate (002 FR-049, FR-050).
+- **`'subject-author'`** — **readable, and no longer written.** It remains a legal value of the
+  closed union because rows the shipped build already wrote to `events.json` carry it, and a
+  vocabulary a stored file still holds cannot be deleted without invalidating that file; a reader
+  MUST accept it and a surface that encounters it MUST render it, because a row the panel cannot
+  read hides an **entire** dispatch. **No row written at v1.12.0 may carry it**, no requirement or
+  path may introduce a producer for it, and no fallback may reach for it when an actor cannot be
+  read — the fallback for an unreadable actor is **no event** (002 FR-052).
+
+  **The superseded rationale, recorded because the contract is where a reader looks first.** This
+  section previously read: *"a **documented proxy**. GitHub's issues list exposes `assignees` and
+  never who assigned; its pulls list exposes `requested_reviewers` and never who requested the
+  review … the event is therefore attributed to the **issue or pull-request author**, which is the
+  closest identity the feed names and is **not** the identity that acted. Both the `assignment` and
+  the `review` kinds use this basis."* **That was false.** The two **list** feeds the poller calls
+  do name no actor; **GitHub does**, one endpoint away, in `assigner` and `review_requester` on the
+  item's own event record. The claim was a two-endpoint sample generalized to a provider — see
+  `../research.md` §R8, rewritten at v1.12.0, and `../spec.md` `## Amendment History` →
+  `### v1.12.0`.
 
 **Four rules that travel with the addition:**
 
-1. **Attribution is mandatory and fail-closed.** Every row this build writes
-   carries a readable, non-bot `actorLogin`. The judgement is the existing one —
-   `isBotAuthor` (a `[bot]` login suffix **or** `authorType === 'Bot'`) plus the
-   unreadable-author check beside it — extended from the mention triggers to
-   **all four** kinds, so a bot-authored comment, issue body, assignment, or
-   review request is non-actionable and creates no event at all (FR-045). No
-   binding field can make one allowed.
+1. **Attribution is mandatory and fail-closed.** Every row this build writes carries a readable,
+   non-bot `actorLogin`. The judgement is the existing one — `isBotAuthor` (a `[bot]` login suffix
+   **or** the account's `type === 'Bot'`) plus the unreadable-actor check beside it — applied to
+   **all four** kinds, so a bot-authored comment, issue body, assignment, or review request is
+   non-actionable and creates no event at all (FR-045). **From v1.12.0 the judgement reads the
+   `assigner` / `review_requester` member for the two non-mention kinds**, which is the same
+   `simple-user` shape the other feeds use, so **no second bot predicate is introduced**. A `null`
+   or unreadable actor on those fields yields **no event this cycle** and substitutes nothing — not
+   the same row's `actor`, not the issue author, not the `assignee` — and the overlapping scan
+   window re-attempts on the next cycle (FR-052). No binding field can make a bot event allowed.
 2. **The delivery key and the event id are untouched** (FR-046). The identifier
    is simultaneously the delivery's dedupe key, its relay path segment, and the
    reference recorded in existing panel ledgers, audit rows, and the run history,
@@ -78,6 +98,14 @@ inference, and every surface that names the actor must honour it (NFR-011):
    how the authorization gate reads it. The **permitted** set is a different
    thing entirely and appears **nowhere** in any trail, record, projection, or
    bundle (NFR-113) — see [`binding-allow-list.md`](./binding-allow-list.md).
+
+**A fifth rule, added at v1.12.0, and it is about the read rather than the record: a stored
+`subject-author` row is ordinary.** It parses, it is admitted, the gate reads its `actorLogin`
+normally, and every surface renders it with its basis stated — precisely so the correction does not
+orphan real stored rows. It is **not** converted to `'direct'`, because a data rewrite would
+destroy the one fact a reader needs about it: which rule was in force when the row was written
+(NFR-011). No `schemaVersion` member is added for this either, and `SERVICE_SCHEMA_VERSION` stays
+`1`.
 
 No v1 or v1.1 member changes shape, nothing is removed, and no wire path changes.
 

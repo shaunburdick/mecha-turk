@@ -3,6 +3,34 @@
 **Durable state file — a fresh coordinator must be able to resume from this file alone.**
 Namespaced beside `orchestration.md` (which records the delivered 002 MVP and is NOT superseded).
 
+> ## ⚠️ CORRECTION NOTICE (2026-10-03, spec 002 v1.12.0) — read before resuming
+>
+> **The attribution premise recorded throughout this file is FALSE and its consequences are being
+> specified away.** This file states, as fact, that *"GitHub records who opened the issue or pull
+> request and does **not** record who assigned it or who requested the review"* (R-2), and that
+> assignment and review-request triggers have *"no true actor"*. **GitHub records both.**
+> `GET /repos/{owner}/{repo}/issues/{issue_number}/events` carries **`assigner`** (*"the person who
+> performed the assignment"*) on every `assigned` event and **`review_requester`** (*"the person who
+> requested a review"*) on every `review_requested` event. The claim was true of the two **list**
+> feeds and was generalized from them to GitHub as a whole.
+>
+> **What this means for a coordinator resuming here:**
+> - **R-2 below is void.** The risk it records — *"any third party who can assign an issue or
+>   request a review on a pull request authored by a permitted user starts a session"* — **does not
+>   exist**, because the gate compares the **real** actor from now on. It is kept for the record
+>   only.
+> - **`subject-author` has no producer.** Rows already written to `events.json` still carry it and
+>   still parse and render; no new row may.
+> - **Do not implement the proxy.** The corrected requirements are 002 **FR-044** *(re-cut)*,
+>   **FR-045** *(re-cut)*, and **FR-049 – FR-052** *(new)*, with `research.md` §R8 rewritten and
+>   `## Amendment History` → `### v1.12.0` in `spec.md`. `PollPull`'s `authorLogin` / `authorType`
+>   lose their only stated consumer and no requirement now asks for them.
+> - **The undelivered work in this file's wave list is unaffected in shape** but its `subject-author`
+>   halves are obsolete; the implementing task must read 002 v1.12.0, not the rows below.
+>
+> Everything else in this file — the gate, the field's three states, the refusal, the blocked cause,
+> the containment posture — stands, and is unchanged by this correction.
+
 ## Current Wave
 
 **Wave 3 complete** (`C-1 … C-6`, delivered 2026-10-03) and the **pre-PR review-fix pass**
@@ -334,6 +362,13 @@ say so out loud.
   Both are code, and both are declined.
 
 ### R-2. The proxy's inherent reach: any third party can start a session on a permitted user's issue
+
+> **VOID as of 002 v1.12.0 (2026-10-03).** The premise of this risk — "no true actor" — is
+> **false**: GitHub records both actors in `assigner` and `review_requester` on the per-item events
+> feed, so the gate now compares the person who actually performed the act and this exposure
+> **does not exist**. Kept as the record of the risk that was believed, and of the reason the
+> correction mattered. **Do not carry this risk into a PR description, a release note, or an
+> implementation task.**
 
 - **What it is.** Assignment and review-request triggers have **no true actor** — GitHub
   records who opened the issue or pull request and does **not** record who assigned it or who
