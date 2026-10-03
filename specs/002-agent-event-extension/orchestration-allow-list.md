@@ -10,11 +10,9 @@ complete (2026-10-03). The branch is ready for its PR.
 
 ## Branch
 
-`issue-9-user-allow-list` (base `bb7947f`, not protected). Three feature commits landed
-(`99e2a5c`, `713c58c`, `9014522`), then the review-fix commit. The phase 4–5 planning
-edits across the 25 tracked spec files, plus the new `contracts/binding-allow-list.md`,
-are **still uncommitted** and are the product owner's to commit separately; the
-review-fix commit stages only the files it edited.
+`issue-9-user-allow-list` (base `bb7947f`, not protected). Six commits landed: three feature
+commits (`99e2a5c`, `713c58c`, `9014522`), two review-fix commits (`a214b42`, `5ff2276`),
+and the phase 4–5 planning artifacts (`1799ec3`, committed by the PM). Working tree clean.
 
 ## Scope
 
@@ -246,8 +244,8 @@ Open the **PR** for `issue-9-user-allow-list`. The PR description must carry the
 recorded above that an operator or reviewer needs to hear before merging: **R-2** (the
 proxy's reach — naming an author also admits anyone who can assign an issue or request a
 review on that author's work) and **R-1** (pre-existing queue rows are un-dispatchable by
-ruling). The remaining 26 uncommitted spec files are the product owner's to commit; this
-branch's code and the six spec files edited in the DOC TASK are already committed.
+ruling). All 26 spec files and the new contract are committed in `1799ec3`; the branch is
+clean.
 
 ## Items flagged at the phase-5 gate — do NOT resolve in code
 
