@@ -113,6 +113,41 @@ Wave 3 close: **`npm run verify` green** — 104 files, **653 tests passed** (fr
 modules moved for the file-length gate (`accounts-service`, `bindings-draft`,
 `bindings-state`); every moved name stays importable from where it was.
 
+Final close: **`npm run verify` green** — 105 files, **658 tests passed** (from 563 at base).
+CI run 37123832479 **pass** in 2m8s on the final head `98676c8`.
+
+### Post-PR completion audit, 2026-10-03 — two record defects found and fixed
+
+Auditing the tracking artifacts against the delivered branch (not assuming the earlier passes
+were right) surfaced two defects that neither review nor any test could catch, because no test
+pins a spec version. Both are **documentation-only**; no source, test, or bundle changed, and
+`FR-078`'s body is byte-identical across both fixes.
+
+1. **Duplicate amendment versions made the history unnavigable.** `003-dispatch-integrity`
+   recorded the requirement corrections and the `referenceWindow` conformance amendment both as
+   `v1.8.0`, while its header banner still read `1.8.0` and its footer `1.9.0` — the only
+   header/footer mismatch in the five specs. `005-panel-ia` likewise recorded its AC-146 scope
+   correction as a second `v1.11.0`. Fixed by renumbering chronologically: **003 → v1.8.0**
+   (the gate), **v1.9.0** (the corrections), **v1.10.0** (the conformance); **005 → v1.11.0**
+   (the rendering), **v1.12.0** (the scope correction). All five specs now have
+   header == footer == highest amendment heading, and no duplicate headings.
+
+   *Convention checked, not assumed:* **003's own history** uses minor bumps for same-day
+   amendments (v1.1.0–v1.3.0 all on 2026-09-28; v1.4.0 and v1.5.0 both on 2026-09-29). `004`'s
+   patch numbers (`v1.4.0 -> v1.4.1 -> v1.4.2`) are that document's local habit, not the repo's,
+   so minor bumps are the faithful choice here.
+
+2. **`contracts/dispatch-authorization.md` never recorded `referenceWindow`.** 003's
+   conformance entry declared the refusal table gains the member and it ships in
+   `src/service-envelope.ts`, but no contract file mentioned it. A full declared-vs-actual
+   sweep of all 15 contract deltas across v1.8.0/v1.9.0/v1.10.0 found **13 already present**
+   and **2 genuinely missing** (the refusal-table member and its error-code note). Both written;
+   the contract index bumped to `v1.10.0` only *after* the coverage it asserts was true.
+
+   One edit went **beyond** the declared list and is recorded here because it was a judgment
+   call: v1.10.0 made "guidance names the field that restricts the binding" unconditional, which
+   is false on a truncated run, so §4's `guidance` rule now carries the branch.
+
 ### Pre-PR review-fix pass, 2026-10-03 — what a fresh coordinator must know
 
 Two reviews ran at the pre-PR gate (a code-quality peer review: **APPROVE WITH FIXES**, no
