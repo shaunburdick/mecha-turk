@@ -1766,6 +1766,41 @@ async function trimAudit(input) {
 // service/poll/events.ts
 import { basename, join } from "node:path";
 
+// service/poll/attribution.ts
+var AUTHOR_LOGIN_MAX_CHARS = 60;
+function isBotAuthor(authorLogin, authorType) {
+  return authorLogin.toLowerCase().endsWith("[bot]") || authorType.toLowerCase() === "bot";
+}
+function isAttributableAuthor(authorLogin, authorType) {
+  return authorLogin !== "" && !isBotAuthor(authorLogin, authorType);
+}
+function actorLoginOf(authorLogin) {
+  return authorLogin.slice(0, AUTHOR_LOGIN_MAX_CHARS);
+}
+var ACTOR_ATTRIBUTIONS = new Set(["direct", "subject-author"]);
+function readActorLoginField(record) {
+  const value = record.actorLogin;
+  if (value === undefined) {
+    return;
+  }
+  return typeof value === "string" && value !== "" ? value : null;
+}
+function readActorAttributionField(record) {
+  const value = record.actorAttribution;
+  if (value === undefined) {
+    return;
+  }
+  return typeof value === "string" && ACTOR_ATTRIBUTIONS.has(value) ? value : null;
+}
+function actorFieldsOf(record) {
+  const actorLogin = readActorLoginField(record);
+  const actorAttribution = readActorAttributionField(record);
+  return {
+    ...actorLogin === undefined || actorLogin === null ? {} : { actorLogin },
+    ...actorAttribution === undefined || actorAttribution === null ? {} : { actorAttribution }
+  };
+}
+
 // service/poll/events-parse.ts
 var EVENTS_FILE = "events.json";
 var REQUIRED_FIELDS = [
@@ -1839,7 +1874,7 @@ function readTrimMarkerField(record) {
   return Number.isNaN(Date.parse(value)) ? null : value;
 }
 function fieldsHold(record) {
-  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS) && typeof record.kind === "string" && KNOWN_KINDS.has(record.kind) && readStateField(record) !== null && readSubjectTypeField(record) !== null && readRunLinkField(record) !== null && readTrimMarkerField(record) !== null;
+  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS) && typeof record.kind === "string" && KNOWN_KINDS.has(record.kind) && readStateField(record) !== null && readSubjectTypeField(record) !== null && readRunLinkField(record) !== null && readTrimMarkerField(record) !== null && readActorAttributionField(record) !== null && readActorLoginField(record) !== null;
 }
 function lifecycleOf(record, state) {
   const fields = {};
@@ -1907,7 +1942,8 @@ function parseStoredEvent(raw) {
     detectedAt,
     ...lifecycleOf(record, state),
     ...runLinkOf(record, subjectType),
-    ...trimMarkerOf(record)
+    ...trimMarkerOf(record),
+    ...actorFieldsOf(record)
   };
 }
 function subjectTypeOf(delivery) {
@@ -3479,6 +3515,8 @@ function createEvent(snapshot) {
     issueTitle: snapshot.issue.issueTitle,
     issueUrl: snapshot.issue.issueUrl,
     issueBodyExcerpt: snapshot.issue.issueBodyExcerpt,
+    actorLogin: snapshot.actorLogin,
+    actorAttribution: snapshot.actorAttribution,
     headSha: headShaOf(snapshot),
     baseRef: baseRefOf(snapshot),
     triggerNote: snapshot.triggerNote,
@@ -5168,6 +5206,50 @@ function repositoryLabel(repository) {
   return `${repository.owner}/${repository.name}`;
 }
 
+// service/bindings-allow-list.ts
+var GITHUB_LOGIN_MAX_CHARS = 39;
+var SINGLE_LOGIN = /^[A-Za-z0-9]$/;
+var LOGIN_SHAPE = /^[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9]$/;
+var BOT_SUFFIX = "[bot]";
+function isGitHubLogin(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const bot = value.toLowerCase().endsWith(BOT_SUFFIX);
+  const spelled = bot ? value.slice(0, -BOT_SUFFIX.length) : value;
+  if (spelled.length === 0 || spelled.length > GITHUB_LOGIN_MAX_CHARS) {
+    return false;
+  }
+  return spelled.length === 1 ? SINGLE_LOGIN.test(spelled) : LOGIN_SHAPE.test(spelled) && !spelled.includes("--");
+}
+var FIELD = "allowedUsers";
+var NOT_AN_ARRAY_REMEDIATION = "allowedUsers must be an array of GitHub logins, or omitted so any human " + "actor may trigger this repository";
+var EMPTY_REMEDIATION = "allowedUsers must name at least one GitHub login: omit the field to let any human " + "actor may trigger this repository, or list the logins who may; to stop every trigger, disable the binding";
+var NOT_A_LOGIN_REMEDIATION = "allowedUsers must name GitHub logins: at most 39 characters, " + "alphanumeric with single interior hyphens";
+function refuse2(remediation) {
+  return { issue: { field: FIELD, remediation } };
+}
+function bindingAllowedUsersOf(raw) {
+  const value = raw.allowedUsers;
+  if (value === undefined) {
+    return { users: null };
+  }
+  if (!Array.isArray(value)) {
+    return refuse2(NOT_AN_ARRAY_REMEDIATION);
+  }
+  if (value.length === 0) {
+    return refuse2(EMPTY_REMEDIATION);
+  }
+  const users = [];
+  for (const entry of value) {
+    if (!isGitHubLogin(entry)) {
+      return refuse2(NOT_A_LOGIN_REMEDIATION);
+    }
+    users.push(entry);
+  }
+  return { users };
+}
+
 // service/bindings.ts
 var MAX_BINDINGS = 100;
 var MAX_BINDING_ID_CHARS = 128;
@@ -5312,6 +5394,10 @@ function assembleBinding(raw, accountExists) {
   if ("issue" in prompt) {
     return null;
   }
+  const allowedUsers = bindingAllowedUsersOf(raw);
+  if ("issue" in allowedUsers) {
+    return null;
+  }
   const login = identity.binding.accountLogin.trim();
   const createdAt = stampOrKeep(raw.createdAt, nowIso());
   return {
@@ -5320,6 +5406,7 @@ function assembleBinding(raw, accountExists) {
     ...target.binding,
     ...mode.binding,
     ...prompt.prompt === null ? {} : { startingPrompt: prompt.prompt },
+    ...allowedUsers.users === null ? {} : { allowedUsers: allowedUsers.users },
     createdAt,
     updatedAt: stampOrKeep(raw.updatedAt, createdAt)
   };
@@ -5338,7 +5425,8 @@ function parseBinding(input) {
       bindingIdentityOf(raw, accountExists),
       bindingTargetOf(raw),
       bindingModeOf(raw),
-      bindingPromptOf(raw)
+      bindingPromptOf(raw),
+      bindingAllowedUsersOf(raw)
     ])
   };
 }
@@ -6491,7 +6579,7 @@ function sessionRefOf(input) {
 
 // service/poll/run-refusal.ts
 var STALE_LEASE_CODE = "stale-lease";
-function refuse2(code, message) {
+function refuse3(code, message) {
   return { code, message };
 }
 function staleAttemptMessage(attempt, current) {
@@ -6509,7 +6597,7 @@ function sessionIdOf(run) {
 }
 function judgeLease(input) {
   const { run, leaseId, attempt, now } = input;
-  const stale = refuse2("stale-lease", STALE_MESSAGE);
+  const stale = refuse3("stale-lease", STALE_MESSAGE);
   if (run.lease?.leaseId !== leaseId) {
     return stale;
   }
@@ -6522,7 +6610,7 @@ function judgeReserve(input) {
   const { run } = input;
   if (runHistoryIndicatesSession(run)) {
     const sessionId = sessionIdOf(run);
-    return refuse2("already-dispatched", sessionId === null ? "this run already produced a session" : `a session already exists: ${sessionId}`);
+    return refuse3("already-dispatched", sessionId === null ? "this run already produced a session" : `a session already exists: ${sessionId}`);
   }
   const lease = judgeLease(input);
   if (lease !== null) {
@@ -6530,9 +6618,9 @@ function judgeReserve(input) {
   }
   const { reservation } = run;
   if (reservation !== null) {
-    return refuse2("already-reserved", `this run is already authorized: attempt ${reservation.attempt} must report by ` + `${reservation.resultDeadlineAt}`);
+    return refuse3("already-reserved", `this run is already authorized: attempt ${reservation.attempt} must report by ` + `${reservation.resultDeadlineAt}`);
   }
-  return run.state === "claimed" ? null : refuse2(INVALID_TRANSITION, `this run is ${run.state}; only a claimed run can be authorized`);
+  return run.state === "claimed" ? null : refuse3(INVALID_TRANSITION, `this run is ${run.state}; only a claimed run can be authorized`);
 }
 function reservedRun(input) {
   const { run, dispatchToken, resultDeadlineAt, now } = input;
@@ -6617,9 +6705,9 @@ function judgeBlock(input) {
   }
   if (runHistoryIndicatesSession(run)) {
     const sessionId = sessionIdOf(run);
-    return refuse2(INVALID_TRANSITION2, sessionId === null ? "this run already produced a session and cannot be blocked" : `this run already produced session ${sessionId} and cannot be blocked`);
+    return refuse3(INVALID_TRANSITION2, sessionId === null ? "this run already produced a session and cannot be blocked" : `this run already produced session ${sessionId} and cannot be blocked`);
   }
-  return run.state === "claimed" ? null : refuse2(INVALID_TRANSITION2, `this run is ${run.state}; only a claimed run can be blocked`);
+  return run.state === "claimed" ? null : refuse3(INVALID_TRANSITION2, `this run is ${run.state}; only a claimed run can be blocked`);
 }
 function blockedRun(input) {
   const { run, blockedReason, detail, now } = input;
@@ -6696,7 +6784,7 @@ function repeatedOutcome(input) {
 }
 function conflict(run) {
   const sessionId = sessionIdOf(run);
-  return refuse2(INVALID_TRANSITION3, sessionId === null ? "a different outcome is already recorded for this attempt and cannot be replaced" : `this attempt already reported session ${sessionId}; a different outcome cannot replace it`);
+  return refuse3(INVALID_TRANSITION3, sessionId === null ? "a different outcome is already recorded for this attempt and cannot be replaced" : `this attempt already reported session ${sessionId}; a different outcome cannot replace it`);
 }
 function tokenSpent(run, dispatchToken) {
   const live = currentAttempt(run);
@@ -6704,7 +6792,7 @@ function tokenSpent(run, dispatchToken) {
 }
 function judgeReport(input) {
   const { run, dispatchToken, attempt, outcome } = input;
-  const stale = refuse2("stale-lease", STALE_TOKEN_MESSAGE);
+  const stale = refuse3("stale-lease", STALE_TOKEN_MESSAGE);
   const { reservation } = run;
   if (reservation?.dispatchToken !== dispatchToken) {
     return { refusal: stale };
@@ -6719,7 +6807,7 @@ function judgeReport(input) {
     return { refusal: stale };
   }
   return run.state === "starting" || run.state === "unconfirmed" ? { verdict: "apply" } : {
-    refusal: refuse2(INVALID_TRANSITION3, `this run is ${run.state}; an authorized outcome can only be reported while it is ` + "starting or unconfirmed")
+    refusal: refuse3(INVALID_TRANSITION3, `this run is ${run.state}; an authorized outcome can only be reported while it is ` + "starting or unconfirmed")
   };
 }
 function closedAttempt(input) {
@@ -6990,7 +7078,7 @@ async function refuseRunRequest(input) {
     await operateRun({ store, log: context.log, correlationId }, async ({ run }) => await appendRefusalRow({
       store,
       log: context.log,
-      refusal: { run, operation, refusal: refuse2("validation", reason), attempt: run.attempt }
+      refusal: { run, operation, refusal: refuse3("validation", reason), attempt: run.attempt }
     }));
   }
   return response;
@@ -7367,7 +7455,7 @@ function invalidTransition(state) {
     ["starting", "an attempt is in flight; this run is already authorized to start"],
     ["dead-lettered", "this run is dead-lettered; use return-to-waiting, which resets the attempt count"]
   ]);
-  return refuse2(INVALID_TRANSITION4, messages.get(state) ?? `this run is ${state}; it cannot be retried`);
+  return refuse3(INVALID_TRANSITION4, messages.get(state) ?? `this run is ${state}; it cannot be retried`);
 }
 async function refused(input) {
   const { run, operation, refusal, store, log } = input;
@@ -7385,7 +7473,7 @@ async function refused(input) {
 function judgeRetry(input) {
   const { run, causeCleared, bindings } = input;
   if (input.attempt !== run.attempt) {
-    return refuse2(STALE_LEASE_CODE, staleAttemptMessage(input.attempt, run.attempt));
+    return refuse3(STALE_LEASE_CODE, staleAttemptMessage(input.attempt, run.attempt));
   }
   if (run.state === "failed") {
     return null;
@@ -7395,9 +7483,9 @@ function judgeRetry(input) {
   }
   const blockedReason = run.state.slice("blocked:".length);
   if (blockedReason === CORROBORATED_BLOCKED_REASON) {
-    return bindings.some((binding) => binding.bindingId === run.bindingId) ? "corroborated" : refuse2("cause-not-cleared", `the cause has not cleared: the binding ${run.bindingId} is still absent`);
+    return bindings.some((binding) => binding.bindingId === run.bindingId) ? "corroborated" : refuse3("cause-not-cleared", `the cause has not cleared: the binding ${run.bindingId} is still absent`);
   }
-  return causeCleared ? "reported" : refuse2("cause-not-cleared", `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this row ` + "records what was checked");
+  return causeCleared ? "reported" : refuse3("cause-not-cleared", `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this row ` + "records what was checked");
 }
 function waitingRun(input) {
   const { run, now } = input;
@@ -7461,7 +7549,7 @@ async function requeueDispatch(input) {
         ...input,
         run,
         operation: "requeue",
-        refusal: refuse2(INVALID_TRANSITION4, `this run is ${run.state}; only a dead-lettered run can be returned to waiting`)
+        refusal: refuse3(INVALID_TRANSITION4, `this run is ${run.state}; only a dead-lettered run can be returned to waiting`)
       });
     }
     const attemptBefore = run.attempt;
@@ -7492,9 +7580,9 @@ async function requeueDispatch(input) {
 function judgeResolve(input) {
   const { run } = input;
   if (run.state === "unconfirmed") {
-    return runHistoryIndicatesSession(run) ? refuse2(INVALID_TRANSITION4, "this run already records a session and cannot be resolved") : null;
+    return runHistoryIndicatesSession(run) ? refuse3(INVALID_TRANSITION4, "this run already records a session and cannot be resolved") : null;
   }
-  return refuse2(INVALID_TRANSITION4, `this run is ${run.state}; only an unconfirmed run can be resolved`);
+  return refuse3(INVALID_TRANSITION4, `this run is ${run.state}; only an unconfirmed run can be resolved`);
 }
 function resolvedRun(input) {
   const { run, sessionId, now } = input;
@@ -7557,12 +7645,12 @@ var INVALID_TRANSITION5 = "invalid-transition";
 function judgeVerification(input) {
   const { run, attempt, sessionId } = input;
   if (attempt !== run.attempt) {
-    return refuse2(STALE_LEASE_CODE, staleAttemptMessage(attempt, run.attempt));
+    return refuse3(STALE_LEASE_CODE, staleAttemptMessage(attempt, run.attempt));
   }
   if (run.session === null) {
-    return refuse2(INVALID_TRANSITION5, `this run is ${run.state} and records no session, so there is nothing to read back`);
+    return refuse3(INVALID_TRANSITION5, `this run is ${run.state} and records no session, so there is nothing to read back`);
   }
-  return run.session.sessionId === sessionId ? null : refuse2(INVALID_TRANSITION5, "the reported session is not the session this run recorded");
+  return run.session.sessionId === sessionId ? null : refuse3(INVALID_TRANSITION5, "the reported session is not the session this run recorded");
 }
 async function recordVerification(input) {
   return await operateRun(input, async ({ run, now, persist }) => {
@@ -8506,7 +8594,6 @@ async function readCycleConfig(input) {
 
 // service/poll/triggers.ts
 var BODY_EXCERPT_MAX_CHARS = 600;
-var AUTHOR_LOGIN_MAX_CHARS = 60;
 function repositoryRefOf(binding) {
   const index = binding.repository.indexOf("/");
   if (index < 0) {
@@ -8554,26 +8641,20 @@ function mentionsLogin(body, login) {
   }
   return false;
 }
-function isBotAuthor(authorLogin, authorType) {
-  return authorLogin.toLowerCase().endsWith("[bot]") || authorType.toLowerCase() === "bot";
-}
-function isMentionableAuthor(authorLogin, authorType) {
-  return authorLogin !== "" && !isBotAuthor(authorLogin, authorType);
-}
 function isMentionComment(comment, bindingLogin) {
-  if (!isMentionableAuthor(comment.authorLogin, comment.authorType)) {
+  if (!isAttributableAuthor(comment.authorLogin, comment.authorType)) {
     return false;
   }
   return mentionsLogin(comment.body, bindingLogin);
 }
 function isIssueBodyMention(issue2, bindingLogin) {
-  if (!isMentionableAuthor(issue2.authorLogin, issue2.authorType)) {
+  if (!isAttributableAuthor(issue2.authorLogin, issue2.authorType)) {
     return false;
   }
   return mentionsLogin(issue2.body ?? "", bindingLogin);
 }
 function isReviewRequestPull(pull, bindingLogin) {
-  if (bindingLogin === "") {
+  if (bindingLogin === "" || !isAttributableAuthor(pull.authorLogin, pull.authorType)) {
     return false;
   }
   const wanted = bindingLogin.toLowerCase();
@@ -8585,7 +8666,7 @@ function subjectShapeOf2(isPullRequest) {
 function mentionEvent(input) {
   const { binding, comment, issue: issue2, detectedAt } = input;
   const repository = repositoryRefOf(binding);
-  const commenter = comment.authorLogin.slice(0, AUTHOR_LOGIN_MAX_CHARS);
+  const commenter = actorLoginOf(comment.authorLogin);
   const fallbackUrl = `https://github.com/${repository.owner}/${repository.name}/issues/${comment.issueNumber}`;
   return createEvent({
     bindingId: binding.bindingId,
@@ -8603,6 +8684,8 @@ function mentionEvent(input) {
       issueUrl: issue2?.url ?? fallbackUrl,
       issueBodyExcerpt: bodyExcerptOf(comment.body)
     },
+    actorLogin: commenter,
+    actorAttribution: "direct",
     triggerNote: `Comment by ${commenter} on issue #${comment.issueNumber} mentioned the bound account`,
     detectedAt,
     ...issue2 === null ? {} : { subjectType: subjectShapeOf2(issue2.isPullRequest) }
@@ -8646,6 +8729,8 @@ function bodyMentionEvents(input) {
         issueUrl: issue2.url,
         issueBodyExcerpt: bodyExcerptOf(issue2.body)
       },
+      actorLogin: actorLoginOf(issue2.authorLogin),
+      actorAttribution: "direct",
       triggerNote: "mentioned in issue body",
       detectedAt,
       subjectType: subjectShapeOf2(issue2.isPullRequest)
@@ -8653,35 +8738,40 @@ function bodyMentionEvents(input) {
   }
   return events;
 }
+function reviewEvent(input) {
+  const { binding, pull, detectedAt } = input;
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repositoryRefOf(binding)),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "review",
+    headSha: pull.headSha,
+    baseRef: pull.baseRef,
+    issue: {
+      issueNumber: pull.pullNumber,
+      issueTitle: pull.title,
+      issueUrl: pull.url,
+      issueBodyExcerpt: ""
+    },
+    actorLogin: actorLoginOf(pull.authorLogin),
+    actorAttribution: "subject-author",
+    triggerNote: `Pull request #${pull.pullNumber} requested the bound account's review`,
+    detectedAt,
+    subjectType: "pull_request"
+  });
+}
 function reviewEvents(input) {
   const { binding, login, pulls, windowStart, detectedAt } = input;
-  const label = repositoryLabel(repositoryRefOf(binding));
   const events = [];
   for (const pull of pulls) {
     const eligible = updatedInWindow(pull.updatedAt, windowStart) && isReviewRequestPull(pull, login);
     if (!eligible) {
       continue;
     }
-    events.push(createEvent({
-      bindingId: binding.bindingId,
-      repository: label,
-      accountNumericUserId: binding.accountNumericUserId,
-      accountLogin: binding.accountLogin,
-      projectId: binding.projectId,
-      worktreeOption: binding.worktreeOption,
-      kind: "review",
-      headSha: pull.headSha,
-      baseRef: pull.baseRef,
-      issue: {
-        issueNumber: pull.pullNumber,
-        issueTitle: pull.title,
-        issueUrl: pull.url,
-        issueBodyExcerpt: ""
-      },
-      triggerNote: `Pull request #${pull.pullNumber} requested the bound account's review`,
-      detectedAt,
-      subjectType: "pull_request"
-    }));
+    events.push(reviewEvent({ binding, pull, detectedAt }));
   }
   return events;
 }
@@ -8772,34 +8862,38 @@ function skipOf(outcome) {
   }
   return outcome.detail === "timeout" || outcome.detail === "offline" ? "offline" : "upstream";
 }
+function assignmentEvent(input) {
+  const { binding, issue: issue2, detectedAt } = input;
+  const repository = repositoryRefOf(binding);
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repository),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "assignment",
+    issue: {
+      issueNumber: issue2.issueNumber,
+      issueTitle: issue2.title,
+      issueUrl: issue2.url,
+      issueBodyExcerpt: bodyExcerptOf(issue2.body)
+    },
+    actorLogin: actorLoginOf(issue2.authorLogin),
+    actorAttribution: "subject-author",
+    triggerNote: "Issue assigned to the bound account",
+    detectedAt,
+    subjectType: issue2.isPullRequest ? "pull_request" : "issue"
+  });
+}
 function eventsForBinding(input) {
-  const repository = repositoryRefOf(input.binding);
-  const { accountNumericUserId, accountLogin, projectId, worktreeOption } = input.binding;
-  const label = repositoryLabel(repository);
   const events = [];
   for (const issue2 of input.issues) {
-    const eligible = updatedInWindow(issue2.updatedAt, input.windowStart) && isIssueAssignment(issue2, input.binding.accountLogin);
+    const eligible = updatedInWindow(issue2.updatedAt, input.windowStart) && isAttributableAuthor(issue2.authorLogin, issue2.authorType) && isIssueAssignment(issue2, input.binding.accountLogin);
     if (!eligible) {
       continue;
     }
-    events.push(createEvent({
-      bindingId: input.binding.bindingId,
-      repository: label,
-      accountNumericUserId,
-      accountLogin,
-      projectId,
-      worktreeOption,
-      kind: "assignment",
-      issue: {
-        issueNumber: issue2.issueNumber,
-        issueTitle: issue2.title,
-        issueUrl: issue2.url,
-        issueBodyExcerpt: bodyExcerptOf(issue2.body)
-      },
-      triggerNote: "Issue assigned to the bound account",
-      detectedAt: input.detectedAt,
-      subjectType: issue2.isPullRequest ? "pull_request" : "issue"
-    }));
+    events.push(assignmentEvent({ binding: input.binding, issue: issue2, detectedAt: input.detectedAt }));
   }
   return events;
 }
@@ -9074,12 +9168,15 @@ function readPullEntry(value) {
   }
   const head = asRecord(record.head);
   const base = asRecord(record.base);
+  const user = asRecord(record.user);
   return {
     pullNumber,
     title,
     url,
     state,
     requestedReviewers,
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user),
     headSha: head === null ? null : textOf(head, "sha"),
     baseRef: base === null ? null : textOf(base, "ref"),
     updatedAt: textOf(record, "updated_at")

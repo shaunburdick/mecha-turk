@@ -151,6 +151,8 @@ function snapshot(issueNumber: number): EventSnapshot {
             issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
             issueBodyExcerpt: '',
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assigned to account',
         detectedAt: STAMP,
     };

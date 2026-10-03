@@ -192,8 +192,10 @@ network — those checks are operator-gated and recorded in the spec (see
 | `accounts/` | Durable account model, credential files, startup reconcile |
 | `account-prompt-audit.ts` | The account tier's observer lane: one `account.prompt-updated` row per change — profile write or hand edit — on a per-store chain with a trail-seeded baseline; never the prompt's text, and a `displayName`-only change is not a tier change (004 FR-088) |
 | `bindings.ts` / `bindings-read.ts` | Whole-file bindings store (validated, capped) + the read path: quarantine-reason capture and the prompt-change observation funnel |
+| `bindings-allow-list.ts` | The `allowedUsers` field's rule set and its three refusals, plus `isActorAllowed` — the **one** membership comparison in the product (002 FR-047, NFR-113; plan D9) |
 | `prompt.ts` / `prompt-audit.ts` | The starting-prompt domain (four refusals, `mtp-` fingerprint, run snapshot) — including the three-tier resolver and stack vocabulary (`TierPrompt`, `promptTierOf`, `composePromptBody`, `resolvePromptSnapshot`, the stack bound, the stored-snapshot reader) — and the per-store chain that writes exactly one `binding.prompt-updated` row per change |
 | `poll/` | Per-binding scan loop, trigger detection over the rate budget, durable event queue (deterministic ids, claim, terminal dispatch) |
+| `poll/attribution.ts` | Attribution, both sides: `isBotAuthor` / `isAttributableAuthor` / the one author-login bound at detection, and the stored row's `actorLogin` + `actorAttribution` vocabulary and readers (002 FR-043 – FR-045) |
 | `poll/run-key.ts` | Run key, correlation id, dispatch token, and token-fingerprint derivation |
 | `poll/runs*.ts` | `runs.json` document: fail-closed parser, join/create, one-shot adoption of pre-003 rows, lifecycle audit rows and the durable audit outbox |
 | `poll/claim*.ts` | Lease-issuing claim: eligibility, projection, and the answer's run/byte bounds |

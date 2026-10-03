@@ -127,6 +127,8 @@ function assignment(issueNumber: number): EventSnapshot {
             issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
             issueBodyExcerpt: 'body excerpt',
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assigned',
         detectedAt: STAMP,
     };
@@ -259,6 +261,8 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
                     ...assignment(12),
                     kind: 'mention',
                     origin: 'body',
+                    actorLogin: 'alice',
+                    actorAttribution: 'direct',
                     triggerNote: 'body mention',
                 }],
                 prompt: bindingSnapshot(PROMPT_B),

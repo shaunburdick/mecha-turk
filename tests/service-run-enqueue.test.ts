@@ -83,6 +83,8 @@ function assignment(issueNumber: number): EventSnapshot {
             issueUrl: `${ISSUE_URL_PREFIX}${issueNumber}`,
             issueBodyExcerpt: 'body excerpt',
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assigned',
         detectedAt: STAMP,
     };
@@ -95,6 +97,8 @@ function commentMention(issueNumber: number, commentId: number): EventSnapshot {
         kind: 'mention',
         origin: 'comment',
         commentId,
+        actorLogin: 'alice',
+        actorAttribution: 'direct',
         triggerNote: `comment ${commentId} mention`,
     };
 }
@@ -105,6 +109,8 @@ function bodyMention(issueNumber: number): EventSnapshot {
         ...assignment(issueNumber),
         kind: 'mention',
         origin: 'body',
+        actorLogin: 'alice',
+        actorAttribution: 'direct',
         triggerNote: 'body mention',
     };
 }

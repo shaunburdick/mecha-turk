@@ -9,6 +9,10 @@
  * entries it force-disables, so these records keep that exact field:
  * `state` is *the* disabled truth, and there is no separate enabled flag.
  *
+ * One field's rule set lives in [`bindings-allow-list.ts`](./bindings-allow-list.ts)
+ * — `allowedUsers` validation plus its single membership comparison — read on
+ * both the build and the collect-every-refusal pass (002 FR-024, plan D2).
+ *
  * MVP-DEBT: the contract's per-binding `PATCH /v1/bindings/:bindingId` and
  * its draft/project-missing state machine are not implemented — the
  * whole-file grant is the simplest honest surface for one operator and one
@@ -19,6 +23,7 @@ import { nowIso } from '../src/ids.ts';
 import { parseProjectId, parseRepository, parseWorktreeOption } from '../src/config.ts';
 import { isRecord } from './json.ts';
 import { validateStartingPrompt } from './prompt.ts';
+import { bindingAllowedUsersOf } from './bindings-allow-list.ts';
 import { BINDINGS_FILE } from './accounts/store.ts';
 import type { ServiceStore } from './store/index.ts';
 
@@ -67,6 +72,16 @@ export interface BindingRecord {
      * file and a panel save answer the same rules (004 FR-019, plan D2).
      */
     readonly startingPrompt?: string;
+    /**
+     * The GitHub logins allowed to trigger dispatches from this repository
+     * (002 FR-047). **Absent means any human actor may trigger**: the key is
+     * omitted, never `[]`/`null`/`''` (plan D4), and `[]` is a refusal, not a
+     * state. The stored spelling is preserved; only the comparison folds case
+     * (plan D5), and {@link bindingAllowedUsersOf} validates it on every read
+     * and write. **Configuration, and it never leaves this store** — only the
+     * policy's *shape* is reported elsewhere (002 NFR-113).
+     */
+    readonly allowedUsers?: readonly string[];
 }
 
 /** One rejected field, in the field + remediation vocabulary the config sets. */
@@ -83,17 +98,18 @@ export type BindingVerdict =
     | { readonly issues: readonly BindingIssue[] };
 
 /**
- * The four field verdicts, as {@link refusalsIn} reads them.
+ * The five field verdicts, as {@link refusalsIn} reads them.
  *
  * A union rather than a single weak all-optional shape: TypeScript rejects an
  * object with "no properties in common" against every-optional types, and the
  * success shapes here are deliberately different (`binding`, `binding`,
- * `binding`, `prompt`).
+ * `binding`, `prompt`, `users`).
  */
 type FieldVerdict =
     | { readonly issue: BindingIssue }
     | { readonly binding: unknown }
-    | { readonly prompt: string | null };
+    | { readonly prompt: string | null }
+    | { readonly users: readonly string[] | null };
 
 /** Result of validating a whole PUT document. */
 export type BindingValidation =
@@ -369,7 +385,7 @@ function bindingPromptOf(raw: Record<string, unknown>): {
 }
 
 /**
- * Build the record from four already-validated parts, refusing at the first
+ * Build the record from five already-validated parts, refusing at the first
  * one that will not fit.
  *
  * The short-circuit here is **not** the reporting order: {@link parseBinding}
@@ -401,6 +417,11 @@ function assembleBinding(raw: Record<string, unknown>, accountExists: boolean): 
         return null;
     }
 
+    const allowedUsers = bindingAllowedUsersOf(raw);
+    if ('issue' in allowedUsers) {
+        return null;
+    }
+
     const login = identity.binding.accountLogin.trim();
     const createdAt = stampOrKeep(raw.createdAt, nowIso());
 
@@ -410,13 +431,14 @@ function assembleBinding(raw: Record<string, unknown>, accountExists: boolean): 
         ...target.binding,
         ...mode.binding,
         ...(prompt.prompt === null ? {} : { startingPrompt: prompt.prompt }),
+        ...(allowedUsers.users === null ? {} : { allowedUsers: allowedUsers.users }),
         createdAt,
         updatedAt: stampOrKeep(raw.updatedAt, createdAt),
     };
 }
 
 /**
- * Collect every refusal four field verdicts produced, in field order.
+ * Collect every refusal five field verdicts produced, in field order.
  *
  * @param verdicts - The verdicts, each either a value or a refusal.
  * @returns every refusal found, in the order the fields were named.
@@ -459,6 +481,7 @@ export function parseBinding(input: {
             bindingTargetOf(raw),
             bindingModeOf(raw),
             bindingPromptOf(raw),
+            bindingAllowedUsersOf(raw),
         ]),
     };
 }

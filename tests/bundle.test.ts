@@ -650,6 +650,8 @@ function containmentDetection(issueNumber: number): EventSnapshot {
             issueUrl: `https://github.com/${CONTAINMENT_REPOSITORY}/issues/${issueNumber}`,
             issueBodyExcerpt: '',
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assignment fixture',
         detectedAt: SCANNED_STAMP,
     };

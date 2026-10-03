@@ -13,7 +13,7 @@
  * or the same review request must produce the same bytes on every scan.
  */
 
-import type { QueuedEvent, SubjectType } from './events-parse.ts';
+import type { ActorAttribution, QueuedEvent, SubjectType } from './events-parse.ts';
 
 /** Fields every trigger's detection snapshot carries. */
 interface BaseEventSnapshot {
@@ -40,6 +40,23 @@ interface BaseEventSnapshot {
         /** The (bounded) issue body excerpt. */
         readonly issueBodyExcerpt: string;
     };
+    /**
+     * The GitHub login this delivery is attributed to (002 FR-043).
+     *
+     * **Required on every snapshot**, because attribution is mandatory and
+     * fail-closed: a trigger that cannot name a human author must not build a
+     * snapshot at all (002 FR-045(b)). The value is public repository identity,
+     * never a credential, so it is credential-free by construction.
+     */
+    readonly actorLogin: string;
+    /**
+     * How that attribution was made (002 FR-044) — the difference between a
+     * fact and an inference, and never left implicit: `direct` when GitHub
+     * named the author of the very text that carried the mention,
+     * `subject-author` when the issue/PR author stands in for an actor the list
+     * feeds never record (002 NFR-011).
+     */
+    readonly actorAttribution: ActorAttribution;
     /** The panel-rendered trigger phrase. */
     readonly triggerNote: string;
     /** Detection stamp. */
@@ -123,6 +140,14 @@ export type EventSnapshot =
  * review request distinct from the same PR's assignment. A comment id is
  * always a number, so `~mention~body` can never collide with one.
  *
+ * `evt-<owner>~<repo>~<issueNumber>~<accountNumericUserId>` plus its optional
+ * discriminator — `~mention~<commentId>`, the fixed `~mention~body`, or
+ * `~review` — is **unchanged by this amendment**, for the reason 003 FR-012
+ * already gives for the same identifier: it is simultaneously the delivery's
+ * dedupe key, its relay path segment, and the reference recorded in existing
+ * panel ledgers, audit rows, and the run history. The actor therefore
+ * **rides the record and never its identity**.
+ *
  * @param input - Repository, issue, account, and discriminator for the id.
  * @returns A `[A-Za-z0-9._~]`-only id of one path segment.
  */
@@ -201,6 +226,14 @@ function subjectTypeOfSnapshot(snapshot: EventSnapshot): SubjectType {
  * a fresh detection). `runCorrelationId` is added by the enqueue pass, which
  * is the only place the ordinal — and therefore the run — is known.
  *
+ * The two actor members ride beside the other optional snapshot members
+ * (`subjectType`), **not** the id: `buildEventId` is untouched, because that
+ * id is simultaneously the dedupe key, the relay path segment, and the
+ * reference already recorded in panel ledgers, audit rows, and the run history
+ * (002 FR-046). An issue observed once before this change and once after it is
+ * still **one** event, and tightening a binding's allow-list can never
+ * manufacture duplicate work.
+ *
  * @param snapshot - Detection inputs.
  * @returns A fresh delivery row.
  */
@@ -221,6 +254,8 @@ export function createEvent(snapshot: EventSnapshot): QueuedEvent {
         issueTitle: snapshot.issue.issueTitle,
         issueUrl: snapshot.issue.issueUrl,
         issueBodyExcerpt: snapshot.issue.issueBodyExcerpt,
+        actorLogin: snapshot.actorLogin,
+        actorAttribution: snapshot.actorAttribution,
         headSha: headShaOf(snapshot),
         baseRef: baseRefOf(snapshot),
         triggerNote: snapshot.triggerNote,

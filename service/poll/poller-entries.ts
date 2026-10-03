@@ -68,8 +68,9 @@ export interface PollComment {
 /**
  * Minimal pull-request shape the poller normalizes (M7).
  *
- * Only what the review-request trigger needs: who is asked to review, and
- * the head/base coordinates the event carries for the dispatch context.
+ * Only what the review-request trigger needs: who is asked to review, who
+ * opened it, and the head/base coordinates the event carries for the dispatch
+ * context.
  */
 export interface PollPull {
     /** Pull-request number within the repository. */
@@ -82,6 +83,25 @@ export interface PollPull {
     readonly state: string;
     /** Logins of the accounts currently requested to review. */
     readonly requestedReviewers: readonly string[];
+    /**
+     * Login of the pull request's author, or `''` when GitHub sent no `user`
+     * (002 FR-045).
+     *
+     * The pulls list names **no** requester, so this author is the only
+     * identity the review trigger has to attribute to — and it is therefore a
+     * documented proxy, not the person who acted (002 FR-044, research §R8).
+     * It rides a response the scan already fetched: no new endpoint, no new
+     * request, no rate cost.
+     */
+    readonly authorLogin: string;
+    /**
+     * Author type (`User`, `Bot`, `Organization`, …); `''` when absent.
+     *
+     * Read beside the login and judged by the same {@link isBotAuthor}
+     * predicate the other two feeds use, so one bot rule covers all four
+     * trigger kinds (002 FR-045(a)/(c)).
+     */
+    readonly authorType: string;
     /** Head commit SHA, or `null` when GitHub sent none. */
     readonly headSha: string | null;
     /** Base ref name, or `null` when GitHub sent none. */
@@ -286,6 +306,7 @@ export function readPullEntry(value: unknown): PollPull | null {
 
     const head = asRecord(record.head);
     const base = asRecord(record.base);
+    const user = asRecord(record.user);
 
     return {
         pullNumber,
@@ -293,6 +314,13 @@ export function readPullEntry(value: unknown): PollPull | null {
         url,
         state,
         requestedReviewers,
+        // Read exactly as `readIssueEntry` and `readCommentEntry` read theirs,
+        // `''`-when-absent included. Unlike the comment reader this does **not**
+        // drop the entry: GitHub names no requester, so the author is the only
+        // identity available, and whether it is readable is the trigger's
+        // judgement to make (002 FR-045(b)) rather than the reader's.
+        authorLogin: authorLoginOf(user),
+        authorType: authorTypeOf(user),
         headSha: head === null ? null : textOf(head, 'sha'),
         baseRef: base === null ? null : textOf(base, 'ref'),
         updatedAt: textOf(record, 'updated_at'),

@@ -151,13 +151,17 @@ function detection(input: {
             issueUrl: `https://github.com/${REPOSITORY}/issues/${input.issueNumber}`,
             issueBodyExcerpt: '',
         },
+        actorLogin: 'alice',
         triggerNote: `${input.kind} fixture`,
         detectedAt: input.detectedAt,
     };
 
+    // The basis is per trigger kind, not per fixture: a comment mention names
+    // its own author directly, an assignment is attributed to the issue author
+    // as a documented proxy (002 FR-044).
     return input.kind === 'mention'
-        ? { ...base, kind: 'mention', origin: 'comment', commentId: 4242 }
-        : { ...base, kind: 'assignment' };
+        ? { ...base, kind: 'mention', actorAttribution: 'direct', origin: 'comment', commentId: 4242 }
+        : { ...base, kind: 'assignment', actorAttribution: 'subject-author' };
 }
 
 /** The legacy row adoption starts from: shipped vocabulary, still `pending`. */

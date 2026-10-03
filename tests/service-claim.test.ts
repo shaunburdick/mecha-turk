@@ -91,6 +91,8 @@ function assignment(issueNumber: number): EventSnapshot {
             issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
             issueBodyExcerpt: `body of issue ${issueNumber}`,
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assigned',
         detectedAt: STAMP,
     };

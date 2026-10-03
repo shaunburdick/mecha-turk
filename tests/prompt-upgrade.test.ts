@@ -197,6 +197,8 @@ function detection(): EventSnapshot {
             issueUrl: ISSUE_URL,
             issueBodyExcerpt: ISSUE_BODY,
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assigned',
         detectedAt: STAMP,
     };

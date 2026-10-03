@@ -240,17 +240,33 @@ function detection(input: {
             issueUrl: `https://github.com/${REPOSITORY}/issues/${input.issueNumber}`,
             issueBodyExcerpt: '',
         },
+        actorLogin: 'alice',
         triggerNote: `${input.kind} fixture`,
         detectedAt: input.detectedAt,
     };
 
+    // The basis is per trigger kind, not per fixture: a comment mention names
+    // its own author directly, while an assignment and a review request are
+    // attributed to the subject's author as a documented proxy (002 FR-044).
     if (input.kind === 'review') {
-        return { ...base, kind: 'review', headSha: 'deadbeefcafe000000000000000000000000beef', baseRef: 'main' };
+        return {
+            ...base,
+            kind: 'review',
+            actorAttribution: 'subject-author',
+            headSha: 'deadbeefcafe000000000000000000000000beef',
+            baseRef: 'main',
+        };
     }
 
     return input.kind === MENTION_KIND
-        ? { ...base, kind: 'mention', origin: 'comment', commentId: input.commentId ?? 4242 }
-        : { ...base, kind: 'assignment' };
+        ? {
+            ...base,
+            kind: 'mention',
+            actorAttribution: 'direct',
+            origin: 'comment',
+            commentId: input.commentId ?? 4242,
+        }
+        : { ...base, kind: 'assignment', actorAttribution: 'subject-author' };
 }
 
 /**

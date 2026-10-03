@@ -22,9 +22,17 @@
  *   inside `@octocat-mt`;
  * - text authored by bots is ignored — a bot mentioning the account is
  *   noise, and bots mention each other for a living — and an entry with no
- *   readable author is refused rather than dispatched;
+ *   readable author is refused rather than dispatched. One exported predicate,
+ *   {@link isAttributableAuthor}, makes that judgement for **all four** trigger
+ *   kinds (002 FR-045, plan D3);
  * - a review request is a pull request whose `requested_reviewers` names
  *   the bound account, case-insensitively;
+ * - every event records **who** it is attributed to and **on what basis**
+ *   (002 FR-043, FR-044): the two mention kinds read `direct`, because GitHub
+ *   named the author of the text that carried the mention; the review kind
+ *   reads `subject-author`, because the pulls list names no requester and the
+ *   pull request's author is the documented proxy every surface must label as
+ *   one (002 NFR-011);
  * - every match still has to fall inside the scan window, exactly like an
  *   assignment (a replay scan has no window, so a first scan sees
  *   everything the feed returns).
@@ -33,15 +41,13 @@
 import { repositoryLabel } from '../../src/config.ts';
 import type { RepositoryRef } from '../../src/config.ts';
 import type { BindingRecord } from '../bindings.ts';
+import { actorLoginOf, isAttributableAuthor } from './attribution.ts';
 import { createEvent } from './events.ts';
 import type { QueuedEvent, SubjectType } from './events.ts';
 import type { GitHubIssuePoller, ListPace, PollComment, PollFailure, PollIssue, PollPull } from './poller-github.ts';
 
 /** Longest body excerpt one event carries (bounded untrusted text). */
 const BODY_EXCERPT_MAX_CHARS = 600;
-
-/** Longest author login a trigger note carries (bounded upstream text). */
-const AUTHOR_LOGIN_MAX_CHARS = 60;
 
 /** What one binding's trigger scan produced. */
 export type TriggerEvents =
@@ -156,36 +162,6 @@ export function mentionsLogin(body: string, login: string): boolean {
 }
 
 /**
- * Decide whether an author is a bot.
- *
- * GitHub marks its own accounts with a `[bot]` login suffix and reports
- * `type: 'Bot'` for the rest; either signal is enough.
- *
- * @param authorLogin - Author's login.
- * @param authorType - Author type (`User`, `Bot`, …), `''` when absent.
- * @returns `true` when the author is a bot.
- */
-export function isBotAuthor(authorLogin: string, authorType: string): boolean {
-    return authorLogin.toLowerCase().endsWith('[bot]') || authorType.toLowerCase() === 'bot';
-}
-
-/**
- * Decide whether one author's text may trigger a mention at all.
- *
- * Bots are noise (they mention each other for a living), and an author
- * GitHub would not name (`authorLogin === ''`) is ambiguous — the comment
- * reader drops such an entry outright — so both fail closed (spec FR-016,
- * FR-024).
- *
- * @param authorLogin - Author's login, `''` when GitHub sent no `user`.
- * @param authorType - Author type (`User`, `Bot`, …), `''` when absent.
- * @returns `true` only for a readable, non-bot author.
- */
-function isMentionableAuthor(authorLogin: string, authorType: string): boolean {
-    return authorLogin !== '' && !isBotAuthor(authorLogin, authorType);
-}
-
-/**
  * Decide whether one comment is a mention the binding should react to.
  *
  * @param comment - Normalized comment.
@@ -193,7 +169,7 @@ function isMentionableAuthor(authorLogin: string, authorType: string): boolean {
  * @returns `true` when a human commented `@<login>` on this issue.
  */
 export function isMentionComment(comment: PollComment, bindingLogin: string): boolean {
-    if (!isMentionableAuthor(comment.authorLogin, comment.authorType)) {
+    if (!isAttributableAuthor(comment.authorLogin, comment.authorType)) {
         return false;
     }
 
@@ -213,7 +189,7 @@ export function isMentionComment(comment: PollComment, bindingLogin: string): bo
  * @returns `true` when a human opened this issue with `@<login>` in its body.
  */
 export function isIssueBodyMention(issue: PollIssue, bindingLogin: string): boolean {
-    if (!isMentionableAuthor(issue.authorLogin, issue.authorType)) {
+    if (!isAttributableAuthor(issue.authorLogin, issue.authorType)) {
         return false;
     }
 
@@ -223,12 +199,18 @@ export function isIssueBodyMention(issue: PollIssue, bindingLogin: string): bool
 /**
  * Decide whether one pull request asked the bound account to review it.
  *
+ * The authorship filter runs here too, not only on the mention paths: the
+ * delivery is attributed to the pull request's author as a **documented proxy**
+ * (002 FR-044), so an attribution nobody may act under is refused at
+ * detection rather than enqueued with an actor no gate would admit (002
+ * FR-045(a)/(b)).
+ *
  * @param pull - Normalized pull request.
  * @param bindingLogin - The bound account's login.
  * @returns `true` when that account is one of the requested reviewers.
  */
 export function isReviewRequestPull(pull: PollPull, bindingLogin: string): boolean {
-    if (bindingLogin === '') {
+    if (bindingLogin === '' || !isAttributableAuthor(pull.authorLogin, pull.authorType)) {
         return false;
     }
 
@@ -272,7 +254,7 @@ function mentionEvent(input: {
 }): QueuedEvent {
     const { binding, comment, issue, detectedAt } = input;
     const repository = repositoryRefOf(binding);
-    const commenter = comment.authorLogin.slice(0, AUTHOR_LOGIN_MAX_CHARS);
+    const commenter = actorLoginOf(comment.authorLogin);
     const fallbackUrl = `https://github.com/${repository.owner}/${repository.name}/issues/${comment.issueNumber}`;
 
     return createEvent({
@@ -291,6 +273,10 @@ function mentionEvent(input: {
             issueUrl: issue?.url ?? fallbackUrl,
             issueBodyExcerpt: bodyExcerptOf(comment.body),
         },
+        // GitHub named the author of the very comment that carried the mention,
+        // so this attribution is a fact rather than an inference (002 FR-044).
+        actorLogin: commenter,
+        actorAttribution: 'direct',
         triggerNote: `Comment by ${commenter} on issue #${comment.issueNumber} mentioned the bound account`,
         detectedAt,
         // The comment feed answers for issues *and* pull requests; when the
@@ -393,6 +379,10 @@ function bodyMentionEvents(input: {
                     issueUrl: issue.url,
                     issueBodyExcerpt: bodyExcerptOf(issue.body),
                 },
+                // GitHub named the author of the very issue body that carried the
+                // mention, so this attribution is a fact too (002 FR-044).
+                actorLogin: actorLoginOf(issue.authorLogin),
+                actorAttribution: 'direct',
                 triggerNote: 'mentioned in issue body',
                 detectedAt,
                 subjectType: subjectShapeOf(issue.isPullRequest),
@@ -401,6 +391,50 @@ function bodyMentionEvents(input: {
     }
 
     return events;
+}
+
+/**
+ * Build one `review` event from a pull request that asked for the account.
+ *
+ * @param input - The binding, the matched pull request, and the stamp.
+ * @returns The event, with the attribution the pulls list can actually support.
+ */
+function reviewEvent(input: {
+    /** The binding that produced the window. */
+    readonly binding: BindingRecord;
+    /** The pull request that asked for the account. */
+    readonly pull: PollPull;
+    /** RFC 3339 stamp pinned at cycle start. */
+    readonly detectedAt: string;
+}): QueuedEvent {
+    const { binding, pull, detectedAt } = input;
+
+    return createEvent({
+        bindingId: binding.bindingId,
+        repository: repositoryLabel(repositoryRefOf(binding)),
+        accountNumericUserId: binding.accountNumericUserId,
+        accountLogin: binding.accountLogin,
+        projectId: binding.projectId,
+        worktreeOption: binding.worktreeOption,
+        kind: 'review',
+        headSha: pull.headSha,
+        baseRef: pull.baseRef,
+        issue: {
+            issueNumber: pull.pullNumber,
+            issueTitle: pull.title,
+            issueUrl: pull.url,
+            issueBodyExcerpt: '',
+        },
+        // The pulls list names `requested_reviewers` and **never** who asked for
+        // them, so the pull request's author stands in as a documented proxy: the
+        // basis says so on the row, and no surface may present it as a fact
+        // (002 FR-044, NFR-011).
+        actorLogin: actorLoginOf(pull.authorLogin),
+        actorAttribution: 'subject-author',
+        triggerNote: `Pull request #${pull.pullNumber} requested the bound account's review`,
+        detectedAt,
+        subjectType: 'pull_request',
+    });
 }
 
 /**
@@ -422,7 +456,6 @@ function reviewEvents(input: {
     readonly detectedAt: string;
 }): QueuedEvent[] {
     const { binding, login, pulls, windowStart, detectedAt } = input;
-    const label = repositoryLabel(repositoryRefOf(binding));
     const events: QueuedEvent[] = [];
 
     for (const pull of pulls) {
@@ -432,28 +465,7 @@ function reviewEvents(input: {
             continue;
         }
 
-        events.push(
-            createEvent({
-                bindingId: binding.bindingId,
-                repository: label,
-                accountNumericUserId: binding.accountNumericUserId,
-                accountLogin: binding.accountLogin,
-                projectId: binding.projectId,
-                worktreeOption: binding.worktreeOption,
-                kind: 'review',
-                headSha: pull.headSha,
-                baseRef: pull.baseRef,
-                issue: {
-                    issueNumber: pull.pullNumber,
-                    issueTitle: pull.title,
-                    issueUrl: pull.url,
-                    issueBodyExcerpt: '',
-                },
-                triggerNote: `Pull request #${pull.pullNumber} requested the bound account's review`,
-                detectedAt,
-                subjectType: 'pull_request',
-            }),
-        );
+        events.push(reviewEvent({ binding, pull, detectedAt }));
     }
 
     return events;

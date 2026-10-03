@@ -42,6 +42,7 @@ import type { QueuedEvent } from './events.ts';
 import type { GitHubIssuePoller, ListPace, PollFailure, PollIssue } from './poller-github.ts';
 import { readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
 import type { ScanState } from './scan.ts';
+import { actorLoginOf, isAttributableAuthor } from './attribution.ts';
 import { bodyExcerptOf, collectTriggerEvents, repositoryRefOf, updatedInWindow } from './triggers.ts';
 import { windowFor } from './window.ts';
 
@@ -180,6 +181,49 @@ function skipOf(outcome: PollFailure): ScanSkip {
 }
 
 /**
+ * Build one `assignment` event from an issue the bound account picked up.
+ *
+ * @param input - The binding, the matched issue, and the detection stamp.
+ * @returns The event, with the attribution the issues list can actually support.
+ */
+function assignmentEvent(input: {
+    /** The binding that produced the window. */
+    readonly binding: BindingRecord;
+    /** The assigned issue. */
+    readonly issue: PollIssue;
+    /** RFC 3339 stamp pinned at cycle start. */
+    readonly detectedAt: string;
+}): QueuedEvent {
+    const { binding, issue, detectedAt } = input;
+    const repository = repositoryRefOf(binding);
+
+    return createEvent({
+        bindingId: binding.bindingId,
+        repository: repositoryLabel(repository),
+        accountNumericUserId: binding.accountNumericUserId,
+        accountLogin: binding.accountLogin,
+        projectId: binding.projectId,
+        worktreeOption: binding.worktreeOption,
+        kind: 'assignment',
+        issue: {
+            issueNumber: issue.issueNumber,
+            issueTitle: issue.title,
+            issueUrl: issue.url,
+            issueBodyExcerpt: bodyExcerptOf(issue.body),
+        },
+        // The issues list exposes `assignees` and never who assigned, so the
+        // issue author stands in as the documented proxy. The basis rides the
+        // row, and no surface may present it as the person who assigned (002
+        // FR-044, NFR-011).
+        actorLogin: actorLoginOf(issue.authorLogin),
+        actorAttribution: 'subject-author',
+        triggerNote: 'Issue assigned to the bound account',
+        detectedAt,
+        subjectType: issue.isPullRequest ? 'pull_request' : 'issue',
+    });
+}
+
+/**
  * Collect the events one binding's scan should enqueue.
  *
  * @param input - Binding, its window, the issues on the page, and the stamp.
@@ -195,38 +239,20 @@ function eventsForBinding(input: {
     /** RFC 3339 stamp pinned at cycle start. */
     readonly detectedAt: string;
 }): QueuedEvent[] {
-    const repository = repositoryRefOf(input.binding);
-    const { accountNumericUserId, accountLogin, projectId, worktreeOption } = input.binding;
-    const label = repositoryLabel(repository);
-
     const events: QueuedEvent[] = [];
     for (const issue of input.issues) {
         const eligible = updatedInWindow(issue.updatedAt, input.windowStart)
+            // Attribution is mandatory, so an assignment whose subject author is
+            // unreadable or a bot is dropped as non-actionable rather than
+            // enqueued with an actor nobody could attribute — exactly as the
+            // mention paths already refuse (002 FR-045(a)/(b)).
+            && isAttributableAuthor(issue.authorLogin, issue.authorType)
             && isIssueAssignment(issue, input.binding.accountLogin);
         if (!eligible) {
             continue;
         }
 
-        events.push(
-            createEvent({
-                bindingId: input.binding.bindingId,
-                repository: label,
-                accountNumericUserId,
-                accountLogin,
-                projectId,
-                worktreeOption,
-                kind: 'assignment',
-                issue: {
-                    issueNumber: issue.issueNumber,
-                    issueTitle: issue.title,
-                    issueUrl: issue.url,
-                    issueBodyExcerpt: bodyExcerptOf(issue.body),
-                },
-                triggerNote: 'Issue assigned to the bound account',
-                detectedAt: input.detectedAt,
-                subjectType: issue.isPullRequest ? 'pull_request' : 'issue',
-            }),
-        );
+        events.push(assignmentEvent({ binding: input.binding, issue, detectedAt: input.detectedAt }));
     }
 
     return events;

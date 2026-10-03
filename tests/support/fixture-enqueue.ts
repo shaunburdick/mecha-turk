@@ -90,19 +90,30 @@ function detection(input: {
             issueUrl: `https://github.com/${REPOSITORY}/issues/${input.issueNumber}`,
             issueBodyExcerpt: '',
         },
+        actorLogin: 'alice',
         triggerNote: `${input.trigger} fixture`,
         detectedAt: input.detectedAt,
     };
 
+    // The basis is per trigger kind, not per fixture: both mention kinds name
+    // the author of the text that carried the token directly, while an
+    // assignment is attributed to the issue author as a documented proxy
+    // (002 FR-044).
     if (input.trigger === 'assignment') {
-        return { ...base, kind: 'assignment' };
+        return { ...base, kind: 'assignment', actorAttribution: 'subject-author' };
     }
 
     if (input.trigger === 'body-mention') {
-        return { ...base, kind: 'mention', origin: 'body' };
+        return { ...base, kind: 'mention', actorAttribution: 'direct', origin: 'body' };
     }
 
-    return { ...base, kind: 'mention', origin: 'comment', commentId: 4_000 + input.issueNumber };
+    return {
+        ...base,
+        kind: 'mention',
+        actorAttribution: 'direct',
+        origin: 'comment',
+        commentId: 4_000 + input.issueNumber,
+    };
 }
 
 /**

@@ -619,6 +619,8 @@ function boundsDetection(issueNumber: number): EventSnapshot {
             issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
             issueBodyExcerpt: '',
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'bounds fixture',
         detectedAt: FIXTURE_TIMESTAMP,
     };

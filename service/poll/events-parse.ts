@@ -20,6 +20,8 @@
  */
 
 import { isRecord } from '../json.ts';
+import { actorFieldsOf, readActorAttributionField, readActorLoginField } from './attribution.ts';
+import type { ActorAttribution } from './attribution.ts';
 
 /** Store file holding the event queue. */
 export const EVENTS_FILE = 'events.json';
@@ -36,6 +38,13 @@ export type EventState = 'pending' | 'in-flight' | 'dispatched';
 
 /** The subject shapes a delivery can be about (003 FR-010). */
 export type SubjectType = 'issue' | 'pull_request';
+
+/**
+ * The attribution basis lives in `attribution.ts` beside the rules that judge
+ * an author; it is re-exported here so the queue keeps one import path (002
+ * FR-044).
+ */
+export type { ActorAttribution } from './attribution.ts';
 
 /** One relay event, exactly as stored and shipped. */
 export interface QueuedEvent {
@@ -112,6 +121,29 @@ export interface QueuedEvent {
      * the row.
      */
     readonly excerptTrimmedAt?: string;
+    /**
+     * The GitHub login this delivery is attributed to (002 FR-043).
+     *
+     * **Absentable on read, validated when present**, and both rules live in
+     * [`attribution.ts`](./attribution.ts) beside the basis's own vocabulary.
+     * A row enqueued before this member existed carries none and keeps none:
+     * requiring it would quarantine every pre-existing row, which is a
+     * migration by side effect (plan D2). Absence is not a permission — the
+     * authorization gate refuses a run whose references name no readable actor
+     * rather than reading absence as allowed (003 FR-080).
+     *
+     * Public repository identity, never a credential, so the member is
+     * credential-free by construction.
+     */
+    readonly actorLogin?: string;
+    /**
+     * How that attribution was made (002 FR-044), absentable on read and
+     * **validated when present**: an unrecognized basis refuses the row rather
+     * than defaulting to a guess (002 FR-024). A row written before this
+     * member existed reads as *no attribution was recorded* — which is not the
+     * same as `direct`, and never silently becomes it.
+     */
+    readonly actorAttribution?: ActorAttribution;
 }
 
 /**
@@ -300,6 +332,8 @@ function fieldsHold(record: Record<string, unknown>): boolean {
         && readSubjectTypeField(record) !== null
         && readRunLinkField(record) !== null
         && readTrimMarkerField(record) !== null
+        && readActorAttributionField(record) !== null
+        && readActorLoginField(record) !== null
     );
 }
 
@@ -417,9 +451,15 @@ function coordinatesOf(
  * legitimately be `''` (an issue with no body). The Slice-2 fields (`headSha`,
  * `baseRef`) may be missing outright — a row written before M7 still parses,
  * with both read as `null` — and the legacy lifecycle stamps may be missing
- * too, which is how a row 003 enqueued reads. Anything else — including a row
- * missing `issueNumber` outright, or a `state` outside the shipped three —
- * answers `null`, which the store turns into a quarantine.
+ * too, which is how a row 003 enqueued reads. The two actor members
+ * (`actorLogin`, `actorAttribution`) may be missing outright as well: they are
+ * **absentable on read and validated when present** (002 FR-043, plan D2), so
+ * a row written before 002 v1.11.0 still parses and reads as *no attribution
+ * recorded* — never as a default basis, because a defaulted basis states an
+ * inference as a fact (002 FR-044, NFR-011). Anything else — including a row
+ * missing `issueNumber` outright, a `state` outside the shipped three, or an
+ * unrecognized attribution basis — answers `null`, which the store turns into
+ * a quarantine.
  *
  * @param raw - One element from the stored array.
  * @returns The event, or `null` when the row cannot be trusted.
@@ -461,6 +501,7 @@ export function parseStoredEvent(raw: unknown): QueuedEvent | null {
         ...lifecycleOf(record, state),
         ...runLinkOf(record, subjectType),
         ...trimMarkerOf(record),
+        ...actorFieldsOf(record),
     };
 }
 
