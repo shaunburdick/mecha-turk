@@ -34,6 +34,7 @@ import type {
     StartSessionResult,
 } from '@openchamber/sdk';
 import { drainVerifications } from '../src/agent-verify.ts';
+import { actorGateFailure } from '../src/relay-gates.ts';
 import { dispatchClaimedRun, handledKey, pollRelay } from '../src/relay.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
@@ -96,6 +97,9 @@ const EXPECTED_AGENT = 'project-manager';
 /** Title every fixture issue and session carries. */
 const ISSUE_TITLE = 'Fix the flaky test';
 
+/** The staleness code a reserve answers when the lease is expired or superseded. */
+const STALE_LEASE_CODE = 'stale-lease';
+
 /** One answer in the service-double route table. */
 interface RouteAnswer {
     /** HTTP status the service answers with. */
@@ -106,6 +110,12 @@ interface RouteAnswer {
 
 /** Route table keyed by `METHOD path`. */
 type RouteTable = Readonly<Record<string, RouteAnswer>>;
+
+/** A `409 stale-lease` reserve: a refusal the panel only notes, never a block. */
+const STALE_RESERVE_REFUSAL: RouteAnswer = {
+    status: 409,
+    body: JSON.stringify({ error: { code: STALE_LEASE_CODE, message: 'lease expired' } }),
+};
 
 /**
  * Build one offered run.
@@ -403,16 +413,13 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
         {
             const relay = harness({
                 ...OK_ROUTES,
-                [`POST ${RUN_PATH}/reserve`]: {
-                    status: 409,
-                    body: JSON.stringify({ error: { code: 'stale-lease', message: 'lease expired' } }),
-                },
+                [`POST ${RUN_PATH}/reserve`]: STALE_RESERVE_REFUSAL,
             });
 
             await dispatchClaimedRun(relay.rt, claimedRun());
 
             expect(relay.timeline).toEqual([`POST ${RUN_PATH}/reserve`]);
-            expect(relay.rt.state.bindings.note).toContain('stale-lease');
+            expect(relay.rt.state.bindings.note).toContain(STALE_LEASE_CODE);
         }
         // case: never reaches the host when the service answers an unreadable authorization
         {
@@ -591,6 +598,32 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
 /** Round trips 002's relay spent between detection and the host call. */
 const SHIPPED_ROUND_TRIPS = 1;
 
+/* ------------------------------------------------------------------------- *
+ * 003 v1.8.0 — the actor allow-list gate, from the panel's side (FR-076, FR-078)
+ *
+ * The panel **never pre-checks the list**. Everything here is about what it does
+ * with the service's answer: report the refusal as the block report every other
+ * guard already posts, and never reach `host.startSession()`.
+ * ------------------------------------------------------------------------- */
+
+/** The gate's wire code, as the refusal envelope and the blocked reason both spell it. */
+const ACTOR_BLOCKED_CODE = 'actor-not-allowed';
+
+/** The service's own refusal message, naming the denied login and its basis. */
+const GATE_REFUSAL_MESSAGE = "no source reference on this run names an actor the binding's allowedUsers permits: "
+    + 'bob (the author GitHub recorded)';
+
+/** The route table a `409 actor-not-allowed` reserve produces. */
+const ACTOR_GATE_REFUSAL: RouteTable = {
+    ...OK_ROUTES,
+    [`POST ${RUN_PATH}/reserve`]: {
+        status: 409,
+        body: JSON.stringify({
+            error: { code: ACTOR_BLOCKED_CODE, message: GATE_REFUSAL_MESSAGE },
+        }),
+    },
+};
+
 /** Runs the run-history cap fixture opens beyond the cap itself. */
 const RUN_HISTORY_OVERFLOW = 50;
 
@@ -681,6 +714,99 @@ describe('detection-to-session round trips (NFR-101, AC-127, SC-110)', () => {
         const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
         expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
         expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+    });
+
+    it('adds nothing on the authorized path, and one report on the refused one (003 NFR-114)', async () => {
+        // The gate is a **decision inside the reserve**, not a call of its own:
+        // the panel↔service round trip count on an authorized path is exactly
+        // what it was before this block, because the panel never asks about the
+        // allow-list (003 FR-076 — one membership comparison, in the service).
+        {
+            const relay = harness();
+            await pollRelay(relay.rt);
+
+            const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
+            expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
+            expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+        }
+        // The refused path costs exactly the **one** block report every guard
+        // already owes — no second call to re-ask, no probe of the list.
+        {
+            const relay = harness(ACTOR_GATE_REFUSAL);
+
+            await pollRelay(relay.rt);
+
+            expect(relay.timeline).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`, `POST ${RUN_PATH}/blocked`]);
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
+        }
+    });
+});
+
+describe('003 v1.8.0 the panel reports the gate through the block report (FR-078)', () => {
+    it('posts blocked with the service own words, and calls no host method (+3 cases)', async () => {
+        // case: reserve → 409 → blocked, with **zero** `host.startSession()`
+        {
+            const relay = harness(ACTOR_GATE_REFUSAL);
+
+            await pollRelay(relay.rt);
+
+            // The whole call log, in order. Nothing else happened: no result, no
+            // record, no read-back, and above all no host call (FR-028).
+            expect(relay.timeline).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`, `POST ${RUN_PATH}/blocked`]);
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
+        }
+        // case: the report names the cause, the denied login, and the field to fix
+        {
+            const relay = harness(ACTOR_GATE_REFUSAL);
+
+            await pollRelay(relay.rt);
+
+            const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/blocked`)) as Record<string, unknown>;
+            expect(body).toEqual({
+                correlationId: CORRELATION,
+                leaseId: LEASE_ID,
+                attempt: 1,
+                blockedReason: ACTOR_BLOCKED_CODE,
+                // The service's own message, verbatim: it names every denied
+                // login and its basis, and the panel adds no opinion (FR-077).
+                detail: GATE_REFUSAL_MESSAGE,
+                // The guidance names the **field**, never a login: the permitted
+                // set is configuration and never reaches the panel (NFR-113).
+                guidance: 'add the GitHub logins that may trigger this repository to the binding\'s allowedUsers, '
+                    + 'then retry this dispatch',
+            });
+            expect(JSON.stringify(body)).not.toContain('permitted');
+        }
+        // case: a `409` that is not the gate's stays a bare refusal, un-reported
+        {
+            // `stale-lease` and `already-reserved` are `409` too. Reporting one of
+            // those as a policy denial would be this panel announcing a verdict
+            // the service never reached — the drift 003 exists to end.
+            const relay = harness({
+                ...OK_ROUTES,
+                [`POST ${RUN_PATH}/reserve`]: STALE_RESERVE_REFUSAL,
+            });
+
+            await pollRelay(relay.rt);
+
+            expect(relay.timeline).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+        }
+    });
+
+    it('narrows on the code, never the status (003 FR-076)', () => {
+        // The pure reader, so the narrowing rule is asserted directly rather
+        // than only through one route table: a `409` that is not the gate's
+        // yields `null` and the relay merely notes it.
+        expect(actorGateFailure(ACTOR_BLOCKED_CODE, 'nobody is allowed')).toMatchObject({
+            reason: ACTOR_BLOCKED_CODE,
+            detail: 'nobody is allowed',
+        });
+        for (const code of ['stale-lease', 'already-reserved', 'cause-not-cleared', null]) {
+            expect(actorGateFailure(code, 'some message'), `${String(code)} is not the gate's`).toBeNull();
+        }
+        // A missing message still yields the panel's own honest phrase rather
+        // than an empty detail the route would refuse.
+        expect(actorGateFailure(ACTOR_BLOCKED_CODE, null)?.detail).toContain('allow-list');
     });
 });
 

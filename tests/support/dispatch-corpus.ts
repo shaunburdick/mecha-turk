@@ -29,6 +29,7 @@ import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceStore } from '../../service/store/index.ts';
 import { startTestService } from './service.ts';
 import type { TestService } from './service.ts';
+import { writeOpenBinding } from './binding-fixture.ts';
 
 /** Hex characters behind the lease id prefix this build mints. */
 const LEASE_HEX_CHARS = 24;
@@ -207,6 +208,18 @@ export async function startWithLegacyQueue(): Promise<{
 
         throw new Error('the harness store is unavailable');
     }
+
+    // The corpus drives every transition in the data model, several of which
+    // authorize a dispatch — and the authorization gate reads `bindings.json` at
+    // that moment and denies when it cannot (003 FR-076, constitution II). So the
+    // store holds the corpus's own binding, with the **open** policy a store
+    // predating the allow-list would carry (002 FR-047): the corpus keeps
+    // exercising the vocabulary, and the gate admits every run it reserves.
+    await writeOpenBinding({
+        store: opened,
+        bindingId: BINDING_ID,
+        options: { repository: REPOSITORY, accountNumericUserId: ACCOUNT_ID },
+    });
 
     return { service, store: opened };
 }

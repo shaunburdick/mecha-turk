@@ -5,7 +5,7 @@ Namespaced beside `orchestration.md` (which records the delivered 002 MVP and is
 
 ## Current Wave
 
-**Wave 1 complete** (`A-1 … A-7`, delivered 2026-10-03). Wave 2 is next.
+**Wave 2 complete** (`B-1 … B-7`, delivered 2026-10-03). Wave 3 is next.
 
 ## Branch
 
@@ -32,7 +32,7 @@ New contract: `specs/002-agent-event-extension/contracts/binding-allow-list.md`.
 | Wave | Tasks | Owner | Status |
 | --- | --- | --- | --- |
 | 1 | A-1 … A-7 | `modern-architect-engineer` | **done** — 628 tests green from 603; `npm run verify` green |
-| 2 | B-1 … B-7 | `modern-architect-engineer` | not started |
+| 2 | B-1 … B-7 | `modern-architect-engineer` | **done** — 644 tests green from 628; `npm run verify` green |
 | 3 | C-1 … C-6 | `modern-architect-engineer` | not started |
 
 Dependency spine (from `tasks.md` hard-dependency list):
@@ -101,6 +101,49 @@ Wave 1 close: **`npm run verify` green** (build -> lint -> typecheck -> test) �
 (invariant 1). `buildEventId`, `discriminatorOf`, and `SERVICE_SCHEMA_VERSION` are untouched; no
 `schemaVersion` member was added, and a pre-1.2 `events.json` row still parses.
 
+Wave 2 close: **`npm run verify` green** — 103 files, **644 tests passed** (from 628). Both bundles
+rebuilt and committed with the wave (invariant 1). `SERVICE_SCHEMA_VERSION` stays `1`, no
+`schemaVersion` member exists, `buildEventId` and `discriminatorOf` are untouched, no audit
+`eventType` was added, and `isActorAllowed` appears in exactly **two** source files.
+
+### Wave 2 structural decisions a fresh coordinator must know
+
+Three **new modules**, all forced by the `llm-core/max-file-length` gate and all the shape this
+feature wants:
+
+- `service/poll/dispatch-actor-gate.ts` — the gate's **pure** predicate (`judgeActorPolicy`), the
+  live read (`readLivePolicy`), the unreadable-policy verdict, and the exported
+  `ACTOR_BLOCKED_REASON`. `dispatch-authorize.ts` keeps the decide -> apply -> record chain and the
+  token. The split is what lets `run-operate.ts`'s retry re-check re-run **the same predicate**.
+  **The one-comparison scan's second file is this one, not `dispatch-authorize.ts`** — plan D9
+  named the reserve, the gate module is beside it, and both `tests/allow-list.test.ts` (§5.6) and
+  `tests/bundle.test.ts` assert the pair.
+- `service/bindings-read.ts` gains a third reader, `readBindingsForAuthorization` — the only one
+  that keeps *no bindings* apart from *an unreadable document*, because the gate must deny on the
+  second and cannot deny on the first without inventing a reason. It deliberately runs **no**
+  prompt observer: the gate is not an editor.
+- The panel gained `src/run-actor.ts` (the two closed actor vocabularies and their absentable
+  readers) and `src/dispatches-detail.ts` (the run row's structured members). **Both are
+  `dispatches-*`/`run-*`, never `runs-*`**: 005 T-003 retired the `src/runs*.ts` prefix and
+  `tests/vocabulary.test.ts` fails on any of it, so the second new module was renamed from
+  `runs-row-detail.ts` before commit.
+
+### Wave 2 findings for the gate
+
+- **Every dispatch fixture had to gain a binding.** The gate denies when the policy cannot be read,
+  so a store with no `bindings.json` cannot dispatch anything. `tests/support/binding-fixture.ts`
+  (`writeOpenBinding`, `writeLoopBinding`) now seeds the **open** policy — no `allowedUsers` key —
+  in the loop harness, the dispatch corpus, and nine suites' own setup. Without it, 48 pre-existing
+  tests failed with `actor-not-allowed`, which is the gate working, not the gate being wrong.
+- **B-3's third named test is not implementable as written.** "A null `actorPolicy` on a reserved
+  run refuses rather than writing `null`" would mean refusing a *result report* on a hand-seeded
+  `starting` run — a shape no production path produces, and a wire refusal no requirement names.
+  The row builders carry the run's snapshot, so a null would be recorded as null rather than
+  guessed. Recorded, not silently skipped.
+- **`reserveRun`'s signature changed** from `ReserveAnswer | null` to a `ReserveOutcome` union, so
+  the relay can tell "a policy this panel must report" from "a stale lease, which it merely
+  notes". The only caller is `src/relay.ts`; `tests/service-audit-read.test.ts` follows it.
+
 ### Wave 1 structural decisions a fresh coordinator must know
 
 Two **new modules**, forced by the `llm-core/max-file-length` gate (500 non-blank lines) rather
@@ -109,8 +152,8 @@ than chosen:
 - `service/bindings-allow-list.ts` — the `allowedUsers` field's three refusals **and** plan D9's
   single membership comparison `isActorAllowed`. `bindings.ts` imports the reader and keeps
   `BindingRecord`. **Plan D9 says the helper is "exported from the validator's module"; the
-  contract's own §5.6 words the invariant as "its own module", and the latter is what shipped.**
-  Wave 2's `dispatch-authorize.ts` imports it from here.
+  contract's own §5.6 words the invariant as "its own module", and the latter is what shipped.** Wave 2's `dispatch-actor-gate.ts` imports it from here — see
+  Wave 2's structural block above.
 - `service/poll/attribution.ts` — `isBotAuthor`, `isAttributableAuthor` (plan D3's renamed,
   now-exported predicate, moved out of `triggers.ts`), the single exported
   `AUTHOR_LOGIN_MAX_CHARS` bound (plan D8, used by `triggers.ts` **and** `loop.ts`), and the

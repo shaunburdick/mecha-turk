@@ -66,6 +66,7 @@ import {
 import type { StorageDouble } from './panel.ts';
 import { startTestService } from './service.ts';
 import type { TestService } from './service.ts';
+import { writeLoopBinding } from './binding-fixture.ts';
 
 /** Prefix under the system temp directory for one loop. */
 const TEMP_PREFIX = 'mecha-turk-loop-';
@@ -74,14 +75,12 @@ const TEMP_PREFIX = 'mecha-turk-loop-';
  * Poller every loop instance's background scan runs under: empty feeds,
  * answered without touching the network.
  *
- * `startService` arms its first scan cycle fire-and-forget, and
- * {@link startDispatchLoop} documents the loop as offline *by construction*
- * ("no bindings to poll, so the scan cycle never reaches GitHub"). A fixture
- * that seeds an active binding — the pre-003 upgrade store — breaks that
- * precondition: the default poller would send the cycle at `api.github.com`
- * and write `scan-state.json` whenever GitHub answers, which is exactly when
- * a teardown can be removing the store underneath it (the CI ENOTEMPTY).
- * Empty, immediate answers keep that cycle on the test's own clock.
+ * `startService` arms its first scan cycle fire-and-forget, and a fixture that
+ * seeds an active binding — which every loop now does — would otherwise send
+ * that cycle at `api.github.com` and write `scan-state.json` whenever GitHub
+ * answered: exactly when a teardown can be removing the store underneath it
+ * (the CI ENOTEMPTY). Empty, immediate answers keep the cycle on the test's own
+ * clock.
  */
 const OFFLINE_POLLER: GitHubIssuePoller = {
     listOpenIssues: async () => ({ kind: 'ok', issues: [] }),
@@ -93,8 +92,8 @@ const OFFLINE_POLLER: GitHubIssuePoller = {
  * Removal attempts for one loop's temp root while a straggler write lands.
  *
  * Each retry waits a multiple of {@link ROOT_REMOVE_RETRY_MS} longer than the
- * last, and Node re-lists the directory on every attempt, so a file created
- * mid-walk is collected by the next pass instead of failing the removal.
+ * last, and Node re-lists the directory on every attempt, so a straggler's file
+ * is collected by the next pass instead of failing the removal.
  */
 const ROOT_REMOVE_RETRIES = 10;
 
@@ -440,12 +439,30 @@ async function startLoopService(dataDir: string): Promise<TestService> {
 }
 
 /**
- * Start one loop: a temp store and the real service serving it.
+ * Write the store files one loop starts with, both states an operator could be in.
  *
- * The store starts with a **configured** comparison baseline matching the
- * fixture host's session agent: the shipped default is blank (006 v1.5.0 —
- * *no baseline, no comparison*), and these suites assert read-backs that
- * verify end to end, which needs an operator who pinned one (002 FR-029).
+ * `config.json` pins a **configured** comparison baseline matching the fixture
+ * host's session agent — the shipped default is blank (006 v1.5.0), and these
+ * suites assert read-backs that verify end to end (002 FR-029).
+ * `bindings.json` carries the loop's own binding under the **open** policy
+ * (002 FR-047), because the gate denies a run whose binding it cannot read
+ * (003 FR-076).
+ *
+ * @param dataDir - Store directory to seed.
+ * @param store - The open store of the instance serving it.
+ * @returns A promise that settles once both documents are durable.
+ */
+async function seedLoopStore(dataDir: string, store: ServiceStore): Promise<void> {
+    await writeFile(
+        join(dataDir, CONFIG_FILE),
+        JSON.stringify({ ...DEFAULT_CONFIG, expectedAgent: EXPECTED_AGENT }),
+        'utf8',
+    );
+    await writeLoopBinding(store);
+}
+
+/**
+ * Start one loop: a temp store and the real service serving it.
  *
  * @returns The loop, ready for fixtures and mounts.
  */
@@ -453,13 +470,9 @@ export async function startDispatchLoop(): Promise<DispatchLoop> {
     const root = await mkdtemp(join(tmpdir(), TEMP_PREFIX));
     const dataDir = join(root, 'store');
     await mkdir(dataDir, { recursive: true });
-    await writeFile(
-        join(dataDir, CONFIG_FILE),
-        JSON.stringify({ ...DEFAULT_CONFIG, expectedAgent: EXPECTED_AGENT }),
-        'utf8',
-    );
 
     let service = await startLoopService(dataDir);
+    await seedLoopStore(dataDir, currentStoreOf(service));
     const sessions: string[] = [];
     const timeline: string[] = [];
     const storage = createStorageDouble();

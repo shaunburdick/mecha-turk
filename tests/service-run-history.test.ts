@@ -41,6 +41,7 @@ import type { ServiceStore } from '../service/store/index.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { writeOpenBinding } from './support/binding-fixture.ts';
 
 /** Credential registered with this suite; must never reach an answer. */
 const REGISTERED_TOKEN = `run-history-credential-${'q'.repeat(32)}`;
@@ -198,6 +199,14 @@ async function startSeededService(options: { readonly registered?: boolean } = {
     }
 
     store = opened;
+    // The gate reads `bindings.json` at authorization and denies when it cannot
+    // (003 FR-076); the open policy keeps every projection assertion here about
+    // the projection (002 FR-047).
+    await writeOpenBinding({
+        store,
+        bindingId: BINDING_ID,
+        options: { repository: REPOSITORY, projectId: PROJECT_ID },
+    });
     if (options.registered === true) {
         const registered = await service.call(VERIFY_PATH, {
             method: 'POST',

@@ -157,6 +157,8 @@ network — those checks are operator-gated and recorded in the spec (see
 | `bindings-editor.ts` | The editor's derived field views: the mention token in force and its override mark (005 FR-057, no store in this build), the bound-account scope for edit vs add, and the worktree option declaration |
 | `dispatches-controls.ts` | Paging, filter, and row-detail controls: range line, active-filter line, Previous/Next, page size, the source-reference reveal, and the correlation-id copy |
 | `dispatches-service.ts` / `dispatches-rows.ts` | Run DTO parsed fail-closed across the eight dispatch states; each state's label, tone, and retry validity |
+| `dispatches-detail.ts` | The run row's structured members — source references (with their actor and basis), the session pointer, the read-back — and their fail-closed readers |
+| `run-actor.ts` | The two closed actor vocabularies a run row adds: `actorAttribution` (`direct` \| `subject-author`) and the value-free `actorPolicy` shape, both absentable on read and validated when present |
 | `run-state.ts` | The eight-state dispatch vocabulary, its `blocked:<reason>` family, and the narrowers that refuse an unknown word |
 | `relay.ts` | Relay tick: claim → handled key → guards → attempt; one handoff per `correlationId#attempt` per mount |
 | `relay-gates.ts` / `relay-attempt.ts` | Binding/project guards, the `blocked` report, and the reserve step; then compose → the budget floor (a first message over `CONTEXT_MAX_CHARS` refused before `host.startSession()` is called — no session started, 004 FR-085) → host call → record → report → acknowledge → read-back |
@@ -201,6 +203,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `poll/claim*.ts` | Lease-issuing claim: eligibility, projection, and the answer's run/byte bounds |
 | `poll/sweep.ts` / `poll/sweep-loop.ts` | Lease-expiry and result-deadline sweep: boot pass before the listener binds, unref'd timer, requeue budget |
 | `poll/dispatch*.ts` | Reserve / result / abandon / block family: single-use tokens, the staleness matrix, refusal rows |
+| `poll/dispatch-actor-gate.ts` | **The actor allow-list gate** — the one membership comparison in the product (003 FR-076). Reads the binding's live `allowedUsers` inside the reserve's chain task, after `judgeReserve` and before any token is derived, and refuses `actor-not-allowed` with the denied logins and their attribution basis. Detection decides nothing; the panel pre-checks nothing |
 | `poll/run-chain.ts` / `poll/run-operate.ts` / `poll/run-verify.ts` / `poll/run-refusal.ts` | The shared run write chain, retry/requeue/resolve, the verification report, the refusal vocabulary |
 | `poll/run-history-project.ts` | The capped, credential-free run-history projection |
 | `poll/backoff.ts` | The poll-*request* ladder — pure delay arithmetic plus the injected-sleep driver; requests/attempts, never 003's requeue (006 FR-058) |

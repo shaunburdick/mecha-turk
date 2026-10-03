@@ -57,6 +57,7 @@ import type { ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/handoff.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { writeOpenBinding } from './support/binding-fixture.ts';
 
 const STAMP = '2026-09-28T12:00:00.000Z';
 const NOW = '2026-09-28T12:30:00.000Z';
@@ -194,6 +195,12 @@ describe('runs.json first-read adoption', () => {
         // case: maps every legacy branch without changing queue bytes, windows, or quarantine state
         {
             const rows = await seedLegacyQueue();
+            // The gate denies a run whose binding it cannot read (003 FR-076,
+            // constitution II), and the durable-dispatch case below reserves a
+            // run this adoption just created — so the fixture store carries the
+            // binding that scan would have run under, with the **open** policy a
+            // pre-allow-list store would have written (002 FR-047).
+            await writeOpenBinding({ store, bindingId: BINDING_ID });
             const legacyBytes = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
             const scanStateBytes = JSON.stringify({ bindings: { [BINDING_ID]: {
                 lastScanAt: STAMP, lastError: null } } });
@@ -294,6 +301,10 @@ describe('runs.json first-read adoption', () => {
         {
             const event = createEvent(snapshot(77));
             const [linked] = await enqueueEvents({ store, log: LOGGER, incoming: [event] });
+            // The gate reads the binding at authorization and denies when it
+            // cannot (003 FR-076); the open policy keeps this fixture about the
+            // lost-document re-adoption it was written for (002 FR-047).
+            await writeOpenBinding({ store, bindingId: BINDING_ID });
             const before = await readRunsDocument({ store, log: LOGGER });
             const run = before.runs[0];
             if (linked === undefined || run === undefined) {
@@ -427,6 +438,10 @@ async function seedShippedStore(): Promise<ShippedBytes> {
     await seedLegacyQueue();
     const events = await readFile(join(dataDir, EVENTS_FILE), 'utf8');
 
+    // No `allowedUsers` key: a shipped store predates the allow-list, so its
+    // binding carries the **open** policy (002 FR-047) — and the gate denies a
+    // run whose binding it cannot read at all (003 FR-076), so the
+    // durable-dispatch fixture below needs a binding, in exactly this shape.
     await store.writeJson(BINDINGS_FILE, [shippedBinding()]);
     await store.writeJson(ACCOUNT_FILE, shippedAccount());
 

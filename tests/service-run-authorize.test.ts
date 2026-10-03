@@ -26,7 +26,7 @@
  * no host.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -40,7 +40,7 @@ import { reserveDispatch } from '../service/poll/dispatch-authorize.ts';
 import { blockDispatch } from '../service/poll/dispatch-block.ts';
 import { reportDispatch } from '../service/poll/dispatch-report.ts';
 import { sweepOnce } from '../service/poll/sweep.ts';
-import { emptyRunsDocument, readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
+import { emptyRunsDocument, readRunsDocument, RUNS_FILE, writeRunsDocument } from '../service/poll/runs.ts';
 import { applyEnqueue } from '../service/poll/runs-join.ts';
 import { openStore } from '../service/store/index.ts';
 import {
@@ -49,10 +49,12 @@ import {
     DISPATCHED_PATH as DISPATCHED_ROUTE,
     RESERVE_PATH as RESERVE_ROUTE,
 } from '../service/routes/dispatch.ts';
+import type { ActorAttribution } from '../service/poll/attribution.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { Run } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
+import { writeOpenBinding } from './support/binding-fixture.ts';
 
 /** Stamp every fixture uses; no test ever waits on a clock. */
 const STAMP = '2026-09-28T08:00:00.000Z';
@@ -105,12 +107,28 @@ const BOOTSTRAP_FAILED = 'bootstrap-failed';
 const RESERVE_DID_NOT_APPLY = 'reserve did not apply';
 /** The wire code a lease or token staleness verdict carries. */
 const STALE_LEASE = 'stale-lease';
+/** The gate's refusal code, as the wire and the row both spell it (003 FR-077). */
+const ACTOR_NOT_ALLOWED = 'actor-not-allowed';
+
+/** The declared `blocked:` cause a refused run waits in (003 FR-078). */
+const ACTOR_BLOCKED_CAUSE = 'actor-not-allowed';
+
 /** The wire code a second authorization on a live run carries. */
 const ALREADY_RESERVED = 'already-reserved';
 /** The wire code a state verdict carries, whatever the operation. */
 const INVALID_TRANSITION = 'invalid-transition';
+/** The wire code a reserve on a run that already produced a session carries. */
+const ALREADY_DISPATCHED = 'already-dispatched';
 /** The account login the fixtures report under. */
 const ACCOUNT_LOGIN = 'octocat';
+/** The actor every fixture delivery is attributed to. */
+const FIXTURE_ACTOR = 'alice';
+/** The direct basis: GitHub named the author of the text that carried the trigger. */
+const DIRECT_BASIS: ActorAttribution = 'direct';
+/** The proxy basis: the issue or pull-request author stands in for an unrecorded actor. */
+const PROXY_BASIS: ActorAttribution = 'subject-author';
+/** The basis the fixture actor carries by default: an assignment is a proxy. */
+const FIXTURE_BASIS: ActorAttribution = PROXY_BASIS;
 /** The project id the fixtures snapshot. */
 const PROJECT_ID = 'prj_42';
 
@@ -125,6 +143,15 @@ const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-authorize-'));
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     await store.writeJson('config.json', { ...DEFAULT_CONFIG, leaseMs: LEASE_MS, resultDeadlineMs: LEASE_MS });
+    // The gate reads `bindings.json` at authorization and denies when it cannot
+    // (003 FR-076), so every fixture run needs the binding it is named after.
+    // The policy is **open** — no `allowedUsers` key — so this suite keeps
+    // testing the authorization it was written to test (002 FR-047).
+    await writeOpenBinding({
+        store,
+        bindingId: BINDING_ID,
+        options: { repository: REPOSITORY, projectId: PROJECT_ID },
+    });
     LOG_LINES.length = 0;
 };
 
@@ -137,8 +164,21 @@ const afterEachWork2 = async (): Promise<void> => {
 
 afterEach(afterEachWork2);
 
-/** Build an assignment detection for one issue. */
-function assignment(issueNumber: number): EventSnapshot {
+/**
+ * Build an assignment detection for one issue.
+ *
+ * The actor is **required**: 002 FR-045 makes attribution mandatory at detection,
+ * so no snapshot this build's own code writes can lack one. A run with no
+ * readable actor is only reachable by hand-editing the store, and the FR-080
+ * cases model it that way rather than forging an impossible detection.
+ *
+ * @param issueNumber - Issue the detection is about.
+ * @param attribution - The actor and basis to record.
+ * @returns A complete event snapshot.
+ */
+function assignment(issueNumber: number, attribution: AttributionOverrides = {}): EventSnapshot {
+    const { actorLogin = FIXTURE_ACTOR, actorAttribution = FIXTURE_BASIS } = attribution;
+
     return {
         bindingId: BINDING_ID,
         repository: REPOSITORY,
@@ -153,8 +193,8 @@ function assignment(issueNumber: number): EventSnapshot {
             issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
             issueBodyExcerpt: `body ${issueNumber}`,
         },
-        actorLogin: 'alice',
-        actorAttribution: 'subject-author',
+        actorLogin,
+        actorAttribution,
         triggerNote: 'assigned',
         detectedAt: STAMP,
     };
@@ -348,12 +388,117 @@ interface Claim {
  * Seed one issue, claim it, and hand back the coordinates a reserve needs.
  *
  * @param issueNumber - Issue to detect and claim.
+ * @param overrides - Detection members the case under test changes — the
+ *   attribution, in the gate's cases.
  * @returns The claimed run's correlation id and the lease it was claimed under.
  */
-async function seedAndClaim(issueNumber: number): Promise<Claim> {
-    await seed(assignment(issueNumber));
+async function seedAndClaim(
+    issueNumber: number,
+    overrides: AttributionOverrides = {},
+): Promise<Claim> {
+    await seed(assignment(issueNumber, overrides));
 
     return await claimRun(issueNumber);
+}
+
+/** The attribution members a fixture overrides on an otherwise fixed detection. */
+interface AttributionOverrides {
+    /** The attributed actor (002 FR-043). */
+    readonly actorLogin?: string;
+    /** The attribution basis (002 FR-044). */
+    readonly actorAttribution?: 'direct' | 'subject-author';
+}
+
+/**
+ * One stored reference with its two actor members removed.
+ *
+ * @param reference - The reference to strip.
+ * @returns The record as a hand edit would leave it.
+ */
+function strippedReference(reference: Run['sourceReferences'][number]): Record<string, unknown> {
+    return {
+        deliveryId: reference.deliveryId,
+        kind: reference.kind,
+        origin: reference.origin,
+        sourceUrl: reference.sourceUrl,
+        detectedAt: reference.detectedAt,
+        presentAtAuthorization: reference.presentAtAuthorization,
+    };
+}
+
+/**
+ * Drop one run's attribution, as a hand edit of the store would.
+ *
+ * The **only** way a run reaches the gate with no readable actor: 002 FR-045
+ * makes attribution mandatory at detection, so a row missing one can only come
+ * from a hand-edited store — which is precisely the case FR-080 names, and the
+ * reason the gate must refuse such a run rather than default it.
+ *
+ * @param correlationId - The run to rewrite.
+ * @returns A promise that settles once the document is durable.
+ */
+async function stripAttribution(correlationId: string): Promise<void> {
+    const document = await readRunsDocument({ store, log: LOGGER });
+    // Cast through `unknown` deliberately: the whole point is to write a row the
+    // *store's* validator accepts as "no attribution recorded", while no value
+    // this build's own code produces could carry that shape (002 FR-045).
+    const runs = document.runs.map((run) => run.correlationId === correlationId
+        ? ({ ...run, sourceReferences: run.sourceReferences.map(strippedReference) } as unknown as Run)
+        : run);
+    await writeRunsDocument({ store, log: LOGGER, document: { ...document, runs } });
+}
+
+/**
+ * Read the raw bytes of the run document, for the byte-identity assertion.
+ *
+ * Byte-identity is the **strongest** form of AC-130's "nothing was written":
+ * not "no field changed" but "the file did not change at all", which is what a
+ * refused reserve must leave behind (contract §1). Read directly rather than
+ * through the store's reader, because a reader that quarantines-and-repairs
+ * would itself write.
+ *
+ * @returns The document's exact bytes.
+ */
+async function runBytes(): Promise<string> {
+    return await readFile(join(tempRoot, 'store', RUNS_FILE), 'utf8');
+}
+
+/**
+ * Read every `dispatch.refused` detail the gate wrote.
+ *
+ * @returns The rows whose code is `actor-not-allowed`, in file order.
+ */
+async function refusalRows(): Promise<readonly Record<string, unknown>[]> {
+    const rows = await rowsOf(REFUSED_ROW);
+
+    return rows.filter((details) => details.code === ACTOR_NOT_ALLOWED);
+}
+
+/** The gate's single refusal row, demanded: a count other than one fails the case. */
+async function firstRefusalRow(): Promise<Record<string, unknown>> {
+    const rows = await refusalRows();
+    if (rows.length !== 1) {
+        throw new Error(`expected exactly one gate refusal row, found ${rows.length}`);
+    }
+
+    return rows[0] as Record<string, unknown>;
+}
+
+/** How many gate refusal rows the fixture wrote. */
+async function refusalRowCount(): Promise<number> {
+    const rows = await refusalRows();
+
+    return rows.length;
+}
+
+/** The one row of one vocabulary type, demanded: zero or two fails the case. */
+async function firstRowOf(eventType: string): Promise<Record<string, unknown>> {
+    const rows = await rowsOf(eventType);
+    if (rows.length !== 1) {
+        throw new Error(`expected exactly one ${eventType} row, found ${rows.length}`);
+    }
+
+    return rows[0] as Record<string, unknown>;
 }
 
 /**
@@ -674,11 +819,11 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
 
             expect(outcome.status).toBe(REFUSED);
             const refusal = outcome.status === REFUSED ? outcome.refusal : null;
-            expect(refusal?.code).toBe('already-dispatched');
+            expect(refusal?.code).toBe(ALREADY_DISPATCHED);
             // AC-112 in full: the refusal names the session.
             expect(refusal?.message).toContain('ses_already');
             const refusals = await rowsOf(REFUSED_ROW);
-            expect(refusals.some((row) => row.code === 'already-dispatched')).toBe(true);
+            expect(refusals.some((row) => row.code === ALREADY_DISPATCHED)).toBe(true);
         }
         await afterEachWork2();
         await beforeEachWork1();
@@ -1451,8 +1596,8 @@ describe('T-011..T-013 every route answers the documented validation failures (c
                 }),
             });
 
-            // The four-value set is what keeps `blocked:<reason>` states parseable
-            // (data-model §2.2); a fifth value would make the document unreadable.
+            // The five-value set is what keeps `blocked:<reason>` states parseable
+            // (data-model §2.2); a sixth value would make the document unreadable.
             expect(response.status).toBe(422);
             expect(((await response.json()) as { error: { code: string } }).error.code).toBe('validation');
         }
@@ -1460,11 +1605,14 @@ describe('T-011..T-013 every route answers the documented validation failures (c
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: accepts each of the four declared blocked reasons
+        // case: accepts each of the five declared blocked reasons
         {
             const service = await startTestService();
 
-            for (const reason of [PROJECT_MISSING, BINDING_MISSING, 'credential', 'policy']) {
+            // The fifth is `actor-not-allowed` (003 v1.8.0), the cause the
+            // actor-policy gate parks a refused run in (FR-078).
+            const declared = [PROJECT_MISSING, BINDING_MISSING, 'credential', 'policy', ACTOR_BLOCKED_CAUSE];
+            for (const reason of declared) {
                 const response = await service.call(routePath(BLOCKED_ROUTE), {
                     method: 'POST',
                     headers: jsonHeaders(),
@@ -1730,6 +1878,315 @@ describe('T-011..T-013 every refusing operation owes exactly one refusal row (FR
         expect(tokenVerdicts).toHaveLength(2);
         for (const verdict of tokenVerdicts) {
             expect(verdict.details.dispatchTokenFingerprint).toMatch(/^tokfp-[0-9a-f]{16}$/);
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * 003 v1.8.0 — the actor allow-list gate (FR-076 – FR-080; AC-130, AC-132)
+ *
+ * Every case here drives the **real** reserve through the **real** store, because
+ * the requirements are about what the gate *leaves behind*: nothing on the run,
+ * exactly one refusal row, and a `409` the panel can act on. A predicate test
+ * would prove only that the predicate agrees with itself.
+ * ------------------------------------------------------------------------- */
+
+/** Actor the populated-list fixtures permit; never named on any row. */
+const PERMITTED = 'permitted-person';
+
+/** Actor the populated-list fixtures deny — a direct attribution. */
+const DENIED_DIRECT = 'bob';
+
+/** Actor the populated-list fixtures deny — a proxy attribution. */
+const DENIED_PROXY = 'carol';
+
+/**
+ * Install the gate's binding under a populated allow-list.
+ *
+ * @param users - The permitted logins, or `null` for the open policy.
+ * @returns A promise that settles once the document is durable.
+ */
+async function setPolicy(users: readonly string[] | null): Promise<void> {
+    await writeOpenBinding({
+        store,
+        bindingId: BINDING_ID,
+        options: { repository: REPOSITORY, projectId: PROJECT_ID, allowedUsers: users },
+    });
+}
+
+/**
+ * Reserve one run whose only reference is attributed to `login`.
+ *
+ * @param issueNumber - Issue to seed.
+ * @param login - The actor the delivery is attributed to, or `null` to store no
+ *   attribution at all (a reference written before 002 v1.11.0).
+ * @param basis - The attribution basis to record.
+ * @returns The claim coordinates and the reserve's answer.
+ */
+async function reserveAs(input: {
+    /** Issue to seed and claim. */
+    readonly issueNumber: number;
+    /** The attributed actor. */
+    readonly login: string;
+    /** The attribution basis. */
+    readonly basis: ActorAttribution;
+}) {
+    const claim = await seedAndClaim(input.issueNumber, {
+        actorLogin: input.login,
+        actorAttribution: input.basis,
+    });
+
+    return { claim, outcome: await reserve(claim) };
+}
+
+describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)', () => {
+    it('answers 409 actor-not-allowed, mints nothing, and leaves the run byte-identical', async () => {
+        // case: refuses the one denied actor, with the full detail set and no permitted login
+        {
+            await setPolicy([PERMITTED]);
+            const claim = await seedAndClaim(90, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
+            const before = await runBytes();
+            const outcome = await reserve(claim);
+            const after = await runBytes();
+
+            expect(outcome.status).toBe(REFUSED);
+            expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe(ACTOR_NOT_ALLOWED);
+
+            // Nothing is minted before the verdict (contract §1): the run document
+            // is byte-identical, no `dispatch.reserved` row exists, and no token
+            // was ever derived.
+            expect(after).toBe(before);
+            expect(await rowsOf(RESERVED_ROW)).toHaveLength(0);
+            const parked = await readRun(claim.correlationId);
+            expect(parked.reservation).toBeNull();
+            expect(parked.state).not.toBe(STARTING);
+
+            // Exactly one refusal row, carrying AC-130's detail set in full.
+            const rows = await refusalRows();
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toMatchObject({
+                operation: 'reserve',
+                code: ACTOR_NOT_ALLOWED,
+                priorState: 'claimed',
+                attempt: 1,
+                bindingId: BINDING_ID,
+                actorPolicy: 'restricted',
+                deniedLogins: [DENIED_DIRECT],
+                deniedAttributions: [DIRECT_BASIS],
+            });
+
+            // The row names the denial and **no permitted login** (NFR-113).
+            const written = await trail();
+            expect(JSON.stringify(written)).not.toContain(PERMITTED);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: names a proxy basis as a proxy, and never as something a denied actor caused (002 NFR-011)
+        {
+            await setPolicy([PERMITTED]);
+            const { outcome } = await reserveAs({ issueNumber: 91, login: DENIED_PROXY, basis: PROXY_BASIS });
+
+            expect(outcome.status).toBe(REFUSED);
+            expect(outcome.status === 'refused' ? outcome.refusal.message : '').toContain('proxy');
+            expect(await firstRefusalRow()).toMatchObject({
+                deniedLogins: [DENIED_PROXY],
+                deniedAttributions: [PROXY_BASIS],
+            });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses an unreadable actor even under the **open** policy (FR-080)
+        {
+            // `open` is permission for a named human actor, not for nobody: this
+            // run's only reference records no attribution at all, which is only
+            // reachable by hand-editing the store.
+            await setPolicy(null);
+            const claim = await seedAndClaim(92);
+            await stripAttribution(claim.correlationId);
+            const outcome = await reserve(claim);
+
+            expect(outcome.status).toBe(REFUSED);
+            expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe(ACTOR_NOT_ALLOWED);
+            expect(await firstRefusalRow()).toMatchObject({
+                actorPolicy: 'open',
+                deniedLogins: [],
+                unreadableReferences: 1,
+            });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses a bot-shaped actor even when the list names it (FR-080)
+        {
+            // The `[bot]` entry is legal in the list (plan D7) and inert: no bot
+            // event is ever created for it to admit (002 FR-045(a)/(c)), so a
+            // stored bot actor is only reachable by hand edit — and it is refused.
+            await setPolicy(['dependabot[bot]']);
+            const { outcome } = await reserveAs({ issueNumber: 93, login: 'dependabot[bot]', basis: DIRECT_BASIS });
+
+            expect(outcome.status).toBe(REFUSED);
+            expect(await firstRefusalRow()).toMatchObject({
+                deniedLogins: [],
+                unreadableReferences: 1,
+            });
+        }
+    });
+
+    it('denies when the policy cannot be read, in one code (plan D15)', async () => {
+        // case: an absent bindings document is a denial, never a silent open policy
+        {
+            await rm(join(tempRoot, 'store', 'bindings.json'), { force: true });
+            const { outcome } = await reserveAs({ issueNumber: 94, login: DENIED_DIRECT, basis: DIRECT_BASIS });
+
+            expect(outcome.status).toBe(REFUSED);
+            expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe(ACTOR_NOT_ALLOWED);
+            // The row says what it knows — that it knows nothing — and names no login.
+            expect(await firstRefusalRow()).toMatchObject({
+                actorPolicy: null,
+                deniedLogins: [],
+                bindingId: BINDING_ID,
+            });
+            expect(outcome.status === 'refused' ? outcome.refusal.message : '').toContain('could not be read');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: a binding the run does not name is the other unreadable-policy case
+        {
+            await writeOpenBinding({ store, bindingId: 'bnd-somewhere-else' });
+            const { outcome } = await reserveAs({ issueNumber: 95, login: DENIED_DIRECT, basis: DIRECT_BASIS });
+
+            expect(outcome.status).toBe(REFUSED);
+            expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe(ACTOR_NOT_ALLOWED);
+        }
+    });
+});
+
+describe('003 v1.8.0 the admitted cases (FR-077, FR-079, AC-132)', () => {
+    it('authorizes on one allowed reference and records the policy shape (FR-077, AC-132)', async () => {
+        // case: the open policy admits any readable human actor, and records `'open'`
+        {
+            await setPolicy(null);
+            const { claim, outcome } = await reserveAs({ issueNumber: 96, login: DENIED_DIRECT, basis: DIRECT_BASIS });
+
+            expect(outcome.status).toBe(APPLIED);
+            const open = await readRun(claim.correlationId);
+            expect(open.actorPolicy).toBe('open');
+            expect(await firstRowOf(RESERVED_ROW)).toMatchObject({ actorPolicy: 'open' });
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: a populated list admits the actor it names, and records `'restricted'`
+        {
+            await setPolicy([PERMITTED]);
+            const { claim, outcome } = await reserveAs({ issueNumber: 97, login: PERMITTED, basis: DIRECT_BASIS });
+
+            expect(outcome.status).toBe(APPLIED);
+            const restricted = await readRun(claim.correlationId);
+            expect(restricted.actorPolicy).toBe('restricted');
+            // The admitted row carries the **shape** and never a login (NFR-113).
+            expect(await firstRowOf(RESERVED_ROW)).toMatchObject({ actorPolicy: 'restricted' });
+            expect(JSON.stringify(await trail())).not.toContain(PERMITTED);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: a coalesced run is authorized on ONE allowed reference (FR-077, AC-133)
+        {
+            await setPolicy([PERMITTED]);
+            const first = assignment(98, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
+            const second = { ...assignment(98), kind: 'mention', actorLogin: DENIED_PROXY,
+                actorAttribution: PROXY_BASIS, origin: 'body' } as EventSnapshot;
+            const third = { ...assignment(98), kind: 'mention', actorLogin: PERMITTED,
+                actorAttribution: DIRECT_BASIS, origin: 'comment', commentId: 77 } as EventSnapshot;
+            await seed(first, second, third);
+            const claim = await claimRun(98);
+            const outcome = await reserve(claim);
+
+            // Two of the three references are outside the list, and that is fine:
+            // the run needs one allowed actor, not all of them. Both rejected
+            // alternatives wedge the run permanently, because a `blocked:*` run is
+            // non-terminal and new deliveries *join* it.
+            expect(outcome.status).toBe(APPLIED);
+            const run = await readRun(claim.correlationId);
+            const coalesced = await readRun(claim.correlationId);
+            expect(coalesced.actorPolicy).toBe('restricted');
+            // All three actors and their bases are on the record, so an
+            // unallowed person's later comment rides in visibly.
+            expect(run.sourceReferences.map((reference) => reference.actorLogin))
+                .toEqual([DENIED_DIRECT, DENIED_PROXY, PERMITTED]);
+            expect(run.sourceReferences.map((reference) => reference.actorAttribution))
+                .toEqual(['direct', 'subject-author', 'direct']);
+        }
+    });
+
+    it('refuses a coalesced run whose every actor is outside the list (AC-133)', async () => {
+        await setPolicy([PERMITTED]);
+        const denied = assignment(99, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
+        const proxied = { ...assignment(99), kind: 'mention', actorLogin: DENIED_PROXY,
+            actorAttribution: PROXY_BASIS, origin: 'body' } as EventSnapshot;
+        await seed(denied, proxied);
+        const claim = await claimRun(99);
+        const outcome = await reserve(claim);
+
+        expect(outcome.status).toBe(REFUSED);
+        // The row names **every** denied login, each with its basis (FR-077).
+        expect(await firstRefusalRow()).toMatchObject({
+            deniedLogins: [DENIED_DIRECT, DENIED_PROXY],
+            deniedAttributions: [DIRECT_BASIS, PROXY_BASIS],
+        });
+        const refused = await readRun(claim.correlationId);
+        expect(refused.actorPolicy).toBeNull();
+    });
+});
+
+describe('003 v1.8.0 the verdict never pre-empts an existing one (FR-076, AC-130)', () => {
+    it('answers already-dispatched and stale-lease on their own paths, not the gate', async () => {
+        // case: a run that already produced a session still names it (FR-022, AC-112)
+        {
+            const claim = await seedAndClaim(101, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
+            const reserved = await reserve(claim);
+            expect(reserved.status).toBe(APPLIED);
+            const token = reserved.status === 'applied' ? reserved.dispatchToken : '';
+            const reported = await report({ ...claim, dispatchToken: token, sessionId: 'ses_gate_check' });
+            expect(reported.status).toBe(APPLIED);
+
+            // The gate would refuse this run's actor under the tightened policy —
+            // and the session verdict still wins, because `judgeReserve` runs
+            // first. Read the session first and the run (which holds no lease by
+            // construction) could only ever answer `stale-lease`, and FR-022's
+            // "the refusal MUST name the existing session" would be unreachable.
+            await setPolicy([PERMITTED]);
+            const again = await reserve({ ...claim, leaseId: LEASE, attempt: 1 });
+            expect(again.status).toBe(REFUSED);
+            expect(again.status === 'refused' ? again.refusal.code : '').toBe(ALREADY_DISPATCHED);
+            expect(again.status === 'refused' ? again.refusal.message : '').toContain('ses_gate_check');
+            // The gate never reached a decision, so it wrote no row.
+            expect(await refusalRowCount()).toBe(0);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: a stale lease is answered stale, not by a policy verdict
+        {
+            await setPolicy([PERMITTED]);
+            const claim = await seedAndClaim(102, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
+            const stale = await reserve({ ...claim, leaseId: LEASE });
+
+            expect(stale.status).toBe(REFUSED);
+            expect(stale.status === 'refused' ? stale.refusal.code : '').toBe(STALE_LEASE);
+            // No gate row was written: the gate never reached its decision.
+            expect(await refusalRowCount()).toBe(0);
         }
     });
 });

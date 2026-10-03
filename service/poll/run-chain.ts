@@ -26,7 +26,7 @@ import type { ServiceStore } from '../store/index.ts';
 import { inQueueChain, readRunsDocument, writeRunsDocument } from './runs-document.ts';
 import { appendRunRow, refusedRow } from './dispatch-audit.ts';
 import type { RunRefusal } from './run-refusal.ts';
-import type { Run, SessionRef } from './runs-types.ts';
+import type { ActorGateRefusal, Run, SessionRef } from './runs-types.ts';
 
 /** Store, logger, and the run one operation addresses. */
 export interface RunOperationTarget {
@@ -102,6 +102,16 @@ export interface RefusalRowInput {
     readonly leaseId?: string | undefined;
     /** Token the caller presented as its fingerprint, when the verdict was about the token. */
     readonly dispatchTokenFingerprint?: string | undefined;
+    /**
+     * The gate's extra details, on the one refusal that carries them
+     * (003 FR-077).
+     *
+     * Optional rather than required so the *other* six operations' refusals are
+     * unchanged: a staleness verdict has no policy to describe, and a required
+     * member would put `actorPolicy: null` on every row that has no meaning for
+     * it.
+     */
+    readonly actor?: ActorGateRefusal | undefined;
 }
 
 /**
@@ -133,6 +143,7 @@ export async function appendRefusalRow(input: {
         ...(refusal.dispatchTokenFingerprint === undefined
             ? {}
             : { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint }),
+        ...(refusal.actor === undefined ? {} : { actor: refusal.actor }),
     });
 
     return await appendRunRow({

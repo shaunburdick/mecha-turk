@@ -29,6 +29,7 @@
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { appendRunRow, blockedRow } from './dispatch-audit.ts';
+import { ACTOR_BLOCKED_REASON } from './dispatch-actor-gate.ts';
 import { judgeLease, sessionIdOf } from './dispatch-authorize.ts';
 import { appendRefusalRow, operateRun } from './run-chain.ts';
 import { attemptHistory, currentAttempt, runHistoryIndicatesSession } from './runs-document.ts';
@@ -36,12 +37,24 @@ import { refuse } from './run-refusal.ts';
 import type { RunApplied, RunDuplicate, RunNotFound, RunRefused, RunRefusal } from './run-refusal.ts';
 import type { Run } from './runs-types.ts';
 
-/** The four guard causes a blocked report may name (FR-042, contract §4). */
+/**
+ * The **five** declared guard causes a blocked report may name (FR-042, FR-078;
+ * contract §4; data-model §2.2).
+ *
+ * A **closed set**, and the fifth value is a requirement change rather than a
+ * call-site detail: `blocked:<reason>` is validated as prefix + non-empty kebab
+ * reason, so a *sixth* declared cause would be a sixth string with no
+ * requirement behind it, and an **undeclared** one would still parse but would
+ * make the runs document unreadable to any future build that pinned this list.
+ * The gate's refusal parks its runs here through this same operation — no new
+ * route, no new method (FR-078).
+ */
 export const BLOCKED_REASONS: ReadonlySet<string> = new Set([
     'project-missing',
     'binding-missing',
     'credential',
     'policy',
+    ACTOR_BLOCKED_REASON,
 ]);
 
 /** What a block report answered. */

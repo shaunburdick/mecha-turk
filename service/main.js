@@ -2250,10 +2250,26 @@ function parseReference(raw) {
   const detectedAt = readStamp(raw.detectedAt);
   const { kind, origin } = raw;
   const present = readFlag(raw.presentAtAuthorization);
-  if (deliveryId === null || sourceUrl === null || detectedAt === null || present === null || !isEventKind(kind) || typeof origin !== "string" || !isValidOrigin(origin)) {
+  const unusable = [
+    deliveryId,
+    sourceUrl,
+    detectedAt,
+    present,
+    readActorLoginField(raw),
+    readActorAttributionField(raw)
+  ].includes(null) || !isEventKind(kind) || typeof origin !== "string" || !isValidOrigin(origin);
+  if (unusable || deliveryId === null || sourceUrl === null || detectedAt === null || present === null) {
     return null;
   }
-  return { deliveryId, kind, origin, sourceUrl, detectedAt, presentAtAuthorization: present };
+  return {
+    deliveryId,
+    kind,
+    origin,
+    sourceUrl,
+    detectedAt,
+    presentAtAuthorization: present,
+    ...actorFieldsOf(raw)
+  };
 }
 function parseAttempt(raw) {
   if (!isRecord(raw)) {
@@ -2426,10 +2442,18 @@ function readStateLine(raw) {
   }
   return { state, reason: stateReason };
 }
+function readActorPolicy(raw) {
+  const value = raw.actorPolicy;
+  if (value === undefined || value === null) {
+    return null;
+  }
+  return value === "open" || value === "restricted" ? value : undefined;
+}
 function parseRunScalars(raw) {
   const line = readStateLine(raw);
+  const actorPolicy = readActorPolicy(raw);
   const { subjectType } = raw;
-  if (line === null || subjectType !== "issue" && subjectType !== "pull_request") {
+  if (line === null || actorPolicy === undefined || subjectType !== "issue" && subjectType !== "pull_request") {
     return null;
   }
   const ordinal = readCount(raw.ordinal);
@@ -2456,6 +2480,7 @@ function parseRunScalars(raw) {
     referenceCount,
     referencesNotRetained: notRetained,
     referencesTruncated: truncated,
+    actorPolicy,
     createdAt,
     updatedAt
   };
@@ -2575,6 +2600,7 @@ function runFromParts(raw, parts) {
     projectId: raw.projectId,
     worktreeOption: raw.worktreeOption,
     prompt,
+    actorPolicy: scalars.actorPolicy,
     state: scalars.state,
     stateReason: scalars.stateReason,
     attempt: scalars.attempt,
@@ -2949,14 +2975,13 @@ function retainedReferences(reference) {
 function migratedRun(input) {
   const { event, ordinal, now, reserved } = input;
   const subjectType = subjectTypeOf(event);
-  const keyInput = {
+  const runKey = buildRunKey({
     accountNumericUserId: event.accountNumericUserId,
     repository: event.repository,
     subjectType,
     subjectNumber: event.issueNumber,
     ordinal
-  };
-  const runKey = buildRunKey(keyInput);
+  });
   const correlationId = buildCorrelationId(runKey);
   const classification = classifyLegacy({ event, runKey, correlationId, now, reserved });
   const reference = referenceOf(event, true);
@@ -2975,6 +3000,7 @@ function migratedRun(input) {
       projectId: event.projectId,
       worktreeOption: event.worktreeOption,
       prompt: null,
+      actorPolicy: null,
       state: classification.state,
       stateReason: classification.stateReason,
       attempt: 1,
@@ -3290,7 +3316,11 @@ function referenceOf(delivery, presentAtAuthorization) {
     origin,
     sourceUrl: delivery.issueUrl,
     detectedAt: delivery.detectedAt,
-    presentAtAuthorization
+    presentAtAuthorization,
+    ...actorFieldsOf({
+      actorLogin: delivery.actorLogin,
+      actorAttribution: delivery.actorAttribution
+    })
   };
 }
 function joinReference(input) {
@@ -3344,6 +3374,7 @@ function runForDelivery(input) {
     projectId: delivery.projectId,
     worktreeOption: delivery.worktreeOption,
     prompt,
+    actorPolicy: null,
     state: "pending",
     stateReason: null,
     attempt: 1,
@@ -5249,6 +5280,16 @@ function bindingAllowedUsersOf(raw) {
   }
   return { users };
 }
+function isActorAllowed(login, allowedUsers) {
+  if (login === "") {
+    return false;
+  }
+  if (allowedUsers === undefined) {
+    return true;
+  }
+  const wanted = login.toLowerCase();
+  return allowedUsers.some((candidate) => candidate.toLowerCase() === wanted);
+}
 
 // service/bindings.ts
 var MAX_BINDINGS = 100;
@@ -5650,6 +5691,26 @@ async function readBindings(input) {
     actor: "service"
   });
   return bindings;
+}
+async function readBindingsForAuthorization(input) {
+  const { store, log } = input;
+  const note = { reason: null };
+  try {
+    const result = await store.readJson(BINDINGS_FILE, (raw) => parseBindingsFile(raw, note));
+    if (result.status === "ok") {
+      return { readable: true, bindings: result.value };
+    }
+    if (result.status === "quarantined") {
+      log.warn("stored bindings were unusable and have been set aside", {
+        quarantinePath: result.quarantinePath,
+        ...note.reason === null ? {} : { reason: note.reason }
+      });
+    }
+    return { readable: false };
+  } catch (cause) {
+    log.warn("bindings read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
+    return { readable: false };
+  }
 }
 
 // service/poll/claim-bounds.ts
@@ -6092,7 +6153,8 @@ function historyRowOf(input) {
     dispatchResult: dispatchResultOf(run),
     claimedAt: lease.claimedAt,
     dispatchedAt: dispatchStamp,
-    ...promptViewOf2(run)
+    ...promptViewOf2(run),
+    actorPolicy: run.actorPolicy
   }, delivery);
 }
 function projectRunHistory(input) {
@@ -6372,7 +6434,8 @@ function promptDetails(run) {
     promptPresent: run.prompt !== null,
     promptFingerprint: run.prompt === null ? null : run.prompt.fingerprint,
     promptLength: run.prompt === null ? null : run.prompt.length,
-    promptSources: run.prompt === null ? null : run.prompt.sources
+    promptSources: run.prompt === null ? null : run.prompt.sources,
+    actorPolicy: run.actorPolicy
   };
 }
 function reservedRow(input) {
@@ -6496,6 +6559,15 @@ function verificationRow(input) {
     }
   };
 }
+function actorDetails(actor) {
+  return {
+    bindingId: actor.bindingId,
+    actorPolicy: actor.actorPolicy,
+    deniedLogins: [...actor.deniedLogins],
+    deniedAttributions: [...actor.deniedAttributions],
+    unreadableReferences: actor.unreadableReferences
+  };
+}
 function refusedRow(input) {
   return {
     eventType: "dispatch.refused",
@@ -6509,7 +6581,8 @@ function refusedRow(input) {
       priorState: input.run.state,
       attempt: input.attempt,
       ...input.leaseId === undefined ? {} : { leaseId: input.leaseId },
-      ...input.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: input.dispatchTokenFingerprint }
+      ...input.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: input.dispatchTokenFingerprint },
+      ...input.actor === undefined ? {} : actorDetails(input.actor)
     }
   };
 }
@@ -6525,6 +6598,97 @@ async function appendRunRow(input) {
     });
     return false;
   }
+}
+
+// service/poll/run-refusal.ts
+var STALE_LEASE_CODE = "stale-lease";
+function refuse3(code, message) {
+  return { code, message };
+}
+function staleAttemptMessage(attempt, current) {
+  return `the request names attempt ${attempt} but this run stands on attempt ${current}; ` + "read the run again and act on the attempt it reports";
+}
+
+// service/poll/dispatch-actor-gate.ts
+var ACTOR_NOT_ALLOWED = "actor-not-allowed";
+var ACTOR_BLOCKED_REASON = ACTOR_NOT_ALLOWED;
+var UNRECORDED_BASIS = "unrecorded";
+function classifyActor(reference) {
+  const login = reference.actorLogin;
+  if (login === undefined || login === "" || login.toLowerCase().endsWith("[bot]")) {
+    return { readable: false };
+  }
+  return { readable: true, login, attribution: reference.actorAttribution ?? null };
+}
+function classifyRun(run) {
+  const classified = run.sourceReferences.map(classifyActor);
+  return {
+    readable: classified.filter((actor) => actor.readable),
+    unreadableReferences: classified.filter((actor) => !actor.readable).length
+  };
+}
+function refusalDetails(input) {
+  return {
+    bindingId: input.run.bindingId,
+    actorPolicy: input.policy,
+    deniedLogins: input.deniedLogins,
+    deniedAttributions: input.deniedAttributions,
+    unreadableReferences: input.unreadableReferences
+  };
+}
+function namedActors(actors) {
+  return actors.map((actor) => `${actor.login} (${actor.attribution === "subject-author" ? "the issue or pull-request author — a proxy, GitHub does not record who assigned or requested" : actor.attribution ?? UNRECORDED_BASIS})`).join(", ");
+}
+function unreadableNote(unreadableReferences) {
+  return unreadableReferences === 0 ? "every reference names a readable actor" : `${unreadableReferences} of this run's references name no readable actor`;
+}
+function judgeActorPolicy(input) {
+  const { run, allowedUsers } = input;
+  const { readable, unreadableReferences } = classifyRun(run);
+  const policy = allowedUsers === undefined ? "open" : "restricted";
+  if (readable.some((actor) => isActorAllowed(actor.login, allowedUsers))) {
+    return { admitted: true, policy };
+  }
+  const refuseWith = (message) => ({
+    admitted: false,
+    refused: {
+      refusal: refuse3(ACTOR_NOT_ALLOWED, message),
+      actor: refusalDetails({
+        run,
+        policy,
+        deniedLogins: readable.map((actor) => actor.login),
+        deniedAttributions: readable.map((actor) => actor.attribution ?? UNRECORDED_BASIS),
+        unreadableReferences
+      })
+    }
+  });
+  if (readable.length > 0) {
+    return refuseWith("no source reference on this run names an actor the binding's allowedUsers permits: " + `${namedActors(readable)}; ${unreadableNote(unreadableReferences)}`);
+  }
+  return refuseWith(unreadableReferences === 0 ? "this run records no source reference, so no actor can be permitted" : `this run records no readable actor: all ${unreadableReferences} of its references name no ` + "attribution or name a bot account, which no binding can permit");
+}
+function unreadablePolicyRefusal(run) {
+  return {
+    admitted: false,
+    refused: {
+      refusal: refuse3(ACTOR_NOT_ALLOWED, `the allow-list for binding ${run.bindingId} could not be read, so no dispatch is authorized`),
+      actor: refusalDetails({
+        run,
+        policy: null,
+        deniedLogins: [],
+        deniedAttributions: [],
+        unreadableReferences: 0
+      })
+    }
+  };
+}
+async function readLivePolicy(input) {
+  const read = await readBindingsForAuthorization({ store: input.store, log: input.log });
+  if (!read.readable) {
+    return null;
+  }
+  const binding = read.bindings.find((candidate) => candidate.bindingId === input.bindingId);
+  return binding === undefined ? null : binding.allowedUsers;
 }
 
 // service/poll/run-chain.ts
@@ -6557,7 +6721,8 @@ async function appendRefusalRow(input) {
     reason: refusal.refusal.message,
     attempt: refusal.attempt,
     ...refusal.leaseId === undefined ? {} : { leaseId: refusal.leaseId },
-    ...refusal.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint }
+    ...refusal.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint },
+    ...refusal.actor === undefined ? {} : { actor: refusal.actor }
   });
   return await appendRunRow({
     store: input.store,
@@ -6575,15 +6740,6 @@ function sessionRefOf(input) {
     sourceUrl: input.run.sourceReferences[0]?.sourceUrl ?? "",
     worktree: null
   };
-}
-
-// service/poll/run-refusal.ts
-var STALE_LEASE_CODE = "stale-lease";
-function refuse3(code, message) {
-  return { code, message };
-}
-function staleAttemptMessage(attempt, current) {
-  return `the request names attempt ${attempt} but this run stands on attempt ${current}; ` + "read the run again and act on the attempt it reports";
 }
 
 // service/poll/dispatch-authorize.ts
@@ -6623,11 +6779,12 @@ function judgeReserve(input) {
   return run.state === "claimed" ? null : refuse3(INVALID_TRANSITION, `this run is ${run.state}; only a claimed run can be authorized`);
 }
 function reservedRun(input) {
-  const { run, dispatchToken, resultDeadlineAt, now } = input;
+  const { run, dispatchToken, resultDeadlineAt, actorPolicy, now } = input;
   return {
     ...run,
     state: "starting",
     stateReason: `authorized at ${now}; result due by ${resultDeadlineAt}`,
+    actorPolicy,
     reservation: { dispatchToken, attempt: run.attempt, reservedAt: now, resultDeadlineAt, consumed: false },
     attempts: attemptHistory(run, { ...currentAttempt(run), dispatchToken, reservedAt: now }),
     updatedAt: now
@@ -6643,7 +6800,7 @@ async function readResultDeadlineMs(store, log) {
   }
 }
 async function refusedReserve(input) {
-  const { call, run, refusal } = input;
+  const { call, run, refusal, actor } = input;
   return {
     status: "refused",
     refusal,
@@ -6656,7 +6813,8 @@ async function refusedReserve(input) {
         operation: "reserve",
         refusal,
         attempt: call.attempt,
-        leaseId: call.leaseId
+        leaseId: call.leaseId,
+        ...actor === undefined ? {} : { actor }
       }
     })
   };
@@ -6668,10 +6826,20 @@ async function reserveDispatch(input) {
     if (refusal !== null) {
       return await refusedReserve({ call: input, run, refusal });
     }
+    const policy = await readLivePolicy({ store: input.store, log: input.log, bindingId: run.bindingId });
+    const gate = policy === null ? unreadablePolicyRefusal(run) : judgeActorPolicy({ run, allowedUsers: policy });
+    if (!gate.admitted) {
+      return await refusedReserve({
+        call: input,
+        run,
+        refusal: gate.refused.refusal,
+        actor: gate.refused.actor
+      });
+    }
     const lease = run.lease;
     const dispatchToken = buildDispatchToken(run.runKey, run.attempt);
     const resultDeadlineAt = new Date(Date.parse(now) + deadlineMs).toISOString();
-    const starting = reservedRun({ run, dispatchToken, resultDeadlineAt, now });
+    const starting = reservedRun({ run, dispatchToken, resultDeadlineAt, actorPolicy: gate.policy, now });
     await persist(starting);
     return {
       status: "applied",
@@ -6694,7 +6862,8 @@ var BLOCKED_REASONS = new Set([
   "project-missing",
   "binding-missing",
   "credential",
-  "policy"
+  "policy",
+  ACTOR_BLOCKED_REASON
 ]);
 var INVALID_TRANSITION2 = "invalid-transition";
 function judgeBlock(input) {
@@ -7021,6 +7190,7 @@ var REFUSAL_STATUS = new Map([
   ["already-reserved", STATUS.conflict],
   ["already-dispatched", STATUS.conflict],
   ["invalid-transition", STATUS.conflict],
+  ["actor-not-allowed", STATUS.conflict],
   ["cause-not-cleared", STATUS.conflict],
   ["validation", STATUS.validation]
 ]);
@@ -7445,6 +7615,7 @@ var healthRoute = {
 
 // service/poll/run-operate.ts
 var CORROBORATED_BLOCKED_REASON = "binding-missing";
+var CAUSE_NOT_CLEARED = "cause-not-cleared";
 var INVALID_TRANSITION4 = "invalid-transition";
 function invalidTransition(state) {
   const messages = new Map([
@@ -7470,6 +7641,19 @@ async function refused(input) {
     })
   };
 }
+var CORROBORATED_BLOCKED_REASONS = new Set([
+  CORROBORATED_BLOCKED_REASON,
+  ACTOR_BLOCKED_REASON
+]);
+function judgeActorCause(input) {
+  const { run, bindings } = input;
+  const binding = bindings.find((candidate) => candidate.bindingId === run.bindingId);
+  const gate = binding === undefined ? { admitted: false } : judgeActorPolicy({ run, allowedUsers: binding.allowedUsers });
+  if (gate.admitted) {
+    return "corroborated";
+  }
+  return refuse3(CAUSE_NOT_CLEARED, `the cause has not cleared: the allow-list for binding ${run.bindingId} still admits none of this run's ` + "attributed actors");
+}
 function judgeRetry(input) {
   const { run, causeCleared, bindings } = input;
   if (input.attempt !== run.attempt) {
@@ -7482,10 +7666,13 @@ function judgeRetry(input) {
     return invalidTransition(run.state);
   }
   const blockedReason = run.state.slice("blocked:".length);
-  if (blockedReason === CORROBORATED_BLOCKED_REASON) {
-    return bindings.some((binding) => binding.bindingId === run.bindingId) ? "corroborated" : refuse3("cause-not-cleared", `the cause has not cleared: the binding ${run.bindingId} is still absent`);
+  if (!CORROBORATED_BLOCKED_REASONS.has(blockedReason)) {
+    return causeCleared ? "reported" : refuse3(CAUSE_NOT_CLEARED, `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this ` + "row records what was checked");
   }
-  return causeCleared ? "reported" : refuse3("cause-not-cleared", `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this row ` + "records what was checked");
+  if (blockedReason === CORROBORATED_BLOCKED_REASON) {
+    return bindings.some((binding) => binding.bindingId === run.bindingId) ? "corroborated" : refuse3(CAUSE_NOT_CLEARED, `the cause has not cleared: the binding ${run.bindingId} is still absent`);
+  }
+  return judgeActorCause({ run, bindings });
 }
 function waitingRun(input) {
   const { run, now } = input;

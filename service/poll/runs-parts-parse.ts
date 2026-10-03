@@ -15,6 +15,7 @@
  */
 
 import { isRecord, readFlag, readPositiveInt, readStamp, readString, readText } from '../json.ts';
+import { actorFieldsOf, readActorAttributionField, readActorLoginField } from './attribution.ts';
 import type { EventKind } from './events-parse.ts';
 import type {
     DispatchAttempt,
@@ -71,6 +72,14 @@ function isOutcome(value: unknown): value is DispatchAttempt['outcome'] {
 /**
  * Validate the reference sub-object.
  *
+ * The two actor members are **absentable and validated when present** (002
+ * FR-043, FR-044): a run stored before attribution existed carries neither and
+ * still parses, because refusing it would quarantine the whole document for
+ * history that is perfectly readable. A member that *is* present must be
+ * usable — an unrecognized basis refuses the reference rather than defaulting
+ * to a guess (002 FR-024, NFR-011), and that refusal is what makes the run
+ * unreadable rather than silently unattributed.
+ *
  * @param raw - Candidate value.
  * @returns The reference, or `null` when any field is missing or malformed.
  */
@@ -84,14 +93,26 @@ export function parseReference(raw: unknown): SourceReference | null {
     const detectedAt = readStamp(raw.detectedAt);
     const { kind, origin } = raw;
     const present = readFlag(raw.presentAtAuthorization);
-    if (
-        deliveryId === null || sourceUrl === null || detectedAt === null || present === null
-        || !isEventKind(kind) || typeof origin !== 'string' || !isValidOrigin(origin)
-    ) {
+    const unusable = [
+        deliveryId, sourceUrl, detectedAt, present,
+        readActorLoginField(raw), readActorAttributionField(raw),
+    ].includes(null)
+        || !isEventKind(kind)
+        || typeof origin !== 'string'
+        || !isValidOrigin(origin);
+    if (unusable || deliveryId === null || sourceUrl === null || detectedAt === null || present === null) {
         return null;
     }
 
-    return { deliveryId, kind, origin, sourceUrl, detectedAt, presentAtAuthorization: present };
+    return {
+        deliveryId,
+        kind,
+        origin,
+        sourceUrl,
+        detectedAt,
+        presentAtAuthorization: present,
+        ...actorFieldsOf(raw),
+    };
 }
 
 /**

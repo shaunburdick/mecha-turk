@@ -331,14 +331,13 @@ function migratedRun(input: {
 }): { readonly run: Run; readonly branch: string } {
     const { event, ordinal, now, reserved } = input;
     const subjectType = subjectTypeOf(event);
-    const keyInput = {
+    const runKey = buildRunKey({
         accountNumericUserId: event.accountNumericUserId,
         repository: event.repository,
         subjectType,
         subjectNumber: event.issueNumber,
         ordinal,
-    };
-    const runKey = buildRunKey(keyInput);
+    });
     const correlationId = buildCorrelationId(runKey);
     const classification = classifyLegacy({ event, runKey, correlationId, now, reserved });
     const reference = referenceOf(event, true);
@@ -357,8 +356,9 @@ function migratedRun(input: {
             bindingId: event.bindingId,
             projectId: event.projectId,
             worktreeOption: event.worktreeOption,
-            // A legacy delivery predates this feature: it queued with no prompt (004 FR-017).
             prompt: null,
+            // The allow-list shape is decided at authorization (003 FR-076).
+            actorPolicy: null,
             state: classification.state,
             stateReason: classification.stateReason,
             attempt: 1,

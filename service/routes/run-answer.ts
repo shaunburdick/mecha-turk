@@ -35,6 +35,11 @@ const REFUSAL_STATUS = new Map<RunRefusal['code'], number>([
     ['already-reserved', STATUS.conflict],
     ['already-dispatched', STATUS.conflict],
     ['invalid-transition', STATUS.conflict],
+    // The actor-policy gate (003 FR-077). A `409` like every other state verdict
+    // on this path: the run exists, the request was well-formed, and the service
+    // answered "not authorized" — which the panel then reports as
+    // `blocked:actor-not-allowed` through the existing block report (FR-078).
+    ['actor-not-allowed', STATUS.conflict],
     ['cause-not-cleared', STATUS.conflict],
     // Mapped for completeness: a `422` is refused by this module through
     // {@link refuseRunRequest} rather than routed through

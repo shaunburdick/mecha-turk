@@ -358,7 +358,8 @@ describe('T-032 an unwritable trail never rolls back a state change (AC-119, FR-
         expect(offer.auditWritten).toBe(false);
 
         const reserved = await reserveRun(rt, offered);
-        expect(reserved?.auditWritten).toBe(false);
+        expect(reserved.kind).toBe('reserved');
+        expect(reserved.kind === 'reserved' ? reserved.reservation.auditWritten : null).toBe(false);
 
         // The state change stands: no rollback, no half-applied run, and no
         // `dispatch.reserved` row pretending the trail has what it does not.

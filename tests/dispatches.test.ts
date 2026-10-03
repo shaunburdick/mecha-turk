@@ -89,6 +89,15 @@ const BLOCKED_PROJECT_STATE: RunRow['state'] = 'blocked:project-missing';
 /** A guard-refused state naming a binding that no longer exists. */
 const BLOCKED_BINDING_STATE: RunRow['state'] = 'blocked:binding-missing';
 
+/** The fifth declared blocked cause, the one the actor-policy gate parks in (003 FR-078). */
+const BLOCKED_ACTOR_STATE: RunRow['state'] = 'blocked:actor-not-allowed';
+
+/** The badge tone every state needing an operator's decision reads as (FR-040). */
+const DECISION_TONE: Tone = 'warning';
+
+/** The badge label and state of the cause the actor-policy gate parks a run in. */
+const ACTOR_BLOCKED_LABEL = 'blocked: actor-not-allowed';
+
 /** Agent every read-back fixture expects (and, when matched, observes). */
 const EXPECTED_AGENT = 'project-manager';
 
@@ -171,6 +180,9 @@ function runFixture(overrides: Partial<RunRow> = {}): RunRow {
         promptFingerprint: null,
         promptLength: null,
         promptSources: null,
+        // No gate has judged this run yet, so no policy shape is recorded
+        // (003 FR-079) — the honest reading, never a silent `'open'`.
+        actorPolicy: null,
         ...overrides,
     };
 }
@@ -417,6 +429,10 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
             expect(retries(FAILED_STATE)).toBe(true);
             expect(retries(BLOCKED_PROJECT_STATE)).toBe(true);
             expect(retries(BLOCKED_BINDING_STATE)).toBe(true);
+            // The fifth declared cause retries on exactly the same terms (FR-078):
+            // the service re-checks the live policy and refuses with its own
+            // reason until it clears, which is what every other cause does.
+            expect(retries(BLOCKED_ACTOR_STATE)).toBe(true);
 
             const notRetryable: readonly RunRow['state'][] = [
                 'pending',
@@ -432,16 +448,20 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
         }
         // case: labels every state in operator vocabulary and never success-tones a failure
         {
+            // Every state that means "an operator must decide" — a failure, a
+            // wedge, and the whole blocked family — reads as one warning tone,
+            // so a refusal is never mistakable for a success at a glance (FR-040).
             const expected: readonly (readonly [RunRow['state'], string, Tone])[] = [
                 ['pending', 'waiting', 'neutral'],
                 ['claimed', 'claimed', 'info'],
                 ['starting', 'starting', 'info'],
                 ['dispatched', 'dispatched', 'success'],
-                [FAILED_STATE, 'dispatch failed', 'warning'],
-                [UNCONFIRMED_STATE, 'unconfirmed', 'warning'],
+                [FAILED_STATE, 'dispatch failed', DECISION_TONE],
+                [UNCONFIRMED_STATE, 'unconfirmed', DECISION_TONE],
                 [DEAD_LETTERED_STATE, DEAD_LETTERED_STATE, 'error'],
-                [BLOCKED_PROJECT_STATE, 'blocked: project-missing', 'warning'],
-                [BLOCKED_BINDING_STATE, 'blocked: binding-missing', 'warning'],
+                [BLOCKED_PROJECT_STATE, 'blocked: project-missing', DECISION_TONE],
+                [BLOCKED_BINDING_STATE, 'blocked: binding-missing', DECISION_TONE],
+                [BLOCKED_ACTOR_STATE, ACTOR_BLOCKED_LABEL, DECISION_TONE],
             ];
             for (const [state, label, tone] of expected) {
                 const rows = dispatchRows(runsState({ rows: [runFixture({ state })], status: 'ready' }));
@@ -805,6 +825,58 @@ describe('runAffordance (003’s state→affordance table, FR-041/FR-033/FR-027)
  * name — so a state added to 003 fails this suite until it is given a label
  * and an affordance, which is exactly what SC-104 asks for.
  */
+/**
+ * 003 v1.8.0 — the actor allow-list gate's row (FR-078; 005 FR-044, FR-046).
+ *
+ * The row's own two claims: the **denied login** the service named is visible,
+ * and the reason line names the field that restricts the binding rather than
+ * offering a retry the operator cannot act on. And the table still **fails** for
+ * a cause with no row of its own — the generic clause is a fallback, not a
+ * licence to render nothing.
+ */
+describe('003 v1.8.0 the blocked actor-not-allowed row (FR-078)', () => {
+    it('names the denied login, the field, and still refuses an unknown cause', async () => {
+        // case: the row renders the service's own reason, which names the denial
+        {
+            const rows = dispatchRows(runsState({
+                rows: [runFixture({
+                    state: BLOCKED_ACTOR_STATE,
+                    stateReason: "no source reference on this run names an actor the binding's allowedUsers "
+                        + 'permits: bob (the author GitHub recorded)',
+                })],
+                status: 'ready',
+            }));
+
+            expect(rows[0]?.subtitle).toContain('bob');
+            expect(rows[0]?.badge?.label).toBe(ACTOR_BLOCKED_LABEL);
+        }
+        // case: the affordance's reason names the field, not a generic guard
+        {
+            const affordance = runAffordance(runFixture({ state: BLOCKED_ACTOR_STATE }));
+
+            expect(affordance.action).toBe('retry');
+            expect(affordance.reason).toContain('allowedUsers');
+            expect(affordance.reason).not.toContain('a guard refused');
+            // The permitted set is configuration; the reason names the field only.
+            expect(affordance.reason).not.toMatch(/@|permitted:/);
+        }
+        // case: an undeclared cause still renders, and still offers nothing false
+        {
+            // The generic clause is honest about a cause this build does not
+            // produce, and the table keeps answering for a state from a future
+            // build (FR-074) rather than guessing a control.
+            const unknown = runAffordance({ state: 'blocked:not-yet-produced' });
+            expect(unknown.action).toBe('retry');
+            expect(unknown.reason).toContain('not-yet-produced');
+
+            const future = runAffordance({ state: 'archived' });
+            expect(future.action).toBe('none');
+            expect(future.label).toBeNull();
+            expect(future.reason).toContain('does not recognise');
+        }
+    });
+});
+
 describe('SC-104 one fixture per state of the dispatch state model', () => {
     /** Every declared state, with the label and control it must render. */
     const TABLE: readonly {
@@ -821,6 +893,7 @@ describe('SC-104 one fixture per state of the dispatch state model', () => {
         { state: DEAD_LETTERED_STATE, label: 'dead-lettered', action: 'requeue' },
         { state: BLOCKED_PROJECT_STATE, label: 'blocked: project-missing', action: 'retry' },
         { state: BLOCKED_BINDING_STATE, label: 'blocked: binding-missing', action: 'retry' },
+        { state: BLOCKED_ACTOR_STATE, label: ACTOR_BLOCKED_LABEL, action: 'retry' },
     ];
 
     it('names a label, a reason, and a control for every dec… (+2 cases)', () => {
@@ -846,7 +919,7 @@ describe('SC-104 one fixture per state of the dispatch state model', () => {
         // case: offers Retry on exactly failed and the blocked family, and Resolve only on unconfirmed
         {
             const retried = TABLE.filter((row) => row.action === 'retry').map((row) => row.state);
-            expect(retried).toEqual([FAILED_STATE, BLOCKED_PROJECT_STATE, BLOCKED_BINDING_STATE]);
+            expect(retried).toEqual([FAILED_STATE, BLOCKED_PROJECT_STATE, BLOCKED_BINDING_STATE, BLOCKED_ACTOR_STATE]);
 
             const resolved = TABLE.filter((row) => row.action === 'resolve').map((row) => row.state);
             expect(resolved).toEqual([UNCONFIRMED_STATE]);

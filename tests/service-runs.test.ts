@@ -94,6 +94,10 @@ const PROJECTED_FIELDS = [
     'promptFingerprint',
     'promptLength',
     'promptSources',
+    // The **shape** of the binding's allow-list at authorization, never a login
+    // (003 FR-079, NFR-113). Present on every row, including `null` for a run no
+    // gate has judged yet, so a reader never has to default it.
+    'actorPolicy',
 ] as const;
 
 /** Build a header map without writing HTTP header names as object keys. */

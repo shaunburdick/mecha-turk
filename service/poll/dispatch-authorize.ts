@@ -19,6 +19,18 @@
  * - **Nothing is minted before the verdict.** A refused reserve leaves no
  *   reservation, no token, and no `dispatch.reserved` row — only the one
  *   `dispatch.refused` row (contract §1).
+ * - **The actor allow-list is judged here, and only here** (FR-076 – FR-080).
+ *   The decision itself lives in
+ *   [`dispatch-actor-gate.ts`](./dispatch-actor-gate.ts) — the split the
+ *   file-length gate forces and the one this feature wants, since that module
+ *   owns the predicate alone and the retry path re-runs the *same* predicate
+ *   against its own live read (FR-078). It sits *after* `judgeReserve` has
+ *   answered `null` and *before* any token is derived, so
+ *   `already-dispatched` (which names the session) and `stale-lease` stay
+ *   reachable on their own paths, and a refusal mints nothing at all. The
+ *   binding's `allowedUsers` is read **inside this same chain task**, from the
+ *   live document, so a tightened list takes effect on the next authorization
+ *   with no re-scan and no restart.
  * - **The session check runs first**, before the lease check, inverting the
  *   order the contract's prose listed. Read lease-first, a `dispatched` run —
  *   which holds no lease by construction — would always answer `stale-lease`
@@ -35,12 +47,13 @@ import { CONFIG_FILE, DEFAULT_CONFIG, configFromStore, parseStoredConfig } from 
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { appendRunRow, reservedRow } from './dispatch-audit.ts';
+import { judgeActorPolicy, readLivePolicy, unreadablePolicyRefusal } from './dispatch-actor-gate.ts';
 import { appendRefusalRow, operateRun } from './run-chain.ts';
 import { buildDispatchToken } from './run-key.ts';
 import { attemptHistory, currentAttempt, runHistoryIndicatesSession } from './runs-document.ts';
 import { refuse } from './run-refusal.ts';
 import type { RunApplied, RunDuplicate, RunNotFound, RunRefused, RunRefusal } from './run-refusal.ts';
-import type { Run, RunLease } from './runs-types.ts';
+import type { ActorGateRefusal, ActorPolicy, Run, RunLease } from './runs-types.ts';
 
 /** What one reserve answered. */
 export type ReserveResult =
@@ -189,7 +202,13 @@ function judgeReserve(input: {
  * Pure, so the write is the only side effect the caller has to reason about and
  * the attempt record cannot drift from the reservation it belongs to.
  *
- * @param input - The claimed run, the token, the deadline, and the stamp.
+ * `actorPolicy` is snapshotted **here, from the gate's own read** (FR-079, plan
+ * D16) — not re-read per row builder — so `dispatch.reserved` and
+ * `dispatch.result` provably describe the same policy even though the result
+ * report happens after an operator may have changed the list.
+ *
+ * @param input - The claimed run, the token, the deadline, the policy shape the
+ *   gate decided on, and the stamp.
  * @returns The `starting` run.
  */
 function reservedRun(input: {
@@ -199,15 +218,18 @@ function reservedRun(input: {
     readonly dispatchToken: string;
     /** RFC 3339 result deadline. */
     readonly resultDeadlineAt: string;
+    /** Shape of the allow-list the gate judged. */
+    readonly actorPolicy: ActorPolicy;
     /** Service-clock stamp. */
     readonly now: string;
 }): Run {
-    const { run, dispatchToken, resultDeadlineAt, now } = input;
+    const { run, dispatchToken, resultDeadlineAt, actorPolicy, now } = input;
 
     return {
         ...run,
         state: 'starting',
         stateReason: `authorized at ${now}; result due by ${resultDeadlineAt}`,
+        actorPolicy,
         reservation: { dispatchToken, attempt: run.attempt, reservedAt: now, resultDeadlineAt, consumed: false },
         attempts: attemptHistory(run, { ...currentAttempt(run), dispatchToken, reservedAt: now }),
         updatedAt: now,
@@ -250,8 +272,10 @@ async function refusedReserve(input: {
     readonly run: Run;
     /** The verdict. */
     readonly refusal: RunRefusal;
+    /** The gate's extra details, on the one refusal that carries them (FR-077). */
+    readonly actor?: ActorGateRefusal | undefined;
 }): Promise<RunRefused> {
-    const { call, run, refusal } = input;
+    const { call, run, refusal, actor } = input;
 
     return {
         status: 'refused',
@@ -266,6 +290,7 @@ async function refusedReserve(input: {
                 refusal,
                 attempt: call.attempt,
                 leaseId: call.leaseId,
+                ...(actor === undefined ? {} : { actor }),
             },
         }),
     };
@@ -289,12 +314,30 @@ export async function reserveDispatch(input: ReserveInput): Promise<ReserveResul
             return await refusedReserve({ call: input, run, refusal });
         }
 
+        // The gate runs **after** `judgeReserve` and **before** anything is
+        // minted (FR-076, clarification 22). A policy check placed first would
+        // pre-empt `already-dispatched` — which names the session FR-022 and
+        // AC-112 require — and `stale-lease`, making both unreachable on the
+        // paths they exist for.
+        const policy = await readLivePolicy({ store: input.store, log: input.log, bindingId: run.bindingId });
+        const gate = policy === null
+            ? unreadablePolicyRefusal(run)
+            : judgeActorPolicy({ run, allowedUsers: policy });
+        if (!gate.admitted) {
+            return await refusedReserve({
+                call: input,
+                run,
+                refusal: gate.refused.refusal,
+                actor: gate.refused.actor,
+            });
+        }
+
         // `judgeReserve` only answers `null` for a `claimed` run holding this
         // lease, which is the one state that carries a live lease by construction.
         const lease = run.lease as RunLease;
         const dispatchToken = buildDispatchToken(run.runKey, run.attempt);
         const resultDeadlineAt = new Date(Date.parse(now) + deadlineMs).toISOString();
-        const starting = reservedRun({ run, dispatchToken, resultDeadlineAt, now });
+        const starting = reservedRun({ run, dispatchToken, resultDeadlineAt, actorPolicy: gate.policy, now });
         await persist(starting);
 
         return {

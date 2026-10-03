@@ -319,6 +319,7 @@ function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run 
         projectId: raw.projectId as string,
         worktreeOption: raw.worktreeOption as string,
         prompt,
+        actorPolicy: scalars.actorPolicy,
         state: scalars.state,
         stateReason: scalars.stateReason,
         attempt: scalars.attempt,

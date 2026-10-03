@@ -42,7 +42,7 @@ import type { ServiceLogger } from '../log.ts';
 import type { PromptSource } from '../prompt.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { buildDispatchTokenFingerprint } from './run-key.ts';
-import type { BaselineProvenance, Run, RunState, RunVerification } from './runs-types.ts';
+import type { ActorGateRefusal, BaselineProvenance, Run, RunState, RunVerification } from './runs-types.ts';
 
 
 /** Entity kind every run-scoped lifecycle row names (FR-061). */
@@ -109,6 +109,17 @@ function promptDetails(run: Run): {
     readonly promptLength: number | null;
     /** Contributing tiers in FR-087's order, or `null` when none. */
     readonly promptSources: readonly PromptSource[] | null;
+    /**
+     * The **shape** of the binding's allow-list in force when the gate
+     * authorized this attempt (003 FR-079, NFR-113).
+     *
+     * Read from the run's own snapshot rather than re-reading the binding,
+     * which is what makes this row and `dispatch.result` provably describe one
+     * policy even though an operator may have edited the list between them. Two
+     * words, never a login: a retained trail listing who may trigger a
+     * repository is a second copy of the access policy.
+     */
+    readonly actorPolicy: Run['actorPolicy'];
 } {
     return {
         bindingId: run.bindingId,
@@ -116,6 +127,7 @@ function promptDetails(run: Run): {
         promptFingerprint: run.prompt === null ? null : run.prompt.fingerprint,
         promptLength: run.prompt === null ? null : run.prompt.length,
         promptSources: run.prompt === null ? null : run.prompt.sources,
+        actorPolicy: run.actorPolicy,
     };
 }
 
@@ -424,6 +436,26 @@ export function verificationRow(input: {
 }
 
 /**
+ * The gate's four extra detail keys, as the row spells them (003 FR-077).
+ *
+ * The two arrays are **index-parallel** rather than one combined list: a reader
+ * asking "what basis did this login carry?" answers with one index, and a
+ * misaligned pair cannot be constructed.
+ *
+ * @param actor - The gate's detail set.
+ * @returns The keys to merge into the row's `details`.
+ */
+function actorDetails(actor: ActorGateRefusal): Record<string, unknown> {
+    return {
+        bindingId: actor.bindingId,
+        actorPolicy: actor.actorPolicy,
+        deniedLogins: [...actor.deniedLogins],
+        deniedAttributions: [...actor.deniedAttributions],
+        unreadableReferences: actor.unreadableReferences,
+    };
+}
+
+/**
  * `dispatch.refused` — one run-scoped operation answered `4xx` (FR-003).
  *
  * The only row in the family whose `reason` is written twice — once in the
@@ -449,6 +481,12 @@ export function refusedRow(input: {
     readonly leaseId?: string | undefined;
     /** Token the caller presented as its fingerprint, for a token verdict. */
     readonly dispatchTokenFingerprint?: string | undefined;
+    /**
+     * The actor gate's detail set, on the one refusal that carries one
+     * (003 FR-077). Omitted for every other code, so no row gains a
+     * meaningless `actorPolicy: null`.
+     */
+    readonly actor?: ActorGateRefusal | undefined;
 }): AuditInput {
     return {
         eventType: 'dispatch.refused',
@@ -465,6 +503,7 @@ export function refusedRow(input: {
             ...(input.dispatchTokenFingerprint === undefined
                 ? {}
                 : { dispatchTokenFingerprint: input.dispatchTokenFingerprint }),
+            ...(input.actor === undefined ? {} : actorDetails(input.actor)),
         },
     };
 }

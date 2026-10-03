@@ -419,17 +419,19 @@ describe('contract §5.6 one comparison', () => {
     it('calls the membership helper from its own module and the gate only', () => {
         // Plan D9 / 003 FR-076: exactly one membership comparison in the product,
         // so "may this run start a session?" has exactly one answer. The
-        // authorization gate (`service/poll/dispatch-authorize.ts`) is 003's and
-        // lands in Wave 2; until then nothing outside the defining module may
-        // call it, and the scan names the gate as the only permitted caller.
-        const gate = 'service/poll/dispatch-authorize.ts';
+        // gate (`service/poll/dispatch-actor-gate.ts`, beside the reserve that
+        // calls it) is that one caller, and this is the scan that keeps it the
+        // only one: a panel-side pre-check, a poll-loop filter, or a second
+        // service comparison all fail here rather than drifting into a second
+        // answer to the same question.
+        const gate = 'service/poll/dispatch-actor-gate.ts';
         const callers = [...sourceFiles('service'), ...sourceFiles('src')]
             .filter(([, text]) => /\bisActorAllowed\(/.test(text))
             .map(([path]) => path)
             .filter((path) => path !== 'service/bindings-allow-list.ts');
 
-        expect(callers).not.toContain(gate);
-        expect(callers).toEqual([]);
+        // Exactly two files name it: the module that defines it and the gate.
+        expect(callers).toEqual([gate]);
     });
 });
 

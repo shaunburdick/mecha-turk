@@ -42,14 +42,18 @@ import type { BindingRecord } from '../bindings.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { appendRunRow, resolvedRow, retryRow } from './dispatch-audit.ts';
+import { ACTOR_BLOCKED_REASON, judgeActorPolicy } from './dispatch-actor-gate.ts';
 import { appendRefusalRow, operateRun, sessionRefOf } from './run-chain.ts';
 import { STALE_LEASE_CODE, refuse, staleAttemptMessage } from './run-refusal.ts';
 import type { RunApplied, RunNotFound, RunRefused, RunRefusal } from './run-refusal.ts';
 import { attemptHistory, currentAttempt, runHistoryIndicatesSession } from './runs-document.ts';
 import type { Run, RunState } from './runs-types.ts';
 
-/** The blocked cause whose clearing the service can verify itself. */
+/** The blocked cause whose clearing the service verifies by table lookup alone. */
 const CORROBORATED_BLOCKED_REASON = 'binding-missing';
+
+/** The cause-not-cleared clause every refused retry answers with (FR-041). */
+const CAUSE_NOT_CLEARED = 'cause-not-cleared';
 
 /** The two explicit resolutions of an `unconfirmed` run (FR-027). */
 export type ResolveDecision = 'session-created' | 'no-session';
@@ -137,6 +141,63 @@ export async function refused(input: RefusalTarget & {
 }
 
 /**
+ * The blocked causes the service can re-check itself, and so corroborate.
+ *
+ * Two members, and both are checked against the **live** store rather than
+ * against the panel's word (003 FR-078, plan D17):
+ *
+ * - `binding-missing` — the binding exists again.
+ * - `actor-not-allowed` — the binding's current `allowedUsers` now admits at
+ *   least one of the run's attributed actors. Re-judged with **the same
+ *   predicate** the authorization gate uses ({@link judgeActorPolicy}), which is
+ *   what makes "a run cannot be retried into a dispatch this gate would refuse
+ *   again" a property rather than a hope — and it needs **no new state**, since
+ *   the denied actor is re-derived from the run's own references.
+ *
+ * `project-missing`, `credential`, and `policy` are absent on purpose: each
+ * depends on something the service cannot see (a host project list, a
+ * credential check, an operator decision), so the panel's same-mount check is
+ * the only evidence and is audited as *reported*, never as proof
+ * (constitution IV).
+ */
+const CORROBORATED_BLOCKED_REASONS: ReadonlySet<string> = new Set([
+    CORROBORATED_BLOCKED_REASON,
+    ACTOR_BLOCKED_REASON,
+]);
+
+/**
+ * Re-judge a `blocked:actor-not-allowed` run against the live policy (FR-078).
+ *
+ * @param input - The blocked run, and the live binding table.
+ * @returns The refusal naming the binding, or `'corroborated'` when the gate
+ *   would now admit it.
+ */
+function judgeActorCause(input: {
+    /** The blocked run the operator acted on. */
+    readonly run: Run;
+    /** The live binding table. */
+    readonly bindings: readonly BindingRecord[];
+}): RunRefusal | CauseSource {
+    const { run, bindings } = input;
+    const binding = bindings.find((candidate) => candidate.bindingId === run.bindingId);
+    // An absent or unreadable policy is **not** corroboration. The gate would
+    // refuse this dispatch again right now, so the retry refuses with the same
+    // cause and the same remedy rather than dispatching into a known denial.
+    const gate = binding === undefined
+        ? { admitted: false as const }
+        : judgeActorPolicy({ run, allowedUsers: binding.allowedUsers });
+    if (gate.admitted) {
+        return 'corroborated';
+    }
+
+    return refuse(
+        CAUSE_NOT_CLEARED,
+        `the cause has not cleared: the allow-list for binding ${run.bindingId} still admits none of this run's `
+        + 'attributed actors',
+    );
+}
+
+/**
  * Judge a retry (contract §6).
  *
  * The presented attempt is checked **before** the state: §6's body carries it,
@@ -146,8 +207,8 @@ export async function refused(input: RefusalTarget & {
  * half-apply that rule exists to prevent.
  *
  * @param input - The run, the attempt the operator names, whether they reported
- *   the cause cleared, and the live binding table for the one cause the service
- *   can re-check itself.
+ *   the cause cleared, and the live binding table for the causes the service can
+ *   re-check itself.
  * @returns The refusal, or how the cause was shown to have cleared.
  */
 function judgeRetry(input: {
@@ -174,19 +235,25 @@ function judgeRetry(input: {
     }
 
     const blockedReason = run.state.slice('blocked:'.length);
+    if (!CORROBORATED_BLOCKED_REASONS.has(blockedReason)) {
+        // Not a cause the service can check itself: the panel's same-mount check
+        // is the only evidence, and it is audited as *reported* (constitution IV).
+        return causeCleared
+            ? 'reported'
+            : refuse(
+                CAUSE_NOT_CLEARED,
+                `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this `
+                + 'row records what was checked',
+            );
+    }
+
     if (blockedReason === CORROBORATED_BLOCKED_REASON) {
         return bindings.some((binding) => binding.bindingId === run.bindingId)
             ? 'corroborated'
-            : refuse('cause-not-cleared', `the cause has not cleared: the binding ${run.bindingId} is still absent`);
+            : refuse(CAUSE_NOT_CLEARED, `the cause has not cleared: the binding ${run.bindingId} is still absent`);
     }
 
-    return causeCleared
-        ? 'reported'
-        : refuse(
-            'cause-not-cleared',
-            `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this row `
-            + 'records what was checked',
-        );
+    return judgeActorCause({ run, bindings });
 }
 
 /**
@@ -431,9 +498,8 @@ function resolvedRun(input: {
             // parser requires a reservation to carry the run's *current* attempt.
             // A consumed-but-retained reservation for the previous attempt would
             // make the document unreadable — the fail-closed direction that reads
-            // as "the store is broken" rather than "the run is ready". Clearing is
-            // also the honest statement: the next attempt mints a new token, so
-            // the old authorization is dead rather than spent.
+            // as "the store is broken". Clearing is also the honest statement: the
+            // next attempt mints a new token, so the old authorization is spent.
             reservation: null,
             updatedAt: now,
         };

@@ -29,6 +29,13 @@
  *   coordinate came from can be evicted with its terminal run, so each of those
  *   falls back to a value derived from the run itself rather than to an empty
  *   string the panel's parser reads as an unusable record.
+ * - **The permitted set is structurally unreachable from here** (003 NFR-113).
+ *   The row carries each reference's own `actorLogin`/`actorAttribution` — the
+ *   facts about who was attributed to this run, which every joining delivery
+ *   records and the gate judges — beside the two-word `actorPolicy` shape. What
+ *   it never carries is the *list*: this projection is a pure function of stored
+ *   runs, it is handed no binding and reads no file, so a second copy of an
+ *   access policy has no path into it at all.
  */
 
 import type { PromptSource } from '../prompt.ts';
@@ -46,6 +53,11 @@ const WAITING_REASON = 'waiting for a panel';
  * the run points at), so there is nothing here that could be omitted by
  * accident. The three counting members below the list are what keep a row from
  * being silently lossy at the 200-reference cap (T-038).
+ *
+ * Each entry also carries the two **actor members** exactly as stored (002
+ * FR-043, FR-044) — absentable on a reference written before attribution
+ * existed, because a run is history and refusing one would quarantine the whole
+ * document for it.
  */
 export type HistoryReference = SourceReference;
 
@@ -171,6 +183,18 @@ export interface RunHistoryRow {
      * there is no snapshot to read it from.
      */
     readonly promptSources: readonly PromptSource[] | null;
+    /**
+     * The **shape** of the binding's allow-list at the moment of authorization,
+     * snapshotted from `run.actorPolicy` (003 FR-079, NFR-113).
+     *
+     * `null` is *no authorization recorded yet* — a freshly enqueued or adopted
+     * run — and never a silent `'open'`. It is the only policy fact this
+     * projection carries: the permitted set is configuration in
+     * `bindings.json`, this projection is a pure function of stored runs that
+     * reads no binding, and so it is structurally unable to carry a permitted
+     * login however the gate judged one (003 NFR-113).
+     */
+    readonly actorPolicy: Run['actorPolicy'];
     /** Head SHA of a review-origin pull request; absent on every other kind. */
     readonly headSha?: string;
     /** Base ref of that pull request; absent on every other kind. */
@@ -444,6 +468,7 @@ function historyRowOf(input: {
         claimedAt: lease.claimedAt,
         dispatchedAt: dispatchStamp,
         ...promptViewOf(run),
+        actorPolicy: run.actorPolicy,
     }, delivery);
 }
 

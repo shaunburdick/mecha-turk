@@ -44,6 +44,17 @@ export type RunRefusalCode =
     | 'already-dispatched'
     /** The run is not in a state this operation accepts, with a distinct message. */
     | 'invalid-transition'
+    /**
+     * The binding's actor allow-list admits nobody on this run (003 FR-077).
+     *
+     * The gate's one code covers all three of its causes — no reference names an
+     * allowed actor; a reference's actor is absent, empty, or bot-shaped
+     * (FR-080); the policy itself could not be read (constitution II) — because
+     * all three leave the run in the same place and are repaired the same way:
+     * the operator changes the binding's `allowedUsers`, then retries. One code
+     * is also one less wire vocabulary for the panel to keep in step.
+     */
+    | 'actor-not-allowed'
     /** A blocked run's cause has not cleared (002 §4's retained code). */
     | 'cause-not-cleared'
     /**

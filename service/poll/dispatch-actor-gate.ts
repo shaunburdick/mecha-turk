@@ -1,0 +1,342 @@
+/**
+ * The actor allow-list gate (003 FR-076 – FR-080; plan D13 – D17;
+ * [contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md) §1).
+ *
+ * Split out of [`dispatch-authorize.ts`](./dispatch-authorize.ts) for the file-length
+ * gate, and it is the split this feature's whole shape wants: **one membership
+ * comparison, in one place, that leaves a refusal behind.** The authorization
+ * module owns the decide → apply → record chain and the token; this module owns
+ * the answer to *"may this run start a session at all?"* — and answers it purely,
+ * so the caller owns the store read and the write, and the retry path can
+ * re-run the **same predicate** against its own live read (FR-078, plan D17).
+ *
+ * Four rules are load-bearing and each is a decision rather than a default:
+ *
+ * - **The gate is the authorization decision; detection-time filtering is
+ *   forbidden** (FR-076). A poll-loop filter is cheaper and writes **no audit
+ *   row**, so *"why was this not dispatched?"* would have no answer — the exact
+ *   defect 003 exists to end, repeated in a new place. Detection records the
+ *   actor (002 FR-043) and decides nothing.
+ * - **At least one** reference naming an allowed actor admits the run (FR-077,
+ *   AC-133). Both obvious alternatives wedge permanently, because a `blocked:*`
+ *   run is non-terminal and new deliveries **join** it: refusing when *any*
+ *   reference is disallowed lets one stranger's comment disable every dispatch
+ *   on that issue forever, and judging only the **opening** reference lets a
+ *   stranger open a run an allowed user's later mention can then never
+ *   authorize. The rule is a set quantifier over the retained references, so it
+ *   does not depend on join order.
+ * - **A bot is never admitted, and this gate adds no second bot test**
+ *   (FR-080). The single judgement lives in
+ *   [`attribution.ts`](./attribution.ts) beside the detection filters that
+ *   already apply it; here it only refuses. An absent, empty, or bot-shaped
+ *   actor is refused **regardless of the policy** — an open policy is permission
+ *   for a named human actor, not for nobody — because the fail-closed reading of
+ *   an unreadable actor is *no actor*, never *the list says yes*.
+ * - **The refusal names the denial; the record names the policy's shape only**
+ *   (FR-077, FR-079, NFR-113). Every denied login and its attribution basis go
+ *   on the `dispatch.refused` row, because a refusal a reader cannot attribute
+ *   is not an explainable refusal, and a proxy basis is stated as a proxy
+ *   (002 NFR-011). No **permitted** login appears anywhere: an audit trail
+ *   listing who may trigger a repository is a second copy of the access policy
+ *   in a file retained for months.
+ *
+ * Where it sits inside the reserve is equally load-bearing: **after**
+ * `judgeReserve` has answered `null` and **before** any token is derived. A
+ * policy check placed first would pre-empt `already-dispatched` — which names the
+ * session FR-022 and AC-112 require — and `stale-lease`, making both unreachable
+ * on the paths they exist for.
+ */
+
+import { isActorAllowed } from '../bindings-allow-list.ts';
+import { readBindingsForAuthorization } from '../bindings-read.ts';
+import type { ServiceLogger } from '../log.ts';
+import type { ServiceStore } from '../store/index.ts';
+import type { ActorAttribution } from './attribution.ts';
+import { refuse } from './run-refusal.ts';
+import type { RunRefusal } from './run-refusal.ts';
+import type { ActorGateRefusal, ActorPolicy, Run } from './runs-types.ts';
+
+/** The wire code the gate refuses with, and the declared `blocked:` cause it parks in. */
+export const ACTOR_NOT_ALLOWED = 'actor-not-allowed';
+
+/**
+ * The declared `blocked:<reason>` cause a refused run waits in (003 FR-078).
+ *
+ * Exported, and spelled once here, because this is the **only** place the gate
+ * exists: the block report's declared set
+ * ([`dispatch-block.ts`](./dispatch-block.ts)) admits it, the retry re-check
+ * ([`run-operate.ts`](./run-operate.ts)) re-judges it against the live policy,
+ * and the panel's affordance table reads the same word off the state. Four
+ * modules naming one string is exactly why it is one exported constant.
+ */
+export const ACTOR_BLOCKED_REASON = ACTOR_NOT_ALLOWED;
+
+/**
+ * The word a denied login's basis reads as when the run recorded none.
+ *
+ * `subject-author` and `direct` are the only two legal values (002 FR-044), so a
+ * login with no basis beside it came from a reference stored before attribution
+ * existed. It is **named** rather than defaulted: printing `direct` there would
+ * record an inference as a fact (002 NFR-011, FR-024).
+ */
+const UNRECORDED_BASIS = 'unrecorded';
+
+/**
+ * One retained reference's actor, classified (FR-077, FR-080).
+ *
+ * A **closed union rather than a nullable triple**: `login` exists exactly when
+ * the reference names a readable actor, so no call site can read a login off an
+ * unreadable entry without narrowing — which is precisely the confusion FR-080
+ * exists to prevent.
+ */
+type ClassifiedActor =
+    /** No readable actor: absent, empty, or bot-shaped (FR-080). */
+    | { readonly readable: false }
+    /** A readable login, with the basis the run recorded for it. */
+    | {
+        /** Discriminant, so narrowing yields a usable login with no cast. */
+        readonly readable: true;
+        /** The attributed login: never empty, never bot-shaped. */
+        readonly login: string;
+        /** How it was attributed; `null` when the run records no basis. */
+        readonly attribution: ActorAttribution | null;
+    };
+
+/** What the gate refused, and the detail set the row records (003 FR-077). */
+export interface ActorPolicyRefusal {
+    /** The wire code and the secret-free cause the response carries. */
+    readonly refusal: RunRefusal;
+    /** The details FR-077 adds to the `dispatch.refused` row. */
+    readonly actor: ActorGateRefusal;
+}
+
+/** What the gate decided about one run's actor policy (003 FR-077). */
+export type ActorPolicyVerdict =
+    /** At least one reference names an allowed, readable actor. */
+    | { readonly admitted: true; readonly policy: ActorPolicy }
+    /** No reference does; the row records why (FR-077, FR-080). */
+    | { readonly admitted: false; readonly refused: ActorPolicyRefusal };
+
+/**
+ * Classify one reference's actor, without consulting any list (FR-077, FR-080).
+ *
+ * **An absent, empty, or bot-shaped actor is unreadable, whatever the policy
+ * is.** That is FR-080's whole rule and the reason the gate never asks the
+ * list: a login GitHub marked as a bot is never attributed onto an event at all
+ * (002 FR-045), so one here can only come from a hand-edited document.
+ *
+ * @param reference - One retained source reference.
+ * @returns The reference's classification.
+ */
+function classifyActor(reference: Run['sourceReferences'][number]): ClassifiedActor {
+    const login = reference.actorLogin;
+    if (login === undefined || login === '' || login.toLowerCase().endsWith('[bot]')) {
+        return { readable: false };
+    }
+
+    return { readable: true, login, attribution: reference.actorAttribution ?? null };
+}
+
+/** The references a run carries, split into readable and unreadable actors. */
+interface ClassifiedRun {
+    /** References naming a readable, non-bot login. */
+    readonly readable: readonly Extract<ClassifiedActor, { readonly readable: true }>[];
+    /** How many references named no readable actor at all. */
+    readonly unreadableReferences: number;
+}
+
+/**
+ * Split one run's references into the two kinds the verdict is about.
+ *
+ * @param run - The run being authorized.
+ * @returns The readable actors and the unreadable count.
+ */
+function classifyRun(run: Run): ClassifiedRun {
+    const classified = run.sourceReferences.map(classifyActor);
+
+    return {
+        readable: classified.filter((actor) => actor.readable),
+        unreadableReferences: classified.filter((actor) => !actor.readable).length,
+    };
+}
+
+/** The detail set one denial records, whatever its message (FR-077, NFR-113). */
+function refusalDetails(input: {
+    /** The run being authorized. */
+    readonly run: Run;
+    /** The shape the read found, or `null` when it found none at all. */
+    readonly policy: ActorPolicy | null;
+    /** Every denied login, in reference order. */
+    readonly deniedLogins: readonly string[];
+    /** Each denied login's basis, index-parallel to the logins. */
+    readonly deniedAttributions: readonly string[];
+    /** How many references named no readable actor. */
+    readonly unreadableReferences: number;
+}): ActorGateRefusal {
+    return {
+        bindingId: input.run.bindingId,
+        actorPolicy: input.policy,
+        deniedLogins: input.deniedLogins,
+        deniedAttributions: input.deniedAttributions,
+        unreadableReferences: input.unreadableReferences,
+    };
+}
+
+/**
+ * Name every denied login with its basis, as the refusal message reads it.
+ *
+ * Each basis is spelled in the vocabulary 002 FR-044 defines, so a
+ * `subject-author` reads as the **proxy** it is and never as a claim that a
+ * denied actor did anything (002 NFR-011).
+ *
+ * @param actors - Every denied login, in reference order.
+ * @returns The comma-separated list.
+ */
+function namedActors(actors: readonly Extract<ClassifiedActor, { readonly readable: true }>[]): string {
+    return actors
+        .map((actor) => `${actor.login} (${actor.attribution === 'subject-author'
+            ? 'the issue or pull-request author — a proxy, GitHub does not record who assigned or requested'
+            : actor.attribution ?? UNRECORDED_BASIS})`)
+        .join(', ');
+}
+
+/**
+ * The trailing clause naming references the list could never have judged.
+ *
+ * @param unreadableReferences - How many such references the run carries.
+ * @returns The clause, honest in both directions.
+ */
+function unreadableNote(unreadableReferences: number): string {
+    return unreadableReferences === 0
+        ? 'every reference names a readable actor'
+        : `${unreadableReferences} of this run's references name no readable actor`;
+}
+
+/**
+ * Judge one run's actor policy (003 FR-076 – FR-080; plan D14).
+ *
+ * An unreadable actor is refused **regardless** of the policy (FR-080), so the
+ * admitted case requires at least one reference that names a readable login the
+ * list allows. Under an **open** policy every readable login is allowed, so the
+ * admitted condition reduces to "some reference names a readable actor" — and a
+ * run with no readable actor at all is refused under either policy.
+ *
+ * Pure: the caller owns the store read (plan D13) and the write, so the same
+ * predicate can re-judge a `blocked:actor-not-allowed` run against a live read on
+ * the retry path (FR-078, plan D17) — which is what makes "a run cannot be
+ * retried into a dispatch this gate would refuse again" a property rather than a
+ * hope.
+ *
+ * @param input - The run, and the policy exactly as the live read found it.
+ * @returns The shape in force, or the refusal carrying FR-077's detail set.
+ */
+export function judgeActorPolicy(input: {
+    /** The run being authorized. */
+    readonly run: Run;
+    /** The binding's stored list, or `undefined` when the policy is open. */
+    readonly allowedUsers: readonly string[] | undefined;
+}): ActorPolicyVerdict {
+    const { run, allowedUsers } = input;
+    const { readable, unreadableReferences } = classifyRun(run);
+    const policy: ActorPolicy = allowedUsers === undefined ? 'open' : 'restricted';
+
+    // A readable actor naming an allowed login is the whole admitted rule, and
+    // `isActorAllowed` is the one membership comparison in the product (plan D9).
+    if (readable.some((actor) => isActorAllowed(actor.login, allowedUsers))) {
+        return { admitted: true, policy };
+    }
+
+    const refuseWith = (message: string): ActorPolicyVerdict => ({
+        admitted: false,
+        refused: {
+            refusal: refuse(ACTOR_NOT_ALLOWED, message),
+            actor: refusalDetails({
+                run,
+                policy,
+                deniedLogins: readable.map((actor) => actor.login),
+                deniedAttributions: readable.map((actor) => actor.attribution ?? UNRECORDED_BASIS),
+                unreadableReferences,
+            }),
+        },
+    });
+
+    if (readable.length > 0) {
+        return refuseWith('no source reference on this run names an actor the binding\'s allowedUsers permits: '
+            + `${namedActors(readable)}; ${unreadableNote(unreadableReferences)}`);
+    }
+
+    // Every reference is unreadable, or the run carries none at all. Neither is
+    // something a list can admit, so the message says which one it is rather
+    // than implying a policy refused an actor it never saw.
+    return refuseWith(unreadableReferences === 0
+        ? 'this run records no source reference, so no actor can be permitted'
+        : `this run records no readable actor: all ${unreadableReferences} of its references name no `
+            + 'attribution or name a bot account, which no binding can permit');
+}
+
+/**
+ * The gate's verdict when the policy could not be read at all (constitution II,
+ * 002 FR-024; plan D15).
+ *
+ * **One code, not a new one.** A vocabulary addition is a compatibility tax
+ * (`AGENTS.md` invariant 10, paid twice already), and this decision needs no new
+ * one: an absent document and an unusable one leave the run in the same place
+ * and are repaired the same way — the operator repairs `bindings.json`, then
+ * retries. The message names **which** failure it was, because "the allow-list
+ * could not be read" is exactly the sentence an operator cannot act on.
+ *
+ * `actorPolicy` is `null` rather than a guessed `'open'`, because there was no
+ * policy to shape: the row says what it knows, which is that it knows nothing.
+ *
+ * @param run - The run being authorized.
+ * @returns The refusal, naming the cause without naming a login.
+ */
+export function unreadablePolicyRefusal(run: Run): ActorPolicyVerdict {
+    return {
+        admitted: false,
+        refused: {
+            refusal: refuse(
+                ACTOR_NOT_ALLOWED,
+                `the allow-list for binding ${run.bindingId} could not be read, so no dispatch is authorized`,
+            ),
+            actor: refusalDetails({
+                run,
+                policy: null,
+                deniedLogins: [],
+                deniedAttributions: [],
+                unreadableReferences: 0,
+            }),
+        },
+    };
+}
+
+/**
+ * Read the binding's live allow-list, fail-closed (003 FR-076, plan D13/D15).
+ *
+ * Called **inside the one chain task**, so an operator's edit takes effect on the
+ * next authorization with no re-scan, no restart, and **no cache**:
+ * `ServiceStore` exposes no `stat`, so a cache invalidated only by
+ * `writeBindings` would never see a hand edit — and a gate reading a stale policy
+ * is worse than no gate at all.
+ *
+ * @param input - Open store, logger, and the binding the run dispatches through.
+ * @returns The list to judge, `undefined` for an open policy, or `null` when the
+ *   policy cannot be read.
+ */
+export async function readLivePolicy(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+    /** Binding the run names. */
+    readonly bindingId: string;
+}): Promise<readonly string[] | undefined | null> {
+    const read = await readBindingsForAuthorization({ store: input.store, log: input.log });
+    if (!read.readable) {
+        return null;
+    }
+
+    const binding = read.bindings.find((candidate) => candidate.bindingId === input.bindingId);
+
+    return binding === undefined ? null : binding.allowedUsers;
+}

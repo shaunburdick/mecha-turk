@@ -46,12 +46,40 @@ const MAX_BODY_TEXT_CHARS = 1_000;
 /** Problem recorded when a start made no session and named no cause. */
 export const NO_SESSION_PROBLEM = 'no-session';
 
-/** The four-value vocabulary the block report validates (contract §4). */
-type BlockedReason = 'binding-missing' | 'project-missing';
+/**
+ * The declared blocked causes this panel ever names (contract §4).
+ *
+ * A **subset** of the service's five, deliberately: the panel raises the two it
+ * can see locally (a binding this tab no longer holds, a project the host no
+ * longer lists) and, since 003 v1.8.0, the one the service's actor-policy gate
+ * answers with. The other two — `credential` and `policy` — are declared so a
+ * run's state parses, but no panel guard in this build produces them, so this
+ * panel never sends them.
+ */
+export type BlockedReason = 'binding-missing' | 'project-missing' | 'actor-not-allowed';
+
+/** The wire code the gate refuses with, and the declared cause it parks in. */
+export const ACTOR_NOT_ALLOWED = 'actor-not-allowed';
+
+/**
+ * What one reserve call answered.
+ *
+ * A union rather than `ReserveAnswer | null` because the **actor-policy gate's**
+ * refusal has to travel somewhere: the panel owes the run a `blocked:` report for
+ * it (FR-078), and a bare `null` cannot distinguish "the service refused a
+ * policy this panel must report" from "the service refused a stale lease, which
+ * it merely notes". Every other refusal stays exactly as before — one kind, no
+ * failure, and the run ends.
+ */
+export type ReserveOutcome =
+    /** The run is authorized to start; the token is live. */
+    | { readonly kind: 'reserved'; readonly reservation: ReserveAnswer }
+    /** Nothing was authorized; `failure` is set only for the actor-policy gate. */
+    | { readonly kind: 'refused'; readonly failure?: GuardFailure };
 
 /** Why one fail-closed guard refused a dispatch before any host call. */
 export interface GuardFailure {
-    /** The declared cause, in the service's four-value set. */
+    /** The declared cause, in the service's set. */
     readonly reason: BlockedReason;
     /** What specifically is wrong, bounded before it goes on the wire. */
     readonly detail: string;
@@ -217,18 +245,50 @@ export async function refuseWithBlocked(input: {
 }
 
 /**
+ * The guard failure for the actor-policy gate's refusal, or `null` for any other.
+ *
+ * Narrowed on the **code**, never on the status: `stale-lease`,
+ * `already-reserved`, and `cause-not-cleared` are `409` too, and reporting one
+ * of those as a policy denial would be this panel announcing a verdict the
+ * service never reached — the drift 003 exists to end.
+ *
+ * The service's own message is carried **verbatim** (it names every denied login
+ * and its attribution basis, FR-077), and the guidance names the **field** that
+ * restricts the binding rather than any login: the permitted set is
+ * configuration and never reaches the panel (002 NFR-113, 005 FR-091).
+ *
+ * @param code - The refusal's machine code, or `null` when the service sent none.
+ * @param message - The service's own message, or `null` when it sent none.
+ * @returns The failure to report as `blocked:actor-not-allowed`, else `null`.
+ */
+export function actorGateFailure(code: string | null, message: string | null): GuardFailure | null {
+    if (code !== ACTOR_NOT_ALLOWED) {
+        return null;
+    }
+
+    return {
+        reason: ACTOR_NOT_ALLOWED,
+        detail: message ?? 'nobody who triggered this run is on the binding\'s allow-list',
+        guidance: 'add the GitHub logins that may trigger this repository to the binding\'s allowedUsers, '
+            + 'then retry this dispatch',
+    };
+}
+
+/**
  * Ask the service to authorize this attempt; never throws.
  *
  * A refusal — stale lease, already reserved, already dispatched, invalid
- * transition — is surfaced on the note line and returns `null`, which is what
- * keeps the host call out of reach after any refusal (FR-028).
+ * transition — is surfaced on the note line and ends the attempt, which is what
+ * keeps the host call out of reach after any refusal (FR-028). The **one** refusal
+ * that additionally owes a `blocked:` report is the actor-policy gate's
+ * (FR-078), and it arrives as `failure` for {@link refuseWithBlocked} to post.
  *
  * @param rt - Panel runtime.
  * @param run - The offered run.
- * @returns The reservation, or `null` when the service refused or the answer
- *   was not an authorization this build can use.
+ * @returns The reservation, or the refusal — carrying the gate's failure when
+ *   this refusal is the gate's.
  */
-export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<ReserveAnswer | null> {
+export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<ReserveOutcome> {
     const body = JSON.stringify({
         correlationId: run.correlationId,
         leaseId: run.lease.leaseId,
@@ -240,14 +300,21 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
         body,
     });
     if (!stillRunning(rt)) {
-        return null;
+        return { kind: 'refused' };
     }
 
     if (!answer.ok) {
         rt.state.bindings.note = redact(`Run ${run.correlationId} was not authorized to start: ${answer.problem}`
             + `${answer.code === null ? '' : ` (${answer.code})`}.`);
 
-        return null;
+        // The actor-policy gate's refusal is the one this panel *reports* rather
+        // than merely notes (003 FR-078). The service's answer is the authority,
+        // and the block report is this panel's account of it — through the
+        // operation every other guard already uses, with no new route and no
+        // second membership comparison of its own (FR-076).
+        const gate = actorGateFailure(answer.code, answer.message);
+
+        return { kind: 'refused', ...(gate === null ? {} : { failure: gate }) };
     }
 
     const unreadable = `Run ${run.correlationId}: the service's authorization could not be read, so nothing`
@@ -256,13 +323,13 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
     if (reserved === null) {
         rt.state.bindings.note = unreadable;
 
-        return null;
+        return { kind: 'refused' };
     }
 
     if (reserved.correlationId !== run.correlationId || reserved.attempt !== run.attempt) {
         rt.state.bindings.note = unreadable;
 
-        return null;
+        return { kind: 'refused' };
     }
 
     if (!reserved.auditWritten) {
@@ -270,7 +337,7 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
             + ' the audit trail — the run is live and the trail is short one row.';
     }
 
-    return reserved;
+    return { kind: 'reserved', reservation: reserved };
 }
 
 /**

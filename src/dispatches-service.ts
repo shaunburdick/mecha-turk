@@ -32,7 +32,11 @@
 import { asRecord, fieldsHoldText, parseJsonObject, textOrNull } from './json.ts';
 import { readPromptReference } from './prompt-wire.ts';
 import { eventKindOf, issueNumberFrom } from './bindings-service.ts';
+import { readActorPolicy } from './run-actor.ts';
+import { parseReferences, parseSession, parseVerification } from './dispatches-detail.ts';
+import type { RunKind, RunReference, RunSession, RunVerification } from './dispatches-detail.ts';
 import { runStateOf } from './run-state.ts';
+import type { ActorPolicy } from './run-actor.ts';
 import type { PromptReference } from './prompt.ts';
 import type { RunState } from './run-state.ts';
 
@@ -41,46 +45,17 @@ export { BLOCKED_PREFIX } from './run-state.ts';
 export type { PlainRunState, RunState } from './run-state.ts';
 
 
-/** Trigger kinds the runs row can carry; anything else reads as `assignment`. */
-type RunKind = 'assignment' | 'mention' | 'review';
+/** The runs row's structured members and their readers, one module per concern. */
+export type { RunKind, RunReference, RunSession, RunVerification } from './dispatches-detail.ts';
 
-/** One source reference as the run history carries it (FR-013, FR-015). */
-export interface RunReference {
-    /** The joining delivery's unchanged id (FR-012). */
-    readonly deliveryId: string;
-    /** Trigger kind the reference was detected under. */
-    readonly kind: RunKind;
-    /** Where it matched: `assignment`, `body`, `comment:<id>`, or `review`. */
-    readonly origin: string;
-    /** Canonical link back to the source. */
-    readonly sourceUrl: string;
-    /** RFC 3339 detection stamp. */
-    readonly detectedAt: string;
-    /** `false` iff the run already held a reservation when this arrived. */
-    readonly presentAtAuthorization: boolean;
-}
-
-/** The session pointer as the run history carries it (FR-028's proof). */
-export interface RunSession {
-    /** Host-owned session id. */
-    readonly sessionId: string;
-    /** `= correlationId`; the id the session was started with (FR-029). */
-    readonly attachmentId: string;
-    /** RFC 3339 dispatch stamp. */
-    readonly dispatchedAt: string;
-}
-
-/** The recorded agent read-back as the run history carries it (FR-043). */
-export interface RunVerification {
-    /** Agent the read-back observed, or `null` when it was unreadable. */
-    readonly observedAgent: string | null;
-    /** Agent the binding expected. */
-    readonly expectedAgent: string;
-    /** Whether the two matched; a mismatch is a warning, never a state. */
-    readonly ok: boolean;
-    /** Extra note on a mismatch, or `null`. */
-    readonly note: string | null;
-}
+/**
+ * The two closed vocabularies a runs row adds, read from
+ * [`run-actor.ts`](./run-actor.ts) and re-exported so this module stays the one
+ * import path for a runs-history row — the panel bundle is free of service-tier
+ * modules, so the vocabulary cannot live there, and a *second* import path would
+ * let the row's declared types and its reader drift apart.
+ */
+export type { ActorAttribution, ActorPolicy } from './run-actor.ts';
 
 /** One run, as `GET /v1/events` projects it: credential-free, and carrying the
  * prompt's {@link PromptReference} — presence, the ordered `promptSources`
@@ -112,6 +87,16 @@ export interface RunRow extends PromptReference {
     readonly resultDeadlineAt: string | null;
     /** Every retained reference, in join order (FR-013); excerpts never projected. */
     readonly sourceReferences: readonly RunReference[];
+    /**
+     * The **shape** of the binding's allow-list at the moment of authorization
+     * (003 FR-079).
+     *
+     * `null` is *no authorization recorded yet* — a waiting or adopted run — and
+     * is never read as `'open'` (005 FR-093: the panel computes no policy
+     * verdict of its own). An unrecognized value refuses the row, so a policy
+     * word from a future build cannot render as one this build would mis-tint.
+     */
+    readonly actorPolicy: ActorPolicy | null;
     /** How many triggers have joined, retained or not (T-038's total). */
     readonly referenceCount: number;
     /** Whether the reference list was cut at the cap (NFR-107). */
@@ -184,6 +169,7 @@ type RunDetail = Pick<
     | 'leaseExpiresAt'
     | 'resultDeadlineAt'
     | 'sourceReferences'
+    | 'actorPolicy'
     | 'session'
     | 'verification'
     | 'kind'
@@ -210,20 +196,6 @@ const RUN_STRING_FIELDS = [
     'detectedAt',
 ] as const;
 
-
-/**
- * Read a required non-empty string member.
- *
- * @param record - Parsed row.
- * @param field - Member name.
- * @returns The value, or `null` when it is missing, not a string, or empty.
- */
-function requiredText(record: Record<string, unknown>, field: string): string | null {
-    const value = record[field];
-
-    return typeof value === 'string' && value !== '' ? value : null;
-}
-
 /**
  * Read a required finite number member.
  *
@@ -235,130 +207,6 @@ function requiredNumber(record: Record<string, unknown>, field: string): number 
     const value = record[field];
 
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-/**
- * Read one source reference.
- *
- * @param value - One element of the `sourceReferences` array.
- * @returns The reference, or `null` when its shape is unusable.
- */
-function parseReference(value: unknown): RunReference | null {
-    const record = asRecord(value);
-    if (record === null) {
-        return null;
-    }
-
-    const deliveryId = requiredText(record, 'deliveryId');
-    const origin = requiredText(record, 'origin');
-    const sourceUrl = requiredText(record, 'sourceUrl');
-    const detectedAt = requiredText(record, 'detectedAt');
-    if (deliveryId === null || origin === null || sourceUrl === null || detectedAt === null) {
-        return null;
-    }
-
-    if (typeof record.presentAtAuthorization !== 'boolean') {
-        return null;
-    }
-
-    return {
-        deliveryId,
-        kind: eventKindOf(record.kind),
-        origin,
-        sourceUrl,
-        detectedAt,
-        presentAtAuthorization: record.presentAtAuthorization,
-    };
-}
-
-/**
- * Read the `sourceReferences` list, or `null` when any element is unusable.
- *
- * @param value - The member as received.
- * @returns The references, or `null`.
- */
-function parseReferences(value: unknown): RunReference[] | null {
-    if (!Array.isArray(value)) {
-        return null;
-    }
-
-    const references: RunReference[] = [];
-    for (const entry of value) {
-        const reference = parseReference(entry);
-        if (reference === null) {
-            return null;
-        }
-
-        references.push(reference);
-    }
-
-    return references;
-}
-
-/**
- * Read the session pointer, distinguishing `null` from an unusable value.
- *
- * @param value - The `session` member as received.
- * @returns The pointer, `null` when the run has none, or `undefined` when the
- *   member is present but not a pointer this build may half-apply.
- */
-function parseSession(value: unknown): RunSession | null | undefined {
-    if (value === null) {
-        return null;
-    }
-
-    const record = asRecord(value);
-    if (record === null) {
-        return undefined;
-    }
-
-    const sessionId = requiredText(record, 'sessionId');
-    const attachmentId = requiredText(record, 'attachmentId');
-    const dispatchedAt = requiredText(record, 'dispatchedAt');
-    if (sessionId === null || attachmentId === null || dispatchedAt === null) {
-        return undefined;
-    }
-
-    return { sessionId, attachmentId, dispatchedAt };
-}
-
-/**
- * Read the recorded agent read-back, distinguishing `null` from an unusable value.
- *
- * @param value - The `verification` member as received.
- * @returns The read-back, `null` when none was filed, or `undefined` when the
- *   member is present but not one this build may half-apply.
- */
-function parseVerification(value: unknown): RunVerification | null | undefined {
-    if (value === null) {
-        return null;
-    }
-
-    const record = asRecord(value);
-    if (record === null) {
-        return undefined;
-    }
-
-    // `expectedAgent` is type-checked rather than required non-empty: a blank
-    // value is the documented *no baseline configured* the panel reports when
-    // the operator pinned none (002 FR-029 as amended), and a run row must not
-    // fail to parse over it. Its absence or a non-string still fails.
-    const baseline: unknown = record.expectedAgent;
-    if (typeof baseline !== 'string' || typeof record.ok !== 'boolean') {
-        return undefined;
-    }
-
-    const { observedAgent } = record;
-    if (observedAgent !== null && typeof observedAgent !== 'string') {
-        return undefined;
-    }
-
-    const { note } = record;
-    if (note !== null && typeof note !== 'string') {
-        return undefined;
-    }
-
-    return { observedAgent, expectedAgent: baseline, ok: record.ok, note };
 }
 
 /**
@@ -462,7 +310,8 @@ function readRunDetail(record: Record<string, unknown>): RunDetail | null {
     const sourceReferences = parseReferences(record.sourceReferences);
     const session = parseSession(record.session);
     const verification = parseVerification(record.verification);
-    if (sourceReferences === null || session === undefined || verification === undefined) {
+    const actorPolicy = readActorPolicy(record);
+    if (sourceReferences === null || session === undefined || verification === undefined || !actorPolicy.usable) {
         return null;
     }
 
@@ -470,6 +319,7 @@ function readRunDetail(record: Record<string, unknown>): RunDetail | null {
         leaseExpiresAt: textOrNull(record, 'leaseExpiresAt'),
         resultDeadlineAt: textOrNull(record, 'resultDeadlineAt'),
         sourceReferences,
+        actorPolicy: actorPolicy.policy,
         session,
         verification,
         kind: eventKindOf(record.kind),
