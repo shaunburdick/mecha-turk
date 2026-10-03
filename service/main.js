@@ -1176,6 +1176,7 @@ var NUMERIC_BOUNDS = {
 };
 var NUMERIC_FIELDS = Object.keys(NUMERIC_BOUNDS);
 var DEFAULT_CONFIG = {
+  startingPrompt: "",
   intervalMs: 60000,
   overlapMs: 600000,
   perPage: 30,
@@ -1188,8 +1189,7 @@ var DEFAULT_CONFIG = {
   leaseMs: 120000,
   resultDeadlineMs: 120000,
   logLevel: "info",
-  expectedAgent: "",
-  startingPrompt: ""
+  expectedAgent: ""
 };
 function isLogLevel(value) {
   return typeof value === "string" && LOG_LEVELS.has(value);
@@ -1237,6 +1237,7 @@ function isKnownField(key) {
 }
 function collectIssues(raw) {
   const issues = [];
+  issues.push(...startingPromptIssue(raw.startingPrompt));
   for (const field of NUMERIC_FIELDS) {
     issues.push(...numericIssue(raw, field));
   }
@@ -1247,7 +1248,6 @@ function collectIssues(raw) {
     });
   }
   issues.push(...expectedAgentIssue(raw.expectedAgent));
-  issues.push(...startingPromptIssue(raw.startingPrompt));
   issues.push(...retryOrderIssue(raw));
   for (const key of Object.keys(raw)) {
     if (!isKnownField(key)) {
@@ -4828,15 +4828,28 @@ var TAKE_EFFECT = {
 var STARTING_PROMPT_FORMAT = "text sent to the agent verbatim, with no placeholders; " + `at most ${STARTING_PROMPT_MAX_CODE_POINTS} code points after trimming; ` + "credential-shaped, reserved-marker, and control characters refused rather than stored; " + "empty means the global prompt tier is unset; the session still runs the pinned Default Agent, " + "which this text cannot change";
 function configSchema() {
   const numericFields = Object.keys(NUMERIC_BOUNDS);
-  const descriptors = numericFields.map((field) => ({
-    name: field,
-    kind: "integer",
-    unit: NUMERIC_BOUNDS[field].unit,
-    min: NUMERIC_BOUNDS[field].min,
-    max: NUMERIC_BOUNDS[field].max,
-    default: DEFAULT_CONFIG[field],
-    takesEffect: TAKE_EFFECT[field]
-  }));
+  const descriptors = [];
+  descriptors.push({
+    name: "startingPrompt",
+    kind: "string",
+    unit: null,
+    format: STARTING_PROMPT_FORMAT,
+    maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
+    default: DEFAULT_CONFIG.startingPrompt,
+    takesEffect: TAKE_EFFECT.startingPrompt,
+    multiline: true
+  });
+  for (const field of numericFields) {
+    descriptors.push({
+      name: field,
+      kind: "integer",
+      unit: NUMERIC_BOUNDS[field].unit,
+      min: NUMERIC_BOUNDS[field].min,
+      max: NUMERIC_BOUNDS[field].max,
+      default: DEFAULT_CONFIG[field],
+      takesEffect: TAKE_EFFECT[field]
+    });
+  }
   descriptors.push({
     name: "logLevel",
     kind: "enum",
@@ -4853,15 +4866,6 @@ function configSchema() {
     maxLength: EXPECTED_AGENT_RULE.maxLength,
     default: DEFAULT_CONFIG.expectedAgent,
     takesEffect: TAKE_EFFECT.expectedAgent
-  });
-  descriptors.push({
-    name: "startingPrompt",
-    kind: "string",
-    unit: null,
-    format: STARTING_PROMPT_FORMAT,
-    maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
-    default: DEFAULT_CONFIG.startingPrompt,
-    takesEffect: TAKE_EFFECT.startingPrompt
   });
   return descriptors;
 }

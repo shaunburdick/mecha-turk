@@ -349,7 +349,11 @@ describe('ServiceConfig validation', () => {
                     // FR-081's no-migration rule) — reported as a default.
                     [STARTING_PROMPT_FIELD]: PROMPT_DEFAULT,
                 },
-                defaultsApplied: ['leaseMs', 'resultDeadlineMs', AGENT_FIELD, STARTING_PROMPT_FIELD],
+                // The fill list is in **declaration order**, and the prompt
+                // tier leads `DEFAULT_CONFIG` since the owner's PR #12 ruling
+                // ("move it to the top of the list") — the count and the
+                // membership are the claim, the sequence is the key order.
+                defaultsApplied: [STARTING_PROMPT_FIELD, 'leaseMs', 'resultDeadlineMs', AGENT_FIELD],
             });
         }
         await afterEachWork1();

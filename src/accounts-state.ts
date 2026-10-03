@@ -46,12 +46,18 @@ export interface AccountsHandlers {
     readonly refresh: () => void;
     /** The operator typed into the display-name field (FR-066). */
     readonly setDisplayName: (value: string) => void;
-    /** The operator saved the display name (FR-066, AC-130). */
-    readonly submitDisplayName: () => void;
     /** The operator typed into the account-tier prompt field (004 FR-089). */
     readonly setStartingPrompt: (value: string) => void;
-    /** The operator saved the account tier (004 FR-082, AC-150). */
-    readonly submitStartingPrompt: () => void;
+    /**
+     * The operator saved the profile — **both** members in one write
+     * (FR-066, AC-130; 004 FR-082, AC-150).
+     *
+     * One control writes both fields because the product owner ruled it so
+     * ("One Save button, both fields", PR #12): the two *inputs* stay
+     * separate per member, only the save is shared, and the service's
+     * one-pass refusal is split back into the member slots by field name.
+     */
+    readonly submitProfile: () => void;
     /** The operator armed or cancelled the token rotation (FR-064). */
     readonly rotateToken: () => void;
     /** The operator armed, then confirmed, the removal (FR-055, FR-065). */

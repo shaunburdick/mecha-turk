@@ -75,6 +75,18 @@ describe('the reader accepts the document the service actually sends (T-017)', (
         expect(descriptorFor(envelope, 'intervalMs')?.kind).toBe('integer');
         expect(descriptorFor(envelope, 'logLevel')?.kind).toBe('enum');
         expect(descriptorFor(envelope, 'expectedAgent')?.kind).toBe('string');
+        // The union's one optional member is **read, not dropped** (owner
+        // ruling, PR #12): the row's shape follows the descriptor, so a
+        // reader that half-applied it would silently mount a single-line
+        // input where the service declared a textarea.
+        const prompt = descriptorFor(envelope, 'startingPrompt');
+        const agent = descriptorFor(envelope, 'expectedAgent');
+        if (prompt?.kind !== 'string' || agent?.kind !== 'string') {
+            throw new Error('the two string fields did not project as string descriptors');
+        }
+
+        expect(prompt.multiline).toBe(true);
+        expect(agent.multiline).toBeUndefined();
     });
 });
 
@@ -143,6 +155,15 @@ describe('every malformed envelope shape refuses (T-017, FR-003)', () => {
             parseConfigEnvelope(envelopeBody({ fields: [{ ...text, format: null }] })),
             'a string without its format',
         ).toBeNull();
+        // The optional `multiline` member is read fail closed: `true` or
+        // absent, nothing else — an affordance the reader half-applies is a
+        // row mounted with the wrong shape (invariant 8, 006 FR-021).
+        for (const wrong of [false, 'yes', null, 1]) {
+            expect(
+                parseConfigEnvelope(envelopeBody({ fields: [{ ...text, multiline: wrong }] })),
+                `a multiline member shaped ${JSON.stringify(wrong)}`,
+            ).toBeNull();
+        }
 
         expect(
             parseConfigEnvelope(envelopeBody({ config: { intervalMs: 'soon' }, fields: [] })),

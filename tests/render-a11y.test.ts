@@ -30,7 +30,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { rowActionLabel, sourceRevealLabel } from '../src/dispatches-controls.ts';
 import { RETRY_LABEL } from '../src/dispatches-rows.ts';
-import { armAccountRemoval, saveDisplayName } from '../src/accounts-actions.ts';
+import { armAccountRemoval, saveProfile } from '../src/accounts-actions.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
 import { createAccountsHandlers, selectAccountRow } from '../src/accounts-tab.ts';
 import { persistLedger } from '../src/panel-actions.ts';
@@ -566,7 +566,12 @@ describe('FR-085 a refusal names its cause and never echoes the value', () => {
             // The refusal is only reachable for the row the operator has open,
             // which is also what stops a save from landing on the wrong account.
             selectAccountRow(rt, '77331');
-            await saveDisplayName(rt, { numericUserId: '77331', value: token });
+            rt.state.accounts.displayNameDraft = token;
+            await saveProfile(rt, {
+                numericUserId: '77331',
+                displayName: rt.state.accounts.displayNameDraft,
+                startingPrompt: rt.state.accounts.startingPromptDraft,
+            });
             await tick();
 
             expect(rt.state.accounts.displayNameError).toContain('credential');

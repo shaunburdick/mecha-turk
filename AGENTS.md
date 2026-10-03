@@ -179,8 +179,8 @@ network — those checks are operator-gated and recorded in the spec (see
 | `agent-verify.ts` | Post-dispatch `openSession()` agent read-back, reported to the service (warn-only) |
 | `agent-verify-copy.ts` | The read-back's words: the runs-area banner and the service's `note`, pure functions of one outcome |
 | `handoff*.ts` / `account*.ts` | One-shot token handoff (paste → connect; no consent step since 002 v1.9.0), the always-visible Accounts disclaimer (`accounts-disclaimer.ts`), silent adoption, and the credential-free account mirror |
-| `accounts-rows.ts` / `accounts-tab.ts` | The Accounts tab: every FR-062 row word (lifecycle, connection, scope matrix, remediation, binding count) as pure functions, plus the body's mounts, repaint, and single read |
-| `accounts-actions.ts` | The tab's writes: two-step removal with the `force=1` cascade the arm stated, the rotation arm the handoff routes on, and the one account profile write (`PUT /v1/accounts/:numericUserId`, one member per save, absent = unchanged) behind both member fields — display name and account-tier starting prompt — that never applies a value the service did not confirm |
+| `accounts-rows.ts` / `accounts-tab.ts` / `accounts-detail.ts` | The Accounts tab: every FR-062 row word (lifecycle, connection, scope matrix, remediation, binding count) as pure functions; the body's mounts, repaint, and single read; and the selected row's controls (two profile fields, the one shared `Save changes`, the two-step rotate/remove pair with their labels) |
+| `accounts-actions.ts` | The tab's writes: two-step removal with the `force=1` cascade the arm stated, the rotation arm the handoff routes on, and the one account profile write (`PUT /v1/accounts/:numericUserId`, **both members in one body**, absent = unchanged) behind both member fields — display name and account-tier starting prompt — whose refusal is split back into the per-member slots by field name and never applies a value the service did not confirm |
 | `storage-write.ts` | Guarded storage writes |
 
 ## Module map (service, `service/`)

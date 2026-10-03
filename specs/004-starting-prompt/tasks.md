@@ -321,10 +321,14 @@ with three tiers through the fake host and byte-compare; render all six tabs and
   keeps presence/length only** — never text, never a fingerprint. *Tests* (`tests/accounts-ui.test.ts`,
   `tests/accounts-rows.test.ts` if touched): unset shows the not-set state rather than an empty
   instruction box; a set value round-trips through the profile PUT and reappears after a reload;
-  the save issues `PUT /v1/accounts/:numericUserId` with a **single-member body** (assert the path
-  and body — the old `…/display-name` assertion is re-cut here); a refused save renders the
-  remediation, changes nothing, and leaves the stored value intact; the summary never carries the
-  value; `host.storage` receives no copy.
+  the save issues `PUT /v1/accounts/:numericUserId` with a body carrying **both members**
+  (`{ displayName, startingPrompt }` — assert the path and the body's exact key set; the old
+  `…/display-name` assertion is re-cut here, and the single-member body this task first drafted
+  was superseded at the 2026-10-02 post-review gate by the owner's ruling *"One Save button, both
+  fields"*, recorded in 005 clarification row 37); a refused save **splits** the service's joined
+  `message` back into the per-member slots by known field name, renders the remediation, changes
+  nothing, and leaves the stored value intact; the summary never carries the value; `host.storage`
+  receives no copy.
 - [x] **T-039** [US6] *(added at the Wave-3 checkpoint, 2026-10-02)* **The binding tier's
   guidance and not-set state** — `src/bindings-prompt.ts` (+ `tests/bindings-prompt.test.ts`)
   (FR-063, FR-064, FR-089; AC-144): the Bindings editor's field still carries only

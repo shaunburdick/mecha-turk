@@ -178,6 +178,16 @@ const NUMERIC_FIELDS = Object.keys(NUMERIC_BOUNDS) as readonly NumericField[];
 
 /** The configuration a fresh store starts with. */
 export const DEFAULT_CONFIG: ServiceConfig = {
+    // First member: 004's global prompt tier, by product-owner ruling on PR
+    // #12 ("move it to the top of the list"). This key order *is* the
+    // declaration order — `parseStoredConfig` reports fills in it, and
+    // `configSchema()` and `collectIssues` both mirror it (006 AC-107).
+    //
+    // Blank, not a placeholder: empty **is** the documented *unset* state of
+    // the global prompt tier (004 FR-081), and a document written before the
+    // field existed is filled with exactly this value (FR-018's no-migration
+    // rule), never with invented instruction text.
+    startingPrompt: '',
     intervalMs: 60_000,
     overlapMs: 600_000,
     perPage: 30,
@@ -194,11 +204,6 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     // (006 FR-100(b) as amended at v1.5.0 — "not everyone is going to use
     // project-manager").
     expectedAgent: '',
-    // Blank, not a placeholder: empty **is** the documented *unset* state of
-    // the global prompt tier (004 FR-081), and a document written before the
-    // field existed is filled with exactly this value (FR-018's no-migration
-    // rule), never with invented instruction text.
-    startingPrompt: '',
 };
 
 /**
@@ -301,6 +306,11 @@ function isKnownField(key: string): boolean {
  */
 function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
     const issues: ConfigIssue[] = [];
+    // First, mirroring `DEFAULT_CONFIG`'s own key order, so this list stays
+    // the order the schema projection pushes its descriptors in (006 AC-107;
+    // product-owner ruling, PR #12, which moved the prompt row to the top).
+    // No numeric validator moved: the bounds loop below is untouched.
+    issues.push(...startingPromptIssue(raw.startingPrompt));
     for (const field of NUMERIC_FIELDS) {
         issues.push(...numericIssue(raw, field));
     }
@@ -313,9 +323,6 @@ function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
     }
 
     issues.push(...expectedAgentIssue(raw.expectedAgent));
-    // Directly after `expectedAgent`, so this list's order stays the order the
-    // schema projection pushes its descriptors in (006 AC-107).
-    issues.push(...startingPromptIssue(raw.startingPrompt));
     issues.push(...retryOrderIssue(raw));
     for (const key of Object.keys(raw)) {
         if (!isKnownField(key)) {

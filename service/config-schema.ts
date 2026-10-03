@@ -14,7 +14,10 @@
  * `format`: the guidance an operator needs about that field is part of the
  * field (004 FR-063), and research **R-4** places it in this declaration
  * rather than in a panel-authored helper — its cap is still the validator's
- * own constant, never a retyped number.
+ * own constant, never a retyped number. The other addition to a string
+ * descriptor is `multiline`, an affordance flag rather than a value: it
+ * declares *how* the row is edited, never what is in it (product-owner
+ * ruling, PR #12; 004 FR-060 leaves the control's shape to 005).
  *
  * `config.ts` deliberately does **not** import this module: the dependency
  * runs one way, projection ← declaration, which is what keeps the pair free of
@@ -130,6 +133,20 @@ export interface StringFieldDescriptor {
     readonly default: string;
     /** Declared take-effect class. */
     readonly takesEffect: TakeEffect;
+    /**
+     * Present only when the value is prose written across several lines, so
+     * the panel mounts a textarea instead of a one-line input (product-owner
+     * UI ruling on PR #12 — 004 FR-060 leaves the affordances to 005, and no
+     * requirement names a control type).
+     *
+     * **Absent means single-line**, and `true` is the only value this
+     * declaration ever emits, so the panel's closed reader accepts the member
+     * in exactly the shape it can be sent in — every other value refuses the
+     * envelope rather than being dropped, because an affordance the panel
+     * half-reads is a row it would render wrong (invariant 8). The control's
+     * height is panel copy — it is a presentation constant, not a bound.
+     */
+    readonly multiline?: true;
 }
 
 /**
@@ -167,24 +184,45 @@ const STARTING_PROMPT_FORMAT = 'text sent to the agent verbatim, with no placeho
 /**
  * Project the declaration onto the wire.
  *
- * Descriptor order equals `collectIssues` order — both walk the bounds table
- * in its own key order, then `logLevel`, then `expectedAgent`, then
- * `startingPrompt` — so the panel's rows and a refusal's issue list share one
- * order (AC-107).
+ * Descriptor order equals `Object.keys(DEFAULT_CONFIG)` and `collectIssues`
+ * order — `startingPrompt` first, then the bounds table in its own key
+ * order, then `logLevel`, then `expectedAgent` — so the panel's rows and a
+ * refusal's issue list share one order (AC-107). The prompt row leads the
+ * list by product-owner ruling on PR #12 ("move it to the top of the list");
+ * the numerics keep their relative order and no validator moved with it.
  *
  * @returns One descriptor per documented field, in declaration order.
  */
 export function configSchema(): readonly FieldDescriptor[] {
     const numericFields = Object.keys(NUMERIC_BOUNDS) as readonly (keyof typeof NUMERIC_BOUNDS)[];
-    const descriptors: FieldDescriptor[] = numericFields.map((field) => ({
-        name: field,
-        kind: 'integer',
-        unit: NUMERIC_BOUNDS[field].unit,
-        min: NUMERIC_BOUNDS[field].min,
-        max: NUMERIC_BOUNDS[field].max,
-        default: DEFAULT_CONFIG[field],
-        takesEffect: TAKE_EFFECT[field],
-    }));
+    const descriptors: FieldDescriptor[] = [];
+    // First field: 004's global prompt tier, ahead of every numeric one, so
+    // this order stays `Object.keys(DEFAULT_CONFIG)` and `collectIssues`
+    // order exactly (006 AC-107; product-owner ruling, PR #12). `multiline`
+    // is declared here and nowhere else: an agent name is one line, an
+    // instruction is a paragraph.
+    descriptors.push({
+        name: 'startingPrompt',
+        kind: 'string',
+        unit: null,
+        format: STARTING_PROMPT_FORMAT,
+        maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
+        default: DEFAULT_CONFIG.startingPrompt,
+        takesEffect: TAKE_EFFECT.startingPrompt,
+        multiline: true,
+    });
+
+    for (const field of numericFields) {
+        descriptors.push({
+            name: field,
+            kind: 'integer',
+            unit: NUMERIC_BOUNDS[field].unit,
+            min: NUMERIC_BOUNDS[field].min,
+            max: NUMERIC_BOUNDS[field].max,
+            default: DEFAULT_CONFIG[field],
+            takesEffect: TAKE_EFFECT[field],
+        });
+    }
 
     descriptors.push({
         name: 'logLevel',
@@ -202,17 +240,6 @@ export function configSchema(): readonly FieldDescriptor[] {
         maxLength: EXPECTED_AGENT_RULE.maxLength,
         default: DEFAULT_CONFIG.expectedAgent,
         takesEffect: TAKE_EFFECT.expectedAgent,
-    });
-    // Twelfth field, pushed directly after `expectedAgent`: the order is the
-    // validator's own (004 FR-081; 006 AC-107).
-    descriptors.push({
-        name: 'startingPrompt',
-        kind: 'string',
-        unit: null,
-        format: STARTING_PROMPT_FORMAT,
-        maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
-        default: DEFAULT_CONFIG.startingPrompt,
-        takesEffect: TAKE_EFFECT.startingPrompt,
     });
 
     return descriptors;

@@ -434,17 +434,14 @@ export function armLabel(input: {
     return input.id !== null && input.armed === input.id ? input.armedLabel : input.idleLabel;
 }
 
-/** The display-name field's label, its purpose line, and its save control (FR-066). */
+/** The display-name field's label and its purpose line (FR-066). */
 const DISPLAY_NAME_LABEL = 'Display name for this account';
 
 /** Help under the label field: what the member does, never a value. */
 const DISPLAY_NAME_HINT = 'Shown in the list instead of the login';
 
-/** The label field's save control (FR-066's draft/save flow). */
-const DISPLAY_NAME_SAVE_LABEL = 'Save display name';
-
 /**
- * The account-tier field's label and save control (004 FR-089).
+ * The account-tier field's label (004 FR-089).
  *
  * The binding tier's label says *from this repository*; this one says *from
  * this account*, so two fields carrying two different values never read as
@@ -452,9 +449,6 @@ const DISPLAY_NAME_SAVE_LABEL = 'Save display name';
  * keep the surfaces distinct too (005 FR-051).
  */
 export const ACCOUNT_PROMPT_LABEL = 'Starting prompt for dispatches from this account';
-
-/** The prompt field's save control (004 FR-089). */
-const ACCOUNT_PROMPT_SAVE_LABEL = 'Save starting prompt';
 
 /**
  * FR-063's guidance, fixed beside the account-tier field (research R-4: the
@@ -480,12 +474,10 @@ export const ACCOUNT_PROMPT_GUIDANCE =
  */
 export const ACCOUNT_PROMPT_NOT_SET = 'not set';
 
-/** What one profile member's field and save control render right now. */
+/** What one profile member's field renders right now. */
 export interface AccountFieldView {
     /** The field's accessible name (FR-081). */
     readonly label: string;
-    /** The save control's label. */
-    readonly saveLabel: string;
     /** The draft the input holds. */
     readonly value: string;
     /** Shown only while the input is empty — never typed into the value. */
@@ -531,7 +523,6 @@ export function accountFieldView(
     if (member === 'displayName') {
         return {
             label: DISPLAY_NAME_LABEL,
-            saveLabel: DISPLAY_NAME_SAVE_LABEL,
             value,
             placeholder: DISPLAY_NAME_HINT,
             helper: refusal ?? '',
@@ -542,7 +533,6 @@ export function accountFieldView(
 
     return {
         label: ACCOUNT_PROMPT_LABEL,
-        saveLabel: ACCOUNT_PROMPT_SAVE_LABEL,
         value,
         placeholder: ACCOUNT_PROMPT_NOT_SET,
         helper: refusal ?? ACCOUNT_PROMPT_GUIDANCE,

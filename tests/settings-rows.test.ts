@@ -111,8 +111,10 @@ const SPECS_006_FIELDS: readonly string[] = [
     'auditMaxEntries',
     'excerptRetentionDays',
     'expectedAgent',
-    // Twelfth field (004 FR-081): the global prompt tier, declared by the
-    // service straight after `expectedAgent` — the row arrives with it.
+    // Twelfth field (004 FR-081): the global prompt tier. Still twelve by
+    // count; its *position* is first in the projection since the owner's PR
+    // #12 ruling ("move it to the top of the list") — this list is a
+    // membership set, so only the count claim lives here.
     'startingPrompt',
 ];
 
@@ -641,7 +643,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             expect(agent?.text).toContain('other-agent');
             expect(agent?.text).not.toContain('bounds');
         }
-        // case: the twelfth row arrives from the descriptor, in the service's order (004 T-030)
+        // case: the prompt row arrives from the descriptor, first in the service's order (004 T-030)
         {
             const envelope = specs006OnlyEnvelope();
             const rows = settingsRows(envelope);
@@ -657,11 +659,15 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
                 configSchema().map((descriptor): string => descriptor.name),
             );
             expect(SPECS_006_FIELDS.filter((name) => !projected.has(name))).toEqual([]);
-            // The twelfth field is the global prompt tier, carrying the class
-            // the service declared for it (004 FR-081: the next poll).
+            // The prompt row leads the list — the twelfth *field* by count,
+            // first by owner ruling on PR #12 ("move it to the top of the
+            // list") — and carries the class the service declared for it
+            // (004 FR-081: the next poll). The position assertion stays as
+            // strong as it was: index 0 of the projection, not merely present.
             const promptDescriptor = descriptorOf('startingPrompt', envelope);
-            expect(rows[rows.length - 1]?.field).toBe(promptDescriptor.name);
-            expect(rows[rows.length - 1]?.text).toContain(classWords(promptDescriptor.takesEffect));
+            expect(rows[0]?.field).toBe(promptDescriptor.name);
+            expect(rows[0]?.text).toContain(classWords(promptDescriptor.takesEffect));
+            expect(rows[0]?.text).toContain('startingPrompt:');
             // A descriptor this build has never heard of still gets its row,
             // last, in the order it arrived — derivation, not a list.
             const future: FieldDescriptor = {
@@ -708,7 +714,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
 });
 
 describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)', () => {
-    it('mounts one control per declared field, named with it… (+7 cases)', async () => {
+    it('mounts one control per declared field, named with it… (+8 cases)', async () => {
         // case: mounts one control per declared field, named with its unit and boundary
         {
             const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
@@ -756,6 +762,8 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
                 readonly value: string;
                 readonly placeholder?: string;
                 readonly helper: string;
+                readonly multiline?: boolean;
+                readonly rows?: number;
                 readonly onChange: unknown;
             };
 
@@ -764,6 +772,11 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             // document's) — and it vanishes the moment the field has a value.
             expect(props.value).toBe('');
             expect(props.placeholder).toBe('not set');
+            // The control's *shape* is the descriptor's too (owner ruling, PR
+            // #12): this field declares `multiline`, so it mounts a textarea
+            // with the same row count the other two prompt tiers render with.
+            expect(props.multiline).toBe(true);
+            expect(props.rows).toBe(4);
             // Research R-4: the guidance under the field is the service's own
             // `format` prose, rendered as text — never a panel sentence.
             expect(props.helper).toContain(`format: ${descriptor.format}`);
@@ -790,6 +803,24 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             // The one rendering of the global tier's value in the panel (005
             // FR-051 as amended): the row's own control, holding the text.
             expect(props.value).toBe(prompt);
+            view.dispose();
+        }
+        // case: `multiline` rides the descriptor, so the other string field stays single-line
+        {
+            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+            const control = mounts.log.find(
+                (entry) => entry.key === 'mountTextField'
+                    && (entry.props as { readonly label?: string }).label?.startsWith('expectedAgent') === true,
+            );
+            expect(control).toBeDefined();
+            const props = control?.props as { readonly multiline?: boolean; readonly rows?: number };
+
+            // Both string fields share one kind, so the descriptor's flag is
+            // what tells them apart — an agent name is a single token, and
+            // the panel must not decide that from the field's *name*
+            // (006 FR-014: the row's attributes come from the wire).
+            expect(props.multiline).toBeUndefined();
+            expect(props.rows).toBeUndefined();
             view.dispose();
         }
         // case: gives an undocumented member a line, and no affordance at all (AC-115)

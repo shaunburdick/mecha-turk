@@ -15,8 +15,10 @@
  * for. Three rules the rows obey (FR-014, FR-027, NFR-112):
  *
  * 1. **Every attribute comes from the wire** — name, unit-or-*none*,
- *    bounds-or-format, value, and the class the service declared. Nothing here
- *    knows a number the service did not send.
+ *    bounds-or-format, value, the class the service declared, and since the
+ *    owner's PR #12 ruling the control's *shape* too (a descriptor that
+ *    declares `multiline` gets a textarea). Nothing here knows a number the
+ *    service did not send.
  * 2. **A value the build cannot type renders *unreadable*** with a remediation
  *    derived from the descriptor, and **never** a default in its place
  *    (AC-116, FR-028).
@@ -40,8 +42,15 @@
  */
 
 import { mountSelect, mountText, mountTextField } from '@openchamber/sdk/ui';
-import type { SelectHandle, TextHandle, TextFieldHandle } from '@openchamber/sdk/ui';
-import type { ConfigEnvelope, FieldDescriptor, TakeEffectClass } from './settings-schema.ts';
+import type { SelectHandle, SelectProps, TextHandle, TextFieldHandle, TextFieldProps } from '@openchamber/sdk/ui';
+import type {
+    ConfigEnvelope,
+    EnumDescriptor,
+    FieldDescriptor,
+    IntegerDescriptor,
+    StringDescriptor,
+    TakeEffectClass,
+} from './settings-schema.ts';
 
 /** One rendered row: the member it belongs to and the line the tab paints. */
 export interface SettingsRow {
@@ -100,6 +109,18 @@ export function takeEffectWords(takesEffect: TakeEffectClass): string {
  * holds: everything printed beside the word is the service's own.
  */
 const NOT_SET_WORD = 'not set';
+
+/**
+ * How tall a descriptor-declared textarea renders (owner ruling, PR #12).
+ *
+ * Panel copy rather than a wire member: it is the same presentation constant
+ * the account tier (`accounts-tab.ts`) and the binding tier
+ * (`bindings-prompt.ts`) already render with, and unlike a bound, a default,
+ * or an accepted value it claims nothing about the configuration — AC-106's
+ * scan looks for declarations of value, which this is not. *Whether* a row is
+ * multiline is the descriptor's; *how many rows* is the panel's.
+ */
+const MULTILINE_ROWS = 4;
 
 /**
  * The value segment of a readable row: the value, its unit or the explicit
@@ -316,6 +337,80 @@ function optionsFor(descriptor: FieldDescriptor): readonly { readonly id: string
 }
 
 /**
+ * The props a declared **enum** member's select mounts with (006 FR-010, FR-014).
+ *
+ * Every attribute is the descriptor's or the tab's own state: the accepted
+ * set verbatim, the label composed upstream from the same declaration, and
+ * the service's current value — nothing here decides an option or a class.
+ *
+ * @param input - The row, its enum descriptor, and the tab's state.
+ * @returns What `mountSelect` mounts with.
+ */
+function enumFieldProps(input: {
+    /** The row to mount. */
+    readonly row: SettingsRow;
+    /** The descriptor the row was built from. */
+    readonly descriptor: EnumDescriptor;
+    /** Everything the control reads. */
+    readonly context: RowsContext;
+}): SelectProps {
+    const { row, descriptor, context } = input;
+
+    return {
+        label: row.label,
+        disabled: context.disabled,
+        onChange: (value: string): void => context.onChange(row.field, value),
+        value: context.values[row.field] ?? null,
+        options: [...optionsFor(descriptor)],
+    };
+}
+
+/**
+ * The props a declared **value** member's text control mounts with (006 FR-010, FR-014).
+ *
+ * Two rules ride the descriptor rather than the field's name:
+ *
+ * - a **string** field shows FR-064's honest absence in its value slot — an
+ *   empty box states *not set* instead of reading as an empty instruction,
+ *   and the word leaves the moment anything is in the field (the control
+ *   underneath is untouched: same input, same keyboard path, same accessible
+ *   name, 006 FR-018);
+ * - a descriptor that declares **`multiline`** mounts a textarea (owner
+ *   ruling, PR #12), so the control's *shape* comes off the wire like every
+ *   other row attribute — `expectedAgent`, which declares none, stays a
+ *   one-line input. The row count is the shared presentation constant the
+ *   account and binding tiers render with: a height, not a bound.
+ *
+ * @param input - The row, its descriptor, and the tab's state.
+ * @returns What `mountTextField` mounts with.
+ */
+function valueFieldProps(input: {
+    /** The row to mount. */
+    readonly row: SettingsRow;
+    /** The descriptor the row was built from. */
+    readonly descriptor: IntegerDescriptor | StringDescriptor;
+    /** Everything the control reads. */
+    readonly context: RowsContext;
+}): TextFieldProps {
+    const { row, descriptor, context } = input;
+    const helper = `${row.helper}${context.notes[row.field] === undefined ? '' : ` · ${context.notes[row.field]}`}`;
+    const error = context.issues[row.field];
+
+    return {
+        label: row.label,
+        disabled: context.disabled,
+        onChange: (value: string): void => context.onChange(row.field, value),
+        value: context.values[row.field] ?? '',
+        ...(descriptor.kind === 'string' ? { placeholder: NOT_SET_WORD } : {}),
+        ...(descriptor.kind === 'string' && descriptor.multiline === true
+            ? { multiline: true, rows: MULTILINE_ROWS }
+            : {}),
+        helper,
+        ...(error === undefined ? {} : { error }),
+    };
+}
+
+/**
  * Mount the control for a member the service declared (006 FR-010, FR-014).
  *
  * The descriptor decides the *shape* — the accepted set, or an input — and
@@ -336,41 +431,18 @@ function mountDeclaredRow(input: {
     readonly context: RowsContext;
 }): SettingsRowHandle {
     const { box, row, descriptor, context } = input;
-    const helper = `${row.helper}${context.notes[row.field] === undefined ? '' : ` · ${context.notes[row.field]}`}`;
-    const error = context.issues[row.field];
-    const shared = {
-        label: row.label,
-        disabled: context.disabled,
-        onChange: (value: string): void => context.onChange(row.field, value),
-    };
     if (descriptor.kind === 'enum') {
         return {
             field: row.field,
             kind: 'enum',
-            handle: mountSelect(box, {
-                ...shared,
-                value: context.values[row.field] ?? null,
-                options: [...optionsFor(descriptor)],
-            }),
+            handle: mountSelect(box, enumFieldProps({ row, descriptor, context })),
         };
     }
 
     return {
         field: row.field,
         kind: 'value',
-        handle: mountTextField(box, {
-            ...shared,
-            value: context.values[row.field] ?? '',
-            // FR-064's honest absence, in the value slot the operator reads:
-            // an empty box on a string field states *not set* rather than
-            // sitting there like an empty instruction, and the word vanishes
-            // the moment anything is in the field. The control underneath is
-            // untouched — same input, same keyboard path, same accessible name
-            // (006 FR-018), with the service's format guidance still beneath it.
-            ...(descriptor.kind === 'string' ? { placeholder: NOT_SET_WORD } : {}),
-            helper,
-            ...(error === undefined ? {} : { error }),
-        }),
+        handle: mountTextField(box, valueFieldProps({ row, descriptor, context })),
     };
 }
 

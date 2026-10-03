@@ -21,7 +21,7 @@ import { resolve } from 'node:path';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { adoptServiceAccounts } from '../src/account-adoption.ts';
-import { saveDisplayName, saveStartingPrompt } from '../src/accounts-actions.ts';
+import { saveProfile, splitProfileRefusal } from '../src/accounts-actions.ts';
 import {
     ACCOUNT_PROMPT_GUIDANCE,
     ACCOUNT_PROMPT_LABEL,
@@ -648,6 +648,27 @@ async function displayRuntime(spec: DisplaySpec): Promise<{
     return { rt, requests };
 }
 
+/**
+ * Run the profile write exactly the way the one `Save changes` control runs
+ * it: both drafts, read off the two fields (owner ruling, PR #12 — "One Save
+ * button, both fields").
+ *
+ * @param rt - Runtime whose open row carries the drafts.
+ * @returns The write's completion — resolved only after the re-read.
+ */
+async function saveBothDrafts(rt: PanelRuntime): Promise<void> {
+    const { accounts } = rt.state;
+    if (accounts.selected === null) {
+        throw new Error('the fixture never opened a row to save');
+    }
+
+    return await saveProfile(rt, {
+        numericUserId: accounts.selected,
+        displayName: accounts.displayNameDraft,
+        startingPrompt: accounts.startingPromptDraft,
+    });
+}
+
 describe('T-026 the display name is written by the service, never by the panel (FR-066)', () => {
     it('round-trips a label through the profile write and sho… (+3 cases)', async () => {
         // case: round-trips a label through the profile write and shows what came back
@@ -656,39 +677,54 @@ describe('T-026 the display name is written by the service, never by the panel (
                 answer: { status: 200, body: JSON.stringify({ account: {} }) },
                 stored: NEW_LABEL,
             });
+            rt.state.accounts.displayNameDraft = NEW_LABEL;
+            rt.state.accounts.startingPromptDraft = ACCOUNT_PROMPT;
 
-            await saveDisplayName(rt, { numericUserId: CONNECTED_ID, value: NEW_LABEL });
+            await saveBothDrafts(rt);
 
             const put = requests.find((request) => request.method === 'PUT');
-            // Re-cut at 005 v1.10.0 / 004 v1.4.0: the label rides the account
-            // profile write, and the body names only the member it edits —
-            // absent means unchanged, so this save cannot touch the tier.
+            // Re-cut by the owner's PR #12 ruling — "One Save button, both
+            // fields": the body carries **both** members, in the order the
+            // panel builds them, each equal to its own field's draft. The
+            // route has always accepted them together (005 v1.10.0), so only
+            // the panel's choice of how many bodies to send changed.
             expect(put?.path).toBe(`/v1/accounts/${CONNECTED_ID}`);
             const labelBody = JSON.parse(String(put?.body)) as Record<string, unknown>;
-            expect(Object.keys(labelBody)).toEqual(['displayName']);
-            expect(labelBody).toEqual({ displayName: NEW_LABEL });
+            expect(Object.keys(labelBody)).toEqual(['displayName', 'startingPrompt']);
+            expect(labelBody).toEqual({ displayName: NEW_LABEL, startingPrompt: ACCOUNT_PROMPT });
             // The value on screen is the one the authoritative re-read reported.
             expect(rt.state.bindings.accounts[0]?.displayName).toBe(NEW_LABEL);
             expect(rt.state.accounts.displayNameError).toBeNull();
+            expect(rt.state.accounts.startingPromptError).toBeNull();
         }
         // case: renders the refusal at the field and keeps the stored label (AC-130)
         {
             const refusal = JSON.stringify({
                 error: {
                     code: 'validation',
-                    message: 'displayName must not contain credential-shaped material (matched shape: PAT)',
+                    message:
+                        'displayName: displayName must not contain credential-shaped material (matched shape: PAT)',
                 },
             });
             const { rt, requests } = await displayRuntime({ answer: { status: 422, body: refusal } });
             const submitted = 'ghp_looks_like_a_token';
             // What the field holds at the click: the operator's own text.
             rt.state.accounts.displayNameDraft = submitted;
+            // The prompt slot holds a refusal of its own, so the assertion
+            // below can tell *untouched* apart from *cleared* — the one
+            // answer must not borrow, overwrite, or retire the other's.
+            const olderPromptRefusal = 'startingPrompt: an older refusal';
+            rt.state.accounts.startingPromptError = olderPromptRefusal;
 
-            await saveDisplayName(rt, { numericUserId: CONNECTED_ID, value: submitted });
+            await saveBothDrafts(rt);
 
             expect(requests.some((request) => request.method === 'PUT')).toBe(true);
             // The service's copy names the field and the shape, never the value.
             expect(rt.state.accounts.displayNameError).not.toContain(submitted);
+            // Isolation: a label refusal lands in the label's slot only. The
+            // prompt slot keeps what its own field already said — it is
+            // neither marked with this reason nor cleared by it.
+            expect(rt.state.accounts.startingPromptError).toBe(olderPromptRefusal);
             // Nothing was applied, so the list still shows the stored label, and
             // the draft keeps what was typed so the operator can correct it.
             expect(rt.state.accounts.displayNameDraft).toBe(submitted);
@@ -728,24 +764,26 @@ function readAccounts(members: Record<string, unknown>): PanelAccount[] | null {
 }
 
 describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', () => {
-    it('saves only its own member and shows an honest not set (+2 cases)', async () => {
-        // case: saves only its own member and brings the value back on a reload
+    it('writes both members in one save and shows an honest not set (+2 cases)', async () => {
+        // case: writes both members in one body and brings the value back on a reload
         {
             const { rt, requests } = await displayRuntime({
                 answer: { status: 200, body: JSON.stringify({ account: {} }) },
                 storedPrompt: ACCOUNT_PROMPT,
             });
+            rt.state.accounts.startingPromptDraft = ACCOUNT_PROMPT;
 
-            await saveStartingPrompt(rt, { numericUserId: CONNECTED_ID, value: ACCOUNT_PROMPT });
+            await saveBothDrafts(rt);
 
             const put = requests.find((request) => request.method === 'PUT');
-            // The one route both members travel (plan C28/C29), carrying only
-            // the member this save edits: absent = unchanged, so the label is
-            // neither sent here nor clobbered by this write.
+            // The one route both members travel (plan C28/C29), now carrying
+            // both together: the owner ruled one save for the pair (PR #12),
+            // so the label rides along as exactly the text its own field
+            // holds — never a value the panel invented.
             expect(put?.path).toBe(`/v1/accounts/${CONNECTED_ID}`);
             const promptBody = JSON.parse(String(put?.body)) as Record<string, unknown>;
-            expect(Object.keys(promptBody)).toEqual(['startingPrompt']);
-            expect(promptBody).toEqual({ startingPrompt: ACCOUNT_PROMPT });
+            expect(Object.keys(promptBody)).toEqual(['displayName', 'startingPrompt']);
+            expect(promptBody).toEqual({ displayName: 'Ops label', startingPrompt: ACCOUNT_PROMPT });
             // The authoritative re-read is what puts it back on the record…
             expect(rt.state.bindings.accounts[0]?.startingPrompt).toBe(ACCOUNT_PROMPT);
             // …and reopening the row loads that stored text into the field again.
@@ -790,7 +828,8 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
                 error: {
                     code: 'validation',
                     message:
-                        'startingPrompt: this value looks like a credential; store it in a secret manager instead',
+                        'startingPrompt: startingPrompt must not contain credential-shaped material'
+                        + ' (matched shape: GitHub-PAT)',
                 },
             });
             const { rt, requests } = await displayRuntime({
@@ -799,15 +838,20 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
             });
             const submitted = 'ghp_looks_like_a_token';
             rt.state.accounts.startingPromptDraft = submitted;
+            // A label refusal of its own, so the split can be seen *not* to
+            // touch it: the one write judges both members, and each field
+            // keeps the answer that named it (FR-085).
+            const olderLabelRefusal = 'displayName: an older refusal';
+            rt.state.accounts.displayNameError = olderLabelRefusal;
 
-            await saveStartingPrompt(rt, { numericUserId: CONNECTED_ID, value: submitted });
+            await saveBothDrafts(rt);
 
             expect(requests.some((request) => request.method === 'PUT')).toBe(true);
             // The service's own copy lands in this field's slot, and the value
             // it refused appears nowhere in it (FR-085) — nor in the label's.
             expect(rt.state.accounts.startingPromptError).toContain('credential');
             expect(rt.state.accounts.startingPromptError).not.toContain(submitted);
-            expect(rt.state.accounts.displayNameError).toBeNull();
+            expect(rt.state.accounts.displayNameError).toBe(olderLabelRefusal);
             // Nothing changed: the draft still holds what was typed, and the
             // stored tier is still the one the service already held.
             expect(rt.state.accounts.startingPromptDraft).toBe(submitted);
@@ -875,7 +919,8 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
                 },
             ];
             selectAccountRow(rt, CONNECTED_ID);
-            await saveStartingPrompt(rt, { numericUserId: CONNECTED_ID, value: ACCOUNT_PROMPT });
+            rt.state.accounts.startingPromptDraft = ACCOUNT_PROMPT;
+            await saveBothDrafts(rt);
             // The mirror is what the panel *does* write to storage, so the
             // assertion below runs against a write that really happened.
             await adoptServiceAccounts(rt);
@@ -925,6 +970,121 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
         expect(carrying.every(
             (entry) => entry.key === 'mountTextField' || entry.key === 'mountTextField:update',
         )).toBe(true);
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * The owner's PR #12 ruling: "One Save button, both fields" + "Split back
+ * into per-field slots". The inputs stay separate, the save is shared, the
+ * body carries both members, and the service's one composed `message` is
+ * split back into the two slots by **known field name**.
+ * ------------------------------------------------------------------------- */
+
+describe('one Save changes writes both profile members (owner ruling, PR #12)', () => {
+    it('offers exactly one save control, and neither retired per-member one', () => {
+        const { dispose } = mountAccountsTab();
+        const labels = mounts.log
+            .filter((entry) => entry.key === 'mountButton')
+            .map((entry) => (entry.props as { readonly label?: string }).label);
+        dispose();
+
+        // The pair owns one control, and the two labels it replaced are gone:
+        // a second save would be a second body, which is what the ruling
+        // removed (005 FR-066, 004 FR-082 — no FR names a button count, so
+        // the count is the owner's to set).
+        expect(labels.filter((label) => label === 'Save changes')).toHaveLength(1);
+        expect(labels).not.toContain('Save display name');
+        expect(labels).not.toContain('Save starting prompt');
+        // Rotate and remove keep their own row-level controls, unchanged.
+        expect(labels).toContain('Rotate token');
+        expect(labels).toContain('Remove account');
+    });
+
+    it('splits a refusal that fails both members into the two slots', async () => {
+        const refusal = JSON.stringify({
+            error: {
+                code: 'validation',
+                message: [
+                    'displayName: displayName must not contain credential-shaped material (matched shape: PAT)',
+                    'startingPrompt: startingPrompt must not contain credential-shaped material'
+                        + ' (matched shape: GitHub-PAT)',
+                ].join('; '),
+            },
+        });
+        const { rt, requests } = await displayRuntime({ answer: { status: 422, body: refusal } });
+        const submittedLabel = 'ghp_looks_like_a_label';
+        const submittedPrompt = 'ghp_looks_like_a_prompt';
+        rt.state.accounts.displayNameDraft = submittedLabel;
+        rt.state.accounts.startingPromptDraft = submittedPrompt;
+
+        await saveBothDrafts(rt);
+
+        expect(requests.some((request) => request.method === 'PUT')).toBe(true);
+        // Each slot holds **its own** reason, whole — and the other member's
+        // name never crosses the split, which is what proves the cut was made
+        // on the field names rather than on any colon in a remediation.
+        const labelError = String(rt.state.accounts.displayNameError);
+        const promptError = String(rt.state.accounts.startingPromptError);
+        expect(labelError).toContain('credential-shaped material');
+        expect(labelError).not.toContain('startingPrompt');
+        expect(promptError).toContain('credential-shaped material');
+        expect(promptError).not.toContain('displayName');
+        // Neither submitted value echoes back anywhere (FR-085).
+        expect(labelError).not.toContain(submittedLabel);
+        expect(promptError).not.toContain(submittedPrompt);
+        // Nothing was written: both drafts still hold what was typed.
+        expect(rt.state.accounts.displayNameDraft).toBe(submittedLabel);
+        expect(rt.state.accounts.startingPromptDraft).toBe(submittedPrompt);
+    });
+
+    it('splits on the known field names, never on a colon or a semicolon', () => {
+        // A remediation may carry its own `; ` ("…be text; send it absent…")
+        // and its own `: ` ("…(matched shape: PAT)"); neither marks a field
+        // boundary, so each half arrives intact in its own slot.
+        const split = splitProfileRefusal(
+            'startingPrompt: startingPrompt must be text; send it absent or null to leave the '
+            + 'starting prompt unset; displayName: displayName must not contain credential-shaped '
+            + 'material (matched shape: PAT)',
+        );
+
+        expect(split.startingPrompt).toContain('leave the starting prompt unset');
+        expect(split.startingPrompt).toContain('startingPrompt:');
+        expect(split.startingPrompt).not.toContain('displayName');
+        expect(split.displayName).toContain('matched shape: PAT');
+        expect(split.displayName).not.toContain('startingPrompt');
+
+        // A reason that names neither member reaches **both** slots rather
+        // than being dropped on the way to the operator.
+        const unnamed = splitProfileRefusal('body: the account profile body is a closed set');
+
+        expect(unnamed.displayName).toContain('closed set');
+        expect(unnamed.startingPrompt).toContain('closed set');
+
+        // And a message with no field shape at all — a transport problem,
+        // say — is still shown, never swallowed.
+        const problem = 'service answered 503';
+        const generic = splitProfileRefusal(problem);
+
+        expect(generic.displayName).toBe(problem);
+        expect(generic.startingPrompt).toBe(problem);
+    });
+
+    it('stops one stale row before either field is written (open-row guard)', async () => {
+        const { rt, requests } = await displayRuntime({
+            answer: { status: 200, body: JSON.stringify({ account: {} }) },
+        });
+        // One draft outlived its row: the label field points at an account
+        // the operator no longer has open, so the single write — which would
+        // carry both fields — must not run at all.
+        rt.state.accounts.displayNameRow = '999';
+
+        await saveBothDrafts(rt);
+
+        expect(requests.some((request) => request.method === 'PUT')).toBe(false);
+        // The guard is about the **row**, so it is stated on both fields:
+        // neither member is writable while the selection is stale.
+        expect(rt.state.accounts.displayNameError).toContain('Select the account again');
+        expect(rt.state.accounts.startingPromptError).toContain('Select the account again');
     });
 });
 

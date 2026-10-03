@@ -547,11 +547,13 @@ describe('the twelfth row rides the descriptor (004 T-030; 006 FR-010, FR-014, F
 
             expect(fieldProps('startingPrompt').value).toBe(prompt);
             // The tab's rows are the projection's rows, in the projection's
-            // order, with the twelfth field last (006 FR-010 — one list, and
-            // this feature adds no thirteenth row).
+            // order, with the prompt row first — it is still the twelfth
+            // *field* by count, and first by the owner's PR #12 ruling
+            // ("move it to the top of the list") — and this feature adds no
+            // thirteenth row (006 FR-010 — one list).
             const fields = view.rt.state.settingsTab.doc?.fields.map((candidate) => candidate.name) ?? [];
             expect(fields).toEqual(configSchema().map((candidate) => candidate.name));
-            expect(fields[fields.length - 1]).toBe('startingPrompt');
+            expect(fields[0]).toBe('startingPrompt');
             view.dispose();
         }
     });
