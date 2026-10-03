@@ -106,6 +106,12 @@ const DENIED_LOGIN = 'stranger';
 /** The login an allowed actor is attributed as on a coalesced run. */
 const ALLOWED_LOGIN = 'alice';
 
+/**
+ * Detection stamp the coalesced-run fixtures give a reference that arrived after
+ * authorization: a rider on someone else's run, which is what has to stay visible
+ * (003 FR-011, FR-077).
+ */
+const RIDER_DETECTED_AT = '2026-09-28T09:05:00.000Z';
 /** Agent every read-back fixture expects (and, when matched, observes). */
 const EXPECTED_AGENT = 'project-manager';
 
@@ -586,7 +592,7 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
                             deliveryId: 'evt-acme~widget~7~comment',
                             kind: 'mention',
                             origin: 'comment:4242',
-                            detectedAt: '2026-09-28T09:05:00.000Z',
+                            detectedAt: RIDER_DETECTED_AT,
                             presentAtAuthorization: false,
                         }),
                     ],
@@ -1471,9 +1477,36 @@ describe('selection, open, and the pane handler table', () => {
  * 005 AC-145 — the attributed actor, its basis, and the refused run
  * -------------------------------------------------------------------- */
 
+/**
+ * The claim 005 v1.13.0 withdraws, in every wording the old copy used
+ * (002 NFR-011 as re-cut at v1.12.0).
+ *
+ * Both the panel's clause and the gate's refusal reason carried a version of
+ * *"GitHub does not record who assigned"*, which is **false** — GitHub records
+ * both, in `assigner` and `review_requester` on the item's own event list. The
+ * scan exists so a future edit cannot quietly put the falsehood back, and it
+ * matches on the substance (a claim about what the provider does not record)
+ * rather than on one exact sentence, so a rewording does not slip past it.
+ */
+const WITHDRAWN_CLAIM =
+    /does not record|never (?:who|records)|records no (?:assigner|requester|assign)|is a proxy|a proxy\b/i;
+
+/** A login the legacy-basis fixtures attribute a row to, named once (sonarjs). */
+const LEGACY_ACTOR_LOGIN = 'bob';
+
+/**
+ * The legacy attribution basis, readable and produced by nothing (002 FR-044 as
+ * re-cut at v1.12.0) — named once so the fixtures below cannot drift apart from
+ * the clause they are asserting the panel renders beside it.
+ */
+const LEGACY_BASIS = 'subject-author';
+
+
 describe('005 AC-145 the row names the actor, its basis, and the denied login', () => {
-    it('states each reference\'s own actor, and a proxy as a proxy (+4 cases)', () => {
-        // case: a direct attribution names the login and nothing more
+    it('states each reference\'s own actor, and a legacy basis as its provenance (+4 cases)', () => {
+        // case: a direct attribution names the login and **no basis clause at
+        // all** — GitHub named the identity that performed the act, so there is
+        // nothing to qualify (005 FR-094 as re-cut at v1.13.0)
         {
             const rows = dispatchRows(runsState({
                 rows: [runFixture({
@@ -1485,15 +1518,20 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
 
             expect(rows[0]?.subtitle).toContain(`actor ${ALLOWED_LOGIN}`);
             expect(rows[0]?.subtitle).not.toContain(SUBJECT_AUTHOR_BASIS);
+            // The whole point of the re-cut: not merely a different clause, but
+            // **none** on the basis every row written now carries.
+            expect(rows[0]?.subtitle).not.toContain('attributed');
+            expect(rows[0]?.subtitle).not.toContain('basis');
         }
 
-        // case: a `subject-author` attribution states the proxy in the panel's own words
+        // case: a legacy `subject-author` row states its **provenance** — the rule
+        // in force when it was written — and claims nothing about GitHub
         {
             const rows = dispatchRows(runsState({
                 rows: [runFixture({
                     sourceReferences: [referenceFixture({
-                        actorLogin: 'bob',
-                        actorAttribution: 'subject-author',
+                        actorLogin: LEGACY_ACTOR_LOGIN,
+                        actorAttribution: LEGACY_BASIS,
                     })],
                     referenceCount: 1,
                 })],
@@ -1501,13 +1539,15 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
             }));
             const subtitle = rows[0]?.subtitle ?? '';
 
-            expect(subtitle).toContain('actor bob');
+            expect(subtitle).toContain(`actor ${LEGACY_ACTOR_LOGIN}`);
             expect(subtitle).toContain(SUBJECT_AUTHOR_BASIS);
-            // 002 NFR-011 in the negative: nothing states that bob assigned the
-            // issue or requested the review, which is exactly what GitHub does
-            // not record.
-            expect(subtitle).not.toContain('bob assigned');
-            expect(subtitle).toContain('does not record who assigned');
+            expect(subtitle).toContain('under the rule in force when this row was written');
+            // 002 NFR-011 in the negative, and the claim this amendment withdrew:
+            // nothing says bob assigned the issue, and nothing says GitHub does
+            // not record who assigned — because it does, in `assigner`.
+            expect(subtitle).not.toContain(`${LEGACY_ACTOR_LOGIN} assigned`);
+            expect(subtitle).not.toContain('does not record');
+            expect(subtitle).not.toContain('is a proxy');
         }
 
         // case: a coalesced run shows every reference\'s own actor, so an
@@ -1520,10 +1560,10 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
                         deliveryId: 'evt-acme~widget~7~comment',
                         kind: 'mention',
                         origin: 'comment:4242',
-                        detectedAt: '2026-09-28T09:05:00.000Z',
+                        detectedAt: RIDER_DETECTED_AT,
                         presentAtAuthorization: false,
                         actorLogin: DENIED_LOGIN,
-                        actorAttribution: 'subject-author',
+                        actorAttribution: LEGACY_BASIS,
                     }),
                 ],
                 referenceCount: 2,
@@ -1562,15 +1602,15 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
         // case: the row carries the service's own refusal, naming who was denied
         {
             const reason = "no source reference on this run names an actor the binding's allowedUsers permits: "
-                + 'bob (the issue or pull-request author \u2014 a proxy, GitHub does not record who assigned '
-                + 'or requested)';
+                + `${LEGACY_ACTOR_LOGIN} (the issue or pull-request author, attributed under the rule `
+                + 'in force when this row was written)';
             const [row] = dispatchRows(runsState({
                 rows: [runFixture({ state: BLOCKED_ACTOR_STATE, stateReason: reason })],
                 status: 'ready',
             }));
 
             expect(row?.badge?.label).toBe(ACTOR_BLOCKED_LABEL);
-            expect(row?.subtitle).toContain('bob');
+            expect(row?.subtitle).toContain(LEGACY_ACTOR_LOGIN);
             expect(row?.subtitle).toContain('allowedUsers');
             // The panel renders the verdict it was given and never predicts one
             // (FR-046): the reason is the service's message, verbatim.
@@ -1589,6 +1629,44 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
             // Rendering is not deciding: a second render of an unchanged row is
             // byte-identical, which is what "no local verdict" looks like.
             expect(dispatchRows(runsState({ rows: [row], status: 'ready' }))).toEqual(before);
+        }
+
+        // case: **the copy scan**, asserted over what the panel composes and
+        // proved non-vacuous by a fixture that still renders the legacy basis
+        // (005 AC-145 as re-cut at v1.13.0)
+        {
+            // The scan needs to *find* the withdrawn claim, so it is first shown
+            // to bite: the scanner matches the sentence the pre-v1.13.0 clause
+            // carried, and that sentence is not what this build renders.
+            expect(WITHDRAWN_CLAIM.test('it does not record who assigned it or requested the review')).toBe(true);
+            expect(WITHDRAWN_CLAIM.test(SUBJECT_AUTHOR_BASIS)).toBe(false);
+
+            // Every user-facing string composed from a run's actor rows, on both
+            // the row and in the reveal — the two surfaces that name an actor.
+            const row = runFixture({
+                sourceReferences: [
+                    referenceFixture({ actorLogin: 'dana', actorAttribution: 'direct' }),
+                    referenceFixture({
+                        deliveryId: 'evt-acme~widget~7~legacy',
+                        kind: 'assignment',
+                        origin: 'assignment',
+                        detectedAt: RIDER_DETECTED_AT,
+                        presentAtAuthorization: false,
+                        actorLogin: LEGACY_ACTOR_LOGIN,
+                        actorAttribution: LEGACY_BASIS,
+                    }),
+                ],
+                referenceCount: 2,
+            });
+            const subtitles = dispatchRows(runsState({ rows: [row], status: 'ready' }))
+                .map((rendered) => String(rendered.subtitle));
+            const composed = [...subtitles, ...referenceDetailLines(row)].join('\n');
+
+            // Non-vacuity: the legacy fixture still renders its clause, so the
+            // scan is looking at live output rather than passing because the
+            // branch is gone.
+            expect(composed).toContain(SUBJECT_AUTHOR_BASIS);
+            expect(WITHDRAWN_CLAIM.test(composed), composed).toBe(false);
         }
     });
 });

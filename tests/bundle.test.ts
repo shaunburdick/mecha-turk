@@ -240,10 +240,22 @@ const HTML_SINKS: readonly RegExp[] = [
 const SOURCE_DIRS: readonly string[] = ['src', 'service'];
 
 /** Modules allowed to talk to GitHub's REST API; every one of them reads. */
+/**
+ * The modules allowed to name GitHub's REST API at all (FR-002, FR-031).
+ *
+ * Every one of them is a **reader**: the panel's shape reader, the service's
+ * credential verifier, and the poller's two halves — the endpoint catalogue and
+ * the transport that builds and classifies every request they issue. The split
+ * at 002 v1.12.0 added `poller-transport.ts` beside `poller-github.ts`, and it is
+ * named here because a module that builds a URL is a gateway whether or not it
+ * also lists endpoints; leaving it out would have let a genuine write land in a
+ * module the scan had stopped covering.
+ */
 const GITHUB_GATEWAYS: ReadonlySet<string> = new Set([
     'src/github.ts',
     'service/github.ts',
     'service/poll/poller-github.ts',
+    'service/poll/poller-transport.ts',
 ]);
 
 /** A reference to GitHub's REST API, however the module spells it. */

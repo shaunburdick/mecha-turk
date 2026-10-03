@@ -35,10 +35,13 @@
  * - **The refusal names the denial; the record names the policy's shape only**
  *   (FR-077, FR-079, NFR-113). Every denied login and its attribution basis go
  *   on the `dispatch.refused` row, because a refusal a reader cannot attribute
- *   is not an explainable refusal, and a proxy basis is stated as a proxy
- *   (002 NFR-011). No **permitted** login appears anywhere: an audit trail
- *   listing who may trigger a repository is a second copy of the access policy
- *   in a file retained for months.
+ *   is not an explainable refusal, and a basis is stated as the provenance it is
+ *   (002 NFR-011) — which, for the one legacy basis, means the rule that was in
+ *   force when the row was written and nothing at all about GitHub's
+ *   capabilities, because 002 v1.12.0 established that GitHub records both the
+ *   assigner and the reviewer. No **permitted** login appears anywhere: an audit
+ *   trail listing who may trigger a repository is a second copy of the access
+ *   policy in a file retained for months.
  * - **A truncated reference list is said out loud, not admitted around** (T-038,
  *   NFR-107). The quantifier above runs over the *retained* references, and the
  *   run layer stops retaining at {@link MAX_SOURCE_REFERENCES}. A run that
@@ -282,9 +285,19 @@ function truncatedNote(run: Run): string {
 /**
  * Name every denied login with its basis, as the refusal message reads it.
  *
- * Each basis is spelled in the vocabulary 002 FR-044 defines, so a
- * `subject-author` reads as the **proxy** it is and never as a claim that a
- * denied actor did anything (002 NFR-011).
+ * Each basis is spelled in the vocabulary 002 FR-044 defines, so a login is
+ * named with the provenance of its attribution and never as a claim that a
+ * denied actor caused anything (002 NFR-011).
+ *
+ * The `subject-author` clause is the one string here that had to be re-cut at
+ * 002 v1.12.0. It used to say *"a proxy, GitHub does not record who assigned or
+ * requested"*, which was **false**: GitHub records both, in `assigner` and
+ * `review_requester` on the item's own event list, and every row this service
+ * writes now carries `direct` because of it. What a `subject-author` row still
+ * needs an operator to know is narrower — *this login was whatever the rule in
+ * force at write time could name* — and that stays true whatever GitHub supports
+ * now, so the clause states the row's provenance and asserts nothing about the
+ * provider.
  *
  * @param actors - Every denied login, in reference order.
  * @returns The comma-separated list.
@@ -292,7 +305,7 @@ function truncatedNote(run: Run): string {
 function namedActors(actors: readonly Extract<ClassifiedActor, { readonly readable: true }>[]): string {
     return actors
         .map((actor) => `${actor.login} (${actor.attribution === 'subject-author'
-            ? 'the issue or pull-request author — a proxy, GitHub does not record who assigned or requested'
+            ? 'the issue or pull-request author, attributed under the rule in force when this row was written'
             : actor.attribution ?? UNRECORDED_BASIS})`)
         .join(', ');
 }

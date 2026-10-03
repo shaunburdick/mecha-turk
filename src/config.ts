@@ -209,3 +209,32 @@ export function formatWorktreeOption(selection: WorktreeSelection): string {
 export function repositoryLabel(repository: RepositoryRef): string {
     return `${repository.owner}/${repository.name}`;
 }
+
+/**
+ * Split a stored `owner/name` label back into its reference — the inverse of
+ * {@link repositoryLabel}, and beside it so the two directions of one
+ * vocabulary cannot drift apart.
+ *
+ * The service's poll triggers need the reference (GitHub paths take `owner` and
+ * `name` separately) while every stored row carries the label, and the split is
+ * wanted by three modules that must not import each other. It therefore lives
+ * here, in the module that already owns the label, and takes a **string** rather
+ * than a binding: this is the panel's vocabulary and it must not reach for a
+ * service type.
+ *
+ * A label with no `/` splits to an empty `name`, which is what the service's
+ * reader has always answered. A stored binding cannot reach that case —
+ * `parseRepository` refuses such a label on write and on read — so the branch is
+ * here to keep the function total rather than to serve a caller.
+ *
+ * @param repository - Stored `owner/name` label.
+ * @returns The repository reference.
+ */
+export function repositoryRefOf(repository: string): RepositoryRef {
+    const index = repository.indexOf('/');
+    if (index < 0) {
+        return { owner: repository, name: '' };
+    }
+
+    return { owner: repository.slice(0, index), name: repository.slice(index + 1) };
+}

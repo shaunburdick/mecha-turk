@@ -5236,6 +5236,13 @@ function parseProjectId(raw) {
 function repositoryLabel(repository) {
   return `${repository.owner}/${repository.name}`;
 }
+function repositoryRefOf(repository) {
+  const index = repository.indexOf("/");
+  if (index < 0) {
+    return { owner: repository, name: "" };
+  }
+  return { owner: repository.slice(0, index), name: repository.slice(index + 1) };
+}
 
 // service/bindings-allow-list.ts
 var GITHUB_LOGIN_MAX_CHARS = 39;
@@ -6672,7 +6679,7 @@ function truncatedNote(run) {
   return `; this run's source reference list was cut at ${run.sourceReferences.length} of ` + `${run.referenceCount} triggers, so this decision was made on an incomplete list and adding a login to ` + "the binding's allowedUsers cannot clear it";
 }
 function namedActors(actors) {
-  return actors.map((actor) => `${actor.login} (${actor.attribution === "subject-author" ? "the issue or pull-request author — a proxy, GitHub does not record who assigned or requested" : actor.attribution ?? UNRECORDED_BASIS})`).join(", ");
+  return actors.map((actor) => `${actor.login} (${actor.attribution === "subject-author" ? "the issue or pull-request author, attributed under the rule in force when this row was written" : actor.attribution ?? UNRECORDED_BASIS})`).join(", ");
 }
 function unreadableNote(unreadableReferences) {
   return unreadableReferences === 0 ? "every reference names a readable actor" : `${unreadableReferences} of this run's references name no readable actor`;
@@ -8839,26 +8846,33 @@ async function readCycleConfig(input) {
   }
 }
 
-// service/poll/triggers.ts
-var BODY_EXCERPT_MAX_CHARS = 600;
-function repositoryRefOf(binding) {
-  const index = binding.repository.indexOf("/");
-  if (index < 0) {
-    return { owner: binding.repository, name: "" };
+// service/poll/window.ts
+function windowFor(input) {
+  const recorded = input.scanned.bindings[input.binding.bindingId];
+  const lastScanAt = recorded?.lastScanAt ?? null;
+  if (lastScanAt === null) {
+    return null;
   }
-  return { owner: binding.repository.slice(0, index), name: binding.repository.slice(index + 1) };
+  const openedAt = Date.parse(lastScanAt) - input.overlapMs;
+  if (!Number.isFinite(openedAt)) {
+    return null;
+  }
+  return new Date(openedAt).toISOString();
 }
-function updatedInWindow(updatedAt, windowStart) {
+function stampInWindow(stamp, windowStart) {
   if (windowStart === null) {
     return true;
   }
-  if (updatedAt === null) {
+  if (stamp === null) {
     return false;
   }
-  const stamp = Date.parse(updatedAt);
+  const observed = Date.parse(stamp);
   const start = Date.parse(windowStart);
-  return !Number.isNaN(stamp) && !Number.isNaN(start) && stamp >= start;
+  return !Number.isNaN(observed) && !Number.isNaN(start) && observed >= start;
 }
+
+// service/poll/trigger-scan.ts
+var BODY_EXCERPT_MAX_CHARS = 600;
 function bodyExcerptOf(body) {
   if (body === null) {
     return "";
@@ -8868,6 +8882,263 @@ function bodyExcerptOf(body) {
   }
   return `${body.slice(0, BODY_EXCERPT_MAX_CHARS - 1)}…`;
 }
+
+// service/poll/poller-events.ts
+var ITEM_EVENT_MAX_PAGES = 2;
+var NO_ACTOR = { login: "", type: "" };
+function actorOf(value) {
+  if (!isRecord(value)) {
+    return NO_ACTOR;
+  }
+  const { login, type } = value;
+  return {
+    login: typeof login === "string" ? login : "",
+    type: typeof type === "string" ? type : ""
+  };
+}
+function issueNumberOf(value) {
+  const record = isRecord(value) ? value : null;
+  if (record === null) {
+    return null;
+  }
+  const issueNumber = record.number;
+  return typeof issueNumber === "number" && Number.isInteger(issueNumber) && issueNumber > 0 ? issueNumber : null;
+}
+function createdAtOf(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return Number.isNaN(Date.parse(value)) ? null : value;
+}
+function readItemEventEntry(value) {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const createdAt = createdAtOf(value.created_at);
+  if (typeof value.event !== "string" || value.event === "" || createdAt === null) {
+    return null;
+  }
+  return {
+    event: value.event,
+    assignee: actorOf(value.assignee),
+    assigner: actorOf(value.assigner),
+    requestedReviewer: actorOf(value.requested_reviewer),
+    reviewRequester: actorOf(value.review_requester),
+    issueNumber: issueNumberOf(value.issue),
+    createdAt
+  };
+}
+function pageEndsWalk(input) {
+  return input.events.length < input.perPage || input.events.every((event) => !stampInWindow(event.createdAt, input.windowStart));
+}
+function qualifies(input, event) {
+  const isAssignment = input.kind === "assignment";
+  const subject = isAssignment ? event.assignee : event.requestedReviewer;
+  return (isAssignment ? event.event === "assigned" : event.event === "review_requested") && (event.issueNumber === null || event.issueNumber === input.issueNumber) && stampInWindow(event.createdAt, input.windowStart) && subject.login !== "" && subject.login.toLowerCase() === input.boundLogin.toLowerCase();
+}
+function namingEventOf(events, input) {
+  let newest = null;
+  for (const event of events) {
+    if (!qualifies(input, event)) {
+      continue;
+    }
+    if (newest === null || Date.parse(event.createdAt) > Date.parse(newest.createdAt)) {
+      newest = event;
+    }
+  }
+  return newest;
+}
+function actorOfNamingEvent(input) {
+  const named = input.kind === "assignment" ? input.event.assigner : input.event.reviewRequester;
+  if (!isAttributableAuthor(named.login, named.type)) {
+    return { usable: false, reason: named.login === "" ? "unreadable-actor" : "bot-actor" };
+  }
+  return { usable: true, login: actorLoginOf(named.login) };
+}
+function recordNoEvent(input) {
+  const { request, reason } = input;
+  request.log.warn("matched candidate produced no event this cycle", {
+    path: `issues/${request.issueNumber}`,
+    kind: request.kind,
+    reason,
+    maxPages: ITEM_EVENT_MAX_PAGES
+  });
+}
+async function resolveCandidateActor(request) {
+  const { repository } = request;
+  const listed = await request.poller.listIssueEvents({
+    token: request.token,
+    owner: repository.owner,
+    name: repository.name,
+    issueNumber: request.issueNumber,
+    windowStart: request.windowStart,
+    pace: request.pace
+  });
+  if (listed.kind !== "ok") {
+    return { kind: "failed", failure: listed };
+  }
+  const event = namingEventOf(listed.events, {
+    kind: request.kind,
+    boundLogin: request.boundLogin,
+    issueNumber: request.issueNumber,
+    windowStart: request.windowStart
+  });
+  if (event === null) {
+    if (listed.exhausted) {
+      request.log.warn("matched candidate produced no event this cycle", {
+        path: `issues/${request.issueNumber}`,
+        kind: request.kind,
+        reason: "page-bound-reached",
+        maxPages: ITEM_EVENT_MAX_PAGES
+      });
+      return { kind: "exhausted" };
+    }
+    recordNoEvent({ request, reason: "no-qualifying-event" });
+    return { kind: "refused", reason: "no-qualifying-event" };
+  }
+  const actor = actorOfNamingEvent({ kind: request.kind, event });
+  if (!actor.usable) {
+    recordNoEvent({ request, reason: actor.reason });
+    return { kind: "refused", reason: actor.reason };
+  }
+  return { kind: "actor", login: actor.login };
+}
+
+// service/poll/triggers-assignment.ts
+function isIssueAssignment(issue2, bindingLogin) {
+  if (issue2.state !== "open") {
+    return false;
+  }
+  return issue2.assignees.some((login) => login.toLowerCase() === bindingLogin.toLowerCase());
+}
+function assignmentEvent(input) {
+  const { binding, issue: issue2, actorLogin, detectedAt } = input;
+  const repository = repositoryRefOf(binding.repository);
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repository),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "assignment",
+    issue: {
+      issueNumber: issue2.issueNumber,
+      issueTitle: issue2.title,
+      issueUrl: issue2.url,
+      issueBodyExcerpt: bodyExcerptOf(issue2.body)
+    },
+    actorLogin,
+    actorAttribution: "direct",
+    triggerNote: "Issue assigned to the bound account",
+    detectedAt,
+    subjectType: issue2.isPullRequest ? "pull_request" : "issue"
+  });
+}
+async function assignmentEvents(input) {
+  const events = [];
+  for (const issue2 of input.issues) {
+    if (!stampInWindow(issue2.updatedAt, input.windowStart) || !isIssueAssignment(issue2, input.login)) {
+      continue;
+    }
+    const actor = await resolveCandidateActor({
+      poller: input.poller,
+      log: input.log,
+      token: input.token,
+      repository: repositoryRefOf(input.binding.repository),
+      issueNumber: issue2.issueNumber,
+      kind: "assignment",
+      boundLogin: input.login,
+      windowStart: input.windowStart,
+      pace: input.pace
+    });
+    if (actor.kind === "failed") {
+      return { ok: false, failure: actor.failure };
+    }
+    if (actor.kind === "actor") {
+      events.push(assignmentEvent({
+        binding: input.binding,
+        issue: issue2,
+        actorLogin: actor.login,
+        detectedAt: input.detectedAt
+      }));
+    }
+  }
+  return { ok: true, events };
+}
+
+// service/poll/triggers-review.ts
+function isReviewRequestPull(pull, bindingLogin) {
+  if (bindingLogin === "") {
+    return false;
+  }
+  const wanted = bindingLogin.toLowerCase();
+  return pull.requestedReviewers.some((candidate) => candidate.toLowerCase() === wanted);
+}
+function reviewEvent(input) {
+  const { binding, pull, actorLogin, detectedAt } = input;
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repositoryRefOf(binding.repository)),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "review",
+    headSha: pull.headSha,
+    baseRef: pull.baseRef,
+    issue: {
+      issueNumber: pull.pullNumber,
+      issueTitle: pull.title,
+      issueUrl: pull.url,
+      issueBodyExcerpt: ""
+    },
+    actorLogin,
+    actorAttribution: "direct",
+    triggerNote: `Pull request #${pull.pullNumber} requested the bound account's review`,
+    detectedAt,
+    subjectType: "pull_request"
+  });
+}
+async function reviewRequestEvents(input) {
+  const { binding, poller, token, login, windowStart, detectedAt, pace } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const listed = await poller.listOpenPulls({
+    token,
+    owner: repository.owner,
+    name: repository.name,
+    pace
+  });
+  if (listed.kind !== "ok") {
+    return { ok: false, failure: listed };
+  }
+  const events = [];
+  for (const pull of listed.pulls) {
+    if (!stampInWindow(pull.updatedAt, windowStart) || !isReviewRequestPull(pull, login)) {
+      continue;
+    }
+    const actor = await resolveCandidateActor({
+      poller,
+      log: input.log,
+      token,
+      repository,
+      issueNumber: pull.pullNumber,
+      kind: "review",
+      boundLogin: login,
+      windowStart,
+      pace
+    });
+    if (actor.kind === "failed") {
+      return { ok: false, failure: actor.failure };
+    }
+    if (actor.kind === "actor") {
+      events.push(reviewEvent({ binding, pull, actorLogin: actor.login, detectedAt }));
+    }
+  }
+  return { ok: true, events };
+}
+
+// service/poll/triggers.ts
 function isLoginCharacter(character) {
   return /^[A-Za-z0-9_-]$/.test(character);
 }
@@ -8900,19 +9171,12 @@ function isIssueBodyMention(issue2, bindingLogin) {
   }
   return mentionsLogin(issue2.body ?? "", bindingLogin);
 }
-function isReviewRequestPull(pull, bindingLogin) {
-  if (bindingLogin === "" || !isAttributableAuthor(pull.authorLogin, pull.authorType)) {
-    return false;
-  }
-  const wanted = bindingLogin.toLowerCase();
-  return pull.requestedReviewers.some((candidate) => candidate.toLowerCase() === wanted);
-}
 function subjectShapeOf2(isPullRequest) {
   return isPullRequest ? "pull_request" : "issue";
 }
 function mentionEvent(input) {
   const { binding, comment, issue: issue2, detectedAt } = input;
-  const repository = repositoryRefOf(binding);
+  const repository = repositoryRefOf(binding.repository);
   const commenter = actorLoginOf(comment.authorLogin);
   const fallbackUrl = `https://github.com/${repository.owner}/${repository.name}/issues/${comment.issueNumber}`;
   return createEvent({
@@ -8943,7 +9207,7 @@ function mentionEvents(input) {
   const known = new Map(issues.map((issue2) => [issue2.issueNumber, issue2]));
   const events = [];
   for (const comment of comments) {
-    const eligible = updatedInWindow(comment.updatedAt, windowStart) && isMentionComment(comment, login);
+    const eligible = stampInWindow(comment.updatedAt, windowStart) && isMentionComment(comment, login);
     if (!eligible) {
       continue;
     }
@@ -8954,10 +9218,10 @@ function mentionEvents(input) {
 }
 function bodyMentionEvents(input) {
   const { binding, login, issues, windowStart, detectedAt } = input;
-  const label = repositoryLabel(repositoryRefOf(binding));
+  const label = repositoryLabel(repositoryRefOf(binding.repository));
   const events = [];
   for (const issue2 of issues) {
-    const eligible = updatedInWindow(issue2.updatedAt, windowStart) && isIssueBodyMention(issue2, login);
+    const eligible = stampInWindow(issue2.updatedAt, windowStart) && isIssueBodyMention(issue2, login);
     if (!eligible) {
       continue;
     }
@@ -8985,46 +9249,9 @@ function bodyMentionEvents(input) {
   }
   return events;
 }
-function reviewEvent(input) {
-  const { binding, pull, detectedAt } = input;
-  return createEvent({
-    bindingId: binding.bindingId,
-    repository: repositoryLabel(repositoryRefOf(binding)),
-    accountNumericUserId: binding.accountNumericUserId,
-    accountLogin: binding.accountLogin,
-    projectId: binding.projectId,
-    worktreeOption: binding.worktreeOption,
-    kind: "review",
-    headSha: pull.headSha,
-    baseRef: pull.baseRef,
-    issue: {
-      issueNumber: pull.pullNumber,
-      issueTitle: pull.title,
-      issueUrl: pull.url,
-      issueBodyExcerpt: ""
-    },
-    actorLogin: actorLoginOf(pull.authorLogin),
-    actorAttribution: "subject-author",
-    triggerNote: `Pull request #${pull.pullNumber} requested the bound account's review`,
-    detectedAt,
-    subjectType: "pull_request"
-  });
-}
-function reviewEvents(input) {
-  const { binding, login, pulls, windowStart, detectedAt } = input;
-  const events = [];
-  for (const pull of pulls) {
-    const eligible = updatedInWindow(pull.updatedAt, windowStart) && isReviewRequestPull(pull, login);
-    if (!eligible) {
-      continue;
-    }
-    events.push(reviewEvent({ binding, pull, detectedAt }));
-  }
-  return events;
-}
 async function mentionEventsOf(input) {
   const { poller, token, binding, login, windowStart, detectedAt, issues, pace } = input;
-  const repository = repositoryRefOf(binding);
+  const repository = repositoryRefOf(binding.repository);
   const listed = await poller.listIssueComments({
     token,
     owner: repository.owner,
@@ -9041,31 +9268,35 @@ async function mentionEventsOf(input) {
   ];
   return { ok: true, events };
 }
-async function reviewRequestEvents(input) {
-  const { poller, token, binding, login, windowStart, detectedAt, pace } = input;
-  const repository = repositoryRefOf(binding);
-  const listed = await poller.listOpenPulls({
+async function collectTriggerEvents(input) {
+  const { binding, poller, token, windowStart, pace } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const events = [];
+  const issues = binding.triggers.assignment || binding.triggers.mention ? await poller.listOpenIssues({
     token,
     owner: repository.owner,
     name: repository.name,
+    since: windowStart,
     pace
-  });
-  if (listed.kind !== "ok") {
-    return { ok: false, failure: listed };
+  }) : { kind: "ok", issues: [] };
+  if (issues.kind !== "ok") {
+    return { ok: false, failure: issues };
   }
-  const events = reviewEvents({ binding, login, pulls: listed.pulls, windowStart, detectedAt });
-  return { ok: true, events };
-}
-async function collectTriggerEvents(input) {
-  const events = [];
-  if (input.binding.triggers.mention === true) {
-    const branch = await mentionEventsOf(input);
+  if (binding.triggers.assignment) {
+    const branch = await assignmentEvents({ ...input, issues: issues.issues });
     if (!branch.ok) {
       return branch;
     }
     events.push(...branch.events);
   }
-  if (input.binding.triggers.reviewRequest === true) {
+  if (binding.triggers.mention) {
+    const branch = await mentionEventsOf({ ...input, issues: issues.issues });
+    if (!branch.ok) {
+      return branch;
+    }
+    events.push(...branch.events);
+  }
+  if (binding.triggers.reviewRequest) {
     const branch = await reviewRequestEvents(input);
     if (!branch.ok) {
       return branch;
@@ -9075,30 +9306,10 @@ async function collectTriggerEvents(input) {
   return { ok: true, events };
 }
 
-// service/poll/window.ts
-function windowFor(input) {
-  const recorded = input.scanned.bindings[input.binding.bindingId];
-  const lastScanAt = recorded?.lastScanAt ?? null;
-  if (lastScanAt === null) {
-    return null;
-  }
-  const openedAt = Date.parse(lastScanAt) - input.overlapMs;
-  if (!Number.isFinite(openedAt)) {
-    return null;
-  }
-  return new Date(openedAt).toISOString();
-}
-
 // service/poll/loop.ts
 function watchesAnything(binding) {
   const { assignment, mention, reviewRequest } = binding.triggers;
   return assignment || mention || reviewRequest;
-}
-function isIssueAssignment(issue2, bindingLogin) {
-  if (issue2.state !== "open") {
-    return false;
-  }
-  return issue2.assignees.some((login) => login.toLowerCase() === bindingLogin.toLowerCase());
 }
 function skipOf(outcome) {
   if (outcome.kind === "auth-failed") {
@@ -9109,45 +9320,10 @@ function skipOf(outcome) {
   }
   return outcome.detail === "timeout" || outcome.detail === "offline" ? "offline" : "upstream";
 }
-function assignmentEvent(input) {
-  const { binding, issue: issue2, detectedAt } = input;
-  const repository = repositoryRefOf(binding);
-  return createEvent({
-    bindingId: binding.bindingId,
-    repository: repositoryLabel(repository),
-    accountNumericUserId: binding.accountNumericUserId,
-    accountLogin: binding.accountLogin,
-    projectId: binding.projectId,
-    worktreeOption: binding.worktreeOption,
-    kind: "assignment",
-    issue: {
-      issueNumber: issue2.issueNumber,
-      issueTitle: issue2.title,
-      issueUrl: issue2.url,
-      issueBodyExcerpt: bodyExcerptOf(issue2.body)
-    },
-    actorLogin: actorLoginOf(issue2.authorLogin),
-    actorAttribution: "subject-author",
-    triggerNote: "Issue assigned to the bound account",
-    detectedAt,
-    subjectType: issue2.isPullRequest ? "pull_request" : "issue"
-  });
-}
-function eventsForBinding(input) {
-  const events = [];
-  for (const issue2 of input.issues) {
-    const eligible = updatedInWindow(issue2.updatedAt, input.windowStart) && isAttributableAuthor(issue2.authorLogin, issue2.authorType) && isIssueAssignment(issue2, input.binding.accountLogin);
-    if (!eligible) {
-      continue;
-    }
-    events.push(assignmentEvent({ binding: input.binding, issue: issue2, detectedAt: input.detectedAt }));
-  }
-  return events;
-}
 function blankScan(binding) {
   return {
     bindingId: binding.bindingId,
-    repository: repositoryLabel(repositoryRefOf(binding)),
+    repository: binding.repository,
     enqueued: 0,
     windowFrom: null,
     skipped: null
@@ -9155,32 +9331,17 @@ function blankScan(binding) {
 }
 async function collectScanEvents(input) {
   const { deps, binding, windowStart, detectedAt, token, login } = input;
-  const repository = repositoryRefOf(binding);
-  const issues = binding.triggers.assignment || binding.triggers.mention ? await deps.poller.listOpenIssues({
-    token,
-    owner: repository.owner,
-    name: repository.name,
-    since: windowStart,
-    pace: deps.pace
-  }) : { kind: "ok", issues: [] };
-  if (issues.kind !== "ok") {
-    return { ok: false, skipped: skipOf(issues) };
-  }
   const collected = await collectTriggerEvents({
     poller: deps.poller,
+    log: deps.log,
     token,
     binding,
     login,
     windowStart,
     detectedAt,
-    issues: issues.issues,
     pace: deps.pace
   });
-  if (!collected.ok) {
-    return { ok: false, skipped: skipOf(collected.failure) };
-  }
-  const matched = eventsForBinding({ binding, windowStart, issues: issues.issues, detectedAt });
-  return { ok: true, events: [...matched, ...collected.events] };
+  return collected.ok ? { ok: true, events: collected.events } : { ok: false, skipped: skipOf(collected.failure) };
 }
 async function scanBinding(input) {
   const { deps, scanned, detectedAt, binding } = input;
@@ -9311,132 +9472,35 @@ async function waitForRetry(input) {
   return record;
 }
 
-// service/poll/poller-entries.ts
-function asRecord(value) {
-  return isRecord(value) ? value : null;
-}
-function positiveIntOf2(value) {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
-}
-function textOf(record, field) {
-  const value = record[field];
-  return typeof value === "string" ? value : null;
-}
-function readLogins(value) {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const logins = [];
-  for (const entry of value) {
-    const login = asRecord(entry);
-    const candidate = login === null ? null : login.login;
-    if (typeof candidate !== "string" || candidate === "") {
-      return null;
-    }
-    logins.push(candidate);
-  }
-  return logins;
-}
-function authorLoginOf(user) {
-  return user === null ? "" : textOf(user, "login") ?? "";
-}
-function authorTypeOf(user) {
-  return user === null ? "" : textOf(user, "type") ?? "";
-}
-function issueNumberOf(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-  return positiveIntOf2(Number(value.slice(value.lastIndexOf("/") + 1)));
-}
-function readIssueEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const issueNumber = positiveIntOf2(record.number);
-  const title = textOf(record, "title");
-  const url = textOf(record, "html_url");
-  const state = textOf(record, "state");
-  const assignees = readLogins(record.assignees);
-  if (issueNumber === null || title === null || url === null || state === null || assignees === null) {
-    return null;
-  }
-  const user = asRecord(record.user);
-  return {
-    issueNumber,
-    title,
-    url,
-    state,
-    body: textOf(record, "body"),
-    authorLogin: authorLoginOf(user),
-    authorType: authorTypeOf(user),
-    assignees,
-    isPullRequest: "pull_request" in record,
-    updatedAt: textOf(record, "updated_at")
-  };
-}
-function readCommentEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const commentId = positiveIntOf2(record.id);
-  const issueNumber = issueNumberOf(record.issue_url);
-  const body = textOf(record, "body");
-  const url = textOf(record, "html_url");
-  const user = asRecord(record.user);
-  const authorLogin = authorLoginOf(user);
-  if (commentId === null || issueNumber === null || body === null || url === null || authorLogin === "") {
-    return null;
-  }
-  return {
-    commentId,
-    issueNumber,
-    body,
-    url,
-    authorLogin,
-    authorType: authorTypeOf(user),
-    updatedAt: textOf(record, "updated_at")
-  };
-}
-function readPullEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const pullNumber = positiveIntOf2(record.number);
-  const title = textOf(record, "title");
-  const url = textOf(record, "html_url");
-  const state = textOf(record, "state");
-  const requestedReviewers = readLogins(record.requested_reviewers);
-  if (pullNumber === null || title === null || url === null || state === null || requestedReviewers === null) {
-    return null;
-  }
-  const head = asRecord(record.head);
-  const base = asRecord(record.base);
-  const user = asRecord(record.user);
-  return {
-    pullNumber,
-    title,
-    url,
-    state,
-    requestedReviewers,
-    authorLogin: authorLoginOf(user),
-    authorType: authorTypeOf(user),
-    headSha: head === null ? null : textOf(head, "sha"),
-    baseRef: base === null ? null : textOf(base, "ref"),
-    updatedAt: textOf(record, "updated_at")
-  };
-}
-
-// service/poll/poller-github.ts
+// service/poll/poller-transport.ts
 var STATUS_UNAUTHORIZED2 = 401;
 var STATUS_NOT_FOUND2 = 404;
 var STATUS_FORBIDDEN2 = 403;
 var STATUS_TOO_MANY_REQUESTS2 = 429;
 var MAX_LIST_PAGES = 2;
-var NEWEST_UPDATED_FIRST = { sort: "updated", direction: "desc" };
+var systemSleep = async (milliseconds) => {
+  await new Promise((resolve3) => {
+    setTimeout(resolve3, milliseconds);
+  });
+};
+function pollerRuntime(deps, fetchImpl) {
+  return {
+    fetchImpl,
+    log: deps.log,
+    sleep: deps.sleep ?? systemSleep,
+    random: deps.random ?? (() => Math.random())
+  };
+}
+function listUrl(input) {
+  const url = new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/${input.path}`);
+  for (const [key, value] of Object.entries(input.query)) {
+    url.searchParams.set(key, value);
+  }
+  if (input.since !== null) {
+    url.searchParams.set("since", input.since);
+  }
+  return url;
+}
 function parseListPage(input) {
   const parsed = parseJsonText(input.text);
   if (!parsed.ok || !Array.isArray(parsed.value)) {
@@ -9447,7 +9511,7 @@ function parseListPage(input) {
     return item === null ? [] : [item];
   });
 }
-async function classifyListOutcome(response) {
+async function classifyOutcome(response) {
   if (response.status === STATUS_UNAUTHORIZED2 || response.status === STATUS_NOT_FOUND2) {
     return { kind: "auth-failed" };
   }
@@ -9498,7 +9562,7 @@ async function requestPage(input) {
     if (response.ok) {
       return { response };
     }
-    last = await classifyListOutcome(response);
+    last = await classifyOutcome(response);
     if (last.kind === "auth-failed" || attempt >= attempts) {
       return { failure: last };
     }
@@ -9507,52 +9571,164 @@ async function requestPage(input) {
   }
   return { failure: last };
 }
+async function readOnePage(input) {
+  const attempt = await requestPage({
+    runtime: input.runtime,
+    token: input.token,
+    url: input.url,
+    pace: input.pace
+  });
+  if (!("response" in attempt)) {
+    return attempt.failure;
+  }
+  try {
+    return {
+      kind: "ok",
+      items: parseListPage({
+        text: await attempt.response.text(),
+        message: input.message,
+        read: input.read
+      })
+    };
+  } catch {
+    return { kind: "unavailable", detail: "upstream" };
+  }
+}
 async function listPages(input) {
   const items = [];
   for (let page = 1;page <= MAX_LIST_PAGES; page += 1) {
     input.url.searchParams.set("page", String(page));
     input.url.searchParams.set("per_page", String(input.pace.perPage));
-    const attempt = await requestPage({
-      runtime: input.runtime,
-      token: input.token,
-      url: input.url,
-      pace: input.pace
-    });
-    if (!("response" in attempt)) {
-      return attempt.failure;
+    const parsed = await readOnePage(input);
+    if (parsed.kind !== "ok") {
+      return parsed;
     }
-    let parsed;
-    try {
-      parsed = parseListPage({
-        text: await attempt.response.text(),
-        message: input.message,
-        read: input.read
-      });
-    } catch {
-      return { kind: "unavailable", detail: "upstream" };
-    }
-    items.push(...parsed);
-    if (parsed.length < input.pace.perPage) {
+    items.push(...parsed.items);
+    if (parsed.items.length < input.pace.perPage) {
       break;
     }
   }
   return { kind: "ok", items };
 }
-function listUrl(input) {
-  const url = new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/${input.path}`);
-  for (const [key, value] of Object.entries(input.query)) {
-    url.searchParams.set(key, value);
-  }
-  if (input.since !== null) {
-    url.searchParams.set("since", input.since);
-  }
-  return url;
+
+// service/poll/poller-entries.ts
+function asRecord(value) {
+  return isRecord(value) ? value : null;
 }
-var systemSleep = async (milliseconds) => {
-  await new Promise((resolve3) => {
-    setTimeout(resolve3, milliseconds);
-  });
-};
+function positiveIntOf2(value) {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+function textOf(record, field) {
+  const value = record[field];
+  return typeof value === "string" ? value : null;
+}
+function readLogins(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const logins = [];
+  for (const entry of value) {
+    const login = asRecord(entry);
+    const candidate = login === null ? null : login.login;
+    if (typeof candidate !== "string" || candidate === "") {
+      return null;
+    }
+    logins.push(candidate);
+  }
+  return logins;
+}
+function authorLoginOf(user) {
+  return user === null ? "" : textOf(user, "login") ?? "";
+}
+function authorTypeOf(user) {
+  return user === null ? "" : textOf(user, "type") ?? "";
+}
+function issueNumberOf2(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return positiveIntOf2(Number(value.slice(value.lastIndexOf("/") + 1)));
+}
+function readIssueEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const issueNumber = positiveIntOf2(record.number);
+  const title = textOf(record, "title");
+  const url = textOf(record, "html_url");
+  const state = textOf(record, "state");
+  const assignees = readLogins(record.assignees);
+  if (issueNumber === null || title === null || url === null || state === null || assignees === null) {
+    return null;
+  }
+  const user = asRecord(record.user);
+  return {
+    issueNumber,
+    title,
+    url,
+    state,
+    body: textOf(record, "body"),
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user),
+    assignees,
+    isPullRequest: "pull_request" in record,
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+function readCommentEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const commentId = positiveIntOf2(record.id);
+  const issueNumber = issueNumberOf2(record.issue_url);
+  const body = textOf(record, "body");
+  const url = textOf(record, "html_url");
+  const user = asRecord(record.user);
+  const authorLogin = authorLoginOf(user);
+  if (commentId === null || issueNumber === null || body === null || url === null || authorLogin === "") {
+    return null;
+  }
+  return {
+    commentId,
+    issueNumber,
+    body,
+    url,
+    authorLogin,
+    authorType: authorTypeOf(user),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+function readPullEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const pullNumber = positiveIntOf2(record.number);
+  const title = textOf(record, "title");
+  const url = textOf(record, "html_url");
+  const state = textOf(record, "state");
+  const requestedReviewers = readLogins(record.requested_reviewers);
+  if (pullNumber === null || title === null || url === null || state === null || requestedReviewers === null) {
+    return null;
+  }
+  const head = asRecord(record.head);
+  const base = asRecord(record.base);
+  return {
+    pullNumber,
+    title,
+    url,
+    state,
+    requestedReviewers,
+    headSha: head === null ? null : textOf(head, "sha"),
+    baseRef: base === null ? null : textOf(base, "ref"),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+
+// service/poll/poller-github.ts
+var NEWEST_UPDATED_FIRST = { sort: "updated", direction: "desc" };
 async function issuesList(runtime, query) {
   const result = await listPages({
     runtime,
@@ -9604,17 +9780,41 @@ async function pullsList(runtime, query) {
   });
   return result.kind === "ok" ? { kind: "ok", pulls: result.items } : result;
 }
-function createGitHubIssuePoller(deps, fetchImpl = (url, init) => globalThis.fetch(url, init)) {
-  const runtime = {
-    fetchImpl,
-    log: deps.log,
-    sleep: deps.sleep ?? systemSleep,
-    random: deps.random ?? (() => Math.random())
+function itemEventsUrl(input) {
+  return new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/issues/${input.issueNumber}/events`);
+}
+async function itemEventsList(runtime, query) {
+  const url = itemEventsUrl({ owner: query.owner, name: query.name, issueNumber: query.issueNumber });
+  const input = {
+    runtime,
+    token: query.token,
+    url,
+    pace: query.pace,
+    message: "issue events response was not an array",
+    read: readItemEventEntry
   };
+  const events = [];
+  for (let page = 1;page <= ITEM_EVENT_MAX_PAGES; page += 1) {
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("per_page", String(query.pace.perPage));
+    const parsed = await readOnePage(input);
+    if (parsed.kind !== "ok") {
+      return parsed;
+    }
+    events.push(...parsed.items);
+    if (pageEndsWalk({ events: parsed.items, windowStart: query.windowStart, perPage: query.pace.perPage })) {
+      return { kind: "ok", events, exhausted: false };
+    }
+  }
+  return { kind: "ok", events, exhausted: true };
+}
+function createGitHubIssuePoller(deps, fetchImpl = (url, init) => globalThis.fetch(url, init)) {
+  const runtime = pollerRuntime(deps, fetchImpl);
   return {
     listOpenIssues: (query) => issuesList(runtime, query),
     listIssueComments: (query) => commentsList(runtime, query),
-    listOpenPulls: (query) => pullsList(runtime, query)
+    listOpenPulls: (query) => pullsList(runtime, query),
+    listIssueEvents: (query) => itemEventsList(runtime, query)
   };
 }
 

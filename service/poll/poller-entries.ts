@@ -8,6 +8,12 @@
  * upstream text leaves this module either — the shapes below carry only the
  * fields the triggers need, and the loop never sees a raw GitHub body
  * (SEC-11).
+ *
+ * The fourth feed the poller reads — one item's own event list — is **not** a
+ * list feed and its reader lives in `poller-events.ts`, beside the rules that
+ * decide which of its rows answers a candidate. The split is along the line of
+ * what the row is for: these three rows *are* the observations the triggers act
+ * on, and an event row is evidence about an observation already detected.
  */
 
 import { isRecord } from '../json.ts';
@@ -68,9 +74,23 @@ export interface PollComment {
 /**
  * Minimal pull-request shape the poller normalizes (M7).
  *
- * Only what the review-request trigger needs: who is asked to review, who
- * opened it, and the head/base coordinates the event carries for the dispatch
- * context.
+ * Only what the review-request trigger needs: who is asked to review, and the
+ * head/base coordinates the event carries for the dispatch context.
+ *
+ * **There is deliberately no author member here, and its absence is the record
+ * of a correction.** Two builds ago this shape gained `authorLogin` /
+ * `authorType` to make a `subject-author` attribution possible for the review
+ * trigger, on the premise — taken from the two *list* feeds this poller calls —
+ * that GitHub records no requester. That premise was false, and 002 v1.12.0
+ * struck the sentence that required these fields: GitHub records the requester
+ * in `review_requester` on the item's own `review_requested` event, which the
+ * per-item read in `poller-events.ts` now consults (002 FR-049, FR-050). The
+ * proxy was their only consumer, so with the proxy retired they are gone rather
+ * than left as a second, unread answer to "who asked" (research §R8, rewritten).
+ *
+ * `PollIssue` and `PollComment` **keep** their author members: a comment is the
+ * act that carried the mention, and an issue body that names the account is a
+ * mention the same way — so their authors are facts, not stand-ins.
  */
 export interface PollPull {
     /** Pull-request number within the repository. */
@@ -83,25 +103,6 @@ export interface PollPull {
     readonly state: string;
     /** Logins of the accounts currently requested to review. */
     readonly requestedReviewers: readonly string[];
-    /**
-     * Login of the pull request's author, or `''` when GitHub sent no `user`
-     * (002 FR-045).
-     *
-     * The pulls list names **no** requester, so this author is the only
-     * identity the review trigger has to attribute to — and it is therefore a
-     * documented proxy, not the person who acted (002 FR-044, research §R8).
-     * It rides a response the scan already fetched: no new endpoint, no new
-     * request, no rate cost.
-     */
-    readonly authorLogin: string;
-    /**
-     * Author type (`User`, `Bot`, `Organization`, …); `''` when absent.
-     *
-     * Read beside the login and judged by the same {@link isBotAuthor}
-     * predicate the other two feeds use, so one bot rule covers all four
-     * trigger kinds (002 FR-045(a)/(c)).
-     */
-    readonly authorType: string;
     /** Head commit SHA, or `null` when GitHub sent none. */
     readonly headSha: string | null;
     /** Base ref name, or `null` when GitHub sent none. */
@@ -306,7 +307,6 @@ export function readPullEntry(value: unknown): PollPull | null {
 
     const head = asRecord(record.head);
     const base = asRecord(record.base);
-    const user = asRecord(record.user);
 
     return {
         pullNumber,
@@ -314,13 +314,6 @@ export function readPullEntry(value: unknown): PollPull | null {
         url,
         state,
         requestedReviewers,
-        // Read exactly as `readIssueEntry` and `readCommentEntry` read theirs,
-        // `''`-when-absent included. Unlike the comment reader this does **not**
-        // drop the entry: GitHub names no requester, so the author is the only
-        // identity available, and whether it is readable is the trigger's
-        // judgement to make (002 FR-045(b)) rather than the reader's.
-        authorLogin: authorLoginOf(user),
-        authorType: authorTypeOf(user),
         headSha: head === null ? null : textOf(head, 'sha'),
         baseRef: base === null ? null : textOf(base, 'ref'),
         updatedAt: textOf(record, 'updated_at'),

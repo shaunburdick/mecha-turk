@@ -54,6 +54,7 @@ import {
     bindEnqueue,
 } from './fixture-enqueue.ts';
 import type { EnqueueInput } from './fixture-enqueue.ts';
+import { offlinePoller } from './github.ts';
 import {
     IDLE_UNSUBSCRIBE,
     PROJECT_ID,
@@ -72,21 +73,14 @@ import { writeLoopBinding } from './binding-fixture.ts';
 const TEMP_PREFIX = 'mecha-turk-loop-';
 
 /**
- * Poller every loop instance's background scan runs under: empty feeds,
- * answered without touching the network.
+ * Poller every loop instance's background scan runs under.
  *
- * `startService` arms its first scan cycle fire-and-forget, and a fixture that
- * seeds an active binding — which every loop now does — would otherwise send
- * that cycle at `api.github.com` and write `scan-state.json` whenever GitHub
- * answered: exactly when a teardown can be removing the store underneath it
- * (the CI ENOTEMPTY). Empty, immediate answers keep the cycle on the test's own
- * clock.
+ * The rationale — why the background scan must not reach GitHub from a fixture
+ * that seeds a binding, and why empty answers keep it on the test's own clock —
+ * lives with the double itself in `support/github.ts`, beside the offline
+ * verifier it answers the same question for the credential side.
  */
-const OFFLINE_POLLER: GitHubIssuePoller = {
-    listOpenIssues: async () => ({ kind: 'ok', issues: [] }),
-    listIssueComments: async () => ({ kind: 'ok', comments: [] }),
-    listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
-};
+const OFFLINE_POLLER: GitHubIssuePoller = offlinePoller();
 
 /**
  * Removal attempts for one loop's temp root while a straggler write lands.

@@ -80,9 +80,12 @@ export interface RunReference {
     /**
      * How that attribution was made (002 FR-044).
      *
-     * `'subject-author'` is a **documented proxy**: GitHub records the issue or
-     * pull-request author and does not record who assigned or requested, so a
-     * surface rendering it must say so rather than present it as a fact.
+     * `'subject-author'` is a **legacy basis** no row written now carries: an
+     * earlier build attributed assignment and review triggers to the issue or
+     * pull-request author because the two *list* feeds named no actor, and
+     * GitHub does record both. Rows already on disk carry it, so it still reads
+     * and still renders — with its provenance stated rather than with a claim
+     * about what the provider can or cannot see (005 FR-094).
      */
     readonly actorAttribution?: ActorAttribution;
 }

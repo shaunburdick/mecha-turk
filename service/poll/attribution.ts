@@ -18,14 +18,22 @@
  *
  * - **The basis is closed, and an unrecognized value refuses the row.** There
  *   is no third member and no default: defaulting would record an inference as
- *   a fact. `direct` means GitHub named the author of the text that carried
- *   the mention; `subject-author` means the issue or pull-request author stands
- *   in for an actor the list feeds never record — the issues list exposes
- *   `assignees` and the pulls list `requested_reviewers`, and neither exposes
- *   who acted (research §R8).
+ *   a fact. `direct` means GitHub named the identity that **performed the act**,
+ *   and at v1.12.0 that is the basis for **all four** trigger kinds: the author
+ *   of the text for the two mention kinds, and — since the correction — the
+ *   `assigner` of the naming `assigned` event and the `review_requester` of the
+ *   naming `review_requested` event, both read from the item's own event list
+ *   (`poller-events.ts`). `subject-author` is **readable and unproduced**: rows
+ *   this product wrote before the correction carry it in `events.json`, and a
+ *   vocabulary a stored file still holds cannot be deleted without invalidating
+ *   that file. Nothing writes it now (002 FR-044, research §R8 as rewritten).
  * - **Attribution is mandatory, and the exclusion is fail-closed.** A bot or an
  *   unreadable author is dropped as non-actionable at detection, never enqueued
- *   with an empty actor for a later gate to guess about (002 FR-045(a)/(b)).
+ *   with an empty actor for a later gate to guess about (002 FR-045(a)/(b)). At
+ *   v1.12.0 the same two judgements are applied to the actor the **event** names,
+ *   which is what makes a `null` `assigner` a refusal rather than a prompt to
+ *   reach for the row's `actor` member, the issue author, or the `assignee`
+ *   (002 FR-052).
  * - **Both stored members are absentable, and validated when present.** The
  *   queue file outlives the build that wrote it, so a row enqueued before this
  *   feature carries neither and must still parse — requiring them would
@@ -95,17 +103,23 @@ export function actorLoginOf(authorLogin: string): string {
 /**
  * How one delivery's actor was attributed (002 FR-044).
  *
- * The union is closed and the distinction is load-bearing — it is the
- * difference between a fact and an inference:
+ * The union is closed and stays closed — an unrecognized basis refuses the row
+ * rather than defaulting to a guess (002 FR-024) — and the distinction is
+ * load-bearing, because it is the difference between a record and an inference:
  *
- * - `direct` — GitHub named the author of the very text that carried the
- *   mention. The comment feed and the issue feed both do this, so a comment
- *   mention and an issue-body mention are both direct.
- * - `subject-author` — a **documented proxy**: the issue or pull-request
- *   author, because the list feeds name no actor.
+ * - `direct` — GitHub named the identity that **performed the act**: the author
+ *   of the text for a comment or issue-body mention, and, since v1.12.0, the
+ *   `assigner` of the naming `assigned` event and the `review_requester` of the
+ *   naming `review_requested` event. This is the **only** basis any row written
+ *   now carries, for all four kinds.
+ * - `subject-author` — a **legacy** basis, and no longer produced. It stood the
+ *   issue or pull-request author in for an actor the two *list* feeds could not
+ *   name. It is still read, because the rows this product wrote before v1.12.0
+ *   carry it and a refused row is a hidden dispatch; it is written by nothing.
  *
- * Every surface that names an actor must name this basis beside it, and must
- * never present a proxy as a fact (002 NFR-011).
+ * Every surface that names an actor must honour this basis beside it and must
+ * never present an inference as a fact (002 NFR-011) — and, after v1.12.0, must
+ * never claim GitHub fails to record the actor, because it does.
  */
 export type ActorAttribution = 'direct' | 'subject-author';
 

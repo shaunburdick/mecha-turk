@@ -131,6 +131,7 @@ function silentPoller(): GitHubIssuePoller {
         listOpenIssues: async () => ({ ...empty, issues: [] }),
         listIssueComments: async () => ({ ...empty, comments: [] }),
         listOpenPulls: async () => ({ ...empty, pulls: [] }),
+        listIssueEvents: async () => ({ ...empty, events: [], exhausted: false }),
     };
 }
 

@@ -51,10 +51,12 @@ interface BaseEventSnapshot {
     readonly actorLogin: string;
     /**
      * How that attribution was made (002 FR-044) — the difference between a
-     * fact and an inference, and never left implicit: `direct` when GitHub
-     * named the author of the very text that carried the mention,
-     * `subject-author` when the issue/PR author stands in for an actor the list
-     * feeds never record (002 NFR-011).
+     * record and an inference, and never left implicit: `direct` when GitHub
+     * named the identity that performed the act, which since v1.12.0 is every
+     * kind — the text's author for a mention, and the `assigner` /
+     * `review_requester` the naming event recorded for an assignment or a
+     * review request (002 NFR-011). The legacy `subject-author` member is still
+     * readable and is written by nothing.
      */
     readonly actorAttribution: ActorAttribution;
     /** The panel-rendered trigger phrase. */

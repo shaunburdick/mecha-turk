@@ -1996,13 +1996,26 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: names a proxy basis as a proxy, and never as something a denied actor caused (002 NFR-011)
+        // case: states a legacy basis's provenance, and asserts nothing false about
+        // GitHub (002 NFR-011 as re-cut at v1.12.0)
         {
             await setPolicy([PERMITTED]);
             const { outcome } = await reserveAs({ issueNumber: 91, login: DENIED_PROXY, basis: PROXY_BASIS });
 
             expect(outcome.status).toBe(REFUSED);
-            expect(outcome.status === 'refused' ? outcome.refusal.message : '').toContain('proxy');
+            const message = outcome.status === 'refused' ? outcome.refusal.message : '';
+            // The re-cut prose: the row says which rule produced the attribution,
+            // because that stays true whatever GitHub supports today. It must not
+            // claim GitHub fails to record the assigner or the reviewer, which it
+            // does — that claim was the falsehood this copy carried (002 FR-044,
+            // NFR-011; 005 FR-094 as re-cut at v1.13.0).
+            expect(message).toContain('under the rule in force when this row was written');
+            for (const claim of ['does not record', 'never who assigned', 'a proxy']) {
+                expect(message.toLowerCase(), claim).not.toContain(claim);
+            }
+            // The `deniedAttributions` detail keeps the closed union and is
+            // validated when present, so a row written before the correction
+            // still carries a readable `subject-author` (003 FR-077).
             expect(await firstRefusalRow()).toMatchObject({
                 deniedLogins: [DENIED_PROXY],
                 deniedAttributions: [PROXY_BASIS],
