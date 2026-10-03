@@ -27,6 +27,7 @@
 import { findSecretLeak } from '../src/redaction.ts';
 import { expectedAgentIssue } from './config-agent.ts';
 import { startingPromptIssue } from './config-prompt.ts';
+import { truncatedFieldName } from './http.ts';
 import { isRecord } from './json.ts';
 import { validateStartingPrompt } from './prompt.ts';
 import type { JsonReadResult } from './store/index.ts';
@@ -34,9 +35,6 @@ import type { LogLevel, ServiceLogger } from './log.ts';
 
 /** Store file this configuration is persisted to. */
 export const CONFIG_FILE = 'config.json';
-
-/** Longest unknown field name echoed back before it is elided. */
-const MAX_ECHOED_FIELD_CHARS = 64;
 
 /**
  * Every log level the service accepts, in increasing severity.
@@ -275,10 +273,8 @@ function unknownFieldIssue(key: string): ConfigIssue {
         };
     }
 
-    const name = key.length > MAX_ECHOED_FIELD_CHARS ? `${key.slice(0, MAX_ECHOED_FIELD_CHARS)}…` : key;
-
     return {
-        field: name,
+        field: truncatedFieldName(key),
         remediation: 'remove this key; only the documented ServiceConfig fields are accepted',
     };
 }

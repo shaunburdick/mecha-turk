@@ -1,11 +1,15 @@
-# Research: The Layered Starting Prompt (004 v1.4.1) — new findings only
+# Research: The Layered Starting Prompt (004 v1.4.2) — new findings only
 
-**Feature**: `specs/004-starting-prompt` · **Spec**: v1.4.1 · **Date**: 2026-10-02 (the gate
+**Feature**: `specs/004-starting-prompt` · **Spec**: v1.4.2 · **Date**: 2026-10-02 (the gate
 re-cut supersedes the v1.3.0 pass of the same date, which supersedes the 2026-09-28 v1.1.0 pass —
 both preserved in git history). **v1.4.1 = the two gate corrections routed into the specification
 and into this file**: FR-085's arithmetic corrected to **6,004 / 9,004** (with the contract's
 `promptBlockChars` ceiling corrected alongside) and **NFR-129 reworded** — both discrepancies this
-pass had recorded as open are **closed**, see §Open items.
+pass had recorded as open are **closed**, see §Open items. **v1.4.2 = the pre-PR review
+correction** (documentation-only): FR-085's fail-closed floor is reachable by a *legal*
+supplementary-plane-heavy prompt as well as by a hand-edited store — the cap and stack bound count
+code points, the floor counts UTF-16 units — so the floor stays put and the prose moves; see
+spec `## Amendment History` → `### v1.4.2`. No open technology question results from it.
 
 ## Status: no open technology questions; four defaults recorded (none changed at the gate), one open item for the PM (two more closed at v1.4.1)
 

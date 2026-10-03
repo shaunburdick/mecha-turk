@@ -326,10 +326,19 @@ async function readQueue(input: {
         input.log.warn('stored event queue was unusable and has been set aside', {
             quarantinePath: result.quarantinePath,
         });
+    }
+
+    // A quarantine with a path is the live observation, and the recovery runs
+    // under that path's name. A `null` path means a concurrent reader won the
+    // rename race — the evidence sits in the directory under *its* name, which
+    // is exactly what the evidence scan looks for, so that case joins the
+    // `absent` one instead of claiming a recovery it cannot name.
+    if (result.status === 'quarantined' && result.quarantinePath !== null) {
         await recoverQuarantinedQueue({ ...input, quarantinePath: result.quarantinePath });
     } else {
-        // `absent` is the only other outcome: an earlier process renamed the
-        // file away, and its evidence stands in for the observation.
+        // `absent` (or a quarantine whose path another reader holds): an
+        // earlier reader renamed the file away, and its evidence stands in
+        // for the observation.
         await recoverFromEvidence(input);
     }
 

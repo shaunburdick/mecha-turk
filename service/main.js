@@ -543,7 +543,7 @@ async function seedBaseline(store, baseline) {
     }
     const { id: numericUserId } = entry.entity;
     const recorded = entry.details.promptFingerprint;
-    const fingerprint = entry.details.promptPresent === true && typeof recorded === "string" ? recorded : null;
+    const fingerprint = entry.details.promptPresent === true && typeof recorded === "string" && PROMPT_FINGERPRINT_PATTERN.test(recorded) ? recorded : null;
     const prior = highest.get(numericUserId);
     if (prior === undefined || entry.seq > prior.seq) {
       highest.set(numericUserId, { seq: entry.seq, fingerprint });
@@ -1060,6 +1060,10 @@ var MAX_TARGET_CHARS = 2000;
 var REQUEST_BODY_MAX_CHARS = 60000;
 var RESPONSE_BODY_MAX_CHARS = 256000;
 var JSON_CONTENT_TYPE = "application/json; charset=utf-8";
+var MAX_ECHOED_FIELD_CHARS = 64;
+function truncatedFieldName(name) {
+  return name.length > MAX_ECHOED_FIELD_CHARS ? `${name.slice(0, MAX_ECHOED_FIELD_CHARS)}…` : name;
+}
 var STATUS = {
   ok: 200,
   created: 201,
@@ -1155,7 +1159,6 @@ function serializeBody(body) {
 
 // service/config.ts
 var CONFIG_FILE = "config.json";
-var MAX_ECHOED_FIELD_CHARS = 64;
 var LOG_LEVEL_VALUES = ["debug", "info", "warn", "error"];
 var LOG_LEVELS = new Set(LOG_LEVEL_VALUES);
 var NUMERIC_BOUNDS = {
@@ -1224,9 +1227,8 @@ function unknownFieldIssue(key) {
       remediation: "remove this key; only the documented ServiceConfig fields are accepted"
     };
   }
-  const name = key.length > MAX_ECHOED_FIELD_CHARS ? `${key.slice(0, MAX_ECHOED_FIELD_CHARS)}…` : key;
   return {
-    field: name,
+    field: truncatedFieldName(key),
     remediation: "remove this key; only the documented ServiceConfig fields are accepted"
   };
 }
@@ -3573,6 +3575,8 @@ async function readQueue(input) {
     input.log.warn("stored event queue was unusable and has been set aside", {
       quarantinePath: result.quarantinePath
     });
+  }
+  if (result.status === "quarantined" && result.quarantinePath !== null) {
     await recoverQuarantinedQueue({ ...input, quarantinePath: result.quarantinePath });
   } else {
     await recoverFromEvidence(input);
@@ -3872,7 +3876,7 @@ async function quarantine(filePath) {
     await fs3.rename(filePath, quarantinePath);
   } catch (error) {
     if (isMissingFile(error)) {
-      return { status: "absent" };
+      return { status: "quarantined", quarantinePath: null };
     }
     throw new StorageUnavailableError(`unusable store file cannot be set aside: ${filePath}`, error);
   }
@@ -4627,6 +4631,7 @@ var deleteAccountRoute = {
 };
 
 // service/routes/account-profile.ts
+var SAFE_FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 function profileBodyRefusal() {
   return {
     field: "body",
@@ -4641,10 +4646,11 @@ function unexpectedProfileMemberIssue(key) {
       remediation: `the body must not carry credential-shaped member names (matched shape: ${shape})`
     };
   }
-  return {
-    field: key,
-    remediation: "the account profile body is a closed set — supply displayName, startingPrompt, or both"
-  };
+  const remediation = "the account profile body is a closed set — supply displayName, startingPrompt, or both";
+  if (!SAFE_FIELD_NAME.test(key)) {
+    return { field: "body", remediation };
+  }
+  return { field: truncatedFieldName(key), remediation };
 }
 function readProfileKey(input) {
   const { key, record, scratch } = input;
@@ -5405,7 +5411,7 @@ async function seedBaseline2(store, baseline) {
       continue;
     }
     const recorded = entry.details.promptFingerprint;
-    const fingerprint = entry.details.promptPresent === true && typeof recorded === "string" ? recorded : null;
+    const fingerprint = entry.details.promptPresent === true && typeof recorded === "string" && PROMPT_FINGERPRINT_PATTERN.test(recorded) ? recorded : null;
     const prior = highest.get(bindingId);
     if (prior === undefined || entry.seq > prior.seq) {
       highest.set(bindingId, { seq: entry.seq, fingerprint });
@@ -7273,6 +7279,17 @@ function mergePrompts(input) {
     return previous === undefined ? binding : { ...binding, startingPrompt: previous };
   });
 }
+async function readCustodyAndValidate(input) {
+  const accounts = await listAccountsUnobserved(input.store, input.log);
+  const known = new Set(accounts.map((account) => account.numericUserId));
+  return {
+    accounts,
+    validation: validateBindings({
+      raw: input.body,
+      accountExists: (numericUserId) => known.has(numericUserId)
+    })
+  };
+}
 async function handlePutBindings(context, request) {
   const { store } = context;
   if (store === null) {
@@ -7284,21 +7301,24 @@ async function handlePutBindings(context, request) {
       message: "body: send `{ bindings: [...] }` holding every binding the panel keeps"
     });
   }
-  const accounts = await listAccounts(store, context.log);
-  const known = new Set(accounts.map((account) => account.numericUserId));
-  const validation = validateBindings({
-    raw: request.body,
-    accountExists: (numericUserId) => known.has(numericUserId)
-  });
-  if (!validation.ok) {
-    return validationResponse(validation.issues);
+  const custody = await readCustodyAndValidate({ store, log: context.log, body: request.body });
+  if (!custody.validation.ok) {
+    return validationResponse(custody.validation.issues);
   }
+  await observeAccountPromptChanges({
+    store,
+    log: context.log,
+    accounts: custody.accounts,
+    complete: true,
+    actor: "service"
+  });
+  const submitted = custody.validation.bindings;
   const body = request.body;
   const omitted = omittedPromptIds(body.bindings);
   const bindings = await runPromptChain(store, async () => {
     const stored = await readBindingsUnobserved({ store, log: context.log });
     await recordPromptChanges({ store, log: context.log, bindings: stored, actor: "service" });
-    const merged = mergePrompts({ submitted: validation.bindings, omitted, stored });
+    const merged = mergePrompts({ submitted, omitted, stored });
     await writeBindings({ store, bindings: merged });
     await recordPromptChanges({ store, log: context.log, bindings: merged, actor: "operator" });
     return merged;

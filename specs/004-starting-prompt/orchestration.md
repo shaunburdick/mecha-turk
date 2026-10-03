@@ -1,4 +1,4 @@
-# Orchestration: 004 Layered Starting Prompt (v1.4.1) — Phase 6
+# Orchestration: 004 Layered Starting Prompt (v1.4.2) — Phase 6
 
 **Status**: Wave 0 — awaiting user confirmation to start Wave 1
 **Branch**: `keen-zebra` (protected: `main`, `master`, `develop` — never commit to them)
@@ -9,12 +9,12 @@
 
 | Artifact | Path | Version |
 |---|---|---|
-| Spec | `specs/004-starting-prompt/spec.md` | **v1.4.1** — APPROVED |
-| Plan | `specs/004-starting-prompt/plan.md` | synced to v1.4.1, decision D26 |
-| Tasks | `specs/004-starting-prompt/tasks.md` | **21 active** (T-017→T-038, T-022 withdrawn) |
+| Spec | `specs/004-starting-prompt/spec.md` | **v1.4.2** — approved text; v1.4.2 is a documentation-only correction (FR-085's floor reachability) |
+| Plan | `specs/004-starting-prompt/plan.md` | synced to v1.4.2, decision D26 |
+| Tasks | `specs/004-starting-prompt/tasks.md` | **22 active, 22 checked** (T-017→T-039, T-022 withdrawn; T-039 added at the Wave-3 checkpoint) |
 | Data model | `specs/004-starting-prompt/data-model.md` | — |
 | Research | `specs/004-starting-prompt/research.md` | 1 open default (R-2/D22) |
-| Contract | `specs/004-starting-prompt/contracts/layered-prompt.md` | §4 rule 3 figures at v1.4.1 |
+| Contract | `specs/004-starting-prompt/contracts/layered-prompt.md` | §4 rule 3 figures at v1.4.1; §4 rule 3 reachability at v1.4.2 |
 | Contract | `specs/005-panel-ia/contracts/account-display-name.md` | *Account Profile Write*, 005 v1.10.0 |
 | Constitution | `.specify/memory/constitution.md` | v1.3.0 |
 | Agent guide | `AGENTS.md` | binding |
@@ -68,7 +68,7 @@ _None._
 
 | Wave | Gate | Result | Evidence |
 |---|---|---|---|
-| — | phases 1–5 | **approved** | 004 v1.4.1 / 005 v1.10.0 / 006 v1.6.0, zero `[NEEDS CLARIFICATION]` |
+| — | phases 1–5 | **approved** | 004 v1.4.2 / 005 v1.10.0 / 006 v1.6.0, zero `[NEEDS CLARIFICATION]` |
 | 1 | `npm run verify` | not run | — |
 | 2 | `npm run verify` | not run | — |
 | 3 | `npm run verify` | not run | — |

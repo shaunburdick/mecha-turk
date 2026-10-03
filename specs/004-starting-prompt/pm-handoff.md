@@ -1,9 +1,9 @@
 # PM Handoff: 004 Layered Starting Prompt (issue #10)
 
 ## Context
-- **Spec**: `specs/004-starting-prompt/spec.md` — **v1.4.1**, APPROVED
+- **Spec**: `specs/004-starting-prompt/spec.md` — **v1.4.2**, approved text (v1.4.2 is a documentation-only correction: FR-085's floor has two reachability routes)
 - **Plan**: `specs/004-starting-prompt/plan.md` — decision **D26** is the profile-PUT ruling
-- **Tasks**: `specs/004-starting-prompt/tasks.md` — 21 active, T-017→T-038 (T-022 withdrawn into T-023)
+- **Tasks**: `specs/004-starting-prompt/tasks.md` — 22 active and checked, T-017→T-039 (T-022 withdrawn into T-023; T-039 added at the Wave-3 checkpoint)
 - **Orchestration**: `specs/004-starting-prompt/orchestration.md`
 - **Constitution**: `.specify/memory/constitution.md` (v1.3.0)
 - **Amended**: `specs/005-panel-ia/spec.md` **v1.10.0**, `specs/006-settings-crud/spec.md` **v1.6.0**

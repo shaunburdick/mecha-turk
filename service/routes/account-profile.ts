@@ -13,7 +13,9 @@
  *
  * The body is a **closed set of exactly two members**: an absent member means
  * unchanged, a body carrying neither is refused as a no-op, and any other key
- * is refused by name with zero characters of its value echoed. Issues are
+ * is refused — named when it is an ordinary identifier, reported under `body`
+ * when the name itself is not safe to echo — always with zero characters of
+ * its value echoed. Issues are
  * collected additively in one pass and **any** issue refuses the whole write —
  * nothing observed, nothing written, no `updatedAt`, no audit row (005 §2
  * invariants 4–6; constitution II).
@@ -22,7 +24,7 @@
 import { nowIso } from '../../src/ids.ts';
 import { findSecretLeak } from '../../src/redaction.ts';
 import { recordAccountPromptChanges, runAccountPromptChain } from '../account-prompt-audit.ts';
-import { STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
+import { STATUS, storageUnavailableResponse, validationResponse, truncatedFieldName } from '../http.ts';
 import { isRecord } from '../json.ts';
 import { validateStartingPrompt } from '../prompt.ts';
 import { toAccountDto, validateDisplayName } from '../accounts/model.ts';
@@ -39,6 +41,19 @@ import type { Route, RouteContext, RouteRequest } from './types.ts';
 type ProfileMember<T> =
     | { readonly present: false }
     | { readonly present: true; readonly value: T };
+
+/**
+ * The only shape a member name may have to be echoed back in a refusal.
+ *
+ * The eleven custody and identity keys are ordinary identifiers, so they are
+ * still named exactly as the closed-set contract promises; anything else —
+ * whitespace, punctuation, control characters, an emoji run, a pasted token —
+ * is submitted input of an unknown shape, and a `422` that echoed it would be
+ * a reflection surface as well as an unbounded one — the length bound itself
+ * rides {@link truncatedFieldName}, applied only once the name is known to be
+ * safe to print.
+ */
+const SAFE_FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** The closed profile body once every issue has cleared (005 §2, 004 FR-082). */
 interface ProfileBody {
@@ -86,14 +101,21 @@ function profileBodyRefusal(): FieldIssue {
  *
  * The eleven custody and identity keys are the documented cases and are named
  * by name (005 §2, invariant 6) — naming them is the whole point of a closed
- * whitelist: they are refused *explicitly* rather than merely unreachable. A
- * key that is itself credential-shaped is the one exception to the naming
- * rule, because the secret rule outranks it: a member name is submitted input
- * too, so it is reported under `body` with the matched shape class and not a
- * single character of itself (004 FR-024, AC-130).
+ * whitelist: they are refused *explicitly* rather than merely unreachable.
+ * Two kinds of key are reported under `body` instead, each for its own reason:
+ * a key that is itself credential-shaped, because the secret rule outranks
+ * naming (a member name is submitted input too — 004 FR-024, AC-130), and a
+ * key that is not an ordinary identifier at all, because a name the service
+ * cannot vouch for must not be reflected back into the envelope that restates
+ * every `field: remediation` pair. An identifier-shaped name is echoed through
+ * {@link truncatedFieldName}, so it reaches the answer cut to the shared
+ * `MAX_ECHOED_FIELD_CHARS` bound rather than whole.
+ *
+ * In no branch is the key's **value** read, quoted, or measured — only the
+ * member name itself is ever considered, and only to decide what to refuse.
  *
  * @param key - The offending member name, exactly as it arrived.
- * @returns The issue naming the key, or the value-free shape refusal.
+ * @returns The issue naming the key, or the value-free `body` refusal.
  */
 function unexpectedProfileMemberIssue(key: string): FieldIssue {
     const shape = findSecretLeak(key);
@@ -104,10 +126,13 @@ function unexpectedProfileMemberIssue(key: string): FieldIssue {
         };
     }
 
-    return {
-        field: key,
-        remediation: 'the account profile body is a closed set — supply displayName, startingPrompt, or both',
-    };
+    const remediation = 'the account profile body is a closed set — supply displayName, startingPrompt, or both';
+
+    if (!SAFE_FIELD_NAME.test(key)) {
+        return { field: 'body', remediation };
+    }
+
+    return { field: truncatedFieldName(key), remediation };
 }
 
 /**

@@ -48,6 +48,9 @@ const running: TestService[] = [];
 /** Binding id every case in this suite grants. */
 const BINDING_ID = 'bnd-status';
 
+/** A repository string no GitHub owner would have, for the refusal cases. */
+const BAD_REPOSITORY = 'not-a-repository';
+
 /**
  * Build a header map without writing HTTP header names as object keys.
  *
@@ -377,7 +380,7 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
         // case: reports a bad prompt and a bad repository in one 422 (FR-027)
         {
             const service = await startWithAccount();
-            const binding = { ...bindingFixture(), repository: 'not-a-repository', startingPrompt: 42 };
+            const binding = { ...bindingFixture(), repository: BAD_REPOSITORY, startingPrompt: 42 };
 
             const response = await service.call(BINDINGS_PATH, {
                 method: 'PUT',
@@ -398,7 +401,7 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
             expect(body.error.issues?.map((issue) => issue.field)).toContain('startingPrompt');
             // Nothing of the submission is echoed back, whole or partial.
             expect(body.error.message).not.toContain('42');
-            expect(body.error.message).not.toContain('not-a-repository');
+            expect(body.error.message).not.toContain(BAD_REPOSITORY);
         }
         await afterEachWork1();
         await afterEachWork1();
@@ -425,15 +428,26 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
     });
 });
 
-/** The `binding.prompt-updated` rows a service instance has written, oldest first. */
-async function promptRows(service: TestService): Promise<readonly Record<string, unknown>[]> {
+/**
+ * Every row in the service's audit trail, oldest first.
+ *
+ * @param service - Harness instance whose store holds the trail.
+ * @returns The trail as the service wrote it, one parsed object per line.
+ */
+async function auditTrail(service: TestService): Promise<readonly Record<string, unknown>[]> {
     const text = await readFile(join(service.dataDir, 'audit.ndjson'), 'utf8');
 
     return text
         .split('\n')
         .filter((line) => line.trim() !== '')
-        .map((line) => JSON.parse(line) as Record<string, unknown>)
-        .filter((row) => row.eventType === 'binding.prompt-updated');
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+/** The `binding.prompt-updated` rows a service instance has written, oldest first. */
+async function promptRows(service: TestService): Promise<readonly Record<string, unknown>[]> {
+    const trail = await auditTrail(service);
+
+    return trail.filter((row) => row.eventType === 'binding.prompt-updated');
 }
 
 /** One `PUT /v1/bindings` round trip, returning the status and the raw answer text. */
@@ -469,6 +483,38 @@ const SECOND_REPOSITORY = 'acme/other';
 function panelRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return { ...bindingFixture(), ...overrides };
 }
+
+describe('PUT /v1/bindings: a refused write appends zero audit rows (AC-133)', () => {
+    it('defers the custody observation a directory read implies until the write is certain', async () => {
+        const service = await startWithAccount();
+        // A prompt typed straight into the custody file, observed by nobody
+        // yet: the next *observing* read of the directory owes it exactly one
+        // `account.prompt-updated` row. The account-existence check reads that
+        // directory before it can validate, so that read must stay
+        // unobserved — otherwise a refused PUT records a change it never
+        // applied and never even decided about.
+        const accountFile = join(service.dataDir, 'accounts', `${ACCOUNT_ID}.json`);
+        const account = JSON.parse(await readFile(accountFile, 'utf8')) as Record<string, unknown>;
+        account.startingPrompt = 'Typed into the file, not through the panel.';
+        await writeFile(accountFile, JSON.stringify(account), 'utf8');
+
+        const before = await auditTrail(service);
+        const refused = await putBindings(service, [{ ...bindingFixture(), repository: BAD_REPOSITORY }]);
+        const after = await auditTrail(service);
+
+        expect(refused.status).toBe(422);
+        // Not one row of any kind: the trail is exactly what it was.
+        expect(after).toEqual(before);
+
+        // Deferred, not dropped: a grant that goes through observes the same
+        // hand edit exactly once, and nothing else.
+        const granted = await putBindings(service, [bindingFixture()]);
+        expect(granted.status).toBe(200);
+        const trail = await auditTrail(service);
+        const appended = trail.slice(before.length);
+        expect(appended.map((row) => row.eventType)).toEqual(['account.prompt-updated']);
+    });
+});
 
 describe('T-005 PUT /v1/bindings: omission preserves, an explicit value sets (AC-137)', () => {
     it('preserves every stored prompt on a panel-shaped whol… (+3 cases)', async () => {

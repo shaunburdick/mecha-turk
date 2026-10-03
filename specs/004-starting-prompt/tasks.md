@@ -1,7 +1,7 @@
-# Tasks: The Layered Starting Prompt (004 v1.4.0)
+# Tasks: The Layered Starting Prompt (004 v1.4.2)
 
 **Input**: [plan.md](./plan.md), [data-model.md](./data-model.md), [research.md](./research.md),
-[contracts/](./contracts/) — all Phase-4 outputs; [spec.md](./spec.md) **v1.4.0** is the source of
+[contracts/](./contracts/) — all Phase-4 outputs; [spec.md](./spec.md) **v1.4.2** is the source of
 truth (FR/AC numbers below are quoted as written; FR-082's write path was re-cut at the gate).
 
 **Numbering**: the pre-amendment task set (`T-001`–`T-016`, the binding tier) is **complete** and
@@ -10,7 +10,9 @@ its text is preserved in git history. **This set starts at `T-017`** so the two 
 **`T-022` is withdrawn and merged into `T-023`** — the account track collapses to **one
 profile-write handler task**, per the product owner's ruling (plan D26: one handler, one contract,
 instead of a dedicated endpoint plus the `/display-name` work that would have trailed it). The ID
-is retired, never reused. **Active task count: 21** (`T-017`–`T-038` minus `T-022`).
+is retired, never reused. **Active task count: 22** (`T-017`–`T-039` minus `T-022`; **22 boxes are
+checked** — `T-039`, *the binding tier's guidance and not-set state*, was added at the Wave-3
+checkpoint on 2026-10-02 and is included in that count).
 
 **Bar**: three tiers stack into one fenced block, resolved once at detection; every refusal fails
 closed without echoing a value; `promptSources` is answerable from any run surface; the global and
@@ -135,8 +137,12 @@ carrying either or both members, and a claim/row/audit read carrying `promptSour
   guidance** (verbatim, no placeholders, cap, refusal shapes — research R-4), `maxLength: 2000`,
   `default: ''`, `takesEffect: 'next-cycle'`. *Tests* (`tests/take-effect.test.ts`,
   `tests/service-config.test.ts`): the class table is exhaustive and `startingPrompt` reads
-  `next-cycle`; the projection has twelve descriptors in validator order; the descriptor round-trips
-  through the panel's closed parser fixture (006 SC-106 counting against the projection).
+  `next-cycle`; the projection has **fourteen** descriptors in validator order — 006's **twelve
+  spec fields** plus 003's `leaseMs` and `resultDeadlineMs`, which ride the same projection (the
+  Settings row count follows `fields.length`, so the shipped tab renders fourteen, not twelve) —
+  while the take-effect histogram counts **twelve over 006's own fields**; the descriptor
+  round-trips through the panel's closed parser fixture (006 SC-106 counting against the
+  projection).
 - [x] **T-021** [US4/US6] **The global tier's audit row** — `service/config-audit.ts`, **new
   `service/config-prompt-observe.ts`**, hook in `service/poll/loop.ts` (FR-088; 006 FR-070, FR-071):
   `configChanges()` keeps raw-string equality (the no-op detector, 006 FR-048) but records this
@@ -294,10 +300,11 @@ with three tiers through the fake host and byte-compare; render all six tabs and
   row appears from the descriptor with **no row-list edit**; an empty string field shows the
   **not-set word** in its value slot (FR-064 — never an empty box that reads as an instruction) and
   renders the service-declared `format` guidance as text (research R-4); the control stays keyboard-
-  operable with the accessible name 006 FR-018 requires; no other row moves. *Tests*: twelve rows in
-  descriptor order; the not-set word appears for `''` and the value for a set tier; the row's
-  helper/label come from the descriptor, never from a panel literal; the cross-check against the
-  service's declaration still holds.
+  operable with the accessible name 006 FR-018 requires; no other row moves. *Tests*: rows in
+  descriptor order — **twelve** against 006's own field fixture, **fourteen** against the live
+  projection (006's twelve spec fields plus 003's `leaseMs`/`resultDeadlineMs`); the not-set word
+  appears for `''` and the value for a set tier; the row's helper/label come from the descriptor,
+  never from a panel literal; the cross-check against the service's declaration still holds.
 - [x] **T-031** [P] [US6] The **Accounts field** — `src/bindings-service.ts`, `src/service-calls.ts`,
   `src/accounts-state.ts`, `src/accounts-tab.ts`, `src/accounts-actions.ts`, `src/accounts-rows.ts`
   (FR-063, FR-064, FR-082, FR-089; 005 FR-051, FR-066): `PanelAccount` gains `startingPrompt`
@@ -413,7 +420,7 @@ and the release-candidate gate. Nothing here adds behaviour.
   `Generated-By: opencode (model: …)` per the `git-safety`/`ai-attribution` skills — after the
   preflight checks and never with `--no-verify`.
 
-**Wave 4 boundary**: `npm run verify` — this is the release-candidate gate for 004 v1.4.0's Phase 6.
+**Wave 4 boundary**: `npm run verify` — this is the release-candidate gate for 004's Phase 6 (spec v1.4.2).
 
 ---
 

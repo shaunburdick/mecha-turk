@@ -1219,6 +1219,48 @@ describe('PUT /v1/accounts/:numericUserId — invariant 6: the eleven custody ke
         }
     });
 
+    it('withholds a member name that is not an identifier, and bounds one that is', async () => {
+        const service = await startService({ user: USER_OK });
+        await verifyOk(service);
+        const file = accountFileOf(service);
+        const before = await readFile(file, 'utf8');
+
+        // A member name is submitted input too: a name that is not an ordinary
+        // identifier is refused under `body`, with no part of itself reflected
+        // back into the envelope that restates every `field: remediation`
+        // pair — and the value it carried never appears either.
+        const oddKey = 'strange key name here';
+        const oddResponse = await putProfile(
+            service,
+            JSON.stringify({ displayName: KEPT_LABEL, [oddKey]: CUSTODY_SENTINEL }),
+        );
+        const oddText = await oddResponse.text();
+        const oddBody = JSON.parse(oddText) as { readonly error: { readonly issues?: readonly Issue[] } };
+
+        expect(oddResponse.status).toBe(422);
+        expect(oddBody.error.issues?.map((issue) => issue.field)).toEqual(['body']);
+        expect(oddText).not.toContain(oddKey);
+        expect(oddText).not.toContain(CUSTODY_SENTINEL);
+
+        // An identifier-shaped name is still named — reached through the same
+        // bound the configuration document uses, so a 200-character key lands
+        // in the answer as 64 characters plus an ellipsis, never whole.
+        const longKey = 'x'.repeat(200);
+        const longResponse = await putProfile(
+            service,
+            JSON.stringify({ displayName: KEPT_LABEL, [longKey]: CUSTODY_SENTINEL }),
+        );
+        const longText = await longResponse.text();
+        const longBody = JSON.parse(longText) as { readonly error: { readonly issues?: readonly Issue[] } };
+
+        expect(longResponse.status).toBe(422);
+        expect(longBody.error.issues?.[0]?.field).toBe(`${'x'.repeat(64)}…`);
+        expect(longText).not.toContain(longKey);
+        expect(longText).not.toContain(CUSTODY_SENTINEL);
+        // Neither refusal wrote anything: the record is byte-identical.
+        expect(await readFile(file, 'utf8')).toBe(before);
+    });
+
     it('refuses one tier with the shared shape label and touches neither member (AC-150)', async () => {
         const service = await startService({ user: USER_OK });
         await verifyOk(service);

@@ -19,7 +19,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
-import { DEFAULT_CONFIG, NUMERIC_BOUNDS, parseStoredConfig, validateConfig } from '../service/config.ts';
+import {
+    DEFAULT_CONFIG,
+    NUMERIC_BOUNDS,
+    configFromStore,
+    parseStoredConfig,
+    validateConfig,
+} from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
 import { readServiceEnv } from '../service/env.ts';
 import { createLogger } from '../service/log.ts';
@@ -943,6 +949,31 @@ describe('GET /v1/config widens without changing what it already said (006 FR-02
                 expect(descriptor.takesEffect).toBeTruthy();
             }
         }
+    });
+});
+
+describe('a lost quarantine rename still answers quarantined (006 contract §3 rule 9)', () => {
+    it('maps a pathless quarantine to source quarantined, and keeps real absence at default', () => {
+        const logLines: string[] = [];
+        const log = createLogger({ level: 'warn', sink: (line) => logLines.push(line) });
+
+        // The per-cycle config reader and an operator's request can both
+        // reject the same stored document; the loser's rename finds the file
+        // already set aside under the winner's name, so the outcome carries no
+        // path. The document was invalid either way, so the operator still
+        // gets the "unusable and set aside" sentence, not "defaults apply".
+        const raced = configFromStore({ status: 'quarantined', quarantinePath: null }, log);
+
+        expect(raced.source).toBe('quarantined');
+        expect(raced.config).toEqual(DEFAULT_CONFIG);
+        expect(raced.defaultsApplied).toEqual([]);
+        expect(logLines.join('\n')).toContain('stored configuration was unusable and has been set aside');
+
+        // Absence is a different fact and keeps its own answer: a store with
+        // no `config.json` is the first-run state, never a quarantine — and
+        // it earns no warning either.
+        expect(configFromStore({ status: 'absent' }, log).source).toBe('default');
+        expect(logLines).toHaveLength(1);
     });
 });
 

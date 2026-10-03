@@ -295,7 +295,9 @@ const DISPATCH_MODULES: readonly string[] = [
 /**
  * 004's own modules, named so the static scans cannot quietly stop covering
  * them (AC-143's "new assertions", AC-144's "the panel never touches the
- * binding field").
+ * binding field") — plus every `service/` module the layered-prompt work
+ * introduced or touched, so the suppression and `any` gate below is never
+ * blind on a module these commits added.
  *
  * The walk is dynamic — every `.ts` under {@link SOURCE_DIRS} is read — so
  * this list is the assertion that the newest additions are inside it.
@@ -325,6 +327,22 @@ const PROMPT_MODULES: readonly string[] = [
     'service/accounts/model.ts',
     'service/accounts/store.ts',
     'service/routes/accounts.ts',
+    // Every other module the layered-prompt commits introduced or touched
+    // under `service/`: the tier validators, the configuration observer and
+    // its audit lanes, the profile write, and the routes/cycle files they
+    // wired through. Named here because a module this list omits is a module
+    // the suppression and `any` scan below never reads (T-035's blind spot).
+    'service/audit-trim.ts',
+    'service/config-audit.ts',
+    'service/config-prompt.ts',
+    'service/config.ts',
+    'service/poll/cycle-config.ts',
+    'service/poll/loop.ts',
+    'service/poll/timer.ts',
+    'service/routes/account-profile.ts',
+    'service/routes/config.ts',
+    'service/routes/index.ts',
+    'service/routes/verify.ts',
 ];
 
 /** One file the static scans read. */

@@ -198,8 +198,16 @@ describe('atomic json writes', () => {
 
             expect(result.status).toBe('quarantined');
             if (result.status === 'quarantined') {
-                expect(result.quarantinePath).toContain('.corrupt-');
-                await expect(stat(result.quarantinePath)).resolves.toBeDefined();
+                // This reader performed the rename itself, so it holds the
+                // evidence: a `null` path here would be the lost-race answer
+                // reaching a race it did not lose.
+                const evidence = result.quarantinePath;
+                if (evidence === null) {
+                    throw new Error('a quarantine this reader performed must name its own evidence');
+                }
+
+                expect(evidence).toContain('.corrupt-');
+                await expect(stat(evidence)).resolves.toBeDefined();
             }
 
             // Not fail-stuck: the same path is immediately writable again.
@@ -224,21 +232,24 @@ describe('atomic json writes', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: reports absence when another reader set the file aside first
+        // case: reports the quarantine when another reader set the file aside first
         {
             const target = join(dataDir, CONFIG_FILE);
             await writeFile(target, '{"intervalMs": 60_00', 'utf8');
             // Two readers can both reject the same document — a cycle reading the
             // configuration while the operator's request reads it, say — and the
-            // loser's rename finds the file already gone. That is absence, not a
-            // storage failure: the evidence is on disk under the winner's name.
+            // loser's rename finds the file already gone. The document was still
+            // invalid and *was* set aside (by the winner, under its own name), so
+            // the answer stays the contract's `quarantined` — only the path is
+            // unknown, because the evidence is now named for the winner (006
+            // contract §3 rule 9: invalid file ⇒ `quarantined`, never `absent`).
             const rename = vi
                 .spyOn(fs, 'rename')
                 .mockRejectedValue(Object.assign(new Error('no such file or directory'), { code: 'ENOENT' }));
 
             try {
                 const result = await readJsonFile(target, numericInterval);
-                expect(result).toEqual({ status: 'absent' });
+                expect(result).toEqual({ status: 'quarantined', quarantinePath: null });
             } finally {
                 rename.mockRestore();
             }

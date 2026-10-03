@@ -28,7 +28,7 @@
 
 import { newCorrelationId } from '../src/ids.ts';
 import { AUDIT_FILE, appendAudit, parseAuditEntry } from './audit.ts';
-import { promptTierOf } from './prompt.ts';
+import { PROMPT_FINGERPRINT_PATTERN, promptTierOf } from './prompt.ts';
 import type { TierPrompt } from './prompt.ts';
 import type { ServiceLogger } from './log.ts';
 import type { ServiceStore } from './store/index.ts';
@@ -127,10 +127,21 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, string | 
         // The account is the row's entity, not a details key: the details
         // shape is exactly the four prompt scalars the contract fixes.
         const { id: numericUserId } = entry.entity;
+        // Only a value that already carries the `mtp-` shape is trusted (the
+        // same rule `config-audit.ts` applies to its own trail seed). This
+        // value becomes the lane's baseline, and a baseline is written back
+        // into a later row as `previousFingerprint` — so anything that is not
+        // a fingerprint (text a row should never have carried, a number, an
+        // object) would otherwise be echoed forward into a new row. Reading it
+        // as `null` keeps 004 FR-053's never-the-text rule in force on the
+        // **read** side too.
         const recorded = entry.details.promptFingerprint;
-        const fingerprint = entry.details.promptPresent === true && typeof recorded === 'string'
-            ? recorded
-            : null;
+        const fingerprint =
+            entry.details.promptPresent === true &&
+            typeof recorded === 'string' &&
+            PROMPT_FINGERPRINT_PATTERN.test(recorded)
+                ? recorded
+                : null;
         const prior = highest.get(numericUserId);
         if (prior === undefined || entry.seq > prior.seq) {
             highest.set(numericUserId, { seq: entry.seq, fingerprint });

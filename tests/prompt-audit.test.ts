@@ -23,7 +23,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { findSecretLeak } from '../src/redaction.ts';
-import { AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
+import { AUDIT_FILE, appendAudit, readAuditEntries } from '../service/audit.ts';
 import { recordConfigPromptChanges } from '../service/config-prompt-observe.ts';
 import {
     ACCOUNT_PROMPT_UPDATED_EVENT,
@@ -658,6 +658,83 @@ describe('T-023 an account append failure warns and still advances the baseline 
             actor: 'operator',
         });
         expect(rows).toBe(1);
+    });
+});
+
+/** A recorded `promptFingerprint` that cannot be one — what a seed must refuse. */
+const NOT_A_FINGERPRINT = 'previous value that was never a fingerprint';
+
+describe('both lanes seed their baseline only from an `mtp-` fingerprint (004 FR-053)', () => {
+    it('reads a junk recorded fingerprint as null, so it is never echoed forward (+1 case)', async () => {
+        // case: the binding lane refuses a recorded value that is not a fingerprint
+        {
+            const store = await tempStore();
+            const log = capturingLogger();
+            // A trail row carrying a value the contract never permits — the
+            // shape a hand-edited or older trail could plausibly hold. It
+            // becomes the lane's baseline at the next seed, so a seed that
+            // adopts it would write it into a later row as
+            // `previousFingerprint`.
+            await appendAudit(store, {
+                eventType: PROMPT_UPDATED_EVENT,
+                actorSource: 'operator',
+                entity: { kind: 'binding', id: 'bnd-one' },
+                decision: 'set',
+                details: {
+                    bindingId: 'bnd-one',
+                    promptPresent: true,
+                    promptFingerprint: NOT_A_FINGERPRINT,
+                    promptLength: NOT_A_FINGERPRINT.length,
+                    previousFingerprint: null,
+                },
+            });
+
+            const observed = await observePromptChanges({
+                store,
+                log,
+                bindings: bindingDocument(PROMPT),
+                actor: 'operator',
+            });
+
+            expect(observed).toBe(1);
+            const trail = await promptRows(store);
+            const fresh = trail[trail.length - 1];
+            // The seed read the junk as *unknown*, so this change is a fresh
+            // `set` against an empty baseline — and the junk appears nowhere
+            // in the row it would otherwise have been carried into.
+            expect(fresh?.decision).toBe('set');
+            expect(fresh?.details.previousFingerprint).toBeNull();
+            expect(JSON.stringify(fresh)).not.toContain(NOT_A_FINGERPRINT);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: the account lane refuses a recorded value that is not a fingerprint
+        {
+            const store = await tempStore();
+            const log = capturingLogger();
+
+            await appendAudit(store, {
+                eventType: ACCOUNT_PROMPT_UPDATED_EVENT,
+                actorSource: 'service',
+                entity: { kind: 'account', id: ACCOUNT_ROW_ID },
+                decision: 'set',
+                details: {
+                    promptPresent: true,
+                    promptFingerprint: NOT_A_FINGERPRINT,
+                    promptLength: NOT_A_FINGERPRINT.length,
+                    previousFingerprint: null,
+                },
+            });
+
+            const observed = await observeAccounts({ store, log, prompt: PROMPT, actor: 'operator' });
+
+            expect(observed).toBe(1);
+            const trail = await accountRows(store);
+            const fresh = trail[trail.length - 1];
+            expect(fresh?.decision).toBe('set');
+            expect(fresh?.details.previousFingerprint).toBeNull();
+            expect(JSON.stringify(fresh)).not.toContain(NOT_A_FINGERPRINT);
+        }
     });
 });
 

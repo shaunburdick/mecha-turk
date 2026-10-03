@@ -1,8 +1,10 @@
-# Data Model: The Layered Starting Prompt (004 v1.4.0)
+# Data Model: The Layered Starting Prompt (004 v1.4.2)
 
-**Feature**: `specs/004-starting-prompt` · **Spec**: v1.4.0 · **Date**: 2026-10-02 (the gate
-re-cut: the account tier's write surface is now the account profile write; supersedes the
-2026-10-02 v1.3.0 pass, which supersedes the 2026-09-28 v1.1.0 pass — all preserved in git history)
+**Feature**: `specs/004-starting-prompt` · **Spec**: v1.4.2 (version label kept current; the pass
+below is the 2026-10-02 gate re-cut — the account tier's write surface is now the account profile
+write; superseded the v1.3.0 pass of the same date, which superseded the 2026-09-28 v1.1.0 pass —
+all preserved in git history; **v1.4.1** corrected FR-085's integers and **v1.4.2** corrected
+FR-085's floor reachability — neither changes a field, a type, or a bound in this file)
 
 Conventions (inherited from 002/003 `data-model.md` and this feature's first pass, unchanged):
 
