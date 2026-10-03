@@ -26,6 +26,11 @@
  * What this module deliberately **cannot** do is read a permitted login: the
  * permitted set's home is `bindings.json`, and a panel that rendered a copy of
  * it would be a second index of the access policy (002 NFR-113, 005 FR-091).
+ *
+ * It also owns the **one rendering** of those two vocabularies,
+ * {@link actorPhrase}, because the dispatch row and its reveal both name an
+ * actor and a proxy basis: two copies of that sentence is two chances for the
+ * panel to start calling a proxy an actor (005 FR-094).
  */
 
 /** How one delivery's actor was attributed (002 FR-044); the closed union. */
@@ -80,6 +85,72 @@ export function actorFieldsOf(record: Record<string, unknown>): ActorFields | nu
         ...(typeof actorLogin === 'string' ? { actorLogin } : {}),
         ...(typeof actorAttribution === 'string' ? { actorAttribution: actorAttribution as ActorAttribution } : {}),
     };
+}
+
+/**
+ * Read a member that **must** carry a policy shape, refusing absent and unknown.
+ *
+ * {@link readActorPolicy} answers the *run* row's question, where `null` is a
+ * real state ("no authorization has been recorded yet"). A **status** row has
+ * no such state: the service derives the shape from the binding every time it
+ * projects the document (005 FR-093, contract `status-projection.md` §8), so an
+ * absent or unrecognized member is a body this build must not half-read. This is
+ * the stricter of the two readers, and it exists so NFR-113's rule — that no
+ * surface may imply a control the service never reported — is enforced at the
+ * parser rather than left to the renderer.
+ *
+ * @param raw - The `actorPolicy` member as received.
+ * @returns The shape, or `null` when the member is absent or outside the union.
+ */
+export function readRequiredActorPolicy(raw: unknown): ActorPolicy | null {
+    return raw === 'open' || raw === 'restricted' ? raw : null;
+}
+
+/**
+ * The panel's own words for a `subject-author` attribution (002 FR-044,
+ * NFR-011; 005 FR-094).
+ *
+ * The clause exists so a **proxy is never presented as a fact**: GitHub records
+ * who opened the issue or pull request and does not record who assigned it or
+ * requested the review, so the run's actor is the author *standing in* for
+ * whoever actually acted. Naming that is the difference between *"bob asked"*
+ * and the truth, and it is the panel's job because the panel is where an
+ * operator reads the run.
+ */
+export const SUBJECT_AUTHOR_BASIS =
+    'the issue or pull-request author, which is all GitHub records about this trigger '
+    + '— it does not record who assigned it or requested the review';
+
+/**
+ * Name one reference's actor, and its basis where the attribution is a proxy
+ * (005 FR-094).
+ *
+ * Three states, none of them a guess:
+ *
+ * - **`direct`** — the actor did the thing: the login alone.
+ * - **`subject-author`** — the login, plus {@link SUBJECT_AUTHOR_BASIS}.
+ * - **Absent** — *actor not recorded*, which is a run stored before attribution
+ *   existed. It is named rather than filled in, because printing a plausible
+ *   login there would record an inference as a fact (002 FR-024).
+ *
+ * Every reference gets its **own** phrase, because a coalesced run carries
+ * several and a person outside the binding's policy can ride in on a run an
+ * allowed actor authorized — which is exactly what has to stay visible
+ * (003 FR-011, FR-077).
+ *
+ * @param actor - One reference's two actor members, as the panel holds them.
+ * @returns The clause naming the actor, and the basis when it is a proxy.
+ */
+export function actorPhrase(actor: ActorFields): string {
+    if (actor.actorLogin === undefined) {
+        return 'actor not recorded';
+    }
+
+    if (actor.actorAttribution !== 'subject-author') {
+        return `actor ${actor.actorLogin}`;
+    }
+
+    return `actor ${actor.actorLogin} — attributed to ${SUBJECT_AUTHOR_BASIS}`;
 }
 
 /** What reading one row's policy shape found. */

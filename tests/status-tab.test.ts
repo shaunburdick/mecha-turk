@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { loadStatus } from '../src/status-tab.ts';
 import {
     accountLines,
+    actorPolicyLines,
     agentPinLines,
     bindingLines,
     formatUptime,
@@ -134,6 +135,9 @@ function bindingFixture(overrides: Record<string, unknown> = {}): Record<string,
         lastError: null,
         pendingCount: 2,
         readable: true,
+        // FR-093: the shape of the allow-list, never its logins. The fixture
+        // models a binding with no list, which is the open state.
+        actorPolicy: 'open',
         ...overrides,
     };
 }
@@ -837,3 +841,98 @@ describe('hostile strings stay text (FR-080)', () => {
     });
 });
 
+/* -------------------------------------------------------------------- *
+ * The allow-list roll-up (005 FR-093, NFR-113, AC-144)
+ * -------------------------------------------------------------------- */
+
+describe('the actor allow-list roll-up (005 FR-093, AC-144)', () => {
+    it('counts the open bindings, states the consequence, and never names one (+6 cases)', () => {
+        // case: one of three bindings carries no list
+        {
+            const view = viewOf(withMember('repositories', [
+                bindingFixture({ bindingId: 'bnd_a', repository: 'acme/one', actorPolicy: 'restricted' }),
+                bindingFixture({ bindingId: 'bnd_b', repository: 'acme/two', actorPolicy: 'restricted' }),
+                bindingFixture({ bindingId: 'bnd_c', repository: 'acme/three', actorPolicy: 'open' }),
+            ]));
+            const [line] = actorPolicyLines(view);
+
+            expect(line).toContain('1 of 3 bindings');
+            // …and the consequence, not only the count (FR-092).
+            expect(line).toContain('lets anyone who can open an issue or comment');
+            expect(line).toContain('start a session');
+            // Status points at the Bindings tab and does not duplicate its field
+            // (FR-039).
+            expect(line).toContain('Bindings tab');
+            // No login, and no repository (005 clarification row 42).
+            for (const named of ['acme/one', 'acme/two', 'acme/three', ACCOUNT, 'prj_42']) {
+                expect(line, named).not.toContain(named);
+            }
+        }
+
+        // case: every binding restricted is a positive statement, never silence
+        {
+            const view = viewOf(withMember('repositories', [
+                bindingFixture({ bindingId: 'bnd_a', actorPolicy: 'restricted' }),
+                bindingFixture({ bindingId: 'bnd_b', repository: 'acme/other', actorPolicy: 'restricted' }),
+            ]));
+            const [line] = actorPolicyLines(view);
+
+            // The criterion fails on an absent row or an empty line: an operator
+            // reading silence cannot tell it from a panel that did not check.
+            expect(line).toContain('every binding restricts who may trigger');
+            expect(line).toContain('2 of 2');
+        }
+
+        // case: a service that could not be read reads *not available*
+        {
+            const [line] = actorPolicyLines(null);
+
+            expect(line).toContain('not available');
+            // The service is named as the source, so the reader knows who to go
+            // and ask (NFR-112).
+            expect(line).toContain('service');
+            // Never the reassuring default a count of zero would be.
+            expect(line).not.toContain('every binding');
+            expect(line).not.toContain('0 of 0');
+        }
+
+        // case: no bindings at all says so, rather than claiming every one is safe
+        {
+            const [line] = actorPolicyLines(viewOf(withMember('repositories', [])));
+
+            expect(line).toContain('no bindings yet');
+            expect(line).not.toContain('every binding restricts');
+        }
+
+        // case: an out-of-vocabulary policy refuses the document (AGENTS invariant 8)
+        {
+            for (const value of ['closed', 'OPEN', '', 1, null, undefined, ['open']]) {
+                expect(
+                    parseStatusView(bodyOf(withMember('repositories', [bindingFixture({ actorPolicy: value })]))),
+                    `actorPolicy ${JSON.stringify(value)}`,
+                ).toBeNull();
+            }
+            // …and the two legal words parse.
+            for (const value of ['open', 'restricted']) {
+                const view = parseStatusView(
+                    bodyOf(withMember('repositories', [bindingFixture({ actorPolicy: value })])),
+                );
+                expect(view?.bindings[0]?.actorPolicy, value).toBe(value);
+            }
+        }
+
+        // case: the unreadable row still reports its policy, because it comes
+        // from the binding rather than from the scan projection
+        {
+            const view = viewOf(withMember('repositories', [
+                bindingFixture({ readable: false, actorPolicy: 'restricted' }),
+                bindingFixture({ bindingId: 'bnd_b', repository: 'acme/other', actorPolicy: 'open' }),
+            ]));
+            const [line] = actorPolicyLines(view);
+
+            expect(line).toContain('1 of 2 bindings');
+            // The unreadable row is still counted from what the service said.
+            expect(bindingLines(view)[0]).toContain('unreadable');
+        }
+    });
+});

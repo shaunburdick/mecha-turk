@@ -114,6 +114,7 @@ export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
         detailBox: paneBody,
         detailChips: { paint: (): void => undefined, dispose: (): void => undefined },
         selectedDetail: stubHandle(),
+        actors: { field: stubHandle() },
         prompt: { field: stubHandle() },
         pane: paneBody,
         dispose: (): void => undefined,

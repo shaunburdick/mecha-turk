@@ -30,12 +30,19 @@
  *   rather than a disabled one (FR-041, FR-074, AC-123).
  *
  * Nothing here performs IO, so the copy is testable without a live DOM.
+ *
+ * 005 v1.11.0 adds the **actor** to each source reference it lists, with the
+ * basis spelled out where the attribution is a proxy (FR-094, 002
+ * FR-044/NFR-011). The wording is `run-actor.ts`'s {@link actorPhrase}, shared
+ * with the reveal in `dispatches-controls.ts`, which renders the same
+ * references and must not word them a second way.
  */
 
 import type { ListItem, Tone } from '@openchamber/sdk/ui';
 import { redact } from './redaction.ts';
 import { elapsedSince } from './bindings-rows.ts';
 import { utcStamp } from './ids.ts';
+import { actorPhrase } from './run-actor.ts';
 import { BLOCKED_PREFIX } from './dispatches-service.ts';
 import type { DispatchesState } from './panel-state.ts';
 import type { PlainRunState, RunReference, RunRow, RunState, RunVerification } from './dispatches-service.ts';
@@ -372,7 +379,8 @@ function resultPhrase(row: RunRow): string {
 
 /**
  * One reference's line: kind, detection time, origin when it adds something,
- * and the mark on a reason the agent may never have seen (FR-015).
+ * its actor and basis, and the mark on a reason the agent may never have seen
+ * (FR-015, 005 FR-094).
  *
  * @param reference - One retained source reference.
  * @returns The reference's label.
@@ -381,7 +389,7 @@ function referenceLabel(reference: RunReference): string {
     const origin = reference.origin === reference.kind ? '' : ` via ${reference.origin}`;
     const seen = reference.presentAtAuthorization ? '' : ' (after authorization, may not have been seen)';
 
-    return `${reference.kind} ${utcStamp(reference.detectedAt)}${origin}${seen}`;
+    return `${reference.kind} ${utcStamp(reference.detectedAt)}${origin}${seen} · ${actorPhrase(reference)}`;
 }
 
 /**

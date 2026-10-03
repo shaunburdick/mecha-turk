@@ -36,6 +36,8 @@ import type { PanelRuntime, BindingsTabState } from './panel-state.ts';
 import type { DispatchControlsHandlers } from './dispatches-controls.ts';
 import { repaintBindingPrompt } from './bindings-prompt.ts';
 import type { BindingPromptControls, BindingPromptHandlers } from './bindings-prompt.ts';
+import { repaintBindingActors } from './bindings-actors.ts';
+import type { BindingActorControls, BindingActorHandlers } from './bindings-actors.ts';
 import { accountFieldView, editorStateLine, repaintBindingActions, repaintBindingMention } from './bindings-editor.ts';
 import { bindingRows, selectedBindingDetail } from './bindings-rows.ts';
 import { formProjectOptions } from './project-picker.ts';
@@ -69,6 +71,8 @@ export interface BindingsPane {
     readonly accountSelect: SelectHandle;
     /** The mention token in force, marked when it differs (005 FR-057). */
     readonly mentionToken: TextHandle;
+    /** The actor allow-list field — the only element holding its logins (FR-090). */
+    readonly actors: BindingActorControls;
     /** Project select (from the host's project list). */
     readonly projectSelect: SelectHandle;
     /** Assignment trigger checkbox. */
@@ -96,7 +100,7 @@ export interface BindingsPane {
 }
 
 /** Callbacks the mounted Bindings pane invokes. */
-export interface BindingsPaneHandlers extends DispatchControlsHandlers, BindingPromptHandlers {
+export interface BindingsPaneHandlers extends DispatchControlsHandlers, BindingPromptHandlers, BindingActorHandlers {
     /** Operators re-read the bindings and accounts. */
     readonly refresh: () => void;
     /** Operators submitted the add form. */
@@ -185,6 +189,7 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
         disabled: account.disabled,
     });
     repaintBindingMention(rt, view.mentionToken);
+    repaintBindingActors(rt, view.actors);
     view.projectSelect.update({
         options: formProjectOptions(rt.state.projects),
         value: bindings.repoProjectSelection,

@@ -37,6 +37,8 @@ import type {
     TextFieldHandle,
 } from '@openchamber/sdk/ui';
 import type { PanelRuntime } from './panel-state.ts';
+import { disposeBindingActors, mountBindingActors } from './bindings-actors.ts';
+import type { BindingActorControls } from './bindings-actors.ts';
 import { disposeBindingPrompt, mountBindingPrompt } from './bindings-prompt.ts';
 import type { BindingPromptControls } from './bindings-prompt.ts';
 import {
@@ -120,6 +122,8 @@ interface Form {
     readonly reviewRequest: CheckboxHandle;
     /** Worktree select. */
     readonly worktree: SelectHandle;
+    /** The actor allow-list field, beside the mention-token override (FR-090). */
+    readonly actors: BindingActorControls;
 }
 
 /** The selected row's wrapper, its chip row, and its detail line. */
@@ -146,6 +150,8 @@ interface BodyParts {
     readonly form: Form;
     /** The editor's and the list's control rows. */
     readonly actions: BindingActions;
+    /** Actor allow-list field. */
+    readonly actors: BindingActorControls;
     /** Starting-prompt field. */
     readonly prompt: BindingPromptControls;
     /** The selected row's wrapper, chips, and line. */
@@ -282,6 +288,10 @@ function mountAddForm(input: MountInputs): Form {
     const accountSelect = mountAccountSelect(input);
     // FR-057: the token in force, derived in `bindings-editor.ts`, under the account it belongs to.
     const mentionToken = mountBindingMention(input);
+    // FR-090: the allow-list sits beside the mention-token override, because the
+    // two of them are what decides *what counts as a trigger for this
+    // repository* (005 clarification row 38).
+    const actors = mountBindingActors(input);
     const projectSelect = mountProjectSelect(input);
     // FR-038's "Not listed?" affordance: constant copy, no handle to keep.
     // Prose, so it keeps a measure on a rail (`.mt-prose` caps it at 72ch).
@@ -297,6 +307,7 @@ function mountAddForm(input: MountInputs): Form {
         repoField,
         accountSelect,
         mentionToken,
+        actors,
         projectSelect,
         assignment: checks.assignment,
         mention: checks.mention,
@@ -333,7 +344,7 @@ function mountSelectedDetail(parent: HTMLElement): SelectedDetail {
  * @param input - The body's elements, halves, and control rows.
  */
 function disposeBindingsBody(input: BodyParts): void {
-    const { pane, listBlock, editorBlock, board, form, actions, prompt, detail } = input;
+    const { pane, listBlock, editorBlock, board, form, actions, actors, prompt, detail } = input;
     const handles = [
         board.status,
         board.note,
@@ -356,6 +367,7 @@ function disposeBindingsBody(input: BodyParts): void {
     }
 
     detail.detailBox.remove();
+    disposeBindingActors(actors);
     disposeBindingPrompt(prompt);
     detail.detailChips.dispose();
     detail.selectedDetail.dispose();
@@ -412,6 +424,7 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
         repoField: form.repoField,
         accountSelect: form.accountSelect,
         mentionToken: form.mentionToken,
+        actors: form.actors,
         projectSelect: form.projectSelect,
         assignmentCheck: form.assignment,
         mentionCheck: form.mention,
@@ -459,7 +472,8 @@ export function mountBindingsBody(input: {
     const form = mountAddForm({ rt, pane: editorBlock.body, handlers });
     // The starting prompt is a field of this form, so it mounts before the
     // form's own controls: the buttons end the form they submit, and one
-    // button writes all of it (FR-051, 004 FR-014 — untouched still omits).
+    // button writes all of it (FR-051, 004 FR-014 — untouched still omits; the
+    // allow-list above rides the same write, where omission means *unset*).
     const prompt = mountBindingPrompt({ rt, pane: editorBlock.body, handlers });
     const actions = mountBindingActions({
         editor: createToolbar(editorBlock.body),
@@ -468,5 +482,16 @@ export function mountBindingsBody(input: {
     });
     editorBox.hidden = !rt.state.bindings.editorOpen;
 
-    return assemblePane({ pane, listBlock, editorBlock, board, form, actions, prompt, detail, editorBox });
+    return assemblePane({
+        pane,
+        listBlock,
+        editorBlock,
+        board,
+        form,
+        actions,
+        actors: form.actors,
+        prompt,
+        detail,
+        editorBox,
+    });
 }

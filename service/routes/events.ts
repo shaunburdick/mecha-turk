@@ -34,6 +34,12 @@
  * own clock and the status has no other surface yet (the contract's
  * `/v1/status` repositories section is 005's work). Its `pendingCount` counts
  * runs, not deliveries (T-040a).
+ *
+ * Those rows also carry each binding's **actor-policy shape** (005 FR-093,
+ * added at v1.11.0) — `'open' | 'restricted'`, never a login. It is derived in
+ * the same projection from the same binding the row is already built from, so
+ * the claim answer, the Bindings tab, and `/v1/status` cannot disagree about a
+ * binding's policy (005 plan D17; contract `status-projection.md` §8).
  */
 
 import { readBindings } from '../bindings-read.ts';
@@ -45,6 +51,7 @@ import { previewRunsDocument } from '../poll/runs-document.ts';
 import { readScanState } from '../poll/scan.ts';
 import type { BindingRecord } from '../bindings.ts';
 import type { QueuedEvent } from '../poll/events.ts';
+import type { ActorPolicy } from '../poll/runs-types.ts';
 import type { RunHistoryRow } from '../poll/run-history-project.ts';
 import { STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
@@ -97,6 +104,33 @@ export interface BindingStatusRow {
     readonly lastError: string | null;
     /** Events for this binding that are pending or in flight. */
     readonly pendingCount: number;
+    /**
+     * The **shape** of this binding's actor allow-list, never its contents
+     * (005 FR-091, FR-093; 003 NFR-113).
+     *
+     * Derived here, from the binding this row is already built from, so the
+     * Status route, the claim answer, and the Bindings tab all read one
+     * projection and one source for the fact (005 plan D17). `'restricted'`
+     * therefore always means *at least one* login: the service refuses an empty
+     * list on write **and** on read (002 FR-047), so no permitted login is
+     * needed — or permitted — to answer it.
+     */
+    readonly actorPolicy: ActorPolicy;
+}
+
+/**
+ * The allow-list shape one binding's row reports.
+ *
+ * **Absent is open**: no `allowedUsers` member is the complete "no policy
+ * configured" state, meaning any human actor may trigger this repository
+ * (002 FR-047). A present member is a non-empty list by the same rule that
+ * refuses `[]`, so it is always `'restricted'`.
+ *
+ * @param binding - The binding this row is keyed by.
+ * @returns `'open'` when the binding carries no list, `'restricted'` when it does.
+ */
+function actorPolicyOf(binding: BindingRecord): ActorPolicy {
+    return binding.allowedUsers === undefined ? 'open' : 'restricted';
 }
 
 /**
@@ -176,6 +210,7 @@ export async function readStatusRows(input: {
             lastScanAt: scan?.lastScanAt ?? null,
             lastError: scan?.lastError ?? null,
             pendingCount: counts.get(binding.bindingId) ?? 0,
+            actorPolicy: actorPolicyOf(binding),
         };
     });
 }

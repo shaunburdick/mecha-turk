@@ -23,12 +23,13 @@
  */
 
 import { mountButton, mountList, mountSelect } from '@openchamber/sdk/ui';
-import type { ButtonHandle, ListHandle, ListItem, SelectHandle, SelectOption, TextHandle } from '@openchamber/sdk/ui';
+import type { ButtonHandle, ListHandle, SelectHandle, SelectOption, TextHandle } from '@openchamber/sdk/ui';
 import { DISPATCH_PAGE_SIZES } from './dispatch-page.ts';
+import { referenceDetailItems } from './dispatches-detail.ts';
 import { DISPATCHES_EMPTY_TEXT, selectedRun, stateLabel, utcStamp } from './dispatches-rows.ts';
 import { mountStyledText } from './style.ts';
 import type { PanelBinding } from './bindings-service.ts';
-import type { RunReference, RunRow } from './dispatches-service.ts';
+import type { RunRow } from './dispatches-service.ts';
 import type { DispatchesState, PanelRuntime } from './panel-state.ts';
 
 /** Select id that means "no filter" in both filter selects. */
@@ -272,41 +273,6 @@ export function sourceRevealLabel(open: boolean, row: RunRow): string {
     const where = `#${row.issueNumber} in ${row.repository}`;
 
     return open ? `Hide the source references for ${where}` : `Show ${row.referenceCount} reasons for ${where}`;
-}
-
-/**
- * One line per retained source reference: kind, origin, time, link, mark (AC-120).
- *
- * @param reference - One retained source reference.
- * @returns The reference's line, unredacted — the caller renders it as text.
- */
-function referenceLine(reference: RunReference): string {
-    const late = reference.presentAtAuthorization
-        ? ''
-        : ' — arrived after authorization, so it may not have been seen by the agent';
-
-    return `${reference.kind} · from ${reference.origin} · detected ${utcStamp(reference.detectedAt)}`
-        + ` · ${reference.sourceUrl}${late}`;
-}
-
-/**
- * Every source reference of one row, as the reveal lists them (FR-048, AC-120).
- *
- * @param row - The selected row.
- * @returns One line per retained reference, earliest first.
- */
-export function referenceDetailLines(row: RunRow): readonly string[] {
-    return row.sourceReferences.map((reference) => referenceLine(reference));
-}
-
-/**
- * The same lines as list items, each keyed so the list cannot collide (FR-080).
- *
- * @param row - The selected row.
- * @returns The reveal's items.
- */
-export function referenceDetailItems(row: RunRow): ListItem[] {
-    return referenceDetailLines(row).map((line, index) => ({ id: `${row.id}#${index}`, title: line }));
 }
 
 /**

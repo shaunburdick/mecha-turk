@@ -27,13 +27,13 @@ import {
     dispatchEmptyText,
     dispatchRangeLine,
     hasActiveFilters,
-    referenceDetailLines,
     referencesVisible,
     revealVisible,
     rowActionLabel,
     sourceRevealLabel,
     stateFilterOptions,
 } from '../src/dispatches-controls.ts';
+import { referenceDetailLines } from '../src/dispatches-detail.ts';
 import {
     clearFilters,
     nextPage,
@@ -709,7 +709,10 @@ describe('AC-120 the row detail lists every source reference (FR-048)', () => {
             const lines = referenceDetailLines(row);
 
             expect(lines).toHaveLength(3);
-            expect(lines[0]).toBe(`assignment · from assignment · detected 2026-09-28 09:00 · ${ISSUE_URL}`);
+            // 005 FR-094: every revealed reference names its own actor, and a fixture
+            // with no attribution says so rather than naming nobody.
+            expect(lines[0]).toBe(`assignment · from assignment · detected 2026-09-28 09:00 · ${ISSUE_URL}`
+                + ' · actor not recorded');
             expect(lines[1]).toContain('2026-09-28 09:05');
             expect(lines[2]).toContain(ISSUE_URL);
         }

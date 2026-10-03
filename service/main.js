@@ -6302,6 +6302,9 @@ function buildEventPage(input) {
 // service/routes/events.ts
 var EVENTS_PENDING_PATH = "/v1/events/pending";
 var EVENTS_PATH = "/v1/events";
+function actorPolicyOf(binding) {
+  return binding.allowedUsers === undefined ? "open" : "restricted";
+}
 function claimLimitOf(raw) {
   if (raw === null || raw === "") {
     return MAX_CLAIMED_RUNS;
@@ -6330,7 +6333,8 @@ async function readStatusRows(input) {
       active: binding.state === "active",
       lastScanAt: scan?.lastScanAt ?? null,
       lastError: scan?.lastError ?? null,
-      pendingCount: counts.get(binding.bindingId) ?? 0
+      pendingCount: counts.get(binding.bindingId) ?? 0,
+      actorPolicy: actorPolicyOf(binding)
     };
   });
 }
@@ -8211,7 +8215,8 @@ function unreadableRepositoryRow(binding) {
     lastScanAt: null,
     lastError: null,
     pendingCount: 0,
-    readable: false
+    readable: false,
+    actorPolicy: binding.allowedUsers === undefined ? "open" : "restricted"
   };
 }
 function mostRecentVerification(runs) {

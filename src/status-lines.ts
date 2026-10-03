@@ -9,6 +9,12 @@
  * than being replaced by the configured interval, and the agent pin is
  * *not checkable* / *not available* / an outcome — never "ok" (FR-033,
  * AC-106). FR-080 applies in full: these strings are rendered as text.
+ *
+ * {@link actorPolicyLines} is the same rule applied to the one value where a
+ * plausible-looking default would be a security control that does not exist:
+ * an open allow-list is stated as a **count with its consequence**, a count of
+ * zero is stated positively, and an unreadable document reads *not available*
+ * (005 FR-093, NFR-113, AC-144).
  */
 
 import type { StatusAccountView, StatusBindingView, StatusTabState, StatusView } from './status-document.ts';
@@ -262,6 +268,51 @@ export function bindingLines(view: StatusView): readonly string[] {
 
         return `${binding.repository} — ${state} · ${scan} · ${pending}${cause}`;
     });
+}
+
+/**
+ * The counted line: how many of the listed bindings carry **no** allow-list,
+ * and what that means (005 FR-093).
+ *
+ * This is Status's whole answer to *"which of my repositories are open?"*, and
+ * four properties are load-bearing, each a decision rather than a default:
+ *
+ * - **The count plus the consequence.** A bare number answers "how many"; the
+ *   second clause answers "so what" — anyone who can open an issue or comment on
+ *   those repositories can start a session (005 FR-092).
+ * - **Zero is a positive statement.** *"Every binding restricts who may
+ *   trigger"* is a fact worth reading, and silence is not: an operator cannot
+ *   tell an absent line from a panel that did not check (FR-003, AC-144).
+ * - **Unreadable reads *not available*, with the service named** — never
+ *   "0 of 0", which is exactly the reassuring default NFR-113 forbids
+ *   (NFR-112).
+ * - **No login and no repository, ever.** The count is enough to decide whether
+ *   to go and look, and naming them would make Status a second index of the
+ *   Bindings tab (005 FR-039, clarification row 42).
+ *
+ * @param view - The parsed document, or `null` when none has been read.
+ * @returns The single roll-up line.
+ */
+export function actorPolicyLines(view: StatusView | null): readonly string[] {
+    if (view === null) {
+        return ['Who may trigger: not available (service unreachable, or its status could not be read)'];
+    }
+
+    const total = view.bindings.length;
+    if (total === 0) {
+        return ['Who may trigger: no bindings yet, so nothing can trigger until one is bound'];
+    }
+
+    const open = view.bindings.filter((binding) => binding.actorPolicy === 'open').length;
+    const remedy = 'open the Bindings tab to see or change a binding\'s allowedUsers';
+    if (open === 0) {
+        return [`Who may trigger: every binding restricts who may trigger (${total} of ${total}); ${remedy}`];
+    }
+
+    return [
+        `Who may trigger: ${open} of ${total} bindings lets anyone who can open an issue or comment `
+        + `start a session; ${remedy}`,
+    ];
 }
 
 /** Which blocking notices the current document raises (FR-035, FR-036). */

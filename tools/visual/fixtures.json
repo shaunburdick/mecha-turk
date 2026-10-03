@@ -45,7 +45,8 @@
                 "lastScanAt": "2026-09-30T19:58:00.000Z",
                 "lastError": null,
                 "pendingCount": 2,
-                "readable": true
+                "readable": true,
+                "actorPolicy": "restricted"
             },
             {
                 "bindingId": "bnd_status_2",
@@ -56,7 +57,8 @@
                 "lastScanAt": "2026-09-30T19:58:00.000Z",
                 "lastError": "rate limit reached: 41 requests remaining in this window",
                 "pendingCount": 0,
-                "readable": true
+                "readable": true,
+                "actorPolicy": "restricted"
             },
             {
                 "bindingId": "bnd_status_3",
@@ -67,7 +69,8 @@
                 "lastScanAt": null,
                 "lastError": null,
                 "pendingCount": 0,
-                "readable": true
+                "readable": true,
+                "actorPolicy": "open"
             }
         ],
         "agentPin": {
@@ -260,7 +263,11 @@
                 },
                 "state": "active",
                 "createdAt": "2026-09-12T09:14:00.000Z",
-                "updatedAt": "2026-09-30T19:58:00.000Z"
+                "updatedAt": "2026-09-30T19:58:00.000Z",
+                "allowedUsers": [
+                    "alice",
+                    "bob"
+                ]
             },
             {
                 "bindingId": "bnd_2",
@@ -276,7 +283,10 @@
                 },
                 "state": "active",
                 "createdAt": "2026-09-12T09:14:00.000Z",
-                "updatedAt": "2026-09-30T19:58:00.000Z"
+                "updatedAt": "2026-09-30T19:58:00.000Z",
+                "allowedUsers": [
+                    "prompt-it-so"
+                ]
             },
             {
                 "bindingId": "bnd_3",

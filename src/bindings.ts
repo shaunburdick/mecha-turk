@@ -3,24 +3,27 @@
  *
  * The service owns the durable bindings file; this tab reads, edits, and
  * re-grants it whole. This module owns the **add** flow (repository, account,
- * project, triggers, worktree option, and the starting prompt that travels
- * with the rest of the draft), the list reads, the enable/disable
- * toggle, and removal — plus the draft itself, whose reader
- * ({@link readDraft}) the **edit** flow in [`bindings-edit.ts`](./bindings-edit.ts)
- * shares. Every write is the same `PUT /v1/bindings` whole-file grant;
- * actions never throw: every failure lands on the tab's note line, so one
- * refused PUT cannot take the panel down.
+ * project, triggers, worktree option, and the starting prompt and allow-list
+ * that travel with the rest of the draft), the list reads, the enable/disable
+ * toggle, and removal — plus the draft's **defaults**, which the **edit** flow
+ * in [`bindings-edit.ts`](./bindings-edit.ts) resets when a save lands or a
+ * cancel closes. The draft's *reader* moved to
+ * [`bindings-draft.ts`](./bindings-draft.ts) for the file-length gate and is
+ * still re-exported here. Every write is the same `PUT /v1/bindings`
+ * whole-file grant; actions never throw: every failure lands on the tab's note
+ * line, so one refused PUT cannot take the panel down.
  *
  * Every bindings list the service confirms (a read or a grant) with an
  * enabled row also arms the event relay — see {@link armRelayForBindings} —
  * so the loop does not depend on what happened to be in state at mount.
  */
 
-import { parseRepository, repositoryLabel } from './config.ts';
-import { newCorrelationId, nowIso } from './ids.ts';
+import { nowIso } from './ids.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import { armRelayForBindings, grantBindings } from './bindings-grant.ts';
+import { readDraft } from './bindings-draft.ts';
+import { actorsRefusal, allowedUsersPatch } from './bindings-actors.ts';
 import { promptRefusal } from './bindings-prompt.ts';
 import {
     ACCOUNTS_PATH,
@@ -33,12 +36,18 @@ import type {
     BindingsSnapshot,
     PanelAccount,
     PanelBinding,
-    PanelTriggers,
 } from './bindings-service.ts';
 import type { PanelRuntime, BindingsTabState } from './panel-state.ts';
 
 /** One per-binding status row the tab renders (scan state + pending count). */
 export type RepoRow = BindingStatusRow;
+
+// The draft reader and its two exported shapes moved to `bindings-draft.ts` for
+// the file-length gate; they stay importable from here so no call site had to
+// change with the move, exactly as `AccountsTabState` is re-exported from
+// `accounts-state.ts` by `panel-state.ts`.
+export { SELECT_TO_EDIT_NOTE, readDraft } from './bindings-draft.ts';
+export type { DraftEditTarget, PreparedBinding } from './bindings-draft.ts';
 
 /**
  * Record one draft-field change the add form just made.
@@ -152,228 +161,6 @@ async function fetchAccounts(rt: PanelRuntime): Promise<readonly PanelAccount[] 
     return parseAccountsBody(result.body);
 }
 
-/** One candidate binding built from the draft, before the grant. */
-export interface PreparedBinding {
-    /** The fields the PUT will store. */
-    readonly bindingId: string;
-    readonly accountNumericUserId: string;
-    readonly accountLogin: string;
-    readonly repository: string;
-    readonly projectId: string;
-    readonly worktreeOption: string;
-    readonly triggers: PanelTriggers;
-    readonly state: 'active' | 'disabled';
-    readonly createdAt: string;
-    readonly updatedAt: string;
-}
-
-/** What an edit saves against; absent means the add form (a brand-new row). */
-export interface DraftEditTarget {
-    /** The binding the draft was loaded from, by id. */
-    readonly bindingId: string;
-}
-
-/** Note the draft refuses with when there is no row to edit. */
-export const SELECT_TO_EDIT_NOTE = 'Select a binding to edit.';
-
-/** Note the draft refuses with when add mode has no account picked. */
-const ACCOUNT_NOTE = 'Pick the account this repository polls under.';
-
-/** Note the draft refuses with when the repository is not `owner/name`. */
-const REPOSITORY_NOTE = 'repository must be `owner/name`';
-
-/** Note the draft refuses with when the repository is already bound. */
-const DUPLICATE_NOTE = 'That repository is already bound.';
-
-/** Note the draft refuses with when no project is picked. */
-const PROJECT_NOTE = 'Pick the OpenChamber project the dispatch opens in.';
-
-/** Where a draft is being read from: a brand-new row, or the loaded one. */
-type DraftOrigin =
-    /** The add form: nothing is stored yet, so every field is the draft's. */
-    | { readonly kind: 'add' }
-    /** The edit form: id, state, stamps, and account come from this row. */
-    | { readonly kind: 'edit'; readonly binding: PanelBinding };
-
-/**
- * Decide which row a draft is being read for.
- *
- * @param bindings - Panel state to read.
- * @param edit - The row being edited, or absent for the add form.
- * @returns The origin, or `null` when the named row no longer exists — the
- *   note then says so, because editing a row the service no longer holds is
- *   a stale selection, not a permission to mint one.
- */
-function draftOrigin(bindings: BindingsTabState, edit?: DraftEditTarget): DraftOrigin | null {
-    if (edit === undefined) {
-        return { kind: 'add' };
-    }
-
-    const binding =
-        bindings.bindings.find((candidate) => candidate.bindingId === edit.bindingId) ?? null;
-    if (binding === null) {
-        bindings.note = SELECT_TO_EDIT_NOTE;
-
-        return null;
-    }
-
-    return { kind: 'edit', binding };
-}
-
-/**
- * Read the account fields the draft saves under.
- *
- * @param bindings - Panel state to read (add mode's account selection).
- * @param origin - Where the draft is being read from.
- * @returns The account fields, or `null` when add mode picked none.
- */
-function draftAccount(
-    bindings: BindingsTabState,
-    origin: DraftOrigin,
-): { readonly accountNumericUserId: string; readonly accountLogin: string } | null {
-    if (origin.kind === 'edit') {
-        // Edit mode's account field is fixed to this row (FR-053), so the
-        // account it displays *is* the account it saves — even when that
-        // account has since been removed and no longer lists.
-        const { accountNumericUserId, accountLogin } = origin.binding;
-
-        return { accountNumericUserId, accountLogin };
-    }
-
-    const account =
-        bindings.accounts.find((candidate) => candidate.numericUserId === bindings.accountSelection) ?? null;
-    if (account === null) {
-        bindings.note = ACCOUNT_NOTE;
-
-        return null;
-    }
-
-    return { accountNumericUserId: account.numericUserId, accountLogin: account.login };
-}
-
-/**
- * Read the repository label, refusing a bad shape or a second binding of it.
- *
- * @param bindings - Panel state to read.
- * @param origin - Where the draft is being read from; only the edited row is
- *   exempt from the duplicate check, because that row already owns the name.
- * @returns The canonical `owner/name`, or `null` (the note then says why).
- */
-function draftRepository(bindings: BindingsTabState, origin: DraftOrigin): string | null {
-    const repository = parseRepository(bindings.repoInput);
-    if (repository === null) {
-        bindings.note = REPOSITORY_NOTE;
-
-        return null;
-    }
-
-    const label = repositoryLabel(repository);
-    const ownId = origin.kind === 'edit' ? origin.binding.bindingId : null;
-    const duplicate = bindings.bindings.some(
-        (candidate) =>
-            candidate.bindingId !== ownId &&
-            candidate.repository.toLowerCase() === label.toLowerCase(),
-    );
-    if (duplicate) {
-        bindings.note = DUPLICATE_NOTE;
-
-        return null;
-    }
-
-    return label;
-}
-
-/**
- * Read the project the draft dispatches into.
- *
- * @param bindings - Panel state to read.
- * @returns The project id, or `null` when the operator has not picked one —
- *   a binding with no project is recoverable, not savable (FR-056).
- */
-function draftProject(bindings: BindingsTabState): string | null {
-    if (bindings.repoProjectSelection === null) {
-        bindings.note = PROJECT_NOTE;
-
-        return null;
-    }
-
-    return bindings.repoProjectSelection;
-}
-
-/**
- * Read the identity a saved row keeps.
- *
- * @param origin - Where the draft is being read from.
- * @param stamp - This save's RFC 3339 stamp, used for a brand-new row.
- * @returns The id, state, and creation stamp the grant will write.
- */
-function draftIdentity(
-    origin: DraftOrigin,
-    stamp: string,
-): { readonly bindingId: string; readonly state: 'active' | 'disabled'; readonly createdAt: string } {
-    if (origin.kind === 'edit') {
-        const { bindingId, state, createdAt } = origin.binding;
-
-        return { bindingId, state, createdAt };
-    }
-
-    return { bindingId: `bnd-${newCorrelationId()}`, state: 'active', createdAt: stamp };
-}
-
-/**
- * Read one form draft, answered as a ready binding or the problems.
- *
- * Called in two modes, and the mode is the whole difference: with no
- * {@link DraftEditTarget} this reads the **add** form and mints a new row;
- * with one it reads the **edit** form, keeping the selected row's id,
- * creation stamp, state, and account (the editor renders that account fixed,
- * so the stored values are the displayed ones). Everything else —
- * repository, project, triggers, worktree option — is read from the draft in
- * both modes, which is what makes a loaded draft and the row it saves the
- * same values (005 FR-050: one whole-file write, no second write path).
- *
- * @param bindings - Panel state to read the draft from.
- * @param edit - The row being edited, or absent for the add form.
- * @returns The binding, or `null` (the note then says why).
- */
-export function readDraft(bindings: BindingsTabState, edit?: DraftEditTarget): PreparedBinding | null {
-    const origin = draftOrigin(bindings, edit);
-    if (origin === null) {
-        return null;
-    }
-
-    const label = draftRepository(bindings, origin);
-    if (label === null) {
-        return null;
-    }
-
-    const account = draftAccount(bindings, origin);
-    if (account === null) {
-        return null;
-    }
-
-    const projectId = draftProject(bindings);
-    if (projectId === null) {
-        return null;
-    }
-
-    const stamp = nowIso();
-
-    return {
-        ...draftIdentity(origin, stamp),
-        accountNumericUserId: account.accountNumericUserId,
-        accountLogin: account.accountLogin,
-        repository: label,
-        projectId,
-        worktreeOption: bindings.worktreeSelection,
-        triggers: {
-            assignment: bindings.triggerAssignment,
-            mention: bindings.triggerMention,
-            reviewRequest: bindings.triggerReviewRequest,
-        },
-        updatedAt: stamp,
-    };
-}
 
 /**
  * Load the bindings, their scan status, and the registered accounts the
@@ -472,11 +259,17 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
     const prompt = bindings.startingPromptDirty
         ? { bindingId: draft.bindingId, startingPrompt: bindings.startingPromptInput }
         : undefined;
+    // The allow-list rides this write the same way (002 FR-047): a brand-new row
+    // has no policy yet, so a field the operator never touched creates the
+    // binding open, and a touched one travels with it. A cleared field omits the
+    // key, which for a new row is the same unset state.
+    const actors = allowedUsersPatch(bindings, draft.bindingId);
     const answer = await grantBindings({
         rt,
         bindings: [...bindings.bindings, draft],
         note: `Bound ${draft.repository} to ${draft.accountLogin}.`,
         ...(prompt === undefined ? {} : { prompt }),
+        ...(actors === undefined ? {} : { actors }),
     });
     resetCoveredDraft(bindings, draft.repository);
     if (answer.ok) {
@@ -484,9 +277,14 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
         bindings.startingPromptDirty = false;
         bindings.startingPromptError = null;
         bindings.startingPromptInput = '';
+        bindings.allowedUsersDirty = false;
+        bindings.allowedUsersError = null;
+        bindings.allowedUsersInput = '';
     } else {
         const refusal = promptRefusal(answer);
         bindings.startingPromptError = refusal === null ? null : redact(refusal);
+        const actorsRefused = actorsRefusal(answer);
+        bindings.allowedUsersError = actorsRefused === null ? null : redact(actorsRefused);
     }
 
     refresh(rt);

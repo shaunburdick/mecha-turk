@@ -9,6 +9,13 @@
  * **independently testable** as "what does this member mean", which is a
  * different question from "what shape does the whole row have".
  *
+ * The references' **reveal** lives here too, beside their reader: one reference
+ * has one description, so one module is where that description is (005 FR-048,
+ * FR-094). It moved out of `dispatches-controls.ts` when the actor clause made
+ * that module cross the file-length cap, and it belonged here either way — the
+ * controls that *mount* the reveal stay beside the controls that mount
+ * everything else on that tab.
+ *
  * Named `dispatches-*` rather than `runs-*` because 005 T-003 **retired** the
  * `runs*` prefix in this directory: `runs.ts` and `runs-ui.ts` became
  * `dispatches.ts` and `dispatches-ui.ts`, and `tests/vocabulary.test.ts` fails on
@@ -36,10 +43,13 @@
  *   no path into a panel document from here.
  */
 
+import type { ListItem } from '@openchamber/sdk/ui';
 import { asRecord } from './json.ts';
+import { utcStamp } from './ids.ts';
 import { eventKindOf } from './bindings-service.ts';
-import { actorFieldsOf } from './run-actor.ts';
+import { actorFieldsOf, actorPhrase } from './run-actor.ts';
 import type { ActorAttribution } from './run-actor.ts';
+import type { RunRow } from './dispatches-service.ts';
 
 /** Trigger kinds the runs row can carry; anything else reads as `assignment`. */
 export type RunKind = 'assignment' | 'mention' | 'review';
@@ -243,4 +253,44 @@ export function parseVerification(value: unknown): RunVerification | null | unde
     }
 
     return { observedAgent, expectedAgent: baseline, ok: record.ok, note };
+}
+
+/**
+ * One line per retained source reference: kind, origin, time, link, the actor
+ * with its basis, and the late mark (AC-120, 005 FR-094).
+ *
+ * The actor clause comes from `run-actor.ts` so this reveal, the row's own
+ * reason list, and the Basis itself are worded in exactly one place
+ * (002 NFR-011, 005 FR-094).
+ *
+ * @param reference - One retained source reference.
+ * @returns The reference's line, unredacted — the caller renders it as text.
+ */
+function referenceLine(reference: RunReference): string {
+    const late = reference.presentAtAuthorization
+        ? ''
+        : ' — arrived after authorization, so it may not have been seen by the agent';
+
+    return `${reference.kind} · from ${reference.origin} · detected ${utcStamp(reference.detectedAt)}`
+        + ` · ${reference.sourceUrl} · ${actorPhrase(reference)}${late}`;
+}
+
+/**
+ * Every source reference of one row, as the reveal lists them (FR-048, AC-120).
+ *
+ * @param row - The selected row.
+ * @returns One line per retained reference, earliest first.
+ */
+export function referenceDetailLines(row: RunRow): readonly string[] {
+    return row.sourceReferences.map((reference) => referenceLine(reference));
+}
+
+/**
+ * The same lines as list items, each keyed so the list cannot collide (FR-080).
+ *
+ * @param row - The selected row.
+ * @returns The reveal's items.
+ */
+export function referenceDetailItems(row: RunRow): ListItem[] {
+    return referenceDetailLines(row).map((line, index) => ({ id: `${row.id}#${index}`, title: line }));
 }
