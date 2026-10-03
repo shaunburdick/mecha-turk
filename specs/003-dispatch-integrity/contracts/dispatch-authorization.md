@@ -4,6 +4,8 @@
 
 **Amended 2026-10-03** for the actor allow-list gate (GitHub issue #9): **§1** gains the `actorPolicy` details and the `409 actor-not-allowed` refusal row, **§2** gains the same detail, **§4** names `actor-not-allowed` as the **fifth** allowed `blockedReason`, **§9** names the gate as one of the refusals the row covers, and the error-code table gains the code. **No operation is added, no method or path changes, no existing code changes meaning, and no audit `eventType` is added.**
 
+**Amended 2026-10-03** for the block-report conformance that follows it (GitHub issue #9, v1.10.0): **§1**'s refusal table gains the **value-free** `referenceWindow` member on the `409 actor-not-allowed` rows, **§4** records that the panel's account of the block branches on that member rather than on the message, **§9** records that the member rides the **refusal envelope only** and gains the audit row nothing, and the error-code table's note records that the member is present on that code only. **No operation, method, path, status, code, or audit `eventType` is added, no detail key is added, and no member is renamed or retyped.**
+
 Every operation below is **run-scoped**: the path segment is the run's **correlation id** (`mt-run-…`), not a delivery id (wire delta: "Addressed by the run, not the delivery"). Paths keep their existing suffixes where they exist (`/dispatched`, `/retry`); new operations take verb suffixes under the same `/v1/events/:correlationId/` prefix. Co-ship assumption: [README](./README.md).
 
 **Common body fields**: `correlationId` (echo of the path id — FR-051) on every operation, and `attempt` **where the section's body carries it (§1–§6)**, plus `leaseId` / `dispatchToken` where a section states them. §7 and §8 declare neither an attempt nor a lease: their request shapes below are the whole of what they require, and requiring a member they do not carry would be a wire change this contract does not ask for. The service validates **all** of what a section names; a mismatch of any is a refusal, never a partial apply.
@@ -63,9 +65,9 @@ already records.
 | run already holds a live reservation | 409 | `already-reserved` | names the reservation's attempt and deadline; one run holds at most one live authorization |
 | run already has a recorded session | 409 | `already-dispatched` | **names the existing session id** (FR-022, AC-112) |
 | run not in `claimed` | 409 | `invalid-transition` | names the current state (`pending`, `starting`, `dispatched`, `failed`, `unconfirmed`, `dead-lettered`, `blocked:*`) |
-| **no source reference on the run names an actor the binding's allow-list allows** (v1.8.0) | 409 | **`actor-not-allowed`** | **names every denied login and each one's attribution basis**; it never names a *permitted* login. **The panel must not call `host.startSession()` after this** — it reports `blocked:actor-not-allowed` through §4 instead (FR-078) |
-| **a reference's actor is absent, empty, or bot-shaped** (v1.8.0, FR-080) | 409 | **`actor-not-allowed`** | names the unreadable actor and the fact that no readable actor was recorded — **never** admitted on the strength of the list, and never waved through by an absent policy |
-| **the binding or its document cannot be read** (v1.8.0) | 409 | **`actor-not-allowed`** | names *which* failure it was (unknown binding id · bindings document unusable). Fail-closed: a policy that cannot be judged is never treated as permissive (constitution II) |
+| **no source reference on the run names an actor the binding's allow-list allows** (v1.8.0) | 409 | **`actor-not-allowed`** | **names every denied login and each one's attribution basis**; it never names a *permitted* login. **The panel must not call `host.startSession()` after this** — it reports `blocked:actor-not-allowed` through §4 instead (FR-078). Carries the **value-free** `referenceWindow` member (v1.10.0) |
+| **a reference's actor is absent, empty, or bot-shaped** (v1.8.0, FR-080) | 409 | **`actor-not-allowed`** | names the unreadable actor and the fact that no readable actor was recorded — **never** admitted on the strength of the list, and never waved through by an absent policy. Carries the **value-free** `referenceWindow` member (v1.10.0) |
+| **the binding or its document cannot be read** (v1.8.0) | 409 | **`actor-not-allowed`** | names *which* failure it was (unknown binding id · bindings document unusable). Fail-closed: a policy that cannot be judged is never treated as permissive (constitution II). Carries the **value-free** `referenceWindow` member (v1.10.0) |
 | unknown run / bad id shape | 404 | `unknown-run` | unchanged catalog |
 
 **The admitted rule, stated once (FR-077)**: a run **coalesces** deliveries from several people
@@ -115,6 +117,32 @@ A refused reserve never writes `dispatch.reserved` (no reservation exists); it w
 > refuses to create it (NFR-113). No existing detail key, entity, or correlation id is renamed,
 > retyped, or removed. The field itself and its three states are 002's, specified in
 > [`002-agent-event-extension/contracts/binding-allow-list.md`](../../002-agent-event-extension/contracts/binding-allow-list.md).
+
+> **v1.10.0's additive delta — `referenceWindow` (built)**: the **`409 actor-not-allowed` refusal rows above
+> gain one member on the refusal answer**, `referenceWindow`, whose value is the closed pair
+> `'complete' | 'truncated'` — whether the gate could see the run's **whole retained** source-reference list or a
+> **cut** one. It answers the one question the gate's own set quantifier cannot: the verdict runs over the
+> **retained** references, and the run layer stops retaining at the cap (data-model §3), so on a run whose list
+> was cut the reference that would have authorized it may be among the dropped ones — visible under **no**
+> policy, and therefore clearable by **no** allow-list edit and by **no** retry, because the retry re-judges the
+> same list. The word and the message's trailing clause are **the same read in two forms**: the prose is for the
+> operator, the member is for the panel, and neither derives the other by parsing.
+>
+> Four properties are the member's contract, not implementation notes:
+>
+> - **Present on every refusal that code produces**, so a reader is never left guessing whether it was told —
+>   including the two refusals that name no login at all.
+> - **Absent on every other code**, and absent from any answer by a build older than v1.10.0.
+> - **Never defaulted.** Absence means *unreported*, never `complete` — which is exactly why it is a closed
+>   **word** and not a boolean: a reader handed `false` could not tell *"the decision saw the whole list"* from
+>   *"this build reports no window"*, and defaulting `false` would hand an ordinary refusal a truncated-list
+>   reading. A reader must **refuse** a word outside the pair rather than guess at one.
+> - **Value-free by construction** (NFR-113): two words about a list, never a login. It rides the **refusal
+>   envelope only** — see §9.
+>
+> The panel is the member's **only** reader. It cannot see the gate's chain task, so deriving the window from a
+> document read at another moment would be a stale second opinion and matching the message would be a parse of a
+> sentence the panel is only obliged to display. §4 governs what the panel then does with it.
 
 ---
 
@@ -199,6 +227,21 @@ Valid **only from `claimed` with the live lease** (a guard runs after claim, bef
 > the binding. **One refinement beyond the guard family**: the `attempt` is still untouched and no
 > requeue budget is consumed (it is a guard refusal), and the sweep never touches a `blocked:*` run
 > — so the run waits for the operator, not for a clock, and becomes retryable once the cause clears.
+>
+> **What `guidance` may say depends on §1's `referenceWindow` (v1.10.0), not on the block report's own fields.**
+> The panel has no way to see the gate's chain task, so the *only* honest source for the window the decision saw
+> is the member the refusal carried. On `'complete'` — and on an answer with no member at all, which is a build
+> older than v1.10.0 and is answered exactly as v1.8.0 was — `guidance` names the field that restricts the
+> binding. On `'truncated'` it MUST state that the allow-list cannot clear the run and MUST **not** instruct an
+> allow-list edit followed by a retry, because the permitted actor may be among the references the cap dropped.
+> The panel MUST NOT derive the word from `detail`'s prose, from a count it computes itself, or from a run
+> document read at another moment, and it MUST **refuse** a word outside the pair rather than guess at one — an
+> unknown word lands on the `'complete'` advice, which is the direction that is safe to be wrong in, because the
+> wrong branch would have an operator dead-letter a run one login would have dispatched. `guidance` may name no
+> control the state→affordance table does not offer for a `blocked:<reason>` run (FR-041, FR-074 — the
+> affordance table is **005's**; §6 states which blocked causes this service will corroborate, and
+> `blocked:actor-not-allowed` is retryable in form and refused in fact), and may carry no **permitted**
+> login (NFR-113).
 
 ---
 
@@ -308,6 +351,14 @@ is `bindings.json` and a copy of it in a retained file is a liability, not an au
 002 NFR-011 binds the wording: a row may never state that a denied actor *caused* anything — a
 `subject-author` row must say it is a proxy.
 
+**`referenceWindow` is not one of this row's details (v1.10.0).** The member rides the **refusal
+envelope** (§1) and reaches the panel, which is its only reader; the row gains nothing by it. That is
+deliberate and follows from the row's own rule above — the run's reference counts and its
+`referencesTruncated` flag are already recorded on the row, so a machine reader of the trail can tell a cut
+list from a whole one without a second copy of the same word, while the panel, which holds no audit-trail read
+on this path, gets exactly one place to learn it. Adding the member here would put a second expression of one
+read in a retained file for no reader that lacks one.
+
 The row set is deliberately narrower than "any `4xx`". A state verdict is
 refused inside its operation module, which reads the run and owes the row; a
 `422` is refused in the route layer before any operation runs, so the route
@@ -385,6 +436,16 @@ safety never depended on being unknown.
 | 409 | **`actor-not-allowed`** | **new at v1.8.0.** No source reference on the run names an actor the binding's `allowedUsers` allows; **or** a reference's actor is absent, empty, or bot-shaped (FR-080); **or** the binding or its document cannot be read, so the policy cannot be judged | "nobody who triggered this run is on the binding's allow-list — `<denied logins>`" / "this run carries no readable actor" / "the binding's allow-list could not be read". **The panel must not call `host.startSession()` after this**; it reports `blocked:actor-not-allowed` (§4) |
 
 No existing code changes meaning; `422 validation` continues to cover malformed bodies without echoing values.
+
+> **`referenceWindow` rides this code only (v1.10.0).** Of the codes in the table above, **exactly one** —
+> `actor-not-allowed` — answers with the **value-free** `referenceWindow` member, on **every** refusal it
+> produces. No other code carries it, no other code may gain it without the same specification decision that
+> added this one, and it is **never defaulted**: an answer without it is a build older than v1.10.0, and absence
+> means *unreported* rather than `'complete'`. It is a **member** rather than something derived from
+> `message` because the service is the only party that knows which list its decision saw — a caller that
+> inferred it would either re-read a document at a later moment (a stale second opinion about a decision already
+> made) or parse English the service is only obliged to display. §1 carries the member's full rules; §4
+> governs the one reader that has an obligation to act on it.
 
 > **Cost note (v1.8.0, NFR-114).** The authorized path is **unchanged**: the gate reads one local
 > JSON document inside the reserve's existing chain task — no panel↔service round trip, no network
