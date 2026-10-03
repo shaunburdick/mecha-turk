@@ -10,10 +10,12 @@
 - **Branch**: `keen-zebra` (clean — no commits yet; 16 dirty spec files)
 
 ## Current State
-- **Phase**: 6 (implementation) — **Wave 0**, awaiting user confirmation of the wave plan
-- **Completed**: intake, phases 1–3 (spec), phases 4–5 (plan/tasks), all three gates approved
-- **In Progress**: none — no sub-agent dispatched for implementation
-- **Blocked**: none
+- **Phase**: 6 **COMPLETE** — PR open, CI green, awaiting human merge
+- **PR**: https://github.com/shaunburdick/mecha-turk/pull/12 (`verify` PASS, attempt 1/3)
+- **Spec**: 004 **v1.4.2** (docs-only correction post-review); 005 v1.10.0; 006 v1.6.0
+- **Completed**: phases 1–6, all 22 tasks, both pre-PR reviews, 6 commits (`e32c99d`, `aedb0ac`, `cac1c8f`, `295ef3d`, `4ec25e7`, `5ac6d18`), issue #10 commented
+- **In Progress**: none — CI green on PR #12
+- **Blocked**: none — **awaiting human merge** (merging is never an agent decision)
 
 ## Decisions Made
 1. **Layered, not fallback** — global → account → binding → event frame; amends 004 FR-072's reserved fallback chain (owner, issue #10).
@@ -38,10 +40,14 @@ Critical path: T-017 → 018 → 019 → 020 → 021 → 030 → 032 → 035 →
 Co-ship edge: writers T-024/25/26 → closed reader T-027.
 
 ## Next Steps
-1. Get user confirmation of the wave plan (orchestration skill requires it).
-2. Dispatch Wave 1 to `modern-architect-engineer`; run `npm run verify` + rebuild bundles at the boundary; checkpoint with the user.
-3. Repeat per wave; `code-quality-reviewer` earns a slot at Wave 2 (shared wire contract), the security-sensitive wave, and Wave 4 (pre-PR). `security-auditor` if secrets/credential paths are touched.
-4. Pre-PR checklist → PR (ai-attribution footer) → human merge.
+1. **Product owner merges PR #12** — `Closes #10` fires automatically.
+2. If CI fails on a later run: max 3 attempts total, then escalate to the owner (currently attempt 1 of 3, passing).
+3. Post-merge: version bump + release is an owner call (`AGENTS.md` invariant 2 — stay pre-1.0.0 until the public 1.0.0 release).
+
+## Declined findings (recorded, not implemented)
+- `2,000` hardcoded in two guidance strings (drifts only if FR-021's tunable range is used)
+- comment/body-count mismatch in one test
+- speculative XSS / host-echo vectors (already covered by redaction + text sinks)
 
 ## User Preferences
 - Product owner is **Shaun Burdick**; source request is GitHub **issue #10**.

@@ -1,6 +1,7 @@
 # Orchestration: 004 Layered Starting Prompt (v1.4.2) — Phase 6
 
-**Status**: Wave 0 — awaiting user confirmation to start Wave 1
+**Status**: **PR OPEN** — https://github.com/shaunburdick/mecha-turk/pull/12
+**CI**: `verify` **PASS** (1m57s, attempt 1 of 3) — awaiting human merge
 **Branch**: `keen-zebra` (protected: `main`, `master`, `develop` — never commit to them)
 **Owner**: project-manager (driving orchestration in-session; user chose this over handoff)
 **Started**: 2026-10-02
@@ -39,11 +40,11 @@
 | T-017 | 1 | done (e32c99d) | modern-architect-engineer | shared `PromptSource` vocabulary, `src/prompt.ts` |
 | T-018 | 1 | done (e32c99d) | modern-architect-engineer | resolver + stacked snapshot; `promptSnapshotOf` → `promptTierOf` rename |
 | T-019…T-021 | 2 | pending | — | Track G: config field (global tier) |
-| T-023 | 2 | pending | — | Track A: account record member + **profile PUT** (absorbed T-022) |
+| T-023 | 2 | **done** | waves 2-4 | Track A: account record member + **profile PUT** (absorbed T-022) |
 | T-024…T-026 | 2 | pending | — | Track W: wire/projection writers |
-| T-027 | 2 | pending | — | closed reader (`src/prompt-wire.ts`) — after T-024/25/26 |
+| T-027 | 2 | **done** | waves 2-4 | closed reader (`src/prompt-wire.ts`) — after T-024/25/26 |
 | T-028…T-031 | 3 | pending | — | panel ∥ (T-031 depends on T-023) |
-| T-032 | 3 | pending | — | merge point |
+| T-032 | 3 | **done** | waves 2-4 | merge point |
 | T-033…T-038 | 4 | pending | — | T-034 sequential after T-033 (same test file) |
 
 ## Decisions
@@ -69,12 +70,14 @@ _None._
 | Wave | Gate | Result | Evidence |
 |---|---|---|---|
 | — | phases 1–5 | **approved** | 004 v1.4.2 / 005 v1.10.0 / 006 v1.6.0, zero `[NEEDS CLARIFICATION]` |
-| 1 | `npm run verify` | not run | — |
-| 2 | `npm run verify` | not run | — |
-| 3 | `npm run verify` | not run | — |
-| 4 | `npm run verify` (release-candidate) | not run | — |
+| 1 | `npm run verify` | **PASS** | 537 tests, commit `e32c99d` |
+| 2 | `npm run verify` | **PASS** | 570 tests, commit `cac1c8f` |
+| 3 | `npm run verify` | **PASS** | 584 tests, commit `295ef3d` |
+| 4 | `npm run verify` (release-candidate) | **PASS** | 595 tests, commit `4ec25e7` |
+| pre-PR fixes | `npm run verify` | **PASS** | 599 tests, commit `5ac6d18` |
+| CI | `gh pr checks 12 --watch` | **PASS** | run 37088103681, 1m57s, attempt 1/3 |
 
-**Last gate result**: n/a — Wave 1 not yet dispatched.
+**Last gate result**: CI green on PR #12. Reviews: code-quality APPROVE, security APPROVE (no blocking findings); 5 findings fixed in `5ac6d18`; 3 declined (recorded in the PR).
 **Failure classification taxonomy**: regression | environment/infrastructure | flaky | performance/timeout | blocked-by-permission.
 
 ## Budget
@@ -89,4 +92,6 @@ _None._
 
 ## Next action
 
-**Await user confirmation of the wave plan, then dispatch Wave 1** (T-017 → T-018, sequential, one `modern-architect-engineer`) with: paths to spec v1.4.1 / plan / tasks / AGENTS.md / constitution, the `git-safety` + `ai-attribution` + `code-quality` + `style` skill instruction, scoped tests (`tests/prompt-validation.test.ts`, `tests/prompt-snapshot.test.ts`, `tests/service-runs-parse.test.ts`), and instruction to run `npm run build` + `npm run verify` and commit on `keen-zebra` with the `Generated-By` trailer.
+**Awaiting human merge of PR #12.** Merging is always the product owner's decision. All 22 tasks checked, all gates green, issue #10 commented with the implementation summary and PR link (`Closes #10` in the PR body).
+
+If CI goes red on a later attempt: max 3 attempts, then escalate. Attempt count is currently **1 of 3 (passing)**.
