@@ -91,6 +91,7 @@
     },
     "config": {
         "config": {
+            "startingPrompt": "Reproduce the failure first, then patch.\nSay so plainly in the summary.",
             "intervalMs": 60000,
             "overlapMs": 600000,
             "perPage": 30,
@@ -106,6 +107,16 @@
             "expectedAgent": ""
         },
         "fields": [
+            {
+                "name": "startingPrompt",
+                "kind": "string",
+                "unit": null,
+                "format": "text sent to the agent verbatim, with no placeholders; at most 2000 code points after trimming; credential-shaped, reserved-marker, and control characters refused rather than stored; empty means the global prompt tier is unset; the session still runs the pinned Default Agent, which this text cannot change",
+                "maxLength": 2000,
+                "default": "",
+                "takesEffect": "next-cycle",
+                "multiline": true
+            },
             {
                 "name": "intervalMs",
                 "kind": "integer",
@@ -292,6 +303,7 @@
                 "numericUserId": "77331",
                 "login": "octocat-mt",
                 "displayName": "Mecha Turk bot",
+                "startingPrompt": null,
                 "state": "active",
                 "connectionState": "connected",
                 "verifiedAt": "2026-09-30T19:58:00.000Z",
@@ -309,6 +321,7 @@
                 "numericUserId": "331468173",
                 "login": "prompt-it-so",
                 "displayName": null,
+                "startingPrompt": "Reproduce first, then patch. Say so plainly in the summary.",
                 "state": "active",
                 "connectionState": "needs reconnection",
                 "verifiedAt": "2026-09-30T19:58:00.000Z",

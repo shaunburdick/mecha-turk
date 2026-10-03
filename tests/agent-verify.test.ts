@@ -361,6 +361,7 @@ const CLAIM: ClaimedRun = {
     promptPresent: false,
     promptFingerprint: null,
     promptLength: null,
+    promptSources: null,
     promptText: null,
 };
 
@@ -497,6 +498,7 @@ const RUN_ROW: RunRow = {
     promptPresent: false,
     promptFingerprint: null,
     promptLength: null,
+    promptSources: null,
 };
 
 describe('relay dispatch → verification wiring (M9 in the real path)', () => {

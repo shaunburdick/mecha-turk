@@ -32,6 +32,30 @@ export const RESPONSE_BODY_MAX_CHARS = 256_000;
 /** Content type written on every response. */
 export const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 
+/**
+ * Longest unknown **field name** a `422` echoes back.
+ *
+ * A member name is submitted input too, so the envelope that restates every
+ * `field: remediation` pair bounds it: a name longer than this is cut rather
+ * than carried whole into `issues[].field` and the `message` built from it.
+ * It lives here — beside {@link validationResponse}, the builder that restates
+ * the name — so the configuration document and the account profile body read
+ * one bound instead of two that could drift (006's unknown-field rule,
+ * mirrored by the profile route's closed-body rule).
+ */
+export const MAX_ECHOED_FIELD_CHARS = 64;
+
+/**
+ * Bound one unknown field name before it is echoed back.
+ *
+ * @param name - The offending key, exactly as it arrived.
+ * @returns The name cut to {@link MAX_ECHOED_FIELD_CHARS} with a trailing
+ *   ellipsis when it is longer, otherwise the name unchanged.
+ */
+export function truncatedFieldName(name: string): string {
+    return name.length > MAX_ECHOED_FIELD_CHARS ? `${name.slice(0, MAX_ECHOED_FIELD_CHARS)}…` : name;
+}
+
 /** HTTP status codes the service emits (contract §4 error catalog). */
 export const STATUS = {
     ok: 200,

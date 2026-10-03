@@ -91,29 +91,67 @@ dispatch's whole trail — creation, claim, authorization, result, verification
 
 ### Starting prompt (004)
 
-`bindings.json` also holds one optional per-binding **starting prompt**: a block of operator text the session opens with, above the automatic framing. The field lives in the **Bindings editor** on the *Bindings* tab (005 T-021); the store file holds the same value and remains the low-level set path.
+The starting prompt is a block of operator text the session opens with,
+above the automatic framing — and it exists at exactly **three tiers**:
 
-- **Set it** in the binding editor's starting-prompt field, or directly in the file by adding `"startingPrompt": "…"` to a binding record in `bindings.json` (same file, same permissions: dir `0700`, files `0600`).
-- **Clear it** by leaving the member out, or by writing `null` / `""`. A binding with no prompt dispatches byte-identically to what it dispatched before this field existed.
-- **The text is literal — no placeholders.** Nothing is substituted or expanded; `{number}` arrives as those seven characters.
+| Tier | Covers | Set it on |
+| --- | --- | --- |
+| **Global** | every dispatch the service detects | **Settings** → the `startingPrompt` row (004 FR-081) |
+| **Account** | every dispatch polled by that GitHub account | **Accounts** → the account's *Starting prompt* field, saved by `PUT /v1/accounts/:numericUserId` (absent member = unchanged) |
+| **Binding** | every dispatch from that binding | **Bindings** → the binding editor's starting-prompt field (005 T-021) |
+
+- **The tiers stack, most general first** — global → account → binding, one
+  blank line between consecutive set tiers, all of them inside the single
+  `--- BEGIN OPERATOR STARTING PROMPT ---` fence with the automatic frame
+  beneath. **An unset tier contributes nothing**: no empty line, no
+  placeholder, no note — and with all three unset the message is byte-identical
+  to the pre-004 composition. No tier labels appear in the message; the tiers
+  that contributed are named as `promptSources` on the dispatch row and in the
+  audit trail instead.
+- **Set it** on the surface in the table — one field per tier, each value
+  rendered exactly once in the panel, each showing an explicit *not set* state
+  while empty. One validator guards all three save paths; a refusal at one
+  tier never touches the other two.
+- **Clear it** by emptying that tier (or, in a store record, leaving the member
+  out / writing `null` / `""`). A tier with no prompt contributes nothing, and
+  a binding with no prompt at all dispatches byte-identically to what it
+  dispatched before this field existed.
+- **The text is literal — no placeholders.** Nothing is substituted or expanded;
+  `{number}` arrives as those seven characters.
 - **The session's agent is your pinned Default Agent, and the text cannot change it.** A prompt that names an agent is delivered as ordinary instruction text.
-- **2,000 characters** (Unicode code points) after trimming; longer values are refused naming the field and the cap, never truncated.
+- **2,000 characters** (Unicode code points) after trimming, **per tier**; longer values are refused naming the field and the cap, never truncated.
 - **A credential-shaped value is refused, not stored.** The save is blocked, the previous prompt stays in force, and the rejected value reaches no file, log, audit row, or bundle.
 - **Omission preserves on a whole-file save.** `PUT /v1/bindings` replaces the whole list, so a binding submitted *without* the member keeps whatever the store already holds for it — only an explicit value changes it. The panel saves this way, so your prompt survives an unrelated save.
 - **Malformed values quarantine the file** with `startingPrompt: <remediation>` logged (never the value); every binding stops scanning until you repair it.
 
-Each change writes one `binding.prompt-updated` row to `audit.ndjson` — binding id, `mtp-…` fingerprint, presence, length, actor — never the text. The instruction lives in exactly two places: the binding record and the run's snapshot taken when the event was detected, so an edit never changes queued work and a retry composes a byte-identical message.
+#### The store files are the low-level path
+
+The stores hold the same values — `bindings.json` (binding tier), the account
+records under `accounts/` (account tier), and `config.json` (global tier), all
+under `~/.config/openchamber/mecha-turk/` (dir `0700`, files `0600`). The
+fields above are the primary set path; the files are the validated low-level
+one: add `"startingPrompt": "…"` to the record you want, or leave the member
+out / write `null` / `""` to clear it.
+
+Each change writes exactly one audit row for its tier —
+`binding.prompt-updated`, `account.prompt-updated`, or a `config.changed`
+row whose `from`/`to` for this field are fingerprints (`mtp-…`) or `null` —
+naming the entity, the `mtp-…` fingerprint, presence, length, actor — never
+the text. The instruction lives in exactly two places: that tier's own record
+and the snapshot taken when the event was detected, so an edit never changes
+queued work and a retry composes a byte-identical message.
 
 ### Configuration (the Settings tab)
 
 The **Settings** tab is the **single configuration input** for the whole
-service configuration: the eleven documented fields plus `expectedAgent` — poll
-interval, overlap window, page size, the retry bounds, audit and excerpt
-retention, the lease and result deadlines, the log level, and the
-agent-verification baseline — each rendered from the service's own declaration
-with its value, its unit, its bounds or format, and the line that says **when
-a change takes effect** (*takes effect immediately*, *in effect from the next
-poll*, *in effect from the next dispatch*).
+service configuration: every documented field — poll interval, overlap
+window, page size, the retry bounds, the audit limits, excerpt retention, the
+lease and result deadlines, the log level, the agent-verification baseline
+(`expectedAgent`), and the global starting prompt (`startingPrompt`) — each
+rendered from the service's own declaration with its value, its unit, its
+bounds or format, and the line that says **when a change takes effect**
+(*takes effect immediately*, *in effect from the next poll*, *in effect from
+the next dispatch*).
 
 Editing is live: one save writes the whole document and the service is the
 only validator, so a value outside a field's bounds is sent and refused there

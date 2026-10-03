@@ -9,7 +9,8 @@
  */
 
 import type { ServiceLogger } from '../log.ts';
-import { currentIntervalMs, describeKind, runScanCycle } from './loop.ts';
+import { currentIntervalMs, describeKind } from './cycle-config.ts';
+import { runScanCycle } from './loop.ts';
 import { createGitHubIssuePoller } from './poller-github.ts';
 import type { GitHubIssuePoller } from './poller-github.ts';
 import type { PollLoop, PollLoopState, ScanDeps } from './loop.ts';

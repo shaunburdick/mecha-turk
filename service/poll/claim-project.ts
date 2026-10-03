@@ -17,6 +17,7 @@
  * claim answer, data-model §2.3).
  */
 
+import type { PromptSource } from '../prompt.ts';
 import { projectReferences, RUN_EXCERPT_MAX_CHARS } from './claim-bounds.ts';
 import type { BoundedReference } from './claim-bounds.ts';
 import type { QueuedEvent } from './events-parse.ts';
@@ -111,6 +112,17 @@ export interface ClaimedRun {
     /** Code points of the normalised prompt, or `null` when none. */
     readonly promptLength: number | null;
     /**
+     * The tiers that contributed, most general first (004 FR-087).
+     *
+     * A duplicate-free subsequence of `global, account, binding` whenever a
+     * prompt is present, and an explicit `null` whenever it is not — the two
+     * are the same fact stated twice (FR-087's invariant), and the projection
+     * never has to reconcile them because the run reader already refused any
+     * snapshot that could disagree with itself. Like every other member here
+     * it is credential-free by construction: names of tiers, never their text.
+     */
+    readonly promptSources: readonly PromptSource[] | null;
+    /**
      * The text the composition fences — **claim transport only**.
      *
      * Exactly like `sourceReferences[].excerpt`: carried so the panel can
@@ -189,12 +201,21 @@ function deliveryView(input: {
 /**
  * The prompt members of a claim entry, read off the run's own snapshot.
  *
- * An unset run answers all four **explicitly** (`false`, `null`, `null`,
- * `null`): the co-ship build parses them, and an explicit `null` is a truer
- * answer than an absent key for a boolean the panel has to act on.
+ * An unset run answers all five **explicitly** (`false`, `null`, `null`,
+ * `null`, `null`): the co-ship build parses them, and an explicit `null` is a
+ * truer answer than an absent key for a boolean the panel has to act on — and
+ * for the ordered source list beside it (004 FR-087: `promptPresent === true`
+ * ⇔ a non-empty `promptSources`, `false` ⇔ `null`).
+ *
+ * `promptSources` is the snapshot's own list, passed through rather than
+ * re-derived: [`service/prompt.ts`](../prompt.ts)'s stored-shape reader
+ * refused any present snapshot without a well-formed one, so the two members
+ * cannot disagree by the time a run reaches the answer.
  *
  * @param run - The run being offered.
- * @returns The four members, credential-free by construction.
+ * @returns The five members, credential-free by construction — tier names and
+ *   scalars on the wire, never the instruction's text except as claim
+ *   transport (004 FR-053, data-model §3.1).
  */
 function promptViewOf(run: Run): {
     /** Whether a starting prompt was set when this run was queued. */
@@ -203,17 +224,26 @@ function promptViewOf(run: Run): {
     readonly promptFingerprint: string | null;
     /** The length, or `null` when none. */
     readonly promptLength: number | null;
+    /** The contributing tiers, most general first, or `null` when none (FR-087). */
+    readonly promptSources: readonly PromptSource[] | null;
     /** The text, or `null` when none (claim transport only). */
     readonly promptText: string | null;
 } {
     if (run.prompt === null) {
-        return { promptPresent: false, promptFingerprint: null, promptLength: null, promptText: null };
+        return {
+            promptPresent: false,
+            promptFingerprint: null,
+            promptLength: null,
+            promptSources: null,
+            promptText: null,
+        };
     }
 
     return {
         promptPresent: true,
         promptFingerprint: run.prompt.fingerprint,
         promptLength: run.prompt.length,
+        promptSources: run.prompt.sources,
         promptText: run.prompt.text,
     };
 }

@@ -60,7 +60,7 @@
  * no row is appended, so an idle cycle costs one read and no write at all.
  */
 
-import { BINDINGS_FILE, listAccounts } from './accounts/store.ts';
+import { BINDINGS_FILE, listAccountsUnobserved } from './accounts/store.ts';
 import {
     AUDIT_FILE,
     CONFIGURATION_ENTITY_ID,
@@ -180,7 +180,11 @@ async function existingAccountIds(input: {
     readonly log: ServiceLogger;
 }): Promise<ReadonlySet<string> | null> {
     try {
-        const accounts = await listAccounts(input.store, input.log);
+        // Unobserved on purpose: a retention pass is not a read surface, and
+        // appending an observation row from inside the pass that rewrites the
+        // trail would be one writer too many (004 FR-088's lane belongs to the
+        // read funnels, not to retention).
+        const accounts = await listAccountsUnobserved(input.store, input.log);
 
         return new Set(accounts.map((account) => account.numericUserId));
     } catch (cause) {

@@ -501,6 +501,7 @@ function fixtureRow(index: number, overrides: Partial<RunRow> = {}): RunRow {
         promptPresent: false,
         promptFingerprint: null,
         promptLength: null,
+        promptSources: null,
         ...overrides,
     };
 }

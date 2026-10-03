@@ -13,6 +13,7 @@
  */
 
 import { isRecord } from '../json.ts';
+import { validateStartingPrompt } from '../prompt.ts';
 import { findSecretLeak } from '../../src/redaction.ts';
 import type { CredentialKind, ScopeCheck } from '../github.ts';
 
@@ -49,6 +50,21 @@ export interface Account {
      * reads as `null` without a migration (FR-005: the upgrade writes nothing).
      */
     readonly displayName: string | null;
+    /**
+     * The account's starting-prompt tier, or `null` when unset (004 FR-082).
+     *
+     * The record is the tier's only home, so it lives and dies with the
+     * account: `DELETE ?force=1` removes both together, rotation, login rename,
+     * and credential refresh leave it byte-identical, and a re-added account
+     * starts unset — no tier is ever seeded (FR-071). Absent in every record
+     * this build wrote before the field, which reads as `null` without a
+     * migration (FR-018: the upgrade writes nothing).
+     *
+     * A stored value that fails the one `validateStartingPrompt` refuses the
+     * whole record rather than being coerced or dropped — the store
+     * quarantines the file (FR-017's posture applied to this store).
+     */
+    readonly startingPrompt: string | null;
     /** Credential at rest; excluded from every response by {@link toAccountDto}. */
     readonly credential: CredentialRecord;
     /** FR-010 scope matrix taken at the last verification. */
@@ -77,6 +93,15 @@ export interface AccountDto {
     readonly expectedLogin: string | null;
     /** Operator-supplied display label, or `null` when unset (005 FR-066). */
     readonly displayName: string | null;
+    /**
+     * The account's starting-prompt tier, or `null` when unset (004 FR-082).
+     *
+     * Added **by name** — the projection names every member it returns, so the
+     * credential-free guarantee stays a property of the construction rather
+     * than of a denylist. Free text only: `toAccountDto` copies nothing from
+     * `credential`, and the type-level guard the suite compiles still holds.
+     */
+    readonly startingPrompt: string | null;
     /** Lifecycle state. */
     readonly state: AccountState;
     /** Last observed connection state. */
@@ -215,6 +240,21 @@ interface StoredAccountStrings {
 }
 
 /**
+ * What a stored-document parse refused, in the `field: remediation` voice.
+ *
+ * The bindings read's `RefusalNote` pattern (004 FR-019) applied to this
+ * store: the sink lets `readAccount` log *why* a file was quarantined without
+ * ever logging a byte of what it held. `reason` is written at most once —
+ * later refusals do not overwrite the first — and the refusal vocabulary never
+ * echoes a value, so a credential-shaped prompt cannot reach the log line
+ * through it (004 FR-024, AC-133).
+ */
+export interface AccountRefusalNote {
+    /** First `field: remediation` the parser refused, or `null` when none was named. */
+    reason: string | null;
+}
+
+/**
  * Narrow a value to a string or an explicit `null`.
  *
  * @param value - Candidate value from a stored record.
@@ -277,12 +317,33 @@ function readAccountStrings(raw: Record<string, unknown>): StoredAccountStrings 
 /**
  * Parse a stored document into an account.
  *
+ * Every member is checked before the record is handed back, and the account
+ * tier goes through the **one** `validateStartingPrompt` (FR-083): a document
+ * carrying a non-text, oversized, credential-shaped, or marker-bearing
+ * `startingPrompt` is refused **as a whole record** rather than read with a
+ * coerced, defaulted, or dropped member (FR-017, FR-028). The refusal's
+ * `field: remediation` is captured in `note` so the store can log why the file
+ * was set aside — never a byte of what it held.
+ *
+ * Absence and `null` are the complete "unset" state: both read as `null`, the
+ * file is neither quarantined nor rewritten (FR-018).
+ *
  * @param raw - Parsed `accounts/<id>.json` document.
+ * @param note - Sink the first field-level refusal is captured into.
  * @returns The account, or `null` when the document does not match the
  *   data-model shape (the store then quarantines it — never fail-stuck).
  */
-export function parseStoredAccount(raw: unknown): Account | null {
+export function parseStoredAccount(raw: unknown, note: AccountRefusalNote): Account | null {
     if (!isRecord(raw) || !isNumericUserId(raw.numericUserId)) {
+        return null;
+    }
+
+    // Checked first so a hand-edited prompt always reaches the note: this is
+    // the refusal the log exists to explain (the bindings read's posture).
+    const prompt = validateStartingPrompt(raw.startingPrompt);
+    if (!prompt.ok) {
+        note.reason ??= `${prompt.issue.field}: ${prompt.issue.remediation}`;
+
         return null;
     }
 
@@ -302,6 +363,7 @@ export function parseStoredAccount(raw: unknown): Account | null {
     return {
         numericUserId: raw.numericUserId,
         ...strings,
+        startingPrompt: prompt.prompt,
         credential: raw.credential,
         scopeCheck: raw.scopeCheck,
         state: raw.state,
@@ -325,6 +387,7 @@ export function toAccountDto(account: Account): AccountDto {
         login: account.login,
         expectedLogin: account.expectedLogin,
         displayName: account.displayName,
+        startingPrompt: account.startingPrompt,
         state: account.state,
         connectionState: account.connectionState,
         verifiedAt: account.verifiedAt,

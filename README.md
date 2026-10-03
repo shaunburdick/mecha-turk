@@ -60,13 +60,14 @@ The rail panel has one strip with six tabs, in order:
 ### Configuration
 
 **Settings** is the **single configuration input** for the whole service
-configuration: the eleven documented fields plus `expectedAgent` — poll
-interval, overlap window, page size, retry bounds, audit and excerpt
-retention, lease and result deadlines, log level, and the agent-verification
-baseline — each rendered from the service's own declaration with its value,
-its unit, its bounds or format, and the line that says **when a change takes
-effect**: *takes effect immediately*, *in effect from the next poll*, or *in
-effect from the next dispatch*.
+configuration: every documented field — poll interval, overlap window, page
+size, the retry bounds, the audit limits, excerpt retention, the lease and
+result deadlines, the log level, the agent-verification baseline
+(`expectedAgent`), and the global starting prompt (`startingPrompt`) — each
+rendered from the service's own declaration with its value, its unit, its
+bounds or format, and the line that says **when a change takes effect**:
+*takes effect immediately*, *in effect from the next poll*, or *in effect
+from the next dispatch*.
 
 One save writes the whole document, and the service is the only validator: an
 out-of-range value is sent and refused there, with the field and the
@@ -171,14 +172,34 @@ settings carry over, and you re-approve only if the new version asks for more.
 
 ## Starting prompt
 
-A binding can open its sessions with **your** sentence. The starting prompt is
-one block of operator text per binding, delivered to the agent verbatim as the
-first thing it reads, above the automatic framing Mecha Turk builds from the
-event. It is configuration, not a template, and it is per binding only —
-there is no account-level or global prompt, and no default is ever invented
-for a binding that has none.
+A dispatch can open its session with **your** sentence. The starting prompt
+is a block of operator text delivered to the agent verbatim as the first
+thing it reads, above the automatic framing Mecha Turk builds from the event.
+It is configuration, not a template, and it exists at exactly **three tiers**:
 
-What the field guarantees:
+| Tier | What it covers | Where you set it |
+| --- | --- | --- |
+| **Global** | every dispatch the service detects | **Settings** → the `startingPrompt` row |
+| **Account** | every dispatch polled by that GitHub account | **Accounts** → that account's *Starting prompt* field |
+| **Binding** | every dispatch from that repository binding | **Bindings** → the binding editor's starting-prompt field |
+
+**The tiers stack — they never replace one another.** The order is fixed:
+**global → account → binding**, most general first, with one blank line
+between consecutive set tiers, all of them inside the single
+`--- BEGIN OPERATOR STARTING PROMPT ---` fence and the automatic event frame
+beneath it. **An unset tier contributes nothing** — no empty line, no
+placeholder, no note about its absence — so a dispatch whose three tiers are
+all unset carries no fence at all, byte-identical to what Mecha Turk sent
+before this field existed. The message itself carries **no tier labels**:
+which tiers produced a dispatch is recorded on that dispatch's row and in the
+audit trail as `promptSources` (`global`, `account`, `binding`), never read
+back out of the text. No default is ever invented at any tier — layering is
+the stacking of *your* text, never the product's own.
+
+### What the field guarantees
+
+The same rules apply at every tier, enforced by one validator at all three
+save paths:
 
 - **The text is literal — no placeholders.** `{number}`, `$var`, and `%s`
   arrive as those exact characters. Nothing is substituted, expanded, or
@@ -187,8 +208,10 @@ What the field guarantees:
   change it.** The prompt is instruction, never a selector: no wording in it
   selects an agent, model, or variant, and the post-dispatch read-back still
   reports the agent the session actually ran under.
-- **2,000 characters** (Unicode code points) after trimming. A longer value is
-  refused naming the field and the cap — it is never truncated silently.
+- **2,000 characters** (Unicode code points) after trimming, **per tier**. A
+  longer value is refused naming the field and the cap — it is never
+  truncated silently, and a refusal at one tier leaves the other two stored
+  values untouched.
 - **A credential-shaped value is refused, not stored.** If the text looks like
   a token, an `Authorization:` header, or a bearer credential, the save is
   refused, the previously stored prompt stays in force, and the rejected value
@@ -204,15 +227,35 @@ What the field guarantees:
 
 ### Setting it
 
-The field lives in the **Bindings editor**: open the *Bindings* tab, edit the
-binding, and use its starting-prompt field — that is the set path the panel
-ships (005 T-021). The service's bindings store holds the same value and stays
-documented here as the low-level path:
+Every tier has exactly one field, on its own surface, and each value is
+rendered exactly once in the panel:
 
-`~/.config/openchamber/mecha-turk/bindings.json` — directory `0700`, files
-`0600`, the same file the panel already saves through.
+1. **Binding tier — the Bindings editor** (005 T-021). *Bindings* tab → open
+   the binding → its *Starting prompt for dispatches from this repository*
+   field. The editor's own Save writes it with the rest of the binding.
+2. **Account tier — the Accounts field.** *Accounts* tab → the account's
+   *Starting prompt for dispatches from this account* field, one per account,
+   saved through the account profile write `PUT /v1/accounts/:numericUserId`:
+   the body carries `displayName` and `startingPrompt`, and an absent member
+   means *unchanged*, so saving one member can never clear the other.
+3. **Global tier — the Settings row.** *Settings* tab → the `startingPrompt`
+   row, edited and saved exactly like every other configuration field
+   (`GET`/`PUT /v1/config`). It is in force for events detected from the
+   next poll on; queued work keeps the snapshot it was queued with.
 
-Add the `startingPrompt` member to the binding you want:
+Each surface shows an explicit **not set** state while its tier is empty —
+never an empty box that reads as an instruction the agent will receive — and
+carries the guidance above beside the field. Clearing a field **unsets that
+tier only**; the other two keep their values.
+
+The service's stores hold the same values, and stay documented here as the
+**low-level** path rather than the primary one:
+
+`~/.config/openchamber/mecha-turk/` — directory `0700`, files `0600` —
+holding `bindings.json` (binding tier), the account records under
+`accounts/` (account tier), and `config.json` (global tier). To set the
+binding tier by hand, add the `startingPrompt` member to the binding you
+want:
 
 ```jsonc
 [
@@ -225,8 +268,9 @@ Add the `startingPrompt` member to the binding you want:
 ```
 
 Leave the member out — or set it to `null`, or to an empty string — to clear
-it: a binding with no prompt dispatches with the automatic framing only,
-byte-identically to what it dispatched before this field existed.
+it: a tier with no prompt contributes nothing, and a binding with no prompt
+at all dispatches with the automatic framing only, byte-identically to what
+it dispatched before this field existed.
 
 The file is validated on read. A value that breaks the rules above quarantines
 the whole file with the reason logged (`startingPrompt: <remediation>` — never
@@ -240,11 +284,14 @@ the member keeps whatever the store already holds for it — only an explicit
 value changes it. The panel saves this way today, which is exactly why your
 prompt survives an unrelated save elsewhere in the list.
 
-Every change writes one `binding.prompt-updated` row to `audit.ndjson`: the
-binding, the new fingerprint (`mtp-…`), presence, length, and who made the
-change — never the text. The instruction itself lives in exactly two places,
-the binding record and the dispatch's own snapshot at detection, so a retry
-composes a byte-identical message and an edit never changes queued work.
+Every change writes exactly one audit row for its tier —
+`binding.prompt-updated`, `account.prompt-updated`, or a `config.changed`
+row whose `from`/`to` for this field are fingerprints (`mtp-…`) or `null` —
+naming the entity, the new fingerprint, presence, length, and who made the
+change, **never the text**. The instruction itself lives in exactly two
+places: that tier's own record and the dispatch's snapshot taken when the
+event was detected, so a retry composes a byte-identical message and an edit
+never changes queued work.
 
 ## First dispatch
 

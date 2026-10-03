@@ -90,14 +90,15 @@ export const AUDIT_PATH = '/v1/audit';
  */
 const RUN_SCOPE_PATTERN = '/v1/events/:correlationId';
 
-/** Path pattern for one account resource (the delete route). */
-const ACCOUNT_DELETE_PATTERN = '/v1/accounts/:numericUserId';
+/**
+ * Path pattern of one account resource — the delete route and the account
+ * profile write share the same `:numericUserId` segment (005 FR-066, 004
+ * FR-082); only the method and body tell them apart.
+ */
+const ACCOUNT_PATH_PATTERN = '/v1/accounts/:numericUserId';
 
 /** Path pattern of one account's token-replacement route (002 FR-012). */
 const ACCOUNT_TOKEN_PATTERN = '/v1/accounts/:numericUserId/token';
-
-/** Path pattern of one account's display-name route (005 FR-066). */
-const ACCOUNT_DISPLAY_NAME_PATTERN = '/v1/accounts/:numericUserId/display-name';
 
 /**
  * Query flag the hardened delete needs before it disables an account's
@@ -260,7 +261,23 @@ export async function serviceDelete(input: {
  * @returns The path segment to DELETE.
  */
 export function accountDeletePath(numericUserId: string): string {
-    return ACCOUNT_DELETE_PATTERN.replace(ACCOUNT_ID_SEGMENT, numericUserId);
+    return ACCOUNT_PATH_PATTERN.replace(ACCOUNT_ID_SEGMENT, numericUserId);
+}
+
+/**
+ * Build the account profile path for one account (005 FR-066, 004 FR-082).
+ *
+ * The **one** operator write for this record: it carries `{ displayName }`,
+ * `{ startingPrompt }`, or both, and an absent member means unchanged — so
+ * neither member can clobber the other. The dedicated label route has no
+ * builder left to be reached from (005 v1.10.0: no alias, no redirect, no
+ * legacy route).
+ *
+ * @param numericUserId - GitHub numeric user id of the account being edited.
+ * @returns The path segment that writes the account's profile.
+ */
+export function accountProfilePath(numericUserId: string): string {
+    return ACCOUNT_PATH_PATTERN.replace(ACCOUNT_ID_SEGMENT, numericUserId);
 }
 
 /**
@@ -282,19 +299,6 @@ export function accountRemovePath(numericUserId: string): string {
  */
 export function accountTokenPath(numericUserId: string): string {
     return ACCOUNT_TOKEN_PATTERN.replace(ACCOUNT_ID_SEGMENT, numericUserId);
-}
-
-/**
- * Build the display-name path for one account (005 FR-066, Gate Question 4).
- *
- * A narrow operation on purpose: it can change nothing but `displayName` and
- * `updatedAt`, so a mistyped body can never reach custody.
- *
- * @param numericUserId - GitHub numeric user id of the account being labelled.
- * @returns The path segment that sets the operator's display label.
- */
-export function accountDisplayNamePath(numericUserId: string): string {
-    return ACCOUNT_DISPLAY_NAME_PATTERN.replace(ACCOUNT_ID_SEGMENT, numericUserId);
 }
 
 /**

@@ -1,6 +1,6 @@
 # Contract: Configuration Read/Write — `GET` / `PUT /v1/config`
 
-**Spec**: 006 `## Wire Surface Delta` rows **Config read** and **Config write** · FR-020–FR-028, FR-040–FR-049, FR-070–FR-074, FR-100 · SC-101, SC-109, SC-110 · AC-101, AC-107–AC-116, AC-127, AC-135–AC-137, AC-154
+**Spec**: 006 `## Wire Surface Delta` rows **Config read** and **Config write** · FR-020–FR-028, FR-040–FR-049, FR-070–FR-074, FR-100 · SC-101, SC-109, SC-110 · AC-101, AC-107–AC-116, AC-127, AC-135–AC-137, AC-154 — **amended by 004 v1.3.0 (2026-10-02)** for the twelfth field `startingPrompt` (004 FR-081), whose rules live in 004 contract [layered-prompt.md](../../004-starting-prompt/contracts/layered-prompt.md) §1 and are incorporated here by reference
 
 ## 0. Disposition against the predecessors
 
@@ -20,7 +20,8 @@ Everything not listed below stays as 002 specified it: bearer auth before routin
     "retryMaxAttempts": 5, "retryBaseMs": 5000, "retryMaxMs": 60000,
     "auditRetentionDays": 180, "auditMaxEntries": 50000, "excerptRetentionDays": 30,
     "logLevel": "info",
-    "expectedAgent": ""                 // "" = no baseline configured (006 v1.5.0)
+    "expectedAgent": "",                // "" = no baseline configured (006 v1.5.0)
+    "startingPrompt": ""                // "" = global prompt tier unset (004 FR-081; 006 v1.6.0)
     // "leaseMs": 120000, "resultDeadlineMs": 120000  — present once 003's T-008 lands
   },
   "fields": [ /* FieldDescriptor[], §2 */ ],
@@ -53,7 +54,11 @@ A **closed discriminated union** on `kind`. The panel's parser refuses anything 
 
   { "name": "expectedAgent", "kind": "string", "unit": null,
     "format": "letters, digits, and . _ - @ : / (a single token, no spaces); empty means no baseline",
-    "maxLength": 80, "default": "", "takesEffect": "next-dispatch" } ]
+    "maxLength": 80, "default": "", "takesEffect": "next-dispatch" },
+
+  { "name": "startingPrompt", "kind": "string", "unit": null,          // 004 FR-081; 006 v1.6.0
+    "format": "text; at most 2000 code points after trimming; credential-shaped, reserved-marker, and control characters refused; empty means the global prompt tier is unset",
+    "maxLength": 2000, "default": "", "takesEffect": "next-cycle" } ]
 ```
 
 | Descriptor member | Rule |
@@ -65,7 +70,7 @@ A **closed discriminated union** on `kind`. The panel's parser refuses anything 
 | `values` | **`enum` only**, the accepted set verbatim |
 | `format`, `maxLength` | **`string` only**: service-authored prose describing the allowed characters, and the length ceiling. The panel renders `format` as text and derives **no** validation from it (FR-023) |
 | `default` | the documented default, from the same `DEFAULT_CONFIG` the store falls back to |
-| `takesEffect` | exactly `immediate` \| `next-cycle` \| `next-dispatch` \| `restart` \| `none`. 006's eleven declare **nine `next-cycle`, one `immediate`, one `next-dispatch`**; no field declares `restart` or `none` (FR-030, FR-037, AC-104) |
+| `takesEffect` | exactly `immediate` \| `next-cycle` \| `next-dispatch` \| `restart` \| `none`. 006's twelve declare **ten `next-cycle`** (the nine polling fields plus `startingPrompt`), **one `immediate`, one `next-dispatch`**; no field declares `restart` or `none` (FR-030, FR-037, AC-104) |
 
 **One declaration, read twice**: `fields` is projected from `NUMERIC_BOUNDS`, `LOG_LEVELS`, `EXPECTED_AGENT_RULE`, `DEFAULT_CONFIG`, and `TAKE_EFFECT` — the *same* objects `validateConfig` reads. SC-101 asserts this by changing a bound in the declaration and requiring the descriptor **and** the validator's remediation string to move together.
 
@@ -87,7 +92,7 @@ A **closed discriminated union** on `kind`. The panel's parser refuses anything 
 
 - whole-document replacement; the body must be a complete `ServiceConfig`;
 - validation runs **before any storage access** — a client error stays a client error while the disk is broken;
-- unknown keys refused (`<withheld>` for a secret-shaped name); missing documented keys refused, **including `expectedAgent`** (FR-100(b));
+- unknown keys refused (`<withheld>` for a secret-shaped name); missing documented keys refused, **including `expectedAgent`** (FR-100(b)) **and `startingPrompt`** (004 FR-081; 006 v1.6.0);
 - every bad field reported in one `422` with `error.issues[].{ field, remediation }` in declaration order, **received values never echoed**;
 - the write is atomic; a refusal leaves the stored document byte-identical (NFR-103);
 - store unavailable ⇒ `503 storage-unavailable`.
@@ -101,7 +106,9 @@ A **closed discriminated union** on `kind`. The panel's parser refuses anything 
 | contains a space / control character / character outside `. _ - @ : /` and alphanumerics | `expectedAgent` | `set expectedAgent to letters, digits, and . _ - @ : / with no spaces` |
 | credential-shaped (secret-shape rule) | `expectedAgent` | `set expectedAgent to an agent name, not a credential` |
 
-**Addition 1 — no-op detection** (FR-048): a body equal to the stored document answers `200` with the same `config`, is reported by the panel as *already saved*, and appends **no** audit row. Equality is field-by-field over the validated document.
+**New validation for `startingPrompt` (004 v1.3.0)** — routed through **004's** `validateStartingPrompt`, in the same additive envelope and the same voice; the full refusal table (cap, credential shape, reserved markers, control characters) is [layered-prompt.md](../../004-starting-prompt/contracts/layered-prompt.md) §1 and binding-prompt.md §3, and every remediation names `startingPrompt` and never echoes the value. Empty is accepted and means *the global tier is unset*.
+
+**Addition 1 — no-op detection** (FR-048): a body equal to the stored document answers `200` with the same `config`, is reported by the panel as *already saved*, and appends **no** audit row. Equality is field-by-field over the validated document — for `startingPrompt`, byte equality of the stored string.
 
 **Addition 2 — the answer carries its audit outcome** (FR-070's edge case, AC-139):
 
@@ -134,8 +141,11 @@ Both names are **reserved by 002's data model** and are filled, never invented (
   "decision": "applied",
   "reason": "configuration replaced",           // secret-free
   "details": { "changes":   [ { "field": "intervalMs", "from": 60000, "to": 120000 },
-                              { "field": "logLevel",   "from": "info", "to": "debug" } ],
-               "takesEffect": { "intervalMs": "next-cycle", "logLevel": "immediate" } } }
+                              { "field": "logLevel",   "from": "info", "to": "debug" },
+                              { "field": "startingPrompt", "from": null,
+                                "to": "mtp-3f9a…", /* fingerprint, never the text — 004 FR-053 */ } ],
+               "takesEffect": { "intervalMs": "next-cycle", "logLevel": "immediate",
+                                "startingPrompt": "next-cycle" } } }
 
 // refused by validation
 { "eventType": "config.changed", "actorSource": "operator",
@@ -157,9 +167,9 @@ Both names are **reserved by 002's data model** and are filled, never invented (
 
 | Rule | Detail |
 | --- | --- |
-| actor | `operator` for a write that arrived through the panel (the only writer is a bearer-token holder acting for the operator — the convention `routes/accounts.ts` already uses); `service` for the trim passes |
+| actor | `operator` for a write that arrived through the panel (the only writer is a bearer-token holder acting for the operator — the convention `routes/accounts.ts` already uses); `service` for the trim passes **and for a `startingPrompt` change observed in the stored document without a write** (006 FR-070 as amended; 004 FR-088) |
 | one row per event | **exactly one** per accepted write that *changed* something; **exactly one** per refused write; **zero** for a no-op; **zero** for a pass that removed nothing (FR-048, FR-053, FR-070) |
-| `changes` | one `{ field, from, to }` per **changed** field, **ordered by field name**, documented fields only; `from`/`to` are bounded integers, one of the four level names, or `expectedAgent`'s documented string format |
+| `changes` | one `{ field, from, to }` per **changed** field, **ordered by field name**, documented fields only; `from`/`to` are bounded integers, one of the four level names, or `expectedAgent`'s documented string format — **and for `startingPrompt`, the field's `mtp-` fingerprint or `null` for unset, never the text** (006 FR-071 as amended; 004 FR-053/FR-088). A `startingPrompt` change observed in the stored document without a write appends the same row with `actorSource: "service"` (006 FR-070 as amended) |
 | refusal rows | **no submitted value of any kind** — not the value, not an accepted value, not a length, not a hash — and **no foreign key name**: an unrecognised key appears as `<withheld>` (FR-072) |
 | correlation | each row **mints its own id** and records **no run reference**; retrievable under its own id, excluded from run-filtered reads (FR-074, 003 FR-052) |
 | redaction | every row passes `appendAudit`'s redaction pass; **a redaction refusal blocks the write** rather than being logged past (003 FR-061, 002 FR-007) |
@@ -182,13 +192,13 @@ These are **not** wire behaviour; they are recorded here because the wire is wha
 ## 7. Invariants (tests)
 
 1. **SC-101**: mutate a bound in `service/config.ts` ⇒ the descriptor's `min`/`max` **and** the validator's remediation both change in the same run; revert ⇒ both return. The projection and the validator have one source.
-2. **AC-101 / SC-102**: `fields.length === Object.keys(DEFAULT_CONFIG).length`; for each of 006's eleven names a row renders with name, unit-or-*none*, bounds-or-format, value, and class. Row count is derived, so a combined-tree fixture renders thirteen without a `006` change.
-3. **AC-104 / SC-106**: over 006's eleven names the class histogram is nine `next-cycle`, one `immediate`, one `next-dispatch`, **zero `restart`, zero `none`**; every descriptor in the projection carries a declared class (SC-107).
+2. **AC-101 / SC-102**: `fields.length === Object.keys(DEFAULT_CONFIG).length`; for each of 006's twelve names a row renders with name, unit-or-*none*, bounds-or-format, value, and class. Row count is derived, so a combined-tree fixture renders thirteen without a `006` change.
+3. **AC-104 / SC-106**: over 006's twelve names the class histogram is ten `next-cycle`, one `immediate`, one `next-dispatch`, **zero `restart`, zero `none`**; every descriptor in the projection carries a declared class (SC-107).
 4. **AC-113 / NFR-103**: capture `config.json` before and after **every** refusal class ⇒ byte-identical.
 5. **AC-127**: an identical body ⇒ `200`, `auditWritten: true` is irrelevant to the no-op claim, and **zero** audit rows are appended.
 6. **SC-109 / AC-135 / AC-136**: one changed write ⇒ one `applied` row with one triple per changed field; one refused write ⇒ one `refused` row with `issueCount`, documented names, `<withheld>`, and no submitted value anywhere in the rendered surface or the row.
 7. **SC-110 / AC-137**: a `config.changed` row and a `dispatch.*` row carry different correlation ids; a run-filtered read excludes the configuration row.
 8. **AC-154**: an absent or non-string member, >80 chars, internal space, and credential-shaped `expectedAgent` values each answer `422` with `field: expectedAgent` and never appear in the body, the audit row, or a log line — while a **blank** value answers `200` and reads back as `""` (the documented *no baseline configured*).
 9. **`source` fidelity**: absent file ⇒ `default`; valid file ⇒ `stored`; invalid file ⇒ `quarantined` **and** `defaultsApplied: []`.
-10. **Upgrade path**: a ten-field stored document ⇒ `source: 'stored'`, `defaultsApplied: ['expectedAgent']` (filled with the **blank** default), all ten stored values intact; `PUT` of that same body ⇒ `422` naming `expectedAgent`; after one save the file holds the complete document (data-model §2.1). A document that **carries** `expectedAgent: ""` is configured, not missing: it reads back with `defaultsApplied: []` (absence, not emptiness, is what the backfill keys off).
+10. **Upgrade path**: an older stored document (ten or eleven fields) ⇒ `source: 'stored'`, `defaultsApplied` naming every documented key it lacked — `['expectedAgent', 'startingPrompt']` for the pre-v1.3.0 shape, `['startingPrompt']` for the v1.5.0-era shape — filled with their **blank** defaults, all stored values intact; `PUT` of that same older body ⇒ `422` naming the missing keys; after one save the file holds the complete twelve-field document (data-model §2.1; 004 FR-081's no-migration rule). A document that **carries** `expectedAgent: ""` or `startingPrompt: ""` is configured, not missing: it reads back without that key in `defaultsApplied` (absence, not emptiness, is what the backfill keys off).
 11. **Secret scan**: the whole envelope passes the existing secret suites with new cases and **no exemption** (NFR-102).

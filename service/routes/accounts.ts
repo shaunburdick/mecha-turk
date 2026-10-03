@@ -17,12 +17,20 @@
  *   references the account (`409`) unless `?force=1`, which disables those
  *   bindings and audits every one of them. The force path exists only for an
  *   operator-confirmed UI action (§4 rule 7) — never for an automatic retry.
+ *
+ * The fourth operation on this surface — the profile `PUT` on the same
+ * `ACCOUNT_PATH` — lives in
+ * [`account-profile.ts`](./account-profile.ts), which owns its closed body and
+ * its prompt observation. This module keeps the shared path constant and the
+ * two refusal/path helpers that write needs (`unknownAccountResponse`,
+ * `pathAccountId`), so the dependency runs one way and the two files cannot
+ * form a cycle.
  */
 
 import { newCorrelationId, nowIso } from '../../src/ids.ts';
 import { appendAudit } from '../audit.ts';
-import { errorResponse, STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
-import { isNumericUserId, toAccountDto, validateDisplayName } from '../accounts/model.ts';
+import { errorResponse, STATUS, storageUnavailableResponse } from '../http.ts';
+import { isNumericUserId, toAccountDto } from '../accounts/model.ts';
 import {
     accountPath,
     bindingsReferencing,
@@ -57,11 +65,8 @@ export const ACCOUNTS_PATH = '/v1/accounts';
 /** Path pattern of one account's credential resource. */
 export const ACCOUNT_TOKEN_PATH = `${ACCOUNTS_PATH}/:numericUserId/token`;
 
-/** Path pattern of one account resource (delete). */
+/** Path pattern of one account resource (delete and the profile write). */
 export const ACCOUNT_PATH = `${ACCOUNTS_PATH}/:numericUserId`;
-
-/** Path pattern of one account's display-label resource (005 FR-066). */
-export const ACCOUNT_DISPLAY_NAME_PATH = `${ACCOUNTS_PATH}/:numericUserId/display-name`;
 
 /** Query flag that authorises a delete past the binding refusal (operator-only). */
 const FORCE_QUERY_FLAG = 'force';
@@ -89,7 +94,7 @@ const ACCOUNT_KIND: AuditEntityKind = 'account';
  *
  * @returns `404 unknown-account`; the id itself is never echoed.
  */
-function unknownAccountResponse(): HttpResponse {
+export function unknownAccountResponse(): HttpResponse {
     return errorResponse(STATUS.notFound, {
         code: 'unknown-account',
         message: 'no account with this GitHub id is registered',
@@ -110,29 +115,13 @@ function bindingsRefusalResponse(count: number): HttpResponse {
 }
 
 /**
- * The `422` a display-name body answers with when it does not carry the field.
- *
- * Absent means *refused*, never "nothing to do": a PUT that silently no-ops on
- * a missing member teaches a client that omitting a field clears or preserves
- * something, and this route promises neither (005 contract §2).
- *
- * @returns `422 validation` naming the field and the body it owes.
- */
-function displayNameBodyRefusal(): HttpResponse {
-    return validationResponse([{
-        field: 'displayName',
-        remediation: 'the body must carry displayName, as text or null',
-    }]);
-}
-
-/**
  * Read the numeric account id out of the matched path.
  *
  * @param request - The routed request.
  * @returns The id, or `null` when the segment cannot name an account — which
  *   is answered as `404 unknown-account`, never as a storage path.
  */
-function pathAccountId(request: RouteRequest): string | null {
+export function pathAccountId(request: RouteRequest): string | null {
     const raw = request.params.numericUserId;
 
     return isNumericUserId(raw) ? raw : null;
@@ -327,6 +316,8 @@ async function persistRotation(input: {
 async function prepareRotation(input: {
     /** Open store. */
     readonly store: ServiceStore;
+    /** Structured logger for the read's observation and quarantine line. */
+    readonly log: ServiceLogger;
     /** Raw path segment from the route match. */
     readonly pathId: string | null;
     /** Parsed request body. */
@@ -343,7 +334,9 @@ async function prepareRotation(input: {
     }
 
     const account =
-        input.pathId === null ? null : await readAccount({ store: input.store, numericUserId: input.pathId });
+        input.pathId === null
+            ? null
+            : await readAccount({ store: input.store, numericUserId: input.pathId, log: input.log });
     if (input.pathId === null || account === null) {
         return { ok: false, response: unknownAccountResponse() };
     }
@@ -364,7 +357,12 @@ async function handleRotateToken(context: RouteContext, request: RouteRequest): 
         return storageUnavailableResponse();
     }
 
-    const prepared = await prepareRotation({ store, pathId: pathAccountId(request), body: request.body });
+    const prepared = await prepareRotation({
+        store,
+        log: context.log,
+        pathId: pathAccountId(request),
+        body: request.body,
+    });
     if (!prepared.ok) {
         return prepared.response;
     }
@@ -451,7 +449,7 @@ async function handleDeleteAccount(context: RouteContext, request: RouteRequest)
     }
 
     const pathId = pathAccountId(request);
-    const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId });
+    const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId, log: context.log });
     if (pathId === null || account === null) {
         return unknownAccountResponse();
     }
@@ -472,55 +470,6 @@ async function handleDeleteAccount(context: RouteContext, request: RouteRequest)
     return { status: STATUS.ok, body: { removed: true } };
 }
 
-/**
- * Run `PUT /v1/accounts/:numericUserId/display-name` from body to response.
- *
- * A dedicated narrow operation rather than a whole-account PUT: it can change
- * nothing but `displayName` and `updatedAt`, so a mistyped body can never reach
- * custody (`state`, `scopeCheck`, `credential`). The stored value is replaced
- * by the validator's own answer — trimmed, capped, credential-free — so a
- * refused write leaves the previous label in force byte for byte (AC-130).
- *
- * No audit row is written: 005 adds no event type to the vocabulary
- * (FR-027), and a display label is not a fact the dispatch trail needs.
- *
- * @param context - Route context carrying the open store.
- * @param request - The routed request; the body must carry `displayName`.
- * @returns `200 { account }`, or the documented 404/422/503.
- */
-async function handleSetDisplayName(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
-    const { store } = context;
-    if (store === null) {
-        return storageUnavailableResponse();
-    }
-
-    const pathId = pathAccountId(request);
-    const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId });
-    if (pathId === null || account === null) {
-        return unknownAccountResponse();
-    }
-
-    const { body } = request;
-    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-        return displayNameBodyRefusal();
-    }
-
-    const record = body as Record<string, unknown>;
-    if (!('displayName' in record)) {
-        return displayNameBodyRefusal();
-    }
-
-    const validation = validateDisplayName(record.displayName);
-    if (!validation.ok) {
-        return validationResponse([validation.issue]);
-    }
-
-    const updated: Account = { ...account, displayName: validation.displayName, updatedAt: nowIso() };
-    await writeAccount(store, updated);
-
-    return { status: STATUS.ok, body: { account: toAccountDto(updated) } };
-}
-
 /** List every registered account without its credential. */
 export const listAccountsRoute: Route = {
     method: 'GET',
@@ -533,13 +482,6 @@ export const rotateTokenRoute: Route = {
     method: 'POST',
     path: ACCOUNT_TOKEN_PATH,
     handler: guardCredentialRoute(handleRotateToken),
-};
-
-/** Set one account's operator display label; changes nothing else (005 FR-066). */
-export const setDisplayNameRoute: Route = {
-    method: 'PUT',
-    path: ACCOUNT_DISPLAY_NAME_PATH,
-    handler: guardCredentialRoute(handleSetDisplayName),
 };
 
 /** Remove one account once its bindings allow it (or are force-disabled). */

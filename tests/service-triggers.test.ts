@@ -177,6 +177,7 @@ function fixtureAccount(): Account {
         login: ACCOUNT_LOGIN,
         expectedLogin: null,
         displayName: null,
+        startingPrompt: null,
         credential: { token: 'fixture-token-not-a-real-credential', kind: 'classic', verifiedAt: STAMP },
         scopeCheck: { checkedAt: STAMP, results: scopeResults('ok') },
         state: 'active',

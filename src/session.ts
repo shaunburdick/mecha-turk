@@ -247,8 +247,13 @@ function worktreeValue(selection: WorktreeSelection): GuestSessionWorktree | und
     return { kind: 'new', name: selection.name };
 }
 
-/** The reference a request carries when no prompt was set (004 FR-032). */
-const NO_PROMPT: PromptReference = { promptPresent: false, promptFingerprint: null, promptLength: null };
+/** The reference a request carries when no prompt was set (004 FR-032, FR-087). */
+const NO_PROMPT: PromptReference = {
+    promptPresent: false,
+    promptFingerprint: null,
+    promptLength: null,
+    promptSources: null,
+};
 
 /**
  * Build the documented `host.startSession()` request for a matched issue.
@@ -275,10 +280,10 @@ export function buildStartSessionRequest(input: {
     /** Bounded first-message context. */
     readonly context: string;
     /**
-     * The prompt reference for the machine-readable `data` (004 FR-037).
+     * The prompt reference for the machine-readable `data` (004 FR-037, FR-087).
      *
      * Omitted by the spike path, which has no run and therefore no prompt;
-     * the unset triple is written either way, so the member set is constant
+     * the unset quartet is written either way, so the member set is constant
      * across every request this panel builds.
      */
     readonly prompt?: PromptReference;
@@ -302,10 +307,14 @@ export function buildStartSessionRequest(input: {
             issueId: input.evidence.issueId,
             detectedAt: input.evidence.detectedAt,
             panelGeneration: input.evidence.panelGeneration,
-            // The reference, never a second copy of the instruction (004 FR-037).
+            // The reference, never a second copy of the instruction (004 FR-037);
+            // the source list rides beside it, additive within `extension-spike-1`
+            // (004 FR-087, plan D9). Spread onto a fresh mutable array because the
+            // host envelope is `JsonValue`, which cannot hold a `readonly` list.
             promptPresent: prompt.promptPresent,
             promptFingerprint: prompt.promptFingerprint,
             promptLength: prompt.promptLength,
+            promptSources: prompt.promptSources === null ? null : [...prompt.promptSources],
         },
         ...(worktree === undefined ? {} : { worktree }),
     };

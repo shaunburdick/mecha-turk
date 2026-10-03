@@ -145,6 +145,7 @@ function runRow(state: RunRow['state']): RunRow {
         promptPresent: false,
         promptFingerprint: null,
         promptLength: null,
+        promptSources: null,
     };
 }
 

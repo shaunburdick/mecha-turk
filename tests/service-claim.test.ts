@@ -24,13 +24,15 @@ import { readAuditEntries } from '../service/audit.ts';
 import { DEFAULT_CONFIG } from '../service/config.ts';
 import { createLogger } from '../service/log.ts';
 import { UNKNOWN_HOLDER, buildLeaseId, claimPendingRuns, holderOf } from '../service/poll/claim.ts';
-import { MAX_CLAIMED_RUNS } from '../service/poll/claim-bounds.ts';
+import { CLAIM_EVENTS_BUDGET_CHARS, MAX_CLAIMED_RUNS, measureEvents } from '../service/poll/claim-bounds.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { applyEnqueue } from '../service/poll/runs-join.ts';
 import { emptyRunsDocument, readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
+import { resolvePromptSnapshot, STARTING_PROMPT_MAX_CODE_POINTS } from '../service/prompt.ts';
 import { openStore } from '../service/store/index.ts';
 import type { ClaimedRun } from '../service/poll/claim.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
+import type { PromptSnapshot } from '../service/prompt.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
 import { startTestService } from './support/service.ts';
@@ -97,6 +99,24 @@ function assignment(issueNumber: number): EventSnapshot {
 /** Enqueue one detection, creating its run. */
 async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {
     await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map(createEvent) });
+}
+
+/**
+ * Enqueue detections that snapshot a resolved prompt (004 FR-015).
+ *
+ * The snapshot is built the production way — {@link resolvePromptSnapshot}
+ * over tier records — so the run carries the same `sources` a scan would have
+ * written, rather than a hand-assembled list the reader never checked.
+ *
+ * @param prompt - The resolved snapshot, or `null` for a run queued with none.
+ * @param snapshots - The detections to enqueue under it.
+ * @returns Resolves once the runs and their audit intents are durable.
+ */
+async function seedPrompted(
+    prompt: PromptSnapshot | null,
+    ...snapshots: readonly EventSnapshot[]
+): Promise<void> {
+    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map(createEvent), prompt });
 }
 
 /** Persist the configured lease duration the claim reads. */
@@ -408,6 +428,7 @@ describe('T-007 the claim answer', () => {
                 'promptFingerprint',
                 'promptLength',
                 'promptPresent',
+                'promptSources',
                 'promptText',
                 'referenceCount',
                 'referencesNotRetained',
@@ -661,5 +682,123 @@ describe('T-040h a quarantined run document answers the documented 503', () => {
         expect(response.status).toBe(503);
         expect(body.error.code).toBe('storage-unavailable');
         expect(body.error.message).not.toContain('correlationId');
+    });
+});
+
+describe('T-024 the claim answer names the prompt sources (FR-087)', () => {
+    it('answers the prompt sources on every claim row (+2 cases)', async () => {
+        // case: an unset run answers five explicit nulls — presence, text, fingerprint, length, sources
+        {
+            await seed(assignment(60));
+            const [claimed] = await claim();
+
+            expect(claimed?.promptPresent).toBe(false);
+            expect(claimed?.promptText).toBeNull();
+            expect(claimed?.promptFingerprint).toBeNull();
+            expect(claimed?.promptLength).toBeNull();
+            expect(claimed?.promptSources).toBeNull();
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: a set run answers its contributing tiers as an ordered list
+        {
+            const bindingOnly = resolvePromptSnapshot({
+                global: null,
+                account: null,
+                binding: { startingPrompt: 'Keep the public API stable.' },
+            });
+            const accountAndBinding = resolvePromptSnapshot({
+                global: null,
+                account: { startingPrompt: 'Reproduce before patching.' },
+                binding: { startingPrompt: 'Keep the public API stable.' },
+            });
+            expect(bindingOnly?.sources).toEqual(['binding']);
+            expect(accountAndBinding?.sources).toEqual(['account', 'binding']);
+
+            await seedPrompted(bindingOnly, assignment(61));
+            await seedPrompted(accountAndBinding, assignment(62));
+
+            const claimed = await claim();
+
+            expect(claimed.map((run) => run.promptSources)).toEqual([['binding'], ['account', 'binding']]);
+            // FR-087's invariant, checked on every row the answer offered: a
+            // present prompt carries a non-empty list beside it, and nothing
+            // else about the prompt members disagrees.
+            expect(claimed.every((run) => run.promptPresent
+                && run.promptSources !== null && run.promptSources.length > 0
+                && run.promptText !== null
+                && run.promptFingerprint !== null)).toBe(true);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: the maximal batch paginates against a ≤6,004-char promptText, never truncating one
+        {
+            const tier = 'x'.repeat(STARTING_PROMPT_MAX_CODE_POINTS);
+            const maximal = resolvePromptSnapshot({
+                global: { startingPrompt: tier },
+                account: { startingPrompt: tier },
+                binding: { startingPrompt: tier },
+            });
+            // FR-085's corrected figure, derived here rather than quoted from
+            // the prose: three set tiers at the per-tier cap, plus one
+            // 2-code-point blank line per gap — two gaps, not one and not three.
+            expect(maximal?.length).toBe(3 * STARTING_PROMPT_MAX_CODE_POINTS + 2 * 2);
+            expect(maximal?.length).toBe(6_004);
+            expect(maximal?.sources).toEqual(['global', 'account', 'binding']);
+
+            // The count cap alone would have offered all of them, so a page
+            // that comes back shorter is the byte budget doing its job: 40 rows
+            // carry 240,160 characters of `promptText` alone, over budget.
+            const totalRuns = 40;
+            expect(totalRuns).toBeLessThanOrEqual(MAX_CLAIMED_RUNS);
+            expect(totalRuns * 6_004).toBeGreaterThan(CLAIM_EVENTS_BUDGET_CHARS);
+            await seedPrompted(
+                maximal,
+                ...Array.from({ length: totalRuns }, (_unused, index) => assignment(70 + index)),
+            );
+
+            const first = await claim();
+
+            // Every carried row answers the whole body: the bound decides how
+            // many runs fit on the page, never how much of one travels.
+            expect(first.length).toBeGreaterThan(0);
+            expect(first.length).toBeLessThan(totalRuns);
+            expect(measureEvents(first)).toBeLessThanOrEqual(CLAIM_EVENTS_BUDGET_CHARS);
+            for (const run of first) {
+                expect(run.promptPresent).toBe(true);
+                expect(run.promptSources).toEqual(['global', 'account', 'binding']);
+                expect(run.promptLength).toBe(6_004);
+                expect(run.promptText?.length).toBe(6_004);
+            }
+
+            // What the page left out is exactly what stays claimable: pending,
+            // unleased, at attempt 1 — T-039's order, held with a body three
+            // times the size the pre-004 bound test used (2,000 → 6,004).
+            const document = await readRunsDocument({ store, log: LOGGER });
+            const offered = new Set(first.map((run) => run.correlationId));
+            const omitted = document.runs.filter((run) => !offered.has(run.correlationId));
+            expect(omitted).toHaveLength(totalRuns - first.length);
+            expect(omitted.every((run) => run.state === 'pending' && run.lease === null && run.attempt === 1))
+                .toBe(true);
+
+            // Pagination, never truncation: every later page fits the same
+            // budget and answers each remaining run exactly once, still whole.
+            const seen = new Set(offered);
+            let pages = 1;
+            while (seen.size < totalRuns) {
+                pages += 1;
+                expect(pages).toBeLessThanOrEqual(10);
+                const next = await claim();
+                expect(next.length).toBeGreaterThan(0);
+                expect(measureEvents(next)).toBeLessThanOrEqual(CLAIM_EVENTS_BUDGET_CHARS);
+                for (const run of next) {
+                    expect(seen.has(run.correlationId)).toBe(false);
+                    expect(run.promptText?.length).toBe(6_004);
+                    expect(run.promptSources).toEqual(['global', 'account', 'binding']);
+                    seen.add(run.correlationId);
+                }
+            }
+            expect(seen.size).toBe(totalRuns);
+        }
     });
 });

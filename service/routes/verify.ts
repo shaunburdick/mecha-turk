@@ -209,9 +209,11 @@ async function persistVerified(attempt: AcceptedAttempt): Promise<HttpResponse> 
         numericUserId: outcome.identity.numericUserId,
         login: outcome.identity.login,
         expectedLogin: credential.expectedLogin,
-        // A new account has no operator label yet; the row's display-name
-        // write sets one later (005 FR-066).
+        // A new account has no operator label and no prompt tier yet; both are
+        // written later by the account profile write (005 FR-066, 004 FR-071:
+        // no tier is ever seeded, so a fresh account starts unset).
         displayName: null,
+        startingPrompt: null,
         credential: { token: credential.token, kind: outcome.credentialKind, verifiedAt: at },
         scopeCheck: outcome.scopeCheck,
         state: 'active',

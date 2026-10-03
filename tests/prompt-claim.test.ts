@@ -9,8 +9,8 @@
  * *reference* — presence, fingerprint, length — and never the instruction
  * itself, on any surface, at any size:
  *
- * - an unset run answers the four members explicitly (`false`, `null`,
- *   `null`, `null`), because the co-ship build parses them;
+ * - an unset run answers the five members explicitly (`false`, `null`,
+ *   `null`, `null`, `null`), because the co-ship build parses them;
  * - a maximal claim batch still fits inside `GUEST_REQUEST_RESPONSE_MAX`;
  * - `dispatch.reserved` and `dispatch.result` both name the binding and the
  *   fingerprint, under the run's own correlation id;
@@ -29,7 +29,7 @@ import { createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { AUDIT_PATH } from '../service/routes/audit.ts';
 import { DISPATCHED_PATH, RESERVE_PATH } from '../service/routes/dispatch.ts';
 import { EVENTS_PATH, EVENTS_PENDING_PATH } from '../service/routes/events.ts';
-import { promptFingerprint, promptSnapshotOf } from '../service/prompt.ts';
+import { promptFingerprint, resolvePromptSnapshot } from '../service/prompt.ts';
 import { findSecretLeak } from '../src/redaction.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import { startTestService } from './support/service.ts';
@@ -145,7 +145,9 @@ interface SeedInput {
 /** Enqueue detections through the production path, optionally with a prompt. */
 async function seed(input: SeedInput): Promise<void> {
     const { service, snapshots } = input;
-    const snapshot = input.prompt === null ? null : promptSnapshotOf({ startingPrompt: input.prompt });
+    const snapshot = input.prompt === null
+        ? null
+        : resolvePromptSnapshot({ global: null, account: null, binding: { startingPrompt: input.prompt } });
     await enqueueEvents({
         store: storeOf(service),
         log: LOGGER,
@@ -243,9 +245,9 @@ async function rowsOf(service: TestService, eventType: string): Promise<readonly
         .map((entry) => JSON.parse(JSON.stringify(entry)) as Record<string, unknown>);
 }
 
-describe('T-007 the claim answer carries the four prompt members (FR-015, FR-037)', () => {
-    it('answers all four explicitly when the run queued with… (+3 cases)', async () => {
-        // case: answers all four explicitly when the run queued with no prompt
+describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037, FR-087)', () => {
+    it('answers all five explicitly when the run queued with… (+3 cases)', async () => {
+        // case: answers all five explicitly when the run queued with no prompt
         {
             const service = await startService();
             await seed({ service, prompt: null, snapshots: [assignment(1)] });
@@ -258,6 +260,7 @@ describe('T-007 the claim answer carries the four prompt members (FR-015, FR-037
             expect(row?.promptPresent).toBe(false);
             expect(row?.promptFingerprint).toBeNull();
             expect(row?.promptLength).toBeNull();
+            expect(row?.promptSources).toBeNull();
             expect(row?.promptText).toBeNull();
         }
         await afterEachWork1();
@@ -274,6 +277,8 @@ describe('T-007 the claim answer carries the four prompt members (FR-015, FR-037
             expect(row?.promptPresent).toBe(true);
             expect(row?.promptFingerprint).toBe(promptFingerprint(PROMPT));
             expect(row?.promptLength).toBe([...PROMPT].length);
+            // The binding tier seeded this run, so the list is that one source (FR-087).
+            expect(row?.promptSources).toEqual(['binding']);
             expect(row?.promptText).toBe(PROMPT);
             // The reference is an identity, never a credential.
             expect(findSecretLeak(text)).toBeNull();
@@ -332,9 +337,13 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
                 expect(rows[0]?.entity).toEqual({ kind: 'run', id: attempt.correlationId });
             }
 
-            // No row in the whole trail carries the instruction (AC-139).
+            // No row in the whole trail carries the instruction (AC-139), and no
+            // row names the transport member either — the text lives on the claim
+            // answer alone (004 FR-053, T-027's secret-surface scan).
             const trail = await readAuditEntries(storeOf(service));
-            expect(JSON.stringify(trail)).not.toContain(PROMPT);
+            const trailText = JSON.stringify(trail);
+            expect(trailText).not.toContain(PROMPT);
+            expect(trailText).not.toContain('promptText');
         }
         await afterEachWork1();
         await afterEachWork1();
@@ -376,12 +385,13 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
             expect(row?.promptPresent).toBe(true);
             expect(row?.promptFingerprint).toBe(promptFingerprint(PROMPT));
             expect(row?.promptLength).toBe([...PROMPT].length);
+            expect(row?.promptSources).toEqual(['binding']);
             expect(text).not.toContain(PROMPT);
             expect(findSecretLeak(text)).toBeNull();
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: projects a run queued with no prompt as false / null / null (AC-142)
+        // case: projects a run queued with no prompt as false / null / null / null (AC-142)
         {
             const service = await startService();
             await seed({ service, prompt: null, snapshots: [assignment(7)] });
@@ -393,6 +403,7 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
             expect(row?.promptPresent).toBe(false);
             expect(row?.promptFingerprint).toBeNull();
             expect(row?.promptLength).toBeNull();
+            expect(row?.promptSources).toBeNull();
         }
     });
 });

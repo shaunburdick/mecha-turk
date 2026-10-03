@@ -39,16 +39,28 @@ const JSON_INDENT = 2;
 /** The quarantine member of {@link JsonReadResult}, named for reuse. */
 interface QuarantinedOutcome {
     readonly status: 'quarantined';
-    readonly quarantinePath: string;
+    /**
+     * Where the evidence went, or `null` when another reader set it aside first.
+     *
+     * A lost rename race is still a quarantine: the document *was* unusable
+     * and *was* set aside — by the winning reader, under that reader's own
+     * name — so only the path to it is unknown here. Reporting `absent` for
+     * that case would tell the operator (and `configFromStore`'s `source`) that
+     * nothing was ever wrong, which the contract's "invalid file ⇒
+     * `quarantined`" rule refuses (006 contract §3 rule 9).
+     */
+    readonly quarantinePath: string | null;
 }
 
 /**
  * Outcome of reading one store file.
  *
  * - `ok` — parsed and accepted by the caller's validator.
- * - `absent` — no file yet, the normal first-run state.
- * - `quarantined` — the file was unusable and has been renamed aside; the
- *   path says where the evidence went.
+ * - `absent` — no file yet, the normal first-run state (the read itself found
+ *   nothing: the file never existed, or an earlier process renamed it away).
+ * - `quarantined` — the file was unusable and is now set aside; the path says
+ *   where the evidence went, or is `null` when a concurrent reader won the
+ *   rename race and the evidence sits under that reader's name instead.
  */
 export type JsonReadResult<T> =
     | { readonly status: 'ok'; readonly value: T }
@@ -80,8 +92,11 @@ export async function writeSyncedTempFile(tempPath: string, text: string): Promi
  * Rename an unusable file aside and report where it went.
  *
  * @param filePath - Absolute path of the file to quarantine.
- * @returns The quarantine outcome carrying the new path, or plain absence when
- *   the file was already gone by the time the rename ran.
+ * @returns The quarantine outcome carrying the new path, or the same
+ *   quarantine with a `null` path when a concurrent reader renamed the file
+ *   first — the document was invalid and has been set aside either way, so
+ *   the *fact* never degrades to absence and only the path is unknown
+ *   (006 contract §3 rule 9: invalid file ⇒ `quarantined`).
  * @throws {StorageUnavailableError} When the rename fails for any reason other
  *   than that disappearance, because a file the service cannot read *and*
  *   cannot set aside means the store is unusable — that is a storage failure to
@@ -89,7 +104,7 @@ export async function writeSyncedTempFile(tempPath: string, text: string): Promi
  */
 async function quarantine(
     filePath: string,
-): Promise<QuarantinedOutcome | { readonly status: 'absent' }> {
+): Promise<QuarantinedOutcome> {
     const quarantinePath = `${filePath}${QUARANTINE_MARKER}${Date.now()}-${randomUUID()}`;
     try {
         await fs.rename(filePath, quarantinePath);
@@ -97,13 +112,15 @@ async function quarantine(
         // Two readers can reject the same document at the same moment — the
         // poll cycle reading the configuration while an operator's request
         // reads it, say — and whichever renames second finds the file already
-        // gone under the winner's name. That is absence, not failure: the
-        // evidence exists, this reader simply reports what it now sees, and a
-        // request is never answered `503 storage-unavailable` because it lost
-        // a race it did not need to win (FR-039: absence and failure are
-        // different facts, and only the second is a setup error).
+        // gone under the winner's name. The evidence exists (this reader read
+        // it and proved it unusable before the rename), so the answer stays
+        // `quarantined`: only the path is unknown, because the file is now
+        // named for the winner. It is still not a failure either — a request
+        // is never answered `503 storage-unavailable` because it lost a race it
+        // did not need to win (FR-039: absence and failure are different
+        // facts, and only the second is a setup error).
         if (isMissingFile(error)) {
-            return { status: 'absent' };
+            return { status: 'quarantined', quarantinePath: null };
         }
 
         throw new StorageUnavailableError(`unusable store file cannot be set aside: ${filePath}`, error);

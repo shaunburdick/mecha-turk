@@ -18,14 +18,18 @@
  * surface for a single operator with one panel.
  */
 
-import { listAccounts } from '../accounts/store.ts';
+import { observeAccountPromptChanges } from '../account-prompt-audit.ts';
+import { listAccountsUnobserved } from '../accounts/store.ts';
 import { readBindings, readBindingsUnobserved } from '../bindings-read.ts';
 import { validateBindings, writeBindings } from '../bindings.ts';
 import { errorResponse, STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
 import { isRecord } from '../json.ts';
 import { recordPromptChanges, runPromptChain } from '../prompt-audit.ts';
 import type { HttpResponse } from '../http.ts';
-import type { BindingRecord } from '../bindings.ts';
+import type { ServiceLogger } from '../log.ts';
+import type { BindingRecord, BindingValidation } from '../bindings.ts';
+import type { Account } from '../accounts/model.ts';
+import type { ServiceStore } from '../store/index.ts';
 import { readStatusRows } from './events.ts';
 import type { Route, RouteContext, RouteRequest } from './types.ts';
 
@@ -115,6 +119,48 @@ function mergePrompts(input: {
     });
 }
 
+/** What one custody read produced beside the verdict it fed. */
+interface CustodyVerdict {
+    /** The accounts as the directory held them, for the post-validation observation. */
+    readonly accounts: readonly Account[];
+    /** The verdict over the submitted body. */
+    readonly validation: BindingValidation;
+}
+
+/**
+ * Read the account custody and validate the submitted body against it.
+ *
+ * The directory read runs **before** validation — an account the custody
+ * never verified is one of the rules being checked — but it is deliberately
+ * the *unobserved* reader: the prompt-change observation a plain
+ * `listAccounts` would fold in is an audit append, and a refusal writes
+ * nothing (004 AC-133; the same order the account profile route keeps, which
+ * validates before it observes). The observation the read implies belongs to
+ * the caller, and runs only once the write is certain to happen.
+ *
+ * @param input - Open store, its logger, and the raw PUT body.
+ * @returns The custody as it stood plus the verdict over the body.
+ */
+async function readCustodyAndValidate(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Structured logger for the custody read's quarantine lines. */
+    readonly log: ServiceLogger;
+    /** The PUT body exactly as it arrived. */
+    readonly body: unknown;
+}): Promise<CustodyVerdict> {
+    const accounts = await listAccountsUnobserved(input.store, input.log);
+    const known = new Set<string>(accounts.map((account) => account.numericUserId));
+
+    return {
+        accounts,
+        validation: validateBindings({
+            raw: input.body,
+            accountExists: (numericUserId) => known.has(numericUserId),
+        }),
+    };
+}
+
 /**
  * Answer `PUT /v1/bindings` by replacing the stored bindings, validated.
  *
@@ -124,8 +170,10 @@ function mergePrompts(input: {
  * actually exists in the custody directory, and any submitted starting prompt
  * passes the one prompt validator. Binding ids must be unique; the list is
  * capped. A refusal names the field and the remediation, never the received
- * value — and a refusal writes **nothing**: no file, no prompt change row
- * (004 FR-027, AC-132/AC-133).
+ * value — and a refusal writes **nothing**: no file, no prompt change row, no
+ * account observation row either — the custody read that validates account
+ * existence observes only once the write is certain to happen (004 FR-027,
+ * AC-132/AC-133).
  *
  * The write itself runs as one task on the prompt-observation chain (plan C2):
  * read the stored document fresh, record any hand edit it carries with actor
@@ -151,28 +199,33 @@ async function handlePutBindings(context: RouteContext, request: RouteRequest): 
         });
     }
 
-    // The account-existence check runs against one directory read, so the
-    // loop can never be pointed at an account the custody never verified.
-    const accounts = await listAccounts(store, context.log);
-    const known = new Set<string>(accounts.map((account) => account.numericUserId));
-
-    const validation = validateBindings({
-        raw: request.body,
-        accountExists: (numericUserId) => known.has(numericUserId),
-    });
-    if (!validation.ok) {
+    const custody = await readCustodyAndValidate({ store, log: context.log, body: request.body });
+    if (!custody.validation.ok) {
         // The contract's `422 validation` body: every `field: remediation`
         // pair in the message and the structured list alike. An object list
         // stringified into the message would have read `[object Object]`.
-        return validationResponse(validation.issues);
+        return validationResponse(custody.validation.issues);
     }
 
+    // Only a submission that will actually be written earns the observation
+    // its read implied: the whole custody directory, exactly as `listAccounts`
+    // would have observed it, so a hand edit outside the panel is still
+    // recorded exactly once with actor `service` (004 FR-088).
+    await observeAccountPromptChanges({
+        store,
+        log: context.log,
+        accounts: custody.accounts,
+        complete: true,
+        actor: 'service',
+    });
+
+    const submitted = custody.validation.bindings;
     const body = request.body as { readonly bindings: readonly unknown[] };
     const omitted = omittedPromptIds(body.bindings);
     const bindings = await runPromptChain(store, async () => {
         const stored = await readBindingsUnobserved({ store, log: context.log });
         await recordPromptChanges({ store, log: context.log, bindings: stored, actor: 'service' });
-        const merged = mergePrompts({ submitted: validation.bindings, omitted, stored });
+        const merged = mergePrompts({ submitted, omitted, stored });
         await writeBindings({ store, bindings: merged });
         await recordPromptChanges({ store, log: context.log, bindings: merged, actor: 'operator' });
 

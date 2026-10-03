@@ -4,12 +4,16 @@
  *
  * Everything here runs **after** the gates in
  * [`relay-gates.ts`](./relay-gates.ts) have passed and the service has answered
- * a reserve with a single-use token — so nothing in this module can refuse a
- * call the reservation permits. What it owes instead is the ordering the
- * contract makes non-negotiable:
+ * a reserve with a single-use token — with **one** exception the reservation
+ * cannot settle: the budget floor (004 FR-085). A composed first message over
+ * {@link CONTEXT_MAX_CHARS} is refused *before* `host.startSession()` is
+ * reachable — no session started, nothing truncated — because a message only a
+ * hand-edited store could push past the bound is a stop condition, not
+ * permission to guess (FR-003, constitution II). Every other step owes the
+ * ordering the contract makes non-negotiable:
  *
  * ```text
- * host.startSession() returns ──▶ WRITE attempt record ──▶ POST result ──▶ 2xx ──▶ acknowledged
+ * compose + measure ──▶ host.startSession() returns ──▶ WRITE attempt record ──▶ POST result ──▶ 2xx ──▶ acknowledged
  * ```
  *
  * The record is durable **before** the report leaves, because a report that
@@ -32,9 +36,11 @@ import type { LedgerDetail } from './ledger.ts';
 import { appendEntryAndPersist } from './panel-actions.ts';
 import { redact } from './redaction.ts';
 import { composeFirstMessage, promptBlockChars } from './prompt.ts';
+import type { PromptSource } from './prompt.ts';
 import { loadDispatches } from './dispatches.ts';
 import { dispatchedPath, servicePost } from './service-calls.ts';
 import {
+    CONTEXT_MAX_CHARS,
     buildBoundedContext,
     buildStartSessionRequest,
     describeError,
@@ -109,6 +115,50 @@ function failureReason(summary: LedgerDetail): string {
 }
 
 /**
+ * The fail-closed budget floor: the composed first message against
+ * {@link CONTEXT_MAX_CHARS} (004 FR-085, plan D22, research R-2).
+ *
+ * The frame is bounded as it is built and the prompt block is reserved before
+ * the excerpt is sized, so a legal composition never reaches this check: three
+ * maximal tiers plus the full frame come to ≈ 7,700 of the 12,000 characters
+ * available (FR-085's own arithmetic). What it exists for is the one case
+ * FR-085 names — a store hand-edited past its own validators — where the floor
+ * **refuses rather than shortens**: no session starts, and no tier, no frame,
+ * and no marker structure is ever truncated (FR-003; constitution II: a stop
+ * condition, not permission to guess).
+ *
+ * The refusal is reported as a failed attempt through the existing `problem`
+ * path (research R-2's default): no new `blocked:` reason — 003 owns that
+ * closed set — no new state, and no vocabulary beyond the words below.
+ *
+ * @param input - The composed message, and the tiers that contributed it.
+ * @returns `null` when the message fits; otherwise the bounded remediation
+ *   naming every contributing tier, ready for the failed attempt's `problem`.
+ */
+export function budgetFloorProblem(input: {
+    /** The composed first message, exactly as the host would receive it. */
+    readonly composed: string;
+    /** The tiers the prompt block came from, or `null` when no tier set one. */
+    readonly sources: readonly PromptSource[] | null;
+}): string | null {
+    const { composed, sources } = input;
+    if (composed.length <= CONTEXT_MAX_CHARS) {
+        return null;
+    }
+
+    // Named from the run's own source list, so the operator is told *which*
+    // starting prompts to shorten — the list is what identifies them, never a
+    // fragment of their text (FR-085, FR-053).
+    const tiers = sources === null || sources.length === 0 ? 'none named' : sources.join(', ');
+
+    return boundedText(
+        `Dispatch refused before start: the composed first message is ${composed.length} characters, over the `
+        + `${CONTEXT_MAX_CHARS}-character dispatch budget. Contributing starting-prompt tiers: ${tiers}. `
+        + 'Shorten or clear those starting prompts, then retry — nothing was truncated and no session was started.',
+    );
+}
+
+/**
  * Build the spike-shaped evidence record one offered run maps into.
  *
  * MVP-DEBT: the relay borrows the spike's evidence schema, so the trigger
@@ -141,10 +191,12 @@ function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRu
  * The message is composed here from the run's own snapshot: the operator's
  * prompt block first, the automatic frame beneath it — and with no prompt the
  * frame is exactly what this build produced before the feature existed (004
- * FR-032, SC-121).
+ * FR-032, SC-121). Composition does not decide whether the message may be sent:
+ * {@link budgetFloorProblem} measures what comes back of this against
+ * {@link CONTEXT_MAX_CHARS} immediately before the host call (004 FR-085).
  *
  * @param input - Runtime, the run, and the project the host confirmed.
- * @returns The request exactly as the host will receive it.
+ * @returns The request exactly as the host would receive it.
  */
 export function runRequestOf(input: {
     /** Panel runtime. */
@@ -190,12 +242,21 @@ export function runRequestOf(input: {
             promptPresent: run.promptPresent,
             promptFingerprint: run.promptFingerprint,
             promptLength: run.promptLength,
+            promptSources: run.promptSources,
         },
     });
 }
 
 /**
  * Make the one authorized host call; never throws.
+ *
+ * **The floor sits here** (004 FR-085): the message is composed first, then
+ * measured against {@link CONTEXT_MAX_CHARS} — and an over-budget composition
+ * is refused **before** `host.startSession()` is called, so no session is
+ * started and nothing is truncated. The refusal takes the same shape a rejected
+ * start does (`sessionId: null`, `sent: 'skipped'`, the remediation as its
+ * `failure`), which is what carries it through the existing failed-attempt
+ * `problem` path into the operator's run row without a new state or reason.
  *
  * A rejected `host.startSession()` is recorded as a failure with the transport
  * problem as its reason: the guest bridge documents a created session as a
@@ -204,7 +265,8 @@ export function runRequestOf(input: {
  * the panel to hold before it reports anything.
  *
  * @param input - Runtime, the run, and the confirmed project.
- * @returns What the host produced, for the ledger, the record, and the report.
+ * @returns What the host produced (or the floor refused), for the ledger, the
+ *   record, and the report.
  */
 export async function startRunSession(input: {
     /** Panel runtime. */
@@ -217,7 +279,14 @@ export async function startRunSession(input: {
     const { rt, run } = input;
     let summary: LedgerDetail;
     try {
-        summary = summarizeStartSessionResult(await rt.host.startSession(runRequestOf(input)));
+        const request = runRequestOf(input);
+        const overBudget = budgetFloorProblem({
+            composed: request.text ?? '',
+            sources: run.promptSources,
+        });
+        summary = overBudget !== null
+            ? { sessionId: null, sent: 'skipped', failure: overBudget }
+            : summarizeStartSessionResult(await rt.host.startSession(request));
     } catch (cause) {
         summary = { sessionId: null, sent: 'skipped', failure: describeError(cause) };
     }

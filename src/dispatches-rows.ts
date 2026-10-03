@@ -3,8 +3,10 @@
  *
  * One run is what the operator needs to judge a dispatch at a glance: which
  * trigger fired, which issue it was, why it sits where it sits now, how long
- * ago it was detected, what the panel reported when it dispatched, and which
- * agent the read-back observed. Every string composed here reaches the DOM
+ * ago it was detected, what the panel reported when it dispatched, which
+ * agent the read-back observed, and which prompt tiers the run composed its
+ * operator block from — presence, sources, fingerprint, and length, never the
+ * text (004 FR-052, FR-087). Every string composed here reaches the DOM
  * through the SDK list primitives' `textContent` writes, and the whole
  * composed subtitle additionally passes through {@link redact} as defence in
  * depth — `stateReason`, the dispatch result, and the verification note are
@@ -400,22 +402,37 @@ function verificationPhrase(verification: RunVerification): string {
 }
 
 /**
- * Compose the prompt line: presence, fingerprint, and length — never the text.
+ * Compose the prompt line: presence, the contributing tiers, the fingerprint,
+ * and the length — never the text.
  *
- * The fingerprint is what lets an operator tell two dispatches apart and
- * recognise a pre-upgrade one (004 FR-052, AC-139); the text is the
- * instruction, and it lives in the binding and the run's snapshot, not on a
- * row that outlives them (004 FR-053).
+ * Three facts, one read (004 FR-052 as read through FR-072/FR-087): the
+ * ordered tier list answers *which tiers produced this run* (`global`, then
+ * `account`, then `binding`, joined with `+` in the stacking order FR-080
+ * fixes), the fingerprint identifies *which concatenated text was used*
+ * (FR-086), and the length says how much of it there was. The fingerprint is
+ * what lets an operator tell two dispatches apart and recognise a pre-upgrade
+ * one (AC-139); the text is the instruction, and it lives in the tiers and the
+ * run's snapshot, not on a row that outlives them (004 FR-053) — so a source
+ * name reaches this line only through the closed reader in `prompt-wire.ts`,
+ * which has already refused any tier word this build does not know.
+ *
+ * No tier set reads as `prompt not set`, and the same phrase answers a
+ * reference whose members disagree — the state the fail-closed reader refuses
+ * before a row can reach this function, so the line never has to guess
+ * between "unset" and "unreadable" (FR-087's iff; AGENTS invariant 8).
  *
  * @param row - Run to describe.
- * @returns `prompt set · mtp-… · N chars`, or `prompt not set`.
+ * @returns `prompt set · global+account+binding · mtp-… · N chars`, or
+ *   `prompt not set`.
  */
 function promptPhrase(row: RunRow): string {
-    if (!row.promptPresent || row.promptFingerprint === null || row.promptLength === null) {
+    const { promptFingerprint, promptLength, promptSources } = row;
+    if (!row.promptPresent || promptFingerprint === null || promptLength === null
+        || promptSources === null || promptSources.length === 0) {
         return 'prompt not set';
     }
 
-    return `prompt set · ${row.promptFingerprint} · ${row.promptLength} chars`;
+    return `prompt set · ${promptSources.join('+')} · ${promptFingerprint} · ${promptLength} chars`;
 }
 
 /**

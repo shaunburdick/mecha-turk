@@ -28,6 +28,7 @@ import {
     parseRunsDocument,
 } from '../service/poll/runs-parse.ts';
 import { buildCorrelationId, buildRunKey } from '../service/poll/run-key.ts';
+import { promptFingerprint } from '../service/prompt.ts';
 import { openStore } from '../service/store/index.ts';
 import type { JsonReadResult } from '../service/store/index.ts';
 import type { DispatchAttempt, Run, RunsDocument, SourceReference } from '../service/poll/runs-types.ts';
@@ -289,7 +290,7 @@ async function readBack(document: unknown): Promise<JsonReadResult<RunsDocument>
 }
 
 describe('writer → reader round-trip (real bytes)', () => {
-    it('reads back exactly what the writer persisted (+2 cases)', async () => {
+    it('reads back exactly what the writer persisted (+3 cases)', async () => {
         // case: reads back exactly what the writer persisted
         {
             const document = fixtureDocument([
@@ -307,6 +308,26 @@ describe('writer → reader round-trip (real bytes)', () => {
 
             expect(result.status).toBe('ok');
             expect(result.status === 'ok' ? result.value : null).toEqual(document);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: reads back a stacked three-tier snapshot at its own stack bound (FR-085)
+        {
+            const body = 'x'.repeat(6_004);
+            const snapshot = {
+                text: body,
+                fingerprint: promptFingerprint(body),
+                length: 6_004,
+                sources: ['global', 'account', 'binding'] as const,
+            };
+            const document = fixtureDocument([fixtureRun({ prompt: snapshot })]);
+
+            const result = await readBack(document);
+
+            expect(result.status).toBe('ok');
+            expect(result.status === 'ok' ? result.value.runs[0]?.prompt : null).toEqual(snapshot);
         }
         await afterEachWork2();
         await beforeEachWork1();
@@ -434,6 +455,23 @@ describe('fail-closed document and row validation', () => {
         {
             name: 'two open runs share one subject',
             document: fixtureDocument([fixtureRun(), fixtureRun({ ordinal: 1 })]),
+        },
+        {
+            name: 'prompt without its sources',
+            document: fixtureDocument([poisoned('prompt', {
+                text: 'x'.repeat(12),
+                fingerprint: promptFingerprint('x'.repeat(12)),
+                length: 12,
+            })]),
+        },
+        {
+            name: 'prompt whose length exceeds its stack bound',
+            document: fixtureDocument([poisoned('prompt', {
+                text: 'x'.repeat(6_005),
+                fingerprint: promptFingerprint('x'.repeat(6_005)),
+                length: 6_005,
+                sources: ['global', 'account', 'binding'],
+            })]),
         },
     ];
 

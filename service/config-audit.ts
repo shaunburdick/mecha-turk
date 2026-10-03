@@ -5,19 +5,28 @@
  * that no shipped code had written until now — it is **filled, never invented**
  * (006 FR-070), and there is no second spelling: not `config.updated`, not
  * `config.update`. Both rows this module writes share one identity
- * ({@link CONFIGURATION_ENTITY_ID}), one actor (`operator` — the only writer of
- * `config.json` is a bearer-token holder acting for the operator, the
- * convention `routes/accounts.ts` already uses), and **their own correlation
- * id with no run reference** (FR-074): a configuration change belongs to no
- * work unit, and forcing it onto a run's identifier would be the defect 003
- * FR-062 corrected for dispatch rows.
+ * ({@link CONFIGURATION_ENTITY_ID}) and **their own correlation id with no run
+ * reference** (FR-074): a configuration change belongs to no work unit, and
+ * forcing it onto a run's identifier would be the defect 003 FR-062 corrected
+ * for dispatch rows. Their actor differs by path: `operator` for a
+ * `PUT /v1/config` — the only writer of `config.json` is a bearer-token holder
+ * acting for the operator, the convention `routes/accounts.ts` already uses —
+ * and `service` for a change observed in the stored document without a write
+ * (004 FR-088).
  *
- * Two rows, two shapes, one hard rule between them:
+ * Two shapes, one hard rule between them. The applied shape is written on two
+ * paths — the panel's `PUT` and the poll cycle's observation of the stored
+ * document — and both share this module's composer, so neither can drift:
  *
  * - **`applied`** records one `{ field, from, to }` triple per changed field,
  *   ordered by field name, plus the take-effect class each changed field
  *   declares, so a reader can answer *what changed, from what, and when it took
- *   effect* from the row alone (FR-071).
+ *   effect* from the row alone (FR-071). For `startingPrompt` — the global tier
+ *   of the layered prompt (004 FR-081) — both sides are that field's **`mtp-`
+ *   fingerprint or `null`**, never the text (004 FR-088; 006 FR-071 as amended
+ *   at v1.6.0), because 004 FR-053 keeps every tier's text out of every audit
+ *   row. Raw-string equality is still what decides *changed* (006 FR-048): the
+ *   fingerprint is what the row **records**, never what the diff **compares**.
  * - **`refused`** records the issue count and the **documented** field names
  *   the refusal named — with every name that is not a documented field reduced
  *   to `<withheld>` — and **no submitted value of any kind**: not the value,
@@ -30,15 +39,29 @@
  * the configuration write is the durable record, so a row that could not reach
  * disk is surfaced as `auditWritten: false` (accepted) or a warn line (refused)
  * rather than rolled back or swallowed (FR-070's edge case, 003 FR-063).
+ *
+ * The **observed** half of FR-088 — a change to this field noticed in the
+ * stored document without a write — lives in
+ * [`config-prompt-observe.ts`](./config-prompt-observe.ts), which builds its
+ * row through {@link appendConfigApplied} so the two paths cannot drift apart.
  */
 
 import { appendAudit, CONFIGURATION_ENTITY_ID } from './audit.ts';
 import { DEFAULT_CONFIG } from './config.ts';
 import { TAKE_EFFECT } from './config-schema.ts';
+import { promptTierOf } from './prompt.ts';
 import type { ConfigIssue, ServiceConfig } from './config.ts';
 import type { ServiceConfigField, TakeEffect } from './config-schema.ts';
 import type { ServiceLogger } from './log.ts';
 import type { ServiceStore } from './store/index.ts';
+
+/**
+ * The vocabulary name 002 reserved for a configuration change (006 FR-070).
+ *
+ * Exported so the observer lane seeds from the same spelling the writers use —
+ * there is no second name for this event, in either direction.
+ */
+export const CONFIG_CHANGED_EVENT = 'config.changed';
 
 /** What an unrecognized key is recorded as in a refusal row (FR-072). */
 const WITHHELD = '<withheld>';
@@ -49,14 +72,78 @@ const APPLIED_REASON = 'configuration replaced';
 /** Reason text the refused row carries; secret-free by construction (FR-072). */
 const REFUSED_REASON = 'configuration refused';
 
+/** Who caused a `config.changed` row: the write's operator, or the service (006 FR-070). */
+export type ConfigChangeActor = 'operator' | 'service';
+
+/** What a `{ field, from, to }` triple may carry as either side of a change (006 FR-071). */
+export type ConfigChangeValue = number | string | null;
+
 /** One field a whole-document write changed, with both sides of the change. */
 export interface ConfigChange {
     /** Documented field that moved. */
     readonly field: ServiceConfigField;
-    /** Value in force before the write (FR-071). */
-    readonly from: number | string;
-    /** Value the write put in force (FR-071). */
-    readonly to: number | string;
+    /** Value in force before the write (FR-071); `null` for an unset global tier. */
+    readonly from: ConfigChangeValue;
+    /** Value the write put in force (FR-071); `null` for an unset global tier. */
+    readonly to: ConfigChangeValue;
+}
+
+/**
+ * Fingerprint the global tier's text for a row (004 FR-088, 006 FR-071).
+ *
+ * @param text - The field's stored text; `null`/`undefined`/`''` all read as
+ *   the documented *unset* tier (004 FR-081: empty means unset).
+ * @returns `mtp-<sha256 hex[0:32]>` over the normalised text, or `null` —
+ *   never the text itself, and never a fingerprint of a value the validator
+ *   would refuse: an unusable value reads as *unset*, which is the only safe
+ *   answer a durable trail may give (004 FR-053).
+ */
+export function configPromptFingerprint(text: string | null | undefined): string | null {
+    // `null` and an absent member are the same *unset* to the one validator
+    // every tier shares (004 FR-017), so the normalisation loses nothing.
+    const tier = promptTierOf({ startingPrompt: text ?? null });
+
+    return tier === null ? null : tier.fingerprint;
+}
+
+/** The one shape a recorded global-tier value may have (004 FR-016). */
+const PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
+
+/**
+ * Reduce a `startingPrompt` value read **out of the trail** back to a
+ * fingerprint (004 FR-088's baseline seed).
+ *
+ * Only a value that already carries the `mtp-` shape is trusted. That matters
+ * for more than hygiene: this value becomes the lane's baseline, and a
+ * baseline is written back into a later row as `from`, so anything that is not
+ * a fingerprint — text a row should never have carried, a number, an object —
+ * would otherwise be echoed forward into a new row. Reading it as `null` keeps
+ * 006 FR-071's never-the-text rule in force on the **read** side too.
+ *
+ * @param value - A recorded `from`/`to` of a `config.changed` row.
+ * @returns The fingerprint, or `null` when the value cannot be one.
+ */
+export function recordedConfigPromptFingerprint(value: unknown): string | null {
+    return typeof value === 'string' && PROMPT_FINGERPRINT_PATTERN.test(value) ? value : null;
+}
+
+/**
+ * The value this field's row entry records; every other field records itself
+ * (FR-071 as amended for `startingPrompt` at 006 v1.6.0).
+ *
+ * @param field - Documented field being recorded.
+ * @param value - The field's value as the document carried it.
+ * @returns The fingerprint pair side for the global tier, the value otherwise.
+ */
+function recordedValue(field: ServiceConfigField, value: number | string): ConfigChangeValue {
+    if (field !== 'startingPrompt') {
+        return value;
+    }
+
+    // `ServiceConfig` types this member `string`; the guard exists so that a
+    // value that ever arrived any other way is recorded as *unset* rather than
+    // as something a trail may not carry.
+    return configPromptFingerprint(typeof value === 'string' ? value : null);
 }
 
 /**
@@ -64,7 +151,9 @@ export interface ConfigChange {
  *
  * This is also the **no-op detector** (FR-048): an empty result means the two
  * documents are equal over every documented field, so the write changed
- * nothing, reports *already saved*, and owes no row at all.
+ * nothing, reports *already saved*, and owes no row at all. The comparison is
+ * deliberately **raw** — a fingerprint decides nothing here, it only labels the
+ * row afterwards.
  *
  * @param previous - The document in force before the write.
  * @param next - The validated candidate about to be written.
@@ -75,7 +164,11 @@ export function configChanges(previous: ServiceConfig, next: ServiceConfig): rea
         .filter((field) => previous[field] !== next[field])
         .sort((left, right) => left.localeCompare(right));
 
-    return fields.map((field) => ({ field, from: previous[field], to: next[field] }));
+    return fields.map((field) => ({
+        field,
+        from: recordedValue(field, previous[field]),
+        to: recordedValue(field, next[field]),
+    }));
 }
 
 /**
@@ -120,24 +213,33 @@ function refusedFields(issues: readonly ConfigIssue[]): readonly string[] {
 }
 
 /**
- * Append the row for an accepted write that changed something (FR-071).
+ * Append the row for an accepted change to the document (FR-071).
  *
- * @param input - The open store, its logger, and the changes that were applied.
+ * The **write** path calls it with the fields a `PUT` moved and actor
+ * `operator`; the observation lane calls it with the single `startingPrompt`
+ * move it noticed and actor `service`. One composer, one shape (006 FR-070).
+ *
+ * @param input - The open store, its logger, the changes that were applied,
+ *   and who caused them (`operator` unless stated).
  * @returns `true` when the row reached disk, `false` when the append failed —
- *   in which case the write still stands and a structured warn names the loss.
+ *   in which case the change still stands and a structured warn names the
+ *   loss. It never throws, which is what lets the lane advance its baseline
+ *   past a row that could not be written (003 FR-063).
  */
 export async function appendConfigApplied(input: {
     /** Open store the trail lives on. */
     readonly store: ServiceStore;
     /** Structured logger. */
     readonly log: ServiceLogger;
-    /** The fields the write changed, ordered by field name. */
+    /** The fields that changed, ordered by field name. */
     readonly changes: readonly ConfigChange[];
+    /** Who caused the change (006 FR-070). */
+    readonly actor?: ConfigChangeActor;
 }): Promise<boolean> {
     try {
         await appendAudit(input.store, {
-            eventType: 'config.changed',
-            actorSource: 'operator',
+            eventType: CONFIG_CHANGED_EVENT,
+            actorSource: input.actor ?? 'operator',
             entity: { kind: 'service', id: CONFIGURATION_ENTITY_ID },
             decision: 'applied',
             reason: APPLIED_REASON,
@@ -192,7 +294,7 @@ export async function appendConfigRefused(input: {
 
     try {
         await appendAudit(input.store, {
-            eventType: 'config.changed',
+            eventType: CONFIG_CHANGED_EVENT,
             actorSource: 'operator',
             entity: { kind: 'service', id: CONFIGURATION_ENTITY_ID },
             decision: 'refused',

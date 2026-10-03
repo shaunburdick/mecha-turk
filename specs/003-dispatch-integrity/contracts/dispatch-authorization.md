@@ -70,6 +70,17 @@ A refused reserve never writes `dispatch.reserved` (no reservation exists); it w
 > Authoritative text:
 > [`004-starting-prompt/contracts/dispatch-prompt.md`](../../004-starting-prompt/contracts/dispatch-prompt.md) §3.
 
+> **`promptSources` — additive pointer (004 v1.3.0)**: both audit payloads
+> named in this contract — `dispatch.reserved` (§1) and `dispatch.result`
+> (§2) — also carry **`promptSources`** in `details`: the ordered list of
+> contributing tiers (`global`, `account`, `binding`, most general first,
+> duplicate-free, always a subsequence of that order), `null` when
+> `promptPresent` is `false` and non-empty otherwise, written from the run's
+> snapshot exactly like the keys above and never from the request body. No
+> existing detail key, entity, or correlation id is renamed, retyped, or
+> removed by it. Authoritative text:
+> [`004-starting-prompt/contracts/layered-prompt.md`](../../004-starting-prompt/contracts/layered-prompt.md) §3.
+
 ---
 
 ## 2. Result — `POST /v1/events/:correlationId/dispatched`

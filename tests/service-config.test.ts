@@ -7,18 +7,33 @@
  * fresh store, atomic PUT round-trip, 422 remediation lists, 400 for malformed
  * JSON, 503 when the data directory is unusable). `GET /v1/status` is asserted
  * against the contract's fixed shape, including its truthful wave-1 contents.
+ *
+ * Two string fields ride the same document and get a block each: the agent
+ * baseline `expectedAgent` (006 FR-100) and the global prompt tier
+ * `startingPrompt` (004 FR-081, task T-019), the latter sharing its rule with
+ * the bindings and account save paths rather than restating it here.
  */
 
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_CONFIG, NUMERIC_BOUNDS, parseStoredConfig, validateConfig } from '../service/config.ts';
+import { readAuditEntries } from '../service/audit.ts';
+import {
+    DEFAULT_CONFIG,
+    NUMERIC_BOUNDS,
+    configFromStore,
+    parseStoredConfig,
+    validateConfig,
+} from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
 import { readServiceEnv } from '../service/env.ts';
 import { createLogger } from '../service/log.ts';
+import { STARTING_PROMPT_MAX_CODE_POINTS } from '../service/prompt.ts';
 import { startService } from '../service/server.ts';
 import { SERVICE_SCHEMA_VERSION } from '../service/store/index.ts';
+import { findSecretLeak } from '../src/redaction.ts';
+import { descriptorFor, parseConfigEnvelope } from '../src/settings-schema.ts';
 import type { ServiceConfig } from '../service/config.ts';
 import type { FieldDescriptor } from '../service/config-schema.ts';
 import type { ServiceStatusBody } from '../service/routes/status.ts';
@@ -111,6 +126,23 @@ const AGENT_FIELD = 'expectedAgent';
 /** Documented default for {@link AGENT_FIELD}: *no baseline configured*. */
 const AGENT_DEFAULT = '';
 
+/** Field name 004 v1.3.0 adds to the document — the global prompt tier. */
+const STARTING_PROMPT_FIELD = 'startingPrompt';
+
+/** Documented default for {@link STARTING_PROMPT_FIELD}: *the tier is unset*. */
+const PROMPT_DEFAULT = '';
+
+/**
+ * A document written before {@link STARTING_PROMPT_FIELD} existed — every
+ * documented key **except** it.
+ *
+ * Derived from {@link DEFAULT_CONFIG} rather than retyped, so the fixture can
+ * never claim to be "complete minus one" once another field lands.
+ */
+const PRE_PROMPT_CONFIG: Readonly<Record<string, unknown>> = Object.fromEntries(
+    Object.entries(DEFAULT_CONFIG).filter(([field]) => field !== STARTING_PROMPT_FIELD),
+);
+
 /** A baseline every rule accepts; used for the trimmed round trip and an accepted save. */
 const ACCEPTED_AGENT = 'codex-reviewer';
 
@@ -123,7 +155,7 @@ const PADDED_AGENT = `  ${ACCEPTED_AGENT}  `;
  */
 const CREDENTIAL_SHAPED_VALUE = `ghp_${'a'.repeat(36)}`;
 
-/** 006's own eleven fields — the histogram's criterion of record (SC-106). */
+/** 006's own twelve fields — the histogram's criterion of record (SC-106). */
 const SPEC_FIELDS: readonly string[] = [
     'intervalMs',
     'overlapMs',
@@ -136,6 +168,7 @@ const SPEC_FIELDS: readonly string[] = [
     'excerptRetentionDays',
     'logLevel',
     'expectedAgent',
+    'startingPrompt',
 ];
 
 /** Service registered for cleanup after the current test. */
@@ -311,8 +344,16 @@ describe('ServiceConfig validation', () => {
                     leaseMs: 120_000,
                     resultDeadlineMs: 120_000,
                     [AGENT_FIELD]: AGENT_DEFAULT,
+                    // v1.4.1: the global prompt tier joined the document, and a
+                    // file predating it fills from the documented blank (004
+                    // FR-081's no-migration rule) — reported as a default.
+                    [STARTING_PROMPT_FIELD]: PROMPT_DEFAULT,
                 },
-                defaultsApplied: ['leaseMs', 'resultDeadlineMs', AGENT_FIELD],
+                // The fill list is in **declaration order**, and the prompt
+                // tier leads `DEFAULT_CONFIG` since the owner's PR #12 ruling
+                // ("move it to the top of the list") — the count and the
+                // membership are the claim, the sequence is the key order.
+                defaultsApplied: [STARTING_PROMPT_FIELD, 'leaseMs', 'resultDeadlineMs', AGENT_FIELD],
             });
         }
         await afterEachWork1();
@@ -416,6 +457,8 @@ describe('GET and PUT /v1/config', () => {
                 leaseMs: 120_000,
                 resultDeadlineMs: 120_000,
                 [AGENT_FIELD]: AGENT_DEFAULT,
+                // v1.4.1: the same arrival fill for the global prompt tier.
+                [STARTING_PROMPT_FIELD]: PROMPT_DEFAULT,
             });
             expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toEqual([]);
         }
@@ -699,6 +742,171 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
     });
 });
 
+describe('startingPrompt — the global tier (004 FR-081, FR-083; 006 FR-041)', () => {
+    /** The cap, in code points, read from the one declaration the validator uses. */
+    const CAP = STARTING_PROMPT_MAX_CODE_POINTS;
+
+    /** A value at the cap exactly, which must be accepted (004 FR-020). */
+    const AT_CAP_PROMPT = 'a'.repeat(CAP);
+
+    /** One code point past the cap, which must be refused. */
+    const OVER_CAP_PROMPT = 'a'.repeat(CAP + 1);
+
+    /** Padding around an ordinary instruction, to prove the stored value normalises. */
+    const PADDED_PROMPT = '  first line\r\nsecond line  ';
+
+    /** What {@link PADDED_PROMPT} reads back as: trimmed, line endings normalised. */
+    const NORMALISED_PROMPT = 'first line\nsecond line';
+
+    it('takes the documented blank as unset and stores the normalised text', () => {
+        // The shipped default *is* the documented unset state (004 FR-081).
+        expect(DEFAULT_CONFIG.startingPrompt).toBe(PROMPT_DEFAULT);
+        expect(validateConfig(DEFAULT_CONFIG)).toEqual({ ok: true, config: DEFAULT_CONFIG });
+
+        // The ceiling this rule applies is the specification's own figure.
+        expect(CAP).toBe(2_000);
+
+        for (const blank of ['', '   ', '\t\n']) {
+            const result = validateConfig({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: blank });
+
+            expect(result.ok, `${JSON.stringify(blank)} must mean unset`).toBe(true);
+            if (result.ok) {
+                expect(result.config[STARTING_PROMPT_FIELD]).toBe(PROMPT_DEFAULT);
+            }
+        }
+
+        const padded = validateConfig({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: PADDED_PROMPT });
+
+        expect(padded.ok).toBe(true);
+        if (padded.ok) {
+            expect(padded.config[STARTING_PROMPT_FIELD]).toBe(NORMALISED_PROMPT);
+        }
+    });
+
+    it('accepts 2,000 code points and refuses 2,001 with the field and no echo', () => {
+        const accepted = validateConfig({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: AT_CAP_PROMPT });
+
+        expect(accepted.ok, 'the cap itself must be accepted').toBe(true);
+        if (accepted.ok) {
+            expect(accepted.config[STARTING_PROMPT_FIELD]).toHaveLength(CAP);
+        }
+
+        const refused = validateConfig({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: OVER_CAP_PROMPT });
+
+        expect(refused.ok, 'one code point past the cap must be refused').toBe(false);
+        if (!refused.ok) {
+            const issue = refused.issues.find((candidate) => candidate.field === STARTING_PROMPT_FIELD);
+
+            expect(issue, 'the refusal must name the field').toBeDefined();
+            expect(issue?.remediation).toContain(String(CAP));
+            // No echo — neither the value nor any run of it appears anywhere
+            // in the additive issue list (004 FR-003, AC-133).
+            expect(JSON.stringify(refused.issues)).not.toContain(OVER_CAP_PROMPT);
+            expect(JSON.stringify(refused.issues)).not.toContain('a'.repeat(64));
+        }
+    });
+
+    it('refuses a credential-shaped value with the shipped shape label, over the model and the wire', async () => {
+        // The label comes from the shipped detector itself, so this asserts the
+        // *same* shape vocabulary without restating it (004 FR-024).
+        const label = findSecretLeak(CREDENTIAL_SHAPED_VALUE);
+        expect(label, 'the fixture must still read as a credential').not.toBeNull();
+
+        const refused = validateConfig({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: CREDENTIAL_SHAPED_VALUE });
+
+        expect(refused.ok).toBe(false);
+        if (!refused.ok) {
+            const issue = refused.issues.find((candidate) => candidate.field === STARTING_PROMPT_FIELD);
+
+            expect(issue?.remediation).toContain(`matched shape: ${String(label)}`);
+            expect(JSON.stringify(refused.issues)).not.toContain(CREDENTIAL_SHAPED_VALUE);
+        }
+
+        // The same refusal as `PUT /v1/config` answers it: 422, the field
+        // named, zero characters of the value in the envelope, and a stored
+        // document left byte-identical (006 FR-040, NFR-103).
+        const service = await startServiceForTest();
+        const before = JSON.stringify({ ...DEFAULT_CONFIG });
+        await writeFile(join(service.dataDir, CONFIG_FILE), before, 'utf8');
+
+        const put = await service.call(CONFIG_PATH, {
+            method: 'PUT',
+            body: JSON.stringify({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: CREDENTIAL_SHAPED_VALUE }),
+        });
+        const failure: ValidationBody = await put.json();
+        const after = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8');
+
+        expect(put.status).toBe(422);
+        expect(failure.error.code).toBe('validation');
+        expect(failure.error.issues.map((issue) => issue.field)).toContain(STARTING_PROMPT_FIELD);
+        expect(JSON.stringify(failure)).not.toContain(CREDENTIAL_SHAPED_VALUE);
+        expect(after).toBe(before);
+    });
+
+    it('refuses a non-string member, because the whole-document rule is untouched', async () => {
+        for (const wrong of [null, 42, ['an instruction']]) {
+            const result = validateConfig({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: wrong });
+
+            expect(result.ok, `${JSON.stringify(wrong)} must be refused`).toBe(false);
+            if (!result.ok) {
+                const issue = result.issues.find((candidate) => candidate.field === STARTING_PROMPT_FIELD);
+
+                expect(issue?.remediation).toContain(STARTING_PROMPT_FIELD);
+            }
+        }
+
+        // …and a PUT that omits the member entirely is the same 422: a member
+        // the whole-file rule requires is never filled in on a *write* (006 FR-041).
+        const service = await startServiceForTest();
+        const put = await service.call(CONFIG_PATH, { method: 'PUT', body: JSON.stringify(PRE_PROMPT_CONFIG) });
+        const failure: ValidationBody = await put.json();
+
+        expect(put.status).toBe(422);
+        expect(failure.error.issues.map((issue) => issue.field)).toContain(STARTING_PROMPT_FIELD);
+    });
+
+    it('fills a file predating the member, reports the fill, and writes no audit row', async () => {
+        const service = await startServiceForTest();
+        const storedBefore = JSON.stringify(PRE_PROMPT_CONFIG);
+        await writeFile(join(service.dataDir, CONFIG_FILE), storedBefore, 'utf8');
+
+        const { store } = service.handle;
+        if (store === null) {
+            throw new Error('fixture service has no store');
+        }
+
+        const trailBefore = await readAuditEntries(store);
+        const read = await service.call(CONFIG_PATH);
+        const envelope: ConfigEnvelope = await read.json();
+        const trailAfter = await readAuditEntries(store);
+        const storedAfter = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8');
+
+        // The read: filled from the documented blank, reported as a default,
+        // never presented as configured (004 FR-081, 006 FR-028).
+        expect(read.status).toBe(200);
+        expect(envelope.source).toBe('stored');
+        expect(envelope.defaultsApplied).toEqual([STARTING_PROMPT_FIELD]);
+        expect(envelope.config[STARTING_PROMPT_FIELD]).toBe(PROMPT_DEFAULT);
+        // A read rewrites nothing…
+        expect(storedAfter).toBe(storedBefore);
+        // …and appends nothing: the arrival fill is not an event (004 FR-088
+        // records *changes*, and this one changed no value).
+        expect(trailAfter).toEqual(trailBefore);
+        expect(trailAfter.filter((entry) => entry.eventType === 'config.changed')).toEqual([]);
+
+        // The write half of the same document stays a whole-file refusal, so
+        // the blank is only ever filled by the read (006 FR-041).
+        const put = await service.call(CONFIG_PATH, { method: 'PUT', body: storedBefore });
+        const failure: ValidationBody = await put.json();
+        const storedUnchanged = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8');
+
+        expect(put.status).toBe(422);
+        expect(failure.error.code).toBe('validation');
+        expect(failure.error.issues.map((issue) => issue.field)).toEqual([STARTING_PROMPT_FIELD]);
+        expect(storedUnchanged).toBe(storedBefore);
+    });
+});
+
 describe('GET /v1/config widens without changing what it already said (006 FR-020, contract §1)', () => {
     it('reports source fidelity for all three reads, and [] … (+1 cases)', async () => {
         // case: reports source fidelity for all three reads, and [] whenever source is not stored
@@ -748,6 +956,31 @@ describe('GET /v1/config widens without changing what it already said (006 FR-02
     });
 });
 
+describe('a lost quarantine rename still answers quarantined (006 contract §3 rule 9)', () => {
+    it('maps a pathless quarantine to source quarantined, and keeps real absence at default', () => {
+        const logLines: string[] = [];
+        const log = createLogger({ level: 'warn', sink: (line) => logLines.push(line) });
+
+        // The per-cycle config reader and an operator's request can both
+        // reject the same stored document; the loser's rename finds the file
+        // already set aside under the winner's name, so the outcome carries no
+        // path. The document was invalid either way, so the operator still
+        // gets the "unusable and set aside" sentence, not "defaults apply".
+        const raced = configFromStore({ status: 'quarantined', quarantinePath: null }, log);
+
+        expect(raced.source).toBe('quarantined');
+        expect(raced.config).toEqual(DEFAULT_CONFIG);
+        expect(raced.defaultsApplied).toEqual([]);
+        expect(logLines.join('\n')).toContain('stored configuration was unusable and has been set aside');
+
+        // Absence is a different fact and keeps its own answer: a store with
+        // no `config.json` is the first-run state, never a quarantine — and
+        // it earns no warning either.
+        expect(configFromStore({ status: 'absent' }, log).source).toBe('default');
+        expect(logLines).toHaveLength(1);
+    });
+});
+
 /**
  * Find one projected descriptor.
  *
@@ -759,10 +992,27 @@ function descriptorOf(name: string): FieldDescriptor | undefined {
 }
 
 /**
+ * The value each **string** field's own rule refuses, by documented name.
+ *
+ * The two string fields refuse entirely different things: `expectedAgent` is a
+ * single-token charset, while `startingPrompt` has **no content policy at all**
+ * (004 FR-029) — ordinary words with spaces are exactly what an instruction is
+ * made of, so the prompt entry fails one of its four refusal classes instead:
+ * a reserved composition-marker line (004 FR-025).
+ */
+const STRING_REFUSALS: Readonly<Record<string, unknown>> = {
+    expectedAgent: 'project manager',
+    startingPrompt: '--- BEGIN composed prompt ---',
+};
+
+/**
  * Build a value that each descriptor's own kind refuses.
  *
  * @param descriptor - The projected field to fail.
  * @returns A value outside that field's rule, for the ordering assertion.
+ * @throws {Error} When a string field has no refusal fixture — a new string
+ *   field must declare what fails it rather than inheriting another field's
+ *   rule by default.
  */
 function refusedValueFor(descriptor: FieldDescriptor): unknown {
     if (descriptor.kind === 'integer') {
@@ -773,7 +1023,12 @@ function refusedValueFor(descriptor: FieldDescriptor): unknown {
         return 'verbose';
     }
 
-    return 'project manager';
+    const refusal = STRING_REFUSALS[descriptor.name];
+    if (refusal === undefined) {
+        throw new Error(`no refusal fixture for string field ${descriptor.name}`);
+    }
+
+    return refusal;
 }
 
 describe('the projection is the validator\'s own declaration (006 SC-101, SC-106)', () => {
@@ -818,14 +1073,19 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: declares nine next-cycle, one immediate, and one next-dispatch over 006\'s eleven (SC-106)
+        // case: declares ten next-cycle, one immediate, and one next-dispatch over 006\'s twelve (SC-106)
         {
             const declared = configSchema()
                 .filter((descriptor) => SPEC_FIELDS.includes(descriptor.name))
                 .map((descriptor) => descriptor.takesEffect);
 
-            expect(declared).toHaveLength(11);
-            expect(declared.filter((takeEffect) => takeEffect === 'next-cycle')).toHaveLength(9);
+            // The criterion of record is twelve fields under 006 v1.6.0 —
+            // nine polling/retention fields, `logLevel`, `expectedAgent`, and
+            // 004's global prompt tier — so a thirteenth must be added here by
+            // hand rather than absorbed silently.
+            expect(SPEC_FIELDS).toHaveLength(12);
+            expect(declared).toHaveLength(12);
+            expect(declared.filter((takeEffect) => takeEffect === 'next-cycle')).toHaveLength(10);
             expect(declared.filter((takeEffect) => takeEffect === 'immediate')).toHaveLength(1);
             expect(declared.filter((takeEffect) => takeEffect === 'next-dispatch')).toHaveLength(1);
             expect(declared.filter((takeEffect) => takeEffect === 'restart' || takeEffect === 'none')).toHaveLength(0);
@@ -854,6 +1114,52 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
                 takesEffect: 'immediate',
             });
         }
+    });
+
+    it('round-trips the twelfth descriptor through the panel\'s closed parser', () => {
+        const parsed = parseConfigEnvelope(
+            JSON.stringify({
+                config: DEFAULT_CONFIG,
+                fields: configSchema(),
+                source: 'default',
+                defaultsApplied: [],
+            }),
+        );
+
+        expect(parsed, 'the projection must survive the panel\'s fail-closed reader').not.toBeNull();
+        if (parsed === null) {
+            return;
+        }
+
+        // Every documented member has a descriptor, so the panel marks nothing
+        // as *field this version does not show* and nothing as unreadable —
+        // the twelfth field included (006 FR-027, AC-115).
+        expect(parsed.undisplayed).toEqual([]);
+        expect(parsed.unreadable).toEqual([]);
+
+        const descriptor = descriptorFor(parsed, STARTING_PROMPT_FIELD);
+
+        expect(descriptor).not.toBeNull();
+        expect(descriptor).toMatchObject({
+            kind: 'string',
+            unit: null,
+            maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
+            default: PROMPT_DEFAULT,
+            takesEffect: 'next-cycle',
+        });
+
+        // The bounds slot of a string row *is* the format prose, and FR-063's
+        // guidance rides it (004 research R-4): the row renders no
+        // panel-authored copy, so everything an operator must be told about
+        // this field has to arrive on the wire — including the cap as a
+        // concrete number rather than a placeholder (006 FR-014, FR-023).
+        const format = descriptor?.kind === 'string' ? descriptor.format : '';
+
+        expect(format).toContain('sent to the agent verbatim');
+        expect(format).toContain('no placeholders');
+        expect(format).toContain(`${STARTING_PROMPT_MAX_CODE_POINTS} code points after trimming`);
+        expect(format).toContain('refused rather than stored');
+        expect(format).toContain('pinned Default Agent');
     });
 });
 

@@ -24,7 +24,13 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { findSecretLeak } from '../src/redaction.ts';
+import { PROMPT_SOURCE_ORDER } from '../src/prompt.ts';
+import { promptFingerprint } from '../service/prompt.ts';
+import { buildCorrelationId, buildRunKey } from '../service/poll/run-key.ts';
+import { reservedRow, resultRow } from '../service/poll/dispatch-audit.ts';
 import type { AuditEntry } from '../service/audit.ts';
+import type { PromptSnapshot } from '../service/prompt.ts';
+import type { Run } from '../service/poll/runs-types.ts';
 import { EXPECTED_AGENT, shutdownDispatchCorpus } from './support/dispatch-corpus.ts';
 import { driveDispatchCorpus } from './support/dispatch-drive.ts';
 import type { DispatchCorpus } from './support/dispatch-corpus.ts';
@@ -78,6 +84,37 @@ const REFUSING_OPERATIONS = [
     'verification',
 ] as const;
 
+/**
+ * The `details` keys `dispatch.reserved` owes, in sorted order: the four 003
+ * named, plus the four credential-free scalars 004 adds (FR-050), with
+ * `promptSources` joining them (FR-087). Spelled as a whole set so a member
+ * that is renamed or dropped fails here rather than silently passing a
+ * "carries the key" check.
+ */
+const RESERVED_DETAIL_KEYS: readonly string[] = [
+    'attachmentId',
+    'attempt',
+    'bindingId',
+    'dispatchTokenFingerprint',
+    'leaseId',
+    'promptFingerprint',
+    'promptLength',
+    'promptPresent',
+    'promptSources',
+];
+
+/** The same, for `dispatch.result` in its dispatched shape (no `leaseId`, a `sessionId`). */
+const RESULT_DETAIL_KEYS: readonly string[] = [
+    'attempt',
+    'bindingId',
+    'dispatchTokenFingerprint',
+    'promptFingerprint',
+    'promptLength',
+    'promptPresent',
+    'promptSources',
+    'sessionId',
+];
+
 /** One vocabulary entry: which row it is, who wrote it, and what it owes. */
 interface VocabularyEntry {
     /** Vocabulary name of the row. */
@@ -121,11 +158,14 @@ const VOCABULARY: readonly VocabularyEntry[] = [
             'dispatchTokenFingerprint',
             'attachmentId',
             // 004 adds four credential-free scalars to the two rows that
-            // record what was sent (004 `### Audit Vocabulary Delta`).
+            // record what was sent (004 `### Audit Vocabulary Delta`), and
+            // `promptSources` joins them at v1.3.0 beside the fingerprint
+            // (FR-087 — the ordered tier list, never the text).
             'bindingId',
             'promptPresent',
             'promptFingerprint',
             'promptLength',
+            'promptSources',
         ],
     },
     {
@@ -140,6 +180,7 @@ const VOCABULARY: readonly VocabularyEntry[] = [
             'promptPresent',
             'promptFingerprint',
             'promptLength',
+            'promptSources',
         ],
     },
     {
@@ -447,6 +488,75 @@ describe('FR-062 every lifecycle row carries the run correlation id', () => {
     });
 });
 
+/**
+ * Read one row's `promptSources` as FR-087 declares it: an ordered tier list
+ * when a prompt was present, `null` when none was, and nothing else standing
+ * in for either.
+ *
+ * @param value - The member as the trail carried it.
+ * @returns The tier list, `null`, or `undefined` when the member is neither
+ *   shape — which the caller reports as the violation it is.
+ */
+function tiersOf(value: unknown): readonly string[] | null | undefined {
+    if (value === null) {
+        return null;
+    }
+
+    if (!Array.isArray(value)) {
+        return undefined;
+    }
+
+    const tiers: string[] = [];
+    for (const element of value) {
+        if (typeof element !== 'string') {
+            return undefined;
+        }
+
+        tiers.push(element);
+    }
+
+    return tiers;
+}
+
+/**
+ * Assert FR-087's presence invariant on one row: a present prompt implies a
+ * non-empty list drawn from the tier vocabulary in its own order, and an
+ * absent one implies `null` — never a defaulted empty list.
+ *
+ * Takes the pair structurally rather than a row type, so the same invariant
+ * reads a stored {@link AuditEntry} and a row the builders just made.
+ *
+ * @param input - The row's vocabulary name and its `details`, as stored or as
+ *   built (`undefined` is accepted and fails the invariant below).
+ */
+function expectSourcesMatchPrompt(input: {
+    /** Vocabulary name of the row, for the failure message. */
+    readonly eventType: string;
+    /** The row's `details`; absent only on a row that owes none. */
+    readonly details: Readonly<Record<string, unknown>> | undefined;
+}): void {
+    const { eventType } = input;
+    const details = input.details ?? {};
+    const tiers = tiersOf(details.promptSources);
+
+    if (details.promptPresent !== true) {
+        expect(tiers, `${eventType} promptSources must be null when no prompt was set`).toBeNull();
+
+        return;
+    }
+
+    if (tiers === null || tiers === undefined) {
+        throw new Error(`${eventType} promptSources must be a tier list when a prompt is present`);
+    }
+
+    expect(tiers.length, `${eventType} promptSources must not be empty`).toBeGreaterThan(0);
+    const order: readonly string[] = PROMPT_SOURCE_ORDER;
+    const positions = tiers.map((tier) => order.indexOf(tier));
+    expect(positions.every((position) => position >= 0), `${eventType} tier vocabulary`).toBe(true);
+    expect([...positions].sort((left, right) => left - right), `${eventType} tier order`).toEqual(positions);
+    expect(new Set(tiers).size, `${eventType} tier duplicates`).toBe(tiers.length);
+}
+
 describe('004 the two rows that record what was sent carry the prompt reference (AC-139)', () => {
     it('names the binding and a well-shaped reference, never the text', () => {
         const { trail } = driven();
@@ -464,11 +574,156 @@ describe('004 the two rows that record what was sent carry the prompt reference 
                 || fingerprint.test(String(details.promptFingerprint))).toBe(true);
             expect(details.promptLength === null || typeof details.promptLength === 'number').toBe(true);
             expect(row.correlationId, `${row.eventType} correlation id`).toMatch(RUN_ID_PATTERN);
+
+            // The whole set, not one key at a time: 003's members are all
+            // still there and `promptSources` is the only addition, so a
+            // rename or a removal fails here (FR-050's "changes none of its
+            // existing fields", FR-087).
+            expect(Object.keys(details).sort(), `${row.eventType} details keys`).toEqual(
+                row.eventType === RESERVED_ROW ? RESERVED_DETAIL_KEYS : RESULT_DETAIL_KEYS,
+            );
+            expectSourcesMatchPrompt({ eventType: row.eventType, details });
         }
 
         // The reference is the whole of what a row records about the prompt.
         expect(JSON.stringify(trail)).not.toContain('OPERATOR STARTING PROMPT');
         expect(findSecretLeak(JSON.stringify(trail))).toBeNull();
+    });
+});
+
+/**
+ * One sentinel sentence per tier: text a row must never carry (FR-050,
+ * FR-088).
+ *
+ * The driven corpus resolves a **binding-only** prompt — its fixture enqueues
+ * through a single binding — so the stacked, three-tier case is pinned against
+ * the row builders directly. That is where "written from the run's snapshot"
+ * stops being a coincidence: the builders take one `Run` and nothing else, so
+ * the list a row carries can only be the list the snapshot carried.
+ */
+const TIER_SENTINELS: readonly string[] = [
+    'SENTINEL GLOBAL: a tier text that must never reach a row',
+    'SENTINEL ACCOUNT: a tier text that must never reach a row',
+    'SENTINEL BINDING: a tier text that must never reach a row',
+];
+
+/** The stacked block the sentinels build, in FR-080's order, one gap apart. */
+const STACKED_BLOCK = TIER_SENTINELS.join('\n\n');
+
+/** The snapshot a run queued with all three tiers set carries (FR-080). */
+const STACKED_SNAPSHOT: PromptSnapshot = {
+    text: STACKED_BLOCK,
+    fingerprint: promptFingerprint(STACKED_BLOCK),
+    length: [...STACKED_BLOCK].length,
+    sources: ['global', 'account', 'binding'],
+};
+
+/** Lease one synthetic reservation is made under (shape only: nothing validates it here). */
+const SYNTHETIC_LEASE = `lse-${'a'.repeat(24)}`;
+
+/** Token one synthetic reservation mints; the rows record its fingerprint only. */
+const SYNTHETIC_TOKEN = `dtk-${'b'.repeat(32)}`;
+
+/** Binding one synthetic run dispatches through. */
+const SYNTHETIC_BINDING = 'bnd-sources';
+
+/**
+ * A stored run carrying this snapshot; every other member is a plain stored
+ * value, because the row builders read only `correlationId`, `bindingId`,
+ * `attempt`, `attachmentId`, and `prompt`.
+ *
+ * @param prompt - The snapshot this run was queued with, or `null`.
+ * @returns A run `reservedRow` and `resultRow` both accept.
+ */
+function runWith(prompt: PromptSnapshot | null): Run {
+    const runKey = buildRunKey({
+        accountNumericUserId: '77331',
+        repository: 'acme/widget',
+        subjectType: 'issue',
+        subjectNumber: 99,
+        ordinal: 0,
+    });
+    const correlationId = buildCorrelationId(runKey);
+    const stamp = '2026-09-20T00:00:00.000Z';
+
+    return {
+        runKey,
+        correlationId,
+        attachmentId: correlationId,
+        ordinal: 0,
+        subjectType: 'issue',
+        subjectNumber: 99,
+        repository: 'acme/widget',
+        accountNumericUserId: '77331',
+        bindingId: SYNTHETIC_BINDING,
+        projectId: 'prj_42',
+        worktreeOption: 'none',
+        prompt,
+        state: 'starting',
+        stateReason: null,
+        attempt: 1,
+        requeuesUsed: 0,
+        sourceReferences: [],
+        referenceCount: 0,
+        referencesNotRetained: 0,
+        referencesTruncated: false,
+        lease: null,
+        reservation: null,
+        attempts: [],
+        session: null,
+        verification: null,
+        createdAt: stamp,
+        updatedAt: stamp,
+    };
+}
+
+describe('004 both rows copy the snapshot sources, never its text (FR-087)', () => {
+    it('carries a stacked three-tier list verbatim, and null for a run with no prompt', () => {
+        const run = runWith(STACKED_SNAPSHOT);
+        const rows = [
+            reservedRow({ run, leaseId: SYNTHETIC_LEASE, dispatchToken: SYNTHETIC_TOKEN }),
+            resultRow({ run, dispatchToken: SYNTHETIC_TOKEN, sessionId: 'ses_stacked', problem: null }),
+        ];
+
+        for (const row of rows) {
+            const { details } = row;
+            if (details === undefined) {
+                throw new Error(`${row.eventType} built no details`);
+            }
+
+            expect(row.correlationId).toBe(run.correlationId);
+            expect(row.entity).toEqual({ kind: 'run', id: run.correlationId });
+            expect(details.bindingId).toBe(SYNTHETIC_BINDING);
+            expect(details.promptPresent).toBe(true);
+            expect(details.promptFingerprint).toBe(STACKED_SNAPSHOT.fingerprint);
+            expect(details.promptLength).toBe(STACKED_SNAPSHOT.length);
+            // Verbatim: the snapshot's own list, in FR-080's order — a list
+            // this builder had no say in choosing.
+            expect(details.promptSources).toEqual(['global', 'account', 'binding']);
+            expect(details.promptSources).toEqual(STACKED_SNAPSHOT.sources);
+            expectSourcesMatchPrompt({ eventType: row.eventType, details });
+        }
+
+        // The other half of the invariant: no tier set answers `null` on the
+        // whole reference, never an empty list standing in for "unset".
+        const unset = reservedRow({ run: runWith(null), leaseId: SYNTHETIC_LEASE, dispatchToken: SYNTHETIC_TOKEN });
+        expect(unset.details).toMatchObject({
+            bindingId: SYNTHETIC_BINDING,
+            promptPresent: false,
+            promptFingerprint: null,
+            promptLength: null,
+            promptSources: null,
+        });
+        expectSourcesMatchPrompt({ eventType: unset.eventType, details: unset.details });
+
+        // Neither row carries a tier's text: the whole reference is presence,
+        // fingerprint, length, and sources, and nothing else (FR-050).
+        const written = JSON.stringify([...rows, unset]);
+        expect(written).not.toContain(STACKED_BLOCK);
+        for (const sentinel of TIER_SENTINELS) {
+            expect(written, 'a tier text reached a row').not.toContain(sentinel);
+        }
+        expect(findSecretLeak(written)).toBeNull();
     });
 });
 

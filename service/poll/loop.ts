@@ -28,15 +28,15 @@
  */
 
 import { repositoryLabel } from '../../src/config.ts';
-import { DEFAULT_CONFIG, CONFIG_FILE, configFromStore, parseStoredConfig } from '../config.ts';
 import { readAccount } from '../accounts/store.ts';
 import { readBindings } from '../bindings-read.ts';
-import { promptSnapshotOf } from '../prompt.ts';
+import { resolvePromptSnapshot } from '../prompt.ts';
 import { runRetentionPasses } from '../retention.ts';
 import type { ServiceConfig } from '../config.ts';
 import type { BindingRecord } from '../bindings.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
+import { readCycleConfig } from './cycle-config.ts';
 import { createEvent, enqueueEvents, readEvents } from './events.ts';
 import type { QueuedEvent } from './events.ts';
 import type { GitHubIssuePoller, ListPace, PollFailure, PollIssue } from './poller-github.ts';
@@ -125,65 +125,6 @@ export interface PollLoop {
      * keeping a second copy of the schedule it could drift from (005 FR-031).
      */
     state(): PollLoopState;
-}
-
-/** Return the caught value's error name alone; never one word of the cause (SEC-11). */
-export function describeKind(cause: unknown): string {
-    return cause instanceof Error ? cause.name : typeof cause;
-}
-
-/**
- * Read the effective interval for the next cycle.
- *
- * @param store - Open store, or `null` when unusable.
- * @param log - Logger used when the config file cannot be read.
- * @returns Milliseconds until the next cycle.
- */
-export async function currentIntervalMs(store: ServiceStore | null, log: ServiceLogger): Promise<number> {
-    if (store === null) {
-        return DEFAULT_CONFIG.intervalMs;
-    }
-
-    try {
-        const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
-
-        return config.intervalMs;
-    } catch (cause) {
-        log.warn('poll interval read failed', { errorKind: describeKind(cause) });
-
-        return DEFAULT_CONFIG.intervalMs;
-    }
-}
-
-/**
- * Read the configuration this cycle runs on — **once**, at the boundary
- * (006 FR-055, FR-057–FR-059).
- *
- * A read that throws degrades to the documented defaults with one warn line,
- * exactly as {@link currentIntervalMs} already does, so one unreadable
- * document stops no cycle and no binding (invariant 8).
- *
- * @param input - Store and logger for this cycle.
- * @returns The effective configuration for the whole cycle.
- */
-async function readCycleConfig(input: {
-    /** Open store. */
-    readonly store: ServiceStore;
-    /** Structured logger. */
-    readonly log: ServiceLogger;
-}): Promise<ServiceConfig> {
-    try {
-        const { config } = configFromStore(
-            await input.store.readJson(CONFIG_FILE, parseStoredConfig),
-            input.log,
-        );
-
-        return config;
-    } catch (cause) {
-        input.log.warn('cycle configuration read failed', { errorKind: describeKind(cause) });
-
-        return DEFAULT_CONFIG;
-    }
 }
 
 /**
@@ -389,7 +330,8 @@ async function scanBinding(input: {
 }): Promise<BindingScan> {
     const { deps, scanned, detectedAt, binding } = input;
     const blank = blankScan(binding);
-    const account = await readAccount({ store: deps.store, numericUserId: binding.accountNumericUserId });
+    const { store, log } = deps;
+    const account = await readAccount({ store, numericUserId: binding.accountNumericUserId, log });
     if (account === null || account.credential.token === '') {
         return { ...blank, skipped: 'missing-account' };
     }
@@ -416,11 +358,16 @@ async function scanBinding(input: {
         store: deps.store,
         log: deps.log,
         incoming: listed.events,
-        // The same binding object that produced `projectId`/`worktreeOption`
-        // for these events is the one this snapshot comes from, so the three
-        // cannot disagree (004 FR-015: "at the same moment").
-        prompt: promptSnapshotOf(binding),
-    });    return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
+        // The same records that produced `projectId`/`worktreeOption` for
+        // these events resolve this snapshot — this cycle's configuration
+        // (global tier), the account this scan read (account tier), and the
+        // binding being scanned (binding tier) — so resolution and project
+        // resolution cannot disagree (004 FR-015: "at the same moment";
+        // FR-080: resolved once, at detection). A tier the records do not
+        // carry is unset and contributes nothing (FR-071).
+        prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
+    });
+    return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
 }
 
 /**

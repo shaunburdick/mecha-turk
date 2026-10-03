@@ -21,10 +21,14 @@ import { resolve } from 'node:path';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { adoptServiceAccounts } from '../src/account-adoption.ts';
-import { saveDisplayName } from '../src/accounts-actions.ts';
+import { saveProfile, splitProfileRefusal } from '../src/accounts-actions.ts';
 import {
+    ACCOUNT_PROMPT_GUIDANCE,
+    ACCOUNT_PROMPT_LABEL,
+    ACCOUNT_PROMPT_NOT_SET,
     HANDOFF_REMEDIATION,
     accountDetail,
+    accountFieldView,
     accountRows,
     accountTitle,
     bindingsPhrase,
@@ -33,6 +37,7 @@ import {
     rotationStatement,
 } from '../src/accounts-rows.ts';
 import { ACCOUNTS_DISCLAIMER_PARAGRAPHS } from '../src/accounts-disclaimer.ts';
+import { selectAccountRow } from '../src/accounts-tab.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import {
     handoffInputEnabled,
@@ -45,6 +50,8 @@ import { initialBindings } from '../src/panel-state.ts';
 import type { BindingsTabState, PanelRuntime } from '../src/panel-state.ts';
 import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { AccountScopeMatrix, PanelAccount, PanelBinding } from '../src/bindings-service.ts';
+import { parseAccountsBody } from '../src/bindings-service.ts';
+import { ACCOUNTS_PATH } from '../src/service-calls.ts';
 import {
     CONNECTED_ID,
     CONNECTED_LOGIN,
@@ -56,6 +63,7 @@ import {
     scopeResults,
     scriptedRuntime,
 } from './support/handoff.ts';
+import { ACCOUNT_TIER_SENTINEL } from './support/prompt-tiers.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 import { createTestRuntime, fakeHost } from './support/panel.ts';
@@ -151,7 +159,7 @@ describe('silent account adoption (MVP blocker 2)', () => {
         // account mirror. Only the service still holds the account.
         const host = await scriptedRuntime(
             (request) => {
-                return request.path === '/v1/accounts'
+                return request.path === ACCOUNTS_PATH
                     ? { status: 200, body: accountsBody }
                     : { status: 200, body: STATUS_BODY };
             },
@@ -213,6 +221,9 @@ const HOSTILE_TITLE = '<img src=x onerror="alert(1)">';
 
 /** The label the display-name round trip writes (FR-066). */
 const NEW_LABEL = 'Mecha Turk Ops';
+
+/** The account tier the profile write round-trips (004 FR-082). */
+const ACCOUNT_PROMPT = 'Always reproduce the failure before patching.';
 
 /** The login an upstream rename produces (AC-128). */
 const RENAMED_LOGIN = 'octocat-renamed';
@@ -562,16 +573,18 @@ describe('the Accounts tab carries a static disclaimer instead of a consent dial
     });
 });
 
-/** The service's answer to one display-name write, plus what a re-read holds. */
+/** The service's answer to one profile write, plus what a re-read holds. */
 interface DisplaySpec {
-    /** What `PUT …/display-name` answers. */
+    /** What the account profile `PUT` answers. */
     readonly answer: GuestRequestResult;
     /** The label the follow-up read reports, when the write was accepted. */
     readonly stored?: string | null;
+    /** The account tier the follow-up read reports, when one is set. */
+    readonly storedPrompt?: string;
 }
 
 /**
- * Mount the runtime the display-name write runs against, over a recording host.
+ * Mount the runtime the profile write runs against, over a recording host.
  *
  * @param spec - The write's answer and the label a re-read reports.
  * @returns The runtime and every request it made.
@@ -588,6 +601,7 @@ async function displayRuntime(spec: DisplaySpec): Promise<{
             numericUserId: CONNECTED_ID,
             login: CONNECTED_LOGIN,
             displayName: spec.stored ?? 'Ops label',
+            startingPrompt: spec.storedPrompt ?? null,
             state: 'active',
             connectionState: 'connected',
             verifiedAt: GIVEN_AT,
@@ -602,7 +616,7 @@ async function displayRuntime(spec: DisplaySpec): Promise<{
                 return spec.answer;
             }
 
-            if (request.path === '/v1/accounts') {
+            if (request.path === ACCOUNTS_PATH) {
                 return { status: 200, body: JSON.stringify({ accounts: listed }) };
             }
 
@@ -620,6 +634,7 @@ async function displayRuntime(spec: DisplaySpec): Promise<{
             numericUserId: CONNECTED_ID,
             login: CONNECTED_LOGIN,
             displayName: 'Ops label',
+            startingPrompt: spec.storedPrompt ?? null,
             usable: true,
             state: 'active',
         },
@@ -627,46 +642,89 @@ async function displayRuntime(spec: DisplaySpec): Promise<{
     rt.state.accounts.selected = CONNECTED_ID;
     rt.state.accounts.displayNameRow = CONNECTED_ID;
     rt.state.accounts.displayNameDraft = 'Ops label';
+    rt.state.accounts.startingPromptRow = CONNECTED_ID;
+    rt.state.accounts.startingPromptDraft = spec.storedPrompt ?? '';
 
     return { rt, requests };
 }
 
+/**
+ * Run the profile write exactly the way the one `Save changes` control runs
+ * it: both drafts, read off the two fields (owner ruling, PR #12 — "One Save
+ * button, both fields").
+ *
+ * @param rt - Runtime whose open row carries the drafts.
+ * @returns The write's completion — resolved only after the re-read.
+ */
+async function saveBothDrafts(rt: PanelRuntime): Promise<void> {
+    const { accounts } = rt.state;
+    if (accounts.selected === null) {
+        throw new Error('the fixture never opened a row to save');
+    }
+
+    return await saveProfile(rt, {
+        numericUserId: accounts.selected,
+        displayName: accounts.displayNameDraft,
+        startingPrompt: accounts.startingPromptDraft,
+    });
+}
+
 describe('T-026 the display name is written by the service, never by the panel (FR-066)', () => {
-    it('round-trips a label through the narrow route and sho… (+3 cases)', async () => {
-        // case: round-trips a label through the narrow route and shows what came back
+    it('round-trips a label through the profile write and sho… (+3 cases)', async () => {
+        // case: round-trips a label through the profile write and shows what came back
         {
             const { rt, requests } = await displayRuntime({
                 answer: { status: 200, body: JSON.stringify({ account: {} }) },
                 stored: NEW_LABEL,
             });
+            rt.state.accounts.displayNameDraft = NEW_LABEL;
+            rt.state.accounts.startingPromptDraft = ACCOUNT_PROMPT;
 
-            await saveDisplayName(rt, { numericUserId: CONNECTED_ID, value: NEW_LABEL });
+            await saveBothDrafts(rt);
 
             const put = requests.find((request) => request.method === 'PUT');
-            expect(put?.path).toBe(`/v1/accounts/${CONNECTED_ID}/display-name`);
-            expect(JSON.parse(String(put?.body))).toEqual({ displayName: NEW_LABEL });
+            // Re-cut by the owner's PR #12 ruling — "One Save button, both
+            // fields": the body carries **both** members, in the order the
+            // panel builds them, each equal to its own field's draft. The
+            // route has always accepted them together (005 v1.10.0), so only
+            // the panel's choice of how many bodies to send changed.
+            expect(put?.path).toBe(`/v1/accounts/${CONNECTED_ID}`);
+            const labelBody = JSON.parse(String(put?.body)) as Record<string, unknown>;
+            expect(Object.keys(labelBody)).toEqual(['displayName', 'startingPrompt']);
+            expect(labelBody).toEqual({ displayName: NEW_LABEL, startingPrompt: ACCOUNT_PROMPT });
             // The value on screen is the one the authoritative re-read reported.
             expect(rt.state.bindings.accounts[0]?.displayName).toBe(NEW_LABEL);
             expect(rt.state.accounts.displayNameError).toBeNull();
+            expect(rt.state.accounts.startingPromptError).toBeNull();
         }
         // case: renders the refusal at the field and keeps the stored label (AC-130)
         {
             const refusal = JSON.stringify({
                 error: {
                     code: 'validation',
-                    message: 'displayName must not contain credential-shaped material (matched shape: PAT)',
+                    message:
+                        'displayName: displayName must not contain credential-shaped material (matched shape: PAT)',
                 },
             });
             const { rt, requests } = await displayRuntime({ answer: { status: 422, body: refusal } });
             const submitted = 'ghp_looks_like_a_token';
             // What the field holds at the click: the operator's own text.
             rt.state.accounts.displayNameDraft = submitted;
+            // The prompt slot holds a refusal of its own, so the assertion
+            // below can tell *untouched* apart from *cleared* — the one
+            // answer must not borrow, overwrite, or retire the other's.
+            const olderPromptRefusal = 'startingPrompt: an older refusal';
+            rt.state.accounts.startingPromptError = olderPromptRefusal;
 
-            await saveDisplayName(rt, { numericUserId: CONNECTED_ID, value: submitted });
+            await saveBothDrafts(rt);
 
             expect(requests.some((request) => request.method === 'PUT')).toBe(true);
             // The service's copy names the field and the shape, never the value.
             expect(rt.state.accounts.displayNameError).not.toContain(submitted);
+            // Isolation: a label refusal lands in the label's slot only. The
+            // prompt slot keeps what its own field already said — it is
+            // neither marked with this reason nor cleared by it.
+            expect(rt.state.accounts.startingPromptError).toBe(olderPromptRefusal);
             // Nothing was applied, so the list still shows the stored label, and
             // the draft keeps what was typed so the operator can correct it.
             expect(rt.state.accounts.displayNameDraft).toBe(submitted);
@@ -688,6 +746,345 @@ describe('T-026 the display name is written by the service, never by the panel (
             expect(statement).toContain(CONNECTED_LOGIN);
             expect(statement).toContain('above');
         }
+    });
+});
+
+/**
+ * Read an accounts body carrying exactly the members a test names (004 FR-082).
+ *
+ * @param members - The record members to seed the one account with.
+ * @returns The parsed accounts, or the reader's refusal.
+ */
+function readAccounts(members: Record<string, unknown>): PanelAccount[] | null {
+    return parseAccountsBody(
+        JSON.stringify({
+            accounts: [{ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, ...members }],
+        }),
+    );
+}
+
+describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', () => {
+    it('writes both members in one save and shows an honest not set (+2 cases)', async () => {
+        // case: writes both members in one body and brings the value back on a reload
+        {
+            const { rt, requests } = await displayRuntime({
+                answer: { status: 200, body: JSON.stringify({ account: {} }) },
+                storedPrompt: ACCOUNT_PROMPT,
+            });
+            rt.state.accounts.startingPromptDraft = ACCOUNT_PROMPT;
+
+            await saveBothDrafts(rt);
+
+            const put = requests.find((request) => request.method === 'PUT');
+            // The one route both members travel (plan C28/C29), now carrying
+            // both together: the owner ruled one save for the pair (PR #12),
+            // so the label rides along as exactly the text its own field
+            // holds — never a value the panel invented.
+            expect(put?.path).toBe(`/v1/accounts/${CONNECTED_ID}`);
+            const promptBody = JSON.parse(String(put?.body)) as Record<string, unknown>;
+            expect(Object.keys(promptBody)).toEqual(['displayName', 'startingPrompt']);
+            expect(promptBody).toEqual({ displayName: 'Ops label', startingPrompt: ACCOUNT_PROMPT });
+            // The authoritative re-read is what puts it back on the record…
+            expect(rt.state.bindings.accounts[0]?.startingPrompt).toBe(ACCOUNT_PROMPT);
+            // …and reopening the row loads that stored text into the field again.
+            rt.state.accounts.selected = null;
+            selectAccountRow(rt, CONNECTED_ID);
+            expect(rt.state.accounts.startingPromptDraft).toBe(ACCOUNT_PROMPT);
+            expect(rt.state.accounts.startingPromptError).toBeNull();
+        }
+        // case: an unset tier reads "not set" where the text would be (FR-064)
+        {
+            const { rt, dispose, strings } = mountAccountsTab((runtime): void => {
+                runtime.state.bindings = accountsState({ accounts: [accountFixture()] });
+                selectAccountRow(runtime, CONNECTED_ID);
+            });
+            const field = accountFieldView('startingPrompt', {
+                accounts: rt.state.accounts,
+                account: rt.state.bindings.accounts[0],
+            });
+            dispose();
+
+            // Honest absence: the slot an empty instruction box would occupy
+            // says *not set* — and the value itself is empty, never copy.
+            expect(field.value).toBe('');
+            expect(field.placeholder).toBe(ACCOUNT_PROMPT_NOT_SET);
+            expect(strings).toContain(ACCOUNT_PROMPT_NOT_SET);
+            // FR-063's guidance travels with the field: all five facts, fixed
+            // copy, and the service still the only validator (plan D24) — and
+            // they reach the mount, not just the view function.
+            expect(field.helper).toBe(ACCOUNT_PROMPT_GUIDANCE);
+            expect(strings).toContain(ACCOUNT_PROMPT_GUIDANCE);
+            expect(strings).toContain(ACCOUNT_PROMPT_LABEL);
+            for (const fact of ['verbatim', 'placeholders', 'Default Agent', 'refused', '2,000']) {
+                expect(field.helper, fact).toContain(fact);
+            }
+        }
+    });
+
+    it('keeps a refusal at its field and the value out of every summary (+3 cases)', async () => {
+        // case: a refusal renders its remediation and changes nothing (AC-150)
+        {
+            const refusal = JSON.stringify({
+                error: {
+                    code: 'validation',
+                    message:
+                        'startingPrompt: startingPrompt must not contain credential-shaped material'
+                        + ' (matched shape: GitHub-PAT)',
+                },
+            });
+            const { rt, requests } = await displayRuntime({
+                answer: { status: 422, body: refusal },
+                storedPrompt: ACCOUNT_PROMPT,
+            });
+            const submitted = 'ghp_looks_like_a_token';
+            rt.state.accounts.startingPromptDraft = submitted;
+            // A label refusal of its own, so the split can be seen *not* to
+            // touch it: the one write judges both members, and each field
+            // keeps the answer that named it (FR-085).
+            const olderLabelRefusal = 'displayName: an older refusal';
+            rt.state.accounts.displayNameError = olderLabelRefusal;
+
+            await saveBothDrafts(rt);
+
+            expect(requests.some((request) => request.method === 'PUT')).toBe(true);
+            // The service's own copy lands in this field's slot, and the value
+            // it refused appears nowhere in it (FR-085) — nor in the label's.
+            expect(rt.state.accounts.startingPromptError).toContain('credential');
+            expect(rt.state.accounts.startingPromptError).not.toContain(submitted);
+            expect(rt.state.accounts.displayNameError).toBe(olderLabelRefusal);
+            // Nothing changed: the draft still holds what was typed, and the
+            // stored tier is still the one the service already held.
+            expect(rt.state.accounts.startingPromptDraft).toBe(submitted);
+            expect(rt.state.bindings.accounts[0]?.startingPrompt).toBe(ACCOUNT_PROMPT);
+        }
+        // case: the row summary carries presence and length only (005 FR-051)
+        {
+            const set = accountFixture({ startingPrompt: ACCOUNT_PROMPT });
+            const unset = accountFixture({});
+            const setRow = accountRows(accountsState({ accounts: [set] }))[0];
+            const unsetRow = accountRows(accountsState({ accounts: [unset] }))[0];
+
+            expect(setRow?.subtitle).toContain(`prompt set · ${ACCOUNT_PROMPT.length} chars`);
+            expect(setRow?.subtitle).not.toContain(ACCOUNT_PROMPT);
+            expect(setRow?.subtitle).not.toContain('mtp-');
+            expect(unsetRow?.subtitle).toContain('prompt not set');
+            // The detail line is a summary too — presence, never the text.
+            expect(accountDetail(accountsState({ accounts: [set] }), set)).toContain('prompt set');
+            expect(accountDetail(accountsState({ accounts: [set] }), set)).not.toContain(ACCOUNT_PROMPT);
+        }
+        // case: host.storage receives no copy of the tier (AC-144, NFR-102)
+        {
+            const host = await scriptedRuntime((request) => {
+                if (request.method === 'PUT') {
+                    return { status: 200, body: JSON.stringify({ account: {} }) };
+                }
+
+                if (request.path === ACCOUNTS_PATH) {
+                    return {
+                        status: 200,
+                        body: JSON.stringify({
+                            accounts: [
+                                {
+                                    numericUserId: CONNECTED_ID,
+                                    login: CONNECTED_LOGIN,
+                                    displayName: null,
+                                    startingPrompt: ACCOUNT_PROMPT,
+                                    state: 'active',
+                                    connectionState: 'connected',
+                                    verifiedAt: GIVEN_AT,
+                                    errorReason: null,
+                                    scopeCheck: { checkedAt: GIVEN_AT, results: scopeResults('ok') },
+                                },
+                            ],
+                        }),
+                    };
+                }
+
+                if (request.path === '/v1/bindings') {
+                    return { status: 200, body: JSON.stringify({ bindings: [], status: [] }) };
+                }
+
+                return { status: 404, body: '{"error":{"code":"not-found","message":"unrouted"}}' };
+            });
+            const { rt } = host;
+            rt.state.bindings.status = 'ready';
+            rt.state.bindings.accounts = [
+                {
+                    numericUserId: CONNECTED_ID,
+                    login: CONNECTED_LOGIN,
+                    displayName: null,
+                    startingPrompt: null,
+                    usable: true,
+                    state: 'active',
+                },
+            ];
+            selectAccountRow(rt, CONNECTED_ID);
+            rt.state.accounts.startingPromptDraft = ACCOUNT_PROMPT;
+            await saveBothDrafts(rt);
+            // The mirror is what the panel *does* write to storage, so the
+            // assertion below runs against a write that really happened.
+            await adoptServiceAccounts(rt);
+
+            expect(host.storage.operations).toContain('set:accounts');
+            const stored = JSON.stringify([...host.storage.values.values()]);
+            expect(stored).not.toContain(ACCOUNT_PROMPT);
+            expect(stored).not.toContain('startingPrompt');
+        }
+    });
+
+    it('refuses a non-text tier instead of reading it as unset (FR-082)', () => {
+        // Fail closed: a value that is neither text nor `null` refuses the
+        // whole body rather than being dropped (FR-017's posture).
+        expect(readAccounts({ startingPrompt: 42 })).toBeNull();
+        expect(readAccounts({ startingPrompt: { text: ACCOUNT_PROMPT } })).toBeNull();
+        // Absent and `null` both read as unset — a complete, valid state.
+        expect(readAccounts({})?.[0]?.startingPrompt).toBeUndefined();
+        expect(readAccounts({ startingPrompt: null })?.[0]?.startingPrompt).toBeUndefined();
+        // A string arrives as the tier the field loads.
+        expect(readAccounts({ startingPrompt: ACCOUNT_PROMPT })?.[0]?.startingPrompt)
+            .toBe(ACCOUNT_PROMPT);
+    });
+
+    it('renders the account tier in exactly one element on this tab (T-032, 005 FR-051)', () => {
+        const { dispose } = mountAccountsTab((runtime): void => {
+            runtime.state.bindings = accountsState({
+                accounts: [accountFixture({ startingPrompt: ACCOUNT_TIER_SENTINEL })],
+            });
+            // Opened the way an operator opens it: the row click is what
+            // loads the stored tier into the field (004 FR-089).
+            selectAccountRow(runtime, CONNECTED_ID);
+        });
+        const carrying = mounts.log.filter(
+            (entry) => JSON.stringify(entry.props ?? null).includes(ACCOUNT_TIER_SENTINEL),
+        );
+        dispose();
+
+        // One element carries it: this harness logs a repaint beside its
+        // mount as `<primitive>:update`, so the records are counted as a
+        // mount (an element created with the value) or that same field's
+        // repaint — and a list row, detail line, or second field carrying
+        // it would arrive as a different primitive or a second mount.
+        const creations = carrying.filter((entry) => !entry.key.includes(':'));
+        expect(creations).toHaveLength(1);
+        expect(creations[0]?.key).toBe('mountTextField');
+        expect(carrying.every(
+            (entry) => entry.key === 'mountTextField' || entry.key === 'mountTextField:update',
+        )).toBe(true);
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * The owner's PR #12 ruling: "One Save button, both fields" + "Split back
+ * into per-field slots". The inputs stay separate, the save is shared, the
+ * body carries both members, and the service's one composed `message` is
+ * split back into the two slots by **known field name**.
+ * ------------------------------------------------------------------------- */
+
+describe('one Save changes writes both profile members (owner ruling, PR #12)', () => {
+    it('offers exactly one save control, and neither retired per-member one', () => {
+        const { dispose } = mountAccountsTab();
+        const labels = mounts.log
+            .filter((entry) => entry.key === 'mountButton')
+            .map((entry) => (entry.props as { readonly label?: string }).label);
+        dispose();
+
+        // The pair owns one control, and the two labels it replaced are gone:
+        // a second save would be a second body, which is what the ruling
+        // removed (005 FR-066, 004 FR-082 — no FR names a button count, so
+        // the count is the owner's to set).
+        expect(labels.filter((label) => label === 'Save changes')).toHaveLength(1);
+        expect(labels).not.toContain('Save display name');
+        expect(labels).not.toContain('Save starting prompt');
+        // Rotate and remove keep their own row-level controls, unchanged.
+        expect(labels).toContain('Rotate token');
+        expect(labels).toContain('Remove account');
+    });
+
+    it('splits a refusal that fails both members into the two slots', async () => {
+        const refusal = JSON.stringify({
+            error: {
+                code: 'validation',
+                message: [
+                    'displayName: displayName must not contain credential-shaped material (matched shape: PAT)',
+                    'startingPrompt: startingPrompt must not contain credential-shaped material'
+                        + ' (matched shape: GitHub-PAT)',
+                ].join('; '),
+            },
+        });
+        const { rt, requests } = await displayRuntime({ answer: { status: 422, body: refusal } });
+        const submittedLabel = 'ghp_looks_like_a_label';
+        const submittedPrompt = 'ghp_looks_like_a_prompt';
+        rt.state.accounts.displayNameDraft = submittedLabel;
+        rt.state.accounts.startingPromptDraft = submittedPrompt;
+
+        await saveBothDrafts(rt);
+
+        expect(requests.some((request) => request.method === 'PUT')).toBe(true);
+        // Each slot holds **its own** reason, whole — and the other member's
+        // name never crosses the split, which is what proves the cut was made
+        // on the field names rather than on any colon in a remediation.
+        const labelError = String(rt.state.accounts.displayNameError);
+        const promptError = String(rt.state.accounts.startingPromptError);
+        expect(labelError).toContain('credential-shaped material');
+        expect(labelError).not.toContain('startingPrompt');
+        expect(promptError).toContain('credential-shaped material');
+        expect(promptError).not.toContain('displayName');
+        // Neither submitted value echoes back anywhere (FR-085).
+        expect(labelError).not.toContain(submittedLabel);
+        expect(promptError).not.toContain(submittedPrompt);
+        // Nothing was written: both drafts still hold what was typed.
+        expect(rt.state.accounts.displayNameDraft).toBe(submittedLabel);
+        expect(rt.state.accounts.startingPromptDraft).toBe(submittedPrompt);
+    });
+
+    it('splits on the known field names, never on a colon or a semicolon', () => {
+        // A remediation may carry its own `; ` ("…be text; send it absent…")
+        // and its own `: ` ("…(matched shape: PAT)"); neither marks a field
+        // boundary, so each half arrives intact in its own slot.
+        const split = splitProfileRefusal(
+            'startingPrompt: startingPrompt must be text; send it absent or null to leave the '
+            + 'starting prompt unset; displayName: displayName must not contain credential-shaped '
+            + 'material (matched shape: PAT)',
+        );
+
+        expect(split.startingPrompt).toContain('leave the starting prompt unset');
+        expect(split.startingPrompt).toContain('startingPrompt:');
+        expect(split.startingPrompt).not.toContain('displayName');
+        expect(split.displayName).toContain('matched shape: PAT');
+        expect(split.displayName).not.toContain('startingPrompt');
+
+        // A reason that names neither member reaches **both** slots rather
+        // than being dropped on the way to the operator.
+        const unnamed = splitProfileRefusal('body: the account profile body is a closed set');
+
+        expect(unnamed.displayName).toContain('closed set');
+        expect(unnamed.startingPrompt).toContain('closed set');
+
+        // And a message with no field shape at all — a transport problem,
+        // say — is still shown, never swallowed.
+        const problem = 'service answered 503';
+        const generic = splitProfileRefusal(problem);
+
+        expect(generic.displayName).toBe(problem);
+        expect(generic.startingPrompt).toBe(problem);
+    });
+
+    it('stops one stale row before either field is written (open-row guard)', async () => {
+        const { rt, requests } = await displayRuntime({
+            answer: { status: 200, body: JSON.stringify({ account: {} }) },
+        });
+        // One draft outlived its row: the label field points at an account
+        // the operator no longer has open, so the single write — which would
+        // carry both fields — must not run at all.
+        rt.state.accounts.displayNameRow = '999';
+
+        await saveBothDrafts(rt);
+
+        expect(requests.some((request) => request.method === 'PUT')).toBe(false);
+        // The guard is about the **row**, so it is stated on both fields:
+        // neither member is writable while the selection is stale.
+        expect(rt.state.accounts.displayNameError).toContain('Select the account again');
+        expect(rt.state.accounts.startingPromptError).toContain('Select the account again');
     });
 });
 

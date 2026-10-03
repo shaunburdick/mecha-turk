@@ -31,6 +31,7 @@
  *   string the panel's parser reads as an unusable record.
  */
 
+import type { PromptSource } from '../prompt.ts';
 import type { EventKind, QueuedEvent } from './events-parse.ts';
 import type { Run, SourceReference } from './runs-types.ts';
 
@@ -158,6 +159,18 @@ export interface RunHistoryRow {
     readonly promptFingerprint: string | null;
     /** Code points of the normalised prompt, or `null` when none. */
     readonly promptLength: number | null;
+    /**
+     * The ordered tiers that contributed, or `null` when no tier was set
+     * (004 FR-087).
+     *
+     * It rides beside the fingerprint — never the text — so the row itself
+     * answers *which tiers produced this run* under any retention, while the
+     * projection still carries no prompt text at all (004 FR-052). The value
+     * is the snapshot's own list, copied rather than derived: ordered
+     * `global → account → binding`, duplicate-free, and `null` exactly when
+     * there is no snapshot to read it from.
+     */
+    readonly promptSources: readonly PromptSource[] | null;
     /** Head SHA of a review-origin pull request; absent on every other kind. */
     readonly headSha?: string;
     /** Base ref of that pull request; absent on every other kind. */
@@ -346,10 +359,13 @@ function verificationViewOf(run: Run): HistoryVerification | null {
 
 /**
  * The prompt reference the run history carries — presence, fingerprint,
- * length, and never the text (004 FR-052, FR-053).
+ * length, sources, and never the text (004 FR-052, FR-053, FR-087).
  *
  * @param run - The run being projected.
- * @returns The three reference scalars.
+ * @returns The four reference members; `promptSources` is the snapshot's own
+ *   list when one exists and `null` when no tier was set — there is nothing to
+ *   default from, because the absence case is a statement about the run rather
+ *   than a hole in the record (FR-087).
  */
 function promptViewOf(run: Run): {
     /** Whether a starting prompt was set when this run was queued. */
@@ -358,15 +374,23 @@ function promptViewOf(run: Run): {
     readonly promptFingerprint: string | null;
     /** The length, or `null` when none. */
     readonly promptLength: number | null;
+    /** The contributing tiers in order, or `null` when no tier was set. */
+    readonly promptSources: readonly PromptSource[] | null;
 } {
     if (run.prompt === null) {
-        return { promptPresent: false, promptFingerprint: null, promptLength: null };
+        return {
+            promptPresent: false,
+            promptFingerprint: null,
+            promptLength: null,
+            promptSources: null,
+        };
     }
 
     return {
         promptPresent: true,
         promptFingerprint: run.prompt.fingerprint,
         promptLength: run.prompt.length,
+        promptSources: run.prompt.sources,
     };
 }
 

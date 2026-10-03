@@ -39,6 +39,7 @@
 import { appendAudit } from '../audit.ts';
 import type { AuditInput } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
+import type { PromptSource } from '../prompt.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { buildDispatchTokenFingerprint } from './run-key.ts';
 import type { BaselineProvenance, Run, RunState, RunVerification } from './runs-types.ts';
@@ -82,17 +83,20 @@ function runRow(run: Run): Pick<AuditInput, 'entity' | 'correlationId'> {
 }
 
 /**
- * The four credential-free scalars `dispatch.reserved` and `dispatch.result`
- * gain from 004 (FR-050; data-model §4.2).
+ * The five credential-free scalars `dispatch.reserved` and `dispatch.result`
+ * gain from 004 (FR-050, FR-087; data-model §4.2).
  *
  * Written **by the service from the run's snapshot**, never from a request
- * body: the panel can report what it did, but what prompt a run used is a
- * fact the stored run owns. The fingerprint is derived from the text rather
- * than minted per row, so every row of one prompt carries the identical value
- * (003 FR-062 reaffirmed).
+ * body: the panel can report what it did, but what prompt a run used — and
+ * which tiers produced it — is a fact the stored run owns. The fingerprint is
+ * derived from the text rather than minted per row, so every row of one prompt
+ * carries the identical value (003 FR-062 reaffirmed), and `promptSources` is
+ * the snapshot's own ordered tier list copied verbatim: an element the run's
+ * snapshot never held can never appear on a row (FR-087).
  *
  * @param run - The run whose snapshot these name.
- * @returns The binding id plus the prompt's presence, fingerprint, and length.
+ * @returns The binding id plus the prompt's presence, fingerprint, length, and
+ *   the ordered set of tiers that produced it.
  */
 function promptDetails(run: Run): {
     /** Binding the run dispatched through. */
@@ -103,12 +107,15 @@ function promptDetails(run: Run): {
     readonly promptFingerprint: string | null;
     /** Its length, or `null` when none. */
     readonly promptLength: number | null;
+    /** Contributing tiers in FR-087's order, or `null` when none. */
+    readonly promptSources: readonly PromptSource[] | null;
 } {
     return {
         bindingId: run.bindingId,
         promptPresent: run.prompt !== null,
         promptFingerprint: run.prompt === null ? null : run.prompt.fingerprint,
         promptLength: run.prompt === null ? null : run.prompt.length,
+        promptSources: run.prompt === null ? null : run.prompt.sources,
     };
 }
 

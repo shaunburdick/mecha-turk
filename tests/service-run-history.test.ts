@@ -27,6 +27,7 @@ import { createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { projectRunHistory } from '../service/poll/run-history-project.ts';
 import { applyEnqueue, emptyRunsDocument, MAX_SOURCE_REFERENCES, readRunsDocument } from '../service/poll/runs.ts';
 import { createLogger } from '../service/log.ts';
+import { resolvePromptSnapshot } from '../service/prompt.ts';
 import { DISPATCHED_PATH, RESERVE_PATH } from '../service/routes/dispatch.ts';
 import { EVENTS_PATH, EVENTS_PENDING_PATH, MAX_LISTED_EVENTS } from '../service/routes/events.ts';
 import { VERIFICATION_PATH } from '../service/routes/run-ops.ts';
@@ -35,6 +36,7 @@ import type { EventKind, EventSnapshot, QueuedEvent } from '../service/poll/even
 import type { Run } from '../service/poll/runs-types.ts';
 import type { RunHistoryRow } from '../service/poll/run-history-project.ts';
 import type { ServiceLogger } from '../service/log.ts';
+import type { PromptSnapshot } from '../service/prompt.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
@@ -276,13 +278,20 @@ async function readDocument(): Promise<readonly Run[]> {
  * Enqueue one delivery and return the run it produced.
  *
  * @param snapshot - The detection to enqueue.
+ * @param prompt - The scan's prompt snapshot to queue the run under (004
+ *   FR-015); omitted for a run queued with no tier set.
  * @returns The freshly created run.
  * @throws {Error} When the enqueue produced no new run.
  */
-async function enqueueRun(snapshot: EventSnapshot): Promise<Run> {
+async function enqueueRun(snapshot: EventSnapshot, prompt?: PromptSnapshot): Promise<Run> {
     const before = await readDocument();
     const known = new Set(before.map((run) => run.correlationId));
-    await enqueueEvents({ store, log: LOGGER, incoming: [createEvent(snapshot)] });
+    await enqueueEvents({
+        store,
+        log: LOGGER,
+        incoming: [createEvent(snapshot)],
+        ...(prompt === undefined ? {} : { prompt }),
+    });
     const after = await readDocument();
     const created = after.find((run) => !known.has(run.correlationId));
     if (created === undefined) {
@@ -663,5 +672,98 @@ describe('T-016 the truncation members carry the overflow, not a placeholder', (
         expect(row.sourceReferences.some((reference) => reference.deliveryId === overflowId)).toBe(false);
         expect(row.state).toBe('pending');
         expect(row.issueTitle).toBe(CAP_TITLE);
+    });
+});
+
+describe('T-025 the history row names the sources and never the text (FR-052, FR-087)', () => {
+    /** The global tier's instruction, stacked into the fixture snapshot. */
+    const GLOBAL_TIER_TEXT = 'Always reproduce the failure before patching.';
+
+    /** The binding tier's instruction, stacked after the global one. */
+    const BINDING_TIER_TEXT = 'Reproduce first, then patch. Do not widen the public API.';
+
+    /** Detection stamp the prompted fixture opens with. */
+    const PROMPT_DETECTED_AT = '2026-09-28T12:00:00.000Z';
+
+    /**
+     * The snapshot the prompted fixture queues under — resolved exactly as the
+     * scan resolves one at detection (004 FR-080), with the global and binding
+     * tiers set and the account tier unset.
+     *
+     * @returns The composed snapshot, sources included.
+     * @throws {Error} When the fixture tiers resolve to no snapshot.
+     */
+    function stackedSnapshot(): PromptSnapshot {
+        const snapshot = resolvePromptSnapshot({
+            global: { startingPrompt: GLOBAL_TIER_TEXT },
+            account: null,
+            binding: { startingPrompt: BINDING_TIER_TEXT },
+        });
+        if (snapshot === null) {
+            throw new Error('the fixture tiers resolved to no snapshot');
+        }
+
+        return snapshot;
+    }
+
+    it('projects the snapshot’s ordered promptSources for a post-amendment run', async () => {
+        const service = await startSeededService();
+        const snapshot = stackedSnapshot();
+        // The resolution really stacked both tiers, so what follows is an
+        // assertion about a body that carries both texts, not a lone tier.
+        expect(snapshot.sources).toEqual(['global', 'binding']);
+        expect(snapshot.text).toContain(GLOBAL_TIER_TEXT);
+        expect(snapshot.text).toContain(BINDING_TIER_TEXT);
+
+        await enqueueRun(detection({
+            issueNumber: ISSUE_ONE,
+            title: PARSER_TITLE,
+            kind: ASSIGNMENT_KIND,
+            detectedAt: PROMPT_DETECTED_AT,
+        }), snapshot);
+
+        const { row, text } = await onlyRow(service);
+        // The pre-amendment trio stands exactly as it did (FR-052: no field is
+        // removed), and the new member carries the snapshot's own list.
+        expect(row.promptPresent).toBe(true);
+        expect(row.promptFingerprint).toBe(snapshot.fingerprint);
+        expect(row.promptLength).toBe(snapshot.length);
+        expect(Object.hasOwn(row, 'promptSources')).toBe(true);
+        expect(row.promptSources).toEqual(['global', 'binding']);
+
+        // Nothing else moved: every member 003's contract names is still here.
+        for (const member of CONTRACT_MEMBERS) {
+            expect(Object.hasOwn(row, member), `row must still carry ${member}`).toBe(true);
+        }
+
+        // The row never carries the text — the key is absent, not null — and
+        // neither tier's words reach the answer's bytes (FR-052, FR-053).
+        expect(Object.hasOwn(row, 'promptText')).toBe(false);
+        expect(Object.keys(row)).not.toContain('promptText');
+        expect(text).not.toContain('promptText');
+        expect(text).not.toContain(GLOBAL_TIER_TEXT);
+        expect(text).not.toContain(BINDING_TIER_TEXT);
+        expect(findSecretLeak(text)).toBeNull();
+    });
+
+    it('answers null sources for a run queued with no tier, the member still present', async () => {
+        const service = await startSeededService();
+        await enqueueRun(detection({
+            issueNumber: ISSUE_ONE,
+            title: PARSER_TITLE,
+            kind: ASSIGNMENT_KIND,
+            detectedAt: FIRST_DETECTED_AT,
+        }));
+
+        const { row, text } = await onlyRow(service);
+        // Present with `null` — an own member on the wire, never an omitted
+        // key a reader would have to default (FR-087: no absence-defaulting).
+        expect(Object.hasOwn(row, 'promptSources')).toBe(true);
+        expect(row.promptSources).toBeNull();
+        expect(row.promptPresent).toBe(false);
+        expect(row.promptFingerprint).toBeNull();
+        expect(row.promptLength).toBeNull();
+        expect(Object.hasOwn(row, 'promptText')).toBe(false);
+        expect(text).not.toContain('promptText');
     });
 });

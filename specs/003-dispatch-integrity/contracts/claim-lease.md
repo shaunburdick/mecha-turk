@@ -57,6 +57,16 @@ The `events` member name is **retained** (additive-within-v1, 005's L3 retention
 > [`004-starting-prompt/contracts/dispatch-prompt.md`](../../004-starting-prompt/contracts/dispatch-prompt.md) §1.
 > No member above is renamed, retyped, or removed by that addition.
 
+> **`promptSources` — additive pointer (004 v1.3.0)**: the same `ClaimedRun`
+> entries also carry **`promptSources`**: the ordered list of contributing
+> tiers (`global`, `account`, `binding`, most general first, duplicate-free,
+> always a subsequence of that order), `null` when `promptPresent` is `false`
+> and non-empty otherwise. The reader extends, it does not relax: an unknown
+> tier, a wrong or duplicated order, or a presence/sources disagreement
+> refuses the entry, and one refused entry refuses the answer. Authoritative
+> text: [`004-starting-prompt/contracts/layered-prompt.md`](../../004-starting-prompt/contracts/layered-prompt.md) §3.
+> No field, member, or rule above is renamed, retyped, or removed by it.
+
 ### Counting the references an operator reconciles
 
 `dispatch.claimed`'s `sourceReferenceCount` is the **retained** count — the length of the `sourceReferences` array the answer actually carried. The run's own `referenceCount` is the **total** that ever joined. **At and after the overflow the two differ, and that difference is not a bug**: it is exactly what `referencesNotRetained` records. An operator reconciling them reads the retained count against the answer and the total against the run row, and the gap between them is the not-retained count. Below the cap all three are the same number.

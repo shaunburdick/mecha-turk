@@ -105,6 +105,18 @@ export interface StringDescriptor {
     readonly default: string;
     /** Declared take-effect class. */
     readonly takesEffect: TakeEffectClass;
+    /**
+     * Present only when the service declared the value as prose written
+     * across several lines, so the row mounts a textarea rather than a
+     * one-line input (owner ruling, PR #12; 006 FR-021's union is extended
+     * additively — no member was removed or renamed).
+     *
+     * The reader accepts it in exactly the one shape the projection emits
+     * (`true`) or not at all; every other value **refuses the envelope**
+     * rather than being dropped, because a declaration this build half-reads
+     * is a row it would render wrong (invariant 8, 006 FR-021).
+     */
+    readonly multiline?: true;
 }
 
 /** One projected field — a closed discriminated union on `kind`. */
@@ -219,13 +231,25 @@ function enumDescriptor(record: Record<string, unknown>, head: DescriptorHead): 
  *
  * @param record - Descriptor as received.
  * @param head - Already-validated name and class.
- * @returns The descriptor, or `null` when a required member is missing or mistyped.
+ * @returns The descriptor, or `null` when a required member is missing or mistyped,
+ *   or when the optional `multiline` member carries anything but `true`.
  */
 function stringDescriptor(record: Record<string, unknown>, head: DescriptorHead): StringDescriptor | null {
     const format = textOrNull(record.format);
     const maxLength = numberOrNull(record.maxLength);
     const fallback = textOrNull(record.default);
     if (record.unit !== null || format === null || maxLength === null || fallback === null) {
+        return null;
+    }
+
+    // The one optional member in the union (owner ruling, PR #12): absent is
+    // the single-line shape, `true` is the only value the projection emits,
+    // and anything else — a `false`, a string, a `null` — refuses the whole
+    // envelope rather than being silently dropped, because a row that reads
+    // its affordance from the wire must not invent the half it did not get
+    // (invariant 8, 006 FR-021).
+    const { multiline } = record;
+    if (multiline !== undefined && multiline !== true) {
         return null;
     }
 
@@ -237,6 +261,7 @@ function stringDescriptor(record: Record<string, unknown>, head: DescriptorHead)
         maxLength,
         default: fallback,
         takesEffect: head.takesEffect,
+        ...(multiline === undefined ? {} : { multiline: true }),
     };
 }
 

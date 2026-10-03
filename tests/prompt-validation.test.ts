@@ -27,19 +27,23 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     OPERATOR_PROMPT_FENCE_BEGIN,
     OPERATOR_PROMPT_FENCE_END,
+    PROMPT_SOURCE_ORDER,
     RESERVED_MARKER_PREFIXES,
     countCodePoints,
     hasIllegalControlChar,
     hasReservedMarkerLine,
+    isPromptSource,
+    isPromptSourceList,
     normaliseLineEndings,
     trimPrompt,
 } from '../src/prompt.ts';
 import { findSecretLeak } from '../src/redaction.ts';
+import { startingPromptIssue } from '../service/config-prompt.ts';
 import {
     PROMPT_FINGERPRINT_PATTERN,
     STARTING_PROMPT_MAX_CODE_POINTS,
     promptFingerprint,
-    promptSnapshotOf,
+    promptTierOf,
     validateStartingPrompt,
 } from '../service/prompt.ts';
 import { openStore } from '../service/store/index.ts';
@@ -156,6 +160,37 @@ describe('T-001 the shared text rules (FR-022, FR-023, FR-025, FR-026)', () => {
             const section = await compositionSection();
             expect(section).toContain(OPERATOR_PROMPT_FENCE_BEGIN);
             expect(section).toContain(OPERATOR_PROMPT_FENCE_END);
+        }
+    });
+});
+
+describe('T-017 the shared source vocabulary (FR-072, FR-087)', () => {
+    it('classifies source lists against the fixed order (+2 cases)', () => {
+        // case: every element of the order is a source
+        {
+            // The tuple is the order FR-080 fixes: most general first, and
+            // nothing outside it is a tier this build can name.
+            expect(PROMPT_SOURCE_ORDER).toEqual(['global', 'account', 'binding']);
+            for (const source of PROMPT_SOURCE_ORDER) {
+                expect(isPromptSource(source), source).toBe(true);
+            }
+
+            expect(isPromptSource('repo')).toBe(false);
+            expect(isPromptSource(42)).toBe(false);
+        }
+        // case: lists are classified as ordered, duplicated, or unknown
+        {
+            expect(isPromptSourceList(['global', 'account', 'binding'])).toBe(true);
+            expect(isPromptSourceList(['binding'])).toBe(true);
+            expect(isPromptSourceList(['binding', 'global'])).toBe(false);
+            expect(isPromptSourceList(['repo'])).toBe(false);
+            expect(isPromptSourceList(['global', 'global'])).toBe(false);
+        }
+        // case: a value that is not a list at all is refused, never coerced
+        {
+            expect(isPromptSourceList('global')).toBe(false);
+            expect(isPromptSourceList(null)).toBe(false);
+            expect(isPromptSourceList({ sources: ['global'] })).toBe(false);
         }
     });
 });
@@ -291,10 +326,11 @@ describe('T-002 validateStartingPrompt: the refusal matrix (FR-017, FR-020, FR-0
         {
             const secret = `ghp_${'d'.repeat(30)}`;
             expect(validateStartingPrompt(`prefix ${secret}`).ok).toBe(false);
-            // The snapshot is the only path from a stored prompt to a fingerprint,
-            // and it validates before it derives.
-            expect(promptSnapshotOf({ startingPrompt: `prefix ${secret}` })).toBeNull();
-            expect(promptSnapshotOf({ startingPrompt: `${SENTINEL}` })).not.toBeNull();
+            // The tier helper is the path from a stored prompt to its own
+            // fingerprint, and it validates before it derives — the
+            // resolver that stacks run bodies takes the same road.
+            expect(promptTierOf({ startingPrompt: `prefix ${secret}` })).toBeNull();
+            expect(promptTierOf({ startingPrompt: `${SENTINEL}` })).not.toBeNull();
         }
         await afterEachWork1();
         await afterEachWork1();
@@ -405,6 +441,83 @@ describe('T-002 promptFingerprint (FR-016, AC-140)', () => {
             if (crlf.ok && lf.ok && crlf.prompt !== null && lf.prompt !== null) {
                 expect(promptFingerprint(crlf.prompt)).toBe(promptFingerprint(lf.prompt));
             }
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * T-035 the one credential refusal all three save paths answer with
+ * (004 FR-083, FR-024, AC-150)
+ *
+ * AC-150's route-level half — the same sentinel refused at `PUT /v1/bindings`,
+ * `PUT /v1/config`, and `PUT /v1/accounts/:id` with identical labels and
+ * byte-identical stores — is proved end to end in
+ * `tests/containment-proof.test.ts`. This is the half that explains *why* it
+ * holds: the configuration wrapper hands back the shared validator's issue
+ * unchanged, so a path-specific rewording cannot hide between the call sites.
+ * ------------------------------------------------------------------------- */
+
+describe('T-035 one credential refusal at every save path (FR-083, AC-150)', () => {
+    /** The classic-token label, named so it is not a third duplicate literal. */
+    const CLASSIC_TOKEN_LABEL = 'github-token-classic';
+
+    it('is the shared validator\'s issue at the configuration wrapper too (+2 cases)', () => {
+        // case: the configuration wrapper returns the shared issue byte for byte, under the detector's own label
+        {
+            const shaped: readonly (readonly [string, string])[] = [
+                [CLASSIC_TOKEN_LABEL, `ghp_${'a'.repeat(30)}`],
+                ['github-token-fine-grained', `github_pat_${'b'.repeat(30)}`],
+                ['authorization-header', AUTHORIZATION_SHAPE],
+                ['bearer-credential', `Bearer ${'c'.repeat(24)}`],
+            ];
+
+            for (const [label, secret] of shaped) {
+                const submitted = `Use this: ${secret} exactly once.`;
+                const shared = refusalOf(submitted);
+                // The configuration save path wraps this validator rather than
+                // re-implementing it, so the three call sites cannot drift
+                // apart (FR-083: one validator, three call sites).
+                expect(startingPromptIssue(submitted), label).toEqual([shared]);
+                expect(shared.field, label).toBe('startingPrompt');
+                // Spelled out as a golden literal: a reworded remediation, a
+                // hardcoded label, or a value that leaks into the message all
+                // fail this one line.
+                expect(shared.remediation, label).toBe(
+                    `startingPrompt must not contain credential-shaped material (matched shape: ${label})`,
+                );
+            }
+        }
+        // case: carries no fragment of the submitted value — not the value, not any run of it
+        {
+            const head = 'zzREFUSEDzz';
+            const mid = 'a'.repeat(24);
+            const tail = 'zzNOWHEREzz';
+            const submitted = `ghp_${head}${mid}${tail}`;
+            const shape = findSecretLeak(submitted);
+            if (shape === null) {
+                throw new Error('the fragment sentinel must be credential-shaped');
+            }
+
+            const issue = refusalOf(submitted);
+            expect(issue.remediation).toBe(
+                `startingPrompt must not contain credential-shaped material (matched shape: ${shape})`,
+            );
+            for (const fragment of [submitted, head, mid, tail]) {
+                expect(issue.remediation, fragment).not.toContain(fragment);
+                expect(JSON.stringify(issue), fragment).not.toContain(fragment);
+            }
+        }
+        // case: the wrapper's own non-string refusal is value-free as well
+        {
+            const issues = startingPromptIssue({ note: SENTINEL });
+
+            expect(issues).toEqual([
+                {
+                    field: 'startingPrompt',
+                    remediation: 'set startingPrompt to a string; leave it empty for an unset global tier',
+                },
+            ]);
+            expect(JSON.stringify(issues)).not.toContain(SENTINEL);
         }
     });
 });

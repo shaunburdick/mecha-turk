@@ -14,13 +14,17 @@
  * 4. the handled list is keyed `correlationId#attempt`, so a failed report does
  *    not authorize a re-dispatch while a genuine new attempt does (FR-034);
  * 5. an offer this build cannot read — no lease, or a state other than the one
- *    it was offered in — dispatches nothing at all (FR-035).
+ *    it was offered in — dispatches nothing at all (FR-035);
+ * 6. a message over the budget floor (004 FR-085) refuses **before**
+ *    `host.startSession()` — no session started, nothing truncated — and the
+ *    refusal reaches the service as the failed attempt's `problem`.
  *
  * Offline only: a fake host, a storage double, and a route table. No service,
  * no network, no sleeps.
  */
 
 import { describe, expect, it } from 'vitest';
+import { GUEST_ATTACH_TEXT_MAX } from '@openchamber/sdk';
 import type {
     GuestProject,
     GuestRequest,
@@ -33,8 +37,10 @@ import { drainVerifications } from '../src/agent-verify.ts';
 import { dispatchClaimedRun, handledKey, pollRelay } from '../src/relay.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
+import { BEGIN_UNTRUSTED, END_UNTRUSTED, EXCERPT_TRUNCATION_MARKER } from '../src/context-blocks.ts';
 import { CONTEXT_MAX_CHARS, SOURCE_EXCERPT_MAX_CHARS, buildBoundedContext } from '../src/session.ts';
 import type { ContextSource, SpikeHost } from '../src/session.ts';
+import type { PromptSource } from '../src/prompt.ts';
 import { DISPATCH_STORAGE_KEY, MAX_RECORDED_ATTEMPTS } from '../src/dispatch-record.ts';
 import { MAX_ATTEMPT_RECORDS, MAX_SOURCE_REFERENCES, applyEnqueue } from '../service/poll/runs.ts';
 import { attemptHistory, emptyRunsDocument } from '../service/poll/runs-document.ts';
@@ -143,6 +149,7 @@ function claimedRun(overrides: Partial<ClaimedRun> = {}): ClaimedRun {
         promptPresent: false,
         promptFingerprint: null,
         promptLength: null,
+        promptSources: null,
         promptText: null,
         ...overrides,
     };
@@ -791,6 +798,8 @@ function promptedRoutes(): RouteTable {
                 promptPresent: true,
                 promptFingerprint: PROMPT_FINGERPRINT,
                 promptLength: [...PROMPT_TEXT].length,
+                // The binding tier alone is what queued this fixture (004 FR-087).
+                promptSources: ['binding'],
                 promptText: PROMPT_TEXT,
             })]),
         },
@@ -824,10 +833,13 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
             expect(request.split(PROMPT_TEXT).length - 1).toBe(1);
             expect(parsed.text.indexOf(PROMPT_TEXT)).toBeLessThan(parsed.text.indexOf('Mecha Turk dispatch'));
 
-            // The machine-readable half carries the reference, never a copy (FR-037).
+            // The machine-readable half carries the reference, never a copy (FR-037);
+            // the source list rides beside it, additive within `extension-spike-1`
+            // (FR-087, plan D9).
             expect(parsed.data.promptPresent).toBe(true);
             expect(parsed.data.promptFingerprint).toBe(PROMPT_FINGERPRINT);
             expect(parsed.data.promptLength).toBe([...PROMPT_TEXT].length);
+            expect(parsed.data.promptSources).toEqual(['binding']);
             expect(JSON.stringify(parsed.data)).not.toContain(PROMPT_TEXT);
 
             // And no other surface the panel owns receives it (FR-011, AC-144).
@@ -869,7 +881,369 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
                 promptPresent: false,
                 promptFingerprint: null,
                 promptLength: null,
+                promptSources: null,
             });
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * T-027 — the closed reader on the relay's own wire
+ * (FR-087, AC-151, FR-053, AC-144)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Collect every string reachable from one surface the panel owns (T-027).
+ *
+ * Used by the secret-surface scan: an instruction copy could only hide in a
+ * string, so walking every nested string is the whole search.
+ *
+ * @param value - Anything JSON-shaped.
+ * @returns The value itself when it is a string, else every string beneath it.
+ */
+function stringsIn(value: unknown): readonly string[] {
+    if (typeof value === 'string') {
+        return [value];
+    }
+
+    if (Array.isArray(value)) {
+        const entries = value as readonly unknown[];
+
+        return entries.flatMap((entry) => stringsIn(entry));
+    }
+
+    if (typeof value === 'object' && value !== null) {
+        const record = value as Record<string, unknown>;
+
+        return Object.values(record).flatMap((entry) => stringsIn(entry));
+    }
+
+    return [];
+}
+
+describe('T-027 the relay refuses a claim answer whose sources it cannot read (FR-087, AC-151)', () => {
+    it('refuses the whole answer: no reserve and no session (+1 cases)', async () => {
+        // case: one entry with a hostile source list refuses the answer the relay ticks on
+        {
+            // Built as a plain record because the tier is deliberately *not* one
+            // `PromptSource` accepts — the wire is where it must be refused.
+            const hostile = {
+                ...claimedRun(),
+                promptPresent: true,
+                promptFingerprint: PROMPT_FINGERPRINT,
+                promptLength: [...PROMPT_TEXT].length,
+                promptSources: ['repo'],
+                promptText: PROMPT_TEXT,
+            };
+            const relay = harness({
+                ...OK_ROUTES,
+                [PENDING_GET]: {
+                    status: 200,
+                    body: JSON.stringify({ events: [claimedRun(), hostile], status: [], auditWritten: true }),
+                },
+            });
+
+            await pollRelay(relay.rt);
+
+            // One refused entry refuses the whole answer: the good entry beside
+            // it is never half-applied, and the relay reserves nothing.
+            expect(relay.timeline).toEqual([PENDING_GET]);
+        }
+    });
+});
+
+describe('T-027 the instruction reaches `text` and no copy (FR-053, AC-144)', () => {
+    it('appears once in the request and nowhere the panel wrote (+1 cases)', async () => {
+        // case: a real scan of every surface the panel owns finds no second copy
+        {
+            const relay = harness(promptedRoutes());
+            await pollRelay(relay.rt);
+
+            const request = relay.sessionRequest();
+            expect(request.split(PROMPT_TEXT).length - 1).toBe(1);
+
+            const surfaces: readonly (readonly [string, unknown])[] = [
+                ['the bodies the panel sent', relay.sent],
+                ['host.storage', Object.fromEntries(relay.storage.values)],
+                ['the ledger', relay.rt.state.ledger],
+                ['the bindings state', relay.rt.state.bindings],
+                ['the dispatches state', relay.rt.state.dispatches],
+            ];
+            for (const [label, surface] of surfaces) {
+                const copies = stringsIn(surface).filter((line) => line.includes(PROMPT_TEXT));
+
+                expect(copies, `${label} must hold no copy of the instruction`).toEqual([]);
+            }
+
+            // And no `promptText` member was persisted anywhere either (FR-053).
+            const persisted = JSON.stringify([...relay.storage.values.values()]);
+            expect(persisted).not.toContain('promptText');
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * T-029 — the budget floor
+ * (FR-085, AC-147, SC-132; research R-2)
+ * ------------------------------------------------------------------------- */
+
+/** Marker the over-budget instruction leads with, so any copy of it is findable. */
+const OVER_BUDGET_MARKER = 'OVERBUDGET';
+
+/**
+ * The instruction a store hand-edited past its own validators carries.
+ *
+ * The save-time cap is the service's (FR-020, 2,000 code points per tier), so
+ * a claim answer holding this body is exactly FR-085's one reachable case —
+ * and the claim reader takes it as it stands: it validates shape, never a
+ * length, so the overrun reaches composition rather than a parser.
+ */
+const OVER_BUDGET_PROMPT = `${OVER_BUDGET_MARKER} ${'x'.repeat(CONTEXT_MAX_CHARS)}`;
+
+/** One maximal tier: 2,000 code points, the per-tier cap FR-020 sets. */
+const MAXIMAL_TIER = 'x'.repeat(2_000);
+
+/**
+ * The maximal three-tier prompt body: 3 × 2,000 code points plus the two
+ * blank-line gaps FR-080 puts between the tiers actually present — **6,004**,
+ * the figure FR-085 states after v1.4.1's correction.
+ */
+const MAXIMAL_THREE_TIERS = [MAXIMAL_TIER, MAXIMAL_TIER, MAXIMAL_TIER].join('\n\n');
+
+/**
+ * The co-operative service answering with one prompt-carrying run.
+ *
+ * @param promptText - The instruction body the run snapshot carries.
+ * @param sources - Tiers that contributed it; defaults to all three.
+ * @returns The route table, with the claim answer swapped for that run.
+ */
+function promptRoutes(
+    promptText: string,
+    sources: readonly PromptSource[] = ['global', 'account', 'binding'],
+): RouteTable {
+    return {
+        ...OK_ROUTES,
+        [PENDING_GET]: {
+            status: 200,
+            body: claimBody([claimedRun({
+                promptPresent: true,
+                promptFingerprint: PROMPT_FINGERPRINT,
+                promptLength: [...promptText].length,
+                promptSources: [...sources],
+                promptText,
+            })]),
+        },
+    };
+}
+
+/**
+ * The `problem` one attempt report carried, read without trusting its shape.
+ *
+ * @param relay - The recorded double.
+ * @returns The problem text, or `''` when the report carried none.
+ */
+function reportedProblem(relay: Harness): string {
+    const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/dispatched`)) as Record<string, unknown>;
+
+    return typeof body.problem === 'string' ? body.problem : '';
+}
+
+describe('T-029 the budget floor refuses before the host (FR-085, AC-147, SC-132)', () => {
+    it('composes, refuses, and issues zero host calls… (+2 cases)', async () => {
+        // case: composes, refuses, and issues zero host calls
+        {
+            const relay = harness(promptRoutes(OVER_BUDGET_PROMPT));
+            await pollRelay(relay.rt);
+
+            // The contract's order holds around the refusal, and the host is not
+            // in it: reserve, durable record, result report, acknowledgement.
+            expect(dispatchTimeline(relay.timeline)).toEqual([
+                PENDING_GET,
+                `POST ${RUN_PATH}/reserve`,
+                'record',
+                `POST ${RUN_PATH}/dispatched`,
+                'ack',
+            ]);
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
+            expect(relay.sessionRequest()).toBe('');
+
+            // The refusal arrives as the failed attempt's `problem` (research
+            // R-2: no new `blocked:` reason, no new state) — and the length it
+            // quotes is the composed message's, which is what proves the floor
+            // measured the composition instead of guessing at it.
+            const problem = reportedProblem(relay);
+            const composedChars = Number(/composed first message is (\d+) characters/.exec(problem)?.[1] ?? '0');
+            expect(composedChars).toBeGreaterThan(CONTEXT_MAX_CHARS);
+            expect(problem).toContain('no session was started');
+            expect(problem).toContain('nothing was truncated');
+            // The remediation names the tiers; it never quotes a fragment of
+            // the instruction it is refusing (FR-053).
+            expect(problem).toContain('global, account, binding');
+            expect(problem).not.toContain(OVER_BUDGET_MARKER);
+        }
+        // case: names only the tiers the run actually carried
+        {
+            const relay = harness(promptRoutes(OVER_BUDGET_PROMPT, ['binding']));
+            await pollRelay(relay.rt);
+
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
+            const problem = reportedProblem(relay);
+            expect(problem).toContain('starting-prompt tiers: binding.');
+            expect(problem).not.toContain('global');
+            expect(problem).not.toContain('account');
+        }
+        // case: a maximal legal three-tier composition passes the floor untouched
+        {
+            const relay = harness(promptRoutes(MAXIMAL_THREE_TIERS));
+            await pollRelay(relay.rt);
+
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
+            const request = JSON.parse(relay.sessionRequest()) as { readonly text?: string };
+            const text = request.text ?? '';
+            // Whole stack, no tier shortened, and inside the bound the floor holds.
+            expect(text).toContain(MAXIMAL_THREE_TIERS);
+            expect(text.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * T-034 — the budget suite on the relay's own wire
+ * (FR-085, AC-147, AC-145, SC-132, NFR-120)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * A maximal issue-body excerpt: FR-085's own full-allowance figure (1,200
+ * code points) — twice what the frame grants one source, so the composition
+ * owes it a visible cut rather than a silent one.
+ */
+const MAXIMAL_EXCERPT = 'y'.repeat(1_200);
+
+/**
+ * The co-operative service answering with the full worst case AC-147 prices:
+ * a run carrying three maximal (2,000-code-point) tiers and the 1,200-code-point
+ * excerpt.
+ *
+ * @returns The route table, with the claim answer swapped for that run.
+ */
+function maximalRoutes(): RouteTable {
+    return {
+        ...OK_ROUTES,
+        [PENDING_GET]: {
+            status: 200,
+            body: claimBody([claimedRun({
+                promptPresent: true,
+                promptFingerprint: PROMPT_FINGERPRINT,
+                promptLength: [...MAXIMAL_THREE_TIERS].length,
+                promptSources: ['global', 'account', 'binding'],
+                promptText: MAXIMAL_THREE_TIERS,
+                issueBodyExcerpt: MAXIMAL_EXCERPT,
+            })]),
+        },
+    };
+}
+
+describe('T-034 the budget suite end-to-end (FR-085, AC-147, AC-145, SC-132, NFR-120)', () => {
+    it('refuses the over-budget attempt before the host, adds no round trip (+2 cases)', async () => {
+        // case: the seeded over-budget attempt refuses before host.startSession(), starting no session
+        {
+            // A store hand-edited past the save-time cap: the claim reader
+            // takes the body as it stands (shape, never a length), so the
+            // overrun reaches composition — and the floor, not the host, is
+            // what stops it (FR-085's one reachable case, AC-147's floor).
+            const relay = harness(promptRoutes(OVER_BUDGET_PROMPT));
+            await pollRelay(relay.rt);
+
+            // Before `host.startSession()`: no session request ever built, no
+            // session created, and no agent read-back for a session that does
+            // not exist — "no session started", asserted at both host calls.
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
+            expect(relay.timeline.filter((entry) => entry.startsWith('openSession'))).toHaveLength(0);
+            expect(relay.sessionRequest()).toBe('');
+
+            // The run itself is not lost around the refusal: reserve, durable
+            // record, result report, acknowledgement — the host absent from
+            // every step of it.
+            expect(dispatchTimeline(relay.timeline)).toEqual([
+                PENDING_GET,
+                `POST ${RUN_PATH}/reserve`,
+                'record',
+                `POST ${RUN_PATH}/dispatched`,
+                'ack',
+            ]);
+
+            // The refusal arrives as the failed attempt's `problem`: it names
+            // the contributing tiers, states what was *not* done, and quotes
+            // the composed length — proof the floor measured the composition
+            // it refused, without echoing a fragment of the instruction
+            // (FR-053; research R-2: no new state, no new `blocked:` reason).
+            const problem = reportedProblem(relay);
+            expect(problem).toContain('global, account, binding');
+            expect(problem).toContain('no session was started');
+            expect(problem).toContain('nothing was truncated');
+            expect(problem).not.toContain(OVER_BUDGET_MARKER);
+            const composedChars = Number(/composed first message is (\d+) characters/.exec(problem)?.[1] ?? '0');
+            expect(composedChars).toBeGreaterThan(CONTEXT_MAX_CHARS);
+        }
+        // case: the maximal composition dispatches with no round trip added (NFR-120, AC-147)
+        {
+            // The full worst case on the wire: three maximal (2,000-code-point)
+            // tiers plus a 1,200-code-point excerpt, composed through the
+            // relay's own path — `runRequestOf` reserves the block before it
+            // sizes the excerpt, exactly as the composition unit tests do.
+            expect([...MAXIMAL_EXCERPT].length).toBeGreaterThan(SOURCE_EXCERPT_MAX_CHARS);
+            const relay = harness(maximalRoutes());
+            await pollRelay(relay.rt);
+
+            // NFR-120: composition adds no panel↔service round trip. The
+            // snapshot rides the claim answer that already exists, so the path
+            // to the host is still claim, reserve, startSession — and nothing
+            // between them.
+            const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
+            expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
+            expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
+
+            const request = JSON.parse(relay.sessionRequest()) as { readonly text?: string };
+            const text = request.text ?? '';
+
+            // AC-147's first clause, measured on what the host actually
+            // received: inside both caps, the whole stack unshortened, the
+            // excerpt at its full allowance with its cut marked, and the full
+            // frame intact beneath the block.
+            expect(text.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
+            expect(text.length).toBeLessThan(GUEST_ATTACH_TEXT_MAX);
+            expect(text).toContain(MAXIMAL_THREE_TIERS);
+
+            const beginAt = text.indexOf(BEGIN_UNTRUSTED);
+            const endAt = text.indexOf(END_UNTRUSTED);
+            expect(beginAt).toBeGreaterThan(0);
+            // The prompt block leads; the untrusted region follows it (FR-030).
+            expect(text.indexOf(MAXIMAL_THREE_TIERS)).toBeLessThan(beginAt);
+            expect(text.endsWith(END_UNTRUSTED)).toBe(true);
+
+            // '\n' + excerpt + '\n': the excerpt got the whole per-source
+            // allowance (600) even with the 6,082-character block reserved
+            // ahead of it, and the cut is marked rather than silent.
+            const quoted = text.slice(beginAt + BEGIN_UNTRUSTED.length, endAt);
+            expect(quoted.length).toBe(SOURCE_EXCERPT_MAX_CHARS + 2);
+            expect(quoted.slice(1, -1).endsWith(EXCERPT_TRUNCATION_MARKER)).toBe(true);
+
+            // Every frame line present beneath the prompt block — the frame is
+            // never what the budget shortens (FR-035, FR-085).
+            const frameLines: readonly string[] = [
+                'Mecha Turk dispatch (automated',
+                `Correlation: ${CORRELATION}`,
+                `Repository: ${REPOSITORY}`,
+                `Issue #7: ${ISSUE_TITLE}`,
+                `Machine account: ${LOGIN}`,
+                'Rule: configured-match — open issue assigned to the authenticated machine account.',
+                'Source references: 1',
+                BEGIN_UNTRUSTED,
+            ];
+            for (const line of frameLines) {
+                expect(text, `the frame line "${line.slice(0, 32)}" is missing`).toContain(line);
+            }
         }
     });
 });

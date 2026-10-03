@@ -99,6 +99,23 @@ export interface PanelAccount {
      * fact the row shows when there is no label.
      */
     readonly displayName: string | null;
+    /**
+     * The account tier of the starting prompt, or absent when this account
+     * has none (004 FR-082).
+     *
+     * `null` on the wire and absent in this type both read as *unset* — a
+     * complete, valid state — so `?? ''` is all a reader needs. It is read
+     * only: the row summary shows presence and length, never this text and
+     * never a fingerprint (005 FR-051), the account mirror never stores it
+     * (AC-144), and the profile write carries it as **one member of a
+     * closed body**, absent = unchanged (004 FR-082, 005 FR-066).
+     *
+     * `| undefined` is explicit because `exactOptionalPropertyTypes` is on:
+     * a record that left the member out **omits** the key (the parse writes
+     * it only for a string), and a value that is neither text nor `null`
+     * refuses the whole body (invariant 8).
+     */
+    readonly startingPrompt?: string | null | undefined;
     /** `true` only for accounts whose latest verification succeeded. */
     readonly usable: boolean;
     /**
@@ -388,40 +405,56 @@ function accountScope(raw: unknown): AccountScopeVerdict | null {
     return results.includes('unknown') ? 'unknown' : 'ok';
 }
 
-/**
- * Parse the accounts response body into the records the picker offers.
- *
- * @param text - Response body text.
- * @returns The accounts, or `null` when the shape is unusable.
- */
-/** How the accounts reader narrows the display label (005 FR-066). */
-type LabelRead =
-    /** Absent or `null` read as "no label"; a string passes through. */
-    | { readonly ok: true; readonly label: string | null }
-    /** Present and not text: the whole body is refused (invariant 8). */
+/** The two operator-editable members of one account record (005 FR-066, 004 FR-082). */
+interface PanelMemberFields {
+    /** Operator display label, or `null` when the row leads with the login. */
+    readonly displayName: string | null;
+    /**
+     * The account tier of the prompt. The key is **absent** when the tier is
+     * unset — 004 FR-082's complete, valid state — which is what lets a
+     * `JSON.stringify` of this record never carry an empty member.
+     */
+    readonly startingPrompt?: string | undefined;
+}
+
+/** How the accounts reader narrows those two members. */
+type PanelMembers =
+    /** Both readable; `fields` joins the panel record as-is. */
+    | { readonly ok: true; readonly fields: PanelMemberFields }
+    /** A member present and not text: the whole body is refused (invariant 8). */
     | { readonly ok: false };
 
 /**
- * Narrow one account record's display label.
+ * Narrow the two members the account profile write edits (005 FR-066, 004
+ * FR-082).
  *
- * Extracted so the reader below stays inside its complexity budget: this is
- * the one member the 005 DTO added, and a value that is neither text nor
- * `null` refuses the body rather than being dropped.
+ * Both are `string | null` on the wire and both read as *unset* when absent
+ * — a store that predates either needs no migration (FR-005, 004 FR-018) —
+ * and a value that is neither text nor `null` refuses the whole body rather
+ * than being dropped: a record that silently lost its prompt would render
+ * *not set* while the service still dispatched with it.
+ *
+ * Extracted so `parseAccountsBody` stays inside its complexity budget: one
+ * pass, one refusal, and the unset prompt's key simply not written.
  *
  * @param record - One entry of the `accounts` array.
- * @returns The label, or the refusal that stops the read.
+ * @returns Both members, or the refusal that stops the read.
  */
-function readPanelLabel(record: Record<string, unknown>): LabelRead {
-    const { displayName } = record;
-    if (displayName === undefined || displayName === null) {
-        return { ok: true, label: null };
+function readPanelMembers(record: Record<string, unknown>): PanelMembers {
+    const { displayName, startingPrompt } = record;
+    for (const value of [displayName, startingPrompt]) {
+        if (value !== undefined && value !== null && typeof value !== 'string') {
+            return { ok: false };
+        }
     }
 
-    if (typeof displayName !== 'string') {
-        return { ok: false };
-    }
-
-    return { ok: true, label: displayName };
+    return {
+        ok: true,
+        fields: {
+            displayName: typeof displayName === 'string' ? displayName : null,
+            ...(typeof startingPrompt === 'string' ? { startingPrompt } : {}),
+        },
+    };
 }
 
 /** Members of one account record the Accounts rows render, beyond identity. */
@@ -480,6 +513,12 @@ function readAccountDetail(record: Record<string, unknown>): AccountDetail | nul
     return detail;
 }
 
+/**
+ * Parse the accounts response body into the records the picker offers.
+ *
+ * @param text - Response body text.
+ * @returns The accounts, or `null` when the shape is unusable.
+ */
 export function parseAccountsBody(text: string): PanelAccount[] | null {
     const root = parseJsonObject(text);
     if (root === null || !Array.isArray(root.accounts)) {
@@ -498,8 +537,8 @@ export function parseAccountsBody(text: string): PanelAccount[] | null {
             return null;
         }
 
-        const label = readPanelLabel(record);
-        if (!label.ok) {
+        const members = readPanelMembers(record);
+        if (!members.ok) {
             return null;
         }
 
@@ -515,7 +554,7 @@ export function parseAccountsBody(text: string): PanelAccount[] | null {
         accounts.push({
             numericUserId,
             login,
-            displayName: label.label,
+            ...members.fields,
             usable: detail.state === 'active',
             ...detail,
             ...(scope === null ? {} : { scope }),

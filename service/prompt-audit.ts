@@ -27,8 +27,8 @@
 
 import { newCorrelationId } from '../src/ids.ts';
 import { AUDIT_FILE, appendAudit, parseAuditEntry } from './audit.ts';
-import { promptSnapshotOf } from './prompt.ts';
-import type { PromptSnapshot } from './prompt.ts';
+import { PROMPT_FINGERPRINT_PATTERN, promptTierOf } from './prompt.ts';
+import type { TierPrompt } from './prompt.ts';
 import type { ServiceLogger } from './log.ts';
 import type { ServiceStore } from './store/index.ts';
 
@@ -102,10 +102,20 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, string | 
             continue;
         }
 
+        // Only a value that already carries the `mtp-` shape is trusted — the
+        // same rule `config-audit.ts` uses to seed its own baseline. This
+        // value becomes the lane's baseline and is written back into a later
+        // row as `previousFingerprint`, so anything that is not a fingerprint
+        // (text a row should never have carried, a number, an object) would
+        // otherwise be echoed forward into a new row. `null` keeps 004
+        // FR-053's never-the-text rule in force on the **read** side too.
         const recorded = entry.details.promptFingerprint;
-        const fingerprint = entry.details.promptPresent === true && typeof recorded === 'string'
-            ? recorded
-            : null;
+        const fingerprint =
+            entry.details.promptPresent === true &&
+            typeof recorded === 'string' &&
+            PROMPT_FINGERPRINT_PATTERN.test(recorded)
+                ? recorded
+                : null;
         const prior = highest.get(bindingId);
         if (prior === undefined || entry.seq > prior.seq) {
             highest.set(bindingId, { seq: entry.seq, fingerprint });
@@ -154,7 +164,7 @@ export interface PromptChange {
     /** Binding whose prompt changed. */
     readonly bindingId: string;
     /** The prompt **after** the change, or `null` when it was cleared. */
-    readonly current: PromptSnapshot | null;
+    readonly current: TierPrompt | null;
     /** The fingerprint the previous row for this binding recorded, else `null`. */
     readonly previousFingerprint: string | null;
     /** Who actually made the change, never claimed for anyone else. */
@@ -243,7 +253,7 @@ async function recordOneChange(context: {
     /** The binding whose prompt differs from the baseline. */
     readonly binding: ObservedBinding;
     /** Its snapshot, or `null` when the prompt is unset. */
-    readonly snapshot: PromptSnapshot | null;
+    readonly snapshot: TierPrompt | null;
     /** The fingerprint the snapshot carries, or `null`. */
     readonly current: string | null;
     /** The fingerprint the baseline held, or `null`. */
@@ -287,7 +297,7 @@ export async function recordPromptChanges(input: PromptObservation): Promise<num
 
     for (const binding of input.bindings) {
         observed.add(binding.bindingId);
-        const snapshot = promptSnapshotOf(binding);
+        const snapshot = promptTierOf(binding);
         const current = snapshot === null ? null : snapshot.fingerprint;
         const previous = state.baseline.get(binding.bindingId) ?? null;
         // Advance first: an append that fails must not re-report the same

@@ -15,10 +15,11 @@
  *    quoted *token*), so it still flags a second default literal of any value
  *    while ignoring prose that happens to begin with the word. The check is
  *    shown to bite by running the same rules over a pasted stand-in.
- * 2. **The rows** — built from the projection, eleven against an 006-only
- *    fixture and thirteen against the combined one, every row carrying name,
+ * 2. **The rows** — built from the projection, twelve against an 006-only
+ *    fixture and fourteen against the combined one, every row carrying name,
  *    unit-or-*none*, bounds-or-format, value, and the class words the service's
- *    class maps to (AC-101, SC-102, FR-014, FR-030).
+ *    class maps to (AC-101, SC-102, FR-014, FR-030) — plus, for an empty string
+ *    field, the not-set word in its value slot (004 T-030, FR-064).
  * 3. **The body** — still read-only, mounting exactly one control, keeping its
  *    static content when the service is unreachable, and releasing every handle
  *    it mounted (FR-070, FR-078, FR-017).
@@ -48,6 +49,7 @@ import type { PanelHandlers } from '../src/panel-ui.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 import { DEFAULT_BODY, DEFAULT_STATUS, createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { GLOBAL_TIER_SENTINEL } from './support/prompt-tiers.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -93,7 +95,10 @@ const inertHandlers: PanelHandlers = {
     copyProjectId: (): void => undefined,
 };
 
-/** The eleven fields 006 itself declares (FR-084, AC-101). */
+/**
+ * The twelve fields 006 itself declares (006 v1.6.0; FR-084, AC-101) — 003's
+ * two lease fields ride the combined projection beside them, not in this list.
+ */
 const SPECS_006_FIELDS: readonly string[] = [
     'intervalMs',
     'logLevel',
@@ -106,6 +111,11 @@ const SPECS_006_FIELDS: readonly string[] = [
     'auditMaxEntries',
     'excerptRetentionDays',
     'expectedAgent',
+    // Twelfth field (004 FR-081): the global prompt tier. Still twelve by
+    // count; its *position* is first in the projection since the owner's PR
+    // #12 ruling ("move it to the top of the list") — this list is a
+    // membership set, so only the count claim lives here.
+    'startingPrompt',
 ];
 
 /** Directory the zero-literals scan reads. */
@@ -265,7 +275,7 @@ function envelopeBody(input: {
 }
 
 /**
- * Whether a field name is one of the eleven 006 itself declares (AC-101).
+ * Whether a field name is one of the twelve 006 itself declares (AC-101, 006 v1.6.0).
  *
  * @param name - Document member name.
  * @returns `true` for 006's own fields.
@@ -275,7 +285,7 @@ function isSpecs006Field(name: string): boolean {
 }
 
 /**
- * The eleven-field projection and document 006 itself declares (AC-101).
+ * The twelve-field projection and document 006 itself declares (AC-101; 006 v1.6.0).
  *
  * @returns The envelope a build carrying only 006's fields answers with.
  */
@@ -313,6 +323,23 @@ function envelopeFor(body: string): ConfigEnvelope {
     }
 
     return envelope;
+}
+
+/**
+ * The projected descriptor for one field, so an assertion reads the service's
+ * own declaration instead of restating it.
+ *
+ * @param name - Document member name.
+ * @param envelope - The envelope the descriptor was read from.
+ * @returns The descriptor, or the test fails here.
+ */
+function descriptorOf(name: string, envelope: ConfigEnvelope): FieldDescriptor {
+    const descriptor = envelope.fields.find((candidate) => candidate.name === name);
+    if (descriptor === undefined) {
+        throw new Error(`the projection carries no descriptor for ${name}`);
+    }
+
+    return descriptor;
 }
 
 /**
@@ -535,8 +562,8 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
 });
 
 describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () => {
-    it('renders eleven rows against the 006-only fixture and… (+4 cases)', () => {
-        // case: renders eleven rows against the 006-only fixture and thirteen against the combined one
+    it('renders twelve rows against the 006-only fixture and fourteen… (+6 cases)', () => {
+        // case: renders twelve rows against the 006-only fixture and fourteen against the combined one
         {
             expect(settingsRows(specs006OnlyEnvelope())).toHaveLength(SPECS_006_FIELDS.length);
             const combined = settingsRows(combinedEnvelope());
@@ -545,7 +572,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             // projection, which is what lets 003's two fields arrive untouched.
             expect(combined.length).toBe(Object.keys(DEFAULT_CONFIG).length);
         }
-        // case: gives every one of 006\'s eleven fields its five attributes
+        // case: gives every one of 006\'s twelve fields its five attributes
         {
             const envelope = combinedEnvelope();
             const rows = settingsRows(envelope);
@@ -616,11 +643,78 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             expect(agent?.text).toContain('other-agent');
             expect(agent?.text).not.toContain('bounds');
         }
+        // case: the prompt row arrives from the descriptor, first in the service's order (004 T-030)
+        {
+            const envelope = specs006OnlyEnvelope();
+            const rows = settingsRows(envelope);
+
+            expect(SPECS_006_FIELDS).toHaveLength(12);
+            expect(rows).toHaveLength(SPECS_006_FIELDS.length);
+            // Order and count both follow the projection: the builder maps
+            // `envelope.fields`, so there is no row list in the panel that a
+            // new descriptor could fall behind (006 FR-010, FR-014) — and every
+            // name the fixture's list claims is one the service still projects.
+            expect(rows.map((row) => row.field)).toEqual(envelope.fields.map((descriptor) => descriptor.name));
+            const projected: ReadonlySet<string> = new Set(
+                configSchema().map((descriptor): string => descriptor.name),
+            );
+            expect(SPECS_006_FIELDS.filter((name) => !projected.has(name))).toEqual([]);
+            // The prompt row leads the list — the twelfth *field* by count,
+            // first by owner ruling on PR #12 ("move it to the top of the
+            // list") — and carries the class the service declared for it
+            // (004 FR-081: the next poll). The position assertion stays as
+            // strong as it was: index 0 of the projection, not merely present.
+            const promptDescriptor = descriptorOf('startingPrompt', envelope);
+            expect(rows[0]?.field).toBe(promptDescriptor.name);
+            expect(rows[0]?.text).toContain(classWords(promptDescriptor.takesEffect));
+            expect(rows[0]?.text).toContain('startingPrompt:');
+            // A descriptor this build has never heard of still gets its row,
+            // last, in the order it arrived — derivation, not a list.
+            const future: FieldDescriptor = {
+                name: 'futureBudget',
+                kind: 'integer',
+                unit: 'milliseconds',
+                min: 1,
+                max: 10,
+                default: 1,
+                takesEffect: 'restart',
+            };
+            const grown = rowsFor(
+                envelopeBody({ config: { ...DEFAULT_CONFIG, futureBudget: 5 }, fields: [...configSchema(), future] }),
+            );
+
+            expect(grown).toHaveLength(configSchema().length + 1);
+            expect(grown[grown.length - 1]?.field).toBe('futureBudget');
+        }
+        // case: an empty string field reads *not set* beside the declared format guidance (FR-064, R-4)
+        {
+            const descriptor = descriptorOf('startingPrompt', combinedEnvelope());
+            if (descriptor.kind !== 'string') {
+                throw new Error('startingPrompt did not project as a string field');
+            }
+
+            const unset = rowsFor(envelopeBody()).find((row) => row.field === 'startingPrompt');
+            // The value slot states the absence instead of printing nothing —
+            // never an empty box that reads as an instruction (FR-064)…
+            expect(unset?.text).toContain('startingPrompt: not set');
+            // …and the guidance beside it stays the service's own `format`
+            // prose, rendered as text, never a panel-authored sentence (R-4).
+            expect(unset?.text).toContain(`format: ${descriptor.format}`);
+            expect(unset?.text).toContain(`max ${descriptor.maxLength} characters`);
+
+            // A set tier shows the value, and the state word leaves with the absence.
+            const prompt = 'Review every change against the ticket before approving.';
+            const set = rowsFor(envelopeBody({ config: { ...DEFAULT_CONFIG, startingPrompt: prompt } }))
+                .find((row) => row.field === 'startingPrompt');
+
+            expect(set?.text).toContain(prompt);
+            expect(set?.text).not.toContain('not set');
+        }
     });
 });
 
 describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)', () => {
-    it('mounts one control per declared field, named with it… (+5 cases)', async () => {
+    it('mounts one control per declared field, named with it… (+8 cases)', async () => {
         // case: mounts one control per declared field, named with its unit and boundary
         {
             const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
@@ -648,6 +742,85 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect((level?.props as { readonly options: readonly { readonly id: string }[] }).options.map(
                 (option) => option.id,
             )).toEqual([...LOG_LEVEL_VALUES]);
+            view.dispose();
+        }
+        // case: the string field's empty box reads *not set*, with the declared guidance under it (004 T-030)
+        {
+            const descriptor = descriptorOf('startingPrompt', combinedEnvelope());
+            if (descriptor.kind !== 'string') {
+                throw new Error('startingPrompt did not project as a string field');
+            }
+
+            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+            const control = mounts.log.find(
+                (entry) => entry.key === 'mountTextField'
+                    && (entry.props as { readonly label?: string }).label?.startsWith('startingPrompt') === true,
+            );
+            expect(control).toBeDefined();
+            const props = control?.props as {
+                readonly label: string;
+                readonly value: string;
+                readonly placeholder?: string;
+                readonly helper: string;
+                readonly multiline?: boolean;
+                readonly rows?: number;
+                readonly onChange: unknown;
+            };
+
+            // FR-064: the value slot states the absence rather than sitting
+            // there as an empty box (the word is the panel's; the state is the
+            // document's) — and it vanishes the moment the field has a value.
+            expect(props.value).toBe('');
+            expect(props.placeholder).toBe('not set');
+            // The control's *shape* is the descriptor's too (owner ruling, PR
+            // #12): this field declares `multiline`, so it mounts a textarea
+            // with the same row count the other two prompt tiers render with.
+            expect(props.multiline).toBe(true);
+            expect(props.rows).toBe(4);
+            // Research R-4: the guidance under the field is the service's own
+            // `format` prose, rendered as text — never a panel sentence.
+            expect(props.helper).toContain(`format: ${descriptor.format}`);
+            expect(props.helper).toContain(`max ${descriptor.maxLength} characters`);
+            // 006 FR-018: the accessible name still carries the name, the unit
+            // slot (a string field has none, and says so), and the boundary.
+            expect(props.label).toBe(`${descriptor.name} (unit none) — ${classWords(descriptor.takesEffect)}`);
+            // Keyboard-operable: this is the input itself, with its handler.
+            expect(typeof props.onChange).toBe('function');
+            view.dispose();
+        }
+        // case: a set tier puts the value in that same slot (004 T-030, 006 FR-081)
+        {
+            const prompt = 'Review every change against the ticket before approving.';
+            const view = await mountSettings({
+                answer: configAnswer(envelopeBody({ config: { ...DEFAULT_CONFIG, startingPrompt: prompt } })),
+            });
+            const control = mounts.log.find(
+                (entry) => entry.key === 'mountTextField'
+                    && (entry.props as { readonly label?: string }).label?.startsWith('startingPrompt') === true,
+            );
+            const props = control?.props as { readonly value: string };
+
+            // The one rendering of the global tier's value in the panel (005
+            // FR-051 as amended): the row's own control, holding the text.
+            expect(props.value).toBe(prompt);
+            view.dispose();
+        }
+        // case: `multiline` rides the descriptor, so the other string field stays single-line
+        {
+            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+            const control = mounts.log.find(
+                (entry) => entry.key === 'mountTextField'
+                    && (entry.props as { readonly label?: string }).label?.startsWith('expectedAgent') === true,
+            );
+            expect(control).toBeDefined();
+            const props = control?.props as { readonly multiline?: boolean; readonly rows?: number };
+
+            // Both string fields share one kind, so the descriptor's flag is
+            // what tells them apart — an agent name is a single token, and
+            // the panel must not decide that from the field's *name*
+            // (006 FR-014: the row's attributes come from the wire).
+            expect(props.multiline).toBeUndefined();
+            expect(props.rows).toBeUndefined();
             view.dispose();
         }
         // case: gives an undocumented member a line, and no affordance at all (AC-115)
@@ -731,6 +904,31 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
         expect(mounted).toBeGreaterThan(0);
         expect(disposed).toBe(mounted);
         expect(view.rt.settingsUi).toBeNull();
+    });
+
+    it('renders the global tier in exactly one element (T-032, 004 FR-089, 005 FR-051)', async () => {
+        const view = await mountSettings({
+            answer: configAnswer(envelopeBody({
+                config: { ...DEFAULT_CONFIG, startingPrompt: GLOBAL_TIER_SENTINEL },
+            })),
+        });
+        const carrying = mounts.log.filter(
+            (entry) => JSON.stringify(entry.props ?? null).includes(GLOBAL_TIER_SENTINEL),
+        );
+        view.dispose();
+
+        // One element carries it: this harness logs a repaint beside its
+        // mount as `<primitive>:update`, so the records are counted as a
+        // mount (an element created holding the value) or that same row's
+        // repaint — and the row *line* (which quotes the value as prose) is
+        // never mounted for an editable field, so a second primitive
+        // carrying the text would be a second rendering (005 SC-105).
+        const creations = carrying.filter((entry) => !entry.key.includes(':'));
+        expect(creations).toHaveLength(1);
+        expect(creations[0]?.key).toBe('mountTextField');
+        expect(carrying.every(
+            (entry) => entry.key === 'mountTextField' || entry.key === 'mountTextField:update',
+        )).toBe(true);
     });
 });
 

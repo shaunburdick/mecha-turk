@@ -11,13 +11,21 @@ import { findSecretLeak } from '../src/redaction.ts';
 import { pollRelay } from '../src/relay.ts';
 import { AUDIT_FILE } from '../service/audit.ts';
 import { BINDINGS_FILE } from '../service/bindings.ts';
-import { EVENTS_FILE } from '../service/poll/events.ts';
+import { CONFIG_FILE } from '../service/config.ts';
+import { createLogger } from '../service/log.ts';
+import { EVENTS_FILE, createEvent, enqueueEvents } from '../service/poll/events.ts';
+import { resolvePromptSnapshot } from '../service/prompt.ts';
 import { RUNS_FILE } from '../service/poll/runs.ts';
 import { AUDIT_PATH } from '../service/routes/audit.ts';
+import { ACCOUNT_PATH } from '../service/routes/accounts.ts';
 import { BINDINGS_PATH } from '../service/routes/bindings.ts';
+import { CONFIG_PATH } from '../service/routes/config.ts';
 import { EVENTS_PATH } from '../service/routes/events.ts';
+import type { EventSnapshot } from '../service/poll/events.ts';
+import type { ServiceLogger } from '../service/log.ts';
 import { readRuns } from './support/dispatch-corpus.ts';
 import { startDispatchLoop } from './support/dispatch-loop.ts';
+import { PROJECT_ID } from './support/panel.ts';
 import type { DispatchLoop } from './support/dispatch-loop.ts';
 
 /** Repository root, derived from this file's location. */
@@ -287,7 +295,9 @@ const DISPATCH_MODULES: readonly string[] = [
 /**
  * 004's own modules, named so the static scans cannot quietly stop covering
  * them (AC-143's "new assertions", AC-144's "the panel never touches the
- * binding field").
+ * binding field") — plus every `service/` module the layered-prompt work
+ * introduced or touched, so the suppression and `any` gate below is never
+ * blind on a module these commits added.
  *
  * The walk is dynamic — every `.ts` under {@link SOURCE_DIRS} is read — so
  * this list is the assertion that the newest additions are inside it.
@@ -311,6 +321,28 @@ const PROMPT_MODULES: readonly string[] = [
     'service/poll/claim-project.ts',
     'service/poll/run-history-project.ts',
     'service/poll/dispatch-audit.ts',
+    'service/config-prompt-observe.ts',
+    'service/account-prompt-audit.ts',
+    'service/config-schema.ts',
+    'service/accounts/model.ts',
+    'service/accounts/store.ts',
+    'service/routes/accounts.ts',
+    // Every other module the layered-prompt commits introduced or touched
+    // under `service/`: the tier validators, the configuration observer and
+    // its audit lanes, the profile write, and the routes/cycle files they
+    // wired through. Named here because a module this list omits is a module
+    // the suppression and `any` scan below never reads (T-035's blind spot).
+    'service/audit-trim.ts',
+    'service/config-audit.ts',
+    'service/config-prompt.ts',
+    'service/config.ts',
+    'service/poll/cycle-config.ts',
+    'service/poll/loop.ts',
+    'service/poll/timer.ts',
+    'service/routes/account-profile.ts',
+    'service/routes/config.ts',
+    'service/routes/index.ts',
+    'service/routes/verify.ts',
 ];
 
 /** One file the static scans read. */
@@ -505,14 +537,16 @@ describe('AC-128 the no-GitHub-write scan covers every module (FR-002)', () => {
 });
 
 /* ------------------------------------------------------------------------- *
- * 004 containment (T-014: AC-133, AC-143, AC-144, FR-002, FR-005, NFR-121)
+ * 004 containment (T-014, T-035: AC-133, AC-143, AC-144, AC-151, FR-002,
+ * FR-005, FR-053, FR-088, NFR-121)
  *
  * Two halves, because the feature has two ways to fail: the *static* half
  * proves the shipped bytes and the newest modules cannot name the binding
  * field from the panel or smuggle a write or a suppression in, and the
  * *full-cycle* half runs save → refuse → detect → claim → dispatch → audit
- * read against a real loopback service and then greps every surface for two
- * planted strings — one accepted, one refused.
+ * read against a real loopback service with **all three tiers populated** and
+ * then greps every surface for four planted strings — three accepted (one per
+ * tier), one refused.
  * ------------------------------------------------------------------------- */
 
 /** The instruction this cycle accepts, plants, and then hunts for. */
@@ -564,6 +598,181 @@ async function putBindings(loop: DispatchLoop, binding: Record<string, unknown>)
     });
 }
 
+/** Store-relative path of the account record the containment cycle seeds. */
+const CONTAINMENT_ACCOUNT_FILE = `accounts/${SCANNED_ACCOUNT_ID}.json`;
+
+/** One whole-document `PUT /v1/config`, patched over the stored document. */
+async function putConfig(loop: DispatchLoop, patch: Readonly<Record<string, unknown>>): Promise<Response> {
+    const read = await answerText(loop, CONFIG_PATH);
+    const document = (JSON.parse(read) as { readonly config: Record<string, unknown> }).config;
+
+    return await loop.service.call(CONFIG_PATH, {
+        method: 'PUT',
+        headers: jsonHeaders(),
+        body: JSON.stringify({ ...document, ...patch }),
+    });
+}
+
+/** One `PUT /v1/accounts/:numericUserId` profile write against the seeded account. */
+function putProfile(loop: DispatchLoop, body: Record<string, unknown>): Promise<Response> {
+    return loop.service.call(ACCOUNT_PATH.replace(':numericUserId', SCANNED_ACCOUNT_ID), {
+        method: 'PUT',
+        headers: jsonHeaders(),
+        body: JSON.stringify(body),
+    });
+}
+
+/** The instruction the global tier holds for this cycle (004 FR-081). */
+const GLOBAL_TIER_PROMPT = 'Name the failing test before proposing any fix.';
+
+/** The instruction the account tier holds for this cycle (004 FR-082). */
+const ACCOUNT_TIER_PROMPT = 'Prefer the smallest diff that closes the failing test.';
+
+/**
+ * The detection the fixture queue would have written for this issue (003's
+ * fixture shape), so the run claims and dispatches exactly as a scanned one.
+ *
+ * @param issueNumber - Issue the detection is about.
+ * @returns One assignment snapshot.
+ */
+function containmentDetection(issueNumber: number): EventSnapshot {
+    return {
+        bindingId: 'bnd-loop',
+        repository: CONTAINMENT_REPOSITORY,
+        accountNumericUserId: SCANNED_ACCOUNT_ID,
+        accountLogin: SCANNED_LOGIN,
+        projectId: PROJECT_ID,
+        worktreeOption: 'none',
+        kind: 'assignment',
+        issue: {
+            issueNumber,
+            issueTitle: `Issue ${issueNumber}`,
+            issueUrl: `https://github.com/${CONTAINMENT_REPOSITORY}/issues/${issueNumber}`,
+            issueBodyExcerpt: '',
+        },
+        triggerNote: 'assignment fixture',
+        detectedAt: SCANNED_STAMP,
+    };
+}
+
+/**
+ * Queue one run whose snapshot stacks **all three stored tiers**.
+ *
+ * The tiers are read back out of the store files the three saves just wrote
+ * and resolved by the production resolver — `service/poll/loop.ts`'s own call
+ * — so the snapshot under scan is the one a real detection would compose,
+ * not a fixture's hand-built copy (004 FR-080).
+ *
+ * @param input - The loop, the issue to enqueue, and the logger the queue write reports through.
+ * @throws {Error} When the stored records do not resolve into a three-source snapshot.
+ */
+async function enqueueThreeTierRun(input: {
+    /** Running loop whose store receives the run. */
+    readonly loop: DispatchLoop;
+    /** Issue the detection is about. */
+    readonly issueNumber: number;
+    /** Logger the direct queue write reports through; its lines are scanned too. */
+    readonly log: ServiceLogger;
+}): Promise<void> {
+    const { dataDir } = input.loop.service;
+    const global = JSON.parse(await readFile(join(dataDir, CONFIG_FILE), UTF8)) as unknown;
+    const account = JSON.parse(await readFile(join(dataDir, CONTAINMENT_ACCOUNT_FILE), UTF8)) as unknown;
+    const bindings = JSON.parse(await readFile(join(dataDir, BINDINGS_FILE), UTF8)) as readonly unknown[];
+    const snapshot = resolvePromptSnapshot({ global, account, binding: bindings[0] });
+    if (snapshot === null) {
+        throw new Error('the stored tiers resolved into no snapshot at all');
+    }
+
+    if (snapshot.sources.length !== 3) {
+        throw new Error(`the stored tiers resolved into fewer sources: ${snapshot.sources.join(', ')}`);
+    }
+
+    await enqueueEvents({
+        store: input.loop.store,
+        log: input.log,
+        incoming: [createEvent(containmentDetection(input.issueNumber))],
+        prompt: snapshot,
+    });
+}
+
+/** How many times one seeded string appears in a scanned byte string. */
+function countOccurrences(haystack: string, needle: string): number {
+    return haystack.split(needle).length - 1;
+}
+
+/** One `config.changed` `startingPrompt` entry, as the raw trail carries it. */
+interface PromptPair {
+    /** Value the row recorded before the change. */
+    readonly from: unknown;
+    /** Value the row recorded after the change. */
+    readonly to: unknown;
+}
+
+/**
+ * Read one `audit.ndjson` line as the `config.changed` pair for this field.
+ *
+ * @param line - One raw line of the trail, or `''` for its trailing newline.
+ * @returns The line's `from`/`to`, or `null` when the line carries neither.
+ */
+function promptPairOf(line: string): PromptPair | null {
+    if (line === '') {
+        return null;
+    }
+
+    const row = JSON.parse(line) as { readonly eventType?: unknown; readonly details?: unknown };
+    if (row.eventType !== 'config.changed') {
+        return null;
+    }
+
+    const { details } = row;
+    if (typeof details !== 'object' || details === null) {
+        return null;
+    }
+
+    const { changes } = details as { readonly changes?: unknown };
+    if (!Array.isArray(changes)) {
+        return null;
+    }
+
+    for (const change of changes) {
+        if (typeof change !== 'object' || change === null) {
+            continue;
+        }
+
+        const { field, from, to } = change as {
+            readonly field?: unknown;
+            readonly from?: unknown;
+            readonly to?: unknown;
+        };
+        if (field === 'startingPrompt') {
+            return { from, to };
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Every `startingPrompt` pair a `config.changed` row of the raw trail carries.
+ *
+ * Read from the **file bytes** rather than through a route, so the scan cannot
+ * be satisfied by a projection that drops the value it should be judging.
+ *
+ * @param auditBytes - The exact bytes of `audit.ndjson`.
+ * @returns One entry per recorded change, in file order.
+ */
+function startingPromptPairs(auditBytes: string): readonly PromptPair[] {
+    const pairs: PromptPair[] = [];
+    for (const line of auditBytes.split('\n')) {
+        const pair = promptPairOf(line);
+        if (pair !== null) {
+            pairs.push(pair);
+        }
+    }
+
+    return pairs;
+}
+
 describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
     it('reads every 004 module in the static scans (+2 cases)', () => {
         // case: reads every 004 module in the static scans
@@ -612,31 +821,49 @@ describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
     });
 });
 
-describe('004 full-cycle containment (AC-133, AC-143, NFR-121)', () => {
-    it('holds an accepted prompt in exactly two places and a refused value in none', async () => {
+describe('004 full-cycle containment (AC-133, AC-143, AC-151, FR-053, NFR-121)', () => {
+    it('holds each accepted tier in exactly two places and a refused value in none', async () => {
         const loop = await startDispatchLoop();
+        // Every line the direct queue write produced, scanned with the service's.
+        const enqueueLines: string[] = [];
+        const enqueueLog = createLogger({ level: 'debug', sink: (line) => enqueueLines.push(line) });
         try {
-            // SAVE — the documented set path until 005 lands: the whole-file PUT.
-            await loop.store.writeJson(`accounts/${SCANNED_ACCOUNT_ID}.json`, scannedAccount());
-            const saved = await putBindings(loop, {
+            // SAVE — three tiers, three documented paths (FR-081, FR-082, FR-014):
+            // the configuration document, the account profile, the whole-file
+            // bindings grant.
+            await loop.store.writeJson(CONTAINMENT_ACCOUNT_FILE, scannedAccount());
+            const savedGlobal = await putConfig(loop, { startingPrompt: GLOBAL_TIER_PROMPT });
+            expect(savedGlobal.status).toBe(200);
+            const savedAccount = await putProfile(loop, { startingPrompt: ACCOUNT_TIER_PROMPT });
+            expect(savedAccount.status).toBe(200);
+            const savedBinding = await putBindings(loop, {
                 ...containmentBinding(),
                 startingPrompt: ACCEPTED_PROMPT,
             });
-            expect(saved.status).toBe(200);
+            expect(savedBinding.status).toBe(200);
 
-            // REFUSE — a credential-shaped value is refused at save, naming the
-            // shape and never the value, and no part of it is applied (FR-024).
-            const refused = await putBindings(loop, {
-                ...containmentBinding(),
-                startingPrompt: `push ${REFUSED_VALUE} to prod`,
-            });
-            expect(refused.status).toBe(422);
-            const refusalText = await refused.text();
-            expect(refusalText).toContain('github-token-classic');
-            expect(refusalText).not.toContain(REFUSED_VALUE);
+            // REFUSE — the same credential-shaped value at **all three** save
+            // paths, each naming the shape and never the value, with no part of
+            // the submission applied (FR-024, AC-133, AC-150).
+            const refusalTexts: string[] = [];
+            const refusals = [
+                await putBindings(loop, {
+                    ...containmentBinding(),
+                    startingPrompt: `push ${REFUSED_VALUE} to prod`,
+                }),
+                await putConfig(loop, { startingPrompt: `push ${REFUSED_VALUE} to prod` }),
+                await putProfile(loop, { startingPrompt: `push ${REFUSED_VALUE} to prod` }),
+            ];
+            for (const response of refusals) {
+                expect(response.status).toBe(422);
+                const text = await response.text();
+                expect(text).toContain('github-token-classic');
+                expect(text).not.toContain(REFUSED_VALUE);
+                refusalTexts.push(text);
+            }
 
-            // DETECT — the run snapshots the accepted text at enqueue.
-            await loop.enqueue({ issueNumber: 91, prompt: ACCEPTED_PROMPT });
+            // DETECT — the run snapshots the three stored tiers at enqueue.
+            await enqueueThreeTierRun({ loop, issueNumber: 91, log: enqueueLog });
 
             // CLAIM + DISPATCH — the panel's own path, one host call.
             const rt = loop.mount();
@@ -657,38 +884,72 @@ describe('004 full-cycle containment (AC-133, AC-143, NFR-121)', () => {
             const auditText = await audit.text();
 
             const { dataDir } = loop.service;
+            const auditBytes = await readFile(join(dataDir, AUDIT_FILE), UTF8);
             const surfaces: readonly (readonly [string, string])[] = [
+                [CONFIG_FILE, await readFile(join(dataDir, CONFIG_FILE), UTF8)],
+                [CONTAINMENT_ACCOUNT_FILE, await readFile(join(dataDir, CONTAINMENT_ACCOUNT_FILE), UTF8)],
                 [BINDINGS_FILE, await readFile(join(dataDir, BINDINGS_FILE), UTF8)],
                 [RUNS_FILE, await readFile(join(dataDir, RUNS_FILE), UTF8)],
                 [EVENTS_FILE, await readFile(join(dataDir, EVENTS_FILE), UTF8)],
-                [AUDIT_FILE, await readFile(join(dataDir, AUDIT_FILE), UTF8)],
+                [AUDIT_FILE, auditBytes],
                 ['the audit read', auditText],
                 ['the panel ledger', JSON.stringify(rt.state.ledger)],
                 ['host.storage', JSON.stringify([...loop.panelStorage])],
-                ['captured service logs', JSON.stringify(loop.service.logLines)],
-                ['status copy', JSON.stringify(rt.state.bindings)],
+                ['captured logs', JSON.stringify([...loop.service.logLines, ...enqueueLines])],
+                ['toasts and status copy', JSON.stringify(rt.state)],
+                ['the three refusals', refusalTexts.join('\n')],
                 ['panel bundle', readFileSync(BUNDLE, UTF8)],
                 ['service bundle', readFileSync(SERVICE_BUNDLE, UTF8)],
             ];
 
-            // Exactly two persisted places hold the instruction: the binding
-            // and the run's own snapshot (004 FR-053). Everywhere else the
-            // reference is a fingerprint, or nothing at all.
-            const holders = surfaces
-                .filter(([, text]) => text.includes(ACCEPTED_PROMPT))
+            // Exactly two persisted places hold each accepted tier: its own
+            // store record and the run's composed snapshot (004 FR-053). A
+            // third holder — an audit row, a log line, a banner, a bundle —
+            // fails here, at 3, as surely as a missing one fails at 1.
+            const holdersOf = (seeded: string): readonly string[] => surfaces
+                .filter(([, text]) => text.includes(seeded))
                 .map(([name]) => name)
                 .sort();
-            expect(holders).toEqual([BINDINGS_FILE, RUNS_FILE].sort());
 
-            // The refused value appears nowhere — including in the refusal.
+            expect(holdersOf(GLOBAL_TIER_PROMPT)).toEqual([CONFIG_FILE, RUNS_FILE].sort());
+            expect(holdersOf(ACCOUNT_TIER_PROMPT)).toEqual([CONTAINMENT_ACCOUNT_FILE, RUNS_FILE].sort());
+            expect(holdersOf(ACCEPTED_PROMPT)).toEqual([BINDINGS_FILE, RUNS_FILE].sort());
+
+            // `audit.ndjson` scanned for the seeded tier text: 0 occurrences
+            // of any tier, on any row (FR-053, FR-088, AC-148, AC-151).
+            for (const seeded of [GLOBAL_TIER_PROMPT, ACCOUNT_TIER_PROMPT, ACCEPTED_PROMPT]) {
+                expect(countOccurrences(auditBytes, seeded), 'audit.ndjson carried a seeded tier')
+                    .toBe(0);
+            }
+
+            // Every `config.changed` pair this field carries is a fingerprint
+            // or `null` — never the text (AC-151, FR-088; 006 FR-071 as amended).
+            const pairs = startingPromptPairs(auditBytes);
+            expect(pairs.length).toBeGreaterThan(0);
+            for (const pair of pairs) {
+                expect(String(pair.from), 'a config.changed `from` was not a fingerprint').toMatch(
+                    /^(mtp-[0-9a-f]{32}|null)$/,
+                );
+                expect(String(pair.to), 'a config.changed `to` was not a fingerprint').toMatch(
+                    /^(mtp-[0-9a-f]{32}|null)$/,
+                );
+            }
+
+            // The refused value appears nowhere — including in the refusals.
             for (const [name, text] of surfaces) {
                 expect(text, `${name} carried the refused value`).not.toContain(REFUSED_VALUE);
+            }
+            expect(refusalTexts.join('\n').includes(REFUSED_VALUE)).toBe(false);
+
+            // And no swept surface carries credential-shaped material. The one
+            // exception is the file a credential *belongs* to (invariant 9: a
+            // PAT lives in the account record and nowhere else) — it is still
+            // scanned above for the refused value and every tier's text.
+            const swept = surfaces.filter(([name]) => name !== CONTAINMENT_ACCOUNT_FILE);
+            for (const [name, text] of swept) {
                 expect(findSecretLeak(text), `${name} carried credential material`).toBeNull();
             }
-            expect(refusalText.includes(REFUSED_VALUE)).toBe(false);
-
-            // And the accepted prompt left no credential-shaped trace either.
-            expect(findSecretLeak(surfaces.map(([, text]) => text).join('\n'))).toBeNull();
+            expect(findSecretLeak(swept.map(([, text]) => text).join('\n'))).toBeNull();
         } finally {
             await loop.shutdown();
         }
@@ -724,6 +985,57 @@ describe('004 the field is documented, and the editor it points at is the shippe
                 );
                 expect(text, `${page} points at a retired spec path`).not.toContain('specs/001');
             }
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * T-032 one rendering per tier value, in the shipped bytes and the sources
+ * (004 FR-089; 005 FR-051, SC-105, AC-123)
+ *
+ * The runtime half of the gate lives in `tests/bindings-prompt.test.ts`,
+ * which renders all six tabs and counts the elements carrying each tier's
+ * sentinel. This is the static half: the three sites FR-089 permits are the
+ * sites that exist — no fourth hand-authored field, and the projected row's
+ * guidance with exactly one author so it can render exactly once.
+ * ------------------------------------------------------------------------- */
+
+describe('T-032 the three permitted tier sites are the only sites (005 FR-051, AC-123)', () => {
+    it('ships the binding field and bakes no second author of the guidance (+2 cases)', () => {
+        // case: the shipped panel bundle carries the binding tier's one field
+        {
+            const bundle = readFileSync(BUNDLE, UTF8);
+
+            expect(bundle).toContain('Starting prompt for dispatches from this repository');
+            // The global tier's guidance is the service's own `format`
+            // prose, read off `GET /v1/config` and rendered as text (006
+            // FR-014, 004 research R-4) — so it is authored once, on the
+            // wire, and a panel-side copy of that sentence would be the
+            // second author this rule exists to prevent.
+            expect(bundle).not.toContain('text sent to the agent verbatim');
+            expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('text sent to the agent verbatim');
+        }
+        // case: the panel sources hand-author exactly two prompt labels — the binding site and the account site
+        {
+            const labelled = scanSources()
+                .filter((file) => file.path.startsWith('src/'))
+                .filter((file) => file.text.includes('Starting prompt for dispatches from'))
+                .map((file) => file.path)
+                .sort();
+
+            expect(labelled).toEqual(['src/accounts-rows.ts', 'src/bindings-prompt.ts']);
+            const account = scanSources().find((file) => file.path === 'src/accounts-rows.ts');
+            expect(account?.text).toContain('Starting prompt for dispatches from this account');
+        }
+        // case: the third site names itself from the descriptor the service sent
+        {
+            // Settings is the projected site: its row's label is composed
+            // from `descriptor.name`, so the global tier has no hand-authored
+            // label anywhere — a fourth site cannot hide behind this file's
+            // own copy, and the row that renders arrives with the projection.
+            const settings = scanSources().find((file) => file.path === 'src/settings-rows.ts');
+
+            expect(settings?.text).toMatch(/\$\{descriptor\.name\} \(\$\{unit\}\) —/);
         }
     });
 });

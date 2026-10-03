@@ -18,7 +18,11 @@
  * - outer-only trimming, line-ending normalisation, and code-point counting
  *   (004 FR-020, FR-022, FR-023);
  * - the two structural predicates the validator runs over that normalised
- *   text: a reserved marker line, and a control character.
+ *   text: a reserved marker line, and a control character;
+ * - the closed tier vocabulary — `PromptSource`, its fixed stacking order,
+ *   and the two predicates every `promptSources` reader shares (004 FR-072,
+ *   FR-087), so the service that writes the list and the panel that reads it
+ *   judge it against the same three strings.
  *
  * There is no content policy here or anywhere else in this feature (004
  * FR-029): these rules judge the *shape* of the text, never what it says.
@@ -51,6 +55,95 @@ const NEWLINE = '\n';
  * of the one it was handed, and neither can drift.
  */
 export const PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
+
+/**
+ * The closed tier vocabulary: which store a starting prompt came from (004
+ * FR-072, FR-087).
+ *
+ * The three tiers stack most-general-first into the one composed block
+ * (FR-080), and every surface that carries a fingerprint carries this
+ * vocabulary's ordered, duplicate-free list beside it (FR-087). Declared
+ * here — browser-safe, no `node:` import — so the service that *writes*
+ * `promptSources` and the panel that *reads* it name the same three strings,
+ * and neither side can drift into a fourth tier on its own (FR-070).
+ */
+export type PromptSource = 'global' | 'account' | 'binding';
+
+/**
+ * The stacking order of {@link PromptSource}, most general first (004
+ * FR-080), spelled as a tuple so its length and every element are pinned by
+ * the type rather than by prose.
+ *
+ * `global` (the configuration field) stacks above `account` (the account
+ * record's member), which stacks above `binding` (the binding's own). A
+ * run's `promptSources` is always a duplicate-free subsequence of exactly
+ * this order (FR-087) — {@link isPromptSourceList} is the check.
+ */
+export const PROMPT_SOURCE_ORDER = ['global', 'account', 'binding'] as const;
+
+/**
+ * Whether one value names a tier this build knows (004 FR-087).
+ *
+ * Membership walks {@link PROMPT_SOURCE_ORDER} instead of spelling the
+ * strings a second time, so the type, the order, and this predicate cannot
+ * disagree: adding a tier would be an FR-070 scope change made in one tuple.
+ *
+ * @param value - Any value read from a wire document or a store record.
+ * @returns `true` for exactly `'global'`, `'account'`, or `'binding'`.
+ */
+export function isPromptSource(value: unknown): value is PromptSource {
+    if (typeof value !== 'string') {
+        return false;
+    }
+
+    // Read as plain strings so an `unknown` value can be tested against the
+    // tuple without a cast; the tuple itself keeps the literal element type.
+    const order: readonly string[] = PROMPT_SOURCE_ORDER;
+
+    return order.includes(value);
+}
+
+/**
+ * Whether a list could stand as a run's `promptSources`: a duplicate-free
+ * subsequence of {@link PROMPT_SOURCE_ORDER} (004 FR-087).
+ *
+ * The two refusals FR-087 names collapse into one walk: every element must
+ * be a known tier ({@link isPromptSource}), and each must sit strictly
+ * **later** in the order than its predecessor — a repeated tier cannot be
+ * later than itself, so a duplicate fails the very test an out-of-order list
+ * fails. `['global','account','binding']` and `['binding']` are accepted;
+ * `['binding','global']` (out of order), `['global','global']` (duplicated),
+ * and `['repo']` (unknown) are all refused.
+ *
+ * An empty list *is* a subsequence of the order; the presence rule
+ * (`promptPresent` ⇔ a non-empty list) belongs to the reader that knows
+ * whether a prompt exists, so this predicate checks order and membership
+ * only and never guesses at presence (FR-087, AGENTS.md invariant 8).
+ *
+ * @param value - Any value read from a wire document or a store record.
+ * @returns `true` when the list is all-known, in order, and duplicate-free.
+ */
+export function isPromptSourceList(value: unknown): value is readonly PromptSource[] {
+    if (!Array.isArray(value)) {
+        return false;
+    }
+
+    let previous = -1;
+    for (const element of value) {
+        if (!isPromptSource(element)) {
+            return false;
+        }
+
+        const index = PROMPT_SOURCE_ORDER.indexOf(element);
+        if (index <= previous) {
+            return false;
+        }
+
+        previous = index;
+    }
+
+    return true;
+}
 
 /** First code point excluded from prompt text: NUL through backspace. */
 const LAST_FORBIDDEN_LOW_CODE_POINT = 0x08;
@@ -196,11 +289,14 @@ export function hasIllegalControlChar(text: string): boolean {
 }
 
 /**
- * The prompt reference the machine-readable `data` carries (004 FR-037).
+ * The prompt reference the machine-readable `data` carries (004 FR-037, FR-087).
  *
- * Three scalars and **never the text**: the instruction travels once, in the
- * message's `text`, so a second copy in `data` would be exactly the duplicate
- * 004 FR-037 forbids.
+ * Three scalars, the ordered source list, and **never the text**: the
+ * instruction travels once, in the message's `text`, so a second copy in
+ * `data` would be exactly the duplicate 004 FR-037 forbids. The list names
+ * which tiers produced the block — everywhere the fingerprint is (FR-087) —
+ * and its presence is part of the reference's iff: a present reference holds
+ * a non-empty {@link PromptSource} list, an absent one holds `null`.
  */
 export interface PromptReference {
     /** Whether the run carried a starting prompt. */
@@ -209,6 +305,8 @@ export interface PromptReference {
     readonly promptFingerprint: string | null;
     /** Code points of the normalised text, or `null` when none. */
     readonly promptLength: number | null;
+    /** Tiers that contributed, most general first, or `null` when none (004 FR-087). */
+    readonly promptSources: readonly PromptSource[] | null;
 }
 
 /**
