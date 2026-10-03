@@ -25,12 +25,12 @@
  *   `run-verify.ts`) increments nothing and changes no state at all; the
  *   dead-letter return resets both counters (contract invariant 5, AC-106).
  * - **The service corroborates what it can and records what it cannot.**
- *   `blocked:binding-missing` is re-checked against the live binding table,
- *   because the service *can* check it; `blocked:project-missing` depends on a
- *   host API the service may not call (002's architecture), so the panel's
- *   same-mount check is the only evidence and is audited as *reported*, never as
- *   proof. Conflating those two would let a row claim a verification the service
- *   never performed (constitution IV).
+ *   `blocked:binding-missing` and `blocked:actor-not-allowed` are re-checked
+ *   against the live store, because the service *can* check them;
+ *   `blocked:project-missing` depends on a host API the service may not call
+ *   (002's architecture), so the panel's same-mount check is the only evidence and
+ *   is audited as *reported*, never as proof. Conflating the two would let a row
+ *   claim a verification the service never performed (constitution IV).
  * - **A resolution is the only way out of `unconfirmed`, and it is recorded as a
  *   human decision.** The row names the decision, the prior state, the operator's
  *   note, and the guidance they were shown, because the service records what it
@@ -42,18 +42,22 @@ import type { BindingRecord } from '../bindings.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { appendRunRow, resolvedRow, retryRow } from './dispatch-audit.ts';
-import { ACTOR_BLOCKED_REASON, judgeActorPolicy } from './dispatch-actor-gate.ts';
+import {
+    CAUSE_NOT_CLEARED,
+    CORROBORATED_BLOCKED_REASONS,
+    CORROBORATED_BINDING_REASON,
+    judgeActorCause,
+} from './run-corroborate.ts';
 import { appendRefusalRow, operateRun, sessionRefOf } from './run-chain.ts';
 import { STALE_LEASE_CODE, refuse, staleAttemptMessage } from './run-refusal.ts';
+import type { CauseSource } from './run-corroborate.ts';
 import type { RunApplied, RunNotFound, RunRefused, RunRefusal } from './run-refusal.ts';
 import { attemptHistory, currentAttempt, runHistoryIndicatesSession } from './runs-document.ts';
 import type { Run, RunState } from './runs-types.ts';
 
-/** The blocked cause whose clearing the service verifies by table lookup alone. */
-const CORROBORATED_BLOCKED_REASON = 'binding-missing';
-
-/** The cause-not-cleared clause every refused retry answers with (FR-041). */
-const CAUSE_NOT_CLEARED = 'cause-not-cleared';
+// The corroboration split — which blocked causes the service can re-check
+// itself, and how — lives in `run-corroborate.ts`, extracted for the size bound.
+export { CAUSE_NOT_CLEARED, judgeActorCause } from './run-corroborate.ts';
 
 /** The two explicit resolutions of an `unconfirmed` run (FR-027). */
 export type ResolveDecision = 'session-created' | 'no-session';
@@ -80,9 +84,6 @@ export interface RefusalTarget {
     /** Structured logger. */
     readonly log: ServiceLogger;
 }
-
-/** How a retry learned that the blocking cause had cleared. */
-type CauseSource = 'corroborated' | 'reported' | null;
 
 /**
  * The distinct verdict each refusing state gets (FR-041, contract §6).
@@ -141,63 +142,6 @@ export async function refused(input: RefusalTarget & {
 }
 
 /**
- * The blocked causes the service can re-check itself, and so corroborate.
- *
- * Two members, and both are checked against the **live** store rather than
- * against the panel's word (003 FR-078, plan D17):
- *
- * - `binding-missing` — the binding exists again.
- * - `actor-not-allowed` — the binding's current `allowedUsers` now admits at
- *   least one of the run's attributed actors. Re-judged with **the same
- *   predicate** the authorization gate uses ({@link judgeActorPolicy}), which is
- *   what makes "a run cannot be retried into a dispatch this gate would refuse
- *   again" a property rather than a hope — and it needs **no new state**, since
- *   the denied actor is re-derived from the run's own references.
- *
- * `project-missing`, `credential`, and `policy` are absent on purpose: each
- * depends on something the service cannot see (a host project list, a
- * credential check, an operator decision), so the panel's same-mount check is
- * the only evidence and is audited as *reported*, never as proof
- * (constitution IV).
- */
-const CORROBORATED_BLOCKED_REASONS: ReadonlySet<string> = new Set([
-    CORROBORATED_BLOCKED_REASON,
-    ACTOR_BLOCKED_REASON,
-]);
-
-/**
- * Re-judge a `blocked:actor-not-allowed` run against the live policy (FR-078).
- *
- * @param input - The blocked run, and the live binding table.
- * @returns The refusal naming the binding, or `'corroborated'` when the gate
- *   would now admit it.
- */
-function judgeActorCause(input: {
-    /** The blocked run the operator acted on. */
-    readonly run: Run;
-    /** The live binding table. */
-    readonly bindings: readonly BindingRecord[];
-}): RunRefusal | CauseSource {
-    const { run, bindings } = input;
-    const binding = bindings.find((candidate) => candidate.bindingId === run.bindingId);
-    // An absent or unreadable policy is **not** corroboration. The gate would
-    // refuse this dispatch again right now, so the retry refuses with the same
-    // cause and the same remedy rather than dispatching into a known denial.
-    const gate = binding === undefined
-        ? { admitted: false as const }
-        : judgeActorPolicy({ run, allowedUsers: binding.allowedUsers });
-    if (gate.admitted) {
-        return 'corroborated';
-    }
-
-    return refuse(
-        CAUSE_NOT_CLEARED,
-        `the cause has not cleared: the allow-list for binding ${run.bindingId} still admits none of this run's `
-        + 'attributed actors',
-    );
-}
-
-/**
  * Judge a retry (contract §6).
  *
  * The presented attempt is checked **before** the state: §6's body carries it,
@@ -247,7 +191,7 @@ function judgeRetry(input: {
             );
     }
 
-    if (blockedReason === CORROBORATED_BLOCKED_REASON) {
+    if (blockedReason === CORROBORATED_BINDING_REASON) {
         return bindings.some((binding) => binding.bindingId === run.bindingId)
             ? 'corroborated'
             : refuse(CAUSE_NOT_CLEARED, `the cause has not cleared: the binding ${run.bindingId} is still absent`);

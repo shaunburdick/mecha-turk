@@ -39,6 +39,17 @@
  *   (002 NFR-011). No **permitted** login appears anywhere: an audit trail
  *   listing who may trigger a repository is a second copy of the access policy
  *   in a file retained for months.
+ * - **A truncated reference list is said out loud, not admitted around** (T-038,
+ *   NFR-107). The quantifier above runs over the *retained* references, and the
+ *   run layer stops retaining at {@link MAX_SOURCE_REFERENCES}. A run that
+ *   reached the cap can therefore be carrying an allowed actor among the dropped
+ *   references — invisible to this gate under **every** policy, which is the
+ *   permanent wedge the quantifier exists to prevent arriving by the other door.
+ *   The gate **refuses** on the truncated list (admitting would be admitting an
+ *   authorization nobody granted, constitution II) and the message, the
+ *   `dispatch.refused` detail, and the retry's own refusal all say that the
+ *   decision was made on an incomplete list and that widening `allowedUsers`
+ *   cannot clear it (constitution IV).
  *
  * Where it sits inside the reserve is equally load-bearing: **after**
  * `judgeReserve` has answered `null` and **before** any token is derived. A
@@ -160,26 +171,86 @@ function classifyRun(run: Run): ClassifiedRun {
     };
 }
 
+/** How much of the run's trigger history the gate could actually see. */
+interface JudgedWindow {
+    /** How many references were on the list the gate judged. */
+    readonly retained: number;
+    /** How many joining triggers the cap refused to retain. */
+    readonly notRetained: number;
+    /** Whether the list was cut at the cap. */
+    readonly truncated: boolean;
+}
+
+/**
+ * Read the window the verdict was decided on, for the detail set and the
+ * messages that must admit the decision was made on an incomplete list.
+ *
+ * @param run - The run being authorized.
+ * @returns The three counts the refusal records.
+ */
+function judgedWindow(run: Run): JudgedWindow {
+    return {
+        retained: run.sourceReferences.length,
+        notRetained: run.referencesNotRetained,
+        truncated: run.referencesTruncated,
+    };
+}
+
 /** The detail set one denial records, whatever its message (FR-077, NFR-113). */
 function refusalDetails(input: {
     /** The run being authorized. */
     readonly run: Run;
     /** The shape the read found, or `null` when it found none at all. */
     readonly policy: ActorPolicy | null;
-    /** Every denied login, in reference order. */
-    readonly deniedLogins: readonly string[];
+    /** Every denied login, in reference order, when a policy was compared. */
+    readonly deniedLogins: readonly string[] | undefined;
     /** Each denied login's basis, index-parallel to the logins. */
-    readonly deniedAttributions: readonly string[];
+    readonly deniedAttributions: readonly string[] | undefined;
     /** How many references named no readable actor. */
     readonly unreadableReferences: number;
 }): ActorGateRefusal {
+    const window = judgedWindow(input.run);
+
     return {
         bindingId: input.run.bindingId,
         actorPolicy: input.policy,
-        deniedLogins: input.deniedLogins,
-        deniedAttributions: input.deniedAttributions,
+        ...(input.deniedLogins === undefined ? {} : { deniedLogins: input.deniedLogins }),
+        ...(input.deniedAttributions === undefined ? {} : { deniedAttributions: input.deniedAttributions }),
         unreadableReferences: input.unreadableReferences,
+        retainedReferences: window.retained,
+        referencesNotRetained: window.notRetained,
+        referencesTruncated: window.truncated,
     };
+}
+
+/**
+ * The clause naming an incomplete reference list, and what cannot clear it.
+ *
+ * **The operator-facing half of the liveness rule.** The gate's quantifier runs
+ * over the **retained** references (FR-077), and the cap stops retaining at
+ * {@link MAX_SOURCE_REFERENCES} (T-038) — so a run whose list was cut can hold
+ * an allowed actor among the *dropped* references, and no policy change can ever
+ * admit it. That is exactly the permanent wedge the quantifier exists to
+ * prevent, arriving by the other door: admitting on truncation would admit an
+ * authorization nobody granted (constitution II), and refusing silently would
+ * break constitution IV's promise that an operator can tell *why*. So the
+ * refusal says the decision was made on a partial list and that the remedy is
+ * **not** an allow-list edit.
+ *
+ * Names no login — NFR-113's rule is absolute, and this clause has nothing to
+ * do with whose login it is.
+ *
+ * @param run - The run being authorized.
+ * @returns The clause, or the empty string when the list is complete.
+ */
+function truncatedNote(run: Run): string {
+    if (!run.referencesTruncated) {
+        return '';
+    }
+
+    return `; this run's source reference list was cut at ${run.sourceReferences.length} of `
+        + `${run.referenceCount} triggers, so this decision was made on an incomplete list and adding a login to `
+        + "the binding's allowedUsers cannot clear it";
 }
 
 /**
@@ -221,6 +292,12 @@ function unreadableNote(unreadableReferences: number): string {
  * admitted condition reduces to "some reference names a readable actor" — and a
  * run with no readable actor at all is refused under either policy.
  *
+ * The quantifier reads `sourceReferences` and nothing else, so a **truncated**
+ * list is judged as though the dropped references did not exist — see the
+ * module's fourth bullet. Every refusal this returns carries that fact in its
+ * message and in its detail set, so the caller never has to guess whether the
+ * list it judged was the whole history.
+ *
  * Pure: the caller owns the store read (plan D13) and the write, so the same
  * predicate can re-judge a `blocked:actor-not-allowed` run against a live read on
  * the retry path (FR-078, plan D17) — which is what makes "a run cannot be
@@ -249,7 +326,11 @@ export function judgeActorPolicy(input: {
     const refuseWith = (message: string): ActorPolicyVerdict => ({
         admitted: false,
         refused: {
-            refusal: refuse(ACTOR_NOT_ALLOWED, message),
+            // The truncation clause rides every refusal message, and both of the
+            // messages below: an operator told to widen a list that cannot
+            // widen it has been told to do something useless (FR-078's retry
+            // re-judges from the same truncated list — plan D17).
+            refusal: refuse(ACTOR_NOT_ALLOWED, `${message}${truncatedNote(run)}`),
             actor: refusalDetails({
                 run,
                 policy,
@@ -274,41 +355,65 @@ export function judgeActorPolicy(input: {
             + 'attribution or name a bot account, which no binding can permit');
 }
 
+/** Why the live policy could not be judged, when it could not be (plan D15). */
+export type UnreadablePolicyCause =
+    /** `bindings.json` is absent, quarantined, or unreadable. */
+    | 'document-unreadable'
+    /** The document read cleanly and does not carry this run's binding. */
+    | 'binding-absent';
+
 /**
  * The gate's verdict when the policy could not be read at all (constitution II,
  * 002 FR-024; plan D15).
  *
  * **One code, not a new one.** A vocabulary addition is a compatibility tax
  * (`AGENTS.md` invariant 10, paid twice already), and this decision needs no new
- * one: an absent document and an unusable one leave the run in the same place
- * and are repaired the same way — the operator repairs `bindings.json`, then
- * retries. The message names **which** failure it was, because "the allow-list
- * could not be read" is exactly the sentence an operator cannot act on.
+ * one: an absent document, an unusable one, and a document that simply no longer
+ * carries the binding leave the run in the same place and are repaired the same
+ * way. What they are **not** the same is the operator's next action, so the
+ * message names which of the three it was — "the allow-list for binding X could
+ * not be read" is exactly the sentence an operator cannot act on, and pointing
+ * somebody at a file that is perfectly readable is worse than saying nothing.
  *
  * `actorPolicy` is `null` rather than a guessed `'open'`, because there was no
  * policy to shape: the row says what it knows, which is that it knows nothing.
+ * The **denial** members are omitted for the same reason — nothing was compared,
+ * so there is no denial to record, and `[]` would read as *every actor was
+ * refused* (constitution IV). The counts the run alone answers **are** recorded,
+ * because they are facts about the run and not about a policy nobody read.
  *
  * @param run - The run being authorized.
+ * @param cause - Which of the two unreadable-policy causes fired.
  * @returns The refusal, naming the cause without naming a login.
  */
-export function unreadablePolicyRefusal(run: Run): ActorPolicyVerdict {
+export function unreadablePolicyRefusal(run: Run, cause: UnreadablePolicyCause): ActorPolicyVerdict {
+    const { unreadableReferences } = classifyRun(run);
+    const message = cause === 'binding-absent'
+        ? `no binding ${run.bindingId} exists, so its allow-list cannot be read and no dispatch is authorized`
+        : `the bindings document could not be read, so the allow-list for binding ${run.bindingId} cannot be `
+            + 'judged and no dispatch is authorized';
+
     return {
         admitted: false,
         refused: {
-            refusal: refuse(
-                ACTOR_NOT_ALLOWED,
-                `the allow-list for binding ${run.bindingId} could not be read, so no dispatch is authorized`,
-            ),
+            refusal: refuse(ACTOR_NOT_ALLOWED, `${message}${truncatedNote(run)}`),
             actor: refusalDetails({
                 run,
                 policy: null,
-                deniedLogins: [],
-                deniedAttributions: [],
-                unreadableReferences: 0,
+                deniedLogins: undefined,
+                deniedAttributions: undefined,
+                unreadableReferences,
             }),
         },
     };
 }
+
+/** What {@link readLivePolicy} found: a policy to judge, or why there is none. */
+export type LivePolicy =
+    /** The binding's stored list, or `undefined` for an open policy. */
+    | { readonly readable: true; readonly allowedUsers: readonly string[] | undefined }
+    /** No policy could be judged, and why. */
+    | { readonly readable: false; readonly cause: UnreadablePolicyCause };
 
 /**
  * Read the binding's live allow-list, fail-closed (003 FR-076, plan D13/D15).
@@ -317,11 +422,14 @@ export function unreadablePolicyRefusal(run: Run): ActorPolicyVerdict {
  * next authorization with no re-scan, no restart, and **no cache**:
  * `ServiceStore` exposes no `stat`, so a cache invalidated only by
  * `writeBindings` would never see a hand edit — and a gate reading a stale policy
- * is worse than no gate at all.
+ * is worse than no gate at all. The **bindings write** joins that same chain
+ * (see `routes/bindings.ts`), so an operator's tightening and this read cannot
+ * interleave: a token is never minted against a list the operator has just
+ * revoked.
  *
  * @param input - Open store, logger, and the binding the run dispatches through.
- * @returns The list to judge, `undefined` for an open policy, or `null` when the
- *   policy cannot be read.
+ * @returns The list to judge with `undefined` for an open policy, or the cause
+ *   no policy could be judged.
  */
 export async function readLivePolicy(input: {
     /** Open store. */
@@ -330,13 +438,15 @@ export async function readLivePolicy(input: {
     readonly log: ServiceLogger;
     /** Binding the run names. */
     readonly bindingId: string;
-}): Promise<readonly string[] | undefined | null> {
+}): Promise<LivePolicy> {
     const read = await readBindingsForAuthorization({ store: input.store, log: input.log });
     if (!read.readable) {
-        return null;
+        return { readable: false, cause: 'document-unreadable' };
     }
 
     const binding = read.bindings.find((candidate) => candidate.bindingId === input.bindingId);
 
-    return binding === undefined ? null : binding.allowedUsers;
+    return binding === undefined
+        ? { readable: false, cause: 'binding-absent' }
+        : { readable: true, allowedUsers: binding.allowedUsers };
 }

@@ -30,7 +30,11 @@
  *   reachable on their own paths, and a refusal mints nothing at all. The
  *   binding's `allowedUsers` is read **inside this same chain task**, from the
  *   live document, so a tightened list takes effect on the next authorization
- *   with no re-scan and no restart.
+ *   with no re-scan and no restart; and the `PUT /v1/bindings` write joins that
+ *   **same** chain (`routes/bindings.ts`), so an operator's tightening can never
+ *   land between this read and the reservation below — the read → mint →
+ *   persist sequence and the policy change it judges are one serialized pair,
+ *   not two racing writers.
  * - **The session check runs first**, before the lease check, inverting the
  *   order the contract's prose listed. Read lease-first, a `dispatched` run —
  *   which holds no lease by construction — would always answer `stale-lease`
@@ -320,9 +324,9 @@ export async function reserveDispatch(input: ReserveInput): Promise<ReserveResul
         // AC-112 require — and `stale-lease`, making both unreachable on the
         // paths they exist for.
         const policy = await readLivePolicy({ store: input.store, log: input.log, bindingId: run.bindingId });
-        const gate = policy === null
-            ? unreadablePolicyRefusal(run)
-            : judgeActorPolicy({ run, allowedUsers: policy });
+        const gate = policy.readable
+            ? judgeActorPolicy({ run, allowedUsers: policy.allowedUsers })
+            : unreadablePolicyRefusal(run, policy.cause);
         if (!gate.admitted) {
             return await refusedReserve({
                 call: input,

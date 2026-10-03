@@ -102,12 +102,34 @@ export interface ActorGateRefusal {
     readonly bindingId: string;
     /** Shape of the allow-list in force, or `null` when it could not be read. */
     readonly actorPolicy: ActorPolicy | null;
-    /** Every denied login, in the order the run's references list them. */
-    readonly deniedLogins: readonly string[];
+    /**
+     * Every denied login, in the order the run's references list them.
+     *
+     * **Absent** on the one refusal made without a policy in hand — an
+     * unreadable bindings document, or a binding the document does not carry —
+     * because nothing was compared and naming a "denial" there would record a
+     * verdict the gate never reached (constitution II: a missing authorization
+     * is a stop condition, not a finding).
+     */
+    readonly deniedLogins?: readonly string[] | undefined;
     /** Each denied login's basis, index-parallel to {@link deniedLogins}. */
-    readonly deniedAttributions: readonly string[];
+    readonly deniedAttributions?: readonly string[] | undefined;
     /** How many references named no readable actor at all. */
     readonly unreadableReferences: number;
+    /**
+     * How many references the gate actually judged.
+     *
+     * Recorded beside the refusal because a truncated list is what makes the
+     * verdict incomplete: the gate classifies from `sourceReferences`
+     * **exclusively**, so a run whose list was cut at the cap (T-038) is judged
+     * on less than it recorded, and an actor among the *dropped* references is
+     * invisible to the gate under **every** policy.
+     */
+    readonly retainedReferences: number;
+    /** How many joining triggers the cap refused to retain (T-038). */
+    readonly referencesNotRetained: number;
+    /** Whether the retained list was cut at the cap (NFR-107, T-038). */
+    readonly referencesTruncated: boolean;
 }
 
 /** One recorded dispatch attempt (003 Key Entities: DispatchAttempt). */

@@ -59,9 +59,14 @@ const LOGIN_SHAPE = /^[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9]$/;
  *
  * `dependabot[bot]` is syntactically outside the published alphabet and is
  * still a login GitHub issues. Plan D7 **accepts** one into the list, where it
- * is inert, rather than adding a refusal the specs do not name: bots are
- * already filtered at detection for every trigger kind (002 FR-045(a)/(c)), so
- * there is no bot event for such an entry to admit.
+ * is inert, and 002 FR-045(c) names the refusal this module deliberately does
+ * **not** raise: a bot actor is refused at **authorization** (003 FR-080), so
+ * accepting the spelling here cannot grant a bot anything — every trigger kind
+ * already filters bots at detection, and the one path that could reach the list
+ * with a bot-shaped login refuses it regardless of what the list says. Accepting
+ * it is therefore strictly more honest than refusing a value GitHub issued: the
+ * operator learns the entry was meaningless from the dispatch that did not
+ * happen, not from a save error about a login shape.
  */
 const BOT_SUFFIX = '[bot]';
 

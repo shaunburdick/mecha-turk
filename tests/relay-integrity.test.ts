@@ -34,7 +34,12 @@ import type {
     StartSessionResult,
 } from '@openchamber/sdk';
 import { drainVerifications } from '../src/agent-verify.ts';
-import { actorGateFailure } from '../src/relay-gates.ts';
+import { actorGateFailure, ACTOR_NOT_ALLOWED as PANEL_ACTOR_NOT_ALLOWED } from '../src/relay-gates.ts';
+import type { BlockedReason } from '../src/relay-gates.ts';
+import {
+    ACTOR_BLOCKED_REASON as SERVICE_ACTOR_BLOCKED_REASON,
+    ACTOR_NOT_ALLOWED as SERVICE_ACTOR_NOT_ALLOWED,
+} from '../service/poll/dispatch-actor-gate.ts';
 import { dispatchClaimedRun, handledKey, pollRelay } from '../src/relay.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
@@ -807,6 +812,27 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
         // A missing message still yields the panel's own honest phrase rather
         // than an empty detail the route would refuse.
         expect(actorGateFailure(ACTOR_BLOCKED_CODE, null)?.detail).toContain('allow-list');
+    });
+
+    it('keeps the panel word and the service word in agreement', () => {
+        // Four declarations of one wire string exist because the extension and
+        // the service cannot import across their boundary: the panel's
+        // `BlockedReason` union, the panel's `ACTOR_NOT_ALLOWED`, the service's
+        // code, and the service's blocked cause. Nothing but this assertion stops
+        // one of them being renamed, and a rename on the panel side alone would
+        // make the panel **silently stop reporting** the gate's refusals — the
+        // reserve would be noted and the run would never be parked.
+        //
+        // The union is a **type**, so no runtime read can check it; assigning the
+        // exported value to it is the half that needs no assertion at all,
+        // because `npm run typecheck` fails the day the word leaves the union.
+        const declaredByTheUnion: BlockedReason = PANEL_ACTOR_NOT_ALLOWED;
+
+        expect(declaredByTheUnion).toBe(SERVICE_ACTOR_NOT_ALLOWED);
+        expect(SERVICE_ACTOR_BLOCKED_REASON).toBe(SERVICE_ACTOR_NOT_ALLOWED);
+        // And the fixture the rest of this block drives is the same word, so the
+        // block-report case above cannot pass on a stale literal either.
+        expect(ACTOR_BLOCKED_CODE).toBe(SERVICE_ACTOR_NOT_ALLOWED);
     });
 });
 

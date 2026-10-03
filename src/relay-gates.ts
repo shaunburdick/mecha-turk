@@ -55,6 +55,12 @@ export const NO_SESSION_PROBLEM = 'no-session';
  * answers with. The other two — `credential` and `policy` — are declared so a
  * run's state parses, but no panel guard in this build produces them, so this
  * panel never sends them.
+ *
+ * `BlockedReason[0]` and {@link ACTOR_NOT_ALLOWED] are two declarations of one
+ * word, which a panel cannot avoid: it cannot import across the extension/service
+ * boundary, so the duplication is structural rather than careless. `tests/relay-integrity.test.ts`
+ * carries the **drift test** that keeps it honest — the one place the two are
+ * read together.
  */
 export type BlockedReason = 'binding-missing' | 'project-missing' | 'actor-not-allowed';
 

@@ -6416,19 +6416,24 @@ var eventHistoryRoute = {
   handler: (context, request) => handleEventHistory(context, request)
 };
 
+// service/poll/row-text.ts
+var MAX_ROW_TEXT_CHARS = 500;
+var TEXT_TRUNCATION_MARKER = "… [truncated]";
+function boundText(value) {
+  if (value.length <= MAX_ROW_TEXT_CHARS) {
+    return value;
+  }
+  return `${value.slice(0, MAX_ROW_TEXT_CHARS)}${TEXT_TRUNCATION_MARKER}`;
+}
+function rowText(value) {
+  return value === null ? null : boundText(value);
+}
+
 // service/poll/dispatch-audit.ts
 var RUN_ENTITY_KIND2 = "run";
 var PANEL_ACTOR = "panel";
 var SERVICE_ACTOR2 = "service";
 var OPERATOR_ACTOR = "operator";
-var MAX_ROW_TEXT_CHARS = 500;
-var TEXT_TRUNCATION_MARKER = "… [truncated]";
-function rowText(value) {
-  if (value === null || value.length <= MAX_ROW_TEXT_CHARS) {
-    return value;
-  }
-  return `${value.slice(0, MAX_ROW_TEXT_CHARS)}${TEXT_TRUNCATION_MARKER}`;
-}
 function runRow(run) {
   return { entity: { kind: RUN_ENTITY_KIND2, id: run.correlationId }, correlationId: run.correlationId };
 }
@@ -6567,9 +6572,12 @@ function actorDetails(actor) {
   return {
     bindingId: actor.bindingId,
     actorPolicy: actor.actorPolicy,
-    deniedLogins: [...actor.deniedLogins],
-    deniedAttributions: [...actor.deniedAttributions],
-    unreadableReferences: actor.unreadableReferences
+    ...actor.deniedLogins === undefined ? {} : { deniedLogins: actor.deniedLogins.map(boundText) },
+    ...actor.deniedAttributions === undefined ? {} : { deniedAttributions: [...actor.deniedAttributions] },
+    unreadableReferences: actor.unreadableReferences,
+    retainedReferences: actor.retainedReferences,
+    referencesNotRetained: actor.referencesNotRetained,
+    referencesTruncated: actor.referencesTruncated
   };
 }
 function refusedRow(input) {
@@ -6631,14 +6639,31 @@ function classifyRun(run) {
     unreadableReferences: classified.filter((actor) => !actor.readable).length
   };
 }
+function judgedWindow(run) {
+  return {
+    retained: run.sourceReferences.length,
+    notRetained: run.referencesNotRetained,
+    truncated: run.referencesTruncated
+  };
+}
 function refusalDetails(input) {
+  const window = judgedWindow(input.run);
   return {
     bindingId: input.run.bindingId,
     actorPolicy: input.policy,
-    deniedLogins: input.deniedLogins,
-    deniedAttributions: input.deniedAttributions,
-    unreadableReferences: input.unreadableReferences
+    ...input.deniedLogins === undefined ? {} : { deniedLogins: input.deniedLogins },
+    ...input.deniedAttributions === undefined ? {} : { deniedAttributions: input.deniedAttributions },
+    unreadableReferences: input.unreadableReferences,
+    retainedReferences: window.retained,
+    referencesNotRetained: window.notRetained,
+    referencesTruncated: window.truncated
   };
+}
+function truncatedNote(run) {
+  if (!run.referencesTruncated) {
+    return "";
+  }
+  return `; this run's source reference list was cut at ${run.sourceReferences.length} of ` + `${run.referenceCount} triggers, so this decision was made on an incomplete list and adding a login to ` + "the binding's allowedUsers cannot clear it";
 }
 function namedActors(actors) {
   return actors.map((actor) => `${actor.login} (${actor.attribution === "subject-author" ? "the issue or pull-request author — a proxy, GitHub does not record who assigned or requested" : actor.attribution ?? UNRECORDED_BASIS})`).join(", ");
@@ -6656,7 +6681,7 @@ function judgeActorPolicy(input) {
   const refuseWith = (message) => ({
     admitted: false,
     refused: {
-      refusal: refuse3(ACTOR_NOT_ALLOWED, message),
+      refusal: refuse3(ACTOR_NOT_ALLOWED, `${message}${truncatedNote(run)}`),
       actor: refusalDetails({
         run,
         policy,
@@ -6671,17 +6696,19 @@ function judgeActorPolicy(input) {
   }
   return refuseWith(unreadableReferences === 0 ? "this run records no source reference, so no actor can be permitted" : `this run records no readable actor: all ${unreadableReferences} of its references name no ` + "attribution or name a bot account, which no binding can permit");
 }
-function unreadablePolicyRefusal(run) {
+function unreadablePolicyRefusal(run, cause) {
+  const { unreadableReferences } = classifyRun(run);
+  const message = cause === "binding-absent" ? `no binding ${run.bindingId} exists, so its allow-list cannot be read and no dispatch is authorized` : `the bindings document could not be read, so the allow-list for binding ${run.bindingId} cannot be ` + "judged and no dispatch is authorized";
   return {
     admitted: false,
     refused: {
-      refusal: refuse3(ACTOR_NOT_ALLOWED, `the allow-list for binding ${run.bindingId} could not be read, so no dispatch is authorized`),
+      refusal: refuse3(ACTOR_NOT_ALLOWED, `${message}${truncatedNote(run)}`),
       actor: refusalDetails({
         run,
         policy: null,
-        deniedLogins: [],
-        deniedAttributions: [],
-        unreadableReferences: 0
+        deniedLogins: undefined,
+        deniedAttributions: undefined,
+        unreadableReferences
       })
     }
   };
@@ -6689,10 +6716,10 @@ function unreadablePolicyRefusal(run) {
 async function readLivePolicy(input) {
   const read = await readBindingsForAuthorization({ store: input.store, log: input.log });
   if (!read.readable) {
-    return null;
+    return { readable: false, cause: "document-unreadable" };
   }
   const binding = read.bindings.find((candidate) => candidate.bindingId === input.bindingId);
-  return binding === undefined ? null : binding.allowedUsers;
+  return binding === undefined ? { readable: false, cause: "binding-absent" } : { readable: true, allowedUsers: binding.allowedUsers };
 }
 
 // service/poll/run-chain.ts
@@ -6831,7 +6858,7 @@ async function reserveDispatch(input) {
       return await refusedReserve({ call: input, run, refusal });
     }
     const policy = await readLivePolicy({ store: input.store, log: input.log, bindingId: run.bindingId });
-    const gate = policy === null ? unreadablePolicyRefusal(run) : judgeActorPolicy({ run, allowedUsers: policy });
+    const gate = policy.readable ? judgeActorPolicy({ run, allowedUsers: policy.allowedUsers }) : unreadablePolicyRefusal(run, policy.cause);
     if (!gate.admitted) {
       return await refusedReserve({
         call: input,
@@ -7556,6 +7583,17 @@ async function readCustodyAndValidate(input) {
     })
   };
 }
+async function writeGrant(input) {
+  const { store, log, submitted, omitted } = input;
+  return await inQueueChain(async () => await runPromptChain(store, async () => {
+    const stored = await readBindingsUnobserved({ store, log });
+    await recordPromptChanges({ store, log, bindings: stored, actor: "service" });
+    const merged = mergePrompts({ submitted, omitted, stored });
+    await writeBindings({ store, bindings: merged });
+    await recordPromptChanges({ store, log, bindings: merged, actor: "operator" });
+    return merged;
+  }));
+}
 async function handlePutBindings(context, request) {
   const { store } = context;
   if (store === null) {
@@ -7578,16 +7616,11 @@ async function handlePutBindings(context, request) {
     complete: true,
     actor: "service"
   });
-  const submitted = custody.validation.bindings;
-  const body = request.body;
-  const omitted = omittedPromptIds(body.bindings);
-  const bindings = await runPromptChain(store, async () => {
-    const stored = await readBindingsUnobserved({ store, log: context.log });
-    await recordPromptChanges({ store, log: context.log, bindings: stored, actor: "service" });
-    const merged = mergePrompts({ submitted, omitted, stored });
-    await writeBindings({ store, bindings: merged });
-    await recordPromptChanges({ store, log: context.log, bindings: merged, actor: "operator" });
-    return merged;
+  const bindings = await writeGrant({
+    store,
+    log: context.log,
+    submitted: custody.validation.bindings,
+    omitted: omittedPromptIds(request.body.bindings)
   });
   const status = await readStatusRows({ store, log: context.log, bindings });
   return { status: STATUS.ok, body: { bindings, status } };
@@ -7617,9 +7650,25 @@ var healthRoute = {
   handler: (context) => healthResponse(context)
 };
 
-// service/poll/run-operate.ts
-var CORROBORATED_BLOCKED_REASON = "binding-missing";
+// service/poll/run-corroborate.ts
 var CAUSE_NOT_CLEARED = "cause-not-cleared";
+var CORROBORATED_BINDING_REASON = "binding-missing";
+var ACTOR_BLOCKED_REASON2 = "actor-not-allowed";
+var CORROBORATED_BLOCKED_REASONS = new Set([
+  CORROBORATED_BINDING_REASON,
+  ACTOR_BLOCKED_REASON2
+]);
+function judgeActorCause(input) {
+  const { run, bindings } = input;
+  const binding = bindings.find((candidate) => candidate.bindingId === run.bindingId);
+  const gate = binding === undefined ? { admitted: false } : judgeActorPolicy({ run, allowedUsers: binding.allowedUsers });
+  if (gate.admitted) {
+    return "corroborated";
+  }
+  return refuse3(CAUSE_NOT_CLEARED, run.referencesTruncated ? "the cause has not cleared: this run's source reference list was cut at " + `${run.sourceReferences.length} of ${run.referenceCount} triggers, so binding ` + `${run.bindingId}'s allow-list is judged against an incomplete list, and adding a login cannot ` + "clear it" : `the cause has not cleared: the allow-list for binding ${run.bindingId} still admits none of this ` + "run's attributed actors");
+}
+
+// service/poll/run-operate.ts
 var INVALID_TRANSITION4 = "invalid-transition";
 function invalidTransition(state) {
   const messages = new Map([
@@ -7645,19 +7694,6 @@ async function refused(input) {
     })
   };
 }
-var CORROBORATED_BLOCKED_REASONS = new Set([
-  CORROBORATED_BLOCKED_REASON,
-  ACTOR_BLOCKED_REASON
-]);
-function judgeActorCause(input) {
-  const { run, bindings } = input;
-  const binding = bindings.find((candidate) => candidate.bindingId === run.bindingId);
-  const gate = binding === undefined ? { admitted: false } : judgeActorPolicy({ run, allowedUsers: binding.allowedUsers });
-  if (gate.admitted) {
-    return "corroborated";
-  }
-  return refuse3(CAUSE_NOT_CLEARED, `the cause has not cleared: the allow-list for binding ${run.bindingId} still admits none of this run's ` + "attributed actors");
-}
 function judgeRetry(input) {
   const { run, causeCleared, bindings } = input;
   if (input.attempt !== run.attempt) {
@@ -7673,7 +7709,7 @@ function judgeRetry(input) {
   if (!CORROBORATED_BLOCKED_REASONS.has(blockedReason)) {
     return causeCleared ? "reported" : refuse3(CAUSE_NOT_CLEARED, `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this ` + "row records what was checked");
   }
-  if (blockedReason === CORROBORATED_BLOCKED_REASON) {
+  if (blockedReason === CORROBORATED_BINDING_REASON) {
     return bindings.some((binding) => binding.bindingId === run.bindingId) ? "corroborated" : refuse3(CAUSE_NOT_CLEARED, `the cause has not cleared: the binding ${run.bindingId} is still absent`);
   }
   return judgeActorCause({ run, bindings });

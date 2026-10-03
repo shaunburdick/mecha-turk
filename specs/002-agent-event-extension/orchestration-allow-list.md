@@ -5,12 +5,16 @@ Namespaced beside `orchestration.md` (which records the delivered 002 MVP and is
 
 ## Current Wave
 
-**Wave 2 complete** (`B-1 … B-7`, delivered 2026-10-03). Wave 3 is next.
+**Wave 3 complete** (`C-1 … C-6`, delivered 2026-10-03) and the **pre-PR review-fix pass**
+complete (2026-10-03). The branch is ready for its PR.
 
 ## Branch
 
-`issue-9-user-allow-list` (base `bb7947f`, not protected). Working tree carries all
-phase 4–5 planning edits, **uncommitted**. Base state at session start: clean tree at `bb7947f`.
+`issue-9-user-allow-list` (base `bb7947f`, not protected). Three feature commits landed
+(`99e2a5c`, `713c58c`, `9014522`), then the review-fix commit. The phase 4–5 planning
+edits across the 25 tracked spec files, plus the new `contracts/binding-allow-list.md`,
+are **still uncommitted** and are the product owner's to commit separately; the
+review-fix commit stages only the files it edited.
 
 ## Scope
 
@@ -33,7 +37,8 @@ New contract: `specs/002-agent-event-extension/contracts/binding-allow-list.md`.
 | --- | --- | --- | --- |
 | 1 | A-1 … A-7 | `modern-architect-engineer` | **done** — 628 tests green from 603; `npm run verify` green |
 | 2 | B-1 … B-7 | `modern-architect-engineer` | **done** — 644 tests green from 628; `npm run verify` green |
-| 3 | C-1 … C-6 | `modern-architect-engineer` | not started |
+| 3 | C-1 … C-6 | `modern-architect-engineer` | **done** — 653 tests green from 644; `npm run verify` green |
+| 4 | pre-PR review fixes (not a spec wave) | `modern-architect-engineer` | **done** — 657 tests green from 653; `npm run verify` green |
 
 Dependency spine (from `tasks.md` hard-dependency list):
 
@@ -105,6 +110,54 @@ Wave 2 close: **`npm run verify` green** — 103 files, **644 tests passed** (fr
 rebuilt and committed with the wave (invariant 1). `SERVICE_SCHEMA_VERSION` stays `1`, no
 `schemaVersion` member exists, `buildEventId` and `discriminatorOf` are untouched, no audit
 `eventType` was added, and `isActorAllowed` appears in exactly **two** source files.
+
+Wave 3 close: **`npm run verify` green** — 104 files, **653 tests passed** (from 644). Three
+modules moved for the file-length gate (`accounts-service`, `bindings-draft`,
+`bindings-state`); every moved name stays importable from where it was.
+
+### Pre-PR review-fix pass, 2026-10-03 — what a fresh coordinator must know
+
+Two reviews ran at the pre-PR gate (a code-quality peer review: **APPROVE WITH FIXES**, no
+blockers; a security audit: **SECURE WITH NOTES**, no gate bypass and no fail-open path). The
+fix pass closed every finding. Four of them changed code, and each is a **behaviour** the
+specs already required:
+
+- **Truncation is now stated, not admitted around** (003 FR-077/FR-078). The gate judges the
+  run's **retained** references and the run layer stops retaining at 200, so a run that reached
+  the cap can be carrying an allowed actor among the *dropped* ones — invisible under **every**
+  policy, which is the wedge the gate's own set quantifier exists to prevent arriving by the
+  other door. Admitting would violate constitution II, so the gate **refuses** and the refusal
+  message, its `dispatch.refused` detail, and the retry's `cause-not-cleared` reason all say
+  the decision was made on an incomplete list and that widening `allowedUsers` cannot clear it.
+  `ActorGateRefusal` gained `retainedReferences`, `referencesNotRetained`, and
+  `referencesTruncated`; `deniedLogins`/`deniedAttributions` became **optional**, because on a
+  policy-read failure nothing was compared and `[]` read as "every actor was refused".
+- **The two unreadable-policy causes are now distinguishable.** `bindings.json` unreadable and
+  "the document read cleanly and does not carry this binding" are different operator actions,
+  so `readLivePolicy` returns a discriminated union and the messages say which.
+- **The bindings write now runs on `inQueueChain`**, the same chain the gate's read → mint →
+  persist runs in. That closes a TOCTOU in which an operator tightening the list at T could have
+  a reserve that read the old list at T−ε persist a live token at T+ε. The prompt-observation
+  chain nests **inside** it; there is no lock order to invert.
+- **Two small hardening fixes**: `deniedLogins` entries go through the module's 500-character
+  bound (a `SourceReference.actorLogin` is validated as non-empty text and nothing more, so a
+  hand-edited store could otherwise grow a durable row without limit), and the panel's
+  duplicated `actor-not-allowed` literal gained a **drift test** rather than a shared constant
+  it cannot have — the panel cannot import across the extension/service boundary.
+
+Two new service modules came out of the `llm-core/max-file-length` gate:
+`service/poll/row-text.ts` (the row-text bound and its marker) and
+`service/poll/run-corroborate.ts` (which blocked causes the service can re-check itself, and
+how). Neither adds a decision; both are splits this feature wants.
+
+**Two documentation corrections** were made to spec texts the code proves false or incomplete —
+003 NFR-114 (it claimed no extra store read; there is one), 003 AC-130 (its "no permitted
+login" reading was mutually exclusive with AC-133), 005 AC-146 (three files legitimately use
+those words about something other than a binding), and 005's C-1 and C-4 task texts (the
+empty-array refusal, and what an absent `actorPolicy` does). **No code behaviour changed for
+any of them** — the code was right and the requirement text was wrong.
+
+**Two items are recorded, NOT built** — see `## Recorded at the pre-PR review gate` below.
 
 ### Wave 2 structural decisions a fresh coordinator must know
 
@@ -189,17 +242,78 @@ given the two members mechanically (per-kind basis: `direct` for both mention ki
 
 ## Next Action
 
-Dispatch **Wave 1** (`A-1 … A-7`) to `modern-architect-engineer` as a single dispatch, in
-dependency order, with the `A-4 ← A-1` correction stated explicitly. Then run
-`npm run verify` at wave close, commit, checkpoint with the user.
+Open the **PR** for `issue-9-user-allow-list`. The PR description must carry the two items
+recorded above that an operator or reviewer needs to hear before merging: **R-2** (the
+proxy's reach — naming an author also admits anyone who can assign an issue or request a
+review on that author's work) and **R-1** (pre-existing queue rows are un-dispatchable by
+ruling). The remaining 26 uncommitted spec files are the product owner's to commit; this
+branch's code and the six spec files edited in the DOC TASK are already committed.
 
 ## Items flagged at the phase-5 gate — do NOT resolve in code
 
 1. **003 NFR-114's letter is false of the shipped code.** The authorization path reads
    `config.json`, not `bindings.json`, so reading the live policy *is* an additional store
-   read. Owner wording recommended; recorded in `pm-handoff.md`. No code change.
+   read. **RESOLVED as a documentation correction, 2026-10-03** — 003 `spec.md`'s
+   `## Amendment History` → `### v1.8.0 — 2026-10-03` states what is actually claimed (no
+   extra **network** round trip, plus one local store read inside the chain task) and says
+   why the original premise was false. No code change; the read stays.
 2. **The empty-list round trip** — resolved by the owner at the phase-5 gate (blank field =
    back to open). Recorded here; the phase-3 spec text (`[]` refused) stands.
-3. **002 FR-045(c) wording** — capability statement chosen over validator rule; one-line
-   inversion if the owner reads it the other way.
+3. **002 FR-045(c) wording** — capability statement chosen over validator rule. **The code
+   comment in `service/bindings-allow-list.ts` that described the `[bot]` acceptance as
+   avoiding "a refusal the specs do not name" was corrected 2026-10-03**: FR-045(c) *does*
+   name that refusal, so the comment now states the real reason — the bot is refused at
+   **authorization** (003 FR-080), so accepting the spelling in the list cannot grant a bot
+   anything, which makes accepting it strictly more honest than refusing a login shape
+   GitHub issued.
 4. **Retry verdict for an unreadable bindings document** — `cause-not-cleared` chosen.
+
+## Recorded at the pre-PR review gate, 2026-10-03 — decisions for the product owner, NOT code
+
+Both are **recorded, not built.** Neither is a defect to fix; each is a consequence of a
+decision that was already made, recorded so the PR description and the operator guidance
+say so out loud.
+
+### R-1. A queue row written before this feature can never be dispatched, under any policy
+
+- **What the auditor found.** A run whose source reference was stored **before** attribution
+  existed carries no `actorLogin`. 003 FR-080 refuses such a run — correctly: an unreadable
+  actor is refused *regardless* of the policy, because the fail-closed reading of an
+  unreadable actor is *no actor*, never *the list says yes* (constitution II). And the retry
+  re-judges from the same references, so every retry answers `cause-not-cleared` forever.
+- **The tension.** 003 FR-005 says *"existing stored queue rows MUST remain … dispatchable."*
+  Those two cannot both hold for a row with no recorded actor.
+- **Why the suite does not catch it.** The fixture was **updated to add `actorLogin`** rather
+  than to cover the real shape, so the pre-existing-row path is not exercised. That was the
+  right call for a fixture whose purpose is *dispatch* behaviour, and it means the coverage
+  gap is invisible to `npm test` — which is itself worth knowing.
+- **The owner has ruled**: the project is unreleased, there are no migrations, and they can
+  delete their local install and start over. **No migration is to be built, and none was.**
+- **Residual risk, stated plainly.** An operator who carried a local install across this
+  change will have rows the gate refuses under every policy, with a retry that always answers
+  `cause-not-cleared`. Neither message tells them to widen `allowedUsers` — because that
+  cannot help — and both name the actor as unreadable. The remedy is: delete the local
+  install and re-enable the binding, or dispatch the work by hand. **Mitigating factor:**
+  admitting those rows would mean admitting an authorization nobody granted, so FR-080's
+  refusal is the correct direction even though it costs those rows.
+- **What would close it, if the owner ever revisits it**: a *migration* (out of scope by
+  ruling), or a one-time operator action that re-attributes or discards the affected rows.
+  Both are code, and both are declined.
+
+### R-2. The proxy's inherent reach: any third party can start a session on a permitted user's issue
+
+- **What it is.** Assignment and review-request triggers have **no true actor** — GitHub
+  records who opened the issue or pull request and does **not** record who assigned it or who
+  requested the review. The list is therefore judged against the **subject author**
+  (002 FR-044), a documented proxy.
+- **The consequence.** **Any third party who can assign an issue or request a review on a
+  pull request authored by a permitted user starts a session.** They never appear on the run;
+  the author does, as a proxy.
+- **Owner-ratified and inherent.** 002 FR-044 and 002 NFR-011 ratify the proxy and require
+  the surface to *say* it is a proxy — which the panel does, in its own words, on the dispatch
+  row and on every reference in the reveal. This is not a defect to fix; it is the chosen
+  design's reach, and the alternative (no list for assignment and review triggers) would be a
+  control the operator believes in and the product does not have.
+- **Not changed.** No behaviour moves. Flagged for the **PR description** and for the
+  **operator guidance** (`README.md`), because an operator reading `allowedUsers` needs to
+  know that naming an author also admits anyone who can touch that author's issues.

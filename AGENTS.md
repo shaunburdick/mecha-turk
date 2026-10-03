@@ -210,12 +210,13 @@ network — those checks are operator-gated and recorded in the spec (see
 | `poll/dispatch*.ts` | Reserve / result / abandon / block family: single-use tokens, the staleness matrix, refusal rows |
 | `poll/dispatch-actor-gate.ts` | **The actor allow-list gate** — the one membership comparison in the product (003 FR-076). Reads the binding's live `allowedUsers` inside the reserve's chain task, after `judgeReserve` and before any token is derived, and refuses `actor-not-allowed` with the denied logins and their attribution basis. Detection decides nothing; the panel pre-checks nothing |
 | `poll/run-chain.ts` / `poll/run-operate.ts` / `poll/run-verify.ts` / `poll/run-refusal.ts` | The shared run write chain, retry/requeue/resolve, the verification report, the refusal vocabulary |
+| `poll/run-corroborate.ts` / `poll/row-text.ts` | Which blocked causes the service can re-check itself (`binding-missing`, `actor-not-allowed`) and how; the 500-character bound and truncation marker every lifecycle row's free text passes through |
 | `poll/run-history-project.ts` | The capped, credential-free run-history projection |
 | `poll/backoff.ts` | The poll-*request* ladder — pure delay arithmetic plus the injected-sleep driver; requests/attempts, never 003's requeue (006 FR-058) |
 | `poll/window.ts` | The scan window: `lastScanAt − overlapMs`, the replay case, and the closure of 002 FR-019's conformance gap (006 FR-059(a)) |
 | `poll/cycle-config.ts` | The cycle's one configuration read, with the global-tier prompt observation in the same chain task — the snapshot the diff judges is the snapshot the cycle runs on; a document that cannot be read degrades to the documented defaults with one warn (006 FR-055; 004 FR-088) |
 | `poll/excerpt-trim.ts` | The excerpt retention pass: text-only clearing on terminal rows past `excerptRetentionDays`, the `excerptTrimmedAt` marker, and one `audit.trimmed` row after the rewrite (006 FR-057) |
-| `routes/` | `/v1/status`, `/health`, `/v1/bindings`, `/v1/accounts`, `/v1/events*`, credential verify |
+| `routes/` | `/v1/status`, `/health`, `/v1/bindings`, `/v1/accounts`, `/v1/events*`, credential verify. `PUT /v1/bindings` writes inside `inQueueChain`, which is what serializes an operator's allow-list edit against the authorization gate's read-and-mint (003 FR-076, constitution II) — never move it onto a different chain |
 | `routes/account-profile.ts` | The account profile write `PUT /v1/accounts/:numericUserId`: the closed two-member body (`displayName`, `startingPrompt` — absent = unchanged, neither = no-op `422`, any other key refused by name with no echo), all-or-nothing, with an account-tier prompt change appended through the observer chain (004 FR-082, FR-088; 005 FR-066) |
 | `routes/dispatch.ts` / `routes/run-ops.ts` | Reserve, result, abandon, blocked; retry, requeue, resolve, verification |
 | `routes/audit.ts` | `GET /v1/audit`, filtered by correlation identifier |

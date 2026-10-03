@@ -23,7 +23,11 @@
  * - **Free text from a panel or an operator is bounded with a visible marker.**
  *   `problem`, `reason`, `detail`, `guidance`, `note`, and `causeReport` are
  *   panel- or operator-authored and land in a file nothing trims; an unbounded
- *   copy is unbounded durable growth on a row that exists to be read.
+ *   copy is unbounded durable growth on a row that exists to be read. The bound
+ *   itself lives in [`row-text.ts`](./row-text.ts) — it is a policy, and one
+ *   shared by every builder here, including the gate's `deniedLogins`, whose
+ *   values arrive from the *store* rather than from a caller (see
+ *   {@link actorDetails}).
  * - **The actor source is per row, not per module.** A reserve is the panel
  *   declaring intent, a duplicate report is the *service* recording a repeat it
  *   recognised, and a retry or resolve is the operator acting. Collapsing them
@@ -41,6 +45,7 @@ import type { AuditInput } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { PromptSource } from '../prompt.ts';
 import type { ServiceStore } from '../store/index.ts';
+import { boundText, rowText } from './row-text.ts';
 import { buildDispatchTokenFingerprint } from './run-key.ts';
 import type { ActorGateRefusal, BaselineProvenance, Run, RunState, RunVerification } from './runs-types.ts';
 
@@ -56,26 +61,6 @@ const SERVICE_ACTOR = 'service';
 
 /** An operator retries, returns to waiting, or resolves. */
 const OPERATOR_ACTOR = 'operator';
-
-/** Longest panel- or operator-authored text a row carries. */
-const MAX_ROW_TEXT_CHARS = 500;
-
-/** The marker appended to text this module had to cut (FR-014's own convention). */
-const TEXT_TRUNCATION_MARKER = '… [truncated]';
-
-/**
- * Bound one row's free text, marking it when it was cut.
- *
- * @param value - Panel- or operator-authored text, or `null`.
- * @returns The text within {@link MAX_ROW_TEXT_CHARS}, marked when cut.
- */
-function rowText(value: string | null): string | null {
-    if (value === null || value.length <= MAX_ROW_TEXT_CHARS) {
-        return value;
-    }
-
-    return `${value.slice(0, MAX_ROW_TEXT_CHARS)}${TEXT_TRUNCATION_MARKER}`;
-}
 
 /** Every lifecycle row carries the run, so the builder's base is written once. */
 function runRow(run: Run): Pick<AuditInput, 'entity' | 'correlationId'> {
@@ -436,11 +421,19 @@ export function verificationRow(input: {
 }
 
 /**
- * The gate's four extra detail keys, as the row spells them (003 FR-077).
+ * The gate's extra detail keys, as the row spells them (003 FR-077).
  *
  * The two arrays are **index-parallel** rather than one combined list: a reader
  * asking "what basis did this login carry?" answers with one index, and a
  * misaligned pair cannot be constructed.
+ *
+ * **Bounded like every other free-text member here.** `deniedLogins` is the one
+ * detail member whose values the *store* does not bound — a `SourceReference`'s
+ * `actorLogin` is validated as non-empty text and nothing more — so each entry
+ * goes through {@link boundText} exactly as `problem`, `reason`, and `note` do.
+ * The three window members ride on **every** gate refusal, including one made
+ * without a policy: they are facts about the run, and a reader needs them to
+ * know whether the decision saw the whole trigger history.
  *
  * @param actor - The gate's detail set.
  * @returns The keys to merge into the row's `details`.
@@ -449,9 +442,16 @@ function actorDetails(actor: ActorGateRefusal): Record<string, unknown> {
     return {
         bindingId: actor.bindingId,
         actorPolicy: actor.actorPolicy,
-        deniedLogins: [...actor.deniedLogins],
-        deniedAttributions: [...actor.deniedAttributions],
+        // Omitted rather than `[]` on the policy-read failure: nothing was
+        // compared, and an empty array reads as *every actor was refused*.
+        ...(actor.deniedLogins === undefined ? {} : { deniedLogins: actor.deniedLogins.map(boundText) }),
+        ...(actor.deniedAttributions === undefined
+            ? {}
+            : { deniedAttributions: [...actor.deniedAttributions] }),
         unreadableReferences: actor.unreadableReferences,
+        retainedReferences: actor.retainedReferences,
+        referencesNotRetained: actor.referencesNotRetained,
+        referencesTruncated: actor.referencesTruncated,
     };
 }
 

@@ -37,11 +37,13 @@ import { claimPendingRuns } from '../service/poll/claim.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { buildDispatchToken } from '../service/poll/run-key.ts';
 import { reserveDispatch } from '../service/poll/dispatch-authorize.ts';
+import { retryDispatch } from '../service/poll/run-operate.ts';
 import { blockDispatch } from '../service/poll/dispatch-block.ts';
 import { reportDispatch } from '../service/poll/dispatch-report.ts';
 import { sweepOnce } from '../service/poll/sweep.ts';
 import { emptyRunsDocument, readRunsDocument, RUNS_FILE, writeRunsDocument } from '../service/poll/runs.ts';
 import { applyEnqueue } from '../service/poll/runs-join.ts';
+import { MAX_SOURCE_REFERENCES } from '../service/poll/runs-parse.ts';
 import { openStore } from '../service/store/index.ts';
 import {
     ABANDON_PATH as ABANDON_ROUTE,
@@ -112,6 +114,12 @@ const ACTOR_NOT_ALLOWED = 'actor-not-allowed';
 
 /** The declared `blocked:` cause a refused run waits in (003 FR-078). */
 const ACTOR_BLOCKED_CAUSE = 'actor-not-allowed';
+
+/** The state the same cause parks a run in, as `runs.json` spells it. */
+const ACTOR_BLOCKED_CAUSE_CLAIMED = `blocked:${ACTOR_BLOCKED_CAUSE}`;
+
+/** The `dispatch.retry` row an applied operator retry writes (003 FR-041). */
+const RETRY_ROW = 'dispatch.retry';
 
 /** The wire code a second authorization on a live run carries. */
 const ALREADY_RESERVED = 'already-reserved';
@@ -2045,25 +2053,42 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
 
             expect(outcome.status).toBe(REFUSED);
             expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe(ACTOR_NOT_ALLOWED);
-            // The row says what it knows — that it knows nothing — and names no login.
-            expect(await firstRefusalRow()).toMatchObject({
+            // The row says what it knows — that it knows nothing about the policy —
+            // and **names no login**: the denial members are *omitted* rather than
+            // written empty, because `deniedLogins: []` reads as "every actor was
+            // refused" and nothing was compared. The counts the run alone answers
+            // are still there, because they are facts about the run.
+            const row = await firstRefusalRow();
+            expect(row).toMatchObject({
                 actorPolicy: null,
-                deniedLogins: [],
                 bindingId: BINDING_ID,
+                unreadableReferences: 0,
+                retainedReferences: 1,
+                referencesNotRetained: 0,
+                referencesTruncated: false,
             });
-            expect(outcome.status === 'refused' ? outcome.refusal.message : '').toContain('could not be read');
+            expect(row.deniedLogins, 'no denial was reached, so none is recorded').toBeUndefined();
+            expect(row.deniedAttributions).toBeUndefined();
+            expect(outcome.status === 'refused' ? outcome.refusal.message : '').toContain('bindings document');
         }
         await afterEachWork2();
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: a binding the run does not name is the other unreadable-policy case
+        // case: a binding the run does not name is the other unreadable-policy case,
+        // and says **which** one it was rather than blaming an unreadable file
         {
             await writeOpenBinding({ store, bindingId: 'bnd-somewhere-else' });
             const { outcome } = await reserveAs({ issueNumber: 95, login: DENIED_DIRECT, basis: DIRECT_BASIS });
 
             expect(outcome.status).toBe(REFUSED);
             expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe(ACTOR_NOT_ALLOWED);
+            // "could not be read" is the sentence an operator cannot act on when the
+            // file is perfectly readable: the document parsed and simply does not
+            // carry this run's binding. The message names that instead.
+            const message = outcome.status === 'refused' ? outcome.refusal.message : '';
+            expect(message).toContain(`no binding ${BINDING_ID} exists`);
+            expect(message).not.toContain('could not be read');
         }
     });
 });
@@ -2146,6 +2171,123 @@ describe('003 v1.8.0 the admitted cases (FR-077, FR-079, AC-132)', () => {
         });
         const refused = await readRun(claim.correlationId);
         expect(refused.actorPolicy).toBeNull();
+    });
+});
+
+/**
+ * One retained reference for a truncated-list fixture.
+ *
+ * `deliveryId`s are distinct because the store's parser counts references by
+ * list length, and the fixture's whole point is that the cap stopped the list
+ * growing — so a duplicated id would let the run read as if one delivery had
+ * arrived twice rather than 200 had.
+ *
+ * @param index - The reference's position, used to keep ids distinct.
+ * @returns A reference attributed to a login nobody permits.
+ */
+function deniedReference(index: number): Run['sourceReferences'][number] {
+    const commentId = index + 1;
+
+    return {
+        deliveryId: `dlv-truncated-${commentId}`,
+        kind: 'mention',
+        // `comment:0` is not a legal origin, so the ordinal is 1-based for the
+        // store's parser as well as for the id.
+        origin: `comment:${commentId}`,
+        sourceUrl: `https://github.com/${REPOSITORY}/issues/103#issuecomment-${commentId}`,
+        detectedAt: STAMP,
+        presentAtAuthorization: true,
+        actorLogin: DENIED_DIRECT,
+        actorAttribution: DIRECT_BASIS,
+    };
+}
+
+describe('003 v1.8.0 a truncated reference list is refused **and says so** (FR-077, FR-078, T-038)', () => {
+    it('refuses on the partial list, names the truncation, and tells a retry the same thing', async () => {
+        // 200 denied references retained, and the allowed actor arriving **last** —
+        // so the one reference that would have authorized the run is exactly the
+        // one the cap dropped. This is the wedge the gate's own set quantifier
+        // exists to prevent, arriving by the other door: no policy, ever, can
+        // admit this run, because the gate classifies from the retained list only.
+        await setPolicy([PERMITTED]);
+        const seeded = await seedRunInState({ issueNumber: 103, state: 'claimed' });
+        const saturated: Run = {
+            ...seeded,
+            sourceReferences: Array.from({ length: MAX_SOURCE_REFERENCES }, (_unused, index) => deniedReference(index)),
+            referenceCount: MAX_SOURCE_REFERENCES + 1,
+            referencesNotRetained: 1,
+            referencesTruncated: true,
+        };
+        const document = await readRunsDocument({ store, log: LOGGER });
+        await writeRunsDocument({
+            store,
+            log: LOGGER,
+            document: { ...document, runs: [saturated] },
+        });
+
+        // The gate **refuses** rather than admitting on the truncation: an
+        // authorization nobody granted is not the gate's to infer (constitution II).
+        const claim = { correlationId: saturated.correlationId, leaseId: leaseOf(saturated) };
+        const outcome = await reserve(claim);
+
+        expect(outcome.status).toBe(REFUSED);
+        expect(outcome.status === REFUSED ? outcome.refusal.code : '').toBe(ACTOR_NOT_ALLOWED);
+        expect(await rowsOf(RESERVED_ROW)).toHaveLength(0);
+
+        // **The message is the liveness fix.** It has to say the decision was made
+        // on a partial list *and* that the obvious remedy cannot work — otherwise
+        // the operator widens a list, the retry refuses identically, and the run is
+        // wedged with nothing said (constitution IV).
+        const message = outcome.status === REFUSED ? outcome.refusal.message : '';
+        expect(message).toContain('cut at 200 of 201 triggers');
+        expect(message).toContain('incomplete list');
+        expect(message).toContain('cannot clear it');
+
+        // The row records the window the verdict was decided on, so a reader
+        // months later can tell a partial judgement from a complete one.
+        expect(await firstRefusalRow()).toMatchObject({
+            deniedLogins: Array.from({ length: MAX_SOURCE_REFERENCES }, () => DENIED_DIRECT),
+            unreadableReferences: 0,
+            retainedReferences: MAX_SOURCE_REFERENCES,
+            referencesNotRetained: 1,
+            referencesTruncated: true,
+        });
+        // And it still names no permitted login (NFR-113) — including in the
+        // truncation clause.
+        expect(JSON.stringify(await trail())).not.toContain(PERMITTED);
+
+        // The panel reports the refusal through the block report it owes every
+        // guard, and the service's own message is what lands in its `detail`
+        // verbatim — which is how the truncation reaches the operator in-panel.
+        const blocked = await block({
+            claim,
+            blockedReason: ACTOR_BLOCKED_CAUSE,
+            detail: message,
+        });
+        expect(blocked.status).toBe(APPLIED);
+
+        // The retry re-judges from the **same** truncated list (plan D17), so it
+        // refuses forever — and says why, in its own distinct reason.
+        const retry = await retryDispatch({
+            store,
+            log: LOGGER,
+            correlationId: saturated.correlationId,
+            attempt: 1,
+            causeCleared: true,
+            causeReport: 'I widened the list',
+            now: STAMP,
+        });
+
+        expect(retry.status).toBe(REFUSED);
+        const refusal = retry.status === REFUSED ? retry.refusal : null;
+        expect(refusal?.code).toBe('cause-not-cleared');
+        expect(refusal?.message).toContain('cut at 200 of 201 triggers');
+        expect(refusal?.message).toContain('cannot clear it');
+        // No retry row: a refused retry burns nothing (AC-131).
+        expect(await rowsOf(RETRY_ROW)).toHaveLength(0);
+        const parked = await readRun(saturated.correlationId);
+        expect(parked.state).toBe(ACTOR_BLOCKED_CAUSE_CLAIMED);
+        expect(parked.attempt).toBe(1);
     });
 });
 
