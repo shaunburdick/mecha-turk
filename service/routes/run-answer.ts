@@ -109,9 +109,18 @@ export function runOutcomeResponse(input: {
     }
 
     if (outcome.status === 'refused') {
-        return errorResponse(REFUSAL_STATUS.get(outcome.refusal.code) ?? STATUS.conflict, {
-            code: outcome.refusal.code,
-            message: outcome.refusal.message,
+        const { code, message, referenceWindow } = outcome.refusal;
+
+        // `referenceWindow` rides the envelope only where the gate set it, and is
+        // **copied** like the message rather than re-derived here: the route layer
+        // knows a status and a code, and the window is a fact about the decision
+        // the run layer just made (constitution II). Its absence is meaningful —
+        // it is how a panel tells "the gate judged the whole list" from "this
+        // build states no window" — so it is never defaulted to `complete`.
+        return errorResponse(REFUSAL_STATUS.get(code) ?? STATUS.conflict, {
+            code,
+            message,
+            ...(referenceWindow === undefined ? {} : { referenceWindow }),
         });
     }
 

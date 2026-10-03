@@ -1017,6 +1017,8 @@ describe('FR-095 a refused allow-list takes the field, changes nothing, and echo
                 problem: 'service refused the bindings list',
                 code: 'validation' as const,
                 message: 'repository: repository must be `owner/name`',
+                // No gate judged a reference window on a bindings-list refusal.
+                referenceWindow: null,
             };
 
             // The classifier is the one place an envelope is split (FR-052,

@@ -1959,6 +1959,11 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
 
             expect(outcome.status).toBe(REFUSED);
             expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe(ACTOR_NOT_ALLOWED);
+            // The window this decision saw, as a value-free word (003 T-038): a
+            // complete list, so the panel's ordinary allow-list advice is true.
+            // The panel cannot derive it — this chain task's read is the only
+            // place the answer exists — so it rides the envelope.
+            expect(outcome.status === 'refused' ? outcome.refusal.referenceWindow : '').toBe('complete');
 
             // Nothing is minted before the verdict (contract §1): the run document
             // is byte-identical, no `dispatch.reserved` row exists, and no token
@@ -2242,6 +2247,13 @@ describe('003 v1.8.0 a truncated reference list is refused **and says so** (FR-0
         expect(message).toContain('cut at 200 of 201 triggers');
         expect(message).toContain('incomplete list');
         expect(message).toContain('cannot clear it');
+
+        // And the same fact as a **word**, for the machine half of the same
+        // refusal: the panel branches its block-report guidance on this member
+        // rather than on the sentence above (003 T-038). Absent would be worse
+        // than wrong — the panel would then advise an allow-list edit that can
+        // never clear this run.
+        expect(outcome.status === REFUSED ? outcome.refusal.referenceWindow : '').toBe('truncated');
 
         // The row records the window the verdict was decided on, so a reader
         // months later can tell a partial judgement from a complete one.

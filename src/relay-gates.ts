@@ -32,6 +32,7 @@ import { abandonPath, blockedPath, reservePath, servicePost } from './service-ca
 import { resolveProject } from './session.ts';
 import type { ClaimedRun, ReserveAnswer } from './claim-service.ts';
 import { parseReserveBody } from './claim-service.ts';
+import type { ReferenceWindow } from './service-envelope.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
 /** How often the relay polls the service, in milliseconds. */
@@ -251,6 +252,46 @@ export async function refuseWithBlocked(input: {
 }
 
 /**
+ * The guidance an ordinary `actor-not-allowed` refusal carries (003 FR-078).
+ *
+ * Names the **field**, never a login: the permitted set is configuration and
+ * never reaches the panel (002 NFR-113, 005 FR-091). And it is true: with a
+ * complete reference list, an allow-list edit *is* the remedy — the gate
+ * re-judges the same list from the live policy on the retry (plan D17).
+ */
+const ALLOW_LIST_GUIDANCE = 'add the GitHub logins that may trigger this repository to the binding\'s allowedUsers, '
+    + 'then retry this dispatch';
+
+/**
+ * The guidance the same refusal carries when the gate judged a **partial**
+ * reference list (003 T-038).
+ *
+ * The whole point of this branch: `ALLOW_LIST_GUIDANCE` is *false* there. The
+ * gate judges the run's **retained** references and the run layer stops
+ * retaining at the cap, so the one reference that would have authorized the run
+ * may be among the dropped ones — no policy, ever, admits it, and the retry
+ * re-judges the same truncated list and refuses identically. Telling an operator
+ * to widen a list that cannot widen it is telling them to do something useless
+ * (constitution IV), which is the defect this branch exists to close.
+ *
+ * So it says what is true instead, and it says what *can* be done, which is
+ * checked against the affordance table in `dispatches-rows.ts`: a
+ * `blocked:<reason>` run offers **Retry and nothing else**, and the service
+ * re-judges that retry against the same list — so there is no control that
+ * clears this run, and naming one that does not exist would be the same defect
+ * in a new sentence. What the operator can do is therefore stated as
+ * consequences: the run stays parked, it costs no attempt and no requeue budget
+ * (FR-078), and nothing is waiting on them.
+ *
+ * Names no login — neither a denied one (the service's `detail` carries those,
+ * verbatim) nor a permitted one, which never leaves the service at all
+ * (002 NFR-113).
+ */
+const TRUNCATED_WINDOW_GUIDANCE = 'this run collected more triggers than the service retains, so the allow-list was '
+    + 'judged against an incomplete list: adding a login to allowedUsers cannot clear it, and a retry is refused '
+    + 'for the same reason — the run stays parked and costs no attempt or requeue budget';
+
+/**
  * The guard failure for the actor-policy gate's refusal, or `null` for any other.
  *
  * Narrowed on the **code**, never on the status: `stale-lease`,
@@ -263,20 +304,36 @@ export async function refuseWithBlocked(input: {
  * restricts the binding rather than any login: the permitted set is
  * configuration and never reaches the panel (002 NFR-113, 005 FR-091).
  *
- * @param code - The refusal's machine code, or `null` when the service sent none.
- * @param message - The service's own message, or `null` when it sent none.
+ * **The guidance branches on the refusal's `referenceWindow` word, never on the
+ * message.** The service is the only thing that knows which list its decision
+ * saw (it read the run inside its own chain task), so a panel that matched the
+ * message would be a second parse of prose this panel is only obliged to copy —
+ * reworded upstream, it would silently revert to advice that cannot work. An
+ * absent word (an older service) or one this build does not know takes
+ * {@link ALLOW_LIST_GUIDANCE}, which is the behaviour that existed before this
+ * branch and the safe direction to be wrong in: unhelpful advice costs an
+ * operator a wasted edit, whereas the wrong branch would have them dead-letter a
+ * run one login would have dispatched.
+ *
+ * @param refusal - The refusal's own members, as the answer carried them.
  * @returns The failure to report as `blocked:actor-not-allowed`, else `null`.
  */
-export function actorGateFailure(code: string | null, message: string | null): GuardFailure | null {
-    if (code !== ACTOR_NOT_ALLOWED) {
+export function actorGateFailure(refusal: {
+    /** The machine code, or `null` when the service sent none. */
+    readonly code: string | null;
+    /** The service's own copy, or `null` when it sent none. */
+    readonly message: string | null;
+    /** The window the gate judged, as the envelope words it; `null` when none. */
+    readonly referenceWindow: ReferenceWindow | null;
+}): GuardFailure | null {
+    if (refusal.code !== ACTOR_NOT_ALLOWED) {
         return null;
     }
 
     return {
         reason: ACTOR_NOT_ALLOWED,
-        detail: message ?? 'nobody who triggered this run is on the binding\'s allow-list',
-        guidance: 'add the GitHub logins that may trigger this repository to the binding\'s allowedUsers, '
-            + 'then retry this dispatch',
+        detail: refusal.message ?? 'nobody who triggered this run is on the binding\'s allow-list',
+        guidance: refusal.referenceWindow === 'truncated' ? TRUNCATED_WINDOW_GUIDANCE : ALLOW_LIST_GUIDANCE,
     };
 }
 
@@ -317,8 +374,14 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
         // than merely notes (003 FR-078). The service's answer is the authority,
         // and the block report is this panel's account of it — through the
         // operation every other guard already uses, with no new route and no
-        // second membership comparison of its own (FR-076).
-        const gate = actorGateFailure(answer.code, answer.message);
+        // second membership comparison of its own (FR-076). The window rides with
+        // the code for the same reason: the guidance may only be honest about a
+        // truncated list if the decision that saw it says so (003 T-038).
+        const gate = actorGateFailure({
+            code: answer.code,
+            message: answer.message,
+            referenceWindow: answer.referenceWindow,
+        });
 
         return { kind: 'refused', ...(gate === null ? {} : { failure: gate }) };
     }

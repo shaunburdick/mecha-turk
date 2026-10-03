@@ -69,12 +69,48 @@ export type RunRefusalCode =
      */
     | 'validation';
 
+/**
+ * How much of a run's trigger history an authorization decision could actually
+ * see (003 T-038, NFR-107).
+ *
+ * A **closed word rather than the run's boolean**, for three reasons that all
+ * point the same way:
+ *
+ * - **Absence is meaningful.** A reader handed `false` cannot tell *"the
+ *   decision saw the whole list"* from *"this build does not report a
+ *   window"*; an absent member is unambiguously the second thing, which is
+ *   what lets a reader fail closed instead of defaulting a fact it was never
+ *   told.
+ * - **It states the decision, not the document.** The gate's quantifier runs
+ *   over the retained list it read inside its own chain task, so the window
+ *   belongs to *that judgement* rather than to a run record a reader might
+ *   re-read at a different moment and get a different answer from.
+ * - **The vocabulary can widen.** `actor-not-allowed` is the only code that
+ *   judges a window today; a second one adds a word rather than a second wire
+ *   shape or a boolean that would mean two different things per code.
+ *
+ * **Value-free by construction** — two words about a list, never a login — so
+ * it can ride the envelope without becoming a second copy of the access policy
+ * (NFR-113).
+ */
+export type ReferenceWindow = 'complete' | 'truncated';
+
 /** One refusal: its machine code and the secret-free cause the row records. */
 export interface RunRefusal {
     /** Stable code from the wire catalog. */
     readonly code: RunRefusalCode;
     /** Secret-free cause; never a token value and never untrusted source text. */
     readonly message: string;
+    /**
+     * The window the deciding gate could see, on the one code that judges one.
+     *
+     * Absent on every other refusal, and on any refusal from a build that
+     * predates the member — which is exactly why it is a **word** and not a
+     * boolean, and why absence is not read as `complete` (see
+     * {@link ReferenceWindow}). Present on **every** refusal the actor gate
+     * produces, so a reader is never left guessing whether it was told.
+     */
+    readonly referenceWindow?: ReferenceWindow;
 }
 
 /** The wire code a superseded lease, token, or attempt answers with. */
@@ -93,6 +129,32 @@ export const STALE_LEASE_CODE = 'stale-lease';
  */
 export function refuse(code: RunRefusalCode, message: string): RunRefusal {
     return { code, message };
+}
+
+/**
+ * Build the one refusal that also states the window its gate judged (003 T-038).
+ *
+ * **A second constructor rather than a third argument**, and that is a
+ * readability decision as much as a lint one: every other refusal in the family
+ * is `refuse(code, message)`, and twenty-odd call sites should keep reading like
+ * that. The actor gate is the single caller that has a third fact, and it has
+ * exactly one per refusal, so it gets a name.
+ *
+ * It **delegates** rather than forming the pair again, so the two refusals
+ * cannot disagree about anything but the window.
+ *
+ * @param input - The same code and cause {@link refuse} takes, plus the window.
+ * @returns The refusal, carrying the window.
+ */
+export function refuseOnWindow(input: {
+    /** Stable code from the wire catalog. */
+    readonly code: RunRefusalCode;
+    /** Secret-free cause; the same string the response carries. */
+    readonly message: string;
+    /** The window the deciding gate could see. */
+    readonly referenceWindow: ReferenceWindow;
+}): RunRefusal {
+    return { ...refuse(input.code, input.message), referenceWindow: input.referenceWindow };
 }
 
 /**

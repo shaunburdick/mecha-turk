@@ -56,6 +56,28 @@ export type ServiceResource =
     /** The whole-file configuration document (006 FR-043). */
     | 'configuration';
 
+/**
+ * The two words the actor gate's refusal speaks for the window it judged
+ * (003 T-038; the service's own `ReferenceWindow`).
+ *
+ * **A second declaration of a service vocabulary**, exactly as
+ * `BlockedReason` in `relay-gates.ts` and the `blocked:<reason>` family in
+ * `run-state.ts` are: the panel cannot import across the extension/service
+ * boundary, so the duplication is structural rather than careless. What makes
+ * it safe here is that this panel's only reader **refuses** every other word
+ * rather than passing one through, and
+ * `tests/relay-integrity.test.ts` drives the service's real verdict through
+ * this pair — the drift test, without a new exported constant.
+ *
+ * Value-free, like the thing it describes: two words about a list, never a
+ * login (002 NFR-113).
+ */
+export type ReferenceWindow =
+    /** The gate judged every trigger the run accumulated. */
+    | 'complete'
+    /** The run's reference list was cut, so the gate judged a partial list. */
+    | 'truncated';
+
 /** One `field: remediation` pair as a configuration refusal carries it. */
 export interface ConfigIssueView {
     /** Field the service named; `<withheld>` for a secret-shaped key. */
@@ -78,6 +100,18 @@ export type ServiceErrorResult =
         readonly code: string | null;
         /** The envelope's own refusal copy, verbatim; `null` when it sent none. */
         readonly message: string | null;
+        /**
+         * The window a deciding gate judged, on the one code that judges one
+         * (003 T-038); `null` on every other refusal **and** on any answer from a
+         * build that states no window.
+         *
+         * Read as a member rather than derived from `message`, because the
+         * service is the only thing that knows which list its decision saw: a
+         * panel that inferred it would either re-read a document at another
+         * moment or match English, and the first is a stale second opinion while
+         * the second is a parse of a sentence it is only obliged to display.
+         */
+        readonly referenceWindow: ReferenceWindow | null;
     };
 
 /** Result of a configuration write, which keeps the refusal's issue list. */
@@ -172,6 +206,27 @@ export function envelopeFieldOf(body: string, field: string): string | null {
 }
 
 /**
+ * Read the window a refusal's gate judged, refusing every word but the two
+ * this build knows (003 T-038).
+ *
+ * **Closed, so a word from a future build is a refusal rather than a guess**:
+ * an unrecognised word reads as `null`, which is the same as *the service said
+ * nothing*, and the caller then behaves exactly as it always did. That is the
+ * fail-closed direction on purpose — the ordinary answer is the one that is
+ * merely unhelpful if wrong, while inventing a third state would have the panel
+ * advise an operator to dead-letter a run a single allow-list edit would have
+ * dispatched.
+ *
+ * @param body - Response body text (unchecked).
+ * @returns The window, or `null` when the envelope named none this build knows.
+ */
+export function envelopeReferenceWindowOf(body: string): ReferenceWindow | null {
+    const value = envelopeFieldOf(body, 'referenceWindow');
+
+    return value === 'complete' || value === 'truncated' ? value : null;
+}
+
+/**
  * Read one issue entry, refusing anything that is not the pair the contract
  * names.
  *
@@ -248,11 +303,14 @@ export function resultOf(answer: GuestRequestResult, resource: ServiceResource):
  * the envelope's machine code **and its own message** — both extracted from
  * the body, never quoted into anything but a note — so a caller can
  * distinguish a documented refusal from anything else without parsing the body
- * twice, and can still tell the operator what the service said.
+ * twice, and can still tell the operator what the service said. A gate's
+ * `referenceWindow` rides with them, read by the same closed reader, so a
+ * caller that must branch on the window the decision was made on never parses
+ * the message to find it.
  *
  * @param answer - The result the host bridged back.
  * @param resource - What the request was about, for the refusal copy.
- * @returns The body, or a problem plus the error code and copy when one was sent.
+ * @returns The body, or a problem plus the error code, copy, and window.
  */
 export function resultWithErrorOf(answer: GuestRequestResult, resource: ServiceResource): ServiceErrorResult {
     if (isOkStatus(answer.status)) {
@@ -266,6 +324,7 @@ export function resultWithErrorOf(answer: GuestRequestResult, resource: ServiceR
         problem: httpProblem(answer.status, resource),
         code: inEnvelope ? envelopeFieldOf(answer.body, 'code') : null,
         message: inEnvelope ? envelopeFieldOf(answer.body, 'message') : null,
+        referenceWindow: inEnvelope ? envelopeReferenceWindowOf(answer.body) : null,
     };
 }
 

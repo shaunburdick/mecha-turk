@@ -63,8 +63,8 @@ import { readBindingsForAuthorization } from '../bindings-read.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import type { ActorAttribution } from './attribution.ts';
-import { refuse } from './run-refusal.ts';
-import type { RunRefusal } from './run-refusal.ts';
+import { refuseOnWindow } from './run-refusal.ts';
+import type { ReferenceWindow, RunRefusal } from './run-refusal.ts';
 import type { ActorGateRefusal, ActorPolicy, Run } from './runs-types.ts';
 
 /** The wire code the gate refuses with, and the declared `blocked:` cause it parks in. */
@@ -224,6 +224,27 @@ function refusalDetails(input: {
 }
 
 /**
+ * The window this decision saw, as the wire states it (003 T-038, NFR-107).
+ *
+ * Read through {@link judgedWindow} — the same helper the detail set records
+ * `referencesTruncated` from — so the word on the envelope and the flag on the
+ * `dispatch.refused` row are two expressions of **one** read and cannot
+ * disagree. It is also the only reader of the fact that reaches a *panel*: the
+ * panel has no way to see the gate's chain task, so without this member it
+ * would either re-derive the window from a document read at another moment or
+ * match the message's prose, and both are a second opinion about a decision
+ * this service made (constitution IV).
+ *
+ * Names no login — NFR-113's rule is absolute, and this word is about a list.
+ *
+ * @param run - The run being authorized.
+ * @returns The window, complete or truncated.
+ */
+function judgedWindowWord(run: Run): ReferenceWindow {
+    return judgedWindow(run).truncated ? 'truncated' : 'complete';
+}
+
+/**
  * The clause naming an incomplete reference list, and what cannot clear it.
  *
  * **The operator-facing half of the liveness rule.** The gate's quantifier runs
@@ -236,6 +257,11 @@ function refusalDetails(input: {
  * break constitution IV's promise that an operator can tell *why*. So the
  * refusal says the decision was made on a partial list and that the remedy is
  * **not** an allow-list edit.
+ *
+ * The sentence and {@link judgedWindowWord} are the same fact in two forms: the
+ * first for a reader, the second for a machine. They are built from the same
+ * boolean on purpose — the prose is for the operator, the word is for the
+ * panel, and neither derives the other by parsing.
  *
  * Names no login — NFR-113's rule is absolute, and this clause has nothing to
  * do with whose login it is.
@@ -284,6 +310,57 @@ function unreadableNote(unreadableReferences: number): string {
 }
 
 /**
+ * The refusal one denied run leaves behind, whatever its message
+ * (003 FR-077, T-038).
+ *
+ * **One builder for both denials**, because the two facts they add to the
+ * message are added by the same two lines and must never be added to one and
+ * not the other:
+ *
+ * - the truncation clause, which rides **every** refusal message: an operator
+ *   told to widen a list that cannot widen it has been told to do something
+ *   useless, and FR-078's retry re-judges from the same truncated list anyway
+ *   (plan D17);
+ * - and the window as a **word** beside it, so the panel can tell this case
+ *   from an ordinary one without a second parse of a sentence it is otherwise
+ *   only obliged to copy.
+ *
+ * @param input - The run, the policy in force, the message, and the run's
+ *   classified actors.
+ * @returns The refusal, carrying FR-077's detail set and the judged window.
+ */
+function deniedPolicyRefusal(input: {
+    /** The run being authorized. */
+    readonly run: Run;
+    /** The shape the read found. */
+    readonly policy: ActorPolicy;
+    /** The verdict's own words, before the truncation clause. */
+    readonly message: string;
+    /** Every readable actor, in reference order — all of them denied. */
+    readonly readable: readonly Extract<ClassifiedActor, { readonly readable: true }>[];
+    /** How many references named no readable actor. */
+    readonly unreadableReferences: number;
+}): ActorPolicyVerdict {
+    return {
+        admitted: false,
+        refused: {
+            refusal: refuseOnWindow({
+                code: ACTOR_NOT_ALLOWED,
+                message: `${input.message}${truncatedNote(input.run)}`,
+                referenceWindow: judgedWindowWord(input.run),
+            }),
+            actor: refusalDetails({
+                run: input.run,
+                policy: input.policy,
+                deniedLogins: input.readable.map((actor) => actor.login),
+                deniedAttributions: input.readable.map((actor) => actor.attribution ?? UNRECORDED_BASIS),
+                unreadableReferences: input.unreadableReferences,
+            }),
+        },
+    };
+}
+
+/**
  * Judge one run's actor policy (003 FR-076 – FR-080; plan D14).
  *
  * An unreadable actor is refused **regardless** of the policy (FR-080), so the
@@ -295,8 +372,8 @@ function unreadableNote(unreadableReferences: number): string {
  * The quantifier reads `sourceReferences` and nothing else, so a **truncated**
  * list is judged as though the dropped references did not exist — see the
  * module's fourth bullet. Every refusal this returns carries that fact in its
- * message and in its detail set, so the caller never has to guess whether the
- * list it judged was the whole history.
+ * message, in its detail set, and as a word on the wire, so neither the caller
+ * nor the panel has to guess whether the list it judged was the whole history.
  *
  * Pure: the caller owns the store read (plan D13) and the write, so the same
  * predicate can re-judge a `blocked:actor-not-allowed` run against a live read on
@@ -323,23 +400,8 @@ export function judgeActorPolicy(input: {
         return { admitted: true, policy };
     }
 
-    const refuseWith = (message: string): ActorPolicyVerdict => ({
-        admitted: false,
-        refused: {
-            // The truncation clause rides every refusal message, and both of the
-            // messages below: an operator told to widen a list that cannot
-            // widen it has been told to do something useless (FR-078's retry
-            // re-judges from the same truncated list — plan D17).
-            refusal: refuse(ACTOR_NOT_ALLOWED, `${message}${truncatedNote(run)}`),
-            actor: refusalDetails({
-                run,
-                policy,
-                deniedLogins: readable.map((actor) => actor.login),
-                deniedAttributions: readable.map((actor) => actor.attribution ?? UNRECORDED_BASIS),
-                unreadableReferences,
-            }),
-        },
-    });
+    const refuseWith = (message: string): ActorPolicyVerdict =>
+        deniedPolicyRefusal({ run, policy, message, readable, unreadableReferences });
 
     if (readable.length > 0) {
         return refuseWith('no source reference on this run names an actor the binding\'s allowedUsers permits: '
@@ -396,7 +458,11 @@ export function unreadablePolicyRefusal(run: Run, cause: UnreadablePolicyCause):
     return {
         admitted: false,
         refused: {
-            refusal: refuse(ACTOR_NOT_ALLOWED, `${message}${truncatedNote(run)}`),
+            refusal: refuseOnWindow({
+                code: ACTOR_NOT_ALLOWED,
+                message: `${message}${truncatedNote(run)}`,
+                referenceWindow: judgedWindowWord(run),
+            }),
             actor: refusalDetails({
                 run,
                 policy: null,

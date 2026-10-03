@@ -6617,6 +6617,9 @@ var STALE_LEASE_CODE = "stale-lease";
 function refuse3(code, message) {
   return { code, message };
 }
+function refuseOnWindow(input) {
+  return { ...refuse3(input.code, input.message), referenceWindow: input.referenceWindow };
+}
 function staleAttemptMessage(attempt, current) {
   return `the request names attempt ${attempt} but this run stands on attempt ${current}; ` + "read the run again and act on the attempt it reports";
 }
@@ -6659,6 +6662,9 @@ function refusalDetails(input) {
     referencesTruncated: window.truncated
   };
 }
+function judgedWindowWord(run) {
+  return judgedWindow(run).truncated ? "truncated" : "complete";
+}
 function truncatedNote(run) {
   if (!run.referencesTruncated) {
     return "";
@@ -6671,6 +6677,25 @@ function namedActors(actors) {
 function unreadableNote(unreadableReferences) {
   return unreadableReferences === 0 ? "every reference names a readable actor" : `${unreadableReferences} of this run's references name no readable actor`;
 }
+function deniedPolicyRefusal(input) {
+  return {
+    admitted: false,
+    refused: {
+      refusal: refuseOnWindow({
+        code: ACTOR_NOT_ALLOWED,
+        message: `${input.message}${truncatedNote(input.run)}`,
+        referenceWindow: judgedWindowWord(input.run)
+      }),
+      actor: refusalDetails({
+        run: input.run,
+        policy: input.policy,
+        deniedLogins: input.readable.map((actor) => actor.login),
+        deniedAttributions: input.readable.map((actor) => actor.attribution ?? UNRECORDED_BASIS),
+        unreadableReferences: input.unreadableReferences
+      })
+    }
+  };
+}
 function judgeActorPolicy(input) {
   const { run, allowedUsers } = input;
   const { readable, unreadableReferences } = classifyRun(run);
@@ -6678,19 +6703,7 @@ function judgeActorPolicy(input) {
   if (readable.some((actor) => isActorAllowed(actor.login, allowedUsers))) {
     return { admitted: true, policy };
   }
-  const refuseWith = (message) => ({
-    admitted: false,
-    refused: {
-      refusal: refuse3(ACTOR_NOT_ALLOWED, `${message}${truncatedNote(run)}`),
-      actor: refusalDetails({
-        run,
-        policy,
-        deniedLogins: readable.map((actor) => actor.login),
-        deniedAttributions: readable.map((actor) => actor.attribution ?? UNRECORDED_BASIS),
-        unreadableReferences
-      })
-    }
-  });
+  const refuseWith = (message) => deniedPolicyRefusal({ run, policy, message, readable, unreadableReferences });
   if (readable.length > 0) {
     return refuseWith("no source reference on this run names an actor the binding's allowedUsers permits: " + `${namedActors(readable)}; ${unreadableNote(unreadableReferences)}`);
   }
@@ -6702,7 +6715,11 @@ function unreadablePolicyRefusal(run, cause) {
   return {
     admitted: false,
     refused: {
-      refusal: refuse3(ACTOR_NOT_ALLOWED, `${message}${truncatedNote(run)}`),
+      refusal: refuseOnWindow({
+        code: ACTOR_NOT_ALLOWED,
+        message: `${message}${truncatedNote(run)}`,
+        referenceWindow: judgedWindowWord(run)
+      }),
       actor: refusalDetails({
         run,
         policy: null,
@@ -7244,9 +7261,11 @@ function runOutcomeResponse(input) {
     });
   }
   if (outcome.status === "refused") {
-    return errorResponse(REFUSAL_STATUS.get(outcome.refusal.code) ?? STATUS.conflict, {
-      code: outcome.refusal.code,
-      message: outcome.refusal.message
+    const { code, message, referenceWindow } = outcome.refusal;
+    return errorResponse(REFUSAL_STATUS.get(code) ?? STATUS.conflict, {
+      code,
+      message,
+      ...referenceWindow === undefined ? {} : { referenceWindow }
     });
   }
   return { status: STATUS.ok, body: success(outcome.run, outcome.auditWritten) };

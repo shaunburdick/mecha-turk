@@ -174,6 +174,24 @@ function noteRefusal(rt: PanelRuntime, result: ServiceErrorResult): void {
     refresh(rt);
 }
 
+/** The problem an answer the panel could not parse reports (invariant 8). */
+const UNREADABLE_LIST_PROBLEM = 'service answered a list the panel could not read';
+
+/**
+ * The refusal a `2xx` body the panel cannot read produces.
+ *
+ * **No code, no message, and no reference window**: the transport succeeded, so
+ * there is no envelope to read any of the three from, and inventing one would be
+ * a verdict the service never sent. Named as its own shape because the bindings
+ * grant is the only caller that has to *return* this refusal, and every member
+ * of the answer shape is present here for a reason rather than by default.
+ *
+ * @returns The failure, for the caller to return alongside the note it wrote.
+ */
+function unreadableListRefusal(): ServiceErrorResult {
+    return { ok: false, problem: UNREADABLE_LIST_PROBLEM, code: null, message: null, referenceWindow: null };
+}
+
 /**
  * Replace the stored bindings with one PUT; never throws.
  *
@@ -232,7 +250,7 @@ export async function grantBindings(input: {
         rt.state.bindings.note = 'The service answered a list the panel could not read — refresh to see what stuck.';
         refresh(rt);
 
-        return { ok: false, problem: 'service answered a list the panel could not read', code: null, message: null };
+        return unreadableListRefusal();
     }
 
     rt.state.bindings.bindings = parsed.bindings;

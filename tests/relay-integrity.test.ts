@@ -39,6 +39,7 @@ import type { BlockedReason } from '../src/relay-gates.ts';
 import {
     ACTOR_BLOCKED_REASON as SERVICE_ACTOR_BLOCKED_REASON,
     ACTOR_NOT_ALLOWED as SERVICE_ACTOR_NOT_ALLOWED,
+    judgeActorPolicy,
 } from '../service/poll/dispatch-actor-gate.ts';
 import { dispatchClaimedRun, handledKey, pollRelay } from '../src/relay.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
@@ -618,6 +619,17 @@ const ACTOR_BLOCKED_CODE = 'actor-not-allowed';
 const GATE_REFUSAL_MESSAGE = "no source reference on this run names an actor the binding's allowedUsers permits: "
     + 'bob (the author GitHub recorded)';
 
+/**
+ * The guidance an ordinary refusal carries, spelled as the panel posts it.
+ *
+ * One constant, used both to pin the ordinary block report byte-for-byte and as
+ * the value the truncated case must **differ** from — so "the truncated guidance
+ * says something else" is asserted against the sentence itself rather than
+ * against a substring of it.
+ */
+const ALLOW_LIST_GUIDANCE = 'add the GitHub logins that may trigger this repository to the binding\'s allowedUsers, '
+    + 'then retry this dispatch';
+
 /** The route table a `409 actor-not-allowed` reserve produces. */
 const ACTOR_GATE_REFUSAL: RouteTable = {
     ...OK_ROUTES,
@@ -628,6 +640,18 @@ const ACTOR_GATE_REFUSAL: RouteTable = {
         }),
     },
 };
+
+/**
+ * The login the binding's list permits.
+ *
+ * Named here so the one assertion that matters can be written against it: no
+ * permitted login may reach the panel, the trail, or a bundle (002 NFR-113),
+ * and this is the only member of the fixture the gate must keep to itself.
+ */
+const PERMITTED = 'alice';
+
+/** The login every reference on the saturated run below is attributed to. */
+const DENIED = 'bob';
 
 /** Runs the run-history cap fixture opens beyond the cap itself. */
 const RUN_HISTORY_OVERFLOW = 50;
@@ -682,6 +706,79 @@ function seededRuns(count: number): {
         runs: planned.document.runs,
         deliveries: new Map(deliveries.map((delivery) => [delivery.id, delivery])),
     };
+}
+
+/**
+ * One retained reference on the saturated run, attributed to the denied login.
+ *
+ * @param index - The reference's position, used to keep ids and origins distinct.
+ * @returns The reference.
+ */
+function deniedReference(index: number): Run['sourceReferences'][number] {
+    // `comment:0` is not a legal origin, so the ordinal is 1-based — as it is in
+    // the store's own parser, which is what makes this a real reference.
+    const commentId = index + 1;
+
+    return {
+        deliveryId: `dlv-saturated-${commentId}`,
+        kind: MENTION_KIND,
+        origin: `comment:${commentId}`,
+        sourceUrl: `https://github.com/${REPOSITORY}/issues/1#issuecomment-${commentId}`,
+        detectedAt: FIXTURE_TIMESTAMP,
+        presentAtAuthorization: true,
+        actorLogin: DENIED,
+        actorAttribution: 'direct',
+    };
+}
+
+/**
+ * A run whose reference list the cap cut, with the **allowed** actor arriving
+ * last and therefore dropped.
+ *
+ * The exact wedge the gate's set quantifier exists to prevent, arriving by the
+ * other door (003 T-038): no policy can admit it, because the gate classifies
+ * from the retained list only. Seeded through the real enqueue pass so the run
+ * is one the product itself produced.
+ *
+ * @returns The saturated run.
+ */
+function saturatedRun(): Run {
+    const [seeded] = seededRuns(1).runs;
+    if (seeded === undefined) {
+        throw new Error('the enqueue pass created no run');
+    }
+
+    return {
+        ...seeded,
+        sourceReferences: Array.from({ length: MAX_SOURCE_REFERENCES }, (_unused, index) => deniedReference(index)),
+        referenceCount: MAX_SOURCE_REFERENCES + 1,
+        referencesNotRetained: 1,
+        referencesTruncated: true,
+    };
+}
+
+/**
+ * Drive one relay tick against a reserve that refuses with `error`, and read the
+ * guidance the block report carried.
+ *
+ * The whole path is exercised — envelope, classifier, gate failure, and the POST
+ * the service receives — so the assertion is about what an operator is actually
+ * told, not about one pure function's return value.
+ *
+ * @param error - The envelope's `error` member, verbatim.
+ * @returns The `guidance` the panel posted.
+ */
+async function guidanceFor(error: Readonly<Record<string, unknown>>): Promise<string> {
+    const relay = harness({
+        ...OK_ROUTES,
+        [`POST ${RUN_PATH}/reserve`]: { status: 409, body: JSON.stringify({ error }) },
+    });
+
+    await pollRelay(relay.rt);
+
+    const report = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/blocked`)) as Record<string, unknown>;
+
+    return typeof report.guidance === 'string' ? report.guidance : '';
 }
 
 /** The stored dispatch record, read without trusting its shape. */
@@ -777,8 +874,7 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
                 detail: GATE_REFUSAL_MESSAGE,
                 // The guidance names the **field**, never a login: the permitted
                 // set is configuration and never reaches the panel (NFR-113).
-                guidance: 'add the GitHub logins that may trigger this repository to the binding\'s allowedUsers, '
-                    + 'then retry this dispatch',
+                guidance: ALLOW_LIST_GUIDANCE,
             });
             expect(JSON.stringify(body)).not.toContain('permitted');
         }
@@ -802,16 +898,109 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
         // The pure reader, so the narrowing rule is asserted directly rather
         // than only through one route table: a `409` that is not the gate's
         // yields `null` and the relay merely notes it.
-        expect(actorGateFailure(ACTOR_BLOCKED_CODE, 'nobody is allowed')).toMatchObject({
-            reason: ACTOR_BLOCKED_CODE,
-            detail: 'nobody is allowed',
-        });
+        expect(actorGateFailure({ code: ACTOR_BLOCKED_CODE, message: 'nobody is allowed', referenceWindow: null }))
+            .toMatchObject({
+                reason: ACTOR_BLOCKED_CODE,
+                detail: 'nobody is allowed',
+            });
         for (const code of ['stale-lease', 'already-reserved', 'cause-not-cleared', null]) {
-            expect(actorGateFailure(code, 'some message'), `${String(code)} is not the gate's`).toBeNull();
+            expect(
+                actorGateFailure({ code, message: 'some message', referenceWindow: null }),
+                `${String(code)} is not the gate's`,
+            ).toBeNull();
         }
         // A missing message still yields the panel's own honest phrase rather
         // than an empty detail the route would refuse.
-        expect(actorGateFailure(ACTOR_BLOCKED_CODE, null)?.detail).toContain('allow-list');
+        expect(
+            actorGateFailure({ code: ACTOR_BLOCKED_CODE, message: null, referenceWindow: null })?.detail,
+        ).toContain('allow-list');
+    });
+
+    it('tells the operator the truth about a cut reference list (003 T-038)', async () => {
+        // case: the service states the window it judged, as a value-free word
+        //
+        // Built by running the **real** gate over a saturated run rather than by
+        // writing a literal here, so this doubles as the drift test between the
+        // two vocabularies: the panel's closed pair and the service's can only
+        // agree if the word the panel reads is the word the gate writes.
+        {
+            const verdict = judgeActorPolicy({ run: saturatedRun(), allowedUsers: [PERMITTED] });
+            const refusal = verdict.admitted ? null : verdict.refused.refusal;
+
+            expect(verdict.admitted, 'the gate admitted a run no policy can admit').toBe(false);
+            expect(refusal?.code).toBe(ACTOR_BLOCKED_CODE);
+            expect(refusal?.referenceWindow).toBe('truncated');
+            // The word is value-free, and so is the sentence beside it.
+            expect(refusal?.message).toContain('incomplete list');
+            expect(refusal?.message).not.toContain(PERMITTED);
+        }
+        // case: the truncated guidance is a different sentence, and names no login
+        {
+            const ordinary = await guidanceFor({ code: ACTOR_BLOCKED_CODE, message: GATE_REFUSAL_MESSAGE });
+            const truncated = await guidanceFor({
+                code: ACTOR_BLOCKED_CODE,
+                message: GATE_REFUSAL_MESSAGE,
+                referenceWindow: 'truncated',
+            });
+
+            expect(truncated).not.toBe(ordinary);
+            // The ordinary case still names the field and still says retry —
+            // with a complete list that advice is true, and T-038 must not have
+            // quietly taken it away from the case it is right for.
+            expect(ordinary).toBe(ALLOW_LIST_GUIDANCE);
+            expect(ordinary).toContain('allowedUsers');
+            // The truncated case says the allow-list cannot clear it, so it must
+            // not tell the operator to change the allow-list and retry.
+            expect(truncated).toContain('cannot clear it');
+            expect(truncated).not.toContain('then retry this dispatch');
+            // Neither the permitted login the gate held nor the denied one it
+            // named may reach the guidance (002 NFR-113).
+            expect(truncated).not.toContain(PERMITTED);
+            expect(truncated).not.toContain(DENIED);
+            expect(ordinary).not.toContain(PERMITTED);
+        }
+        // case: neither branch reads the message — the word decides, alone
+        {
+            // A `complete` window with the truncated sentence attached still gets
+            // the ordinary guidance: the panel does not match prose, so a
+            // reworded message upstream can never move this branch.
+            const proseWithoutAWord = await guidanceFor({
+                code: ACTOR_BLOCKED_CODE,
+                message: `${GATE_REFUSAL_MESSAGE}; this run's source reference list was cut, so this decision was `
+                    + 'made on an incomplete list and no login on the repository can clear it',
+            });
+            const declaredComplete = await guidanceFor({
+                code: ACTOR_BLOCKED_CODE,
+                message: GATE_REFUSAL_MESSAGE,
+                referenceWindow: 'complete',
+            });
+
+            expect(proseWithoutAWord).toBe(declaredComplete);
+
+            // And the word alone is enough: an ordinary message plus `truncated`
+            // yields the truncated guidance, so nothing about the sentence is
+            // consulted.
+            const wordOnly = await guidanceFor({
+                code: ACTOR_BLOCKED_CODE,
+                message: 'no permitted actor',
+                referenceWindow: 'truncated',
+            });
+
+            expect(wordOnly).toBe(await guidanceFor({
+                code: ACTOR_BLOCKED_CODE,
+                message: GATE_REFUSAL_MESSAGE,
+                referenceWindow: 'truncated',
+            }));
+            // A word from a future build is refused rather than guessed at, and
+            // refusal lands on the ordinary guidance — the safe direction.
+            const unknownWord = await guidanceFor({
+                code: ACTOR_BLOCKED_CODE,
+                message: GATE_REFUSAL_MESSAGE,
+                referenceWindow: 'partly-seen',
+            });
+
+            expect(unknownWord).toBe(declaredComplete);
+        }
     });
 
     it('keeps the panel word and the service word in agreement', () => {
