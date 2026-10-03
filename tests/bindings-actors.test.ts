@@ -1243,19 +1243,19 @@ const SUBSETS: readonly (readonly [string, PanelTriggers, string | null])[] = [
     [
         'assignment+mention',
         { assignment: true, mention: true, reviewRequest: false },
-        'anyone who can assign an issue to the account, or mention the account in an issue or comment '
+        'anyone who can assign an issue to the account or mention the account in an issue or comment '
             + 'can start a session',
     ],
     [
         'assignment+reviewRequest',
         { assignment: true, mention: false, reviewRequest: true },
-        'anyone who can assign an issue to the account, or request a review from the account on a '
+        'anyone who can assign an issue to the account or request a review from the account on a '
             + 'pull request can start a session',
     ],
     [
         'mention+reviewRequest',
         { assignment: false, mention: true, reviewRequest: true },
-        'anyone who can mention the account in an issue or comment, or request a review from the account '
+        'anyone who can mention the account in an issue or comment or request a review from the account '
             + 'on a pull request can start a session',
     ],
     [

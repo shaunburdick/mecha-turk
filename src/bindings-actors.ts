@@ -107,19 +107,22 @@ const NOTHING_TRIGGERED_OFF_OPEN =
     + 'name the logins who may in allowedUsers';
 
 /**
- * Join the switched-on phrases into one comma-led list.
+ * Join the switched-on phrases into one list.
  *
- * **A comma before every phrase but the last, then `or`** — FR-096's own rule,
- * which makes the composition total: one phrase stands alone, two read
- * `a, or b`, three read `a, b, or c`. Nothing else joins them, so the list
- * reads the same whatever subset produced it.
+ * **The comma depends on the length** — FR-096's rule as re-cut at v1.15.0 on
+ * the product owner's ruling: **two phrases read `a or b`, three read `a, b,
+ * or c`**, one stands alone. Standard English — a two-item list takes no comma
+ * before *or*, a three-item list does.
  *
  * @param phrases - The phrases the switched-on switches contributed.
  * @returns The list, as it sits inside FR-096's frame.
  */
 function joinPhrases(phrases: readonly string[]): string {
+    const last = phrases.length - 1;
+    const lead = phrases.length === 2 ? ' or' : ', or';
+
     return phrases
-        .map((phrase, index) => (index === 0 ? phrase : `${index === phrases.length - 1 ? ', or' : ','} ${phrase}`))
+        .map((phrase, index) => (index === 0 ? phrase : `${index === last ? lead : ','} ${phrase}`))
         .join('');
 }
 
