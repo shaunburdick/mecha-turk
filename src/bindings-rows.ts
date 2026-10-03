@@ -17,7 +17,11 @@
  * (computed in `bindings-actors.ts`, 005 FR-091/FR-092) — a **count** when the
  * binding carries a list, and the worded absent-policy warning when it does not,
  * which is the one place outside its own editor that this product says *anyone
- * may trigger this repository*.
+ * may trigger this repository*. That clause is a function of three members and
+ * not of the allow-list alone: a binding that is off, or that watches no
+ * trigger, has no exposed surface to describe, and the row says so rather than
+ * asserting a capability the machine does not have (FR-092's eight-row table,
+ * FR-096, NFR-114).
  */
 
 import type { ListItem } from '@openchamber/sdk/ui';

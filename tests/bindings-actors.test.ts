@@ -47,11 +47,14 @@ import { resolve } from 'node:path';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import {
-    ALLOWED_USERS_GUIDANCE,
     ALLOWED_USERS_LABEL,
     actorsRefusal,
+    allowedUsersGuidance,
+    allowedUsersNotSetPlaceholder,
     allowedUsersPatch,
+    derivedTriggerClause,
     parseAllowedUsers,
+    policyClause,
 } from '../src/bindings-actors.ts';
 import { createBindingsHandlers, mountBindingsTabBody } from '../src/bindings-mount.ts';
 import { bindingRows } from '../src/bindings-rows.ts';
@@ -66,7 +69,7 @@ import { mountTabShell } from '../src/tabs.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { BindingsTabState, PanelRuntime } from '../src/panel-state.ts';
-import type { PanelBinding } from '../src/bindings-service.ts';
+import type { PanelBinding, PanelTriggers } from '../src/bindings-service.ts';
 import type { StatusView } from '../src/status-document.ts';
 import type { RunRow } from '../src/dispatches-service.ts';
 import { BINDINGS_PATH } from '../src/service-calls.ts';
@@ -169,6 +172,24 @@ const TWELVE_LOGINS: readonly string[] = [
 /** A value the **service** refuses, which the panel must pass through untouched. */
 const NOT_A_LOGIN = 'two words';
 
+/** The switch set a default fixture row carries, and the add form's contrast. */
+const ASSIGNMENT_ONLY: PanelTriggers = { assignment: true, mention: false, reviewRequest: false };
+
+/** No trigger switched on — the state FR-092's table's last four rows describe. */
+const NOTHING_ON: PanelTriggers = { assignment: false, mention: false, reviewRequest: false };
+
+/** The add form's defaults (`bindings.ts`'s `resetDraft`), as a switch set. */
+const ADD_FORM_SWITCHES: PanelTriggers = { assignment: true, mention: false, reviewRequest: true };
+
+/** Only `mention` — the switch set AC-147's rows 1, 2, 5, and 6 are written for. */
+const MENTION_ONLY: PanelTriggers = { assignment: false, mention: true, reviewRequest: false };
+
+/** `ASSIGNMENT_ONLY`'s own derived clause, spelled once. */
+const ASSIGNMENT_CLAUSE = 'anyone who can assign an issue to the account can start a session';
+
+/** A listed, disabled binding's count sentence (FR-092's row 6). */
+const TWELVE_ONCE_ENABLED = '12 users may trigger once this binding is enabled';
+
 /** The service's refusal for this field, exactly as the route answers it. */
 const REFUSAL = JSON.stringify({
     error: {
@@ -220,7 +241,11 @@ const inertHandlers: PanelHandlers = {
 /**
  * Build one binding as `GET /v1/bindings` serializes it.
  *
- * @param input - The row's identity and its stored allow-list, if any.
+ * `state` and `triggers` are overridable because FR-092's table is a function of
+ * both (005 v1.14.0) and a fixture that could not vary them could not reach four
+ * of its eight rows.
+ *
+ * @param input - The row's identity, its stored allow-list, and its state.
  * @returns One complete binding row.
  */
 function bindingRow(input: {
@@ -230,6 +255,16 @@ function bindingRow(input: {
     readonly repository: string;
     /** The stored list; `undefined` means the binding has none. */
     readonly allowedUsers?: readonly string[];
+    /** Whether the binding polls. */
+    readonly state?: 'active' | 'disabled';
+    /**
+     * The trigger switches, as a **complete** set.
+     *
+     * Not merged over the default: FR-092's table is a function of all three, so
+     * a fixture that could say "only `mention`" had to be able to say so without
+     * a leftover switch silently joining the clause.
+     */
+    readonly triggers?: PanelTriggers;
 }): Record<string, unknown> {
     return {
         bindingId: input.bindingId,
@@ -238,8 +273,8 @@ function bindingRow(input: {
         repository: input.repository,
         projectId: PROJECT_ID,
         worktreeOption: 'generated',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
+        triggers: input.triggers ?? { assignment: true, mention: false, reviewRequest: false },
+        state: input.state ?? 'active',
         createdAt: FIXTURE_TIMESTAMP,
         updatedAt: FIXTURE_TIMESTAMP,
         ...(input.allowedUsers === undefined ? {} : { allowedUsers: input.allowedUsers }),
@@ -588,16 +623,18 @@ function runRow(overrides: Partial<RunRow> = {}): RunRow {
  * shape the parser would have refused.
  *
  * @param policy - The allow-list shape both rows report.
+ * @param active - Whether both rows are enabled; the Status denominator's own
+ *   member (FR-093 as re-cut at v1.14.0).
  * @returns The parsed document.
  * @throws {Error} When the fixture document cannot be read.
  */
-function statusView(policy: 'open' | 'restricted'): StatusView {
+function statusView(policy: 'open' | 'restricted', active = true): StatusView {
     const repository = (bindingId: string, name: string): Record<string, unknown> => ({
         bindingId,
         repository: name,
         projectId: PROJECT_ID,
         accountLogin: LOGIN,
-        active: true,
+        active,
         lastScanAt: FIXTURE_TIMESTAMP,
         lastError: null,
         pendingCount: 0,
@@ -670,6 +707,43 @@ function wordsFound(source: string): readonly string[] {
         .sort();
 }
 
+/**
+ * Every **unqualified** present-tense capability claim in one rendered string
+ * (005 NFR-114 — "no unearned capability").
+ *
+ * NFR-114 forbids a capability asserted *unframed*, so the check is not "does
+ * the string say `can start a session`" — it is "does it say it **about a
+ * binding that cannot**". Exactly two framings are the ones FR-092's table
+ * sanctions, and each is a **negative** or a **conditional**:
+ *
+ * - *negative* — `nothing can start a session`;
+ * - *conditional* — `when you enable it, anyone who can … can start a session`,
+ *   `N users may trigger once this binding is enabled`, `… may trigger then`.
+ *
+ * Anything else is a claim the machine cannot support, so each occurrence is
+ * checked for one of those framings around it and, when it has neither, the
+ * surrounding clause is returned — carrying enough text to be *found* rather
+ * than counted.
+ */
+function unearnedClaims(line: string): readonly string[] {
+    const CLAIM = /can start a session|\busers? may trigger\b/gi;
+    const QUALIFIED =
+        /nothing can start a session|when you enable it,|once this binding is enabled|may trigger then/;
+    const BEFORE = 120;
+    const AFTER = 40;
+
+    const claims: string[] = [];
+    for (const match of line.matchAll(CLAIM)) {
+        const at = match.index;
+        const around = line.slice(Math.max(0, at - BEFORE), at + match[0].length + AFTER);
+        if (!QUALIFIED.test(around)) {
+            claims.push(around.trim());
+        }
+    }
+
+    return claims;
+}
+
 /* -------------------------------------------------------------------- *
  * AC-142 — one field, three states, free text, no picker (005 FR-090)
  * -------------------------------------------------------------------- */
@@ -704,16 +778,20 @@ describe('AC-142 the allow-list is one field whose guidance states all three sta
             mounted.handlers.selectBinding(EDITED_ID);
             const helper = String(listFieldProps().helper);
 
-            // (1) no list -> anyone who can open an issue or comment may start
+            // (1) no list -> the clause **derived** from the switches the editor
+            //     is showing. This row watches `assignment` alone, so the clause
+            //     names that act and no other (FR-096).
+            expect(helper).toContain(ASSIGNMENT_CLAUSE);
             // (2) a list -> exactly those logins
             // (3) an empty list is refused, not "nobody", and disabling the
             //     binding is how every trigger stops
-            expect(helper).toContain('anyone who can open an issue or comment');
             expect(helper).toContain('only those logins may');
             expect(helper).toContain('refused rather than read as');
             expect(helper).toContain('nobody');
             expect(helper).toContain('disable the binding');
-            expect(helper).toBe(ALLOWED_USERS_GUIDANCE);
+            // The panel judges nothing, and the sentence is exactly the function
+            // of the switches rather than a second copy of a constant.
+            expect(helper).toBe(allowedUsersGuidance(ASSIGNMENT_ONLY));
             release(mounted);
         }
 
@@ -725,7 +803,9 @@ describe('AC-142 the allow-list is one field whose guidance states all three sta
 
             expect(empty.value).toBe('');
             expect(String(empty.placeholder)).toContain('not set');
-            expect(empty.helper).toBe(ALLOWED_USERS_GUIDANCE);
+            // The row loaded into the editor watches `assignment` alone, so the
+            // repainted guidance is that switch set's clause.
+            expect(empty.helper).toBe(allowedUsersGuidance(ASSIGNMENT_ONLY));
             release(unset);
 
             const set = editor({
@@ -864,8 +944,9 @@ describe('AC-144 a binding with no list is warned about, in words and not as an 
             const [open, listed] = bindingRows(mounted.rt.state.bindings);
             const subtitle = open?.subtitle ?? '';
 
-            // Who can trigger it…
-            expect(subtitle).toContain('anyone who can open an issue or comment on this repository');
+            // Who can trigger it — **derived** from this row's own switches,
+            // which are `assignment` alone (FR-096).
+            expect(subtitle).toContain(ASSIGNMENT_CLAUSE);
             // …and which field restricts it.
             expect(subtitle).toContain(LIST_KEY);
             // A count of nothing would read as a verdict; there is no count.
@@ -997,7 +1078,7 @@ describe('FR-095 a refused allow-list takes the field, changes nothing, and echo
             // (FR-052), and it never quotes what was submitted (FR-085).
             expect(props.helper).toBe(message);
             expect(String(props.helper)).not.toContain(NOT_A_LOGIN);
-            expect(String(props.helper)).not.toContain(ALLOWED_USERS_GUIDANCE);
+            expect(String(props.helper)).not.toContain(ADD_FORM_SWITCHES);
             expect(mounted.rt.state.bindings.allowedUsersError).toBe(message);
             // Nothing changed, and nothing was reported as saved (AC-125).
             expect(JSON.stringify(mounted.rt.state.bindings.bindings)).toBe(before);
@@ -1125,6 +1206,390 @@ describe('AC-146 no user-facing string implies a policy the service did not repo
                 const literals = stringLiterals(readFileSync(resolve(dir, name), 'utf8')).join(' ');
                 expect(wordsFound(literals).length, name).toBeGreaterThan(0);
             }
+        }
+    });
+});
+
+/* -------------------------------------------------------------------- *
+ * AC-148 — one derivation, from the switches that are on (005 FR-096)
+ * -------------------------------------------------------------------- */
+
+/**
+ * The eight subsets of the three switches and the one clause each maps to.
+ *
+ * Table-driven deliberately: AC-148 asks for a **one-to-one** mapping, and a
+ * fixed sentence reachable from more than one subset is exactly the defect
+ * FR-096 exists to prevent — so the mapping is written out here as data and
+ * the tests below read it, rather than being spelled out in three examples a
+ * fourth subset could dodge.
+ */
+const SUBSETS: readonly (readonly [string, PanelTriggers, string | null])[] = [
+    ['none', { assignment: false, mention: false, reviewRequest: false }, null],
+    [
+        'assignment',
+        { assignment: true, mention: false, reviewRequest: false },
+        'anyone who can assign an issue to the account can start a session',
+    ],
+    [
+        'mention',
+        { assignment: false, mention: true, reviewRequest: false },
+        'anyone who can mention the account in an issue or comment can start a session',
+    ],
+    [
+        'reviewRequest',
+        { assignment: false, mention: false, reviewRequest: true },
+        'anyone who can request a review from the account on a pull request can start a session',
+    ],
+    [
+        'assignment+mention',
+        { assignment: true, mention: true, reviewRequest: false },
+        'anyone who can assign an issue to the account, or mention the account in an issue or comment '
+            + 'can start a session',
+    ],
+    [
+        'assignment+reviewRequest',
+        { assignment: true, mention: false, reviewRequest: true },
+        'anyone who can assign an issue to the account, or request a review from the account on a '
+            + 'pull request can start a session',
+    ],
+    [
+        'mention+reviewRequest',
+        { assignment: false, mention: true, reviewRequest: true },
+        'anyone who can mention the account in an issue or comment, or request a review from the account '
+            + 'on a pull request can start a session',
+    ],
+    [
+        'all three',
+        { assignment: true, mention: true, reviewRequest: true },
+        'anyone who can assign an issue to the account, mention the account in an issue or comment, or '
+            + 'request a review from the account on a pull request can start a session',
+    ],
+];
+
+/** The phrase each switch contributes, and the switch that contributes it. */
+const PHRASES: readonly (readonly [keyof PanelTriggers, string])[] = [
+    ['assignment', 'assign an issue to the account'],
+    ['mention', 'mention the account in an issue or comment'],
+    ['reviewRequest', 'request a review from the account on a pull request'],
+];
+
+describe('AC-148 one derivation over all eight subsets of the three switches (005 FR-096)', () => {
+    it('maps every subset to exactly one clause, names no act that is off, and names no login (+5 cases)', () => {
+        // case: every subset maps to its own clause, and `none` maps to no clause
+        {
+            for (const [name, switches, expected] of SUBSETS) {
+                expect(derivedTriggerClause(switches), name).toBe(expected);
+            }
+
+            // One-to-one: no two subsets share a clause, and none is empty while
+            // something is switched on. A fallback sentence would collide here.
+            const clauses = SUBSETS.map(([, switches]) => derivedTriggerClause(switches));
+            expect(new Set(clauses).size).toBe(SUBSETS.length);
+        }
+
+        // case: a phrase appears only in the clauses of the subsets that switch
+        // its own trigger on — so a binding with only `reviewRequest` names
+        // requesting a review and neither opening an issue nor commenting nor
+        // assigning.
+        {
+            for (const [switched, phrase] of PHRASES) {
+                for (const [name, switches, clause] of SUBSETS) {
+                    const shouldName = switches[switched];
+                    const named = clause?.includes(phrase) ?? false;
+                    expect(named, `${phrase} in the ${name} subset`).toBe(shouldName);
+                }
+            }
+        }
+
+        // case: the composed order is the declared order, whatever the subset
+        {
+            const clause = derivedTriggerClause({ assignment: true, mention: true, reviewRequest: true });
+
+            expect(clause).not.toBeNull();
+            const at = PHRASES.map(([, phrase]) => (clause ?? '').indexOf(phrase));
+            expect(at.every((index) => index >= 0)).toBe(true);
+            expect([...at].sort((left, right) => left - right)).toEqual(at);
+        }
+
+        // case: no clause ever names the bound account's login — the row already
+        // renders that member, and an identity is not a permitted login anyway
+        {
+            for (const [, switches] of SUBSETS) {
+                const clause = derivedTriggerClause(switches);
+
+                if (clause !== null) {
+                    expect(clause).not.toContain(LOGIN);
+                    expect(clause).not.toContain('octocat');
+                    // …and it says *the account*, never the login.
+                    expect(clause).toContain('the account');
+                }
+            }
+        }
+
+        // case: the editor guidance is driven by the same derivation in both
+        // modes — an add-mode draft's switches and an edited row's own
+        {
+            for (const [name, switches, clause] of SUBSETS) {
+                const helper = allowedUsersGuidance(switches);
+
+                expect(helper, name).toContain('only those logins may');
+                expect(helper, name).toContain('refused rather than read as');
+                // The first state's clause is the derived one, or — with nothing
+                // switched on — FR-092's sentence saying nothing can start.
+                expect(helper.includes(clause ?? 'nothing can start a session'), name).toBe(true);
+            }
+
+            // Add mode: the draft's defaults are `assignment` and
+            // `reviewRequest`, and that is what the field's helper must describe.
+            const added = editor({ rows: [] });
+            added.handlers.newBinding();
+            const addHelper = String(listFieldProps().helper);
+
+            expect(addHelper).toBe(allowedUsersGuidance({ assignment: true, mention: false, reviewRequest: true }));
+            expect(addHelper).toContain('request a review from the account on a pull request');
+            expect(addHelper).not.toContain('mention the account');
+            release(added);
+
+            // Edit mode: the loaded row's own switches, which differ from the
+            // add form's defaults — which is the point.
+            const edited = editor({
+                rows: [bindingRow({
+                    bindingId: EDITED_ID,
+                    repository: REPOSITORY,
+                    triggers: MENTION_ONLY,
+                })],
+            });
+            edited.handlers.selectBinding(EDITED_ID);
+            const editHelper = String(listFieldProps().helper);
+
+            expect(editHelper).toBe(allowedUsersGuidance(MENTION_ONLY));
+            expect(editHelper).not.toBe(addHelper);
+            release(edited);
+        }
+    });
+});
+
+/* -------------------------------------------------------------------- *
+ * AC-147 — a binding that cannot trigger says so (005 FR-092's table,
+ * NFR-114)
+ * -------------------------------------------------------------------- */
+
+describe('AC-147 all eight rows of FR-092\'s table, and no unearned capability anywhere', () => {
+    /** The twelve permitted logins AC-147's count half is read against. */
+    const TWELVE = TWELVE_LOGINS;
+
+    it('renders the table row the three facts select, and claims nothing it cannot do (+5 cases)', () => {
+        // case: all eight rows, asserted from the table rather than by example
+        {
+            const TABLE: readonly (readonly [
+                'active' | 'disabled',
+                'absent' | 'listed',
+                PanelTriggers,
+                string,
+            ])[] = [
+                [
+                    'active', 'absent', MENTION_ONLY,
+                    'open to anyone — anyone who can mention the account in an issue or comment can start a '
+                    + 'session; name the logins who may in allowedUsers to change that',
+                ],
+                [
+                    'active', 'listed', MENTION_ONLY,
+                    '12 users may trigger',
+                ],
+                [
+                    'active', 'absent', NOTHING_ON,
+                    'nothing can start a session from this repository — no trigger is switched on; '
+                    + 'name the logins who may in allowedUsers',
+                ],
+                [
+                    'active', 'listed', NOTHING_ON,
+                    'no trigger is switched on, so nothing can start a session until one is; 12 users may '
+                    + 'trigger then',
+                ],
+                [
+                    'disabled', 'absent', MENTION_ONLY,
+                    'nothing can start a session while this binding is off; when you enable it, anyone who '
+                    + 'can mention the account in an issue or comment can start a session; name the logins '
+                    + 'who may in allowedUsers to change that',
+                ],
+                [
+                    'disabled', 'listed', MENTION_ONLY,
+                    TWELVE_ONCE_ENABLED,
+                ],
+                [
+                    'disabled', 'absent', NOTHING_ON,
+                    'nothing can start a session from this repository — it is off, and no trigger is switched '
+                    + 'on; name the logins who may in allowedUsers',
+                ],
+                [
+                    'disabled', 'listed', NOTHING_ON,
+                    '12 users may trigger once this binding is enabled — though no trigger is switched on, '
+                    + 'so nothing can start a session yet',
+                ],
+            ];
+
+            expect(TABLE).toHaveLength(8);
+
+            for (const [state, list, triggers, expected] of TABLE) {
+                const clause = policyClause({
+                    state,
+                    triggers,
+                    count: list === 'listed' ? TWELVE.length : null,
+                });
+
+                expect(clause, `${state} · ${list} · ${Object.keys(triggers).join(',')}`).toBe(expected);
+            }
+        }
+
+        // case: the row the Bindings tab renders carries the same clause — the
+        // table is not a private vocabulary the rows bypass.
+        {
+            const triggers: PanelTriggers = MENTION_ONLY;
+            const mounted = editor({
+                rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, state: 'disabled', triggers })],
+            });
+            const [row] = bindingRows(mounted.rt.state.bindings);
+            const clause = policyClause({ state: 'disabled', triggers, count: null });
+
+            expect(row?.subtitle).toContain('nothing can start a session while this binding is off');
+            expect(row?.subtitle).toContain('when you enable it, anyone who can mention the account');
+            expect(row?.subtitle).toContain(clause);
+            // The **clause** must not repeat the word: the row already renders
+            // the binding's own state as a row fact (`disabled · …`), so the
+            // conditional is what carries the qualification (FR-039). The
+            // assertion is on the clause rather than the whole subtitle, because
+            // the state fact *is* allowed to say it — once, as a state.
+            expect(clause.toLowerCase()).not.toContain('disabled');
+            expect(row?.subtitle).toContain('disabled · ');
+            release(mounted);
+        }
+
+        // case: a disabled binding carrying twelve logins reads `once this
+        // binding is enabled` and **never** the bare count — the count sentence
+        // is where the defect was found.
+        {
+            for (const triggers of [ASSIGNMENT_ONLY, { assignment: true, mention: true, reviewRequest: false }]) {
+                const clause = policyClause({ state: 'disabled', triggers, count: TWELVE.length });
+
+                expect(clause).toBe(TWELVE_ONCE_ENABLED);
+                expect(clause).not.toContain('12 users may trigger. ');
+                expect(clause.endsWith('may trigger')).toBe(false);
+            }
+
+            const mounted = editor({
+                rows: [bindingRow({
+                    bindingId: EDITED_ID,
+                    repository: REPOSITORY,
+                    state: 'disabled',
+                    allowedUsers: TWELVE,
+                })],
+            });
+            const [row] = bindingRows(mounted.rt.state.bindings);
+
+            expect(row?.subtitle).toContain(TWELVE_ONCE_ENABLED);
+            release(mounted);
+        }
+
+        // case: NFR-114's sweep over **every** string about a binding that
+        // cannot trigger — the row, the editor's guidance, the editor's
+        // placeholder, and Status — finds no unframed present-tense claim, and
+        // the sweep is proved non-vacuous by the enabled form it also renders.
+        {
+            for (const state of ['active', 'disabled'] as const) {
+                const mounted = editor({
+                    rows: [
+                        bindingRow({
+                            bindingId: EDITED_ID,
+                            repository: REPOSITORY,
+                            state,
+                            triggers: NOTHING_ON,
+                        }),
+                        // The second row carries a list, so the count half is
+                        // swept in the same pass.
+                        bindingRow({
+                            bindingId: OTHER_ID,
+                            repository: OTHER_REPOSITORY,
+                            state,
+                            triggers: NOTHING_ON,
+                            allowedUsers: TWELVE,
+                        }),
+                    ],
+                });
+                mounted.handlers.selectBinding(EDITED_ID);
+
+                const strings = [
+                    ...bindingRows(mounted.rt.state.bindings)
+                        .flatMap((row) => [String(row.title), String(row.subtitle), String(row.leading)]),
+                    String(listFieldProps().helper),
+                    String(listFieldProps().placeholder),
+                    // Status speaks about bindings too, so its roll-up is in the
+                    // sweep — for the **disabled** pass only. Over an enabled
+                    // set the line legitimately claims a capability (an enabled
+                    // binding with no allow-list really may start a session),
+                    // and with nothing switched on it is the one recorded
+                    // residual FR-093 keeps on purpose: Status carries no
+                    // trigger set, so the panel cannot filter that binding out
+                    // of the numerator (005 clarification row 48). Where `active`
+                    // decides the line, NFR-114 does reach it.
+                    ...(state === 'disabled' ? actorPolicyLines(statusView('open', false)) : []),
+                ];
+                expect(strings.length).toBeGreaterThan(0);
+
+                for (const line of strings) {
+                    expect(unearnedClaims(line), `${state}: ${line}`).toEqual([]);
+                }
+
+                // Where the policy is absent, `allowedUsers` is still named.
+                expect(strings[1]).toContain(LIST_KEY);
+                release(mounted);
+            }
+
+            // case: the field's placeholder carries the consequence too, in all
+            // four states. It renders on **every** unset field, so v1.11.0's
+            // fixed `not set — anyone may trigger this repository` was an
+            // unframed claim sitting in a disabled binding's value slot — which
+            // is what FR-096's supersession and NFR-114 reach it.
+            {
+                expect(allowedUsersNotSetPlaceholder({ state: 'active', triggers: MENTION_ONLY }))
+                    .toBe('not set — anyone may trigger this repository');
+                expect(allowedUsersNotSetPlaceholder({ state: 'disabled', triggers: MENTION_ONLY }))
+                    .toBe('not set — anyone may trigger this repository once it is enabled');
+                expect(allowedUsersNotSetPlaceholder({ state: 'active', triggers: NOTHING_ON }))
+                    .toBe('not set — no trigger is switched on, so nothing can start a session');
+                expect(allowedUsersNotSetPlaceholder({ state: 'disabled', triggers: NOTHING_ON }))
+                    .toBe('not set — nothing can start a session while this binding is off');
+
+                // All four stay `not set` (FR-064) and none is an unqualified
+                // claim about a binding that cannot trigger.
+                for (const state of ['active', 'disabled'] as const) {
+                    for (const triggers of [MENTION_ONLY, NOTHING_ON]) {
+                        const placeholder = allowedUsersNotSetPlaceholder({ state, triggers });
+
+                        expect(placeholder).toContain('not set');
+                        expect(unearnedClaims(placeholder), placeholder).toEqual([]);
+                    }
+                }
+            }
+
+            // Non-vacuous: the **enabled**, watching form of the same fixture
+            // really does render the unqualified sentence the sweep forbids — so
+            // the sweep is finding the string, not passing because the branch is
+            // gone.
+            const open = editor({
+                rows: [bindingRow({
+                    bindingId: EDITED_ID,
+                    repository: REPOSITORY,
+                    triggers: MENTION_ONLY,
+                })],
+            });
+            const [openRow] = bindingRows(open.rt.state.bindings);
+
+            expect(openRow?.subtitle).toContain('open to anyone');
+            expect(openRow?.subtitle).toMatch(/\banyone who can [^;]* can start a session\b/);
+            expect(allowedUsersGuidance(MENTION_ONLY))
+                .toMatch(/\banyone who can [^;]* can start a session\b/);
+            expect(unearnedClaims(String(openRow?.subtitle))).not.toEqual([]);
+            release(open);
         }
     });
 });

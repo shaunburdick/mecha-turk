@@ -842,45 +842,66 @@ describe('hostile strings stay text (FR-080)', () => {
 });
 
 /* -------------------------------------------------------------------- *
- * The allow-list roll-up (005 FR-093, NFR-113, AC-144)
+ * The allow-list roll-up (005 FR-093 as re-cut at v1.14.0, NFR-113, AC-144, AC-149)
  * -------------------------------------------------------------------- */
 
-describe('the actor allow-list roll-up (005 FR-093, AC-144)', () => {
-    it('counts the open bindings, states the consequence, and never names one (+6 cases)', () => {
-        // case: one of three bindings carries no list
+/** The third fixture repository, named once where three cases reuse it. */
+const THIRD_REPOSITORY = 'acme/three';
+
+/** The positive statement FR-093 scopes to *enabled* bindings. */
+const EVERY_ENABLED_RESTRICTS = 'every enabled binding restricts who may trigger';
+
+/** The repository the disabled-open fixture's third row names. */
+const OFF_REPOSITORY = 'acme/off';
+
+/** The *unscoped* positive statement, which a disabled open binding makes false. */
+const EVERY_BINDING_RESTRICTS = 'every binding restricts';
+
+describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
+    it('counts the open ENABLED bindings, states the consequence, and never names one (+6 cases)', () => {
+        // case: one of three enabled bindings carries no list
         {
             const view = viewOf(withMember('repositories', [
                 bindingFixture({ bindingId: 'bnd_a', repository: 'acme/one', actorPolicy: 'restricted' }),
                 bindingFixture({ bindingId: 'bnd_b', repository: 'acme/two', actorPolicy: 'restricted' }),
-                bindingFixture({ bindingId: 'bnd_c', repository: 'acme/three', actorPolicy: 'open' }),
+                bindingFixture({ bindingId: 'bnd_c', repository: THIRD_REPOSITORY, actorPolicy: 'open' }),
             ]));
             const [line] = actorPolicyLines(view);
 
-            expect(line).toContain('1 of 3 bindings');
+            expect(line).toContain('1 of 3 enabled bindings has no allow-list');
             // …and the consequence, not only the count (FR-092).
-            expect(line).toContain('lets anyone who can open an issue or comment');
             expect(line).toContain('start a session');
             // Status points at the Bindings tab and does not duplicate its field
             // (FR-039).
             expect(line).toContain('Bindings tab');
             // No login, and no repository (005 clarification row 42).
-            for (const named of ['acme/one', 'acme/two', 'acme/three', ACCOUNT, 'prj_42']) {
+            for (const named of ['acme/one', 'acme/two', THIRD_REPOSITORY, ACCOUNT, 'prj_42']) {
                 expect(line, named).not.toContain(named);
             }
         }
 
-        // case: every binding restricted is a positive statement, never silence
+        // case: every enabled binding restricted is a positive statement, never
+        // silence — and the statement is scoped to `enabled`, because the
+        // unqualified form is false the moment a disabled binding is open.
         {
             const view = viewOf(withMember('repositories', [
                 bindingFixture({ bindingId: 'bnd_a', actorPolicy: 'restricted' }),
                 bindingFixture({ bindingId: 'bnd_b', repository: 'acme/other', actorPolicy: 'restricted' }),
+                // A third binding, open but off: it must not make the sentence
+                // above false, and it must not enter the denominator either.
+                bindingFixture({ bindingId: 'bnd_c', repository: OFF_REPOSITORY, active: false, actorPolicy: 'open' }),
             ]));
             const [line] = actorPolicyLines(view);
 
             // The criterion fails on an absent row or an empty line: an operator
             // reading silence cannot tell it from a panel that did not check.
-            expect(line).toContain('every binding restricts who may trigger');
-            expect(line).toContain('2 of 2');
+            expect(line).toContain(EVERY_ENABLED_RESTRICTS);
+            expect(line).toContain('2 of 2 enabled');
+            // Not the unscoped claim, and not a denominator that counted the
+            // disabled row.
+            expect(line).not.toContain(EVERY_BINDING_RESTRICTS);
+            expect(line).not.toContain('3 of 3');
+            expect(line).not.toContain('3 of 2');
         }
 
         // case: a service that could not be read reads *not available*
@@ -901,7 +922,7 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144)', () => {
             const [line] = actorPolicyLines(viewOf(withMember('repositories', [])));
 
             expect(line).toContain('no bindings yet');
-            expect(line).not.toContain('every binding restricts');
+            expect(line).not.toContain(EVERY_BINDING_RESTRICTS);
         }
 
         // case: an out-of-vocabulary policy refuses the document (AGENTS invariant 8)
@@ -930,9 +951,96 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144)', () => {
             ]));
             const [line] = actorPolicyLines(view);
 
-            expect(line).toContain('1 of 2 bindings');
+            expect(line).toContain('1 of 2 enabled bindings has no allow-list');
             // The unreadable row is still counted from what the service said.
             expect(bindingLines(view)[0]).toContain('unreadable');
         }
     });
+
+    /* ---------------------------------------------------------------- *
+     * AC-149 — the denominator rule, asserted by the fixture that
+     * exposed the defect: three bindings whose ONLY open one is disabled.
+     * ---------------------------------------------------------------- */
+
+    describe('AC-149 the denominator counts enabled bindings only', () => {
+        /** The fixture that exposed defect 1: three rows, one open, and it is off. */
+        const DISABLED_OPEN: readonly Record<string, unknown>[] = [
+            bindingFixture({ bindingId: 'bnd_a', repository: 'acme/one', actorPolicy: 'restricted' }),
+            bindingFixture({ bindingId: 'bnd_b', repository: 'acme/two', actorPolicy: 'restricted' }),
+            bindingFixture({ bindingId: 'bnd_c', repository: OFF_REPOSITORY, active: false, actorPolicy: 'open' }),
+        ];
+
+        it('excludes a disabled open binding from both halves of the count (+3 cases)', () => {
+            // case: the disabled-open fixture renders 0 of 2, not 1 of 3
+            {
+                const [line] = actorPolicyLines(viewOf(withMember('repositories', DISABLED_OPEN)));
+
+                expect(line).toContain('every enabled binding restricts who may trigger (2 of 2 enabled)');
+                // The two sentences the defect produced, asserted **absent**. A
+                // suite holding only enabled open bindings cannot tell the
+                // conforming count from one that ignores `active`, so this case
+                // is the load-bearing one for the whole requirement.
+                expect(line).not.toContain('1 of 3');
+                expect(line).not.toContain('1 of 3 bindings');
+                expect(line).not.toContain('lets anyone');
+                expect(line).not.toContain(EVERY_BINDING_RESTRICTS);
+                expect(line).not.toContain('of 0 ');
+                expect(line).not.toContain('0 of 0');
+
+                // Non-vacuous: the fixture really does hold a disabled open
+                // binding, so the assertion above is about *this* panel's
+                // filtering and not about a document with nothing to filter.
+                const rows = viewOf(withMember('repositories', DISABLED_OPEN)).bindings;
+                expect(rows).toHaveLength(3);
+                expect(rows.filter((row) => row.active)).toHaveLength(2);
+                expect(rows.filter((row) => !row.active && row.actorPolicy === 'open')).toHaveLength(1);
+            }
+
+            // case: one of two enabled is open — the count, the trigger-neutral
+            // consequence, and nothing that names a login, a repository, or an
+            // act.
+            {
+                const [line] = actorPolicyLines(viewOf(withMember('repositories', [
+                    bindingFixture({ bindingId: 'bnd_a', repository: 'acme/one', actorPolicy: 'restricted' }),
+                    bindingFixture({ bindingId: 'bnd_b', repository: 'acme/two', actorPolicy: 'open' }),
+                ])));
+
+                expect(line).toContain('1 of 2 enabled bindings has no allow-list');
+                expect(line).toContain('whoever the trigger lets act can start a session');
+                // The clause names no act: one clause spans N bindings whose
+                // switch sets differ, and no single act is true of all of them.
+                for (const act of ['open an issue', 'comment', 'assign', 'request a review', 'issue']) {
+                    expect(line?.toLowerCase(), act).not.toContain(act);
+                }
+                for (const named of ['acme/one', 'acme/two', ACCOUNT, 'prj_42']) {
+                    expect(line, named).not.toContain(named);
+                }
+            }
+
+            // case: bindings exist and none is enabled — its own honest sentence,
+            // never `0 of 0` and never the vacuously-true positive statement.
+            {
+                const [line] = actorPolicyLines(viewOf(withMember('repositories', [
+                    bindingFixture({ bindingId: 'bnd_a', active: false, actorPolicy: 'open' }),
+                    bindingFixture({
+                        bindingId: 'bnd_b', repository: 'acme/two', active: false, actorPolicy: 'restricted',
+                    }),
+                    bindingFixture({
+                        bindingId: 'bnd_c', repository: THIRD_REPOSITORY, active: false, actorPolicy: 'open',
+                    }),
+                ])));
+
+                expect(line).toContain('none of the 3 bindings is enabled');
+                expect(line).toContain('nothing can start a session right now');
+                // Both facts are named, so the operator never has to infer a
+                // denominator of zero — and neither banned shape renders.
+                expect(line).not.toContain('0 of 0');
+                expect(line).not.toContain(EVERY_BINDING_RESTRICTS);
+                expect(line).not.toContain(EVERY_ENABLED_RESTRICTS);
+                // Distinct from the *no bindings* case, which is about count.
+                expect(line).not.toContain('no bindings yet');
+            }
+        });
+    });
 });
+

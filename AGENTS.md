@@ -40,7 +40,7 @@ walkthrough is `specs/002-agent-event-extension/quickstart.md`.
 npm ci            # toolchain install (Node >= 20.19; bun for the bundler)
 npm run verify    # build -> lint -> typecheck -> test — THE gate, run before every commit
 npm run build     # bundles panel/main.js (IIFE) + service/main.js (ESM)
-npm test          # vitest, offline (563 tests)
+npm test          # vitest, offline (691 tests)
 npm run format    # eslint --fix
 npm run shot      # screenshot all six panel tabs at 720px and 560px into screenshots/
 ```
@@ -151,10 +151,10 @@ network — those checks are operator-gated and recorded in the spec (see
 | `service-envelope.ts` | The one place an answer is classified: status → problem/code/message/issues, with the resource each refusal names (006 FR-043) |
 | `bindings-mode.ts` | Bindings-authoritative mode: first enabled binding is dispatch context |
 | `bindings-body.ts` | Mounts and disposes the Bindings tab body: the list block with its toolbar, and the editor block that opens on a row click or **New binding** and states the loaded binding's state (2026-10-01 review) |
-| `bindings-rows.ts` | The Bindings tab's rows: state, account, project, the prompt's presence-and-length, the allow-list's count (or its worded absent-policy warning), and the scan line (005 FR-091, FR-092) |
+| `bindings-rows.ts` | The Bindings tab's rows: state, account, project, the prompt's presence-and-length, the allow-list's state-aware policy clause (a count, or the derived absent-policy warning — 005 FR-091, FR-092, NFR-114), and the scan line |
 | `bindings*.ts` / `dispatches*.ts` | The Bindings tab (binding rows, the editor, the add form) plus the Dispatches list's rows, paging, and controls |
 | `bindings-grant.ts` | The whole-file `PUT /v1/bindings` write: prompt-key stripping (004 FR-014), the **allow-list stated on every row** with the opposite default — omission means *unset*, so a cleared field takes the binding back to open (002 FR-047, contract §2) — the "nothing changed" refusal note, and the relay arming that follows a confirmed list |
-| `bindings-actors.ts` | The binding editor's **actor allow-list** field (005 FR-090 – FR-092, FR-095): one free-text field, guidance stating all three of 002 FR-047's states (an empty list is *refused*, not "nobody"; disabling the binding stops every trigger), the count-only row summary, the worded absent-policy warning, and the field-level refusal slot. **The only element that ever holds a permitted login** (005 FR-091, NFR-113) |
+| `bindings-actors.ts` | The binding editor's **actor allow-list** field (005 FR-090 – FR-092, FR-095, FR-096): one free-text field, guidance stating all three of 002 FR-047's states (an empty list is *refused*, not "nobody"; disabling the binding stops every trigger), the row's **state-aware** policy clause — FR-092's closed eight-row table over `state` × list × trigger switches — with FR-096's derivation of who may trigger from the switches that are actually on, the derived unset placeholder, and the field-level refusal slot. **The only element that ever holds a permitted login** (005 FR-091, NFR-113). The policy copy is a **function, never a constant**: a constant cannot know whether the binding it describes can trigger anything (005 NFR-114) |
 | `bindings-draft.ts` | The Bindings tab's draft: `PreparedBinding`, `DraftEditTarget`, the refusal notes, and `readDraft` — what the form holds, read into the row the grant writes; the stored allow-list travels through an edit so changing another field cannot open a restricted binding |
 | `bindings-state.ts` | The Bindings tab's working state and its empty state (moved out of `panel-state.ts` for the file-length gate; `BindingsStatus` and `BindingsTabState` stay importable from there) |
 | `bindings-service.ts` / `accounts-service.ts` | The bindings DTO (`PanelBinding` incl. `allowedUsers`, refused when it is not a list of logins) with the per-binding status rows; the accounts DTO and its fail-closed reader (moved out of `bindings-service.ts` for the file-length gate, still importable from there) |

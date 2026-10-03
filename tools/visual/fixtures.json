@@ -367,8 +367,18 @@
                 "worktreeOption": "none",
                 "leaseExpiresAt": "2026-10-01T03:35:05.631Z",
                 "resultDeadlineAt": null,
-                "sourceReferences": [],
-                "referenceCount": 0,
+                "sourceReferences": [
+                    {
+                        "deliveryId": "dlv-a1",
+                        "kind": "assignment",
+                        "origin": "assignment",
+                        "sourceUrl": "https://github.com/acme/widget/issues/412",
+                        "detectedAt": "2026-09-30T19:58:00.000Z",
+                        "presentAtAuthorization": true,
+                        "actorLogin": "alice"
+                    }
+                ],
+                "referenceCount": 1,
                 "referencesTruncated": false,
                 "referencesNotRetained": 0,
                 "session": {
@@ -386,12 +396,14 @@
                 "baseRef": null,
                 "promptPresent": false,
                 "promptFingerprint": null,
-                "promptLength": null
+                "promptLength": null,
+                "promptSources": null,
+                "actorPolicy": "restricted"
             },
             {
                 "id": "mt-run-a2",
                 "correlationId": "mt-run-a2",
-                "kind": "assignment",
+                "kind": "mention",
                 "repository": "acme/widget",
                 "issueNumber": 409,
                 "issueTitle": "Rate budget accounting for the scan window",
@@ -406,8 +418,18 @@
                 "worktreeOption": "none",
                 "leaseExpiresAt": null,
                 "resultDeadlineAt": null,
-                "sourceReferences": [],
-                "referenceCount": 0,
+                "sourceReferences": [
+                    {
+                        "deliveryId": "dlv-a2",
+                        "kind": "mention",
+                        "origin": "comment:88231",
+                        "sourceUrl": "https://github.com/acme/widget/issues/409#issuecomment-88231",
+                        "detectedAt": "2026-09-30T19:58:00.000Z",
+                        "presentAtAuthorization": true,
+                        "actorLogin": "alice"
+                    }
+                ],
+                "referenceCount": 1,
                 "referencesTruncated": false,
                 "referencesNotRetained": 0,
                 "session": null,
@@ -421,7 +443,9 @@
                 "baseRef": null,
                 "promptPresent": false,
                 "promptFingerprint": null,
-                "promptLength": null
+                "promptLength": null,
+                "promptSources": null,
+                "actorPolicy": "restricted"
             },
             {
                 "id": "mt-run-a3",
@@ -441,8 +465,19 @@
                 "worktreeOption": "none",
                 "leaseExpiresAt": null,
                 "resultDeadlineAt": null,
-                "sourceReferences": [],
-                "referenceCount": 0,
+                "sourceReferences": [
+                    {
+                        "deliveryId": "dlv-a3",
+                        "kind": "assignment",
+                        "origin": "assignment",
+                        "sourceUrl": "https://github.com/acme/api/issues/118",
+                        "detectedAt": "2026-09-30T19:58:00.000Z",
+                        "presentAtAuthorization": true,
+                        "actorLogin": "prompt-it-so",
+                        "actorAttribution": "subject-author"
+                    }
+                ],
+                "referenceCount": 1,
                 "referencesTruncated": false,
                 "referencesNotRetained": 0,
                 "session": {
@@ -465,17 +500,19 @@
                 "baseRef": null,
                 "promptPresent": false,
                 "promptFingerprint": null,
-                "promptLength": null
+                "promptLength": null,
+                "promptSources": null,
+                "actorPolicy": "restricted"
             },
             {
                 "id": "mt-run-a4",
                 "correlationId": "mt-run-a4",
-                "kind": "review-request",
+                "kind": "review",
                 "repository": "acme/api",
                 "issueNumber": 117,
                 "issueTitle": "Review: split the polling adapter out of the scan loop",
                 "issueUrl": "https://github.com/acme/api/issues/117",
-                "state": "blocked:blocked-project",
+                "state": "blocked:project-missing",
                 "stateReason": "prj_99 is not a registered OpenChamber project",
                 "runKey": "github|77331|acme/api|issue|117|3",
                 "ordinal": 3,
@@ -485,8 +522,18 @@
                 "worktreeOption": "none",
                 "leaseExpiresAt": null,
                 "resultDeadlineAt": null,
-                "sourceReferences": [],
-                "referenceCount": 0,
+                "sourceReferences": [
+                    {
+                        "deliveryId": "dlv-a4",
+                        "kind": "review",
+                        "origin": "review",
+                        "sourceUrl": "https://github.com/acme/api/pull/117",
+                        "detectedAt": "2026-09-30T19:58:00.000Z",
+                        "presentAtAuthorization": true,
+                        "actorLogin": "prompt-it-so"
+                    }
+                ],
+                "referenceCount": 1,
                 "referencesTruncated": false,
                 "referencesNotRetained": 0,
                 "session": null,
@@ -500,7 +547,9 @@
                 "baseRef": null,
                 "promptPresent": false,
                 "promptFingerprint": null,
-                "promptLength": null
+                "promptLength": null,
+                "promptSources": null,
+                "actorPolicy": "restricted"
             },
             {
                 "id": "mt-run-a5",
@@ -510,8 +559,8 @@
                 "issueNumber": 27,
                 "issueTitle": "@mecha-turk please re-run the release dry run",
                 "issueUrl": "https://github.com/internal/cli/issues/27",
-                "state": "blocked:blocked-binding",
-                "stateReason": "the binding is disabled",
+                "state": "blocked:binding-missing",
+                "stateReason": "no binding bnd_3 exists, so nothing can be authorized for this run",
                 "runKey": "github|77331|internal/cli|issue|27|4",
                 "ordinal": 4,
                 "attempt": 1,
@@ -520,8 +569,18 @@
                 "worktreeOption": "none",
                 "leaseExpiresAt": null,
                 "resultDeadlineAt": null,
-                "sourceReferences": [],
-                "referenceCount": 0,
+                "sourceReferences": [
+                    {
+                        "deliveryId": "dlv-a5",
+                        "kind": "mention",
+                        "origin": "comment:77310",
+                        "sourceUrl": "https://github.com/internal/cli/issues/27#issuecomment-77310",
+                        "detectedAt": "2026-09-30T19:58:00.000Z",
+                        "presentAtAuthorization": true,
+                        "actorLogin": "dana"
+                    }
+                ],
+                "referenceCount": 1,
                 "referencesTruncated": false,
                 "referencesNotRetained": 0,
                 "session": null,
@@ -530,12 +589,14 @@
                 "claimedAt": null,
                 "dispatchedAt": null,
                 "dispatchResult": null,
-                "bindingId": "bnd_1",
+                "bindingId": "bnd_3",
                 "headSha": null,
                 "baseRef": null,
                 "promptPresent": false,
                 "promptFingerprint": null,
-                "promptLength": null
+                "promptLength": null,
+                "promptSources": null,
+                "actorPolicy": null
             },
             {
                 "id": "mt-run-a6",
@@ -555,8 +616,18 @@
                 "worktreeOption": "none",
                 "leaseExpiresAt": "2026-10-01T03:32:35.631Z",
                 "resultDeadlineAt": null,
-                "sourceReferences": [],
-                "referenceCount": 0,
+                "sourceReferences": [
+                    {
+                        "deliveryId": "dlv-a6",
+                        "kind": "assignment",
+                        "origin": "assignment",
+                        "sourceUrl": "https://github.com/acme/widget/issues/401",
+                        "detectedAt": "2026-09-30T19:58:00.000Z",
+                        "presentAtAuthorization": true,
+                        "actorLogin": "bob"
+                    }
+                ],
+                "referenceCount": 1,
                 "referencesTruncated": false,
                 "referencesNotRetained": 0,
                 "session": null,
@@ -570,7 +641,9 @@
                 "baseRef": null,
                 "promptPresent": false,
                 "promptFingerprint": null,
-                "promptLength": null
+                "promptLength": null,
+                "promptSources": null,
+                "actorPolicy": "restricted"
             },
             {
                 "id": "mt-run-a7",
@@ -590,10 +663,29 @@
                 "worktreeOption": "none",
                 "leaseExpiresAt": null,
                 "resultDeadlineAt": null,
-                "sourceReferences": [],
-                "referenceCount": 0,
-                "referencesTruncated": false,
-                "referencesNotRetained": 0,
+                "sourceReferences": [
+                    {
+                        "deliveryId": "dlv-a7a",
+                        "kind": "assignment",
+                        "origin": "assignment",
+                        "sourceUrl": "https://github.com/acme/api/issues/112",
+                        "detectedAt": "2026-09-30T19:58:00.000Z",
+                        "presentAtAuthorization": true,
+                        "actorLogin": "prompt-it-so"
+                    },
+                    {
+                        "deliveryId": "dlv-a7b",
+                        "kind": "mention",
+                        "origin": "comment:90114",
+                        "sourceUrl": "https://github.com/acme/api/issues/112#issuecomment-90114",
+                        "detectedAt": "2026-09-30T19:58:00.000Z",
+                        "presentAtAuthorization": false,
+                        "actorLogin": "erin"
+                    }
+                ],
+                "referenceCount": 3,
+                "referencesTruncated": true,
+                "referencesNotRetained": 1,
                 "session": {
                     "sessionId": "ses_01J9ZM6H8D",
                     "attachmentId": "mt-run-a7",
@@ -609,12 +701,14 @@
                 "claimedAt": "2026-09-30T19:58:00.000Z",
                 "dispatchedAt": "2026-09-30T19:58:00.000Z",
                 "dispatchResult": null,
-                "bindingId": "bnd_1",
+                "bindingId": "bnd_2",
                 "headSha": null,
                 "baseRef": null,
                 "promptPresent": false,
                 "promptFingerprint": null,
-                "promptLength": null
+                "promptLength": null,
+                "promptSources": null,
+                "actorPolicy": "restricted"
             },
             {
                 "id": "mt-run-a8",
@@ -634,8 +728,18 @@
                 "worktreeOption": "none",
                 "leaseExpiresAt": null,
                 "resultDeadlineAt": null,
-                "sourceReferences": [],
-                "referenceCount": 0,
+                "sourceReferences": [
+                    {
+                        "deliveryId": "dlv-a8",
+                        "kind": "assignment",
+                        "origin": "assignment",
+                        "sourceUrl": "https://github.com/acme/widget/issues/398",
+                        "detectedAt": "2026-09-30T19:58:00.000Z",
+                        "presentAtAuthorization": true,
+                        "actorLogin": "alice"
+                    }
+                ],
+                "referenceCount": 1,
                 "referencesTruncated": false,
                 "referencesNotRetained": 0,
                 "session": null,
@@ -649,14 +753,72 @@
                 "baseRef": null,
                 "promptPresent": false,
                 "promptFingerprint": null,
-                "promptLength": null
+                "promptLength": null,
+                "promptSources": null,
+                "actorPolicy": "restricted"
+            },
+            {
+                "id": "mt-run-a9",
+                "correlationId": "mt-run-a9",
+                "kind": "review",
+                "repository": "acme/api",
+                "issueNumber": 121,
+                "issueTitle": "Review: retire the second polling adapter in favour of the trigger scan",
+                "issueUrl": "https://github.com/acme/api/pull/121",
+                "state": "blocked:actor-not-allowed",
+                "stateReason": "no source reference on this run names an actor the binding's allowedUsers permits: erin",
+                "runKey": "github|77331|acme/api|issue|121|8",
+                "ordinal": 8,
+                "attempt": 1,
+                "attachmentId": "mt-run-a9",
+                "projectId": "prj_42",
+                "worktreeOption": "none",
+                "leaseExpiresAt": null,
+                "resultDeadlineAt": null,
+                "sourceReferences": [
+                    {
+                        "deliveryId": "dlv-a9a",
+                        "kind": "review",
+                        "origin": "review",
+                        "sourceUrl": "https://github.com/acme/api/pull/121",
+                        "detectedAt": "2026-09-30T19:58:00.000Z",
+                        "presentAtAuthorization": true,
+                        "actorLogin": "erin"
+                    },
+                    {
+                        "deliveryId": "dlv-a9b",
+                        "kind": "mention",
+                        "origin": "comment:91877",
+                        "sourceUrl": "https://github.com/acme/api/issues/121#issuecomment-91877",
+                        "detectedAt": "2026-09-30T19:58:00.000Z",
+                        "presentAtAuthorization": false,
+                        "actorLogin": "bob"
+                    }
+                ],
+                "referenceCount": 2,
+                "referencesTruncated": false,
+                "referencesNotRetained": 0,
+                "session": null,
+                "verification": null,
+                "detectedAt": "2026-09-30T19:58:00.000Z",
+                "claimedAt": null,
+                "dispatchedAt": null,
+                "dispatchResult": null,
+                "bindingId": "bnd_2",
+                "headSha": "9f2c1ad4e77b",
+                "baseRef": "main",
+                "promptPresent": false,
+                "promptFingerprint": null,
+                "promptLength": null,
+                "promptSources": null,
+                "actorPolicy": "restricted"
             }
         ],
         "page": {
             "limit": 25,
             "nextCursor": null,
             "hasMore": false,
-            "total": 8,
+            "total": 9,
             "snapshotAt": "2026-09-30T19:58:00.000Z",
             "filter": {
                 "bindingId": null,
@@ -666,6 +828,22 @@
     },
     "audit": {
         "entries": [
+            {
+                "seq": 42,
+                "timestamp": "2026-09-30T19:58:00.000Z",
+                "correlationId": "mt-run-a9",
+                "eventType": "run.authorized",
+                "actorSource": "service",
+                "decision": "refused",
+                "reason": "no source reference on this run names an actor the binding's allowedUsers permits: erin",
+                "details": {
+                    "bindingId": "bnd_2",
+                    "policy": "restricted",
+                    "deniedLogins": [
+                        "erin"
+                    ]
+                }
+            },
             {
                 "seq": 41,
                 "timestamp": "2026-09-30T19:58:00.000Z",
