@@ -19,8 +19,14 @@ import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ROUTES } from '../service/routes/index.ts';
+import { AUDIT_FILE } from '../service/audit.ts';
+import { CONFIG_FILE } from '../service/config.ts';
 import { createEvent } from '../service/poll/events-write.ts';
 import { RUNS_FILE } from '../service/poll/runs.ts';
+import { credentialRemediation } from '../service/prompt.ts';
+import { ACCOUNT_PATH } from '../service/routes/accounts.ts';
+import { BINDINGS_PATH } from '../service/routes/bindings.ts';
+import { CONFIG_PATH } from '../service/routes/config.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import { createLedger, serializeLedger } from '../src/ledger.ts';
 import { parseJsonValue } from '../src/json.ts';
@@ -483,6 +489,251 @@ describe('FR-025 / FR-026 no storage key is added, and the wire keeps its member
             } finally {
                 await loop.shutdown();
             }
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * AC-150 one credential sentinel, three save paths (004 FR-024, FR-083)
+ *
+ * The cross-path half of the containment proof. `bundle.test.ts`'s full cycle
+ * greps what the cycle *left behind*; this one reads what each save path
+ * *answers* and what it *touches*, because a refusal can fail in two ways a
+ * cycle cannot see: by echoing the value in its own body, and by applying a
+ * fraction of a submission that contained a problem. The queue file is not
+ * scanned here because this proof enqueues nothing (there is no queue row to
+ * leak into) — the full cycle refuses the same way and *then* enqueues, so
+ * `events.json` is covered there.
+ * ------------------------------------------------------------------------- */
+
+/** Repository-relative path of the committed panel bundle. */
+const PANEL_BUNDLE_PATH = 'panel/main.js';
+
+/** Repository-relative path of the committed service bundle. */
+const SERVICE_BUNDLE_PATH = 'service/main.js';
+
+/** The global tier's accepted text, in force while every path refuses (004 FR-081). */
+const AC_GLOBAL_TIER = 'Name the failing test before proposing any fix.';
+
+/** The account tier's accepted text, in force while every path refuses (004 FR-082). */
+const AC_ACCOUNT_TIER = 'Prefer the smallest diff that closes the failing test.';
+
+/** The binding tier's accepted text, in force while every path refuses (004 FR-010). */
+const AC_BINDING_TIER = 'Reproduce first, then patch, and keep the public API stable.';
+
+/** The head sentinel planted inside the credential-shaped submission. */
+const CREDENTIAL_HEAD = 'zzREFUSEDzz';
+
+/** The middle run: 24 characters no remediation could quote by accident. */
+const CREDENTIAL_MID = 'a'.repeat(24);
+
+/** The tail sentinel planted inside the credential-shaped submission. */
+const CREDENTIAL_TAIL = 'zzNOWHEREzz';
+
+/** The credential-shaped value every save path must refuse. */
+const CREDENTIAL_VALUE = `ghp_${CREDENTIAL_HEAD}${CREDENTIAL_MID}${CREDENTIAL_TAIL}`;
+
+/** Every run of the value a fragment scan hunts for (each ≥ 8 characters). */
+const CREDENTIAL_FRAGMENTS: readonly string[] = [CREDENTIAL_HEAD, CREDENTIAL_MID, CREDENTIAL_TAIL];
+
+/** The three files a prompt tier is stored in, in generality order. */
+const TIER_FILES: readonly string[] = [CONFIG_FILE, ACCOUNT_FILE, BINDINGS_FILE];
+
+/** One field refusal, as the `422 validation` envelope carries it. */
+interface AcRefusalIssue {
+    /** The offending field. */
+    readonly field: string;
+    /** How to fix it; never quotes what was received. */
+    readonly remediation: string;
+}
+
+/** Header name a JSON body carries, as a computed object key. */
+const AC_CONTENT_TYPE_HEADER = 'content-type';
+
+/** Headers for the routes that take a JSON body. */
+function acJsonHeaders(): Record<string, string> {
+    return { [AC_CONTENT_TYPE_HEADER]: 'application/json' };
+}
+
+/** One whole-file `PUT /v1/bindings` carrying exactly one binding. */
+async function acPutBindings(
+    loop: Awaited<ReturnType<typeof startDispatchLoop>>,
+    binding: Record<string, unknown>,
+): Promise<Response> {
+    return await loop.service.call(BINDINGS_PATH, {
+        method: 'PUT',
+        headers: acJsonHeaders(),
+        body: JSON.stringify({ bindings: [binding] }),
+    });
+}
+
+/**
+ * One whole-document `PUT /v1/config`, patched over the stored document.
+ *
+ * @param loop - The running loop to call.
+ * @param patch - Members to replace in the document as `GET` reports it.
+ * @returns The response.
+ */
+async function acPutConfig(
+    loop: Awaited<ReturnType<typeof startDispatchLoop>>,
+    patch: Readonly<Record<string, unknown>>,
+): Promise<Response> {
+    const read = await loop.service.call(CONFIG_PATH);
+    const envelope = (await read.json()) as { readonly config: Record<string, unknown> };
+
+    return await loop.service.call(CONFIG_PATH, {
+        method: 'PUT',
+        headers: acJsonHeaders(),
+        body: JSON.stringify({ ...envelope.config, ...patch }),
+    });
+}
+
+/** One `PUT /v1/accounts/:numericUserId` profile write. */
+function acPutProfile(
+    loop: Awaited<ReturnType<typeof startDispatchLoop>>,
+    body: Record<string, unknown>,
+): Promise<Response> {
+    return loop.service.call(ACCOUNT_PATH.replace(':numericUserId', ACCOUNT_ID), {
+        method: 'PUT',
+        headers: acJsonHeaders(),
+        body: JSON.stringify(body),
+    });
+}
+
+/** Read the first issue a `422 validation` answer carries. */
+function firstIssueOf(body: string): AcRefusalIssue {
+    const parsed = JSON.parse(body) as {
+        readonly error?: { readonly issues?: readonly AcRefusalIssue[] };
+    };
+
+    return parsed.error?.issues?.[0] ?? { field: '', remediation: '' };
+}
+
+/**
+ * The account record the three paths act on, with its own tier set.
+ *
+ * @param prompt - The account tier to store.
+ * @returns One `accounts/<id>.json` document.
+ */
+function acAccount(prompt: string): Record<string, unknown> {
+    return {
+        ...legacyAccount(),
+        // The custody token is a fixture value rather than a token *shape*,
+        // so the sweep below can cover every surface including this file —
+        // invariant 9 keeps real PATs in exactly that file, and
+        // `bundle.test.ts` proves the shaped kind beside a prompt scan.
+        credential: { token: 'custody-fixture-value', kind: 'classic', verifiedAt: STAMP },
+        startingPrompt: prompt,
+    };
+}
+
+/**
+ * The binding record the three paths act on, with its own tier set.
+ *
+ * @param prompt - The binding tier to store.
+ * @returns One `bindings.json` element.
+ */
+function acBinding(prompt: string): Record<string, unknown> {
+    return { ...legacyBinding(), startingPrompt: prompt };
+}
+
+/**
+ * Read the bytes of every file a prompt tier is stored in, right now.
+ *
+ * @param dataDir - The service's data directory.
+ * @returns Store-relative path → file bytes.
+ */
+function tierBytes(dataDir: string): ReadonlyMap<string, string> {
+    return new Map(
+        TIER_FILES.map((file) => [file, readFileSync(join(dataDir, file), 'utf8')]),
+    );
+}
+
+describe('AC-150 one credential sentinel refused at all three save paths (FR-024, FR-083)', () => {
+    it('answers one shape label everywhere and touches no tier at all', async () => {
+        const loop = await startDispatchLoop();
+        try {
+            // SEED — three tiers in force, each through its own documented path.
+            await loop.store.writeJson(ACCOUNT_FILE, acAccount(AC_ACCOUNT_TIER));
+            const seededGlobal = await acPutConfig(loop, { startingPrompt: AC_GLOBAL_TIER });
+            expect(seededGlobal.status).toBe(200);
+            const seededAccount = await acPutProfile(loop, { startingPrompt: AC_ACCOUNT_TIER });
+            expect(seededAccount.status).toBe(200);
+            const seededBinding = await acPutBindings(loop, acBinding(AC_BINDING_TIER));
+            expect(seededBinding.status).toBe(200);
+
+            // Not vacuous: the three accepted values really are on disk before
+            // anything is refused, so byte-identity below is measured against
+            // a populated store rather than an empty one.
+            const seeded = tierBytes(loop.service.dataDir);
+            expect(seeded.get(CONFIG_FILE)).toContain(AC_GLOBAL_TIER);
+            expect(seeded.get(ACCOUNT_FILE)).toContain(AC_ACCOUNT_TIER);
+            expect(seeded.get(BINDINGS_FILE)).toContain(AC_BINDING_TIER);
+
+            const shape = findSecretLeak(CREDENTIAL_VALUE);
+            if (shape === null) {
+                throw new Error('the AC-150 sentinel must be credential-shaped');
+            }
+
+            // REFUSE — the same value at each of the three save paths.
+            const attempts: readonly (readonly [string, () => Promise<Response>])[] = [
+                ['bindings', () => acPutBindings(loop, acBinding(CREDENTIAL_VALUE))],
+                ['config', () => acPutConfig(loop, { startingPrompt: CREDENTIAL_VALUE })],
+                ['accounts', () => acPutProfile(loop, { startingPrompt: CREDENTIAL_VALUE })],
+            ];
+
+            const labels = new Set<string>();
+            const refusalTexts: string[] = [];
+            for (const [path, send] of attempts) {
+                const before = tierBytes(loop.service.dataDir);
+                const response = await send();
+                const text = await response.text();
+                expect(response.status, `${path} did not refuse`).toBe(422);
+                const issue = firstIssueOf(text);
+                expect(issue.field, path).toBe('startingPrompt');
+                labels.add(issue.remediation);
+                refusalTexts.push(text);
+
+                // No save path applies any part of a submission that contains
+                // a problem: the refusing tier's own file is byte-identical,
+                // and the other two are byte-identical *a fortiori* (AC-150).
+                const after = tierBytes(loop.service.dataDir);
+                for (const file of TIER_FILES) {
+                    expect(after.get(file), `${path} refusal touched ${file}`).toBe(before.get(file));
+                }
+            }
+
+            // One shape label at all three paths — the shared validator's own
+            // remediation, built from the detector's label (FR-083, AC-150).
+            expect([...labels]).toEqual([credentialRemediation(shape)]);
+
+            // Zero characters of the value anywhere: not the value itself and
+            // not one of its three runs, on any surface a refusal or a store
+            // write could have reached.
+            const { dataDir } = loop.service;
+            const surfaces: readonly (readonly [string, string])[] = [
+                [CONFIG_FILE, readFileSync(join(dataDir, CONFIG_FILE), 'utf8')],
+                [ACCOUNT_FILE, readFileSync(join(dataDir, ACCOUNT_FILE), 'utf8')],
+                [BINDINGS_FILE, readFileSync(join(dataDir, BINDINGS_FILE), 'utf8')],
+                [RUNS_FILE, readFileSync(join(dataDir, RUNS_FILE), 'utf8')],
+                [AUDIT_FILE, readFileSync(join(dataDir, AUDIT_FILE), 'utf8')],
+                ['the three refusal bodies', refusalTexts.join('\n')],
+                ['captured service logs', JSON.stringify(loop.service.logLines)],
+                ['host.storage', JSON.stringify([...loop.panelStorage])],
+                ['panel bundle', readFileSync(resolve(ROOT, PANEL_BUNDLE_PATH), 'utf8')],
+                ['service bundle', readFileSync(resolve(ROOT, SERVICE_BUNDLE_PATH), 'utf8')],
+            ];
+
+            for (const [name, text] of surfaces) {
+                for (const fragment of [CREDENTIAL_VALUE, ...CREDENTIAL_FRAGMENTS]) {
+                    expect(text.includes(fragment), `${name} echoed part of the refused value`)
+                        .toBe(false);
+                }
+
+                expect(findSecretLeak(text), `${name} carried credential material`).toBeNull();
+            }
+        } finally {
+            await loop.shutdown();
         }
     });
 });

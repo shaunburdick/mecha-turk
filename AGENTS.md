@@ -131,7 +131,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | --- | --- |
 | `config.ts` | Parse and validate operator settings (fail closed) |
 | `github.ts` | The normalised `GitHubIssue` shape the message composer and the relay read (the REST fetchers and the `/user` diagnostic went with the install-time card) |
-| `prompt.ts` / `prompt-wire.ts` | The operator fence, the reserved marker prefixes, trim/normalise/code-point rules, and `composeFirstMessage`; the wire readers for the prompt's reference members (fail closed: `promptText` non-null iff `promptPresent`) |
+| `prompt.ts` / `prompt-wire.ts` | The operator fence, the reserved marker prefixes, trim/normalise/code-point rules, the closed tier vocabulary (`PromptSource`, `PROMPT_SOURCE_ORDER`, the two `promptSources` predicates), and `composeFirstMessage`; the wire readers for the prompt's reference members (fail closed: `promptText` non-null iff `promptPresent`, `promptSources` a non-empty duplicate-free subsequence of the tier order) |
 | `context-blocks.ts` | The bounded excerpt renderer: untrusted delimiters, defusing, the per-source budget, and the roll-up line |
 | `evidence.ts` | Normalized, redacted evidence record |
 | `ids.ts` | Correlation identifier and RFC 3339 clock helpers (fail closed when the secure-context UUID source is missing) |
@@ -153,19 +153,19 @@ network — those checks are operator-gated and recorded in the spec (see
 | `bindings-body.ts` | Mounts and disposes the Bindings tab body: the list block with its toolbar, and the editor block that opens on a row click or **New binding** and states the loaded binding's state (2026-10-01 review) |
 | `bindings*.ts` / `dispatches*.ts` | The Bindings tab (binding rows, the editor, the add form) plus the Dispatches list's rows, paging, and controls |
 | `bindings-grant.ts` | The whole-file `PUT /v1/bindings` write: prompt-key stripping (004 FR-014), the "nothing changed" refusal note, and the relay arming that follows a confirmed list |
-| `bindings-prompt.ts` | The binding editor's starting-prompt field — the one element in the panel that ever holds its text (005 FR-051) |
+| `bindings-prompt.ts` | The binding editor's starting-prompt field — the binding tier's one rendering (005 FR-051 as amended: one rendering per tier value), carrying FR-063's five-fact guidance beside it and FR-064's honest `not set` in the value slot (004 FR-089); its row summary shows presence and length only, never the text |
 | `bindings-editor.ts` | The editor's derived field views: the mention token in force and its override mark (005 FR-057, no store in this build), the bound-account scope for edit vs add, and the worktree option declaration |
 | `dispatches-controls.ts` | Paging, filter, and row-detail controls: range line, active-filter line, Previous/Next, page size, the source-reference reveal, and the correlation-id copy |
 | `dispatches-service.ts` / `dispatches-rows.ts` | Run DTO parsed fail-closed across the eight dispatch states; each state's label, tone, and retry validity |
 | `run-state.ts` | The eight-state dispatch vocabulary, its `blocked:<reason>` family, and the narrowers that refuse an unknown word |
 | `relay.ts` | Relay tick: claim → handled key → guards → attempt; one handoff per `correlationId#attempt` per mount |
-| `relay-gates.ts` / `relay-attempt.ts` | Binding/project guards, the `blocked` report, and the reserve step; then host call → record → report → acknowledge → read-back |
+| `relay-gates.ts` / `relay-attempt.ts` | Binding/project guards, the `blocked` report, and the reserve step; then compose → the budget floor (a first message over `CONTEXT_MAX_CHARS` refused before `host.startSession()` is called — no session started, 004 FR-085) → host call → record → report → acknowledge → read-back |
 | `dispatch-record.ts` | `mecha-turk:dispatches`: the durable attempt record, written between the host call and its report and acknowledged on its own 2xx |
 | `claim-service.ts` | Claim and run-history body parsers (strict: an unknown state refuses the body) |
 | `reconcile.ts` | Mount-time re-report of every unacknowledged attempt, before the first claim (bounded, warns visibly) |
 | `prerequisites.ts` / `prerequisite-records.ts` | The five first-run prerequisites: the mounted section (block, cards, state chips, FR-073 notice) and the pure derivation that answers each one `met` / `not-met` / `not-checkable` with its detail and remediation line |
 | `status-document.ts` / `status-lines.ts` / `status-tab.ts` | The `GET /v1/status` document parsed fail closed and the read state that holds it; the Status tab's operator-facing copy as pure functions; and the tab's mount, repaint, and single read |
-| `settings-rows.ts` | The Settings tab's row builder: one row per projected descriptor plus one per undocumented member — name, unit-or-*none*, bounds-or-format, value, and class words, every one of them from the wire (005's bounds stand-in retired by 006 T-018) |
+| `settings-rows.ts` | The Settings tab's row builder: one row per projected descriptor plus one per undocumented member — name, unit-or-*none*, bounds-or-format, value, and class words, every one of them from the wire (005's bounds stand-in retired by 006 T-018); the global prompt tier rides that same list as the twelfth field, `startingPrompt` — its `format` guidance rendered as text and FR-064's *not set* in the value slot (004 T-030; FR-064, FR-089) |
 | `settings-schema.ts` | Fail-closed reader for `GET /v1/config`'s envelope: the closed descriptor union, plus the `unreadable` and `undisplayed` flags (006 T-017; FR-021, FR-027, FR-028) |
 | `settings-confirm.ts` | The destructive-confirmation copy builder, pure: the retention arm's what/when/survivors block, the restore arm's current → default list, and the raise-deletes-nothing and irreversibility lines (006 T-022; FR-016, FR-051–FR-054) |
 | `settings-edit.ts` | The Settings draft/save state machine, pure: baseline ∪ projection defaults ∪ edits, the no-baseline and busy gates, and the pending markers only a read retires (006 T-019; FR-038, FR-041, FR-046) |
@@ -180,7 +180,7 @@ network — those checks are operator-gated and recorded in the spec (see
 | `agent-verify-copy.ts` | The read-back's words: the runs-area banner and the service's `note`, pure functions of one outcome |
 | `handoff*.ts` / `account*.ts` | One-shot token handoff (paste → connect; no consent step since 002 v1.9.0), the always-visible Accounts disclaimer (`accounts-disclaimer.ts`), silent adoption, and the credential-free account mirror |
 | `accounts-rows.ts` / `accounts-tab.ts` | The Accounts tab: every FR-062 row word (lifecycle, connection, scope matrix, remediation, binding count) as pure functions, plus the body's mounts, repaint, and single read |
-| `accounts-actions.ts` | The tab's writes: two-step removal with the `force=1` cascade the arm stated, the rotation arm the handoff routes on, and the display-name PUT that never applies a value the service did not confirm |
+| `accounts-actions.ts` | The tab's writes: two-step removal with the `force=1` cascade the arm stated, the rotation arm the handoff routes on, and the one account profile write (`PUT /v1/accounts/:numericUserId`, one member per save, absent = unchanged) behind both member fields — display name and account-tier starting prompt — that never applies a value the service did not confirm |
 | `storage-write.ts` | Guarded storage writes |
 
 ## Module map (service, `service/`)
@@ -190,8 +190,9 @@ network — those checks are operator-gated and recorded in the spec (see
 | `main.ts` / `server.ts` / `http.ts` | Entry, loopback HTTP server, routing, body/size caps |
 | `auth.ts` | Extension grant + the bearer gate on every call |
 | `accounts/` | Durable account model, credential files, startup reconcile |
+| `account-prompt-audit.ts` | The account tier's observer lane: one `account.prompt-updated` row per change — profile write or hand edit — on a per-store chain with a trail-seeded baseline; never the prompt's text, and a `displayName`-only change is not a tier change (004 FR-088) |
 | `bindings.ts` / `bindings-read.ts` | Whole-file bindings store (validated, capped) + the read path: quarantine-reason capture and the prompt-change observation funnel |
-| `prompt.ts` / `prompt-audit.ts` | The starting-prompt domain (four refusals, `mtp-` fingerprint, run snapshot) and the per-store chain that writes exactly one `binding.prompt-updated` row per change |
+| `prompt.ts` / `prompt-audit.ts` | The starting-prompt domain (four refusals, `mtp-` fingerprint, run snapshot) — including the three-tier resolver and stack vocabulary (`TierPrompt`, `promptTierOf`, `composePromptBody`, `resolvePromptSnapshot`, the stack bound, the stored-snapshot reader) — and the per-store chain that writes exactly one `binding.prompt-updated` row per change |
 | `poll/` | Per-binding scan loop, trigger detection over the rate budget, durable event queue (deterministic ids, claim, terminal dispatch) |
 | `poll/run-key.ts` | Run key, correlation id, dispatch token, and token-fingerprint derivation |
 | `poll/runs*.ts` | `runs.json` document: fail-closed parser, join/create, one-shot adoption of pre-003 rows, lifecycle audit rows and the durable audit outbox |
@@ -202,18 +203,22 @@ network — those checks are operator-gated and recorded in the spec (see
 | `poll/run-history-project.ts` | The capped, credential-free run-history projection |
 | `poll/backoff.ts` | The poll-*request* ladder — pure delay arithmetic plus the injected-sleep driver; requests/attempts, never 003's requeue (006 FR-058) |
 | `poll/window.ts` | The scan window: `lastScanAt − overlapMs`, the replay case, and the closure of 002 FR-019's conformance gap (006 FR-059(a)) |
+| `poll/cycle-config.ts` | The cycle's one configuration read, with the global-tier prompt observation in the same chain task — the snapshot the diff judges is the snapshot the cycle runs on; a document that cannot be read degrades to the documented defaults with one warn (006 FR-055; 004 FR-088) |
 | `poll/excerpt-trim.ts` | The excerpt retention pass: text-only clearing on terminal rows past `excerptRetentionDays`, the `excerptTrimmedAt` marker, and one `audit.trimmed` row after the rewrite (006 FR-057) |
 | `routes/` | `/v1/status`, `/health`, `/v1/bindings`, `/v1/accounts`, `/v1/events*`, credential verify |
+| `routes/account-profile.ts` | The account profile write `PUT /v1/accounts/:numericUserId`: the closed two-member body (`displayName`, `startingPrompt` — absent = unchanged, neither = no-op `422`, any other key refused by name with no echo), all-or-nothing, with an account-tier prompt change appended through the observer chain (004 FR-082, FR-088; 005 FR-066) |
 | `routes/dispatch.ts` / `routes/run-ops.ts` | Reserve, result, abandon, blocked; retry, requeue, resolve, verification |
 | `routes/audit.ts` | `GET /v1/audit`, filtered by correlation identifier |
 | `routes/run-scope.ts` / `routes/run-fields.ts` / `routes/run-answer.ts` | Shared run-scoped path/body readers and the `200` / refusal envelopes |
 | `audit.ts` / `log.ts` | `audit.ndjson` rows + structured, secret-free logs |
 | `audit-trim.ts` | The audit retention pass: FR-056's protected set computed by rule, oldest-first removal under the day window and the entry cap, survivors plus their `audit.trimmed` row in one atomic rewrite |
 | `config-audit.ts` | The `config.changed` row: `configChanges` (which doubles as the no-op detector), the `applied` shape with `from`/`to`/`takesEffect`, and the value-free `refused` shape (006 FR-070–FR-072) |
+| `config-prompt-observe.ts` | The global tier's observer: one `config.changed` row (actor `service`) for a `startingPrompt` change the cycle sees in the stored document, on a trail-seeded baseline and serialised with the `PUT` path's own row so a change is never recorded twice — and never the text (004 FR-088; 006 FR-070, FR-071) |
 | `retention.ts` | Both retention passes wired at their two boundaries — store open and the cycle boundary — each guarded so one failure still runs the other (006 FR-055, FR-057, FR-047) |
 | `store/` | 0700/0600 store, JSON/NDJSON IO, quarantine-and-repair reads |
 | `config.ts` / `env.ts` / `throttle.ts` | Operator-tunable polling/retry/retention, env, rate budgets |
 | `config-schema.ts` | That declaration projected onto the wire: the exhaustive `TAKE_EFFECT` table, the closed `FieldDescriptor` union, `configSchema()` (006 FR-020–FR-022) |
+| `config-prompt.ts` | The global tier's rule at the configuration save boundary — a call into the one `validateStartingPrompt` (one validator, three call sites), with `PUT /v1/config`'s own voice: an absent or non-string member is a refusal, not *unset*, and no issue quotes the submission (004 FR-081, FR-083; 006 FR-041) |
 
 ## Spec workflow
 

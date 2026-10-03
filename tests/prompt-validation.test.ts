@@ -38,6 +38,7 @@ import {
     trimPrompt,
 } from '../src/prompt.ts';
 import { findSecretLeak } from '../src/redaction.ts';
+import { startingPromptIssue } from '../service/config-prompt.ts';
 import {
     PROMPT_FINGERPRINT_PATTERN,
     STARTING_PROMPT_MAX_CODE_POINTS,
@@ -440,6 +441,83 @@ describe('T-002 promptFingerprint (FR-016, AC-140)', () => {
             if (crlf.ok && lf.ok && crlf.prompt !== null && lf.prompt !== null) {
                 expect(promptFingerprint(crlf.prompt)).toBe(promptFingerprint(lf.prompt));
             }
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * T-035 the one credential refusal all three save paths answer with
+ * (004 FR-083, FR-024, AC-150)
+ *
+ * AC-150's route-level half — the same sentinel refused at `PUT /v1/bindings`,
+ * `PUT /v1/config`, and `PUT /v1/accounts/:id` with identical labels and
+ * byte-identical stores — is proved end to end in
+ * `tests/containment-proof.test.ts`. This is the half that explains *why* it
+ * holds: the configuration wrapper hands back the shared validator's issue
+ * unchanged, so a path-specific rewording cannot hide between the call sites.
+ * ------------------------------------------------------------------------- */
+
+describe('T-035 one credential refusal at every save path (FR-083, AC-150)', () => {
+    /** The classic-token label, named so it is not a third duplicate literal. */
+    const CLASSIC_TOKEN_LABEL = 'github-token-classic';
+
+    it('is the shared validator\'s issue at the configuration wrapper too (+2 cases)', () => {
+        // case: the configuration wrapper returns the shared issue byte for byte, under the detector's own label
+        {
+            const shaped: readonly (readonly [string, string])[] = [
+                [CLASSIC_TOKEN_LABEL, `ghp_${'a'.repeat(30)}`],
+                ['github-token-fine-grained', `github_pat_${'b'.repeat(30)}`],
+                ['authorization-header', AUTHORIZATION_SHAPE],
+                ['bearer-credential', `Bearer ${'c'.repeat(24)}`],
+            ];
+
+            for (const [label, secret] of shaped) {
+                const submitted = `Use this: ${secret} exactly once.`;
+                const shared = refusalOf(submitted);
+                // The configuration save path wraps this validator rather than
+                // re-implementing it, so the three call sites cannot drift
+                // apart (FR-083: one validator, three call sites).
+                expect(startingPromptIssue(submitted), label).toEqual([shared]);
+                expect(shared.field, label).toBe('startingPrompt');
+                // Spelled out as a golden literal: a reworded remediation, a
+                // hardcoded label, or a value that leaks into the message all
+                // fail this one line.
+                expect(shared.remediation, label).toBe(
+                    `startingPrompt must not contain credential-shaped material (matched shape: ${label})`,
+                );
+            }
+        }
+        // case: carries no fragment of the submitted value — not the value, not any run of it
+        {
+            const head = 'zzREFUSEDzz';
+            const mid = 'a'.repeat(24);
+            const tail = 'zzNOWHEREzz';
+            const submitted = `ghp_${head}${mid}${tail}`;
+            const shape = findSecretLeak(submitted);
+            if (shape === null) {
+                throw new Error('the fragment sentinel must be credential-shaped');
+            }
+
+            const issue = refusalOf(submitted);
+            expect(issue.remediation).toBe(
+                `startingPrompt must not contain credential-shaped material (matched shape: ${shape})`,
+            );
+            for (const fragment of [submitted, head, mid, tail]) {
+                expect(issue.remediation, fragment).not.toContain(fragment);
+                expect(JSON.stringify(issue), fragment).not.toContain(fragment);
+            }
+        }
+        // case: the wrapper's own non-string refusal is value-free as well
+        {
+            const issues = startingPromptIssue({ note: SENTINEL });
+
+            expect(issues).toEqual([
+                {
+                    field: 'startingPrompt',
+                    remediation: 'set startingPrompt to a string; leave it empty for an unset global tier',
+                },
+            ]);
+            expect(JSON.stringify(issues)).not.toContain(SENTINEL);
         }
     });
 });

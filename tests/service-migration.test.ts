@@ -13,6 +13,16 @@
  * pre-existing problem result rendered `failed` and retryable, dispatched rows
  * still terminal, and the adopted `pending` rows claimable (FR-005, AC-126).
  *
+ * T-036 (004) adds the other half of the arrival claim to the same shipped
+ * store: a `config.json` predating `startingPrompt` and an account file
+ * predating it too, then the boot read as **bytes** — zero quarantines by
+ * arrival, five files byte-identical, `defaultsApplied: ['startingPrompt']`
+ * from the configuration read, every adopted run keeping the delivery id it
+ * was queued under with `prompt` still `null`, `SERVICE_SCHEMA_VERSION` still
+ * `1`, the first adopted run composing the pre-004 golden literal, and a
+ * **second** boot changing no byte and no identifier either (FR-018, FR-089,
+ * SC-128, AC-131, AC-142).
+ *
  * Offline by construction: the seeded binding is `disabled`, so the boot scan
  * cycle skips it (no poller, no network), and the seeded account is complete
  * but never re-verified.
@@ -23,8 +33,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUDIT_FILE, appendAudit, readAuditEntries } from '../service/audit.ts';
+import { CONFIG_FILE, DEFAULT_CONFIG } from '../service/config.ts';
 import { createLogger } from '../service/log.ts';
-import { createEvent, enqueueEvents, EVENTS_FILE } from '../service/poll/events.ts';
+import { createEvent, enqueueEvents, readEvents, EVENTS_FILE } from '../service/poll/events.ts';
 import { reserveDispatch } from '../service/poll/dispatch-authorize.ts';
 import { reportDispatch } from '../service/poll/dispatch-report.ts';
 import {
@@ -34,10 +45,14 @@ import {
     readRunsDocument,
 } from '../service/poll/runs.ts';
 import { BINDINGS_PATH } from '../service/routes/bindings.ts';
+import { CONFIG_PATH } from '../service/routes/config.ts';
 import { EVENTS_PATH, EVENTS_PENDING_PATH } from '../service/routes/events.ts';
 import { RETRY_PATH } from '../service/routes/run-ops.ts';
-import { openStore } from '../service/store/index.ts';
+import { SERVICE_SCHEMA_VERSION, openStore } from '../service/store/index.ts';
+import { composeFirstMessage } from '../src/prompt.ts';
+import { buildBoundedContext } from '../src/session.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
+import type { Run } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/handoff.ts';
 import { startTestService } from './support/service.ts';
@@ -623,5 +638,260 @@ describe('T-030 the shipped store boots through the upgraded service (NFR-103, A
             || entry.eventType === SHIPPED_ACCOUNT_EVENT);
         expect(inherited.map((entry) => entry.eventType)).toEqual([SHIPPED_CONSENT_EVENT, SHIPPED_ACCOUNT_EVENT]);
         expect(inherited[1]?.correlationId).toBe(LEGACY_CORRELATION);
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * T-036 — arrival writes nothing (004 FR-018, FR-089, SC-128, AC-131, AC-142)
+ * ------------------------------------------------------------------------- */
+
+/** The one member the shipped documents predates (004 FR-081). */
+const PROMPT_FIELD = 'startingPrompt';
+
+/** The fence marker a message carries only when a prompt block is present. */
+const PROMPT_FENCE_MARKER = 'OPERATOR STARTING PROMPT';
+
+/** The one issue the shipped seed names (see `snapshot`). */
+const LEGACY_ISSUE_URL = 'https://github.com/acme/widget/issues/1';
+
+/**
+ * The configuration document the shipped store held: every documented member
+ * except the prompt tier the file predates.
+ *
+ * Built from the shipped declaration rather than spelled, so a field added
+ * later can only widen this fixture — it can never turn it into an
+ * unknown-key quarantine behind the test's back.
+ */
+const PRE_PROMPT_CONFIG: Readonly<Record<string, unknown>> = Object.fromEntries(
+    Object.entries(DEFAULT_CONFIG).filter(([field]) => field !== PROMPT_FIELD),
+);
+
+/** The answer `GET /v1/config` gives (006 contract §2.1). */
+interface ConfigEnvelope {
+    /** The effective document, read member by member. */
+    readonly config: Readonly<Record<string, unknown>>;
+    /** Where the document came from. */
+    readonly source: string;
+    /** Documented keys the stored file lacked. */
+    readonly defaultsApplied: readonly string[];
+}
+
+/**
+ * Read one store file as the bytes actually on disk.
+ *
+ * Byte identity is asserted on bytes: a deep-compare of parsed JSON cannot
+ * see a document that was rewritten, re-serialised, and compared back.
+ *
+ * @param name - Store-relative file name.
+ * @returns The file's raw bytes.
+ */
+async function fileBytes(name: string): Promise<Buffer> {
+    return await readFile(join(dataDir, name));
+}
+
+/**
+ * The message a dispatch of one adopted run would compose, built exactly the
+ * way the relay builds it: the run's own snapshot, the delivery's own text.
+ *
+ * @param target - The service whose store holds the run.
+ * @param run - The adopted run to compose for.
+ * @returns The complete first message.
+ * @throws {Error} When the store is missing or the run lost its delivery.
+ */
+async function composedMessageFor(target: TestService, run: Run): Promise<string> {
+    const handle = target.handle.store;
+    if (handle === null) {
+        throw new Error('the service opened no store');
+    }
+
+    const queue = await readEvents({ store: handle, log: LOGGER });
+    const deliveryId = run.sourceReferences[0]?.deliveryId;
+    const delivery = queue.find((row) => row.id === deliveryId);
+    if (deliveryId === undefined || delivery === undefined) {
+        throw new Error('the adopted run lost the delivery it was queued under');
+    }
+
+    const frame = buildBoundedContext({
+        repository: run.repository,
+        issue: {
+            issueNumber: run.subjectNumber,
+            title: delivery.issueTitle,
+            url: delivery.issueUrl,
+            state: 'open',
+            body: delivery.issueBodyExcerpt,
+            assignees: [delivery.accountLogin],
+            isPullRequest: run.subjectType === 'pull_request',
+        },
+        authenticatedLogin: delivery.accountLogin,
+        correlationId: run.correlationId,
+        sources: run.sourceReferences.map((reference) => ({
+            origin: reference.origin,
+            kind: reference.kind,
+            detectedAt: reference.detectedAt,
+            url: reference.sourceUrl,
+            excerpt: delivery.issueBodyExcerpt,
+        })),
+    });
+
+    return composeFirstMessage({ prompt: run.prompt?.text ?? null, frame });
+}
+
+/**
+ * The shipped message for the seeded legacy delivery, as a literal with one
+ * slot.
+ *
+ * The correlation id is derived by the run key, so it is slotted rather than
+ * spelled; every frame line, both delimiters, the source heading, and the
+ * empty excerpt are literals — which is what makes this a golden: the
+ * pre-004 composition for an adopted delivery, byte for byte (AC-131's
+ * no-tier oracle, on a run this upgrade adopted rather than queued).
+ *
+ * @param correlationId - The adopted run's own id, read from the store.
+ * @returns The complete first message the previous build would have sent.
+ */
+function legacyGoldenMessage(correlationId: string): string {
+    return [
+        'Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).',
+        `Correlation: ${correlationId}`,
+        'Repository: acme/widget',
+        'Issue #1: Issue 1',
+        `URL: ${LEGACY_ISSUE_URL}`,
+        `Machine account: ${SHIPPED_LOGIN}`,
+        'Rule: configured-match — open issue assigned to the authenticated machine account.',
+        'Source references: 1',
+        '--- BEGIN UNTRUSTED ISSUE TEXT (truncated) ---',
+        `assignment · assignment · ${STAMP} · ${LEGACY_ISSUE_URL}`,
+        '',
+        '--- END UNTRUSTED ISSUE TEXT ---',
+    ].join('\n');
+}
+
+describe('T-036 the shipped store predating the prompt member arrives unchanged', () => {
+    it('boots it twice and rewrites no byte, no identifier, and no schema marker', async () => {
+        await seedShippedStore();
+        await store.writeJson(CONFIG_FILE, PRE_PROMPT_CONFIG);
+
+        // The bytes the previous release left behind, read as bytes: a
+        // deep-compare of parsed JSON cannot see a re-serialised document, so
+        // SC-128's byte-identity claim is tested against the bytes (FR-018).
+        const shipped = {
+            config: await fileBytes(CONFIG_FILE),
+            account: await fileBytes(ACCOUNT_FILE),
+            bindings: await fileBytes(BINDINGS_FILE),
+            events: await fileBytes(EVENTS_FILE),
+            window: await fileBytes(SCAN_STATE_FILE),
+        };
+        const storedRows = JSON.parse(await readFile(join(dataDir, EVENTS_FILE), 'utf8')) as
+            readonly { readonly id: string }[];
+        const deliveryIds = storedRows.map((row) => row.id);
+
+        const service = await startTestService({ dataDir });
+        running = service;
+        // The boot sweep is awaited before the listener binds (FR-032), so
+        // the adoption pass its first run-document read performs has finished.
+        await service.handle.swept;
+        await service.handle.reconciled;
+
+        // Nothing was set aside: a document that predates a member is older
+        // than this build, not malformed (SC-128: zero quarantines by arrival).
+        const firstEntries = await readdir(dataDir);
+        expect(firstEntries.filter((entry) => entry.includes('.corrupt-'))).toEqual([]);
+        expect(await fileBytes(CONFIG_FILE)).toEqual(shipped.config);
+        expect(await fileBytes(ACCOUNT_FILE)).toEqual(shipped.account);
+        expect(await fileBytes(BINDINGS_FILE)).toEqual(shipped.bindings);
+        expect(await fileBytes(EVENTS_FILE)).toEqual(shipped.events);
+        expect(await fileBytes(SCAN_STATE_FILE)).toEqual(shipped.window);
+
+        // The configuration read fills the key the file predates from the
+        // documented blank and reports the fill as a default — never as a
+        // configured value — and the read writes nothing back (FR-081,
+        // FR-089, 006 FR-028).
+        const read = await service.call(CONFIG_PATH);
+        expect(read.status).toBe(200);
+        const envelope = await read.json() as ConfigEnvelope;
+        expect(envelope.source).toBe('stored');
+        expect(envelope.defaultsApplied).toEqual([PROMPT_FIELD]);
+        expect(envelope.config[PROMPT_FIELD]).toBe('');
+        expect(await fileBytes(CONFIG_FILE)).toEqual(shipped.config);
+
+        // Every adopted run keeps the delivery id it was queued under, the
+        // identifiers are unique, and no prompt state was invented for any
+        // of them: a legacy row carries no prompt, so `prompt` reads `null`
+        // — absence kept, not a default filled (AC-142, FR-087).
+        const opened = service.handle.store;
+        if (opened === null) {
+            throw new Error('the upgraded service opened no store');
+        }
+
+        const firstRuns = await readRunsDocument({ store: opened, log: LOGGER });
+        expect(firstRuns.runs).toHaveLength(deliveryIds.length);
+        expect(firstRuns.runs.map((run) => run.sourceReferences[0]?.deliveryId)).toEqual(deliveryIds);
+        expect(new Set(firstRuns.runs.map((run) => run.runKey)).size).toBe(firstRuns.runs.length);
+        expect(new Set(firstRuns.runs.map((run) => run.correlationId)).size).toBe(firstRuns.runs.length);
+        expect(firstRuns.runs.every((run) => run.prompt === null)).toBe(true);
+
+        // The schema marker still says 1: there is no released predecessor
+        // state to adopt, and nothing to compute (row 32).
+        expect(SERVICE_SCHEMA_VERSION).toBe(1);
+        expect(opened.schemaVersion).toBe(1);
+
+        // The first adopted run composes the pre-004 bytes: the frame the
+        // previous build wrote for this delivery, with no fence and no
+        // placeholder (AC-131's no-tier oracle on an adopted run).
+        const [firstRun] = firstRuns.runs;
+        if (firstRun === undefined) {
+            throw new Error('adoption produced no run');
+        }
+
+        const composed = await composedMessageFor(service, firstRun);
+        expect(composed).toBe(legacyGoldenMessage(firstRun.correlationId));
+        expect(composed).not.toContain(PROMPT_FENCE_MARKER);
+        expect(composed.startsWith('Mecha Turk dispatch (automated')).toBe(true);
+        const runsBytes = await fileBytes(RUNS_FILE);
+
+        // A second arrival is the first one repeated: the same identifiers,
+        // the same bytes, and not one adoption row more — arrival writes
+        // nothing, twice (SC-128, AC-142).
+        await service.shutdown();
+        running = null;
+        const again = await startTestService({ dataDir });
+        running = again;
+        await again.handle.swept;
+        await again.handle.reconciled;
+
+        const secondEntries = await readdir(dataDir);
+        expect(secondEntries.filter((entry) => entry.includes('.corrupt-'))).toEqual([]);
+        expect(await fileBytes(CONFIG_FILE)).toEqual(shipped.config);
+        expect(await fileBytes(ACCOUNT_FILE)).toEqual(shipped.account);
+        expect(await fileBytes(BINDINGS_FILE)).toEqual(shipped.bindings);
+        expect(await fileBytes(EVENTS_FILE)).toEqual(shipped.events);
+        expect(await fileBytes(SCAN_STATE_FILE)).toEqual(shipped.window);
+        expect(await fileBytes(RUNS_FILE)).toEqual(runsBytes);
+
+        const reopened = again.handle.store;
+        if (reopened === null) {
+            throw new Error('the second boot opened no store');
+        }
+
+        const secondRuns = await readRunsDocument({ store: reopened, log: LOGGER });
+        expect(secondRuns.runs.map((run) => run.runKey)).toEqual(firstRuns.runs.map((run) => run.runKey));
+        expect(secondRuns.runs.map((run) => run.correlationId))
+            .toEqual(firstRuns.runs.map((run) => run.correlationId));
+        expect(secondRuns.runs.map((run) => run.sourceReferences[0]?.deliveryId)).toEqual(deliveryIds);
+        expect(SERVICE_SCHEMA_VERSION).toBe(1);
+
+        // Exactly one adoption row per run, still: the second boot adopted
+        // nothing (FR-005's trail is retained, never restarted).
+        const audit = await readAuditEntries(reopened);
+        expect(audit.filter((entry) => entry.eventType === MIGRATED_EVENT))
+            .toHaveLength(firstRuns.runs.length);
+
+        // …and the configuration read answers the same fill it answered the
+        // first time — the member is still filled, never configured.
+        const againRead = await again.call(CONFIG_PATH);
+        const againEnvelope = await againRead.json() as ConfigEnvelope;
+        expect(againEnvelope.source).toBe('stored');
+        expect(againEnvelope.defaultsApplied).toEqual([PROMPT_FIELD]);
+        expect(againEnvelope.config[PROMPT_FIELD]).toBe('');
     });
 });

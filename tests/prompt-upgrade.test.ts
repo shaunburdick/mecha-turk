@@ -1,6 +1,7 @@
 /**
  * The upgrade runs no migration (004 T-013; FR-018, FR-038, SC-121, SC-128,
- * AC-138, AC-142).
+ * AC-138, AC-142), and the feature writes nothing on arrival (T-036; FR-089,
+ * AC-131).
  *
  * An operator upgrades by starting the new build against the old files, so
  * that is exactly what this suite does: it seeds a store written the way the
@@ -20,6 +21,25 @@
  * - **a prompt edited mid-flight changes nothing about a queued run** — the
  *   snapshot it queued with is the snapshot it dispatches with (AC-138).
  *
+ * T-036 widens the same boot to **every** document the feature's arrival
+ * touches, and reads each one as the bytes on disk rather than as parsed JSON
+ * (a re-serialised document deep-compares equal, so a parse would prove
+ * nothing about a rewrite):
+ *
+ * - **`config.json` and the account file predating `startingPrompt`** come
+ *   back byte-identical, and the configuration read fills the key the file
+ *   lacks from the documented blank, reported as `defaultsApplied:
+ *   ['startingPrompt']` — a default, never a configured value (FR-081,
+ *   FR-089);
+ * - **a stored `null` reads exactly like absence**: the same records, the
+ *   same bytes on disk, the same golden message (FR-017, AC-131);
+ * - **a stored or submitted number, boolean, object, or array is refused**
+ *   with a field-level remediation, never echoed, and never coerced — all
+ *   three save paths (`PUT /v1/config`, `PUT /v1/bindings`, the account
+ *   profile write) answer `422` with the field named and every file
+ *   untouched, and the read path sets the file aside with
+ *   `field: remediation` as its whole reason (FR-017, FR-019, AC-131).
+ *
  * Offline by construction: the seeded binding is `disabled`, so the boot scan
  * cycle skips it (no poller, no network) and its window cannot move.
  */
@@ -30,10 +50,14 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appendAudit, readAuditEntries } from '../service/audit.ts';
 import { BINDINGS_FILE } from '../service/bindings.ts';
+import { CONFIG_FILE, DEFAULT_CONFIG } from '../service/config.ts';
 import { createLogger } from '../service/log.ts';
 import { createEvent, enqueueEvents, readEvents, EVENTS_FILE } from '../service/poll/events.ts';
 import { SCAN_STATE_FILE } from '../service/poll/scan.ts';
 import { readRunsDocument } from '../service/poll/runs.ts';
+import { ACCOUNTS_PATH, ACCOUNT_PATH } from '../service/routes/accounts.ts';
+import { BINDINGS_PATH } from '../service/routes/bindings.ts';
+import { CONFIG_PATH } from '../service/routes/config.ts';
 import { SERVICE_SCHEMA_VERSION, openStore } from '../service/store/index.ts';
 import { promptFingerprint, resolvePromptSnapshot } from '../service/prompt.ts';
 import { composeFirstMessage } from '../src/prompt.ts';
@@ -72,6 +96,14 @@ const LATE_PROMPT = 'Close it with a comment instead of patching it.';
 
 /** Audit event type one inherited row carries; the upgrade must retain it. */
 const SHIPPED_EVENT = 'consent';
+
+/**
+ * The fence marker a message carries only when a prompt block is present.
+ *
+ * A no-tier message must contain none of it — the assertion the pre-004
+ * composition oracles share (SC-121, AC-131).
+ */
+const PROMPT_FENCE_MARKER = 'OPERATOR STARTING PROMPT';
 
 /** Failure a harness that came up without a store reports. */
 const NO_STORE = 'the harness started without a store';
@@ -368,7 +400,7 @@ describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
             expect(composed).toBe(goldenMessage(seed.correlationId));
             // No fence, no blank line, no note about the absence — the block the
             // previous build wrote is the whole of what this one writes.
-            expect(composed).not.toContain('OPERATOR STARTING PROMPT');
+            expect(composed).not.toContain(PROMPT_FENCE_MARKER);
             expect(composed.startsWith('Mecha Turk dispatch (automated')).toBe(true);
         }
         await afterEachWork2();
@@ -404,5 +436,452 @@ describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
             expect(await composedMessageFor(service)).toContain(QUEUED_PROMPT);
             expect(await composedMessageFor(service)).not.toContain(LATE_PROMPT);
         }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * T-036 — arrival writes nothing (004 FR-018, FR-089, SC-128, AC-131, AC-142)
+ * ------------------------------------------------------------------------- */
+
+/** The one member every fixture below withholds: 004's own field name. */
+const PROMPT_FIELD = 'startingPrompt';
+
+/** Text no answer about a refused value may contain, in whole or in part. */
+const REFUSAL_SENTINEL = 'REFUSED-VALUE-NOT-ECHOED';
+
+/** A stored value of the kind that must never be accepted, only refused. */
+const STORED_NON_TEXT = 8_675_309;
+
+/**
+ * The configuration document the previous release held: every documented
+ * member except the one the file predates (004 FR-081's arrival case).
+ *
+ * Built from the shipped declaration rather than spelled, so a field added
+ * later can only widen this fixture — it can never turn it into an
+ * unknown-key quarantine behind the test's back.
+ */
+const PRE_PROMPT_CONFIG: Readonly<Record<string, unknown>> = Object.fromEntries(
+    Object.entries(DEFAULT_CONFIG).filter(([field]) => field !== PROMPT_FIELD),
+);
+
+/**
+ * One value of each kind AC-131 names as refused, plus the text that must
+ * never appear in an answer about it: the number and the boolean as
+ * themselves, the object and the array by their sentinel.
+ */
+const NON_TEXT_VALUES: readonly { readonly label: string; readonly value: unknown; readonly forbidden: string }[] = [
+    { label: 'number', value: STORED_NON_TEXT, forbidden: String(STORED_NON_TEXT) },
+    { label: 'boolean', value: true, forbidden: 'true' },
+    { label: 'object', value: { note: REFUSAL_SENTINEL }, forbidden: REFUSAL_SENTINEL },
+    { label: 'array', value: [REFUSAL_SENTINEL], forbidden: REFUSAL_SENTINEL },
+];
+
+/** The answer `GET /v1/config` gives (006 contract §2.1). */
+interface ConfigEnvelope {
+    /** The effective document, read member by member. */
+    readonly config: Readonly<Record<string, unknown>>;
+    /** Where the document came from. */
+    readonly source: string;
+    /** Documented keys the stored file lacked. */
+    readonly defaultsApplied: readonly string[];
+}
+
+/** The answer `GET /v1/bindings` gives (004 contract §3). */
+interface BindingsAnswer {
+    /** The stored bindings, each read without trusting its shape. */
+    readonly bindings: readonly Record<string, unknown>[];
+}
+
+/** The answer `GET /v1/accounts` gives: the credential-free account DTOs. */
+interface AccountsAnswer {
+    /** The account records; `startingPrompt` is `null` whenever unset. */
+    readonly accounts: readonly Record<string, unknown>[];
+}
+
+/** The `422 validation` body every write path answers a refused value with. */
+interface ValidationBody {
+    /** The error envelope. */
+    readonly error: {
+        /** The catalog code: `validation`. */
+        readonly code: string;
+        /** Every `field: remediation` pair, joined. */
+        readonly message: string;
+        /** The structured issue list, one entry per refused field. */
+        readonly issues: readonly { readonly field: string; readonly remediation: string }[];
+    };
+}
+
+/**
+ * Read one store file as the bytes actually on disk.
+ *
+ * Byte identity is asserted on bytes: a deep-compare of parsed JSON cannot
+ * see a document that was rewritten, re-serialised, and compared back
+ * (T-036; SC-128 says *byte*-identical, and means it).
+ *
+ * @param name - Store-relative file name.
+ * @returns The file's raw bytes.
+ */
+async function fileBytes(name: string): Promise<Buffer> {
+    return await readFile(join(dataDir, name));
+}
+
+/**
+ * Write the configuration document the previous release held, and hand back
+ * the bytes it went in as.
+ *
+ * @returns Those bytes, for the arrival comparison after the boot.
+ */
+async function seedPrePromptConfig(): Promise<Buffer> {
+    await store.writeJson(CONFIG_FILE, PRE_PROMPT_CONFIG);
+
+    return await fileBytes(CONFIG_FILE);
+}
+
+/**
+ * One wire answer read as an untrusted record (never a typed shortcut).
+ *
+ * @typeParam T - The envelope shape the caller asserts on.
+ * @param service - The running instance to call.
+ * @param path - Route to fetch.
+ * @returns The parsed body, as the caller's envelope.
+ * @throws {Error} When the route answers anything but `200`.
+ */
+async function wireGet<T>(service: TestService, path: string): Promise<T> {
+    const response = await service.call(path);
+    if (response.status !== 200) {
+        throw new Error(`${path} answered ${response.status}, expected 200`);
+    }
+
+    return await response.json() as T;
+}
+
+/**
+ * The bindings the booted service serves, as records.
+ *
+ * @param service - The running instance to call.
+ * @returns Every stored binding row.
+ */
+async function servedBindings(service: TestService): Promise<readonly Record<string, unknown>[]> {
+    const answer = await wireGet<BindingsAnswer>(service, BINDINGS_PATH);
+
+    return answer.bindings;
+}
+
+/**
+ * The accounts the booted service serves, as credential-free records.
+ *
+ * @param service - The running instance to call.
+ * @returns Every stored account row.
+ */
+async function servedAccounts(service: TestService): Promise<readonly Record<string, unknown>[]> {
+    const answer = await wireGet<AccountsAnswer>(service, ACCOUNTS_PATH);
+
+    return answer.accounts;
+}
+
+describe('T-036 arrival writes nothing (FR-018, FR-089, SC-128, AC-131, AC-142)', () => {
+    it('boots a store predating every member and changes no byte of it', async () => {
+        const seed = await seedPre004Store();
+        const configBytes = await seedPrePromptConfig();
+        const accountBytes = await fileBytes(ACCOUNT_FILE);
+        const bindingsBytes = await fileBytes(BINDINGS_FILE);
+        const eventsBytes = await fileBytes(EVENTS_FILE);
+        const windowBytes = await fileBytes(SCAN_STATE_FILE);
+        const queued = await readEvents({ store, log: LOGGER });
+        const deliveryId = queued[0]?.id;
+        if (deliveryId === undefined) {
+            throw new Error('the seed queued no delivery');
+        }
+
+        const service = await bootPre004Store();
+
+        // Nothing was set aside by the feature's arrival (SC-128).
+        const entries = await readdir(dataDir);
+        expect(entries.filter((entry) => entry.includes('.corrupt-'))).toEqual([]);
+
+        // Every file comes back as the bytes it went in as — read as bytes,
+        // because a re-serialised document would deep-compare equal (FR-018,
+        // FR-089: no configuration, bindings, or accounts file is rewritten).
+        expect(await fileBytes(CONFIG_FILE)).toEqual(configBytes);
+        expect(await fileBytes(ACCOUNT_FILE)).toEqual(accountBytes);
+        expect(await fileBytes(BINDINGS_FILE)).toEqual(bindingsBytes);
+        expect(await fileBytes(EVENTS_FILE)).toEqual(eventsBytes);
+        expect(await fileBytes(SCAN_STATE_FILE)).toEqual(windowBytes);
+
+        // The configuration read fills the key the file predates from the
+        // documented blank and reports the fill as a default — never as a
+        // configured value, and never by writing it back (FR-081, FR-089).
+        const read = await service.call(CONFIG_PATH);
+        expect(read.status).toBe(200);
+        const envelope = await read.json() as ConfigEnvelope;
+        expect(envelope.source).toBe('stored');
+        expect(envelope.defaultsApplied).toEqual([PROMPT_FIELD]);
+        expect(envelope.config[PROMPT_FIELD]).toBe('');
+        expect(await fileBytes(CONFIG_FILE)).toEqual(configBytes);
+
+        // Both record surfaces answer the row the previous release wrote:
+        // the member is not invented to stand in for its absence.
+        const bindings = await servedBindings(service);
+        const accounts = await servedAccounts(service);
+        expect(bindings[0]).toEqual(pre004Binding());
+        expect(accounts[0]?.startingPrompt).toBeNull();
+
+        // The identifiers are untouched: the same delivery id, run key, and
+        // correlation id the seed produced (AC-142).
+        const handle = service.handle.store;
+        if (handle === null) {
+            throw new Error(NO_STORE);
+        }
+
+        const document = await readRunsDocument({ store: handle, log: LOGGER });
+        const [run] = document.runs;
+        expect(run?.runKey).toBe(seed.runKey);
+        expect(run?.correlationId).toBe(seed.correlationId);
+        expect(run?.sourceReferences[0]?.deliveryId).toBe(deliveryId);
+        expect(run?.prompt).toBeNull();
+
+        // The schema marker still says 1: there was nothing to compute, and
+        // no released predecessor state to adopt (row 32).
+        expect(SERVICE_SCHEMA_VERSION).toBe(1);
+        expect(handle.schemaVersion).toBe(1);
+
+        // The seeded no-tier event composes the pre-004 bytes: the frame the
+        // previous build wrote, with no fence and no placeholder (AC-131).
+        const composed = await composedMessageFor(service);
+        expect(composed).toBe(goldenMessage(seed.correlationId));
+        expect(composed).not.toContain(PROMPT_FENCE_MARKER);
+        expect(composed.startsWith('Mecha Turk dispatch (automated')).toBe(true);
+
+        // The scan window was read, not reset: same bytes, same stamp
+        // (SC-128's zero scan-window resets).
+        const window = JSON.parse(await readFile(join(dataDir, SCAN_STATE_FILE), 'utf8')) as {
+            readonly bindings: Readonly<Record<string, { readonly lastScanAt: string }>>;
+        };
+        expect(window.bindings[BINDING_ID]?.lastScanAt).toBe(STAMP);
+    });
+
+    it('reads a stored null exactly like absence — same records, same bytes, same message', async () => {
+        const seed = await seedPre004Store();
+
+        // The two spellings of "unset" the feature accepts, side by side: the
+        // member the file predates, and an explicit stored null.
+        const absentBinding = pre004Binding();
+        const nulledBinding = { ...pre004Binding(), startingPrompt: null };
+        const absentAccount = pre004Account();
+        const nulledAccount = { ...pre004Account(), startingPrompt: null };
+        expect(nulledBinding).not.toEqual(absentBinding);
+        expect(nulledAccount).not.toEqual(absentAccount);
+
+        // A stored null resolves exactly like a member the file predates —
+        // both spellings answer the same snapshot, and the run the seed
+        // queued carries `null`: no tier, no block, no fingerprint (FR-017).
+        const absent = resolvePromptSnapshot({
+            global: PRE_PROMPT_CONFIG,
+            account: absentAccount,
+            binding: absentBinding,
+        });
+        const nulled = resolvePromptSnapshot({
+            global: PRE_PROMPT_CONFIG,
+            account: nulledAccount,
+            binding: nulledBinding,
+        });
+        expect(nulled).toBeNull();
+        expect(nulled).toEqual(absent);
+
+        // *Unset*, not refused — the distinction the null spelling could
+        // otherwise hide: with the global tier set, stored nulls on the other
+        // two still stack that tier untouched, where a refused tier on either
+        // would silence the whole snapshot (FR-028's last resort).
+        const globalRecord = { ...PRE_PROMPT_CONFIG, startingPrompt: QUEUED_PROMPT };
+        const absentStack = resolvePromptSnapshot({
+            global: globalRecord,
+            account: absentAccount,
+            binding: absentBinding,
+        });
+        const nulledStack = resolvePromptSnapshot({
+            global: globalRecord,
+            account: nulledAccount,
+            binding: nulledBinding,
+        });
+        expect(nulledStack).toEqual(absentStack);
+        expect(nulledStack?.sources).toEqual(['global']);
+        expect(nulledStack?.fingerprint).toBe(promptFingerprint(QUEUED_PROMPT));
+
+        // The store carries the null spelling, and the bytes below are the
+        // bytes the boot must not touch.
+        await store.writeJson(BINDINGS_FILE, [nulledBinding]);
+        await store.writeJson(ACCOUNT_FILE, nulledAccount);
+        const configBytes = await seedPrePromptConfig();
+        const accountBytes = await fileBytes(ACCOUNT_FILE);
+        const bindingsBytes = await fileBytes(BINDINGS_FILE);
+        const eventsBytes = await fileBytes(EVENTS_FILE);
+        const windowBytes = await fileBytes(SCAN_STATE_FILE);
+
+        const service = await bootPre004Store();
+
+        const entries = await readdir(dataDir);
+        expect(entries.filter((entry) => entry.includes('.corrupt-'))).toEqual([]);
+        // The null is still a null on disk: arrival read it, it did not
+        // rewrite it into the absence spelling (or into anything else).
+        expect(await fileBytes(BINDINGS_FILE)).toEqual(bindingsBytes);
+        expect(await fileBytes(ACCOUNT_FILE)).toEqual(accountBytes);
+        expect(await fileBytes(CONFIG_FILE)).toEqual(configBytes);
+        expect(await fileBytes(EVENTS_FILE)).toEqual(eventsBytes);
+        expect(await fileBytes(SCAN_STATE_FILE)).toEqual(windowBytes);
+
+        // Both surfaces answer the record absence answers — the same two
+        // literals the absent case above asserts, so a stored null and an
+        // absent member are the same record on the wire.
+        const bindings = await servedBindings(service);
+        const accounts = await servedAccounts(service);
+        expect(bindings[0]).toEqual(pre004Binding());
+        expect(accounts[0]?.startingPrompt).toBeNull();
+
+        // …and the composed bytes are the golden the absence case composes:
+        // one event, one message, whichever spelling wrote the record.
+        const composed = await composedMessageFor(service);
+        expect(composed).toBe(goldenMessage(seed.correlationId));
+        expect(composed).not.toContain(PROMPT_FENCE_MARKER);
+    });
+
+    it('refuses every non-text submitted prompt with a field-level remediation and writes no byte', async () => {
+        await seedPre004Store();
+        const configBytes = await seedPrePromptConfig();
+        const accountBytes = await fileBytes(ACCOUNT_FILE);
+        const bindingsBytes = await fileBytes(BINDINGS_FILE);
+        const service = await bootPre004Store();
+        const profilePath = ACCOUNT_PATH.replace(':numericUserId', ACCOUNT_ID);
+
+        for (const { label, value, forbidden } of NON_TEXT_VALUES) {
+            // The configuration write is a whole-document replacement: the
+            // member must be text, and a refusal never echoes the submission
+            // (FR-081, 006 FR-041 — the additive `422` every field answers).
+            const configResponse = await service.call(CONFIG_PATH, {
+                method: 'PUT',
+                body: JSON.stringify({ ...PRE_PROMPT_CONFIG, [PROMPT_FIELD]: value }),
+            });
+            const configBody = await configResponse.text();
+
+            expect(configResponse.status, `${label} must be refused by PUT /v1/config`).toBe(422);
+            expect(configBody).not.toContain(forbidden);
+            const configFailure = JSON.parse(configBody) as ValidationBody;
+            expect(configFailure.error.code).toBe('validation');
+            const configIssue = configFailure.error.issues.find((issue) => issue.field === PROMPT_FIELD);
+            expect(configIssue, `${label} must name the prompt field`).toBeDefined();
+            expect(configIssue?.remediation).toContain(PROMPT_FIELD);
+
+            // The bindings write judges the same value with the same one
+            // validator and the same never-echo posture (FR-017, FR-083).
+            const bindingsResponse = await service.call(BINDINGS_PATH, {
+                method: 'PUT',
+                body: JSON.stringify({ bindings: [{ ...pre004Binding(), [PROMPT_FIELD]: value }] }),
+            });
+            const bindingsBody = await bindingsResponse.text();
+
+            expect(bindingsResponse.status, `${label} must be refused by PUT /v1/bindings`).toBe(422);
+            expect(bindingsBody).not.toContain(forbidden);
+            const bindingsFailure = JSON.parse(bindingsBody) as ValidationBody;
+            expect(bindingsFailure.error.code).toBe('validation');
+            const bindingsIssue = bindingsFailure.error.issues.find((issue) => issue.field === PROMPT_FIELD);
+            expect(bindingsIssue, `${label} must name the prompt field`).toBeDefined();
+            expect(bindingsIssue?.remediation).toContain(PROMPT_FIELD);
+
+            // …and the account profile write, the third of FR-083's three
+            // call sites, refuses it under its own field name and remediation
+            // (FR-082's closed two-member body).
+            const profileResponse = await service.call(profilePath, {
+                method: 'PUT',
+                body: JSON.stringify({ [PROMPT_FIELD]: value }),
+            });
+            const profileBody = await profileResponse.text();
+
+            expect(profileResponse.status, `${label} must be refused by the profile write`).toBe(422);
+            expect(profileBody).not.toContain(forbidden);
+            const profileFailure = JSON.parse(profileBody) as ValidationBody;
+            expect(profileFailure.error.code).toBe('validation');
+            const profileIssue = profileFailure.error.issues.find((issue) => issue.field === PROMPT_FIELD);
+            expect(profileIssue, `${label} must name the prompt field`).toBeDefined();
+            expect(profileIssue?.remediation).toContain(PROMPT_FIELD);
+        }
+
+        // Nothing was written and nothing was coerced: all three files are
+        // still the shipped bytes, and the configuration read still answers
+        // the documented blank reported as a default (AC-131's "never
+        // coerced, cast, or dropped").
+        expect(await fileBytes(CONFIG_FILE)).toEqual(configBytes);
+        expect(await fileBytes(ACCOUNT_FILE)).toEqual(accountBytes);
+        expect(await fileBytes(BINDINGS_FILE)).toEqual(bindingsBytes);
+        const envelope = await wireGet<ConfigEnvelope>(service, CONFIG_PATH);
+        expect(envelope.defaultsApplied).toEqual([PROMPT_FIELD]);
+        expect(envelope.config[PROMPT_FIELD]).toBe('');
+        const bindings = await servedBindings(service);
+        expect(bindings[0]).toEqual(pre004Binding());
+    });
+
+    it('sets a stored non-text prompt aside with a field-level reason and never coerces it', async () => {
+        const seed = await seedPre004Store();
+        // Planted the way an operator's hand edit would land it: the value is
+        // in the file before the service ever sees it (FR-019).
+        await store.writeJson(BINDINGS_FILE, [{ ...pre004Binding(), [PROMPT_FIELD]: STORED_NON_TEXT }]);
+        const bindingsBytes = await fileBytes(BINDINGS_FILE);
+        const configBytes = await seedPrePromptConfig();
+        const accountBytes = await fileBytes(ACCOUNT_FILE);
+        const eventsBytes = await fileBytes(EVENTS_FILE);
+        const windowBytes = await fileBytes(SCAN_STATE_FILE);
+
+        const service = await bootPre004Store();
+
+        // Nothing coerced into service: the first read of the file — the boot
+        // scan cycle's or this one's, whichever reached it first — answers no
+        // bindings at all rather than a binding with a number for an
+        // instruction (FR-019: the poll loop scans nothing until the operator
+        // repairs the file, and no binding is silently dropped).
+        expect(await servedBindings(service)).toEqual([]);
+
+        // The refusal is a rename of the shipped bytes, never a rewrite: the
+        // set-aside file still holds exactly what the operator stored — the
+        // value was refused, not coerced, cast, or dropped (AC-131), and it
+        // is the only file set aside (SC-128 counts zeros for *valid*
+        // documents; this one is not valid, and is refused closed).
+        const entries = await readdir(dataDir);
+        const setAside = entries.filter((entry) => entry.includes('.corrupt-'));
+        expect(setAside).toHaveLength(1);
+        const [asideName] = setAside;
+        if (asideName === undefined) {
+            throw new Error('the refusal set no file aside');
+        }
+
+        expect(await fileBytes(asideName)).toEqual(bindingsBytes);
+
+        // The reason is `field: remediation` and nothing else: the line that
+        // carries the quarantine path is scanned only in its `reason` member,
+        // because the path's own hex can contain anything (FR-019, AC-141).
+        const refusalLine = service.logLines.find((line) => line.includes('stored bindings were unusable'));
+        expect(refusalLine, 'the refusal must be logged').toBeDefined();
+        const logged = JSON.parse(refusalLine ?? '{}') as { readonly reason?: unknown };
+        const reason = String(logged.reason);
+        expect(reason).toContain(`${PROMPT_FIELD}: ${PROMPT_FIELD} must be text`);
+        expect(reason).not.toContain(String(STORED_NON_TEXT));
+
+        // …and every other document is still the bytes it arrived as.
+        expect(await fileBytes(CONFIG_FILE)).toEqual(configBytes);
+        expect(await fileBytes(ACCOUNT_FILE)).toEqual(accountBytes);
+        expect(await fileBytes(EVENTS_FILE)).toEqual(eventsBytes);
+        expect(await fileBytes(SCAN_STATE_FILE)).toEqual(windowBytes);
+        expect(SERVICE_SCHEMA_VERSION).toBe(1);
+
+        // The run queued before the edit is untouched by it: no prompt state
+        // was invented for the refused binding, and the schema marker is
+        // still the one the previous release wrote.
+        const handle = service.handle.store;
+        if (handle === null) {
+            throw new Error(NO_STORE);
+        }
+
+        const document = await readRunsDocument({ store: handle, log: LOGGER });
+        const [run] = document.runs;
+        expect(run?.runKey).toBe(seed.runKey);
+        expect(run?.prompt).toBeNull();
+        expect(await composedMessageFor(service)).toBe(goldenMessage(seed.correlationId));
     });
 });

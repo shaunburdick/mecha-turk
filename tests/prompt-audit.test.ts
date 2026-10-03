@@ -18,12 +18,13 @@
  * clock — the chain is deterministic, so nothing here waits on a timer.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { findSecretLeak } from '../src/redaction.ts';
-import { readAuditEntries } from '../service/audit.ts';
+import { AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
+import { recordConfigPromptChanges } from '../service/config-prompt-observe.ts';
 import {
     ACCOUNT_PROMPT_UPDATED_EVENT,
     observeAccountPromptChanges,
@@ -657,5 +658,68 @@ describe('T-023 an account append failure warns and still advances the baseline 
             actor: 'operator',
         });
         expect(rows).toBe(1);
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * T-035 the raw trail, scanned as bytes (004 FR-053, FR-088, AC-148)
+ *
+ * Everything above reads the trail **through** `readAuditEntries`, which is
+ * the right way to judge a row's shape. This one does not: it reads
+ * `audit.ndjson` off disk and greps the bytes for each lane's seeded text,
+ * so a leak that a reader skipped, a row type the filter never selects, or a
+ * stray write beside the parsed rows would still be caught (AC-148's "a scan
+ * of every audit row finds 0 occurrences of any tier's text").
+ * ------------------------------------------------------------------------- */
+
+/** The global tier's text this scan seeds into the trail. */
+const GLOBAL_TIER_TEXT = 'Name the failing test before proposing any fix.';
+
+/** The account tier's text this scan seeds into the trail. */
+const ACCOUNT_TIER_TEXT = 'Prefer the smallest diff that closes the failing test.';
+
+describe('T-035 the raw audit file carries no seeded tier text, in any lane (FR-053, AC-148)', () => {
+    it('reads audit.ndjson as bytes and finds each seeded tier 0 times', async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'prompt-tier-trail-'));
+        temporaryDirs.push(dir);
+        const store = await openStore({ dataDir: dir });
+        const log = capturingLogger();
+
+        // Three lanes, three rows, three distinct seeded texts: one binding
+        // change, one account change, one global change (FR-088).
+        expect(await observePromptChanges({
+            store,
+            log,
+            bindings: bindingDocument(PROMPT),
+            actor: 'operator',
+        })).toBe(1);
+        expect(await observeAccountPromptChanges({
+            store,
+            log,
+            accounts: accountDocument(ACCOUNT_TIER_TEXT),
+            actor: 'operator',
+        })).toBe(1);
+        expect(await recordConfigPromptChanges({
+            store,
+            log,
+            config: { startingPrompt: GLOBAL_TIER_TEXT },
+            actor: 'operator',
+        })).toBe(1);
+
+        // The file's own bytes, not a parsed projection of them — and three
+        // rows, so the scan below is grepping rows rather than an empty file.
+        const raw = await readFile(join(dir, AUDIT_FILE), 'utf8');
+        expect(raw.trim().split('\n')).toHaveLength(3);
+
+        for (const seeded of [GLOBAL_TIER_TEXT, ACCOUNT_TIER_TEXT, PROMPT]) {
+            expect(raw.split(seeded).length - 1, `audit.ndjson carried a seeded tier: ${seeded}`).toBe(0);
+        }
+
+        // What the rows recorded instead of the text: one fingerprint each,
+        // which is how the scan proves it read real rows.
+        expect(raw).toContain(promptFingerprint(GLOBAL_TIER_TEXT));
+        expect(raw).toContain(promptFingerprint(ACCOUNT_TIER_TEXT));
+        expect(raw).toContain(promptFingerprint(PROMPT));
+        expect(findSecretLeak(raw)).toBeNull();
     });
 });

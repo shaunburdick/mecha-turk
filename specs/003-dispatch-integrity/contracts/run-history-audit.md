@@ -41,6 +41,16 @@ Credential-free by construction: nothing in the projection is or can be a creden
 > [`004-starting-prompt/contracts/dispatch-prompt.md`](../../004-starting-prompt/contracts/dispatch-prompt.md) §2.
 > No field above is renamed, retyped, or removed by that addition.
 
+> **`promptSources` — additive pointer (004 v1.3.0)**: the same `RunHistoryRow`
+> also carries **`promptSources`**: the ordered list of contributing tiers
+> (`global`, `account`, `binding`, most general first, duplicate-free, always
+> a subsequence of that order), `null` when `promptPresent` is `false` and
+> non-empty otherwise — and, as above, **never `promptText`**. A row whose
+> presence and sources disagree is refused by the closed reader rather than
+> defaulted. Authoritative text:
+> [`004-starting-prompt/contracts/layered-prompt.md`](../../004-starting-prompt/contracts/layered-prompt.md) §3.
+> No field above is renamed, retyped, or removed by it.
+
 ### Refusals
 
 `503 storage-unavailable` only (a read claims nothing and can refuse nothing else).

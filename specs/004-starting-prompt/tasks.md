@@ -349,7 +349,7 @@ with three tiers through the fake host and byte-compare; render all six tabs and
 **Goal**: the specification's measurable outcomes as automated offline proofs, the operator's page,
 and the release-candidate gate. Nothing here adds behaviour.
 
-- [ ] **T-033** [P] [US1/US6] **Golden-string composition suite** — `tests/prompt-composition.test.ts`
+- [x] **T-033** [P] [US1/US6] **Golden-string composition suite** — `tests/prompt-composition.test.ts`
   (FR-084, FR-086, AC-146, SC-121, SC-130): four oracles as golden literals — **no tier** ⇒ the
   pre-004 message byte-for-byte (no fence, no blank line, no placeholder); **binding-only** ⇒ the
   single-tier golden message **and** its golden fingerprint; **global-only** ⇒ a fully determined
@@ -357,14 +357,14 @@ and the release-candidate gate. Nothing here adds behaviour.
   tiers, frame unchanged beneath; `promptSources` lists exactly the set tiers in generality order in
   every case; operator text with `{number}`, `Correlation:`, or blank lines inside a tier arrives
   verbatim and changes no frame line (AC-134).
-- [ ] **T-034** [US1] **Budget suite** — `tests/prompt-composition.test.ts`,
+- [x] **T-034** [US1] **Budget suite** — `tests/prompt-composition.test.ts`,
   `tests/relay-integrity.test.ts` (FR-085, AC-147, AC-145, SC-132): three maximal (2,000-code-point)
   tiers + maximal excerpt + full frame compose **≤ `CONTEXT_MAX_CHARS`** and **< `GUEST_ATTACH_TEXT_MAX`**
   with the excerpt at its full allowance and its truncation markers intact and **no tier shortened**;
   the block is reserved before the excerpt budget (excerpt shortens first, visibly); the seeded
   over-budget attempt refuses before `host.startSession()` starting no session (asserts T-029); no
   round trip added (NFR-120).
-- [ ] **T-035** [P] [US3/US5] **Containment, secret, and audit scans** — `tests/bundle.test.ts`,
+- [x] **T-035** [P] [US3/US5] **Containment, secret, and audit scans** — `tests/bundle.test.ts`,
   `tests/containment-proof.test.ts`, `tests/prompt-audit.test.ts`, `tests/prompt-validation.test.ts`
   (FR-005, FR-053, FR-088, NFR-121, AC-133, AC-143, AC-148, AC-151, SC-123, SC-131): full-cycle
   containment with **three tiers populated** — each accepted value in exactly two persisted places
@@ -378,7 +378,7 @@ and the release-candidate gate. Nothing here adds behaviour.
   `service/account-prompt-audit.ts`, `service/config-schema.ts`, `service/accounts/model.ts`,
   `service/accounts/store.ts`, `service/routes/accounts.ts`; static scans still show no GitHub
   write, no suppression, no `any` in the touched modules.
-- [ ] **T-036** [P] [US2] **Arrival writes nothing** — `tests/prompt-upgrade.test.ts`,
+- [x] **T-036** [P] [US2] **Arrival writes nothing** — `tests/prompt-upgrade.test.ts`,
   `tests/service-migration.test.ts` (FR-018, FR-089, SC-128, AC-131, AC-142): seed documents
   predating every member (`config.json` without `startingPrompt`, account files without it,
   bindings, deliveries, runs, audit) → boot the service → assert **zero** quarantines by arrival,
@@ -387,7 +387,7 @@ and the release-candidate gate. Nothing here adds behaviour.
   and the composed message for a seeded no-tier event equal to the pre-004 golden literal; a stored
   `null` behaves identically to absence; a stored number/boolean/object/array is refused with a
   field-level remediation and never coerced (AC-131).
-- [ ] **T-037** [P] [US6] **Documentation and cross-contract pointers** — `README.md`,
+- [x] **T-037** [P] [US6] **Documentation and cross-contract pointers** — `README.md`,
   `specs/002-agent-event-extension/quickstart.md`, `AGENTS.md`,
   `specs/003-dispatch-integrity/contracts/{claim-lease,run-history-audit,dispatch-authorization}.md`
   (FR-074, FR-089): the operator's page now states **the three tiers, their stacking order
@@ -402,7 +402,7 @@ and the release-candidate gate. Nothing here adds behaviour.
   retired route (`…/display-name`, `…/starting-prompt`) presented as a live path** (contract
   invariant 8's document half), no `specs/001-…` path presented as live
   (`tests/docs-sync.test.ts` stays green).
-- [ ] **T-038** **Final gate** — `npm run verify` green (build → lint → typecheck → test);
+- [x] **T-038** **Final gate** — `npm run verify` green (build → lint → typecheck → test);
   `panel/main.js` + `service/main.js` rebuilt and committed **with the wave** (invariant 1);
   `SERVICE_VERSION` still mirroring `package.json` `0.0.1` (`tests/service-server.test.ts` pinned
   pair); manifest still `capabilities: ["sessions","prompt"]` with no `permissions` key and kebab-

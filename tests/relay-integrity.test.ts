@@ -24,6 +24,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { GUEST_ATTACH_TEXT_MAX } from '@openchamber/sdk';
 import type {
     GuestProject,
     GuestRequest,
@@ -36,6 +37,7 @@ import { drainVerifications } from '../src/agent-verify.ts';
 import { dispatchClaimedRun, handledKey, pollRelay } from '../src/relay.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
+import { BEGIN_UNTRUSTED, END_UNTRUSTED, EXCERPT_TRUNCATION_MARKER } from '../src/context-blocks.ts';
 import { CONTEXT_MAX_CHARS, SOURCE_EXCERPT_MAX_CHARS, buildBoundedContext } from '../src/session.ts';
 import type { ContextSource, SpikeHost } from '../src/session.ts';
 import type { PromptSource } from '../src/prompt.ts';
@@ -1101,6 +1103,147 @@ describe('T-029 the budget floor refuses before the host (FR-085, AC-147, SC-132
             // Whole stack, no tier shortened, and inside the bound the floor holds.
             expect(text).toContain(MAXIMAL_THREE_TIERS);
             expect(text.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * T-034 — the budget suite on the relay's own wire
+ * (FR-085, AC-147, AC-145, SC-132, NFR-120)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * A maximal issue-body excerpt: FR-085's own full-allowance figure (1,200
+ * code points) — twice what the frame grants one source, so the composition
+ * owes it a visible cut rather than a silent one.
+ */
+const MAXIMAL_EXCERPT = 'y'.repeat(1_200);
+
+/**
+ * The co-operative service answering with the full worst case AC-147 prices:
+ * a run carrying three maximal (2,000-code-point) tiers and the 1,200-code-point
+ * excerpt.
+ *
+ * @returns The route table, with the claim answer swapped for that run.
+ */
+function maximalRoutes(): RouteTable {
+    return {
+        ...OK_ROUTES,
+        [PENDING_GET]: {
+            status: 200,
+            body: claimBody([claimedRun({
+                promptPresent: true,
+                promptFingerprint: PROMPT_FINGERPRINT,
+                promptLength: [...MAXIMAL_THREE_TIERS].length,
+                promptSources: ['global', 'account', 'binding'],
+                promptText: MAXIMAL_THREE_TIERS,
+                issueBodyExcerpt: MAXIMAL_EXCERPT,
+            })]),
+        },
+    };
+}
+
+describe('T-034 the budget suite end-to-end (FR-085, AC-147, AC-145, SC-132, NFR-120)', () => {
+    it('refuses the over-budget attempt before the host, adds no round trip (+2 cases)', async () => {
+        // case: the seeded over-budget attempt refuses before host.startSession(), starting no session
+        {
+            // A store hand-edited past the save-time cap: the claim reader
+            // takes the body as it stands (shape, never a length), so the
+            // overrun reaches composition — and the floor, not the host, is
+            // what stops it (FR-085's one reachable case, AC-147's floor).
+            const relay = harness(promptRoutes(OVER_BUDGET_PROMPT));
+            await pollRelay(relay.rt);
+
+            // Before `host.startSession()`: no session request ever built, no
+            // session created, and no agent read-back for a session that does
+            // not exist — "no session started", asserted at both host calls.
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
+            expect(relay.timeline.filter((entry) => entry.startsWith('openSession'))).toHaveLength(0);
+            expect(relay.sessionRequest()).toBe('');
+
+            // The run itself is not lost around the refusal: reserve, durable
+            // record, result report, acknowledgement — the host absent from
+            // every step of it.
+            expect(dispatchTimeline(relay.timeline)).toEqual([
+                PENDING_GET,
+                `POST ${RUN_PATH}/reserve`,
+                'record',
+                `POST ${RUN_PATH}/dispatched`,
+                'ack',
+            ]);
+
+            // The refusal arrives as the failed attempt's `problem`: it names
+            // the contributing tiers, states what was *not* done, and quotes
+            // the composed length — proof the floor measured the composition
+            // it refused, without echoing a fragment of the instruction
+            // (FR-053; research R-2: no new state, no new `blocked:` reason).
+            const problem = reportedProblem(relay);
+            expect(problem).toContain('global, account, binding');
+            expect(problem).toContain('no session was started');
+            expect(problem).toContain('nothing was truncated');
+            expect(problem).not.toContain(OVER_BUDGET_MARKER);
+            const composedChars = Number(/composed first message is (\d+) characters/.exec(problem)?.[1] ?? '0');
+            expect(composedChars).toBeGreaterThan(CONTEXT_MAX_CHARS);
+        }
+        // case: the maximal composition dispatches with no round trip added (NFR-120, AC-147)
+        {
+            // The full worst case on the wire: three maximal (2,000-code-point)
+            // tiers plus a 1,200-code-point excerpt, composed through the
+            // relay's own path — `runRequestOf` reserves the block before it
+            // sizes the excerpt, exactly as the composition unit tests do.
+            expect([...MAXIMAL_EXCERPT].length).toBeGreaterThan(SOURCE_EXCERPT_MAX_CHARS);
+            const relay = harness(maximalRoutes());
+            await pollRelay(relay.rt);
+
+            // NFR-120: composition adds no panel↔service round trip. The
+            // snapshot rides the claim answer that already exists, so the path
+            // to the host is still claim, reserve, startSession — and nothing
+            // between them.
+            const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
+            expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
+            expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
+
+            const request = JSON.parse(relay.sessionRequest()) as { readonly text?: string };
+            const text = request.text ?? '';
+
+            // AC-147's first clause, measured on what the host actually
+            // received: inside both caps, the whole stack unshortened, the
+            // excerpt at its full allowance with its cut marked, and the full
+            // frame intact beneath the block.
+            expect(text.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
+            expect(text.length).toBeLessThan(GUEST_ATTACH_TEXT_MAX);
+            expect(text).toContain(MAXIMAL_THREE_TIERS);
+
+            const beginAt = text.indexOf(BEGIN_UNTRUSTED);
+            const endAt = text.indexOf(END_UNTRUSTED);
+            expect(beginAt).toBeGreaterThan(0);
+            // The prompt block leads; the untrusted region follows it (FR-030).
+            expect(text.indexOf(MAXIMAL_THREE_TIERS)).toBeLessThan(beginAt);
+            expect(text.endsWith(END_UNTRUSTED)).toBe(true);
+
+            // '\n' + excerpt + '\n': the excerpt got the whole per-source
+            // allowance (600) even with the 6,082-character block reserved
+            // ahead of it, and the cut is marked rather than silent.
+            const quoted = text.slice(beginAt + BEGIN_UNTRUSTED.length, endAt);
+            expect(quoted.length).toBe(SOURCE_EXCERPT_MAX_CHARS + 2);
+            expect(quoted.slice(1, -1).endsWith(EXCERPT_TRUNCATION_MARKER)).toBe(true);
+
+            // Every frame line present beneath the prompt block — the frame is
+            // never what the budget shortens (FR-035, FR-085).
+            const frameLines: readonly string[] = [
+                'Mecha Turk dispatch (automated',
+                `Correlation: ${CORRELATION}`,
+                `Repository: ${REPOSITORY}`,
+                `Issue #7: ${ISSUE_TITLE}`,
+                `Machine account: ${LOGIN}`,
+                'Rule: configured-match — open issue assigned to the authenticated machine account.',
+                'Source references: 1',
+                BEGIN_UNTRUSTED,
+            ];
+            for (const line of frameLines) {
+                expect(text, `the frame line "${line.slice(0, 32)}" is missing`).toContain(line);
+            }
         }
     });
 });
