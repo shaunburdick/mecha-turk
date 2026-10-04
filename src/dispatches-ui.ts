@@ -135,7 +135,6 @@ const LIST_COLUMNS: readonly string[] = ['Trigger', 'Subject', 'State', 'Age'];
 /**
  * Mount the status line that says which set is on screen.
  *
- * @param input - Pane root and runtime.
  * @returns The status handle.
  */
 function mountDispatchesHead(input: Pick<MountInputs, 'pane' | 'rt'>): Pick<DispatchesBoard, DispatchesHeadKeys> {
@@ -154,7 +153,6 @@ function mountDispatchesHead(input: Pick<MountInputs, 'pane' | 'rt'>): Pick<Disp
  * filter matched nothing and offers the control that clears it, never that
  * there are no dispatches.
  *
- * @param input - Runtime, pane root, and handlers.
  * @returns The list handle.
  */
 function mountDispatchesList(input: MountInputs): Pick<DispatchesBoard, DispatchesListKeys> {
@@ -184,7 +182,6 @@ const OPEN_ISSUE_LABEL = 'Open issue';
 /**
  * Mount the two controls every selection offers: refresh, and open the issue.
  *
- * @param input - Pane root and handlers.
  * @returns The two buttons.
  */
 function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<DispatchesBoard, SharedActionKeys> {
@@ -211,7 +208,6 @@ function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick
  * Each sits in its own group so the group's `hidden` flag can say "not this
  * state" without leaving a greyed-out sibling visible.
  *
- * @param input - Pane root and handlers.
  * @returns The groups and their buttons.
  */
 function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
@@ -241,7 +237,6 @@ function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
 /**
  * Mount FR-027's two resolutions and the field that names the session.
  *
- * @param input - Runtime, pane root, and handlers.
  * @returns The group, its heading, its two buttons, and the session field.
  */
 function mountResolutions(input: MountInputs): Pick<
@@ -284,7 +279,6 @@ function mountResolutions(input: MountInputs): Pick<
  * to show while the status line keeps saying why — an empty trail, a failed
  * read, and a still-loading one all read differently.
  *
- * @param input - Runtime, pane root, and handlers.
  * @returns The audit view's handles.
  */
 function mountAuditView(input: MountInputs): Pick<
@@ -320,7 +314,6 @@ function mountAuditView(input: MountInputs): Pick<
 /**
  * Mount the verification banner in its own hide-able wrapper.
  *
- * @param pane - Pane root.
  * @param runs - Section state, for the wrapper's first flag.
  * @returns The wrapper and the banner.
  */
@@ -345,7 +338,6 @@ function mountAgentNotice(
  * The wrapper elements go with their body's node; the handles themselves carry
  * listeners the host would otherwise outlive the teardown with.
  *
- * @param board - The board the Dispatches body mounted.
  */
 export function disposeDispatchesBoard(board: DispatchesBoard): void {
     const handles = [
@@ -380,7 +372,6 @@ export function disposeDispatchesBoard(board: DispatchesBoard): void {
  * two branches an operator reads as "this click will send". Each label names
  * the row it will act on.
  *
- * @param input - The runs state, the label namer, and the mounted board.
  */
 function repaintResolutions(input: {
     /** The runs section's state. */
@@ -417,7 +408,6 @@ function repaintResolutions(input: {
  * identically-labelled buttons is a list an operator cannot act on with a
  * screen reader.
  *
- * @param rt - Panel runtime.
  * @param board - The mounted runs half.
  */
 export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard): void {
@@ -472,7 +462,6 @@ export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard)
  * it the paging controls would render their pre-read flags while the rows
  * already show the answer.
  *
- * @param input - Runtime, pane root, and handlers.
  * @returns The runs handles the pane repaints through.
  */
 export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {

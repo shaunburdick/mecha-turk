@@ -97,7 +97,6 @@ const STALE_TOKEN_MESSAGE = 'the dispatch token is unknown, superseded, or alrea
  * `dispatched` on a run that is still `starting` is a contradiction, and the
  * fail-closed answer to a contradiction is a refusal, never a silent `200`.
  *
- * @param input - The run, and the outcome being repeated.
  * @returns `true` when the repeat is byte-for-byte the recorded one.
  */
 function repeatedOutcome(input: { readonly run: Run; readonly outcome: ReportOutcome }): boolean {
@@ -115,7 +114,6 @@ function repeatedOutcome(input: { readonly run: Run; readonly outcome: ReportOut
 /**
  * The message a conflicting repeat carries, naming what already stands.
  *
- * @param run - The run whose recorded outcome conflicts.
  * @returns The refusal, which never carries the token being presented.
  */
 function conflict(run: Run): RunRefusal {
@@ -150,7 +148,6 @@ function conflict(run: Run): RunRefusal {
  * contradicting each other: every *other* record carrying a closed token is a
  * token from a chain the run has already left, and none of them may ever apply.
  *
- * @param run - The run being reported on.
  * @param dispatchToken - Token the report presented.
  * @returns `true` when some record other than the live reservation's own already
  *   closed this token.
@@ -239,7 +236,6 @@ function judgeReport(input: {
 /**
  * The attempt record one applied report closes.
  *
- * @param input - The attempt as it stands, the outcome, and the stamp.
  * @returns The closed record.
  */
 function closedAttempt(input: {
@@ -267,7 +263,6 @@ function closedAttempt(input: {
  * this **same** object, so a run can never be left holding a token that
  * authorizes nothing while looking live.
  *
- * @param input - The authorized run, the outcome, and the stamp.
  * @returns The settled run.
  */
 function reportedRun(input: {
@@ -302,7 +297,6 @@ function reportedRun(input: {
 /**
  * Build the row an applied result or abandonment records.
  *
- * @param input - The settled run, the token it reported, and what it produced.
  * @returns The row to append.
  */
 function reportRow(input: {
@@ -381,7 +375,6 @@ async function refusedReport(input: RefusedReport): Promise<RunRefused> {
 /**
  * Record a repeat of an outcome already recorded, without moving the run.
  *
- * @param input - The report's own input.
  * @param run - The run, byte-unchanged by the repeat.
  * @returns The `duplicate` answer, carrying whether its row reached the trail.
  */
@@ -401,7 +394,6 @@ async function duplicateReport(input: ReportInput, run: Run): Promise<RunDuplica
 /**
  * Apply a verdict: settle the run and record the row, or refuse.
  *
- * @param input - The report's own input.
  * @param run - The run as the chain task read it.
  * @param verdict - What the judge decided.
  * @param persist - The chain task's write.
