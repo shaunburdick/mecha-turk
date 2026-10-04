@@ -3115,9 +3115,7 @@ function inQueueChain(task) {
   queueChain.write = run;
   return run;
 }
-function settled() {
-  return;
-}
+function settled() {}
 function whenQueueIdle() {
   return queueChain.write.then(settled, settled);
 }

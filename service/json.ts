@@ -16,7 +16,6 @@ export type JsonParseOutcome =
 /**
  * Parse serialized JSON without throwing.
  *
- * @param text - Candidate JSON text.
  * @returns The parsed value, or `{ ok: false }` when the text is not JSON.
  */
 export function parseJsonText(text: string): JsonParseOutcome {
@@ -35,7 +34,6 @@ export function parseJsonText(text: string): JsonParseOutcome {
  * Arrays, `null`, and primitives are rejected so callers can index into the
  * result without widening every read back to `unknown`.
  *
- * @param value - Candidate value, typically from {@link parseJsonText}.
  * @returns `true` when the value is a non-array object.
  */
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -45,7 +43,6 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Read one value as non-empty text.
  *
- * @param value - Candidate value from a parsed document or body.
  * @returns The text, or `null` when it is not usable text.
  */
 export function readText(value: unknown): string | null {
@@ -56,7 +53,6 @@ export function readText(value: unknown): string | null {
  * Read one value as display text: type-checked only, because the value is
  * reported by a caller (or the host) rather than built from validated input.
  *
- * @param value - Candidate value.
  * @returns The text, or `null` when it is not a string.
  */
 export function readString(value: unknown): string | null {
@@ -66,7 +62,6 @@ export function readString(value: unknown): string | null {
 /**
  * Read one value as an RFC 3339 stamp.
  *
- * @param value - Candidate value.
  * @returns The stamp, or `null` when it does not parse as a date.
  */
 export function readStamp(value: unknown): string | null {
@@ -76,7 +71,6 @@ export function readStamp(value: unknown): string | null {
 /**
  * Read one value as a non-negative integer.
  *
- * @param value - Candidate value.
  * @returns The integer, or `null`.
  */
 export function readCount(value: unknown): number | null {
@@ -86,7 +80,6 @@ export function readCount(value: unknown): number | null {
 /**
  * Read one value as a positive integer.
  *
- * @param value - Candidate value.
  * @returns The integer, or `null`.
  */
 export function readPositiveInt(value: unknown): number | null {
@@ -98,7 +91,6 @@ export function readPositiveInt(value: unknown): number | null {
 /**
  * Read one value as a boolean.
  *
- * @param value - Candidate value.
  * @returns The flag, or `null` when it is neither `true` nor `false`.
  */
 export function readFlag(value: unknown): boolean | null {

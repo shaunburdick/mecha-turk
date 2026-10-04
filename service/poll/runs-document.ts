@@ -90,7 +90,6 @@ const queueChain: { write: Promise<unknown> } = { write: Promise.resolve() };
 /**
  * Serialize one queue-or-run mutation behind everything already chained.
  *
- * @param task - The work to chain.
  * @returns Whatever `task` produced, once every earlier task settled.
  */
 export function inQueueChain<T>(task: () => Promise<T>): Promise<T> {
@@ -124,7 +123,7 @@ export function inQueueChain<T>(task: () => Promise<T>): Promise<T> {
  * the caller's own read reports any failure with the store's own error.
  */
 function settled(): void {
-    return undefined;
+    // Nothing to do: both arms of the chain are idle however they settled.
 }
 
 export function whenQueueIdle(): Promise<void> {
@@ -147,7 +146,6 @@ export function emptyRunsDocument(): RunsDocument {
  * Terminal run states: a new delivery opens the next ordinal instead of
  * joining, and the eviction tail may drop them.
  *
- * @param run - The run being classified.
  * @returns `true` for `dispatched` and `dead-lettered`.
  */
 export function isTerminalRun(run: Run): boolean {
@@ -163,7 +161,6 @@ export function runHistoryIndicatesSession(run: Run): boolean {
 /**
  * Run the one-shot adoption pass for this store handle.
  *
- * @param input - Store and logger.
  * @returns `present` when the document already exists, `adopted` after
  *   adopting the legacy queue into it, `unreadable` when it exists but could
  *   not be read (its bytes are quarantined and no adoption runs).
@@ -203,7 +200,6 @@ async function runAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
  * arrives while it runs. A rejected pass is dropped so the next read retries
  * rather than inheriting a failure forever.
  *
- * @param input - Store, logger, and the stamp to adopt with.
  * @returns The pass every reader of this handle awaits.
  */
 function startAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
@@ -220,8 +216,6 @@ function startAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
  * Ensure the store's run document exists, adopting the legacy queue on the
  * first read of this handle.
  *
- * @param input - Store, logger, and the stamp the adopting pass mints its
- *   synthetic lease under (the first caller's stamp wins for the handle).
  * @returns What the shared pass found; concurrent callers await one pass.
  * @throws {StorageUnavailableError} When the store itself cannot be read.
  */
@@ -240,7 +234,6 @@ export async function ensureRunsAdopted(input: RunsReadInput): Promise<AdoptionO
  * a pass whose clock sample predates the mint reads a lease that is "not yet
  * expired" and skips the one-shot migration recovery.
  *
- * @param input - Store, logger, and the stamp this read adopts with.
  * @returns The document as stored (or as just adopted into).
  * @throws {Error} When `runs.json` exists but is unreadable: serving runs
  *   from an empty document could resurrect already-dispatched work.
@@ -278,8 +271,6 @@ export async function readRunsDocument(input: RunsReadInput): Promise<RunsDocume
  * re-read inside {@link inQueueChain} and re-plan, because another writer may
  * have landed between the two reads.
  *
- * @param input - Store, logger, and the stamp this preview adopts with (same
- *   rule as {@link readRunsDocument}).
  * @returns The document as stored, adopting the legacy queue if needed.
  * @throws {StorageUnavailableError} When the document exists but is unusable.
  */
@@ -341,8 +332,6 @@ async function pruneEvictedRunDeliveries(input: {
  * Terminal runs leave before live ones do, but the `subjects` counters are
  * never pruned: an evicted run's ordinal must not be reusable, which is the
  * whole reason the counter exists (plan D3, "numbering is never reused").
- *
- * @param input - Store and logger plus the document to persist.
  */
 export async function writeRunsDocument(
     input: RunsStoreInput & { readonly document: RunsDocument },
@@ -366,7 +355,6 @@ export async function writeRunsDocument(
 /**
  * Open an in-flight attempt record (data-model §2.4).
  *
- * @param attempt - Attempt number the record is for.
  * @returns A record with no token, reservation, or outcome yet.
  */
 function openAttempt(attempt: number): DispatchAttempt {
@@ -387,7 +375,6 @@ function openAttempt(attempt: number): DispatchAttempt {
  * A run adopted with a state already in flight has no record yet, and closing
  * its outcome must still produce one (data-model §2.4).
  *
- * @param run - The run whose current attempt is being read.
  * @returns The last record for `run.attempt`, else a fresh open one.
  */
 export function currentAttempt(run: Run): DispatchAttempt {
@@ -407,8 +394,6 @@ export function currentAttempt(run: Run): DispatchAttempt {
  * Closing or enriching replaces only the current attempt's record: records
  * from earlier attempts survive FR-033's attempt reset untouched.
  *
- * @param run - The run being updated.
- * @param record - The record for `run.attempt`.
  * @returns The bounded history to store on the run.
  */
 export function attemptHistory(run: Run, record: DispatchAttempt): readonly DispatchAttempt[] {
@@ -424,7 +409,6 @@ export function attemptHistory(run: Run, record: DispatchAttempt): readonly Disp
  * Open one claim's record: a claim starts an attempt whether or not it ever
  * reserves, and this record is what the outcome transitions later close.
  *
- * @param run - The run being claimed.
  * @returns The bounded history including the fresh open record.
  */
 export function openedHistory(run: Run): readonly DispatchAttempt[] {
