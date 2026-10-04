@@ -287,19 +287,16 @@ function isOptionalNullableString(value: unknown): value is string | null | unde
  */
 function readAccountStrings(raw: Record<string, unknown>): StoredAccountStrings | null {
     const { login, expectedLogin, displayName, verifiedAt, errorReason, createdAt, updatedAt } = raw;
-    if (typeof login !== 'string' || login === '') {
-        return null;
-    }
-
-    if (!isNullableString(expectedLogin) || !isNullableString(errorReason)) {
-        return null;
-    }
-
-    if (!isOptionalNullableString(displayName)) {
-        return null;
-    }
-
-    if (typeof verifiedAt !== 'string' || typeof createdAt !== 'string' || typeof updatedAt !== 'string') {
+    if (
+        typeof login !== 'string' ||
+        login === '' ||
+        !isNullableString(expectedLogin) ||
+        !isNullableString(errorReason) ||
+        !isOptionalNullableString(displayName) ||
+        typeof verifiedAt !== 'string' ||
+        typeof createdAt !== 'string' ||
+        typeof updatedAt !== 'string'
+    ) {
         return null;
     }
 
@@ -348,15 +345,13 @@ export function parseStoredAccount(raw: unknown, note: AccountRefusalNote): Acco
     }
 
     const strings = readAccountStrings(raw);
-    if (strings === null) {
-        return null;
-    }
-
-    if (!isCredentialRecord(raw.credential) || !isScopeCheck(raw.scopeCheck)) {
-        return null;
-    }
-
-    if (!isAccountState(raw.state) || !isConnectionState(raw.connectionState)) {
+    if (
+        strings === null ||
+        !isCredentialRecord(raw.credential) ||
+        !isScopeCheck(raw.scopeCheck) ||
+        !isAccountState(raw.state) ||
+        !isConnectionState(raw.connectionState)
+    ) {
         return null;
     }
 

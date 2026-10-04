@@ -147,19 +147,14 @@ function parseAuditRow(value: unknown): AuditRow | null {
     }
 
     const { seq, timestamp, correlationId, eventType, actorSource, decision, reason, details } = record;
-    if (typeof seq !== 'number' || !Number.isSafeInteger(seq)) {
-        return null;
-    }
-
-    if ([timestamp, correlationId, eventType, actorSource].some((field) => typeof field !== 'string' || field === '')) {
-        return null;
-    }
-
-    if (decision !== null && typeof decision !== 'string') {
-        return null;
-    }
-
-    if (reason !== null && typeof reason !== 'string') {
+    if (
+        typeof seq !== 'number' ||
+        !Number.isSafeInteger(seq) ||
+        [timestamp, correlationId, eventType, actorSource].some((field) => typeof field !== 'string' ||
+        field === '') ||
+        decision !== null && typeof decision !== 'string' ||
+        reason !== null && typeof reason !== 'string'
+    ) {
         return null;
     }
 

@@ -491,11 +491,13 @@ function readStoredSnapshot(candidate: Record<string, unknown>): PromptSnapshot 
     const fingerprint = storedFingerprint(candidate);
     const length = storedLength(candidate);
     const sources = storedSources(candidate);
-    if (text === null || fingerprint === null || length === null || sources === null) {
-        return null;
-    }
-
-    if (countCodePoints(text) !== length) {
+    if (
+        text === null ||
+        fingerprint === null ||
+        length === null ||
+        sources === null ||
+        countCodePoints(text) !== length
+    ) {
         return null;
     }
 

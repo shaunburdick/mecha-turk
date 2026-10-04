@@ -114,11 +114,13 @@ export function expireLease(input: {
     readonly chargeBudget: boolean;
 }): Run | null {
     const { run, now, chargeBudget } = input;
-    if (run.state !== 'claimed' || run.lease === null || run.reservation !== null) {
-        return null;
-    }
-
-    if (runHistoryIndicatesSession(run) || Date.parse(run.lease.expiresAt) > Date.parse(now)) {
+    if (
+        run.state !== 'claimed' ||
+        run.lease === null ||
+        run.reservation !== null ||
+        runHistoryIndicatesSession(run) ||
+        Date.parse(run.lease.expiresAt) > Date.parse(now)
+    ) {
         return null;
     }
 

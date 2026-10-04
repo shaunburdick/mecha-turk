@@ -184,11 +184,13 @@ function readEntryHead(record: Record<string, JsonValue>): EntryHead | null {
     const at = readStringField(record, 'at');
     const correlationId = readStringField(record, 'correlationId');
     const panelGeneration = readNumberField(record, 'panelGeneration');
-    if (seq === null || at === null || correlationId === null || panelGeneration === null) {
-        return null;
-    }
-
-    if (Number.isNaN(Date.parse(at))) {
+    if (
+        seq === null ||
+        at === null ||
+        correlationId === null ||
+        panelGeneration === null ||
+        Number.isNaN(Date.parse(at))
+    ) {
         return null;
     }
 
@@ -315,11 +317,13 @@ function readLedgerHeader(record: Record<string, JsonValue>): LedgerHeader | nul
     const createdAt = readStringField(record, 'createdAt');
     const panelGeneration = readNumberField(record, 'panelGeneration');
     const storagePresent = readBooleanField(record, 'storagePresentBeforeMount');
-    if (correlationId === null || createdAt === null || panelGeneration === null || storagePresent === null) {
-        return null;
-    }
-
-    if (Number.isNaN(Date.parse(createdAt))) {
+    if (
+        correlationId === null ||
+        createdAt === null ||
+        panelGeneration === null ||
+        storagePresent === null ||
+        Number.isNaN(Date.parse(createdAt))
+    ) {
         return null;
     }
 

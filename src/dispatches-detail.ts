@@ -141,11 +141,13 @@ function parseReference(value: unknown): RunReference | null {
     const origin = requiredText(record, 'origin');
     const sourceUrl = requiredText(record, 'sourceUrl');
     const detectedAt = requiredText(record, 'detectedAt');
-    if (deliveryId === null || origin === null || sourceUrl === null || detectedAt === null) {
-        return null;
-    }
-
-    if (typeof record.presentAtAuthorization !== 'boolean') {
+    if (
+        deliveryId === null ||
+        origin === null ||
+        sourceUrl === null ||
+        detectedAt === null ||
+        typeof record.presentAtAuthorization !== 'boolean'
+    ) {
         return null;
     }
 

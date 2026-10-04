@@ -117,11 +117,14 @@ export function parseRepository(value: string): RepositoryRef | null {
 
     const owner = parts[0];
     const name = parts[1];
-    if (owner === undefined || name === undefined || owner === '' || name === '') {
-        return null;
-    }
-
-    if (!REPOSITORY_PART_PATTERN.test(owner) || !REPOSITORY_PART_PATTERN.test(name)) {
+    if (
+        owner === undefined ||
+        name === undefined ||
+        owner === '' ||
+        name === '' ||
+        !REPOSITORY_PART_PATTERN.test(owner) ||
+        !REPOSITORY_PART_PATTERN.test(name)
+    ) {
         return null;
     }
 

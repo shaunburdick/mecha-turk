@@ -467,11 +467,7 @@ function diffFraction(left, right) {
 
 /** Two images identical in size and bytes. */
 function imagesEqual(left, right) {
-    if (left.width !== right.width || left.height !== right.height) {
-        return false;
-    }
-
-    if (left.data.length !== right.data.length) {
+    if (left.width !== right.width || left.height !== right.height || left.data.length !== right.data.length) {
         return false;
     }
 

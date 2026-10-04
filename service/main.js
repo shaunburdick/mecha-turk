@@ -498,10 +498,7 @@ function readStoredSnapshot(candidate) {
   const fingerprint = storedFingerprint(candidate);
   const length = storedLength(candidate);
   const sources = storedSources(candidate);
-  if (text === null || fingerprint === null || length === null || sources === null) {
-    return null;
-  }
-  if (countCodePoints(text) !== length) {
+  if (text === null || fingerprint === null || length === null || sources === null || countCodePoints(text) !== length) {
     return null;
   }
   if (length > promptStackMaxCodePoints(sources.length)) {
@@ -690,16 +687,7 @@ function isOptionalNullableString(value) {
 }
 function readAccountStrings(raw) {
   const { login, expectedLogin, displayName, verifiedAt, errorReason, createdAt, updatedAt } = raw;
-  if (typeof login !== "string" || login === "") {
-    return null;
-  }
-  if (!isNullableString(expectedLogin) || !isNullableString(errorReason)) {
-    return null;
-  }
-  if (!isOptionalNullableString(displayName)) {
-    return null;
-  }
-  if (typeof verifiedAt !== "string" || typeof createdAt !== "string" || typeof updatedAt !== "string") {
+  if (typeof login !== "string" || login === "" || !isNullableString(expectedLogin) || !isNullableString(errorReason) || !isOptionalNullableString(displayName) || typeof verifiedAt !== "string" || typeof createdAt !== "string" || typeof updatedAt !== "string") {
     return null;
   }
   return {
@@ -722,13 +710,7 @@ function parseStoredAccount(raw, note) {
     return null;
   }
   const strings = readAccountStrings(raw);
-  if (strings === null) {
-    return null;
-  }
-  if (!isCredentialRecord(raw.credential) || !isScopeCheck(raw.scopeCheck)) {
-    return null;
-  }
-  if (!isAccountState(raw.state) || !isConnectionState(raw.connectionState)) {
+  if (strings === null || !isCredentialRecord(raw.credential) || !isScopeCheck(raw.scopeCheck) || !isAccountState(raw.state) || !isConnectionState(raw.connectionState)) {
     return null;
   }
   return {
@@ -2751,10 +2733,7 @@ function isSweepIntent(intent) {
 }
 function intentIsWritten(intent, entries) {
   return entries.some((entry) => {
-    if (entry.eventType !== intent.eventType || entry.correlationId !== intent.correlationId) {
-      return false;
-    }
-    if (entry.entity.kind !== RUN_ENTITY_KIND || entry.entity.id !== intent.correlationId) {
+    if (entry.eventType !== intent.eventType || entry.correlationId !== intent.correlationId || entry.entity.kind !== RUN_ENTITY_KIND || entry.entity.id !== intent.correlationId) {
       return false;
     }
     return !isSweepIntent(intent) || entry.details.sequence === intent.sequence;
@@ -5198,10 +5177,7 @@ function parseRepository(value) {
   }
   const owner = parts[0];
   const name = parts[1];
-  if (owner === undefined || name === undefined || owner === "" || name === "") {
-    return null;
-  }
-  if (!REPOSITORY_PART_PATTERN.test(owner) || !REPOSITORY_PART_PATTERN.test(name)) {
+  if (owner === undefined || name === undefined || owner === "" || name === "" || !REPOSITORY_PART_PATTERN.test(owner) || !REPOSITORY_PART_PATTERN.test(name)) {
     return null;
   }
   return { owner, name };
@@ -5847,10 +5823,7 @@ function leaseRun(input) {
 }
 function expireLease(input) {
   const { run, now, chargeBudget } = input;
-  if (run.state !== "claimed" || run.lease === null || run.reservation !== null) {
-    return null;
-  }
-  if (runHistoryIndicatesSession(run) || Date.parse(run.lease.expiresAt) > Date.parse(now)) {
+  if (run.state !== "claimed" || run.lease === null || run.reservation !== null || runHistoryIndicatesSession(run) || Date.parse(run.lease.expiresAt) > Date.parse(now)) {
     return null;
   }
   return {

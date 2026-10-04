@@ -267,11 +267,13 @@ export function readEvidence(value?: JsonValue): PanelEvidence | null {
     }
 
     const fields = readEvidenceFields(record);
-    if (fields === null || record.trigger !== TRIGGER || Number.isNaN(Date.parse(fields.detectedAt))) {
-        return null;
-    }
-
-    if (!ISSUE_ID_PATTERN.test(fields.issueId) || !ISSUE_URL_PATTERN.test(fields.issueUrl)) {
+    if (
+        fields === null ||
+        record.trigger !== TRIGGER ||
+        Number.isNaN(Date.parse(fields.detectedAt)) ||
+        !ISSUE_ID_PATTERN.test(fields.issueId) ||
+        !ISSUE_URL_PATTERN.test(fields.issueUrl)
+    ) {
         return null;
     }
 

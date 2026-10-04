@@ -265,11 +265,12 @@ function onMessage(event) {
     }
 
     const message = event.data;
-    if (message === null || typeof message !== 'object') {
-        return;
-    }
-
-    if (message.channel !== CHANNEL || message.v !== PROTOCOL_VERSION) {
+    if (
+        message === null ||
+        typeof message !== 'object' ||
+        message.channel !== CHANNEL ||
+        message.v !== PROTOCOL_VERSION
+    ) {
         return;
     }
 

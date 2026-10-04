@@ -73,15 +73,15 @@ function absentReference(record: Record<string, unknown>): PromptReference | nul
  */
 function presentReference(record: Record<string, unknown>): PromptReference | null {
     const { promptFingerprint, promptLength, promptSources } = record;
-    if (typeof promptFingerprint !== 'string' || !PROMPT_FINGERPRINT_PATTERN.test(promptFingerprint)) {
-        return null;
-    }
-
-    if (typeof promptLength !== 'number' || !Number.isSafeInteger(promptLength) || promptLength < 1) {
-        return null;
-    }
-
-    if (!isPromptSourceList(promptSources) || promptSources.length === 0) {
+    if (
+        typeof promptFingerprint !== 'string' ||
+        !PROMPT_FINGERPRINT_PATTERN.test(promptFingerprint) ||
+        typeof promptLength !== 'number' ||
+        !Number.isSafeInteger(promptLength) ||
+        promptLength < 1 ||
+        !isPromptSourceList(promptSources) ||
+        promptSources.length === 0
+    ) {
         return null;
     }
 
@@ -122,11 +122,7 @@ export function readClaimPrompt(record: Record<string, unknown>): ClaimPrompt | 
     }
 
     const { promptText } = record;
-    if (typeof promptText !== 'string' || promptText === '') {
-        return null;
-    }
-
-    if (countCodePoints(promptText) !== reference.promptLength) {
+    if (typeof promptText !== 'string' || promptText === '' || countCodePoints(promptText) !== reference.promptLength) {
         return null;
     }
 

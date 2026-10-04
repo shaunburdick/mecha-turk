@@ -187,15 +187,14 @@ function readAttemptHead(record: Record<string, JsonValue>): AttemptHead | null 
     const runKey = readText(record, 'runKey');
     const dispatchToken = readText(record, 'dispatchToken');
     const recordedAt = readText(record, 'recordedAt');
-    if (correlationId === null || runKey === null) {
-        return null;
-    }
-
-    if (dispatchToken === null || !DISPATCH_TOKEN_PATTERN.test(dispatchToken)) {
-        return null;
-    }
-
-    if (recordedAt === null || Number.isNaN(Date.parse(recordedAt))) {
+    if (
+        correlationId === null ||
+        runKey === null ||
+        dispatchToken === null ||
+        !DISPATCH_TOKEN_PATTERN.test(dispatchToken) ||
+        recordedAt === null ||
+        Number.isNaN(Date.parse(recordedAt))
+    ) {
         return null;
     }
 
@@ -218,11 +217,12 @@ interface AttemptFlags {
  */
 function readAttemptFlags(record: Record<string, JsonValue>): AttemptFlags | null {
     const { attempt, acknowledged } = record;
-    if (typeof attempt !== 'number' || !Number.isSafeInteger(attempt) || attempt < 1) {
-        return null;
-    }
-
-    if (typeof acknowledged !== 'boolean') {
+    if (
+        typeof attempt !== 'number' ||
+        !Number.isSafeInteger(attempt) ||
+        attempt < 1 ||
+        typeof acknowledged !== 'boolean'
+    ) {
         return null;
     }
 
@@ -329,11 +329,7 @@ export function readDispatchRecord(value?: JsonValue): DispatchRecordDocument | 
     }
 
     const record = asJsonRecord(value);
-    if (record === null) {
-        return null;
-    }
-
-    if (record.schemaVersion !== DISPATCH_SCHEMA_VERSION) {
+    if (record?.schemaVersion !== DISPATCH_SCHEMA_VERSION) {
         return null;
     }
 

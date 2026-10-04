@@ -288,11 +288,13 @@ function readRunCounts(record: Record<string, unknown>): RunCounts | null {
     const referenceCount = atLeast(requiredNumber(record, 'referenceCount'), 0);
     const referencesNotRetained = atLeast(requiredNumber(record, 'referencesNotRetained'), 0);
     const { referencesTruncated } = record;
-    if (ordinal === null || attempt === null || referenceCount === null || referencesNotRetained === null) {
-        return null;
-    }
-
-    if (typeof referencesTruncated !== 'boolean') {
+    if (
+        ordinal === null ||
+        attempt === null ||
+        referenceCount === null ||
+        referencesNotRetained === null ||
+        typeof referencesTruncated !== 'boolean'
+    ) {
         return null;
     }
 
@@ -355,15 +357,15 @@ function parseRunEntry(value: unknown): RunRow | null {
     // Read fail-closed like every other member: an unusable prompt reference
     // refuses the row, so a half-read answer never renders a prompt line.
     const prompt = readPromptReference(record);
-    if (scalars === null || counts === null || detail === null || state === null) {
-        return null;
-    }
-
-    if (issueNumber === 0 || prompt === null) {
-        return null;
-    }
-
-    if (!countsReconcile({ counts, retained: detail.sourceReferences.length })) {
+    if (
+        scalars === null ||
+        counts === null ||
+        detail === null ||
+        state === null ||
+        issueNumber === 0 ||
+        prompt === null ||
+        !countsReconcile({ counts, retained: detail.sourceReferences.length })
+    ) {
         return null;
     }
 

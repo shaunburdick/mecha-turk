@@ -265,11 +265,12 @@ function parseLease(value: unknown): ClaimedLease | null {
  */
 function parseClaimReference(value: unknown): ClaimedReference | null {
     const record = asRecord(value);
-    if (record === null || !fieldsHoldText(record, REFERENCE_STRING_FIELDS)) {
-        return null;
-    }
-
-    if (typeof record.excerpt !== 'string' || typeof record.presentAtAuthorization !== 'boolean') {
+    if (
+        record === null ||
+        !fieldsHoldText(record, REFERENCE_STRING_FIELDS) ||
+        typeof record.excerpt !== 'string' ||
+        typeof record.presentAtAuthorization !== 'boolean'
+    ) {
         return null;
     }
 
@@ -391,11 +392,13 @@ function readClaimNumbers(record: Record<string, unknown>): ClaimNumbers | null 
     const referenceCount = atLeast(readInteger(record, 'referenceCount'), 0);
     const referencesNotRetained = atLeast(readInteger(record, 'referencesNotRetained'), 0);
     const { referencesTruncated } = record;
-    if (ordinal === null || attempt === null || referenceCount === null || referencesNotRetained === null) {
-        return null;
-    }
-
-    if (typeof referencesTruncated !== 'boolean') {
+    if (
+        ordinal === null ||
+        attempt === null ||
+        referenceCount === null ||
+        referencesNotRetained === null ||
+        typeof referencesTruncated !== 'boolean'
+    ) {
         return null;
     }
 
@@ -415,11 +418,7 @@ function readClaimNumbers(record: Record<string, unknown>): ClaimNumbers | null 
 function readClaimSubject(record: Record<string, unknown>): ClaimSubject | null {
     const issueNumber = atLeast(readInteger(record, 'issueNumber'), 1);
     const { subjectType } = record;
-    if (issueNumber === null) {
-        return null;
-    }
-
-    if (subjectType !== 'issue' && subjectType !== 'pull_request') {
+    if (issueNumber === null || subjectType !== 'issue' && subjectType !== 'pull_request') {
         return null;
     }
 
@@ -462,11 +461,7 @@ function parseClaimedRun(value: unknown): ClaimedRun | null {
         return null;
     }
 
-    if (record.state !== 'pending') {
-        return null;
-    }
-
-    if (!claimCountsReconcile(numbers, references.length)) {
+    if (record.state !== 'pending' || !claimCountsReconcile(numbers, references.length)) {
         return null;
     }
 
@@ -546,11 +541,11 @@ export function parseReserveBody(text: string): ReserveAnswer | null {
     }
 
     const attempt = atLeast(readInteger(root, 'attempt'), 1);
-    if (attempt === null || !DISPATCH_TOKEN_PATTERN.test(root.dispatchToken as string)) {
-        return null;
-    }
-
-    if ('auditWritten' in root && typeof root.auditWritten !== 'boolean') {
+    if (
+        attempt === null ||
+        !DISPATCH_TOKEN_PATTERN.test(root.dispatchToken as string) ||
+        'auditWritten' in root && typeof root.auditWritten !== 'boolean'
+    ) {
         return null;
     }
 

@@ -1149,11 +1149,7 @@ describe('006 the suite runs offline (T-028, AC-144, SC-112)', () => {
             const offenders: string[] = [];
             for (const file of testModules()) {
                 for (const line of codeLinesOf(file.text)) {
-                    if (!FETCH_CALL.test(line)) {
-                        continue;
-                    }
-
-                    if (LOCAL_FETCH_TARGET.test(line)) {
+                    if (!FETCH_CALL.test(line) || LOCAL_FETCH_TARGET.test(line)) {
                         continue;
                     }
 
