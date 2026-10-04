@@ -205,7 +205,6 @@ export interface ServiceStatusBody {
  * with T-014, and a truthful "not measured yet" beats a plausible-looking
  * number for a system that has never polled.
  *
- * @param account - The stored account.
  * @returns The status row; no credential material crosses this boundary.
  */
 function statusAccountRow(account: Account): StatusAccount {
@@ -229,7 +228,6 @@ function statusAccountRow(account: Account): StatusAccount {
 /**
  * Read the account rows for the status document.
  *
- * @param context - Route context carrying the open store.
  * @returns The rows, or none when the store is down or unreadable — the
  *   status route answers with the storage signal instead of failing.
  */
@@ -254,7 +252,6 @@ async function statusAccounts(context: RouteContext): Promise<readonly StatusAcc
 /**
  * Read the bindings the repository rows are keyed by.
  *
- * @param context - Route context carrying the open store.
  * @returns The stored bindings, or none when they cannot be read — a row list
  *   built from bindings nobody can name would invent rows, not report them.
  */
@@ -283,7 +280,6 @@ async function storedBindings(context: RouteContext): Promise<readonly BindingRe
  * one). `actorPolicy` is **not** scan-derived: it comes from the binding, so it
  * is as truthful here as on a readable row.
  *
- * @param binding - The stored binding this row is keyed by.
  * @returns The unreadable row; present, never omitted.
  */
 function unreadableRepositoryRow(binding: BindingRecord): StatusRepositoryRow {
@@ -311,7 +307,6 @@ function unreadableRepositoryRow(binding: BindingRecord): StatusRepositoryRow {
  * the projection can be driven by a one-field fixture instead of a whole
  * stored run.
  *
- * @param runs - Runs (or anything carrying a run's verification record).
  * @returns The freshest read-back by its own stamp, or `null` when no dispatch
  *   has ever been verified.
  */
@@ -356,8 +351,6 @@ function notAvailableVerification(): StatusVerification {
  * store being unable to describe its runs is exactly when a reassuring `[]`
  * would be a lie (constitution II).
  *
- * @param context - Route context carrying the open store.
- * @param bindings - The stored bindings every row is keyed by.
  * @returns The rows plus the verification member.
  */
 async function runDerivedProjection(
@@ -392,7 +385,6 @@ async function runDerivedProjection(
 /**
  * Read the configuration the status reports the polling interval from.
  *
- * @param context - Route context carrying the open store.
  * @returns The effective configuration, or defaults when the store is down.
  */
 async function readConfig(context: RouteContext): Promise<ServiceConfig> {
@@ -408,7 +400,6 @@ async function readConfig(context: RouteContext): Promise<ServiceConfig> {
 /**
  * Assemble the status document.
  *
- * @param context - Route context carrying store, clock, and data directory.
  * @returns The health model, with every member computed from what the service
  *   actually knows.
  */
@@ -454,7 +445,6 @@ async function buildStatusBody(context: RouteContext): Promise<ServiceStatusBody
 /**
  * Answer `GET /v1/status`.
  *
- * @param context - Route context carrying the open store.
  * @returns The status document; works even when the store is unavailable,
  *   because that is exactly when the operator needs to read it.
  */

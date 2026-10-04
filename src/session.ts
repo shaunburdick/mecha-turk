@@ -86,7 +86,6 @@ export interface ContextSource {
 /**
  * Render a human-readable error without echoing provider payloads.
  *
- * @param cause - Caught value.
  * @returns A short description safe for the ledger.
  */
 export function describeError(cause: unknown): string {
@@ -108,8 +107,6 @@ export type ProjectResolution =
  * The panel never creates a project implicitly: an absent or invalid reference
  * blocks the dispatch.
  *
- * @param host - Host client.
- * @param configuredProjectId - Project id from the operator settings.
  * @returns The project, or the blocking problem plus the available ids.
  */
 export async function resolveProject(
@@ -161,7 +158,6 @@ export async function resolveProject(
  * counted in full first, so a shortened quotation can never cut the closing
  * delimiter. The context never contains a token or Authorization material.
  *
- * @param input - Repository, issue, identity, correlation, and the run's sources.
  * @returns Context truncated to `maxChars` characters, markers intact.
  */
 /** Everything one bounded context is built from. */
@@ -232,7 +228,6 @@ export function buildBoundedContext(input: BoundedContextInput): string {
 /**
  * Map the configured worktree option onto the documented `startSession` value.
  *
- * @param selection - Worktree selection from the binding context.
  * @returns The documented worktree value, or `undefined` for `none`.
  */
 function worktreeValue(selection: WorktreeSelection): GuestSessionWorktree | undefined {
@@ -267,7 +262,6 @@ const NO_PROMPT: PromptReference = {
  * `mt-run-…` correlation id in the evidence record, and every other caller
  * keeps whatever correlation id its own record already carries.
  *
- * @param input - Configuration, evidence, issue, and bounded context.
  * @returns The request exactly as it will be sent to the host.
  */
 export function buildStartSessionRequest(input: {
@@ -329,7 +323,6 @@ type StartSessionSuccess = Exclude<StartSessionResult, StartSessionFailure>;
 /**
  * Summarize a successful `host.startSession()` result for the ledger.
  *
- * @param result - Result with a created session id.
  * @returns Scalar, secret-free fields for the ledger.
  */
 function summarizeSuccess(result: StartSessionSuccess): LedgerDetail {
@@ -351,7 +344,6 @@ function summarizeSuccess(result: StartSessionSuccess): LedgerDetail {
  * The worktree OpenChamber left behind is part of the record: the relay
  * inspects this before any retry.
  *
- * @param result - Result with a null session id and a failure reason.
  * @returns Scalar, secret-free fields for the ledger.
  */
 function summarizeFailure(result: StartSessionFailure): LedgerDetail {
@@ -374,7 +366,6 @@ function summarizeFailure(result: StartSessionFailure): LedgerDetail {
  * session id, the failure reason, the directory, and any worktree OpenChamber
  * left behind.
  *
- * @param result - Result returned by the host.
  * @returns A scalar, secret-free summary for the ledger.
  */
 export function summarizeStartSessionResult(result: StartSessionResult): LedgerDetail {
@@ -389,7 +380,6 @@ export function summarizeStartSessionResult(result: StartSessionResult): LedgerD
  * returned a failure — but they carry `problem`/`failure` instead of a session
  * id, so they must never count as a dispatch.
  *
- * @param detail - Detail payload of a `session` ledger entry.
  * @returns `true` when the detail carries a non-empty created session id.
  */
 function hasCreatedSession(detail: LedgerDetail): boolean {
@@ -406,8 +396,6 @@ function hasCreatedSession(detail: LedgerDetail): boolean {
  * permanent block, otherwise one unresolved project would disable the panel
  * until its ledger was deleted.
  *
- * @param ledger - Current ledger.
- * @param issueId - Issue number as a string.
  * @returns `true` when a `session` entry for that issue holds a created session id.
  */
 export function findDispatchForIssue(ledger: PanelLedger, issueId: string): boolean {
