@@ -135,7 +135,7 @@ function promptHandlers(rt: PanelRuntime): Pick<
 }
 
 /**
- * The note a cancelled editor leaves behind (2026-10-01 review).
+ * The note a cancelled editor leaves behind.
  *
  * A loaded edit says it wrote nothing, because that is the promise the
  * control makes; the add form simply closes — there was no row to disown, and

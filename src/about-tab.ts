@@ -75,7 +75,7 @@ const REPOSITORY_URL = 'https://github.com/shaunburdick/mecha-turk';
 /** The link line: address and target are the same URL, so it is readable. */
 const REPOSITORY_LINE = `Repository: [${REPOSITORY_URL}](${REPOSITORY_URL})`;
 
-/** The one-line description of the tool (2026-10-01 scrub: name, version, this). */
+/** The one-line description of the tool. */
 const DESCRIPTION =
     'Mecha Turk watches the GitHub repositories you bind — issues assigned to you, review requests, ' +
     'and mentions — and opens an OpenChamber session for each discovery.';
@@ -104,7 +104,7 @@ export interface AboutTabState {
     problem: string | null;
     /** The version the service answered, or `null` when it never did. */
     version: string | null;
-    /** Whether the Diagnostics disclosure is open (2026-10-01 scrub). */
+    /** Whether the Diagnostics disclosure is open. */
     diagnosticsOpen: boolean;
     /** Why the repository link could not be opened; `null` otherwise. */
     repoProblem: string | null;
@@ -141,7 +141,7 @@ export interface AboutTabUi {
     readonly failureBox: HTMLElement;
     /** Failure notice naming what could not be read and from where. */
     readonly failure: BannerHandle;
-    /** The disclosure control that reveals Diagnostics (2026-10-01 scrub). */
+    /** The disclosure control that reveals Diagnostics. */
     readonly diagnosticsToggle: ButtonHandle;
     /** Wrapper around the Diagnostics block, hidden until the control opens it. */
     readonly diagnosticsBox: HTMLElement;
@@ -240,7 +240,7 @@ export function repaintAboutTab(rt: PanelRuntime): void {
 }
 
 /**
- * Flip the Diagnostics disclosure (2026-10-01 scrub).
+ * Flip the Diagnostics disclosure.
  *
  * One named action rather than an inline closure, so the control's own
  * behaviour is testable without reaching through mount props: closed by
@@ -344,7 +344,7 @@ export async function loadVersion(rt: PanelRuntime): Promise<void> {
 
 /**
  * Mount the identity block: name, version, description, and the repository
- * link with its refusal line (FR-074, FR-075, 2026-10-01 scrub).
+ * link with its refusal line.
  *
  * @param input - Runtime whose read state paints the version, and the pane.
  * @returns The five handles.

@@ -1,5 +1,5 @@
 /**
- * The selected account's chip row (2026-09-30 visual redesign).
+ * The selected account's chip row.
  *
  * An account row already prints its connection and its scope inside the
  * subtitle the operator reads as prose, and the detail line under it restates

@@ -1,5 +1,5 @@
 /**
- * The panel's shared visual vocabulary (2026-09-30 visual redesign).
+ * The panel's shared visual vocabulary.
  *
  * Everything in this module is **structure, never copy**: it creates the
  * surfaces — blocks, definition rows, cards, cells — that the tab modules

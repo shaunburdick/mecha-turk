@@ -55,7 +55,7 @@ export interface BindingsPane {
     readonly bindingsList: ListHandle;
     /** Bindings refresh button. */
     readonly refreshBindings: ButtonHandle;
-    /** Opens the editor on an empty draft (2026-10-01 review). */
+    /** Opens the editor on an empty draft. */
     readonly newBinding: ButtonHandle;
     /** Enable/disable toggle for the selected row; a list-level control. */
     readonly toggleSelected: ButtonHandle;

@@ -157,7 +157,7 @@ export interface DispatchesControls extends PagingControls, RowDetail {
  * `hidden` flag is the "no control here", and a row that
  * wraps survives the narrowest frame the host allows. The
  * always-visible paging and filter row does not come from here — it is one
- * `.mt-toolbar mt-toolbar--controls` instead (2026-10-01 review).
+ * `.mt-toolbar mt-toolbar--controls` instead.
  *
  * @param pane - The pane root.
  * @returns The row element the controls mount into.

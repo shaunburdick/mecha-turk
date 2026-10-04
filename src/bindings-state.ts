@@ -90,7 +90,7 @@ export interface BindingsTabState {
     /** Last relay status rows rendered per binding. */
     statusRows: readonly BindingStatusRow[];
     /**
-     * Whether the binding editor block is on screen at all (2026-10-01 review).
+     * Whether the binding editor block is on screen at all.
      *
      * The editor is **not open by default**: the tab entry shows the list, a
      * row click loads that row into the editor and opens it, and **New

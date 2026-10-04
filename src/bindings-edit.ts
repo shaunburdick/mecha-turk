@@ -27,7 +27,7 @@ import type { ServiceErrorResult } from './service-calls.ts';
 
 /**
  * Open the editor on an empty draft — the list's **New binding** control
- * (2026-10-01 review).
+ *.
  *
  * Opening a new row and editing an existing one are mutually exclusive
  * states of one editor, so this does exactly what a row click does in

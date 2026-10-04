@@ -1,5 +1,5 @@
 /**
- * The selected binding's chip row (2026-09-30 visual redesign).
+ * The selected binding's chip row.
  *
  * A binding row prints *enabled* inside the subtitle the operator reads as
  * prose, and the form below it restates the triggers as checkboxes — so the

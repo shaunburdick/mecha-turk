@@ -482,7 +482,7 @@ export function mountSettingsTab(input: {
     const pane = body.ownerDocument.createElement('div');
     body.append(pane);
 
-    // One rule across the six tabs (2026-10-01 review): the tab title is the
+    // One rule across the six tabs: the tab title is the
     // first block's heading, and the tab's controls live inside that block —
     // the banner, the re-read row, and the failure notice all mount into it
     // instead of floating unboxed above the configuration grid.

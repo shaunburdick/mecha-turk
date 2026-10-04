@@ -1,5 +1,5 @@
 /**
- * Mounting and disposing the Bindings tab body (2026-10-01 review).
+ * Mounting and disposing the Bindings tab body.
  *
  * [`bindings-ui.ts`](./bindings-ui.ts) holds the pane's contract and its
  * repaint; this module holds the **mount** — the two blocks, the controls
