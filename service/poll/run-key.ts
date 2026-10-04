@@ -96,11 +96,11 @@ export interface RunKeyInput {
  *   when the subject number or ordinal is not the integer its field names.
  */
 function keySegments(input: RunKeyInput): readonly string[] {
-    if (!Number.isInteger(input.subjectNumber) || input.subjectNumber < 1) {
+    if (!Number.isSafeInteger(input.subjectNumber) || input.subjectNumber < 1) {
         throw new Error('refusing to derive a run key without a positive subject number');
     }
 
-    if (!Number.isInteger(input.ordinal) || input.ordinal < 0) {
+    if (!Number.isSafeInteger(input.ordinal) || input.ordinal < 0) {
         throw new Error('refusing to derive a run key without a non-negative ordinal');
     }
 
@@ -198,7 +198,7 @@ export function buildAttachmentId(correlationId: string): string {
  * @throws {Error} When the attempt is not a positive integer.
  */
 export function buildDispatchToken(runKey: string, attempt: number): string {
-    if (!Number.isInteger(attempt) || attempt < 1) {
+    if (!Number.isSafeInteger(attempt) || attempt < 1) {
         throw new Error('refusing to mint a dispatch token for an attempt that is not a positive integer');
     }
 

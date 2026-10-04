@@ -214,7 +214,7 @@ function issueNumberOf(value: unknown): number | null {
 
     const issueNumber = record.number;
 
-    return typeof issueNumber === 'number' && Number.isInteger(issueNumber) && issueNumber > 0 ? issueNumber : null;
+    return typeof issueNumber === 'number' && Number.isSafeInteger(issueNumber) && issueNumber > 0 ? issueNumber : null;
 }
 
 /**

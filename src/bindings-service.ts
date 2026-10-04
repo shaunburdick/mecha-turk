@@ -184,7 +184,7 @@ function readTriggerFlags(value: unknown): PanelTriggers | null {
 export function issueNumberFrom(record: Record<string, unknown>): number {
     const value = record.issueNumber;
 
-    return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 0;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
 /**

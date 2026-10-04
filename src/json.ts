@@ -190,5 +190,5 @@ export function textOrNull(record: Record<string, unknown>, field: string): stri
 export function integerOrZero(record: Record<string, unknown>, field: string): number {
     const value = record[field];
 
-    return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }

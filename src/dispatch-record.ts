@@ -218,7 +218,7 @@ interface AttemptFlags {
  */
 function readAttemptFlags(record: Record<string, JsonValue>): AttemptFlags | null {
     const { attempt, acknowledged } = record;
-    if (typeof attempt !== 'number' || !Number.isInteger(attempt) || attempt < 1) {
+    if (typeof attempt !== 'number' || !Number.isSafeInteger(attempt) || attempt < 1) {
         return null;
     }
 

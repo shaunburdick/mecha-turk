@@ -127,7 +127,7 @@ function readStamp(value) {
   return typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : null;
 }
 function readCount(value) {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 function readPositiveInt(value) {
   const parsed = readCount(value);
@@ -484,7 +484,7 @@ function storedFingerprint(candidate) {
 }
 function storedLength(candidate) {
   const { length } = candidate;
-  return typeof length === "number" && Number.isInteger(length) && length > 0 ? length : null;
+  return typeof length === "number" && Number.isSafeInteger(length) && length > 0 ? length : null;
 }
 function storedSources(candidate) {
   const { sources } = candidate;
@@ -1197,7 +1197,7 @@ function isLogLevel(value) {
 function numericIssue(raw, field) {
   const bounds = NUMERIC_BOUNDS[field];
   const value = raw[field];
-  if (typeof value === "number" && Number.isInteger(value) && value >= bounds.min && value <= bounds.max) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= bounds.min && value <= bounds.max) {
     return [];
   }
   return [
@@ -1388,7 +1388,7 @@ function readIdentity(text) {
     return null;
   }
   const { id, login } = parsed.value;
-  if (typeof id !== "number" || !Number.isInteger(id) || typeof login !== "string" || login === "") {
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || typeof login !== "string" || login === "") {
     return null;
   }
   return { numericUserId: String(id), login };
@@ -1835,7 +1835,7 @@ function isAbsentableTextFieldSet(record, fields) {
   });
 }
 function positiveIntOf(value) {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 function knownStateOf(value) {
   if (typeof value !== "string" || !KNOWN_STATES.has(value)) {
@@ -2038,10 +2038,10 @@ var FINGERPRINT_HEX_CHARS2 = 16;
 var FINGERPRINT_PREFIX = "tokfp-";
 var KEY_SEPARATOR = "|";
 function keySegments(input) {
-  if (!Number.isInteger(input.subjectNumber) || input.subjectNumber < 1) {
+  if (!Number.isSafeInteger(input.subjectNumber) || input.subjectNumber < 1) {
     throw new Error("refusing to derive a run key without a positive subject number");
   }
-  if (!Number.isInteger(input.ordinal) || input.ordinal < 0) {
+  if (!Number.isSafeInteger(input.ordinal) || input.ordinal < 0) {
     throw new Error("refusing to derive a run key without a non-negative ordinal");
   }
   const segments = [
@@ -2076,7 +2076,7 @@ function buildAttachmentId(correlationId) {
   return correlationId;
 }
 function buildDispatchToken(runKey, attempt) {
-  if (!Number.isInteger(attempt) || attempt < 1) {
+  if (!Number.isSafeInteger(attempt) || attempt < 1) {
     throw new Error("refusing to mint a dispatch token for an attempt that is not a positive integer");
   }
   return `dtk-${digestHex(`${runKey}${KEY_SEPARATOR}${attempt}`, TOKEN_HEX_CHARS)}`;
@@ -4075,7 +4075,7 @@ function parseServiceState(raw) {
     return null;
   }
   const version = raw.schemaVersion;
-  if (typeof version !== "number" || !Number.isInteger(version) || version < 1) {
+  if (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1) {
     return null;
   }
   const initializedAt = typeof raw.initializedAt === "string" ? raw.initializedAt : nowIso();
@@ -7191,7 +7191,7 @@ function parseRunScopeRequest(input) {
     issues.push(echo);
   }
   const { attempt } = record;
-  if (typeof attempt !== "number" || !Number.isInteger(attempt) || attempt < 1) {
+  if (typeof attempt !== "number" || !Number.isSafeInteger(attempt) || attempt < 1) {
     issues.push({ field: "attempt", remediation: "send the attempt number this run is on, as a whole number" });
   }
   const leaseId = requiredMember({
@@ -8903,7 +8903,7 @@ function issueNumberOf(value) {
     return null;
   }
   const issueNumber = record.number;
-  return typeof issueNumber === "number" && Number.isInteger(issueNumber) && issueNumber > 0 ? issueNumber : null;
+  return typeof issueNumber === "number" && Number.isSafeInteger(issueNumber) && issueNumber > 0 ? issueNumber : null;
 }
 function createdAtOf(value) {
   if (typeof value !== "string") {
@@ -9617,7 +9617,7 @@ function asRecord(value) {
   return isRecord(value) ? value : null;
 }
 function positiveIntOf2(value) {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 function textOf(record, field) {
   const value = record[field];

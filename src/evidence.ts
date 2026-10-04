@@ -119,7 +119,7 @@ export function assertEvidenceRedacted(evidence: PanelEvidence): void {
  * @throws {EvidenceError} When an input is missing or malformed.
  */
 export function buildEvidence(input: EvidenceInput): PanelEvidence {
-    if (!Number.isInteger(input.issueNumber) || input.issueNumber <= 0) {
+    if (!Number.isSafeInteger(input.issueNumber) || input.issueNumber <= 0) {
         throw new EvidenceError('issue number must be a positive integer');
     }
 
@@ -139,7 +139,7 @@ export function buildEvidence(input: EvidenceInput): PanelEvidence {
         throw new EvidenceError('detectedAt must be an RFC 3339 timestamp');
     }
 
-    if (!Number.isInteger(input.panelGeneration) || input.panelGeneration < 1) {
+    if (!Number.isSafeInteger(input.panelGeneration) || input.panelGeneration < 1) {
         throw new EvidenceError('panelGeneration must be a positive integer');
     }
 
@@ -194,7 +194,7 @@ function readTextField(record: Record<string, JsonValue>, field: string): string
  */
 function readGenerationField(record: Record<string, JsonValue>): number | null {
     const { panelGeneration } = record;
-    if (typeof panelGeneration !== 'number' || !Number.isInteger(panelGeneration) || panelGeneration < 1) {
+    if (typeof panelGeneration !== 'number' || !Number.isSafeInteger(panelGeneration) || panelGeneration < 1) {
         return null;
     }
 

@@ -80,7 +80,7 @@ export function readStamp(value: unknown): string | null {
  * @returns The integer, or `null`.
  */
 export function readCount(value: unknown): number | null {
-    return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 /**

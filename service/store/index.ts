@@ -116,7 +116,7 @@ function parseServiceState(raw: unknown): ServiceState | null {
     }
 
     const version = raw.schemaVersion;
-    if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
+    if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1) {
         return null;
     }
 

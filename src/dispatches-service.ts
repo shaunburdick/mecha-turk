@@ -237,7 +237,7 @@ function countsReconcile(input: { readonly counts: RunCounts; readonly retained:
  * @returns The value, or `null` when it is missing, fractional, or too small.
  */
 function atLeast(value: number | null, min: number): number | null {
-    if (value === null || !Number.isInteger(value) || value < min) {
+    if (value === null || !Number.isSafeInteger(value) || value < min) {
         return null;
     }
 

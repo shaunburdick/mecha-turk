@@ -147,7 +147,7 @@ function parseAuditRow(value: unknown): AuditRow | null {
     }
 
     const { seq, timestamp, correlationId, eventType, actorSource, decision, reason, details } = record;
-    if (typeof seq !== 'number' || !Number.isInteger(seq)) {
+    if (typeof seq !== 'number' || !Number.isSafeInteger(seq)) {
         return null;
     }
 

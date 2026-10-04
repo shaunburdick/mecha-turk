@@ -453,7 +453,7 @@ function storedFingerprint(candidate: Record<string, unknown>): string | null {
 function storedLength(candidate: Record<string, unknown>): number | null {
     const { length } = candidate;
 
-    return typeof length === 'number' && Number.isInteger(length) && length > 0 ? length : null;
+    return typeof length === 'number' && Number.isSafeInteger(length) && length > 0 ? length : null;
 }
 
 /**

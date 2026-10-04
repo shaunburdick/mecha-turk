@@ -231,7 +231,7 @@ function isAbsentableTextFieldSet(record: Record<string, unknown>, fields: reado
  * @returns The integer, or `null` when the value is not one.
  */
 function positiveIntOf(value: unknown): number | null {
-    return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 /**
  * Validate the stored `state` field.

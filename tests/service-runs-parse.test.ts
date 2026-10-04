@@ -109,7 +109,7 @@ function attemptRecord(): DispatchAttempt {
 function fixtureRun(overrides: Partial<Run> = {}): Run {
     const ordinal = overrides.ordinal !== undefined && overrides.ordinal >= 0 ? overrides.ordinal : 0;
     const subjectNumber = overrides.subjectNumber !== undefined
-        && Number.isInteger(overrides.subjectNumber)
+        && Number.isSafeInteger(overrides.subjectNumber)
         && overrides.subjectNumber > 0
         ? overrides.subjectNumber
         : 12;

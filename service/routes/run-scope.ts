@@ -219,7 +219,7 @@ function parseRunScopeRequest(input: {
     }
 
     const { attempt } = record;
-    if (typeof attempt !== 'number' || !Number.isInteger(attempt) || attempt < 1) {
+    if (typeof attempt !== 'number' || !Number.isSafeInteger(attempt) || attempt < 1) {
         issues.push({ field: 'attempt', remediation: 'send the attempt number this run is on, as a whole number' });
     }
 

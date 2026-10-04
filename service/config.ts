@@ -226,7 +226,7 @@ function isLogLevel(value: unknown): value is LogLevel {
 function numericIssue(raw: Record<string, unknown>, field: NumericField): readonly ConfigIssue[] {
     const bounds = NUMERIC_BOUNDS[field];
     const value = raw[field];
-    if (typeof value === 'number' && Number.isInteger(value) && value >= bounds.min && value <= bounds.max) {
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= bounds.min && value <= bounds.max) {
         return [];
     }
 

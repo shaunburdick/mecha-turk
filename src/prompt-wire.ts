@@ -77,7 +77,7 @@ function presentReference(record: Record<string, unknown>): PromptReference | nu
         return null;
     }
 
-    if (typeof promptLength !== 'number' || !Number.isInteger(promptLength) || promptLength < 1) {
+    if (typeof promptLength !== 'number' || !Number.isSafeInteger(promptLength) || promptLength < 1) {
         return null;
     }
 
