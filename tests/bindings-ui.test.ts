@@ -245,7 +245,7 @@ function lastPropsOf(
 ): Record<string, unknown> | undefined {
     const all = propsLog(key, match);
 
-    return all[all.length - 1];
+    return all.at(-1);
 }
 
 /**
@@ -719,7 +719,7 @@ function paintedListItems(): readonly { readonly title?: string; readonly subtit
     const paints = mounts.log.filter(
         (entry) => entry.key === 'mountList' || entry.key === 'mountList:update',
     );
-    const frame = paints[paints.length - 1];
+    const frame = paints.at(-1);
     const items = (frame?.props as { readonly items?: unknown } | undefined)?.items;
 
     return Array.isArray(items)

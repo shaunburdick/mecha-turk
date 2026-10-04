@@ -364,7 +364,7 @@ describe('a refused write records one value-free row (006 T-015, AC-136, AC-113,
         expect(serialized).not.toContain(BAD_AGENT);
         expect(serialized).not.toContain(FOREIGN_KEY);
         expect(serialized).not.toContain(FOREIGN_VALUE);
-        expect(serialized).not.toContain('   ');
+        expect(serialized).not.toContain(' '.repeat(3));
     });
 });
 

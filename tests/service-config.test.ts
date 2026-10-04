@@ -604,7 +604,7 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
                 if (!result.ok) {
                     const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
                     expect(issue?.remediation, `${shape} remediation`).toBe(remediation);
-                    expect(issue?.remediation, `${shape} must not echo whitespace`).not.toContain('    ');
+                    expect(issue?.remediation, `${shape} must not echo whitespace`).not.toContain(' '.repeat(4));
                     const submitted = value.trim();
                     if (submitted !== '') {
                         expect(JSON.stringify(result.issues), `${shape} must not echo the value`)
@@ -629,7 +629,7 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
     it('accepts a blank baseline (006 FR-100(c) as amended) and still', async () => {
         // refuses an absent or non-string member (FR-100(b), whole-document)
         {
-            for (const blank of ['', '   ', '\t']) {
+            for (const blank of ['', ' '.repeat(3), '\t']) {
                 const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: blank });
 
                 expect(result.ok, `${JSON.stringify(blank)} must be a valid baseline`).toBe(true);
@@ -767,7 +767,7 @@ describe('startingPrompt — the global tier (004 FR-081, FR-083; 006 FR-041)', 
         // The ceiling this rule applies is the specification's own figure.
         expect(CAP).toBe(2_000);
 
-        for (const blank of ['', '   ', '\t\n']) {
+        for (const blank of ['', ' '.repeat(3), '\t\n']) {
             const result = validateConfig({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: blank });
 
             expect(result.ok, `${JSON.stringify(blank)} must mean unset`).toBe(true);

@@ -23,7 +23,7 @@ import { readFileSync } from 'node:fs';
 import { crc32, deflateSync, inflateSync } from 'node:zlib';
 
 /** Leading bytes of a PNG, as the header reader compares them. */
-const PNG_SIGNATURE = 0x89504e47;
+const PNG_SIGNATURE = 0x89504E47;
 
 /** The same eight bytes as hex, which `Buffer.from(…, 'hex')` accepts. */
 const PNG_SIGNATURE_HEX = '89504e470d0a1a0a';

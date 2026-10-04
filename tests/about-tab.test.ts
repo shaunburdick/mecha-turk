@@ -237,7 +237,7 @@ function lastProps(
         .filter((props): props is Record<string, unknown> => typeof props === 'object' && props !== null)
         .filter(match);
 
-    return calls[calls.length - 1];
+    return calls.at(-1);
 }
 
 /** Correlation id the ledger fixtures carry. */

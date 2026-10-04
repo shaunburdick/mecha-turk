@@ -537,7 +537,7 @@ describe('the wait delays the schedule instead of being caught up (002 FR-022)',
 
                 const nextAtMs = loop.state().nextPollAtMs;
                 const cycleStart = fetchStamps[0] ?? 0;
-                const waitsFinished = fetchStamps[fetchStamps.length - 1] ?? 0;
+                const waitsFinished = fetchStamps.at(-1) ?? 0;
 
                 expect(fetchStamps).toHaveLength(LADDER.maxAttempts);
                 expect(waitsFinished - cycleStart).toBe(15_000);

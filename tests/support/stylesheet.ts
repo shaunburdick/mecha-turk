@@ -323,7 +323,7 @@ function scanRules(input: ScanInput): void {
  */
 export function parseStylesheet(css: string): readonly StyleRule[] {
     const state: ParseState = { rules: [], order: 0 };
-    scanRules({ cursor: { text: css.replace(COMMENT, ' '), index: 0 }, media: null, state });
+    scanRules({ cursor: { text: css.replaceAll(COMMENT, ' '), index: 0 }, media: null, state });
 
     return state.rules;
 }

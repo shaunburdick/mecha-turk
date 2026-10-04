@@ -878,7 +878,7 @@ describe('FR-051 the window is a client-side comparison, and the walk is one-dir
         const orders = [
             qualifying,
             rowsOf([qualifying[1], qualifying[2], qualifying[0]]),
-            [...qualifying].reverse(),
+            qualifying.toReversed(),
             rowsOf([qualifying[0], qualifying[2], qualifying[1]]),
         ];
 

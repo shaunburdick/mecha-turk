@@ -184,7 +184,7 @@ function parseAttribute(piece: string): Token {
     const symbolic = ATTRIBUTE_OPERATORS.includes(tail);
     const name = symbolic ? before.slice(0, -1) : before;
     const operator = symbolic ? `${tail}${EQUALS}` : EQUALS;
-    const value = inner.slice(equals + 1).trim().replace(QUOTED, '');
+    const value = inner.slice(equals + 1).trim().replaceAll(QUOTED, '');
 
     return { kind: ATTRIBUTE_KIND, name, detail: `${operator}${value}` };
 }
@@ -447,7 +447,7 @@ function splitCompounds(selector: string): readonly string[] {
  */
 function matchesSelector(selector: string, element: ProbeElement): boolean {
     const compounds = splitCompounds(selector);
-    const last = compounds[compounds.length - 1];
+    const last = compounds.at(-1);
 
     return last !== undefined && matchesCompound(last, element);
 }

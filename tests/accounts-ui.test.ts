@@ -361,7 +361,7 @@ function mountedListItems(): readonly { readonly title?: string; readonly subtit
     const calls = mounts.log.filter(
         (candidate) => candidate.key === 'mountList' || candidate.key === 'mountList:update',
     );
-    const props = calls[calls.length - 1]?.props as
+    const props = calls.at(-1)?.props as
         | { readonly items?: { readonly title?: string }[] }
         | undefined;
 

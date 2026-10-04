@@ -687,7 +687,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             );
 
             expect(grown).toHaveLength(configSchema().length + 1);
-            expect(grown[grown.length - 1]?.field).toBe('futureBudget');
+            expect(grown.at(-1)?.field).toBe('futureBudget');
         }
         {
             const descriptor = descriptorOf('startingPrompt', combinedEnvelope());

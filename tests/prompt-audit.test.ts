@@ -697,7 +697,7 @@ describe('both lanes seed their baseline only from an `mtp-` fingerprint (004 FR
 
             expect(observed).toBe(1);
             const trail = await promptRows(store);
-            const fresh = trail[trail.length - 1];
+            const fresh = trail.at(-1);
             // The seed read the junk as *unknown*, so this change is a fresh
             // `set` against an empty baseline — and the junk appears nowhere
             // in the row it would otherwise have been carried into.
@@ -729,7 +729,7 @@ describe('both lanes seed their baseline only from an `mtp-` fingerprint (004 FR
 
             expect(observed).toBe(1);
             const trail = await accountRows(store);
-            const fresh = trail[trail.length - 1];
+            const fresh = trail.at(-1);
             expect(fresh?.decision).toBe('set');
             expect(fresh?.details.previousFingerprint).toBeNull();
             expect(JSON.stringify(fresh)).not.toContain(NOT_A_FINGERPRINT);

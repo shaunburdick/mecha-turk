@@ -106,8 +106,8 @@ const DARK_THEME = {
 };
 
 const harnessDoc = globalThis.document;
-const frame = harnessDoc.getElementById('panel');
-const sentinelLayer = harnessDoc.getElementById('sentinel');
+const frame = harnessDoc.querySelector('#panel');
+const sentinelLayer = harnessDoc.querySelector('#sentinel');
 
 /** The panel's own document — every measurement reads it, never the harness's. */
 function panelDoc() {
@@ -294,7 +294,7 @@ function booted() {
     const body = panel.querySelector('[data-body]');
     const tabs = panel.querySelectorAll('[role="tab"]');
 
-    return tabs.length > 0 && body !== null && body.innerText.length > MIN_BODY_TEXT;
+    return tabs.length > 0 && body !== null && body.textContent.length > MIN_BODY_TEXT;
 }
 
 /**
@@ -311,7 +311,7 @@ function measure(name) {
 
     const body = panel.querySelector(`[data-body="${name}"]`);
     const region = panel.querySelector('[data-body-region]');
-    const root = panel.getElementById('root');
+    const root = panel.querySelector('#root');
 
     if (body === null || region === null || root === null) {
         return null;
@@ -344,7 +344,7 @@ function measure(name) {
         scrollTop: Math.round(region.scrollTop),
         scrollHeight: Math.round(region.scrollHeight),
         maxScroll: Math.round(region.scrollHeight - region.clientHeight),
-        textLength: body.innerText.length,
+        textLength: body.textContent.length,
     };
 }
 
@@ -425,7 +425,7 @@ function bodyView() {
 
     const selected = panel.querySelector(SELECTED_TAB);
     const bodies = [...panel.querySelectorAll('[data-body]')].map((body) => ({
-        id: body.getAttribute('data-body'),
+        id: body.dataset.body,
         hidden: body.hasAttribute('hidden'),
         display: panel.defaultView.getComputedStyle(body).display,
         labelledBy: body.getAttribute('aria-labelledby'),

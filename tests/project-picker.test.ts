@@ -217,7 +217,7 @@ describe('storeProjectSelection', () => {
         expect(storage.values.get(PROJECT_STORAGE_KEY)).toBe(PROJECT_ID);
 
         const untouched = createStorageDouble();
-        const refusedId = await storeProjectSelection({ storage: untouched.storage }, '   ');
+        const refusedId = await storeProjectSelection({ storage: untouched.storage }, ' '.repeat(3));
         expect(refusedId.ok, 'an invalid id').toBe(false);
         expect(untouched.operations, 'an invalid id must not touch storage').toEqual([]);
 

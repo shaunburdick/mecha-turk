@@ -107,7 +107,7 @@ describe('readEvidence validation', () => {
                 stored.repository = 42;
             }],
             ['an empty string field', (stored) => {
-                stored.correlationId = '   ';
+                stored.correlationId = ' '.repeat(3);
             }],
             ['a trigger that is not the configured rule', (stored) => {
                 stored.trigger = 'manual';
