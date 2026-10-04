@@ -93,6 +93,16 @@ export default [
             // outside what a lint pass may do — and one of those two names is
             // worse than the file it would replace.
             'llm-core/filename-match-export': 'off',
+            // Wants `Promise.withResolvers()` for every hand-extracted
+            // resolver pair. That method is ES2024 and this project compiles to
+            // ES2022 (`target: ES2022`, `lib: [ES2023, DOM, DOM.Iterable]`), so
+            // adopting it here would type-check only because a newer `@types`
+            // leaks the declaration in — the shipped bundles would then call a
+            // method the guest runtime is not required to have. The same
+            // decision is already made, and already written down, in
+            // tests/bindings-gate-serialization.test.ts, which spells its latch
+            // helper for exactly this reason.
+            'unicorn/prefer-promise-with-resolvers': 'off',
         },
     },
 ];
