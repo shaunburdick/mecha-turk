@@ -128,14 +128,14 @@ export interface SettingsTabUi {
 }
 
 /**
- * The issues the service named, as text in the service's order (FR-024) — and
+ * The issues the service named, as text in the service's order — and
  * the two other things this region is owed: a failed write's own cause with
- * its correlation id (FR-061 – FR-064), and the warning that names the audit
- * row a save did not get (FR-070, AC-139).
+ * its correlation id, and the warning that names the audit
+ * row a save did not get.
  *
  * Rendered as one line each and never rewritten: the remediation is the
  * service's own sentence about a value the operator submitted, which is the
- * one string on this tab that is not a fixed label (FR-029, NFR-101).
+ * one string on this tab that is not a fixed label.
  *
  * @param slice - The Settings tab's state.
  * @returns The lines, empty when nothing is being reported.
@@ -158,7 +158,7 @@ function issueLines(slice: SettingsTabState): readonly string[] {
 
 /**
  * The notes each row's helper carries: the pending marker, in the words of the
- * class that governs it (FR-038, AC-105).
+ * class that governs it.
  *
  * @param edit - The editable state.
  * @returns The note per pending field.
@@ -176,7 +176,7 @@ function pendingNotes(edit: SettingsEdit): Readonly<Record<string, string>> {
  * The field each issue belongs to, so the service's remediation can appear on
  * the control it is about. An issue naming no documented field (a foreign key,
  * or the withheld marker) reaches the list only — it is information about the
- * submission, never an editable surface (FR-026).
+ * submission, never an editable surface.
  *
  * @param slice - The Settings tab's state.
  * @returns The remediation per documented field.
@@ -278,7 +278,7 @@ function repaintReadState(ui: SettingsTabUi, slice: SettingsTabState): void {
 
 /**
  * Mount the rows when the field list changed, patch them when it did not
- * (FR-014, FR-027) — patching rather than rebuilding is what keeps an input's
+ * — patching rather than rebuilding is what keeps an input's
  * focus while the operator types.
  *
  * @param input - The runtime, the mounted view, and the state.
@@ -317,7 +317,7 @@ function repaintRows(input: {
  *
  * Computed as one value rather than inlined at each call site, because the
  * arming rule — *only the control that raised a confirmation may act* — is a
- * single decision that four separate flags have to agree on (FR-016, FR-051).
+ * single decision that four separate flags have to agree on.
  *
  * @param slice - The Settings tab's state.
  * @returns The armed confirmation, and the three enabled flags.
@@ -349,7 +349,7 @@ function saveControlsFor(slice: SettingsTabState): {
 
 /**
  * Repaint the save bar, the armed confirmation, the named reason, the save
- * state, and the issues (FR-013, FR-016, FR-024, FR-042, FR-051).
+ * state, and the issues.
  *
  * @param ui - The mounted view.
  * @param slice - The Settings tab's state.
@@ -386,7 +386,7 @@ function repaintControls(ui: SettingsTabUi, slice: SettingsTabState): void {
 }
 
 /**
- * Repaint the Settings tab from its state (FR-013, FR-078).
+ * Repaint the Settings tab from its state.
  *
  * Nothing runs when the tab has never been activated: the state still
  * updates, and the first activation repaints from it (005 FR-013).
@@ -411,12 +411,11 @@ export function repaintSettingsTab(rt: PanelRuntime): void {
 }
 
 /**
- * Read `GET /v1/config` once and record what it answered (FR-014, FR-049).
+ * Read `GET /v1/config` once and record what it answered.
  *
  * The read is this tab's own: a failure leaves the last document in place,
  * marked stale, names what could not be read, and blocks any save — because a
- * save with no current baseline sends a document the panel cannot stand behind
- * (FR-019, FR-042).
+ * save with no current baseline sends a document the panel cannot stand behind.
  *
  * @param rt - Panel runtime.
  * @returns Resolves once the answer has been applied.
@@ -426,7 +425,7 @@ export async function loadSettings(rt: PanelRuntime): Promise<void> {
 }
 
 /**
- * Save the draft: one activation, one whole-document write (FR-040, FR-046).
+ * Save the draft: one activation, one whole-document write.
  *
  * @param rt - Panel runtime.
  * @returns Resolves once the answer has been applied.
@@ -436,7 +435,7 @@ export async function saveSettings(rt: PanelRuntime): Promise<void> {
 }
 
 /**
- * Discard the unsaved edits, naming what reverted (FR-015, AC-122).
+ * Discard the unsaved edits, naming what reverted.
  *
  * @param rt - Panel runtime.
  */
@@ -446,7 +445,7 @@ export function discardSettings(rt: PanelRuntime): void {
 
 /**
  * Restore the declared defaults: stage them under a confirmation, and write
- * only on the armed control's second activation (FR-016, T-022).
+ * only on the armed control's second activation.
  *
  * @param rt - Panel runtime.
  * @returns Resolves once a confirmed write has been applied.
@@ -457,7 +456,7 @@ export async function stageDefaults(rt: PanelRuntime): Promise<void> {
 
 /**
  * Disarm the confirmation: nothing is written, and every field returns to the
- * last-read value (FR-054, AC-121).
+ * last-read value.
  *
  * @param rt - Panel runtime.
  */
@@ -468,7 +467,7 @@ export function cancelConfirm(rt: PanelRuntime): void {
 /**
  * Mount the Settings tab: heading, banner, read state, the re-read control,
  * the failure notice, the rows, the save bar, the confirmation, and the two
- * notices (FR-010).
+ * notices.
  *
  * @param input - Runtime and the body container the shell created.
  * @returns The mounted view.

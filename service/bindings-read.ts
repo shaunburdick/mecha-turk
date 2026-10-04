@@ -84,7 +84,7 @@ function parseBindingsFile(raw: unknown, note: RefusalNote): BindingRecord[] | n
 /**
  * Read the stored bindings without running the prompt-change observer.
  *
- * This is the reader the chain-holding write path uses (plan D8).
+ * This is the reader the chain-holding write path uses.
  *
  * @param input - Open store and logger.
  * @returns The bindings, or `[]` when the file is absent/unusable.

@@ -99,7 +99,7 @@ function pageLabelsUsable(page: Record<string, unknown>): boolean {
 }
 
 /**
- * Read the `page` member of a paged answer, fail closed (FR-042).
+ * Read the `page` member of a paged answer, fail closed.
  *
  * @param value - The `page` member (unchecked).
  * @returns The metadata, or `null` when any member is missing or wrong.
@@ -154,7 +154,7 @@ export function parseDispatchListBody(text: string): DispatchListAnswer | null {
  * Every value the panel cannot stand behind is simply omitted: the cursor only
  * travels when the operator has stepped past page one, and a filter only when
  * it is on — so the barest call is still the closest analogue of an unfiltered
- * first page rather than a filter nobody chose (FR-042, FR-043).
+ * first page rather than a filter nobody chose.
  *
  * @param runs - The section's filters and paging position.
  * @returns `GET /v1/events` with this read's parameters.

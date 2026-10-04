@@ -78,7 +78,7 @@ export const EVENTS_PATH = '/v1/events';
  * How many events the runs history answered with before paging (contract §0).
  *
  * The shipped 100-row cap is the **maximum page size** now: the 101st
- * dispatch is reachable through the cursor (FR-042), and this name is kept
+ * dispatch is reachable through the cursor, and this name is kept
  * because the contract set and the tests read it.
  */
 export const MAX_LISTED_EVENTS = MAX_PAGE_SIZE;
@@ -218,17 +218,17 @@ export async function readStatusRows(input: {
 /**
  * Answer `GET /v1/events/pending` with claimed runs and status.
  *
- * The claim is a lease, not a bare state flip (FR-030): every run this page
+ * The claim is a lease, not a bare state flip: every run this page
  * offers moves to `claimed` under a fresh lease whose expiry comes from the
  * service's own clock, and the sweep recovers it if this panel never answers.
- * Eligibility is the service's alone (FR-037), so a run that is not waiting —
+ * Eligibility is the service's alone, so a run that is not waiting —
  * or that already produced a session — is simply absent from the answer.
  *
- * The answer is **bounded and paginated** (T-039): the claim leases at most
+ * The answer is **bounded and paginated**: the claim leases at most
  * `MAX_CLAIMED_RUNS` runs and at most the documented byte budget, and anything
  * beyond that stays `pending` and unleased for the panel's next call. The
  * status rows carry the true per-binding pending count, so a panel can see
- * that more work is waiting without the lease burning (FR-036).
+ * that more work is waiting without the lease burning.
  *
  * `auditWritten` reports FR-063's operator-visible surfacing: `false` means the
  * leases are durable and the `dispatch.claimed` rows are not, and the panel
@@ -272,7 +272,7 @@ async function handlePendingEvents(context: RouteContext, request: RouteRequest)
  * Project the whole history in the retained order.
  *
  * The run document is read **first and directly**: it is the reader that runs
- * the one-shot legacy adoption (FR-005), so a store upgraded moments ago
+ * the one-shot legacy adoption, so a store upgraded moments ago
  * answers with its adopted rows rather than with an empty list. An unreadable
  * document throws `StorageUnavailableError`, which the pipeline maps to the
  * contract's only refusal — `503 storage-unavailable` — instead of inventing an
@@ -292,7 +292,7 @@ async function projectHistory(
     return projectRunHistory({
         runs: document.runs,
         deliveries: new Map(queue.map((event) => [event.id, event])),
-        // The whole projection: the cap is a page size now, not a wall (FR-042).
+        // The whole projection: the cap is a page size now, not a wall.
         cap: document.runs.length,
     }).sort(newestFirst);
 }

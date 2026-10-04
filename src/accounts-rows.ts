@@ -85,7 +85,7 @@ export const SCOPE_UNCHECKED = 'scope: not checked';
 const SCOPE_ORDER = ['metadata', 'issues', 'pull-requests', 'contents'] as const;
 
 /**
- * Read the label an account row leads with (FR-066).
+ * Read the label an account row leads with.
  *
  * The operator's display name wins when there is one and the GitHub login
  * takes over when there is not, because a name the operator chose is the
@@ -100,7 +100,7 @@ export function accountTitle(account: PanelAccount): string {
 }
 
 /**
- * Read one lifecycle state's words and remediation (FR-063, FR-068).
+ * Read one lifecycle state's words and remediation.
  *
  * @param account - One credential-free account.
  * @returns The copy to render for its `state`.
@@ -113,7 +113,7 @@ export function lifecycleCopy(account: PanelAccount): LifecycleCopy {
 
     if (state === 'error' && account.errorReason === INTERRUPTED_HANDOFF) {
         // The same way out as `pending_handoff`, but its own words: an
-        // operator must be able to tell the two apart (FR-068).
+        // operator must be able to tell the two apart.
         return { label: `error (${INTERRUPTED_HANDOFF})`, remediation: HANDOFF_REMEDIATION };
     }
 
@@ -121,7 +121,7 @@ export function lifecycleCopy(account: PanelAccount): LifecycleCopy {
 }
 
 /**
- * Read one connection state's words (FR-062, NFR-112).
+ * Read one connection state's words.
  *
  * The four states FR-062 names render verbatim, and so does **needs
  * reconnection**: both the status projection and the accounts mirror have
@@ -131,7 +131,7 @@ export function lifecycleCopy(account: PanelAccount): LifecycleCopy {
  * tab *unknown* is the worse lie — so it joins the known set and gets the
  * warning tone beside it, while any word **outside** the set still reads
  * `unknown connection state: <raw>` rather than being mapped to a friendly
- * guess (FR-003).
+ * guess.
  *
  * @param account - One credential-free account.
  * @returns The connection phrase, including an unreported or unknown one.
@@ -155,7 +155,7 @@ export function connectionPhrase(account: PanelAccount): string {
 }
 
 /**
- * How many bindings an account backs, as the rows print it (FR-062).
+ * How many bindings an account backs, as the rows print it.
  *
  * One place, because `1 bindings` appeared twice and a count that disagrees
  * with its own noun is the kind of detail an operator stops trusting the
@@ -169,7 +169,7 @@ export function bindingsPhrase(count: number): string {
 }
 
 /**
- * Read the last-verified stamp as elapsed time (FR-062).
+ * Read the last-verified stamp as elapsed time.
  *
  * @param account - One credential-free account.
  * @returns `last verified <when>`, or the not-reported words when absent.
@@ -183,10 +183,10 @@ export function verifiedPhrase(account: PanelAccount): string {
 }
 
 /**
- * Read the four-capability scope matrix as one line (FR-062, FR-010).
+ * Read the four-capability scope matrix as one line.
  *
  * A matrix the DTO did not carry reads *not checked* — never *ok*: an
- * absent matrix is no evidence, and no evidence is not a pass (FR-003).
+ * absent matrix is no evidence, and no evidence is not a pass.
  *
  * @param account - One credential-free account.
  * @returns The scope phrase.
@@ -203,7 +203,7 @@ export function scopePhrase(account: PanelAccount): string {
 }
 
 /**
- * Count the bindings one account backs (FR-062).
+ * Count the bindings one account backs.
  *
  * @param bindings - The Bindings tab's state, which holds the stored list.
  * @param account - The account being counted.
@@ -239,7 +239,7 @@ export function accountPromptSummary(account: PanelAccount): string {
 }
 
 /**
- * Compose one account row (FR-062, FR-083).
+ * Compose one account row.
  *
  * @param bindings - The Bindings tab's state, for the binding count.
  * @param account - The account to render.
@@ -272,7 +272,7 @@ export function accountRow(bindings: BindingsTabState, account: PanelAccount): L
 }
 
 /**
- * Build the account list rows (FR-062).
+ * Build the account list rows.
  *
  * @param bindings - The Bindings tab's state, which holds accounts and bindings.
  * @returns The rows, in stored order.
@@ -282,12 +282,12 @@ export function accountRows(bindings: BindingsTabState): ListItem[] {
 }
 
 /**
- * Compose one account's own line, with its remediation (FR-063).
+ * Compose one account's own line, with its remediation.
  *
  * The remediation is what separates a first-class bad state from a badge:
  * `rejected`, `revoked`, `error`, and `pending_handoff` each say what to do
  * next, and an account that is fine says nothing at all rather than
- * reassuring the operator (NFR-112).
+ * reassuring the operator.
  *
  * @param bindings - The Bindings tab's state, for the binding count.
  * @param account - The account to describe.
@@ -361,7 +361,7 @@ export function rotationRetained(login: string): string {
 }
 
 /**
- * The confirmation the selected row owes the operator right now (FR-055, FR-064).
+ * The confirmation the selected row owes the operator right now.
  *
  * Derived at render time from which control is armed, so the statement can
  * never be staler than the arm it describes and never needs clearing.
@@ -391,7 +391,7 @@ export function armStatement(input: {
 }
 
 /**
- * Compose the detail line for whatever row is open (FR-063, FR-055, FR-064).
+ * Compose the detail line for whatever row is open.
  *
  * @param input - The stored data, the working state, and the open row.
  * @returns The text the detail line shows.
@@ -416,7 +416,7 @@ export function detailText(input: {
 }
 
 /**
- * Which label a two-step control carries right now (FR-055, FR-064).
+ * Which label a two-step control carries right now.
  *
  * @param input - The armed row, the open row, and the two labels.
  * @returns The label to paint.
@@ -491,7 +491,7 @@ export interface AccountFieldView {
 }
 
 /**
- * Derive one profile member's field from state (FR-066, FR-063, FR-064).
+ * Derive one profile member's field from state.
  *
  * Pure, and the only place either field's words are decided, so mount and
  * repaint cannot drift apart and a test can read the copy without a DOM.

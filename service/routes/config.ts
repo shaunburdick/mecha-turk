@@ -132,7 +132,7 @@ async function runConfigWrite(input: {
  * that ordering: a refusal records **one** value-free `config.changed` row and
  * still answers `422`; an accepted write compares the candidate with the
  * stored document field by field first, so a no-op answers *already saved*
- * with **no** row at all (FR-048), and a change writes its row **after** the
+ * with **no** row at all, and a change writes its row **after** the
  * durable write — never before it, never as a reason to roll it back.
  *
  * @param context - Route context carrying the open store.

@@ -196,7 +196,7 @@ export async function trimExcerpts(input: TrimExcerptsInput): Promise<TrimExcerp
                 ? { ...event, issueBodyExcerpt: '', excerptTrimmedAt: clearedAt }
                 : event,);
         await input.store.writeJson(EVENTS_FILE, next);
-        // The row follows the removal, never precedes it (FR-053): a rewrite
+        // The row follows the removal, never precedes it: a rewrite
         // that failed has already returned, and the trail says nothing about a
         // clearing that did not happen.
         await appendAudit(input.store, {
@@ -208,7 +208,7 @@ export async function trimExcerpts(input: TrimExcerptsInput): Promise<TrimExcerp
             details: {
                 // The rows whose text went. No audit `seq` is removed here,
                 // which is why this row carries no seq range — that range
-                // describes trail removals (FR-073), and inventing one for a
+                // describes trail removals, and inventing one for a
                 // queue that has no `seq` would be worse than omitting it.
                 entriesRemoved: eligible.length,
                 limitReached: 'excerpt-days',

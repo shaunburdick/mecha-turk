@@ -339,7 +339,7 @@ function planRemoval(input: {
             continue;
         }
 
-        // Whichever limit trips first names the row (FR-073): the walk is
+        // Whichever limit trips first names the row: the walk is
         // oldest-first, so the first removal is the binding one.
         limitReached ??= tooOld ? 'day-window' : 'entry-cap';
         removed.push(entry);

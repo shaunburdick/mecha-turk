@@ -69,12 +69,12 @@ function tornDown(rt: PanelRuntime): boolean {
 }
 
 /**
- * Retire the pending markers a landed read has caught up with (FR-038).
+ * Retire the pending markers a landed read has caught up with.
  *
  * This tab reads no status projection, so it has no effective value to compare
  * against: a marker survives the save that created it and is retired by this
  * read rather than by an optimistic claim — which is the whole of "not cleared
- * on save" (AC-105).
+ * on save".
  *
  * @param rt - Panel runtime, whose edit state is updated in place.
  */
@@ -96,7 +96,7 @@ function retirePending(rt: PanelRuntime): void {
 }
 
 /**
- * Read `GET /v1/config` once and record what it answered (FR-014, FR-049).
+ * Read `GET /v1/config` once and record what it answered.
  *
  * @param rt - Panel runtime.
  * @param repaint - What repaints the tab after the state moves.
@@ -168,7 +168,7 @@ export function applyFieldEdit(input: {
 
 /**
  * Record an accepted write: the document the service returned, and the audit
- * outcome it reported with it (FR-044, FR-070; AC-125, AC-139).
+ * outcome it reported with it.
  *
  * @param input - The runtime, the repaint, the answer body, and the fields
  *   the write changed.
@@ -254,7 +254,7 @@ function applyWriteAnswer(input: {
     // Not a refusal of these values: a store the service cannot write, a
     // missing grant, a transport failure, or something it did not document —
     // each reaches the operator as its own cause, never as "the service
-    // refused your values" (FR-061, FR-063).
+    // refused your values".
     slice.edit = recordFailed(slice.edit, writeFailure({
         code: answer.code,
         problem: redact(answer.problem),
@@ -265,7 +265,7 @@ function applyWriteAnswer(input: {
 
 /**
  * Send the one write a save activation authorises: one `PUT`, the whole
- * document (FR-040), issued only after every gate has passed.
+ * document, issued only after every gate has passed.
  *
  * Extracted from {@link applySave} so the two arming actions — a save that
  * lowered a retention knob, and a confirmed restore — perform **exactly** the
@@ -312,7 +312,7 @@ async function performWrite(rt: PanelRuntime, repaint: Repaint): Promise<void> {
 /**
  * Save the draft: one activation, one whole-document write — unless the write
  * would delete history, in which case the first activation arms the
- * confirmation and sends nothing (FR-040, FR-046, FR-051; AC-117, AC-118).
+ * confirmation and sends nothing.
  *
  * @param rt - Panel runtime.
  * @param repaint - What repaints the tab after the state moves.
@@ -349,7 +349,7 @@ export async function applySave(rt: PanelRuntime, repaint: Repaint): Promise<voi
 }
 
 /**
- * Discard the unsaved edits, naming what reverted (FR-015, AC-122).
+ * Discard the unsaved edits, naming what reverted.
  *
  * @param rt - Panel runtime.
  * @param repaint - What repaints the tab after the state moves.
@@ -366,13 +366,13 @@ export function applyDiscard(rt: PanelRuntime, repaint: Repaint): void {
 
 /**
  * Restore the declared defaults — two steps, no write without the
- * confirmation (FR-016, FR-049, FR-051).
+ * confirmation.
  *
  * The first activation stages the service's own defaults into the draft and
  * arms a confirmation that names **every** field the write will change, with
  * its current → default value; the second one writes the whole document.
  * Nothing is written by staging alone, so an operator who changes their mind
- * at the armed step cancels back to the last-read values (AC-121).
+ * at the armed step cancels back to the last-read values.
  *
  * @param rt - Panel runtime.
  * @param repaint - What repaints the tab after the state moves.
@@ -409,7 +409,7 @@ export async function applyStageDefaults(rt: PanelRuntime, repaint: Repaint): Pr
 
 /**
  * Disarm the confirmation: nothing is written, and every field returns to the
- * last-read value (FR-054, AC-121).
+ * last-read value.
  *
  * @param rt - Panel runtime.
  * @param repaint - What repaints the tab after the state moves.

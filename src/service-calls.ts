@@ -167,11 +167,11 @@ export async function servicePut(input: {
  * Write the whole configuration document, keeping the refusal's issue list.
  *
  * The one configuration path in the panel (006 FR-040: `PUT /v1/config` and
- * nothing else), and the wrapper the misnamed-refusal problem was about (FR-043):
+ * nothing else), and the wrapper the misnamed-refusal problem was about:
  * the answer keeps the service's own `error.issues` **in the service's order**,
  * so a `422` can be rendered field by field with the service's wording instead
  * of behind one generic sentence — and its problem string names the
- * *configuration*, never the bindings list (AC-112). A `503`, a `401`, and a
+ * *configuration*, never the bindings list. A `503`, a `401`, and a
  * transport failure reach the caller as themselves with no issues: they are not
  * refusals of these values, and the panel must not present them as one (FR-061,
  * FR-063).
@@ -363,7 +363,7 @@ export function retryPath(correlationId: string): string {
 }
 
 /**
- * Build the requeue path: return a dead-lettered run to waiting (FR-033).
+ * Build the requeue path: return a dead-lettered run to waiting.
  *
  * @param correlationId - The run's correlation id.
  * @returns The path segment to POST to.
@@ -383,7 +383,7 @@ export function resolvePath(correlationId: string): string {
 }
 
 /**
- * Build the verification path: the post-dispatch agent read-back (FR-043).
+ * Build the verification path: the post-dispatch agent read-back.
  *
  * @param correlationId - The run's correlation id.
  * @returns The path segment to POST to.
@@ -393,7 +393,7 @@ export function verificationPath(correlationId: string): string {
 }
 
 /**
- * Build the correlation-filtered audit-read path (FR-053).
+ * Build the correlation-filtered audit-read path.
  *
  * @param correlationId - The run whose rows to read.
  * @returns `GET` path carrying the filter as a query parameter.

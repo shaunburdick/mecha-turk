@@ -328,7 +328,7 @@ function isSsoRefusal(response: Response): boolean {
 }
 
 /**
- * Name the first capability the granted scopes are missing (FR-010).
+ * Name the first capability the granted scopes are missing.
  *
  * @param scopeCheck - Matrix derived from the response headers.
  * @returns A `scope-missing:<capability>` reason class.

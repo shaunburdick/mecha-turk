@@ -37,7 +37,7 @@ async function appendEnqueueAudit(
  * Record one coalescence for each additional source delivery.
  *
  * The row carries whether the reference was retained and how many triggers the
- * cap has kept off the run's list (T-038): a delivery that joined a full run is
+ * cap has kept off the run's list: a delivery that joined a full run is
  * still fully accounted for here, so the audit trail never shows a trigger that
  * vanished without explanation.
  */

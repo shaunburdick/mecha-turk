@@ -64,7 +64,7 @@ const NEWLINE = '\n';
 export { SOURCE_EXCERPT_MAX_CHARS } from './context-blocks.ts';
 
 /**
- * One source reference the dispatch context quotes (FR-014).
+ * One source reference the dispatch context quotes.
  *
  * Everything on it is untrusted or service-projected source material: it is
  * copied into the delimited block, never interpreted, and never allowed to
@@ -106,7 +106,7 @@ export type ProjectResolution =
  * Resolve the configured project reference against `host.listProjects()`.
  *
  * The panel never creates a project implicitly: an absent or invalid reference
- * blocks the dispatch (FR-020).
+ * blocks the dispatch.
  *
  * @param host - Host client.
  * @param configuredProjectId - Project id from the operator settings.
@@ -139,11 +139,11 @@ export async function resolveProject(
 /**
  * Build the bounded first-message context for a dispatched session.
  *
- * Source text is untrusted (FR-026), so every source is quoted inside one
+ * Source text is untrusted, so every source is quoted inside one
  * explicit delimited block and bounded before it can dominate the prompt.
  * Three guarantees hold at once, which is the whole point of the shape:
  *
- * - **Both limits, at once (FR-014).** Each excerpt is capped by
+ * - **Both limits, at once.** Each excerpt is capped by
  *   {@link SOURCE_EXCERPT_MAX_CHARS} and the whole context by `maxChars`
  *   ({@link CONTEXT_MAX_CHARS} = 12,000 by default), frame and closing
  *   delimiter included — true for any mix, because every character the
@@ -175,7 +175,7 @@ export interface BoundedContextInput {
     /** Correlation identifier for this dispatch. */
     readonly correlationId: string;
     /**
-     * The run's source references (FR-014), in join order.
+     * The run's source references, in join order.
      *
      * Absent — or empty — quotes the issue body alone, which is the shape the
      * legacy single-source dispatch and every non-run caller use.
@@ -258,7 +258,7 @@ const NO_PROMPT: PromptReference = {
 /**
  * Build the documented `host.startSession()` request for a matched issue.
  *
- * **Attachment identity (FR-029).** The request's `id` is the attachment
+ * **Attachment identity.** The request's `id` is the attachment
  * identifier OpenChamber's own session list shows, and it is the run's
  * correlation identifier — derived deterministically from it, so one copyable
  * string finds both the session and the audit chain. It is read from the

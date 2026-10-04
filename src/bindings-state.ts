@@ -46,7 +46,7 @@ export interface Relay {
     /** Whether a dispatch is being processed right now. */
     dispatching: boolean;
     /**
-     * Attempts this mount has already handed to the dispatch path (FR-034),
+     * Attempts this mount has already handed to the dispatch path,
      * keyed `"<correlationId>#<attempt>"`.
      *
      * A duplicate-suppression convenience, never a durability mechanism and

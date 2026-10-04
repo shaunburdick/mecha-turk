@@ -421,7 +421,7 @@ async function postReadBack(input: {
  * The relay starts this **detached from its tick** and tracks it on
  * {@link PanelRuntime.pendingVerifications}: the read-back keeps its own
  * {@link AGENT_VERIFY_TIMEOUT_MS} budget, and a host that answers slowly must
- * never hold the claim slot while it waits (AC-125). This function therefore
+ * never hold the claim slot while it waits. This function therefore
  * never rejects — a failure lands as the visible warning, never as an
  * unhandled rejection the relay would never see.
  *
@@ -485,7 +485,7 @@ export async function verifyAgentAfterDispatch(inputs: {
 /**
  * Wait for every read-back this mount started but has not seen settle.
  *
- * The relay never awaits these (AC-125), so a test that asserts what a
+ * The relay never awaits these, so a test that asserts what a
  * verification wrote drains them instead of racing the host.
  *
  * @param rt - Panel runtime.

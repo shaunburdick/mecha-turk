@@ -92,7 +92,7 @@ function createProjectGroup(root: HTMLElement): { readonly group: HTMLElement; r
  * state, so the loading, error, and empty states are painted from state rather
  * than from whatever the mount happened to see. It mounts inside the Bindings
  * body, because that is where the operator is when a project is what is
- * missing (FR-038).
+ * missing.
  *
  * @param input - Runtime, body element, and the callbacks the picker invokes.
  * @returns The picker handles used for later repaints.
@@ -185,7 +185,7 @@ function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
  *
  * Nothing runs on a disposed runtime, and each body repaints only while it is
  * mounted: a tab the operator has never opened owns no handles yet, and the
- * registry on `rt` is what says so (FR-013, FR-019).
+ * registry on `rt` is what says so.
  *
  * @param rt - Panel runtime.
  */

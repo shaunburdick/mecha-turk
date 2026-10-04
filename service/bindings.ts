@@ -75,7 +75,7 @@ export interface BindingRecord {
     /**
      * The GitHub logins allowed to trigger dispatches from this repository
      * (002 FR-047). **Absent means any human actor may trigger**: the key is
-     * omitted, never `[]`/`null`/`''` (plan D4), and `[]` is a refusal, not a
+     * omitted, never `[]`/`null`/`''`, and `[]` is a refusal, not a
      * state. The stored spelling is preserved; only the comparison folds case
      * (plan D5), and {@link bindingAllowedUsersOf} validates it on every read
      * and write. **Configuration, and it never leaves this store** — only the
@@ -371,7 +371,7 @@ function bindingModeOf(raw: Record<string, unknown>): {
  * Read the optional starting prompt through the one prompt validator (004 FR-013).
  *
  * The same function runs on the write path and the read path, so a submitted
- * value and a hand-edited file are judged by exactly one refusal set (plan D2).
+ * value and a hand-edited file are judged by exactly one refusal set.
  *
  * @param raw - Candidate record.
  * @returns The normalised prompt (or `null` for unset), or the blocking issue.

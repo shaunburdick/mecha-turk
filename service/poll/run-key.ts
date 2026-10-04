@@ -134,7 +134,7 @@ export function buildRunKey(input: RunKeyInput): string {
  * Build the ordinal counter's key: the run key without its ordinal.
  *
  * The subject key is what `runs.json`'s `subjects` map is keyed by, and what
- * coalescing looks up (FR-011): every run of one subject under one account
+ * coalescing looks up: every run of one subject under one account
  * shares it, so the counter survives terminal-run eviction and ordinals are
  * never reused (data-model §2.6).
  *
@@ -158,7 +158,7 @@ function digestHex(text: string, hexChars: number): string {
 }
 
 /**
- * Derive a run's correlation id from its run key (FR-050).
+ * Derive a run's correlation id from its run key.
  *
  * @param runKey - The run's key.
  * @returns `mt-run-<24 hex characters>` — one path-safe URL segment.
@@ -168,7 +168,7 @@ export function buildCorrelationId(runKey: string): string {
 }
 
 /**
- * Derive a run's attachment id (FR-029): the correlation id, verbatim.
+ * Derive a run's attachment id: the correlation id, verbatim.
  *
  * @param correlationId - The run's correlation id.
  * @returns The same string, as the attachment id.
@@ -185,12 +185,12 @@ export function buildAttachmentId(correlationId: string): string {
 }
 
 /**
- * Mint the single-use dispatch token for one attempt (FR-020).
+ * Mint the single-use dispatch token for one attempt.
  *
  * Deterministic in the run key/attempt pair by design: the service
  * re-derives and validates it without storing a token table, and FR-033's
- * attempt reset (plan D6) re-derives a *fresh* token for the reset attempt.
- * Callers mint it **at reservation only** — never at claim (plan D4).
+ * attempt reset re-derives a *fresh* token for the reset attempt.
+ * Callers mint it **at reservation only** — never at claim.
  *
  * @param runKey - The run's key.
  * @param attempt - The attempt number the token is for (starts at 1).

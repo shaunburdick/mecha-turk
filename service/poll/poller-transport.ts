@@ -88,7 +88,7 @@ export type PollFailure =
 export type PagedList<T> = { readonly kind: 'ok'; readonly items: readonly T[] } | PollFailure;
 
 /**
- * The poller's own injectables (plan D7): where waits are reported, slept, and
+ * The poller's own injectables: where waits are reported, slept, and
  * jittered. Production gets the shared logger, `setTimeout`, and `Math.random`;
  * a test passes a capturing sink and never sleeps at all.
  */
@@ -275,7 +275,7 @@ async function waitBeforeNextAttempt(
 }
 
 /**
- * Issue one page request, retrying under the configured ladder (FR-058).
+ * Issue one page request, retrying under the configured ladder.
  *
  * `auth-failed` returns immediately — a credential GitHub refuses is a stop
  * condition, not a transient error (constitution II) — and every other class

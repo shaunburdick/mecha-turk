@@ -293,7 +293,7 @@ async function scanBinding(input: {
         // binding being scanned (binding tier) — so resolution and project
         // resolution cannot disagree (004 FR-015: "at the same moment";
         // FR-080: resolved once, at detection). A tier the records do not
-        // carry is unset and contributes nothing (FR-071).
+        // carry is unset and contributes nothing.
         prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
     });
     return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
@@ -380,8 +380,8 @@ export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     const context = await cycleContext({ store: deps.store, log: deps.log, poller: deps.poller });
     // 006 FR-055(b)/FR-057: both retention passes run at the cycle boundary,
     // on the configuration this cycle already read — the boundary adds no
-    // second read, and a save takes effect here rather than at the write
-    // (FR-047). Nothing below may throw because a pass failed: each one is
+    // second read, and a save takes effect here rather than at the write.
+    //  Nothing below may throw because a pass failed: each one is
     // guarded inside `runRetentionPasses`.
     await runRetentionPasses({ store: context.store, log: context.log, config: context.config });
     // Health pass before this cycle reads its windows: a queue file that has

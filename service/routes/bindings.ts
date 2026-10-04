@@ -176,7 +176,7 @@ async function readCustodyAndValidate(input: {
  * just revoked. The prompt-observation chain nests inside it, never the other
  * way round, so there is no lock order to invert.
  *
- * Inside, one task on the prompt-observation chain (plan C2): read the stored
+ * Inside, one task on the prompt-observation chain: read the stored
  * document fresh, record any hand edit it carries with actor `service`, merge
  * the preserved prompts, write, then record this submission's own changes with
  * actor `operator`. Reading, writing, and diffing inside one chain is what makes

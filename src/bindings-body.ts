@@ -177,7 +177,7 @@ function createToolbar(into: HTMLElement): HTMLElement {
  *
  * The note sits directly under the status rather than under the form, because
  * a note reports what an action *did* — a refused write, a removal, a failed
- * read — and the editor being closed must not hide that answer (FR-085).
+ * read — and the editor being closed must not hide that answer.
  *
  * @param input - Runtime, pane root, and handlers.
  * @returns The board handles.
@@ -335,7 +335,7 @@ function mountSelectedDetail(parent: HTMLElement): SelectedDetail {
 }
 
 /**
- * Release every handle the body mounted, then its own nodes (FR-017).
+ * Release every handle the body mounted, then its own nodes.
  *
  * Teardown releases what the tab mounted rather than merely hiding it — the
  * SDK handles carry listeners that would otherwise outlive the panel — and
@@ -467,7 +467,7 @@ export function mountBindingsBody(input: {
 
     input.mountFirst?.(listBlock.body);
     const board = mountBindingsBoard({ rt, pane: listBlock.body, handlers });
-    // The selected row's own facts sit under the list they describe (FR-053).
+    // The selected row's own facts sit under the list they describe.
     const detail = mountSelectedDetail(listBlock.body);
     const form = mountAddForm({ rt, pane: editorBlock.body, handlers });
     // The starting prompt is a field of this form, so it mounts before the

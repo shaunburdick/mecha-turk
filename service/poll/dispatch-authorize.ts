@@ -97,7 +97,7 @@ const STALE_MESSAGE = 'the lease is expired or does not match this run';
  *
  * The session pointer is the normal home, but an adopted or hand-seeded run can
  * carry the evidence only in its attempt history, and a refusal that must *name*
- * the session (FR-022, AC-112) cannot name one it cannot find.
+ * the session cannot name one it cannot find.
  *
  * @param run - The run being refused on.
  * @returns The session id, or `null` when the run records none.
@@ -153,7 +153,7 @@ export function judgeLease(input: {
  * reservation, state. The order is load-bearing twice over. Reading the lease
  * before the session would answer `stale-lease` for a `dispatched` run — which
  * holds no lease by construction — and make FR-022's "the refusal MUST name the
- * existing session" (AC-112) unreachable on the natural path. Reading the state
+ * existing session" unreachable on the natural path. Reading the state
  * before the reservation would answer `invalid-transition` for a `starting` run
  * and make `already-reserved` unreachable instead. Both verdicts exist because
  * the contract's table names them, so the order is the one in which both stay
@@ -264,7 +264,7 @@ async function readResultDeadlineMs(store: ServiceStore, log: ServiceLogger): Pr
 }
 
 /**
- * Answer a refused reserve with its one `dispatch.refused` row (FR-003).
+ * Answer a refused reserve with its one `dispatch.refused` row.
  *
  * @param input - The reserve's own input, the run, and the verdict.
  * @returns The refusal, carrying whether its row reached the trail.
@@ -302,7 +302,7 @@ async function refusedReserve(input: {
 
 /**
  * Authorize one dispatch: mint the single-use token and move the run to
- * `starting` (FR-020, FR-021).
+ * `starting`.
  *
  * @param input - Store, logger, the run, the lease, the attempt, and an
  *   injectable service clock.
@@ -350,7 +350,7 @@ export async function reserveDispatch(input: ReserveInput): Promise<ReserveResul
             dispatchToken,
             tokenExpiresAt: lease.expiresAt,
             // The authorization outlives the lease: a report is judged against
-            // the reservation, not the claim (plan D7), so a panel told only
+            // the reservation, not the claim, so a panel told only
             // when the lease dies would conclude its token dies there too, skip
             // the report, and strand the run in `unconfirmed` (T-043d).
             resultDeadlineAt,

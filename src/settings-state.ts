@@ -117,7 +117,7 @@ export const AUDIT_MISSING_LINE =
     'history. The service logged the failure and rolled nothing back.';
 
 /**
- * Classify one service answer into the four causes the tab renders (FR-061 – FR-064).
+ * Classify one service answer into the four causes the tab renders.
  *
  * The panel reads no new vocabulary here: `storage-unavailable` and
  * `unauthorized` are the service's own error codes, the status sentences are
@@ -151,7 +151,7 @@ export function causeOf(input: {
 }
 
 /**
- * Build the failure a failed write records (FR-061 – FR-064).
+ * Build the failure a failed write records.
  *
  * @param input - The envelope's code, the wrapper's problem, and the
  *   envelope's correlation identifier, if it sent one.
@@ -171,7 +171,7 @@ export function writeFailure(input: {
 /**
  * What the issues region shows for a failed write: the cause's copy, the
  * service's own problem beside it, and — when the envelope carried one — the
- * correlation identifier as its own line of copyable text (FR-064, AC-133).
+ * correlation identifier as its own line of copyable text.
  *
  * @param failure - The recorded failure.
  * @returns The lines, in render order.
@@ -186,7 +186,7 @@ export function writeFailureLines(failure: SettingsFailure): readonly string[] {
 }
 
 /**
- * What the failure notice says for a **read** that failed (FR-060 – FR-063).
+ * What the failure notice says for a **read** that failed.
  *
  * The same four causes, in the read's words: the transport case is the state
  * AC-129 names exactly, the store case is 002 FR-039's setup prerequisite,
@@ -223,7 +223,7 @@ export function readFailureBody(problem: string): string {
 }
 
 /**
- * Where the Settings tab stands, and what it last rendered (FR-013, FR-019).
+ * Where the Settings tab stands, and what it last rendered.
  *
  * Same shape as the Status tab's slice on purpose: a failed read behaves the
  * same way on every tab, so an operator learns one rule instead of six.

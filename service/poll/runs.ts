@@ -125,7 +125,7 @@ async function changeRun(
 }
 
 /**
- * Claim one waiting run for one panel: lease issued, attempt opened (FR-030).
+ * Claim one waiting run for one panel: lease issued, attempt opened.
  *
  * @param input - Lease coordinates plus the run being claimed.
  * @returns The claimed run, or why it was not claimable.
@@ -141,7 +141,7 @@ export async function claimRun(input: ClaimInput): Promise<RunChange> {
 /**
  * Park a run in `dead-lettered`: the requeue budget is exhausted, or the
  * operator parked it. Terminal runs and runs that already produced a session
- * are never parked (FR-028, FR-033).
+ * are never parked.
  *
  * @param input - The run to park and the cause to record.
  * @returns The parked run, or why the park was refused.

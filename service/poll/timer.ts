@@ -87,7 +87,7 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
  * Build the poller production uses: the shared logger, a real timer, and the
  * process' own jitter source.
  *
- * @param log - Logger every poll-request wait is reported through (FR-058).
+ * @param log - Logger every poll-request wait is reported through.
  * @returns The poller bound to those injectables.
  */
 export function createDefaultPoller(log: ServiceLogger): GitHubIssuePoller {

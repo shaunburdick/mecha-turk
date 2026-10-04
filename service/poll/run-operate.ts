@@ -110,7 +110,7 @@ function invalidTransition(state: RunState): RunRefusal {
 }
 
 /**
- * Answer a refused operator call with its one `dispatch.refused` row (FR-003).
+ * Answer a refused operator call with its one `dispatch.refused` row.
  *
  * Exported because [`run-verify.ts`](./run-verify.ts) answers its own refusals
  * the same way: one writer for the family is what keeps "every refusal writes
@@ -201,7 +201,7 @@ function judgeRetry(input: {
 }
 
 /**
- * Build the waiting run a retry produces (FR-041).
+ * Build the waiting run a retry produces.
  *
  * @param input - The failed or blocked run and the stamp.
  * @returns The `pending` run, with the attempt incremented exactly once.
@@ -246,7 +246,7 @@ interface RetryRowInput {
  * Write one `dispatch.retry` row, covering both shapes FR-041 and FR-033 require.
  *
  * `reset` is what makes the dead-letter return legible in the trail, because it
- * is the action that starts a fresh token-consumption chain (plan D6).
+ * is the action that starts a fresh token-consumption chain.
  *
  * @param input - The row's contents plus the store and logger.
  * @returns `true` when the row reached the trail.
@@ -267,12 +267,11 @@ async function appendRetryRow(input: RetryRowInput): Promise<boolean> {
 }
 
 /**
- * Return a `failed` or `blocked:*` run to waiting under the same run key
- * (FR-041).
+ * Return a `failed` or `blocked:*` run to waiting under the same run key.
+ *
  *
  * The run keeps its source references and every prior attempt's record, and the
- * automatic requeue budget is untouched: only an expired claim consumes it
- * (plan D5).
+ * automatic requeue budget is untouched: only an expired claim consumes it.
  *
  * @param input - Store, logger, the run, the attempt the request names (which
  *   is validated against the run's own), the operator's cause report, and an
@@ -331,9 +330,9 @@ export async function retryDispatch(input: {
 
 /**
  * Return a dead-lettered run to waiting with the attempt and requeue counters
- * reset — the single control that resolves it (FR-033).
+ * reset — the single control that resolves it.
  *
- * The reset is also what starts a fresh token-consumption chain (plan D6):
+ * The reset is also what starts a fresh token-consumption chain:
  * consumption is scoped per attempt, and `attempt = 1` re-derives a token no
  * earlier report could have consumed. The history rows survive untouched, which
  * is what makes the boundary legible to an operator reading the trail.
@@ -410,7 +409,7 @@ function judgeResolve(input: { readonly run: Run }): RunRefusal | null {
 }
 
 /**
- * Build the run an operator's resolution produces (FR-027).
+ * Build the run an operator's resolution produces.
  *
  * `sessionId` is terminal and stores the session the operator named, with the
  * attempt record naming it **in the same write** — the store's parser refuses a
@@ -468,7 +467,7 @@ function resolvedRun(input: {
 }
 
 /**
- * Resolve an `unconfirmed` run on the operator's explicit word (FR-027).
+ * Resolve an `unconfirmed` run on the operator's explicit word.
  *
  * @param input - Store, logger, the run, the decision, the session id, the
  *   note, the guidance shown, and an injectable service clock.

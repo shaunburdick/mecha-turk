@@ -28,7 +28,7 @@ import {
 import type { LeaseProvenance, Run } from './runs-types.ts';
 
 /**
- * Automatic requeues one run consumes before it is dead-lettered (FR-033).
+ * Automatic requeues one run consumes before it is dead-lettered.
  *
  * A module constant, deliberately **not** a configuration field: 003 v1.3.0 and
  * 006's `## Deferred` record that decision — the budget bounds a crashed-panel
@@ -53,7 +53,7 @@ export interface LeaseCoordinates {
 /**
  * The `pending` → `claimed` transition.
  *
- * Claiming is a lease, not a bare state flip (FR-030): the run records who
+ * Claiming is a lease, not a bare state flip: the run records who
  * holds it and until when, and the current attempt's record is opened so the
  * outcome transitions have something to close.
  *
@@ -93,7 +93,7 @@ export function leaseRun(input: {
  * unit of the automatic requeue budget (plan D5 — an operator retry increments
  * the attempt without touching the budget). A run whose history already
  * records a session is never requeued: a second dispatch is impossible by
- * construction (FR-028).
+ * construction.
  *
  * `chargeBudget` is the caller's policy, not the transition's: a real panel
  * that let its lease lapse always pays, while the one-shot migration recovery
@@ -144,7 +144,7 @@ export function expireLease(input: {
  *
  * @param input - The run to park, the stamp, and the cause to record.
  * @returns The parked run, or `null` when the run is terminal or already
- *   produced a session (FR-028, FR-033).
+ *   produced a session.
  */
 export function parkRun(input: { readonly run: Run; readonly now: string; readonly reason: string }): Run | null {
     const { run, now, reason } = input;
@@ -173,7 +173,7 @@ export function parkRun(input: { readonly run: Run; readonly now: string; readon
 /**
  * The `starting` → `unconfirmed` wedge.
  *
- * The fail-closed state (FR-023): once a reservation exists and its result is
+ * The fail-closed state: once a reservation exists and its result is
  * late, the run is never re-dispatched, re-leased, or retried automatically.
  *
  * @param input - The authorized run and the service-clock stamp.

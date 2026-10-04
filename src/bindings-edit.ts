@@ -162,8 +162,8 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
  * stamp; a prompt the operator touched in the same pass travels with the
  * write, and one they left alone is omitted so the service keeps what it
  * holds (004 FR-014). A refusal leaves the stored list byte-identical
- * (AC-125) and keeps the draft on screen with the remediation — on the
- * prompt field when it belongs there (FR-052), on the tab note otherwise.
+ * and keeps the draft on screen with the remediation — on the
+ * prompt field when it belongs there, on the tab note otherwise.
  *
  * @param rt - Panel runtime.
  */
@@ -174,8 +174,8 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
  * actually stored — which is what makes a *cleared* field read as cleared rather
  * than as a draft that failed to save (004 FR-014, 002 FR-047). **Refused**
  * leaves the draft on screen with the service's own remediation split back to
- * whichever field it names (FR-052, FR-095) and never reports the value as
- * saved (AC-125); the stored list stays byte-identical because the grant is
+ * whichever field it names and never reports the value as
+ * saved; the stored list stays byte-identical because the grant is
  * all-or-nothing after validation.
  *
  * @param input - The tab state, the grant's answer, and the row this save wrote.
@@ -224,8 +224,8 @@ function applySaveOutcome(input: {
  * holds (004 FR-014). The allow-list rides the same write with the opposite
  * default: every row states its own, and only the operator's edit overrides it
  * (002 FR-047, contract §2). A refusal leaves the stored list byte-identical
- * (AC-125) and keeps the draft on screen with the remediation — on the prompt
- * field or the allow-list field when it belongs there (FR-052, FR-095), on the
+ * and keeps the draft on screen with the remediation — on the prompt
+ * field or the allow-list field when it belongs there, on the
  * tab note otherwise.
  *
  * @param rt - Panel runtime.

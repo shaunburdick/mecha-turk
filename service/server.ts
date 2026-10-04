@@ -88,7 +88,7 @@ export interface ServiceHandle {
     /**
      * Settles with the boot sweep's outcome.
      *
-     * The sweep is awaited *before* the listener binds (FR-032), so by the time
+     * The sweep is awaited *before* the listener binds, so by the time
      * a port is reachable a stranded claim has already been recovered; this
      * promise is the observable form of that ordering, and answers an empty
      * summary when the store was unusable.
@@ -355,7 +355,7 @@ function startReconciliation(input: {
 }
 
 /**
- * Recover stranded claims before the first claim can be served (FR-032).
+ * Recover stranded claims before the first claim can be served.
  *
  * The pass is **awaited** here, between opening the store and binding the
  * listener: a panel that closed mid-dispatch must find its work already
@@ -463,7 +463,7 @@ export async function startService(options: StartServiceOptions): Promise<Servic
     await adoptStoredLogLevel(store, options.log);
     // 006 FR-055(a)/FR-057: both retention passes run once here, still before
     // the listener accepts, so a saved limit is in force from the first start
-    // after it was acknowledged. A configuration write runs neither (FR-047).
+    // after it was acknowledged. A configuration write runs neither.
     await runRetentionAtOpen({ store, log: options.log });
     const github = options.github ?? createGitHubVerifier();
     const state: PipelineState = { inFlight: 0 };

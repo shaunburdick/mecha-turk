@@ -118,7 +118,7 @@ function mountMemberControls(input: {
 
 /**
  * Mount the two row-level controls: rotate and remove, both two-step and
- * both idle until the row they act on is open (FR-064, FR-055).
+ * both idle until the row they act on is open.
  *
  * @param input - The pane and the callbacks the controls invoke.
  * @returns The two handles and their disposer.

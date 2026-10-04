@@ -46,7 +46,7 @@ function stillMounted(rt: PanelRuntime): boolean {
  * reading — while a successful read replaces them wholesale, records where
  * the answer sits in the set, and drops a selection whose row is gone. The
  * page position itself is the caller's to keep or roll back: this function
- * only ever annotates it with what the answer actually said (FR-042).
+ * only ever annotates it with what the answer actually said.
  *
  * @param rt - Panel runtime.
  */
@@ -94,7 +94,7 @@ export async function loadDispatches(rt: PanelRuntime): Promise<void> {
 
     // A re-read replaces the rows a confirmation was written against, so any
     // armed control goes back to idle rather than acting on a row that may
-    // have moved (T-025).
+    // have moved.
     runs.pendingAction = null;
     runs.status = 'ready';
     runs.note = '';
@@ -121,8 +121,7 @@ export function selectDispatch(rt: PanelRuntime, id: string): void {
         runs.selectedRun = id;
         // A confirmation armed against one run must not outlive the selection
         // it was written for, and neither may a session id typed for it, the
-        // trail another run's id fetched, or another row's revealed references
-        // (T-025, T-026, FR-048).
+        // trail another run's id fetched, or another row's revealed references.
         runs.pendingAction = null;
         runs.sessionInput = '';
         runs.referencesOpen = false;
@@ -184,7 +183,7 @@ function issueRef(row: RunRow): string {
 }
 
 /**
- * The coordinates FR-027 requires both confirmations to show (FR-029).
+ * The coordinates FR-027 requires both confirmations to show.
  *
  * @param row - The run being resolved.
  * @returns `project …, worktree …, attachment …` — what the operator matches
@@ -198,7 +197,7 @@ function guidanceFor(row: RunRow): string {
  * The return-to-waiting confirmation: what resets, and what is kept.
  *
  * @param row - The parked run.
- * @returns The copy the control shows before it acts (FR-033).
+ * @returns The copy the control shows before it acts.
  */
 function requeueConfirmCopy(row: RunRow): string {
     return `Confirm: return ${issueRef(row)} to waiting? The attempt count resets to 1 and the automatic `
@@ -283,7 +282,7 @@ async function causeMembers(rt: PanelRuntime, row: RunRow): Promise<CauseMembers
  * way the Remove-account control already does: the first click states what
  * will happen, the second one sends it. Arming writes the copy into the
  * section's note and leaves the row alone — nothing is posted until the
- * operator clicks the same control again (FR-027, FR-033).
+ * operator clicks the same control again.
  *
  * @param input - Runtime, the control being armed, and its confirmation copy.
  * @returns `true` when the control was already armed and may act now.
@@ -309,7 +308,7 @@ function armControl(input: {
 }
 
 /**
- * Post one run operation behind the section's single busy gate (T-025).
+ * Post one run operation behind the section's single busy gate.
  *
  * One flag gates every run operation — retry, return to waiting, resolve — so
  * the operator cannot send two of them at once, and the run state is only ever
@@ -379,7 +378,7 @@ export async function retryRun(rt: PanelRuntime): Promise<void> {
     }
 
     // The one table decides: it is the same source the button's visibility
-    // comes from, so the guard and the control can never disagree (FR-044).
+    // comes from, so the guard and the control can never disagree.
     if (runAffordance(row).action !== 'retry') {
         runs.note = redact(row.state === 'dispatched' ? ALREADY_DISPATCHED_NOTE : runAffordance(row).reason);
         refresh(rt);
@@ -401,7 +400,7 @@ export async function retryRun(rt: PanelRuntime): Promise<void> {
 }
 
 /**
- * Return the selected parked run to waiting (FR-033), two clicks apart.
+ * Return the selected parked run to waiting, two clicks apart.
  *
  * @param rt - Panel runtime.
  */
@@ -518,7 +517,7 @@ export function setSessionInput(rt: PanelRuntime, value: string): void {
 }
 
 /**
- * Reveal or hide the selected row's source references (FR-048, AC-120).
+ * Reveal or hide the selected row's source references.
  *
  * A view toggle, not a run operation: it sends nothing, changes no row, and
  * costs no budget. Selecting a different row closes it (see
@@ -538,12 +537,12 @@ export function toggleReferences(rt: PanelRuntime): void {
 }
 
 /**
- * Copy the selected row's correlation id to the clipboard (FR-049).
+ * Copy the selected row's correlation id to the clipboard.
  *
  * Every outcome lands on the note line rather than being swallowed: no
  * selection says there is nothing to copy, and a clipboard the frame refuses
  * says so with the cause — an unavailable copy is always a reason, never a
- * silent nothing (FR-003, FR-049).
+ * silent nothing.
  *
  * @param rt - Panel runtime.
  */

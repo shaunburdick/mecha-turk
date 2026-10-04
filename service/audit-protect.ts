@@ -177,7 +177,7 @@ function chainSeqs(entries: readonly AuditEntry[], openers: ReadonlyMap<string, 
 
     // A chain is only protected when it *contains* a run-scoped row, and it
     // keeps three things: the opener and the outcome together — which is what
-    // makes "an outcome with no opener" structurally impossible (FR-056) — and
+    // makes "an outcome with no opener" structurally impossible — and
     // the latest hop, the row whose `decision` carries the run's final state,
     // its session, and the reason for it (003 FR-065, cited by 006 FR-053).
     // Every hop type is run-scoped by prefix, so a hop's chain always reaches

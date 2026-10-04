@@ -179,7 +179,7 @@ export interface Relay {
     /** Whether a dispatch is being processed right now. */
     dispatching: boolean;
     /**
-     * Attempts this mount has already handed to the dispatch path (FR-034),
+     * Attempts this mount has already handed to the dispatch path,
      * keyed `"<correlationId>#<attempt>"`.
      *
      * A duplicate-suppression convenience, never a durability mechanism and
@@ -234,10 +234,10 @@ export interface PanelRuntime {
     /** `true` once the first `onReady` snapshot has been handled. */
     started: boolean;
     /**
-     * Which tab is showing — the shell's single activation field (FR-012).
+     * Which tab is showing — the shell's single activation field.
      *
      * Deliberately *not* persisted: the operator opens this panel because
-     * something happened, so a reopen always starts on Status (FR-015).
+     * something happened, so a reopen always starts on Status.
      */
     activeTab: TabId;
     /** Tabs whose bodies have mounted; each mounts once, on first activation. */
@@ -249,7 +249,7 @@ export interface PanelRuntime {
     /** Whether the event relay loop is armed on this runtime. */
     relayArmed: boolean;
     /**
-     * Whether mount-time reconciliation has settled for this runtime (FR-025).
+     * Whether mount-time reconciliation has settled for this runtime.
      *
      * `true` for a runtime that has not begun mounting — there is nothing to
      * reconcile until the panel has read its own record — and `false` for the
@@ -265,7 +265,7 @@ export interface PanelRuntime {
      * Verification read-backs this mount started and has not seen settle.
      *
      * The relay starts them detached so a slow read-back can never hold the
-     * claim slot (AC-125); nothing on a dispatch path awaits them, and a test
+     * claim slot; nothing on a dispatch path awaits them, and a test
      * drains the list to observe what a verification wrote without racing it.
      */
     readonly pendingVerifications: Promise<void>[];

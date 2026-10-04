@@ -81,7 +81,7 @@ export interface AccountsTabState {
     /** The service's refusal for the last prompt write, or `null` (004 FR-085). */
     startingPromptError: string | null;
     /**
-     * The row whose Remove-account control is armed (FR-055, FR-065), or
+     * The row whose Remove-account control is armed, or
      * `null`.
      *
      * Two-step because `confirm()` does not exist inside the service frame:
@@ -139,7 +139,7 @@ export function memberDraft(accounts: AccountsTabState, member: AccountMember): 
 }
 
 /**
- * Read the service's refusal last rendered on one member's field (FR-085).
+ * Read the service's refusal last rendered on one member's field.
  *
  * @param accounts - The Accounts tab's working state.
  * @param member - Which editable member to read.
@@ -151,7 +151,7 @@ export function memberRefusal(accounts: AccountsTabState, member: AccountMember)
 
 /**
  * Render a service refusal on one member's field — or the clear that retires
- * it once the next write lands (FR-052, FR-085).
+ * it once the next write lands.
  *
  * The refusal belongs to the field it was answered for: a prompt that could
  * paint itself onto the label's slot would report the wrong field's failure.

@@ -279,7 +279,7 @@ function mentionParties(bindings: BindingsTabState): {
 }
 
 /**
- * Derive the mention token the service matches on for this editor (FR-057).
+ * Derive the mention token the service matches on for this editor.
  *
  * Edit mode reads the selected binding's own `accountLogin` — the value
  * `mentionsLogin` is called with. Add mode reads the account the draft is

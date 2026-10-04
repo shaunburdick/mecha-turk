@@ -75,7 +75,7 @@ export const PROMPT_GUIDANCE =
 export const PROMPT_NOT_SET = 'not set';
 
 /**
- * Read the service's refusal **if it belongs to the prompt field** (FR-052).
+ * Read the service's refusal **if it belongs to the prompt field**.
  *
  * The whole-file grant validates every binding in one pass, so a 422 can be
  * about any of them; only the one whose message names the prompt may be
@@ -137,12 +137,12 @@ export function mountBindingPrompt(input: {
 }
 
 /**
- * Repaint the field from state (FR-051, FR-052).
+ * Repaint the field from state.
  *
  * The refusal is rendered **as the field's own helper**, directly under the
  * input, because FR-052 asks for a *field-level* refusal with its
  * remediation — and the service's copy never echoes what was submitted, so it
- * can be shown verbatim (FR-085). It is the only thing that displaces
+ * can be shown verbatim. It is the only thing that displaces
  * FR-063's guidance: the guidance is the field's resting state, and it comes
  * back the moment the service accepts the next save.
  *
@@ -169,7 +169,7 @@ export function repaintBindingPrompt(rt: PanelRuntime, controls: BindingPromptCo
 }
 
 /**
- * Release the handle the prompt mounted (FR-017).
+ * Release the handle the prompt mounted.
  *
  * @param controls - The field the pane carries.
  */

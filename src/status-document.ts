@@ -153,7 +153,7 @@ export interface StatusView {
 }
 
 /**
- * Where the Status tab's read stands, and what it last rendered (FR-019).
+ * Where the Status tab's read stands, and what it last rendered.
  *
  * The tab keeps the last document it could read even when a later read fails,
  * because FR-019 asks for the retained content to be **marked stale** rather
@@ -172,7 +172,7 @@ export interface StatusTabState {
     /** The parsed status document, or `null` until one lands. */
     doc: StatusView | null;
     /**
-     * The configured interval read beside the effective one (FR-039), or
+     * The configured interval read beside the effective one, or
      * `null` when `GET /v1/config` did not supply one — rendered as *not
      * read*, never as a default the service did not confirm.
      */
@@ -279,7 +279,7 @@ function asHealth(value: unknown): 'ok' | 'degraded' | null {
 
 /**
  * Parse the rate block; every member is required so a partial block is a
- * refusal rather than a half-measured budget (FR-034).
+ * refusal rather than a half-measured budget.
  *
  * @param value - The `rate` member.
  * @returns The rate view, or `null` when the shape is wrong.
@@ -444,7 +444,7 @@ function parsePolling(value: unknown): StatusPollingView | null {
 }
 
 /**
- * Parse the agent pin's three-shape verification member (FR-033).
+ * Parse the agent pin's three-shape verification member.
  *
  * @param value - The `lastVerification` member.
  * @returns The shape, or `null` when the document carries something else.
@@ -554,7 +554,7 @@ export function parseStatusView(body: string): StatusView | null {
 }
 
 /**
- * Read the configured poll interval out of a `GET /v1/config` answer (FR-039).
+ * Read the configured poll interval out of a `GET /v1/config` answer.
  *
  * The effective value comes from the status document; this is the *configured*
  * one Status shows beside it so a difference can be named rather than hidden.

@@ -54,7 +54,7 @@ export type { PromptSource };
 /**
  * The stored prompt's cap, in Unicode code points after trimming (004 FR-020).
  *
- * A module constant rather than a `ServiceConfig` field (plan D6): 006 owns the
+ * A module constant rather than a `ServiceConfig` field: 006 owns the
  * settings surface and 004 adds no setting an operator could tune, so an inert
  * config member would be exactly the dead field both features reject. 004
  * FR-021 keeps the value tunable in *planning* within 500–3,000 without a spec
@@ -137,7 +137,7 @@ function refuse(remediation: string): PromptValidation {
  * 3. **Empty after trim** resolves to unset — "an empty instruction" is not a
  *    state the product has (004 FR-022).
  * 4. **Normalise** line endings (004 FR-023), *before* the control-character
- *    test so a CRLF paste is a line ending and not a refusal (plan D3).
+ *    test so a CRLF paste is a line ending and not a refusal.
  * 5. **Cap** at {@link STARTING_PROMPT_MAX_CODE_POINTS} code points (004 FR-020).
  * 6. **Well-formedness** — no control character but tab and newline (004 FR-026).
  * 7. **Reserved markers** — no line beginning with a reserved prefix (004 FR-025).
@@ -206,7 +206,7 @@ export function promptFingerprint(text: string): string {
  *
  * The change rows' fingerprint is **this tier's own** hash of its own text,
  * never the composed body's: per-tier change is recorded where the change
- * happened, and only a run's snapshot stacks (FR-086). A binding-only tier
+ * happened, and only a run's snapshot stacks. A binding-only tier
  * and a binding-only body happen to hash the same bytes, which is exactly
  * the golden-identity property FR-084 pins.
  */
@@ -278,9 +278,9 @@ const TIER_GAP = '\n\n';
  *
  * Exactly one blank line between **consecutive set** tiers, in the fixed
  * order global → account → binding; a tier that is `null` contributes
- * nothing — no empty line, no placeholder, no note (FR-071). The body is
+ * nothing — no empty line, no placeholder, no note. The body is
  * **built, never parsed**: tier boundaries come from these three named
- * members and never from searching the text (FR-033, FR-084), so a tier's
+ * members and never from searching the text, so a tier's
  * own internal blank lines are ordinary operator text and nothing ever
  * re-splits the result.
  *
@@ -323,9 +323,9 @@ type ResolvedTier =
  * The member is read **structurally**: all three stores hold the tier under
  * the same `startingPrompt` name (data-model's one-field-name convention),
  * so the resolver imports neither `ServiceConfig`, `Account`, nor
- * `BindingRecord`, and every tier passes the single `validateStartingPrompt`
- * (FR-083). An explicit `null`/`undefined` record, or a record without the
- * member, is *unset* — a complete state that contributes nothing (FR-071);
+ * `BindingRecord`, and every tier passes the single `validateStartingPrompt`.
+ * An explicit `null`/`undefined` record, or a record without the
+ * member, is *unset* — a complete state that contributes nothing;
  * anything that is not a record at all is a refusal, never a default
  * (AGENTS.md invariant 8).
  *
@@ -359,14 +359,14 @@ function resolveTier(record: unknown): ResolvedTier {
  * and project resolution are one moment rather than a timing assumption.
  * Each tier validates on its own through {@link validateStartingPrompt} —
  * never coerced, never substituted — the set tiers stack in FR-080's order
- * ({@link composePromptBody}), one fingerprint is derived over the body
- * (FR-086), and `sources` follows the set tiers **by construction**: a
+ * ({@link composePromptBody}), one fingerprint is derived over the body,
+ * and `sources` follows the set tiers **by construction**: a
  * filter of {@link PROMPT_SOURCE_ORDER}, so ordered and duplicate-free
- * before any reader checks it (FR-087).
+ * before any reader checks it.
  *
  * Returns `null` when **no** tier is set — no body, no fingerprint, no
  * sources: the composition then emits no fence and the message is the
- * pre-004 bytes (FR-071, FR-032) — and also when a passed tier is unusable:
+ * pre-004 bytes — and also when a passed tier is unusable:
  * FR-028's last resort, nothing composed from text the validator refused,
  * which the stores' own read paths quarantine long before this runs.
  *
@@ -523,7 +523,7 @@ function readStoredSnapshot(candidate: Record<string, unknown>): PromptSnapshot 
  * Read a prompt snapshot back out of a stored document (data-model §3).
  *
  * Shape only — the fingerprint is checked against its format rather than
- * recomputed (plan D11), because recompute-on-read would turn any future
+ * recomputed, because recompute-on-read would turn any future
  * algorithm change into a quarantine of every stored run. The stored text
  * still answers the secret rule the save boundary applied, so a hand-edited
  * run row cannot smuggle a credential onto the claim answer (004 FR-019 by

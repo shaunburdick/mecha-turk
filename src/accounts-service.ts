@@ -50,8 +50,8 @@ export interface PanelAccount {
      * `null` on the wire and absent in this type both read as *unset* — a
      * complete, valid state — so `?? ''` is all a reader needs. It is read
      * only: the row summary shows presence and length, never this text and
-     * never a fingerprint (005 FR-051), the account mirror never stores it
-     * (AC-144), and the profile write carries it as **one member of a
+     * never a fingerprint (005 FR-051), the account mirror never stores it,
+     * and the profile write carries it as **one member of a
      * closed body**, absent = unchanged (004 FR-082, 005 FR-066).
      *
      * `| undefined` is explicit because `exactOptionalPropertyTypes` is on:
@@ -67,7 +67,7 @@ export interface PanelAccount {
      * (003 T-029), absent when the DTO carried no matrix this build reads.
      *
      * Absent means *no evidence*, never *no problem*: the prerequisites
-     * section renders it as not checkable, never as satisfied (FR-072).
+     * section renders it as not checkable, never as satisfied.
      */
     readonly scope?: AccountScopeVerdict;
     /**
@@ -76,7 +76,7 @@ export interface PanelAccount {
      *
      * Deliberately `string` rather than a closed union: an unknown state has
      * to reach the operator as `unknown state: <raw>` rather than be narrowed
-     * away (FR-003, NFR-112), and `usable` below is derived from the value,
+     * away, and `usable` below is derived from the value,
      * not from this annotation.
      */
     readonly state?: string;
@@ -155,7 +155,7 @@ type AccountDetail = Pick<
  * Present-and-not-text refuses the whole body (invariant 8) rather than being
  * dropped, because a row that silently lost its lifecycle state would render
  * an account as unexplained. Absent stays absent: a member this DTO did not
- * carry reads as *not reported*, never as a plausible default (FR-003).
+ * carry reads as *not reported*, never as a plausible default.
  *
  * @param record - One entry of the `accounts` array.
  * @returns The detail, or `null` when a member was present but unusable.
@@ -207,7 +207,7 @@ function readAccountDetail(record: Record<string, unknown>): AccountDetail | nul
  * the wire DTO can never drift into two different meanings of "readable". A
  * body without a usable matrix answers `null`, which is *no evidence* rather
  * than *no problem*: the prerequisites section renders that as not checkable
- * and never as satisfied (FR-072).
+ * and never as satisfied.
  *
  * @param raw - `scopeCheck` from the accounts DTO, or anything else.
  * @returns The verdict, or `null` when the DTO carries no readable matrix.

@@ -151,12 +151,12 @@ export function armRelayForBindings(rt: PanelRuntime, bindings: readonly PanelBi
 /**
  * Report a refused whole-file write on the tab's note.
  *
- * The grant is all-or-nothing after validation (FR-058), so a refusal changed
+ * The grant is all-or-nothing after validation, so a refusal changed
  * nothing — and the panel says so rather than looking as though it half-saved.
  * The list on screen is still the last one the service confirmed, which is what
  * makes AC-125's byte-identical guarantee true rather than merely intended. The
  * service's own field-level copy is **not** rendered here: it goes to the field
- * it names (FR-052, FR-095), which the caller splits out of the answer this
+ * it names, which the caller splits out of the answer this
  * returns.
  *
  * @param rt - Panel runtime whose note and repaint this writes.

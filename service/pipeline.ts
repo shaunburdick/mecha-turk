@@ -172,7 +172,7 @@ function writeResponse(call: ServiceCall, response: HttpResponse): void {
     const status = serialized.ok ? response.status : STATUS.internal;
     // Contract §2 step ⑦: response construction runs through the same
     // redaction guard as audit writes, so a body that somehow carried a
-    // token-shaped substring is neutralised on the way out (NFR-004).
+    // token-shaped substring is neutralised on the way out.
     const body = serialized.ok ? serialized.text : JSON.stringify(serialized.fallback.body);
     const text = redact(body);
     const headers: Record<string, string> = {

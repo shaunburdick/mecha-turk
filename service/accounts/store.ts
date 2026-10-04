@@ -113,7 +113,7 @@ export async function readAccountUnobserved(input: ReadAccountInput): Promise<Ac
  * panel asked for it (004 FR-088). A read that finds **no** account forgets
  * that id's baseline: the tier died with the record, so a re-added account
  * reads as a fresh `set` rather than a diff against a fingerprint nobody holds
- * any more (AC-149).
+ * any more.
  *
  * @param input - Store, numeric key, and the logger.
  * @returns The account, or `null` when absent or unusable.

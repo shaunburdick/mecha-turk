@@ -269,7 +269,7 @@ export function auditStatusText(state: AuditViewState): string {
 }
 
 /**
- * Read the selected run's audit history (FR-053, AC-117).
+ * Read the selected run's audit history.
  *
  * The fetch is keyed by the **selected row's** correlation id and by nothing
  * else — that is the whole point of FR-051's one identifier — and the answer

@@ -47,7 +47,7 @@ import type { Run } from './runs-types.ts';
  * requirement behind it, and an **undeclared** one would still parse but would
  * make the runs document unreadable to any future build that pinned this list.
  * The gate's refusal parks its runs here through this same operation — no new
- * route, no new method (FR-078).
+ * route, no new method.
  */
 export const BLOCKED_REASONS: ReadonlySet<string> = new Set([
     'project-missing',
@@ -166,7 +166,7 @@ function blockedRun(input: {
 }
 
 /**
- * Write the `run.blocked` row a guard refusal owes (FR-042).
+ * Write the `run.blocked` row a guard refusal owes.
  *
  * @param input - The block report, the blocked run, and the state it left.
  * @returns `true` when the row reached the trail.
@@ -196,7 +196,7 @@ async function appendBlockRow(input: {
 
 /**
  * Hold a claimed run in `blocked:<reason>` after a fail-closed guard refused
- * before any host call (FR-042).
+ * before any host call.
  *
  * @param input - Store, logger, the run, the lease, the attempt, the cause, and
  *   an injectable service clock.

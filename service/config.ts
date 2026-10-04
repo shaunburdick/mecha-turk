@@ -182,7 +182,6 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     // #12 ("move it to the top of the list"). This key order *is* the
     // declaration order — `parseStoredConfig` reports fills in it, and
     // `configSchema()` and `collectIssues` both mirror it (006 AC-107).
-    //
     // Blank, not a placeholder: empty **is** the documented *unset* state of
     // the global prompt tier (004 FR-081), and a document written before the
     // field existed is filled with exactly this value (FR-018's no-migration
@@ -495,7 +494,7 @@ export interface ConfigRead {
  *
  * The write path is deliberately stricter: `PUT` stays a full replacement, so
  * a body missing a field is a refusal with a remediation, never a silent
- * default (FR-040, FR-041).
+ * default.
  *
  * @param raw - Parsed stored document.
  * @returns The typed config plus the keys this read filled, or `null` to

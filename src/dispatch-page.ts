@@ -25,7 +25,7 @@ export const MAX_PAGE_SIZE = 100;
 export const DISPATCH_PAGE_SIZES = [MIN_PAGE_SIZE, DEFAULT_PAGE_SIZE, MID_PAGE_SIZE, MAX_PAGE_SIZE] as const;
 
 /**
- * The server-side filters the Dispatches list applies (FR-043).
+ * The server-side filters the Dispatches list applies.
  *
  * Both are applied by the service, so a filter and a page always describe the
  * same set — the panel never filters a page and calls it a history.
@@ -38,7 +38,7 @@ export interface DispatchFilters {
 }
 
 /**
- * Where the operator is inside a filtered set (FR-042).
+ * Where the operator is inside a filtered set.
  *
  * The cursor stack is what makes **Previous** work without a backward cursor
  * from the service, and what lets an explicit refresh resume on the page the
@@ -64,14 +64,14 @@ export interface DispatchListPage {
 /**
  * Build the empty server-side filter pair a fresh list starts with.
  *
- * @returns Both filters off: the whole history, unfiltered (FR-043).
+ * @returns Both filters off: the whole history, unfiltered.
  */
 export function initialDispatchFilters(): DispatchFilters {
     return { bindingId: null, state: null };
 }
 
 /**
- * Build the paging position a fresh Dispatches list starts at (FR-042).
+ * Build the paging position a fresh Dispatches list starts at.
  *
  * @returns The first page of the unfiltered set, reading nothing yet.
  */
@@ -92,7 +92,7 @@ export function initialDispatchListPage(): DispatchListPage {
  *
  * A filter or a page-size change must take the operator to page one of the set
  * it describes — a position carried across the change would describe rows the
- * new set does not contain (FR-042, FR-043).
+ * new set does not contain.
  *
  * @param page - The position to reset; its `limit` is kept, its cursors are not.
  * @returns The first page of the new set.
@@ -118,7 +118,7 @@ export function dispatchListPageAt(limit: number): DispatchListPage {
  * The cursor the next read should start from.
  *
  * `null` on page one; the stack entry the operator is standing on afterwards.
- * An explicit refresh resumes here rather than restarting the set (FR-042).
+ * An explicit refresh resumes here rather than restarting the set.
  *
  * @param page - The position to read from.
  * @returns The cursor for the next read.
@@ -132,7 +132,7 @@ export function cursorFor(page: DispatchListPage): string | null {
  *
  * The stack is truncated at the current index first, so stepping forward from
  * a page the operator backed up to abandons the tail they can no longer reach
- * — a stale cursor there would silently skip rows (FR-042, SC-106). A position
+ * — a stale cursor there would silently skip rows. A position
  * with no boundary to step to is left alone.
  *
  * @param page - The position to advance.
@@ -163,7 +163,7 @@ export function retreatDispatchPage(page: DispatchListPage): DispatchListPage {
 }
 
 /**
- * Record what the last answer said about the set (FR-042).
+ * Record what the last answer said about the set.
  *
  * @param page - The position to annotate.
  * @param meta - The boundary for the next page, whether one exists, the set's

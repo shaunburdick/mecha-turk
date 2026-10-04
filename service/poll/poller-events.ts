@@ -105,7 +105,7 @@ export interface PollItemEvent {
      *
      * The wire schema carries **no enum** here, so an unrecognized word is
      * carried through and simply never matches a candidate — it is ignored, never
-     * coerced into a kind this build knows (FR-050).
+     * coerced into a kind this build knows.
      */
     readonly event: string;
     /** `assignee` — the **subject** of an assignment. */
@@ -149,7 +149,7 @@ export type ItemEventsOutcome =
          * Whether the walk reached {@link ITEM_EVENT_MAX_PAGES} without a page
          * that ends it. `true` means the list may hold events this read never saw,
          * which is why an exhaustion with no qualifying event produces nothing
-         * rather than a guess from a partial list (FR-051).
+         * rather than a guess from a partial list.
          */
         readonly exhausted: boolean;
     }
@@ -266,7 +266,7 @@ export function readItemEventEntry(value: unknown): PollItemEvent | null {
 }
 
 /**
- * Decide whether one page ends the walk (FR-051).
+ * Decide whether one page ends the walk.
  *
  * **Two** signals end it, and they are deliberately different in kind:
  *
@@ -314,7 +314,7 @@ interface CorrelationInput {
 }
 
 /**
- * Decide whether one event qualifies as the answer to a candidate (FR-050).
+ * Decide whether one event qualifies as the answer to a candidate.
  *
  * Four filters, in the order they can refuse: the kind word, the item the row
  * says it belongs to, the window, and the **subject** the bound account must be
@@ -338,7 +338,7 @@ function qualifies(input: CorrelationInput, event: PollItemEvent): boolean {
 }
 
 /**
- * Pick the one event that answers a candidate, if any does (FR-050, FR-051).
+ * Pick the one event that answers a candidate, if any does.
  *
  * Selection is by **greatest `created_at`** among the qualifying rows and never
  * by position in the response, so a feed that answers newest-first,
@@ -371,7 +371,7 @@ export type EventActor =
     | { readonly usable: false; readonly reason: 'unreadable-actor' | 'bot-actor' };
 
 /**
- * Read the actor one qualifying event records (FR-050, FR-052).
+ * Read the actor one qualifying event records.
  *
  * The field is the one the **kind** names — `assigner` for an assignment,
  * `review_requester` for a review request — and never `actor`, never the issue
@@ -424,7 +424,7 @@ interface CandidateRequest {
  *
  * Both are **recorded** rather than dropped in silence, because an operator must
  * be able to explain a missing trigger (constitution IV) and because neither
- * leaves anything behind in the queue for a later gate to guess about (FR-052).
+ * leaves anything behind in the queue for a later gate to guess about.
  * The scan window overlaps, so the candidate is re-detected next cycle: refusing
  * costs at most one cycle of latency.
  *
@@ -450,7 +450,7 @@ function recordNoEvent(input: { readonly request: CandidateRequest; readonly rea
  *   qualifying event in the window, an actor `null`/empty/bot, or the page bound
  *   reached with nothing qualifying. The candidate is dropped for this cycle, the
  *   reason is logged, and the overlapping window re-detects it — which is why
- *   this is a refusal rather than a loss (FR-052).
+ *   this is a refusal rather than a loss.
  * - **failed** — the *read itself* failed, and this escapes so the caller can
  *   treat it exactly as it treats a list failure: the binding's scan is skipped,
  *   its checkpoint is **retained** rather than advanced, and its `lastError` names

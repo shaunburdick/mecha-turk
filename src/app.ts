@@ -212,8 +212,8 @@ export function teardown(rt: PanelRuntime): void {
     }
 
     rt.disposed = true;
-    // The relay is root-owned (plan D2), so this is where its loop stops: a
-    // torn-down panel must leave no surviving timer behind (FR-017, SC-108),
+    // The relay is root-owned, so this is where its loop stops: a
+    // torn-down panel must leave no surviving timer behind,
     // and nothing else in the teardown path knows the loop exists.
     stopRelayPolling(rt);
     if (rt.pagehideListener !== null) {
@@ -245,7 +245,7 @@ export function teardown(rt: PanelRuntime): void {
 
     if (rt.shell !== null) {
         // One path for all six bodies: each disposer it registered runs in
-        // strip order, then the strip itself removes (FR-017, NFR-108).
+        // strip order, then the strip itself removes.
         rt.shell.dispose();
     }
 
@@ -328,7 +328,7 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
     void loadDispatches(rt);
     // The Status tab's projection is read at mount as well, so the tab the
     // panel opens on answers its one question immediately; its own refresh
-    // control is the explicit re-read (FR-014, FR-019).
+    // control is the explicit re-read.
     void loadStatus(rt);
     // The handoff input stays disabled until this pre-flight proves the
     // service storage is writable (F10/SEC-08); a failed pre-flight leaves
@@ -347,7 +347,7 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
  * First-time start, driven by `onReady`.
  *
  * The reconcile gate closes before anything that could arm the relay and opens
- * only after every outstanding attempt has been re-reported (FR-025), in a
+ * only after every outstanding attempt has been re-reported, in a
  * `finally` so no mount path can leave the relay unarmed — or armed ahead of
  * its own reconciliation.
  *

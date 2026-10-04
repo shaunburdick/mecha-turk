@@ -54,7 +54,7 @@ import type { PanelRuntime } from './panel-state.ts';
 export { RELAY_POLL_INTERVAL_MS };
 
 /**
- * The handled-list key for one offered attempt (FR-034).
+ * The handled-list key for one offered attempt.
  *
  * Keyed by correlation id **and** attempt, so the service handing the same run
  * back under a new lease and a new attempt is a new key — and a failed report
@@ -91,8 +91,8 @@ async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: Cla
 
     const reserved = await reserveRun(rt, run);
     if (reserved.kind === 'refused') {
-        // The actor-policy gate's one refusal this panel owes a report for
-        // (FR-078), posted through the operation every other guard already uses.
+        // The actor-policy gate's one refusal this panel owes a report for,
+        //  posted through the operation every other guard already uses.
         // Every other refusal ends the attempt here, having written nothing.
         if (reserved.failure !== undefined) {
             await refuseWithBlocked({ rt, run, failure: reserved.failure });
@@ -115,7 +115,7 @@ async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: Cla
  * Dispatch one claimed run; never throws.
  *
  * The dispatch guard is one observed handoff per `correlationId#attempt` per
- * mount (FR-034), so a re-poll can never double-start the same attempt,
+ * mount, so a re-poll can never double-start the same attempt,
  * whatever the service did — and a failed report never clears the entry, so it
  * can never become a licence to dispatch it again.
  *
@@ -208,7 +208,7 @@ export async function pollRelay(rt: PanelRuntime): Promise<void> {
 /**
  * Arm the relay loop: one immediate poll, then the interval.
  *
- * Mount-time reconciliation settles first (FR-025): while it is running this
+ * Mount-time reconciliation settles first: while it is running this
  * call only records the intent, and reconciliation releases it once every
  * outstanding attempt has been re-reported. That makes "no claim before
  * reconciliation" a property of the arm itself rather than of whichever call
@@ -243,7 +243,7 @@ export function startRelayPolling(rt: PanelRuntime): void {
 }
 
 /**
- * Open the reconcile gate and release whatever arming it deferred (FR-025).
+ * Open the reconcile gate and release whatever arming it deferred.
  *
  * The gate is what makes "no claim before reconciliation" a property of the
  * arm rather than of the call site that happens to reach it first: any of the

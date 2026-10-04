@@ -60,12 +60,12 @@ export const PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
  * The closed tier vocabulary: which store a starting prompt came from (004
  * FR-072, FR-087).
  *
- * The three tiers stack most-general-first into the one composed block
- * (FR-080), and every surface that carries a fingerprint carries this
- * vocabulary's ordered, duplicate-free list beside it (FR-087). Declared
+ * The three tiers stack most-general-first into the one composed block,
+ * and every surface that carries a fingerprint carries this
+ * vocabulary's ordered, duplicate-free list beside it. Declared
  * here — browser-safe, no `node:` import — so the service that *writes*
  * `promptSources` and the panel that *reads* it name the same three strings,
- * and neither side can drift into a fourth tier on its own (FR-070).
+ * and neither side can drift into a fourth tier on its own.
  */
 export type PromptSource = 'global' | 'account' | 'binding';
 
@@ -294,7 +294,7 @@ export function hasIllegalControlChar(text: string): boolean {
  * Three scalars, the ordered source list, and **never the text**: the
  * instruction travels once, in the message's `text`, so a second copy in
  * `data` would be exactly the duplicate 004 FR-037 forbids. The list names
- * which tiers produced the block — everywhere the fingerprint is (FR-087) —
+ * which tiers produced the block — everywhere the fingerprint is —
  * and its presence is part of the reference's iff: a present reference holds
  * a non-empty {@link PromptSource} list, an absent one holds `null`.
  */

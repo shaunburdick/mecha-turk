@@ -28,7 +28,7 @@ import type { ConfigIssue } from './config.ts';
  *
  * `format` is the service-authored prose the wire carries as a descriptor's
  * `format` member — rendered as text by the panel, never compiled into a
- * second validator (FR-023). `pattern` is the validator's own gate: one
+ * second validator. `pattern` is the validator's own gate: one
  * token of letters, digits, and `. _ - @ : /`, so a pasted credential (or
  * anything containing a space or control character) never reaches the store.
  */

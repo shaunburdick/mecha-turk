@@ -258,10 +258,10 @@ function registeredProjects(rt: PanelRuntime): readonly string[] | null {
 }
 
 /**
- * Repaint the Status body from the current read (FR-019, FR-030).
+ * Repaint the Status body from the current read.
  *
  * Nothing runs when the tab has never been activated: the state still
- * updates, and the first activation repaints from it (FR-013).
+ * updates, and the first activation repaints from it.
  *
  * @param rt - Panel runtime.
  */
@@ -325,7 +325,7 @@ function repaintAfterRead(rt: PanelRuntime): void {
  * The status read is the tab's own: if it fails, the tab says so and keeps
  * whatever it last rendered marked stale. The configuration read is
  * supplementary — its failure renders as *not read* on one line rather than
- * failing a tab whose primary document arrived (FR-039, FR-019).
+ * failing a tab whose primary document arrived.
  *
  * @param rt - Panel runtime.
  */
@@ -371,7 +371,7 @@ export async function loadStatus(rt: PanelRuntime): Promise<void> {
 }
 
 /**
- * Mount the refresh control and the read-state line (FR-014, FR-019).
+ * Mount the refresh control and the read-state line.
  *
  * @param rt - Panel runtime whose read state the line reports.
  * @param parent - Element to append into.
@@ -399,7 +399,7 @@ function mountControls(rt: PanelRuntime, parent: HTMLElement): {
 }
 
 /**
- * Mount the Status body above the prerequisites section (FR-030, FR-037).
+ * Mount the Status body above the prerequisites section.
  *
  * @param input - Runtime and the Status body container the shell created.
  * @returns The handles a repaint updates.
@@ -450,7 +450,7 @@ export function mountStatusTab(input: {
 }
 
 /**
- * Dispose the Status body's handles (FR-017).
+ * Dispose the Status body's handles.
  *
  * @param rt - Panel runtime being torn down.
  */

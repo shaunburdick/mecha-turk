@@ -84,7 +84,7 @@ export function formatUptime(ms: number): string {
 }
 
 /**
- * Render one account's rate block without inventing a measurement (FR-034).
+ * Render one account's rate block without inventing a measurement.
  *
  * `remaining`, `limit`, and `resetAt` are one budget: while any of them is
  * unmeasured the budget reads *not measured yet*, and `usedLastHour` still
@@ -107,7 +107,7 @@ export function rateLine(rate: StatusAccountView['rate']): string {
 }
 
 /**
- * The projection's service block (FR-030).
+ * The projection's service block.
  *
  * @param view - The parsed status document.
  * @returns One line per service fact.
@@ -135,7 +135,7 @@ export function serviceLines(view: StatusView): readonly string[] {
 
 /**
  * Render a poll cadence, marking a stamp the timer has not reached yet as
- * *overdue* rather than substituting the configured interval (FR-031).
+ * *overdue* rather than substituting the configured interval.
  *
  * @param stamp - RFC 3339 next-poll stamp.
  * @param nowMs - Clock to judge lateness against.
@@ -176,10 +176,10 @@ function configuredIntervalLine(configured: number | null): string {
 
 /**
  * The polling block: the effective interval, the configured one, and the
- * scheduler's own answer (FR-031, FR-039).
+ * scheduler's own answer.
  *
  * While the surface cannot run a service at all, nothing here claims a loop
- * is running (FR-036).
+ * is running.
  *
  * @param input - The document, the configured interval, and the clock.
  * @returns One line per polling fact.
@@ -207,7 +207,7 @@ export function pollingLines(input: PollingLinesInput): readonly string[] {
 
     if (polling.paused) {
         // An out-of-vocabulary reason is rendered verbatim, never mapped to a
-        // friendly guess (FR-031, FR-003).
+        // friendly guess.
         const reason = polling.pausedReason === '' ? 'no reason reported' : polling.pausedReason;
         lines.push(`Polling: paused — ${reason}`);
         lines.push('Next poll: none while polling is paused');
@@ -222,11 +222,11 @@ export function pollingLines(input: PollingLinesInput): readonly string[] {
 }
 
 /**
- * One line per registered account (FR-030, FR-034).
+ * One line per registered account.
  *
  * An empty list is never left to speak for itself: a healthy service with no
  * accounts says so, and a degraded one says it could not read them, because
- * "you have none" and "I cannot tell" are different facts (FR-003, NFR-112).
+ * "you have none" and "I cannot tell" are different facts.
  *
  * @param view - The parsed status document.
  * @returns One line per account, plus an empty-state line when there are none.
@@ -243,12 +243,12 @@ export function accountLines(view: StatusView): readonly string[] {
 }
 
 /**
- * One line per stored binding, under the heading **Bindings** (FR-032).
+ * One line per stored binding, under the heading **Bindings**.
  *
  * A row the scan projection could not read is rendered as *unreadable*
- * rather than dropped: an omitted binding reads as a deleted one (AC-105).
+ * rather than dropped: an omitted binding reads as a deleted one.
  * An empty list says which of the two empties it is, for the same reason the
- * account list does (FR-003, AC-105, NFR-112).
+ * account list does.
  *
  * @param view - The parsed status document.
  * @returns One line per binding, plus an empty-state line when there are none.
@@ -291,12 +291,12 @@ export function bindingLines(view: StatusView): readonly string[] {
  *   whose switch sets differ, and no single act is true of all of them. A union
  *   would claim an act is possible when for the aggregate it may be something
  *   else, which is the overstatement being fixed. Per-binding derivation belongs
- *   to the Bindings row (FR-096); Status carries no trigger set and is
+ *   to the Bindings row; Status carries no trigger set and is
  *   forbidden from acquiring one (005 FR-039, clarification row 48).
  * - **Zero is a positive statement, and it is scoped to `enabled`.** *"Every
  *   enabled binding restricts who may trigger"* is a fact worth reading, and
  *   silence is not: an operator cannot tell an absent line from a panel that did
- *   not check (FR-003). It is scoped because the unqualified form is **false**
+ *   not check. It is scoped because the unqualified form is **false**
  *   the moment a disabled binding is open.
  * - **`0 of 0` is banned in every case**, including bindings-present-but-none-
  *   enabled. A bare `0 of 0` is the reassuring default NFR-113 exists to
@@ -354,7 +354,7 @@ export interface StatusNoticeStates {
  * Decide which of the two blocking notices the tab shows.
  *
  * With nothing read there is nothing to claim either way, so a `null` document
- * raises neither: an empty tab must not look blocked (FR-003, NFR-112).
+ * raises neither: an empty tab must not look blocked.
  *
  * @param view - The parsed document, or `null` when no read has landed.
  * @returns Which notices are visible.
@@ -377,12 +377,12 @@ export interface ProjectGuidanceInput {
 
 /**
  * Point at the Bindings picker's "not listed?" guidance when a binding aims
- * at a project OpenChamber has not registered (FR-038).
+ * at a project OpenChamber has not registered.
  *
  * The three manual registration routes live in the picker and are not
  * restated here: a second copy of guidance is a second thing to keep true.
  * While the host's project list has not loaded, nothing is claimed — an
- * unlisted project and an unread list are different facts (FR-003).
+ * unlisted project and an unread list are different facts.
  *
  * @param input - The binding rows and the registered project ids.
  * @returns The guidance line, or none when there is nothing to point at.
@@ -408,7 +408,7 @@ export function projectGuidanceLines(input: ProjectGuidanceInput): readonly stri
 }
 
 /**
- * The agent pin's three shapes, none of which is "ok" by default (FR-033).
+ * The agent pin's three shapes, none of which is "ok" by default.
  *
  * A blank baseline reads as *no comparison baseline configured* rather than as
  * an empty name, and a read-back taken against one is reported as an

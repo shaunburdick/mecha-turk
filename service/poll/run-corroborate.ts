@@ -52,10 +52,10 @@ export const CORROBORATED_BLOCKED_REASONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Re-judge a `blocked:actor-not-allowed` run against the live policy (FR-078).
+ * Re-judge a `blocked:actor-not-allowed` run against the live policy.
  *
  * A **truncated** reference list gets its own sentence, and the distinction is
- * load-bearing: the gate reads the run's *retained* references (T-038), so on a
+ * load-bearing: the gate reads the run's *retained* references, so on a
  * run that reached the cap this re-judge reaches the gate's verdict — and would
  * reach it after any amount of widening `allowedUsers`. Saying "still admits
  * none of this run's attributed actors" then sends the operator to make an edit

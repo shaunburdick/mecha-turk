@@ -92,7 +92,7 @@ export const ACTOR_BLOCKED_REASON = ACTOR_NOT_ALLOWED;
 const UNRECORDED_BASIS = 'unrecorded';
 
 /**
- * One retained reference's actor, classified (FR-077, FR-080).
+ * One retained reference's actor, classified.
  *
  * A **closed union rather than a nullable triple**: `login` exists exactly when
  * the reference names a readable actor, so no call site can read a login off an
@@ -128,7 +128,7 @@ export type ActorPolicyVerdict =
     | { readonly admitted: false; readonly refused: ActorPolicyRefusal };
 
 /**
- * Classify one reference's actor, without consulting any list (FR-077, FR-080).
+ * Classify one reference's actor, without consulting any list.
  *
  * **An absent, empty, or bot-shaped actor is unreadable, whatever the policy
  * is.** That is FR-080's whole rule and the reason the gate never asks the
@@ -247,7 +247,7 @@ function judgedWindowWord(run: Run): ReferenceWindow {
  * The clause naming an incomplete reference list, and what cannot clear it.
  *
  * **The operator-facing half of the liveness rule.** The gate's quantifier runs
- * over the **retained** references (FR-077), and the cap stops retaining at
+ * over the **retained** references, and the cap stops retaining at
  * {@link MAX_SOURCE_REFERENCES} (T-038) — so a run whose list was cut can hold
  * an allowed actor among the *dropped* references, and no policy change can ever
  * admit it. That is exactly the permanent wedge the quantifier exists to
@@ -328,8 +328,8 @@ function unreadableNote(unreadableReferences: number): string {
  *
  * - the truncation clause, which rides **every** refusal message: an operator
  *   told to widen a list that cannot widen it has been told to do something
- *   useless, and FR-078's retry re-judges from the same truncated list anyway
- *   (plan D17);
+ *   useless, and FR-078's retry re-judges from the same truncated list anyway;
+ *
  * - and the window as a **word** beside it, so the panel can tell this case
  *   from an ordinary one without a second parse of a sentence it is otherwise
  *   only obliged to copy.
@@ -372,7 +372,7 @@ function deniedPolicyRefusal(input: {
 /**
  * Judge one run's actor policy (003 FR-076 – FR-080; plan D14).
  *
- * An unreadable actor is refused **regardless** of the policy (FR-080), so the
+ * An unreadable actor is refused **regardless** of the policy, so the
  * admitted case requires at least one reference that names a readable login the
  * list allows. Under an **open** policy every readable login is allowed, so the
  * admitted condition reduces to "some reference names a readable actor" — and a
@@ -384,7 +384,7 @@ function deniedPolicyRefusal(input: {
  * message, in its detail set, and as a word on the wire, so neither the caller
  * nor the panel has to guess whether the list it judged was the whole history.
  *
- * Pure: the caller owns the store read (plan D13) and the write, so the same
+ * Pure: the caller owns the store read and the write, so the same
  * predicate can re-judge a `blocked:actor-not-allowed` run against a live read on
  * the retry path (FR-078, plan D17) — which is what makes "a run cannot be
  * retried into a dispatch this gate would refuse again" a property rather than a
@@ -404,7 +404,7 @@ export function judgeActorPolicy(input: {
     const policy: ActorPolicy = allowedUsers === undefined ? 'open' : 'restricted';
 
     // A readable actor naming an allowed login is the whole admitted rule, and
-    // `isActorAllowed` is the one membership comparison in the product (plan D9).
+    // `isActorAllowed` is the one membership comparison in the product.
     if (readable.some((actor) => isActorAllowed(actor.login, allowedUsers))) {
         return { admitted: true, policy };
     }

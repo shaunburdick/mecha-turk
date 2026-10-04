@@ -118,7 +118,7 @@ function promptHandlers(rt: PanelRuntime): Pick<
             bindings.allowedUsersError = null;
             // The click opens the editor on this row — or refuses to open it
             // (a worktree option this editor cannot render) and says why with
-            // the editor shut and the draft clean (FR-003).
+            // the editor shut and the draft clean.
             startEditingBinding(rt);
         },
         setStartingPrompt: (value) => editBindings(rt, {
@@ -208,7 +208,7 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
 }
 
 /**
- * Mount the Bindings tab body into the container the shell created (FR-013).
+ * Mount the Bindings tab body into the container the shell created.
  *
  * The six-tab shell owns the strip and decides when this body first appears;
  * everything here is the body itself — the status line, the list, and the add

@@ -93,7 +93,7 @@ function originOf(delivery: QueuedEvent): ReferenceOrigin | null {
 }
 
 /**
- * Build the source reference one delivery contributes (FR-013).
+ * Build the source reference one delivery contributes.
  *
  * The delivery's **actor members ride the reference verbatim** (002 FR-043,
  * FR-044): the gate later judges one of them, and a run that recorded the
@@ -128,7 +128,7 @@ export function referenceOf(delivery: QueuedEvent, presentAtAuthorization: boole
 }
 
 /**
- * One reference's fold into a run, with the retention verdict (T-038).
+ * One reference's fold into a run, with the retention verdict.
  */
 export interface JoinResult {
     /** The run with its reference list and counters updated. */
@@ -137,7 +137,7 @@ export interface JoinResult {
      * Whether the reference is on the run's list.
      *
      * `false` only when the cap was already full — the delivery still joined
-     * (FR-011) and still earns its audit row (FR-016); it is the list entry
+     * and still earns its audit row; it is the list entry
      * that the cap refused, and `run.referencesNotRetained` counts it.
      */
     readonly retained: boolean;
@@ -154,7 +154,7 @@ export interface JoinResult {
  * list is capped at {@link MAX_SOURCE_REFERENCES} retained references; past
  * the cap the run keeps counting (`referenceCount`), counts what it could not
  * keep (`referencesNotRetained`), and says so (`referencesTruncated`), while
- * every overflow delivery still earns its own audit row (NFR-107, T-038).
+ * every overflow delivery still earns its own audit row.
  *
  * @param run - The run being joined.
  * @param reference - The joining delivery's reference.
@@ -291,7 +291,7 @@ export interface EnqueueJoin {
     /** The reference recorded for it. */
     readonly reference: SourceReference;
     /**
-     * Whether the reference is on the run's list (T-038).
+     * Whether the reference is on the run's list.
      *
      * `false` means the cap was full: the delivery joined the run and still
      * earns this row, but its detail is counted in `referencesNotRetained`
@@ -333,7 +333,7 @@ export interface EnqueueInput {
 
 /**
  * Fold fresh deliveries into runs: join the subject's open run, else create
- * the next ordinal (FR-011). Pure — the caller owns the chain, the two
+ * the next ordinal. Pure — the caller owns the chain, the two
  * writes, and the audit rows, in that order.
  *
  * @param input - The stored document, the deduped deliveries, the stamp, and

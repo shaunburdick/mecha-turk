@@ -24,7 +24,7 @@ import type { QueuedEvent } from './events-parse.ts';
 import type { Run } from './runs-types.ts';
 
 /**
- * The lease a claim issues, as the answer reports it (FR-030).
+ * The lease a claim issues, as the answer reports it.
  *
  * The lease is a **fencing/consistency token, not a capability**: holding the
  * id authorizes nothing, and the service's bearer token is the only
@@ -61,7 +61,7 @@ export interface ClaimedRun {
     /** The claim itself. */
     readonly lease: ClaimedLease;
     /**
-     * The state the run was **offered** in — always `pending` (FR-037).
+     * The state the run was **offered** in — always `pending`.
      *
      * The lease member, not this string, is the proof the run is now held; a
      * reader that needs the stored state after the claim reads the run history.

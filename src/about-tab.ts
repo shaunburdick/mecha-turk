@@ -87,7 +87,7 @@ const RETRY_LABEL = 'Retry version read';
 const FAILURE_TITLE = 'Version not read';
 
 /**
- * Where the About tab's version read stands (FR-019, FR-074).
+ * Where the About tab's version read stands.
  *
  * `version` is deliberately separate from `phase`: a failed re-read keeps the
  * version that did land (and the read line marks it stale) rather than
@@ -157,7 +157,7 @@ export interface AboutTabUi {
 
 /**
  * The version line: read, unread, or unreachable — never a synthesised
- * number (FR-074, AC-133, AC-134).
+ * number.
  *
  * @param slice - The About tab's read state.
  * @returns The line the tab paints.
@@ -202,10 +202,10 @@ export function readStateLine(slice: AboutTabState): string {
 }
 
 /**
- * Repaint the About tab from state (FR-019, FR-074, FR-075).
+ * Repaint the About tab from state.
  *
  * Nothing runs when the tab has never been activated: the state still
- * updates, and the first activation repaints from it (FR-013).
+ * updates, and the first activation repaints from it.
  *
  * @param rt - Panel runtime.
  */
@@ -244,8 +244,7 @@ export function repaintAboutTab(rt: PanelRuntime): void {
  *
  * One named action rather than an inline closure, so the control's own
  * behaviour is testable without reaching through mount props: closed by
- * default, opened by its control, and its label says which it currently is
- * (FR-083).
+ * default, opened by its control, and its label says which it currently is.
  *
  * @param rt - Panel runtime whose About state the control flips.
  */
@@ -260,7 +259,7 @@ export function toggleDiagnostics(rt: PanelRuntime): void {
  * `host.openUrl` is the opener the panel already uses for a dispatch's source
  * link, so the About page reaches for the same one — no capability, no
  * invented navigation, no anchor that could unload the panel. A refusal lands
- * on the link's own line rather than being swallowed (FR-003, FR-085).
+ * on the link's own line rather than being swallowed.
  *
  * @param rt - Panel runtime.
  * @param url - The href the operator activated.
@@ -303,7 +302,7 @@ function tornDown(rt: PanelRuntime): boolean {
 }
 
 /**
- * Read the service's health answer and take its version (FR-074).
+ * Read the service's health answer and take its version.
  *
  * Fail closed: an answer the panel cannot read is a failed read, never a
  * value. The tab retries only on an explicit operator action (contract §2).
@@ -380,7 +379,7 @@ function mountHeader(input: {
 }
 
 /**
- * Mount the re-read row and the failure notice behind it (FR-078).
+ * Mount the re-read row and the failure notice behind it.
  *
  * @param input - Runtime whose read the control starts, and the pane.
  * @returns The four handles plus the notice wrapper.
@@ -452,7 +451,7 @@ function mountDisclosure(pane: HTMLElement, onClick: () => void): {
 }
 
 /**
- * Release every handle and node the About tab mounted (FR-017).
+ * Release every handle and node the About tab mounted.
  *
  * @param ui - The mounted view.
  */
@@ -476,7 +475,7 @@ function disposeAbout(ui: AboutTabUi): void {
 
 /**
  * Mount the About tab: the identity block, the one re-read control, and the
- * Diagnostics disclosure (FR-074, FR-075).
+ * Diagnostics disclosure.
  *
  * @param input - Runtime and the body container the shell created.
  * @returns The mounted view.
@@ -537,7 +536,7 @@ export function mountAboutTab(input: {
 }
 
 /**
- * Dispose the About tab's handles and clear its slot (FR-017).
+ * Dispose the About tab's handles and clear its slot.
  *
  * @param rt - Panel runtime being torn down.
  */

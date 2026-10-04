@@ -79,7 +79,7 @@ const DEAD_LETTERED = 'dead-lettered' as const;
 const ACTOR_BLOCKED = 'actor-not-allowed';
 
 /**
- * Operator-readable badge label per plain state (FR-074, AC-123).
+ * Operator-readable badge label per plain state.
  *
  * `failed` reads as **dispatch failed** rather than as `failed` alone because
  * FR-040 requires the label itself to distinguish "a session exists" from "the
@@ -130,7 +130,7 @@ const UNKNOWN_STATE_REASON = 'this dispatch reports a state the panel does not r
  * reserved for that one answered state. Every state that means "an operator
  * must decide" reads as a warning, and the one state that means "the budget is
  * spent and nothing further happens without a human" reads as an error. The
- * tone map is deliberately never success-toned for a failure (FR-040, AC-113).
+ * tone map is deliberately never success-toned for a failure.
  */
 const PLAIN_STATE_TONES: Record<Exclude<PlainRunState, typeof DEAD_LETTERED>, Tone> = {
     pending: 'neutral',
@@ -146,7 +146,7 @@ const PLAIN_STATE_TONES: Record<Exclude<PlainRunState, typeof DEAD_LETTERED>, To
  *
  * Annotated as a wide record so a cause this build does not produce still
  * renders through {@link blockedReasonText}'s generic clause rather than
- * appearing as a missing label (FR-074).
+ * appearing as a missing label.
  */
 const BLOCKED_CAUSE_REASONS: Readonly<Record<string, string>> = {
     [ACTOR_BLOCKED]: 'nobody who triggered this run is on this binding\'s allow-list — add those logins to the '
@@ -191,7 +191,7 @@ function isBlockedState(state: string): state is `blocked:${string}` {
 /**
  * Operator-readable label for one state; an unrecognised state renders raw.
  *
- * The fallback is deliberate (FR-074): a state this build does not know about
+ * The fallback is deliberate: a state this build does not know about
  * must still be *shown* rather than hidden behind a label the panel invented,
  * and inventing one would be exactly the guess the fail-closed parser refuses
  * on the way in.
@@ -207,7 +207,7 @@ export function stateLabel(state: string): string {
     const label = PLAIN_STATE_LABELS[state];
 
     // A value outside the model is named as what it is, with the raw value
-    // kept in the label so the operator can report it (FR-041, FR-003).
+    // kept in the label so the operator can report it.
     return label ?? `unknown state: ${state}`;
 }
 
@@ -229,7 +229,7 @@ function stateTone(state: RunState): Tone {
  * Badge tone for one run: its state's verdict, adjusted for verification.
  *
  * A read-back that mismatched turns a success or in-progress tone into a
- * warning (FR-043, AC-125) — the queue may be answered while the agent the
+ * warning — the queue may be answered while the agent the
  * session actually runs is not the one the binding expected — but it never
  * softens the error tone of a parked run, and it can never produce a success.
  *
@@ -253,7 +253,7 @@ function badgeTone(row: RunRow): Tone {
  * The action the panel offers for one run state — or no action, with a reason.
  *
  * This replaces the old `state !== 'dispatched'` boolean with the table 003
- * specifies (FR-041, FR-033, FR-027, AC-123). The distinction that matters is
+ * specifies. The distinction that matters is
  * between a control the service will actually accept and one it would refuse:
  * an affordance the operator can click and be refused is honest, but offering
  * *Retry* on a waiting run is not — the service has no transition to accept.
@@ -334,7 +334,7 @@ export function runAffordance(row: { readonly state: string }): RunAffordance {
         // Retry validity follows 003 FR-041 exactly as every other cleared
         // cause's does — the service re-checks the live state and refuses with
         // its own distinct reason if it has not cleared — so the affordance is
-        // the same control with a more specific reason line (FR-078).
+        // the same control with a more specific reason line.
         return {
             action: 'retry',
             label: RETRY_LABEL,
@@ -398,7 +398,7 @@ function referenceLabel(reference: RunReference): string {
  * The primary label is the **earliest** reference — the reason the run exists
  * — followed by how many reasons fired in total, each listed with its kind and
  * detection time, and the count of triggers the reference cap kept off the
- * list (T-038), so overflow is stated rather than silently lossy. A run with
+ * list, so overflow is stated rather than silently lossy. A run with
  * one reference shows just that reference: FR-015 forbids the "+N more"
  * affordance when there is nothing more.
  *
@@ -428,7 +428,7 @@ function referencePhrase(row: RunRow): string | null {
  *
  * @param verification - The recorded read-back.
  * @returns The line, naming the observed agent, the expected one, the verdict,
- *   and the service's own note when there is one (FR-043, AC-125).
+ *   and the service's own note when there is one.
  */
 function verificationPhrase(verification: RunVerification): string {
     const observed = verification.observedAgent ?? 'unreadable';
@@ -455,10 +455,10 @@ function verificationPhrase(verification: RunVerification): string {
  * Three facts, one read (004 FR-052 as read through FR-072/FR-087): the
  * ordered tier list answers *which tiers produced this run* (`global`, then
  * `account`, then `binding`, joined with `+` in the stacking order FR-080
- * fixes), the fingerprint identifies *which concatenated text was used*
- * (FR-086), and the length says how much of it there was. The fingerprint is
+ * fixes), the fingerprint identifies *which concatenated text was used*,
+ * and the length says how much of it there was. The fingerprint is
  * what lets an operator tell two dispatches apart and recognise a pre-upgrade
- * one (AC-139); the text is the instruction, and it lives in the tiers and the
+ * one; the text is the instruction, and it lives in the tiers and the
  * run's snapshot, not on a row that outlives them (004 FR-053) — so a source
  * name reaches this line only through the closed reader in `prompt-wire.ts`,
  * which has already refused any tier word this build does not know.

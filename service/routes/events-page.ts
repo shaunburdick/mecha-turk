@@ -326,7 +326,7 @@ export function afterBoundary(row: RunHistoryRow, boundary: PageBoundary): boole
  *
  * `total` is passed through exactly as the caller computed it: a withheld total
  * stays `null` rather than being replaced by the page size, which is the one
- * substitution that would turn "25 rows shown" into "25 rows exist" (NFR-112).
+ * substitution that would turn "25 rows shown" into "25 rows exist".
  *
  * @param input - The page's members.
  * @returns The member as it goes on the wire.

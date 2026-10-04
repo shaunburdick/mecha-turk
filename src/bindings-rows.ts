@@ -160,7 +160,7 @@ export function elapsedSince(iso: string): string {
  * The phrase is the operator's only view of *why* nothing is happening on a
  * binding, so it carries the skip reason next to when the last scan ran — and
  * a binding no scan has ever reached reads *not scanned yet* rather than a
- * bare `never`, which reads like a verdict instead of an absence (FR-053).
+ * bare `never`, which reads like a verdict instead of an absence.
  *
  * @param row - The status row.
  * @returns `scan: <when> · <reason|ok>`, or `not scanned yet` before the
@@ -175,7 +175,7 @@ function scanPhrase(row: StatusRowView): string {
 }
 
 /**
- * Why a disabled binding is not polling, when the panel can prove it (FR-054).
+ * Why a disabled binding is not polling, when the panel can prove it.
  *
  * The service stores `state: 'disabled'` for both the operator's own toggle
  * and the cascade that follows an account removal, and it writes no reason
@@ -311,7 +311,7 @@ export function bindingRows(bindings: BindingsTabState): ListItem[] {
  * around it: whether it polls, when it was created and last changed, and what
  * the service's scan has done with it. A binding no scan has reached yet
  * reads `not scanned yet` with a pending count of zero — never a blank, and
- * never an invented "it is fine" (FR-003).
+ * never an invented "it is fine".
  *
  * @param bindings - The Bindings tab's state.
  * @returns The detail line, or `null` when no binding is selected.

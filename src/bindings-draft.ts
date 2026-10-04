@@ -126,7 +126,7 @@ function draftAccount(
     origin: DraftOrigin,
 ): { readonly accountNumericUserId: string; readonly accountLogin: string } | null {
     if (origin.kind === 'edit') {
-        // Edit mode's account field is fixed to this row (FR-053), so the
+        // Edit mode's account field is fixed to this row, so the
         // account it displays *is* the account it saves — even when that
         // account has since been removed and no longer lists.
         const { accountNumericUserId, accountLogin } = origin.binding;
@@ -182,7 +182,7 @@ function draftRepository(bindings: BindingsTabState, origin: DraftOrigin): strin
  *
  * @param bindings - Panel state to read.
  * @returns The project id, or `null` when the operator has not picked one —
- *   a binding with no project is recoverable, not savable (FR-056).
+ *   a binding with no project is recoverable, not savable.
  */
 function draftProject(bindings: BindingsTabState): string | null {
     if (bindings.repoProjectSelection === null) {

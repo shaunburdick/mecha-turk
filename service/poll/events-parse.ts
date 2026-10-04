@@ -128,7 +128,7 @@ export interface QueuedEvent {
      * [`attribution.ts`](./attribution.ts) beside the basis's own vocabulary.
      * A row enqueued before this member existed carries none and keeps none:
      * requiring it would quarantine every pre-existing row, which is a
-     * migration by side effect (plan D2). Absence is not a permission — the
+     * migration by side effect. Absence is not a permission — the
      * authorization gate refuses a run whose references name no readable actor
      * rather than reading absence as allowed (003 FR-080).
      *
@@ -177,7 +177,7 @@ const REQUIRED_FIELDS = [
  * before 003 has all four lifecycle fields, and every row written after it
  * has none — all three shapes must keep parsing, because an unreadable file
  * would quarantine a healthy queue and reset every binding's window for
- * nothing (FR-005).
+ * nothing.
  */
 const ABSENTABLE_FIELDS = ['headSha', 'baseRef', 'claimedAt', 'dispatchedAt', 'dispatchResult'] as const;
 

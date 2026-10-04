@@ -59,7 +59,7 @@ export type { ActorAttribution, ActorPolicy } from './run-actor.ts';
 
 /** One run, as `GET /v1/events` projects it: credential-free, and carrying the
  * prompt's {@link PromptReference} — presence, the ordered `promptSources`
- * tier list, fingerprint, length, never text (FR-052, FR-087). */
+ * tier list, fingerprint, length, never text. */
 export interface RunRow extends PromptReference {
     /** **The run's correlation id**: row key and every run-operation path segment. */
     readonly id: string;
@@ -214,8 +214,8 @@ function requiredNumber(record: Record<string, unknown>, field: string): number 
  *
  * `referenceCount` is the total that ever joined, `sourceReferences` is what
  * was retained, and `referencesNotRetained` is the difference — so a row whose
- * three disagree would render as either silently lossy or falsely complete
- * (T-038). Refusing it is the same call the store's own parser makes.
+ * three disagree would render as either silently lossy or falsely complete.
+ * Refusing it is the same call the store's own parser makes.
  *
  * @param input - The counting members and the retained list's length.
  * @returns `true` when they reconcile.

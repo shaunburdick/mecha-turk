@@ -133,7 +133,7 @@ const AUDIT_HEADING = 'Audit trail';
 const LIST_COLUMNS: readonly string[] = ['Trigger', 'Subject', 'State', 'Age'];
 
 /**
- * Mount the status line that says which set is on screen (FR-042).
+ * Mount the status line that says which set is on screen.
  *
  * @param input - Pane root and runtime.
  * @returns The status handle.
@@ -152,7 +152,7 @@ function mountDispatchesHead(input: Pick<MountInputs, 'pane' | 'rt'>): Pick<Disp
  *
  * Its empty slot is the one AC-122 polices: with a filter on it says the
  * filter matched nothing and offers the control that clears it, never that
- * there are no dispatches (FR-043).
+ * there are no dispatches.
  *
  * @param input - Runtime, pane root, and handlers.
  * @returns The list handle.
@@ -282,7 +282,7 @@ function mountResolutions(input: MountInputs): Pick<
  *
  * The list sits in its own wrapper so it can disappear when there is nothing
  * to show while the status line keeps saying why — an empty trail, a failed
- * read, and a still-loading one all read differently (T-026).
+ * read, and a still-loading one all read differently.
  *
  * @param input - Runtime, pane root, and handlers.
  * @returns The audit view's handles.
@@ -340,7 +340,7 @@ function mountAgentNotice(
 }
 
 /**
- * Dispose every SDK handle a mounted dispatches board owns (FR-017).
+ * Dispose every SDK handle a mounted dispatches board owns.
  *
  * The wrapper elements go with their body's node; the handles themselves carry
  * listeners the host would otherwise outlive the teardown with.
@@ -378,7 +378,7 @@ export function disposeDispatchesBoard(board: DispatchesBoard): void {
  *
  * Split out of {@link repaintDispatchesBoard} because the two armed labels are the
  * two branches an operator reads as "this click will send". Each label names
- * the row it will act on (FR-081).
+ * the row it will act on.
  *
  * @param input - The runs state, the label namer, and the mounted board.
  */
@@ -408,14 +408,14 @@ function repaintResolutions(input: {
  *
  * The affordance table decides which transition group exists: one nobody can
  * use is hidden rather than greyed out, because a disabled button still
- * promises an action the service would refuse (FR-041, AC-123), and an armed
+ * promises an action the service would refuse, and an armed
  * control repaints its confirm label from the same state the action module
- * wrote (T-025).
+ * wrote.
  *
  * Every row-level action also repaints an **accessible name that names its
  * row** — *Retry dispatch for #412 in owner/name* — because a list of
  * identically-labelled buttons is a list an operator cannot act on with a
- * screen reader (FR-081).
+ * screen reader.
  *
  * @param rt - Panel runtime.
  * @param board - The mounted runs half.
@@ -470,7 +470,7 @@ export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard)
  * fresh panel, rows after a restore), so a mount finishes with **one repaint**
  * — the body first appears long after the mount-time read landed, and without
  * it the paging controls would render their pre-read flags while the rows
- * already show the answer (FR-019, FR-081).
+ * already show the answer.
  *
  * @param input - Runtime, pane root, and handlers.
  * @returns The runs handles the pane repaints through.

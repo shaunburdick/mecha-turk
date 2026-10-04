@@ -73,7 +73,7 @@ const RESOLVE_DECISIONS: ReadonlySet<string> = new Set<ResolveDecision>(['sessio
 const SESSION_CREATED = 'session-created';
 
 /**
- * Narrow a body member to one of the two explicit resolutions (FR-027).
+ * Narrow a body member to one of the two explicit resolutions.
  *
  * `Set.has` cannot narrow a `string` to the set's element type on its own, and
  * widening the decision back to `string` would push an unchecked value into
@@ -163,7 +163,7 @@ function readResolution(fields: Readonly<Record<string, unknown>>): ResolutionRe
  *
  * Returns a `failed` or `blocked:*` run to waiting under the **same run key**,
  * incrementing the attempt exactly once and preserving the source references and
- * every prior attempt's record (FR-041). It does not create a new run, so the
+ * every prior attempt's record. It does not create a new run, so the
  * ordinal counter is untouched.
  *
  * @param context - Route context carrying the open store.
@@ -216,7 +216,7 @@ async function handleRetry(context: RouteContext, request: RouteRequest): Promis
  * Answer `POST /v1/events/:correlationId/requeue`.
  *
  * The single control that resolves a `dead-lettered` run, and the one that
- * resets the attempt count (FR-033). `confirm` is required: the reset discards
+ * resets the attempt count. `confirm` is required: the reset discards
  * the budget accounting that dead-lettering produced, so it is taken only when the
  * caller says so rather than inferred from the request's existence.
  *
@@ -267,7 +267,7 @@ async function handleRequeue(context: RouteContext, request: RouteRequest): Prom
 /**
  * Answer `POST /v1/events/:correlationId/resolve`.
  *
- * The operator's two explicit resolutions of an `unconfirmed` run (FR-027).
+ * The operator's two explicit resolutions of an `unconfirmed` run.
  * `session-created` requires the session id, and `no-session` is the **only** path
  * that re-dispatches an `unconfirmed` run — the one place in the service where a
  * second `host.startSession()` can be authorized for a run that may already have
@@ -466,7 +466,7 @@ function readReadBack(request: RouteRequest, correlationId: string): ReadBack | 
 /**
  * Answer `POST /v1/events/:correlationId/verification`.
  *
- * Records the post-dispatch agent read-back and **changes no state** (FR-043):
+ * Records the post-dispatch agent read-back and **changes no state**:
  * a mismatch is shown as a warning and audited, never acted on again. The session
  * id must be the one the run recorded, so a read-back of some other session
  * cannot be filed against this run.

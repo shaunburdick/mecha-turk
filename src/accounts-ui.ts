@@ -39,7 +39,7 @@ export interface HandoffHandlers {
     /**
      * The operator submitted the pasted credential.
      *
-     * The second argument is the optional expected-login constraint (FR-006):
+     * The second argument is the optional expected-login constraint:
      * an empty string means *no constraint*, which is what the caller sends
      * when the field was left alone.
      */
@@ -155,7 +155,7 @@ export interface HandoffSubmission {
  * value that reappeared while the request was in flight, and it is why
  * {@link HandoffView.setTokenValue} has a production call site.
  *
- * The expected-login constraint (FR-006) travels only when the operator
+ * The expected-login constraint travels only when the operator
  * typed one: an empty or blank field omits the `expectedLogin` member
  * entirely, which is how the service is told *no constraint* and stores
  * `expectedLogin: null` (002 FR-009, 005 AC-141).

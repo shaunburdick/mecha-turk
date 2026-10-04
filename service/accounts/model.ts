@@ -56,7 +56,7 @@ export interface Account {
      * The record is the tier's only home, so it lives and dies with the
      * account: `DELETE ?force=1` removes both together, rotation, login rename,
      * and credential refresh leave it byte-identical, and a re-added account
-     * starts unset — no tier is ever seeded (FR-071). Absent in every record
+     * starts unset — no tier is ever seeded. Absent in every record
      * this build wrote before the field, which reads as `null` without a
      * migration (FR-018: the upgrade writes nothing).
      *
@@ -318,15 +318,15 @@ function readAccountStrings(raw: Record<string, unknown>): StoredAccountStrings 
  * Parse a stored document into an account.
  *
  * Every member is checked before the record is handed back, and the account
- * tier goes through the **one** `validateStartingPrompt` (FR-083): a document
+ * tier goes through the **one** `validateStartingPrompt`: a document
  * carrying a non-text, oversized, credential-shaped, or marker-bearing
  * `startingPrompt` is refused **as a whole record** rather than read with a
- * coerced, defaulted, or dropped member (FR-017, FR-028). The refusal's
+ * coerced, defaulted, or dropped member. The refusal's
  * `field: remediation` is captured in `note` so the store can log why the file
  * was set aside — never a byte of what it held.
  *
  * Absence and `null` are the complete "unset" state: both read as `null`, the
- * file is neither quarantined nor rewritten (FR-018).
+ * file is neither quarantined nor rewritten.
  *
  * @param raw - Parsed `accounts/<id>.json` document.
  * @param note - Sink the first field-level refusal is captured into.

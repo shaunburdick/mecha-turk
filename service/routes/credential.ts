@@ -157,7 +157,7 @@ function capabilityLabel(reason: `scope-missing:${ScopeCapability}`): string {
  * Operator-facing copy for one reason class (panel-service §4).
  *
  * Each branch names the capability or the remediation and never any part of
- * the credential (AC-003).
+ * the credential.
  *
  * @param reason - Classified rejection reason.
  * @returns The reason-specific remediation copy.

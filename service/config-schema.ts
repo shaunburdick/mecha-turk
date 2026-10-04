@@ -37,8 +37,8 @@ export type ServiceConfigField = keyof ServiceConfig;
  * The closed take-effect vocabulary (006 FR-030).
  *
  * `restart` and `none` stay in the vocabulary because it is a wire contract
- * (FR-021) and removing a value would be a wire change; no field in this
- * feature declares either (FR-037).
+ * and removing a value would be a wire change; no field in this
+ * feature declares either.
  */
 export type TakeEffect = 'immediate' | 'next-cycle' | 'next-dispatch' | 'restart' | 'none';
 
@@ -48,8 +48,8 @@ const NEXT_CYCLE = 'next-cycle';
 /**
  * The class each documented field declares, projected onto the wire.
  *
- * `Record<ServiceConfigField, TakeEffect>` is exhaustive by construction
- * (plan D2): adding a member to `ServiceConfig` without declaring a class
+ * `Record<ServiceConfigField, TakeEffect>` is exhaustive by construction:
+ * adding a member to `ServiceConfig` without declaring a class
  * fails `tsc --noEmit`, so "a field gained no consumer" cannot survive a
  * typecheck (006 SC-106). `leaseMs` and `resultDeadlineMs` are 003's fields
  * and are declared `next-cycle` by 006 under plan X1's count-dynamics rule.
@@ -152,8 +152,8 @@ export interface StringFieldDescriptor {
 /**
  * One projected field — a closed discriminated union on `kind` (contract §2).
  *
- * The panel's parser refuses anything outside this union rather than guessing
- * (FR-021), and a `string` entry carries no `unit` and no numeric bound.
+ * The panel's parser refuses anything outside this union rather than guessing,
+ * and a `string` entry carries no `unit` and no numeric bound.
  */
 export type FieldDescriptor = IntegerFieldDescriptor | EnumFieldDescriptor | StringFieldDescriptor;
 
@@ -187,7 +187,7 @@ const STARTING_PROMPT_FORMAT = 'text sent to the agent verbatim, with no placeho
  * Descriptor order equals `Object.keys(DEFAULT_CONFIG)` and `collectIssues`
  * order — `startingPrompt` first, then the bounds table in its own key
  * order, then `logLevel`, then `expectedAgent` — so the panel's rows and a
- * refusal's issue list share one order (AC-107). The prompt row leads the
+ * refusal's issue list share one order. The prompt row leads the
  * list by product-owner ruling on PR #12 ("move it to the top of the list");
  * the numerics keep their relative order and no validator moved with it.
  *

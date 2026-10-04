@@ -214,7 +214,7 @@ export function allowedUsersSummary(count: number): string {
  *   identically one re-enable away from opposite exposures.
  * - **The frame never repeats the word *disabled*.** The row already renders
  *   the binding's own state as a row fact, so the conditional is what carries
- *   the qualification (FR-039).
+ *   the qualification.
  * - **The count sentence is under the same rule.** `N users may trigger` is a
  *   capability claim, which is why it became `… once this binding is enabled`
  *   — the defect was *found* in the count, and fixing only the warning would
@@ -394,7 +394,7 @@ export function parseAllowedUsers(text: string): readonly string[] | null {
  * about any of them; only the one whose own message names `allowedUsers` is
  * painted onto this field, and anything else stays on the tab's note where it
  * already has a home. Same classification as the prompt's, read from the same
- * envelope, so one answer can never split two ways (FR-052, FR-095).
+ * envelope, so one answer can never split two ways.
  *
  * @param answer - The grant's answer.
  * @returns The field-level copy to render, or `null` when it is not the list's.
@@ -532,13 +532,13 @@ export function mountBindingActors(input: {
  * The refusal is rendered **as the field's own helper**, directly under the
  * input, because FR-095 asks for a *field-level* refusal with its remediation —
  * and the service's copy never echoes what was submitted, so it can be shown
- * verbatim (FR-085). It is the only thing that displaces FR-090's guidance:
+ * verbatim. It is the only thing that displaces FR-090's guidance:
  * the guidance is the field's resting state, and it comes back the moment the
  * service accepts the next save.
  *
  * The **placeholder** is repainted with it, which matters: it carries the unset
  * state's consequence, so a switch the operator just unchecked has to move it
- * too (FR-096, NFR-114). The SDK takes a patched subset, so an absent key means
+ * too. The SDK takes a patched subset, so an absent key means
  * *leave what is painted*, and omitting it would strand the v1.11.0 wording on a
  * form whose switches have since changed.
  *
@@ -562,7 +562,7 @@ export function repaintBindingActors(rt: PanelRuntime, controls: BindingActorCon
 }
 
 /**
- * Release the handle the allow-list field mounted (FR-017).
+ * Release the handle the allow-list field mounted.
  *
  * @param controls - The field the pane carries.
  */

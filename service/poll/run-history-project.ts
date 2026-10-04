@@ -46,13 +46,13 @@ import type { Run, SourceReference } from './runs-types.ts';
 const WAITING_REASON = 'waiting for a panel';
 
 /**
- * A source reference as the run history carries it (FR-013, FR-015).
+ * A source reference as the run history carries it.
  *
  * Exactly the stored shape: the excerpt a dispatch context is built from is
  * **not** stored on the run (data-model §2.3 — it lives on the delivery, which
  * the run points at), so there is nothing here that could be omitted by
  * accident. The three counting members below the list are what keep a row from
- * being silently lossy at the 200-reference cap (T-038).
+ * being silently lossy at the 200-reference cap.
  *
  * Each entry also carries the two **actor members** exactly as stored (002
  * FR-043, FR-044) — absentable on a reference written before attribution
@@ -114,7 +114,7 @@ export interface RunHistoryRow {
      * member of the same name (contract, dispatch-authorization §1): a reader
      * looking at a `starting` run learns when the authorization wedges into
      * `unconfirmed`, which is the one deadline an operator cannot infer from
-     * anything else on the row (NFR-108). It reads `null` once the reservation
+     * anything else on the row. It reads `null` once the reservation
      * has been consumed or cleared, because a deadline that can no longer fire
      * is not a fact worth projecting.
      */
@@ -259,7 +259,7 @@ function dispatchResultOf(run: Run): string | null {
  * The delivery-derived members: title, canonical link, and PR coordinates.
  *
  * Each degrades to a value the run itself can supply, because a delivery row is
- * evicted with its terminal run (NFR-107) while the run's row must keep parsing
+ * evicted with its terminal run while the run's row must keep parsing
  * for as long as the run is retained (FR-005: rows written before this feature
  * continue to project).
  *
@@ -389,7 +389,7 @@ function verificationViewOf(run: Run): HistoryVerification | null {
  * @returns The four reference members; `promptSources` is the snapshot's own
  *   list when one exists and `null` when no tier was set — there is nothing to
  *   default from, because the absence case is a statement about the run rather
- *   than a hole in the record (FR-087).
+ *   than a hole in the record.
  */
 function promptViewOf(run: Run): {
     /** Whether a starting prompt was set when this run was queued. */

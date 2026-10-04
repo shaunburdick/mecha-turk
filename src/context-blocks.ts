@@ -42,7 +42,7 @@ const DEFUSED_HYPHEN = '‐';
 /**
  * Maximum characters one source's excerpt may occupy in the context.
  *
- * Two limits have to hold at once (FR-014): a per-source ceiling of 4,000
+ * Two limits have to hold at once: a per-source ceiling of 4,000
  * characters and the 12,000-character dispatch total. The per-item bound this
  * module applies is {@link SOURCE_EXCERPT_MAX_CHARS} — the 600-character bound
  * the trigger layer already writes and the claim transport already carries —

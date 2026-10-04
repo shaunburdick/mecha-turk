@@ -49,8 +49,7 @@ function padTwoDigits(part: number): string {
  * Absolute rather than relative: two references detected minutes apart must
  * not collapse into the same "2m ago" when the operator is reconstructing
  * which reason fired first, an audit row's timestamp is the same kind of
- * fact, and a binding's created/updated stamps are read the same way
- * (FR-048, FR-053).
+ * fact, and a binding's created/updated stamps are read the same way.
  *
  * @param iso - RFC 3339 stamp from a reference, an audit row, or a binding.
  * @returns The compact stamp, or the stored text when it is not a time.

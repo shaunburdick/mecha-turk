@@ -115,7 +115,7 @@ export interface RefusalRowInput {
 }
 
 /**
- * Write the single `dispatch.refused` row an outcome owes (FR-003).
+ * Write the single `dispatch.refused` row an outcome owes.
  *
  * The row's `reason` is the refusal's own message — the same string the response
  * carries — passed in rather than composed here, which is what makes the trail

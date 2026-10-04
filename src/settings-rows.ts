@@ -67,13 +67,13 @@ export interface SettingsRow {
 }
 
 /**
- * The product's words for each class the service may declare (FR-030).
+ * The product's words for each class the service may declare.
  *
  * An if-chain rather than an object literal keyed by the vocabulary, for the
  * same reason every other panel module spells these tokens as comparisons:
  * the class token is the **service's**, and this function only ever translates
- * the class it is handed — it never decides which class a field has (AC-106).
- * `none` and `restart` are covered because the vocabulary is closed (FR-021);
+ * the class it is handed — it never decides which class a field has.
+ * `none` and `restart` are covered because the vocabulary is closed;
  * no field in this feature declares either.
  *
  * @param takesEffect - The class the descriptor carried.
@@ -124,7 +124,7 @@ const MULTILINE_ROWS = 4;
 
 /**
  * The value segment of a readable row: the value, its unit or the explicit
- * absence of one, and the shape the service declared (FR-014).
+ * absence of one, and the shape the service declared.
  *
  * An empty string is not printed as an empty slot: it prints the not-set word
  * while the format guidance beside it stays the descriptor's own text, so the
@@ -174,7 +174,7 @@ function shapeRemediation(descriptor: FieldDescriptor): string {
 
 /**
  * The control's accessible name: the documented name, its unit (or its
- * absence), and the boundary in the product's words (FR-018, FR-030, FR-039).
+ * absence), and the boundary in the product's words.
  *
  * @param descriptor - The field's descriptor.
  * @returns The label the control is mounted with.
@@ -236,12 +236,12 @@ function descriptorRow(envelope: ConfigEnvelope, descriptor: FieldDescriptor): S
 }
 
 /**
- * Build the row for a member the service sent no descriptor for (AC-115).
+ * Build the row for a member the service sent no descriptor for.
  *
  * It borrows no bound and promises no effect: this build has nothing to say
  * about a field it does not know beyond naming it and showing what arrived —
  * and it gets **no affordance**, because a control here could not be wired to
- * a declaration the service never made (FR-027).
+ * a declaration the service never made.
  *
  * @param envelope - The parsed document.
  * @param name - The member's name.
@@ -271,11 +271,11 @@ function undisplayedRow(envelope: ConfigEnvelope, name: string): SettingsRow {
 
 /**
  * Build every row the tab paints: one per descriptor in the service's order,
- * then one per member it declared nothing for (FR-014, FR-027).
+ * then one per member it declared nothing for.
  *
  * The count is derived, never asserted from a literal: twelve against an
  * 006-only projection, fourteen once 003's two fields are in it, and one more
- * for every key the service sent without a descriptor (AC-101, SC-102).
+ * for every key the service sent without a descriptor.
  *
  * @param envelope - The parsed `GET /v1/config` answer.
  * @returns The rows, in paint order.

@@ -65,7 +65,7 @@ interface RetentionRule {
 }
 
 /**
- * The three retention knobs and the words each one owes (FR-050 – FR-052).
+ * The three retention knobs and the words each one owes.
  *
  * Keyed by the documented field name, so a knob the service ever adds reaches
  * this table as a missing key and **arms nothing** rather than being described
@@ -162,7 +162,7 @@ function lowers(current: string, proposed: string): boolean {
 }
 
 /**
- * Every retention knob this draft lowers below the read document (FR-051).
+ * Every retention knob this draft lowers below the read document.
  *
  * @param input - The last read and the draft it is being compared against.
  * @returns The lowerings, in the service's field order; empty when none.
@@ -306,7 +306,7 @@ export function saveConfirmation(input: {
 }
 
 /**
- * The confirmation a restore always raises before it writes (FR-016).
+ * The confirmation a restore always raises before it writes.
  *
  * @param input - The last read and the staged defaults draft.
  * @returns The confirmation naming every field the write will change.

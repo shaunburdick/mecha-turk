@@ -120,7 +120,7 @@ function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
     view.detailChips.paint(selected ?? null);
     // One repaint path for both members: each field reads the same view its
     // mount built, so a draft, a refusal, and FR-064's not-set state cannot
-    // disagree with what the mount showed (FR-063, FR-064, FR-085). The
+    // disagree with what the mount showed. The
     // shared save is offered only while **both** fields are editable — it
     // writes both members in one body, so one closed row closes it
     // (owner ruling, PR #12: "One Save button, both fields").
@@ -158,7 +158,7 @@ function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
 }
 
 /**
- * Repaint the Accounts body from state (FR-062, FR-063, FR-067).
+ * Repaint the Accounts body from state.
  *
  * @param rt - Panel runtime.
  * @param view - The mounted body.
@@ -268,7 +268,7 @@ interface AccountsParts {
  * Build the disposer that releases every node and handle the body mounted.
  *
  * @param parts - What the mount created.
- * @returns The disposer the body hands its caller (FR-017).
+ * @returns The disposer the body hands its caller.
  */
 function accountsDisposer(parts: AccountsParts): () => void {
     const { board, detail, controls, detailBox, detailChips, pane } = parts;
@@ -337,7 +337,7 @@ export function mountAccountsBody(input: {
     rt.accountsUi = view;
     repaintAccountsBody(rt, view);
     // Nothing has ever been read when the panel mounted against a service
-    // that was still spawning; this is that read's one retry path (FR-019).
+    // that was still spawning; this is that read's one retry path.
     if (rt.state.bindings.status === 'idle') {
         void loadBindings(rt);
     }
@@ -346,7 +346,7 @@ export function mountAccountsBody(input: {
 }
 
 /**
- * Record the account row the operator opened (FR-062).
+ * Record the account row the operator opened.
  *
  * Selecting a different row closes whatever the previous one had open: both
  * members' drafts and both armed controls belong to a row, and carrying them

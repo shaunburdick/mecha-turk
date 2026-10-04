@@ -90,8 +90,8 @@ export type RunRefusalCode =
  *   shape or a boolean that would mean two different things per code.
  *
  * **Value-free by construction** — two words about a list, never a login — so
- * it can ride the envelope without becoming a second copy of the access policy
- * (NFR-113).
+ * it can ride the envelope without becoming a second copy of the access policy.
+ *
  */
 export type ReferenceWindow = 'complete' | 'truncated';
 

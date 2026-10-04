@@ -91,7 +91,7 @@ export interface ControlRegion {
 }
 
 /**
- * Mount the failure notice, hidden until a read fails (FR-078).
+ * Mount the failure notice, hidden until a read fails.
  *
  * @param pane - Pane the notice mounts into.
  * @returns The wrapper, which the repaint shows, and the banner inside it.
@@ -117,7 +117,7 @@ export function mountFailureNotice(pane: HTMLElement): {
 }
 
 /**
- * Mount the source note, the empty message, and the row region (FR-014).
+ * Mount the source note, the empty message, and the row region.
  *
  * @param pane - Pane the three mount into.
  * @returns The handles and the region element rows are painted into.
@@ -167,12 +167,12 @@ function mountArmBox(input: {
 
 /**
  * Mount the save bar, the armed confirmation, the "no save" reason, and the
- * error region (FR-012, FR-013, FR-016, FR-042, FR-051).
+ * error region.
  *
  * The confirmation is **a box, not a dialog**: it mounts hidden exactly the
  * way the "no save" reason does, so an unarmed tab never shows a control that
  * cannot act — and it carries its own Cancel, because the panel has no dialog
- * primitive to lean on and never reintroduces one (FR-054).
+ * primitive to lean on and never reintroduces one.
  *
  * @param input - The pane, and the four handlers the controls invoke.
  * @returns The handles and wrappers.
@@ -233,7 +233,7 @@ export function mountControlRegion(input: {
 }
 
 /**
- * Mount the re-read row: the read controls and their state line (FR-014).
+ * Mount the re-read row: the read controls and their state line.
  *
  * @param input - The pane, what a click does, and the line to show first.
  * @returns The handles.
@@ -315,7 +315,7 @@ function disposeRegions(input: {
  *
  * Every handle the body mounts is disposed here, so "nothing survives
  * teardown" is one function rather than a promise spread across the mount
- * (NFR-108) — including the rows, which are rebuilt whenever the field list
+ * — including the rows, which are rebuilt whenever the field list
  * changes and disposed with everything else when the body goes.
  *
  * @param input - Every region the tab mounted.

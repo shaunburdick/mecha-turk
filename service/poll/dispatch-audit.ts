@@ -77,7 +77,7 @@ function runRow(run: Run): Pick<AuditInput, 'entity' | 'correlationId'> {
  * derived from the text rather than minted per row, so every row of one prompt
  * carries the identical value (003 FR-062 reaffirmed), and `promptSources` is
  * the snapshot's own ordered tier list copied verbatim: an element the run's
- * snapshot never held can never appear on a row (FR-087).
+ * snapshot never held can never appear on a row.
  *
  * @param run - The run whose snapshot these name.
  * @returns The binding id plus the prompt's presence, fingerprint, length, and
@@ -148,7 +148,7 @@ export function reservedRow(input: {
  * `dispatch.result` — the panel reported what the host call produced.
  *
  * @param input - The reported run, its token, and the session it created or the
- *   problem it hit. Exactly one of the last two is non-`null` (FR-040).
+ *   problem it hit. Exactly one of the last two is non-`null`.
  * @returns The row to append.
  */
 export function resultRow(input: {
@@ -230,7 +230,7 @@ export function abandonedRow(input: {
 }
 
 /**
- * `run.blocked` — a fail-closed guard refused before any host call (FR-042).
+ * `run.blocked` — a fail-closed guard refused before any host call.
  *
  * @param input - The blocked run, the cause, the state it left, and the
  *   guidance the panel offered in-panel.
@@ -265,7 +265,7 @@ export function blockedRow(input: {
  * Covers both shapes FR-041 and FR-033 require: a retry of a `failed` or
  * `blocked:*` run, and the dead-letter return-to-waiting that resets the attempt
  * count. `reset` is what makes the second legible in the trail, because it is
- * the action that starts a fresh token-consumption chain (plan D6).
+ * the action that starts a fresh token-consumption chain.
  *
  * @param input - The waiting run plus what the operator reported and what the
  *   service could corroborate itself.
@@ -307,7 +307,7 @@ export function retryRow(input: {
 }
 
 /**
- * `dispatch.resolved` — the operator settled an `unconfirmed` run (FR-027).
+ * `dispatch.resolved` — the operator settled an `unconfirmed` run.
  *
  * @param input - The resolved run, the prior state, the decision, and what the
  *   operator was shown and wrote.
@@ -371,7 +371,7 @@ function readBackVerdict(input: {
  *
  * One builder for all three because the details are identical and only the
  * vocabulary name, the decision, and one extra member differ: the read-back is
- * warn-only (FR-043), so a mismatch is recorded and shown and then never acted
+ * warn-only, so a mismatch is recorded and shown and then never acted
  * on again.
  *
  * **Which row is chosen by whether a comparison was possible, never by whether
@@ -456,7 +456,7 @@ function actorDetails(actor: ActorGateRefusal): Record<string, unknown> {
 }
 
 /**
- * `dispatch.refused` — one run-scoped operation answered `4xx` (FR-003).
+ * `dispatch.refused` — one run-scoped operation answered `4xx`.
  *
  * The only row in the family whose `reason` is written twice — once in the
  * response and once here — so it is passed in rather than composed, which is
@@ -512,7 +512,7 @@ export function refusedRow(input: {
  * Append one run-scoped lifecycle row, reporting whether it landed.
  *
  * The row is always appended *after* the durable change it describes, and a
- * failure is never allowed to undo that change (FR-063): it is logged with the
+ * failure is never allowed to undo that change: it is logged with the
  * run named and answered as `false`, which is what the operator's panel turns
  * into a visible warning rather than implying traceability it does not have.
  *

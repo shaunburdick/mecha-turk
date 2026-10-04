@@ -52,7 +52,7 @@ import type {
 
 /**
  * The document and row types are re-exported here so this module stays the
- * one import path for the run schema (T-002); their declarations live in
+ * one import path for the run schema; their declarations live in
  * `runs-types.ts`, which the file-length gate keeps them in.
  */
 export type { Run, RunsDocument };

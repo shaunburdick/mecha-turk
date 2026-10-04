@@ -60,7 +60,7 @@ export interface RunsStoreInput {
  *
  * `undefined` means "no stamp was supplied": the adoption pass then samples
  * the service clock itself, which is the right answer for a read that makes
- * no expiry decision of its own (FR-005, NFR-112).
+ * no expiry decision of its own.
  */
 export interface RunsReadInput extends RunsStoreInput {
     /** Service-clock stamp this read adopts with; `undefined` samples one. */
@@ -145,7 +145,7 @@ export function emptyRunsDocument(): RunsDocument {
 
 /**
  * Terminal run states: a new delivery opens the next ordinal instead of
- * joining (FR-011), and the eviction tail may drop them.
+ * joining, and the eviction tail may drop them.
  *
  * @param run - The run being classified.
  * @returns `true` for `dispatched` and `dead-lettered`.
@@ -218,7 +218,7 @@ function startAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
 
 /**
  * Ensure the store's run document exists, adopting the legacy queue on the
- * first read of this handle (FR-005).
+ * first read of this handle.
  *
  * @param input - Store, logger, and the stamp the adopting pass mints its
  *   synthetic lease under (the first caller's stamp wins for the handle).
@@ -238,7 +238,7 @@ export async function ensureRunsAdopted(input: RunsReadInput): Promise<AdoptionO
  * passes its own {@link RunsReadInput.now}, so the synthetic lease adoption
  * mints expires **under the same stamp the caller judges it with** — otherwise
  * a pass whose clock sample predates the mint reads a lease that is "not yet
- * expired" and skips the one-shot migration recovery (T-045).
+ * expired" and skips the one-shot migration recovery.
  *
  * @param input - Store, logger, and the stamp this read adopts with.
  * @returns The document as stored (or as just adopted into).
@@ -402,10 +402,10 @@ export function currentAttempt(run: Run): DispatchAttempt {
 }
 
 /**
- * Record one attempt, keeping the history bounded (NFR-107).
+ * Record one attempt, keeping the history bounded.
  *
  * Closing or enriching replaces only the current attempt's record: records
- * from earlier attempts survive FR-033's attempt reset untouched (plan D6).
+ * from earlier attempts survive FR-033's attempt reset untouched.
  *
  * @param run - The run being updated.
  * @param record - The record for `run.attempt`.

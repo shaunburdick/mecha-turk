@@ -25,11 +25,11 @@ import { loadDispatches } from './dispatches.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
 /**
- * Step one page forward and read it (FR-042).
+ * Step one page forward and read it.
  *
  * The position is rolled back when the read fails, so a refused page leaves
  * the operator exactly where the last successful read put them rather than
- * stranding them on a page the panel cannot show (FR-019).
+ * stranding them on a page the panel cannot show.
  *
  * @param rt - Panel runtime.
  */
@@ -49,7 +49,7 @@ export async function nextPage(rt: PanelRuntime): Promise<void> {
 }
 
 /**
- * Step one page back and read it (FR-042).
+ * Step one page back and read it.
  *
  * @param rt - Panel runtime.
  */
@@ -81,7 +81,7 @@ export function setPageLimit(rt: PanelRuntime, limit: number): void {
 }
 
 /**
- * Filter the set by binding, server-side (FR-043).
+ * Filter the set by binding, server-side.
  *
  * @param rt - Panel runtime.
  * @param bindingId - Binding to filter to, or `null` for every binding.
@@ -94,7 +94,7 @@ export function setBindingFilter(rt: PanelRuntime, bindingId: string | null): vo
 }
 
 /**
- * Filter the set by state, server-side (FR-043).
+ * Filter the set by state, server-side.
  *
  * @param rt - Panel runtime.
  * @param state - State token (or the `blocked` family) to filter to, or `null`.
@@ -107,7 +107,7 @@ export function setStateFilter(rt: PanelRuntime, state: string | null): void {
 }
 
 /**
- * Clear both filters and return to the first page of the whole set (FR-043).
+ * Clear both filters and return to the first page of the whole set.
  *
  * @param rt - Panel runtime.
  */

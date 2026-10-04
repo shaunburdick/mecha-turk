@@ -395,7 +395,7 @@ function inWriteChain<T>(cache: AuditCache, task: () => Promise<T>): Promise<T> 
  * is what makes "a pass can never remove a row appended while it was computing"
  * true by construction rather than by timing: the trail read, the removal
  * decision, and the one atomic rewrite all happen inside a slot no append can
- * interleave with (plan D5). The join carries the previous write's outcome the
+ * interleave with. The join carries the previous write's outcome the
  * same way {@link inWriteChain} does, so a failed append is consumed here
  * (it can never wedge the chain) while still reaching this task's caller.
  *
@@ -428,7 +428,7 @@ export function serializeAudit<T>(store: ServiceStore, task: () => Promise<T>): 
  * outside the chain could therefore reserve the same number an in-flight
  * append is writing. A number reserved by a pass whose rewrite then fails is
  * simply never used — the gap a trim leaves is already an expected, readable
- * fact (FR-055).
+ * fact.
  *
  * @param store - Open store holding the trail this entry will join.
  * @param input - Caller-supplied entry (token-free by construction).

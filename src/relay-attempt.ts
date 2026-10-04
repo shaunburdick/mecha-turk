@@ -87,7 +87,7 @@ function issueOf(run: ClaimedRun): GitHubIssue {
 }
 
 /**
- * Project the run's source references into the context's sources (FR-014).
+ * Project the run's source references into the context's sources.
  *
  * @param run - The offered run.
  * @returns One context source per retained reference, in join order.
@@ -148,7 +148,7 @@ export function budgetFloorProblem(input: {
 
     // Named from the run's own source list, so the operator is told *which*
     // starting prompts to shorten — the list is what identifies them, never a
-    // fragment of their text (FR-085, FR-053).
+    // fragment of their text.
     const tiers = sources === null || sources.length === 0 ? 'none named' : sources.join(', ');
 
     return boundedText(
@@ -164,7 +164,7 @@ export function budgetFloorProblem(input: {
  * MVP-DEBT: the relay borrows the spike's evidence schema, so the trigger
  * literal stays the spike's; the relay's own framing lives in the PM context
  * line and the ledger entry. The correlation id is the run's, which is what
- * makes the attachment id the run's too (FR-029).
+ * makes the attachment id the run's too.
  *
  * @param input - Runtime and the offered run.
  * @returns The evidence record the attachment reads its identity from.
@@ -220,7 +220,7 @@ export function runRequestOf(input: {
         correlationId: run.correlationId,
         sources: contextSourcesOf(run),
         // Reserved before the excerpt is sized, so the excerpt is what
-        // shortens when the two together would exceed the bound (FR-035).
+        // shortens when the two together would exceed the bound.
         reservedChars: promptBlockChars(prompt),
     });
     const context = composeFirstMessage({ prompt, frame });
@@ -313,7 +313,7 @@ export async function startRunSession(input: {
 }
 
 /**
- * Report one attempt's outcome, then acknowledge it on its own 2xx (FR-025).
+ * Report one attempt's outcome, then acknowledge it on its own 2xx.
  *
  * @param input - Runtime, the run, its token, and what the host produced.
  */
@@ -366,7 +366,7 @@ export async function reportAndAcknowledge(input: {
 
 /**
  * Close one attempt: durable record, ledger evidence, report, acknowledgement,
- * and the warn-only agent read-back (FR-024, FR-025, FR-043).
+ * and the warn-only agent read-back.
  *
  * Nothing here re-decides whether the attempt was authorized — it already was —
  * so nothing below can refuse a call the reservation permits. The order is the
@@ -410,7 +410,7 @@ export async function closeAttempt(input: {
     // M9: the run's record reaches the service first, then the agent that
     // actually answered is read back. A dispatch that created no session has
     // nothing to verify, so verification skips gracefully there — and a
-    // dispatch that did create one starts the read-back **detached** (AC-125):
+    // dispatch that did create one starts the read-back **detached**:
     // its own 15 s budget must never hold the claim slot, because the next
     // tick's claim is what keeps unattended work moving (FR-043 warn-only).
     if (started.outcome.kind === 'dispatched' && stillRunning(rt)) {

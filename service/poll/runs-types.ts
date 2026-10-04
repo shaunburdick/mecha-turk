@@ -91,7 +91,7 @@ export type ActorPolicy = 'open' | 'restricted';
  * was a proxy (002 NFR-011). What it never carries is a *permitted* login: the
  * detail set is built from the run's own references and the policy's **shape**,
  * never from the stored list, so there is no path by which the permitted set
- * reaches the trail (NFR-113).
+ * reaches the trail.
  *
  * Declared here rather than beside the gate because the shared chain
  * ([`run-chain.ts`](./run-chain.ts)) threads it to the row builder, and the run
@@ -121,7 +121,7 @@ export interface ActorGateRefusal {
      *
      * Recorded beside the refusal because a truncated list is what makes the
      * verdict incomplete: the gate classifies from `sourceReferences`
-     * **exclusively**, so a run whose list was cut at the cap (T-038) is judged
+     * **exclusively**, so a run whose list was cut at the cap is judged
      * on less than it recorded, and an actor among the *dropped* references is
      * invisible to the gate under **every** policy.
      */
@@ -157,7 +157,7 @@ export interface DispatchAttempt {
  * no authority of its own, is a deterministic function of answer-visible inputs
  * (the run's correlation id, the attempt, and the service clock), and gates
  * nothing. The service's bearer token is the only authentication gate, and the
- * single-use dispatch token (FR-020) is the only authorization to start a
+ * single-use dispatch token is the only authorization to start a
  * session. Provenance is recorded as a typed member rather than as a naming
  * convention inside the id so {@link parseLease} can refuse an id shape no path
  * in this build mints, and so the sweep's migration-recovery accounting reads a
@@ -302,16 +302,16 @@ export interface Run {
      *
      * Every retained entry carries FR-013's full detail; the cap is the only
      * thing that ever removes one, and what it removed is counted rather than
-     * hidden (T-038).
+     * hidden.
      */
     readonly sourceReferences: readonly SourceReference[];
     /** How many deliveries have joined, retained or not. */
     readonly referenceCount: number;
     /**
-     * How many joining triggers were **not** retained (T-038).
+     * How many joining triggers were **not** retained.
      *
      * The marker is additive: it never stands in for a reference, and every
-     * delivery it counts still earns its own `run.coalesced` audit row (FR-016),
+     * delivery it counts still earns its own `run.coalesced` audit row,
      * so the operator can see that a row is lossy instead of inferring it.
      */
     readonly referencesNotRetained: number;

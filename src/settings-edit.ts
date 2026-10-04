@@ -97,7 +97,7 @@ export interface SettingsEdit {
     /**
      * The audit outcome of the last **accepted** write: `false` is the
      * service saying the configuration changed but its `config.changed` row
-     * did not reach the trail (FR-070, AC-139). `null` means no accepted
+     * did not reach the trail. `null` means no accepted
      * write has answered since the last read, which is *not* a claim either
      * way — the panel never implies traceability it does not have.
      */
@@ -142,7 +142,7 @@ export function emptyEdit(): SettingsEdit {
 
 /**
  * The baseline value of one field: the document's, else the descriptor's
- * default for a key the document lacked (FR-041).
+ * default for a key the document lacked.
  *
  * @param envelope - The last read.
  * @param name - Field to look up.
@@ -198,7 +198,7 @@ export function dirtyFields(
 }
 
 /**
- * Why no save is offered right now, or `null` when one is (FR-042, AC-115).
+ * Why no save is offered right now, or `null` when one is.
  *
  * @param envelope - The last read, or `null` when there has been none.
  * @returns The reason, named for the operator; `null` when a save may run.
@@ -285,14 +285,14 @@ export function editField(input: {
         reverted: [],
         // An arm describes the document as it stood when it was raised; an
         // edit moves that document, so the confirmation it authorised is
-        // retired rather than re-pointed at a write nobody read (FR-051).
+        // retired rather than re-pointed at a write nobody read.
         confirm: null,
     };
 }
 
 /**
  * Discard the unsaved edits: the draft goes back to the baseline and the tab
- * says what reverted (FR-015, AC-122).
+ * says what reverted.
  *
  * @param edit - Current state.
  * @param envelope - The baseline to restore.
@@ -311,8 +311,7 @@ export function discard(edit: SettingsEdit, envelope: ConfigEnvelope): SettingsE
         failure: null,
         reverted,
         // Discard and cancel are the same retreat: the fields go back to the
-        // last-read values, so the arm they were armed for goes with them
-        // (AC-121, AC-122).
+        // last-read values, so the arm they were armed for goes with them.
         confirm: null,
     };
 }
@@ -340,13 +339,12 @@ function valueFor(descriptor: FieldDescriptor, text: string): ConfigValue {
 }
 
 /**
- * The whole document a save sends: the baseline with the draft applied
- * (FR-040, FR-041).
+ * The whole document a save sends: the baseline with the draft applied.
+ *
  *
  * An input's text becomes an integer **only** when it parses as one — an
  * out-of-range number or a stray word is sent as it stands, so the service
- * refuses it in its own words rather than the panel quietly reshaping it
- * (FR-023, AC-110).
+ * refuses it in its own words rather than the panel quietly reshaping it.
  *
  * @param envelope - The baseline document.
  * @param draft - The current draft.
@@ -365,7 +363,7 @@ function documentFor(
 }
 
 /**
- * Try to begin a save: the busy gate, then the baseline gate (FR-042, FR-046).
+ * Try to begin a save: the busy gate, then the baseline gate.
  *
  * @param edit - Current state.
  * @param envelope - The baseline a save would be built from.
@@ -385,11 +383,11 @@ export function beginSave(edit: SettingsEdit, envelope: ConfigEnvelope | null): 
 }
 
 /**
- * Record an accepted write, from the configuration the **service** returned
- * (FR-044, AC-125), and mark what it changed as pending (FR-038).
+ * Record an accepted write, from the configuration the **service** returned,
+ * and mark what it changed as pending.
  *
  * @param input - The state, the returned configuration, the changed fields,
- *   and the audit outcome the answer reported (FR-070, AC-139).
+ *   and the audit outcome the answer reported.
  * @returns The state after the answer.
  */
 export function recordSaved(input: {
@@ -433,9 +431,9 @@ export function recordSaved(input: {
 }
 
 /**
- * Record a refusal with the service's own issues, in the service's order
- * (FR-024, AC-107), and put every field back to the last configuration the
- * service reported (FR-025, AC-109): after a refusal the form shows what is
+ * Record a refusal with the service's own issues, in the service's order,
+ * and put every field back to the last configuration the
+ * service reported: after a refusal the form shows what is
  * in force, not what was typed, so no optimistic local value survives the
  * answer.
  *
@@ -467,7 +465,7 @@ export function recordRefused(input: {
 }
 
 /**
- * Record a write that could not be completed (FR-061 – FR-064).
+ * Record a write that could not be completed.
  *
  * The failure carries its **cause** as well as the service's own words, so the
  * tab can say which of the four documented reasons it met instead of showing
@@ -492,7 +490,7 @@ export function recordFailed(edit: SettingsEdit, failure: SettingsFailure): Sett
 }
 
 /**
- * Retire the pending markers a read has caught up with (FR-038).
+ * Retire the pending markers a read has caught up with.
  *
  * The marker is cleared **only** by a read: an entry whose field the status
  * projection carries disappears once the two halves agree, and an entry for a

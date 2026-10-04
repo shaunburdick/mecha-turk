@@ -34,7 +34,7 @@ export interface TabSpec {
     /** Visible label, in {@link TAB_IDS} order (FR-010). */
     readonly label: string;
     /**
-     * Mount this body's contents into `body`, exactly once (FR-013).
+     * Mount this body's contents into `body`, exactly once.
      *
      * @param body - The container the shell created for this tab.
      * @returns A disposer for teardown, or `null` when it owns nothing.
@@ -45,7 +45,7 @@ export interface TabSpec {
 /** What the shell owns: activation, read stamps, and disposal. */
 export interface TabShell {
     /**
-     * Show one tab, mounting its body the first time (FR-013, FR-014).
+     * Show one tab, mounting its body the first time.
      *
      * @param id - The tab to show; a no-op when it already shows.
      */
@@ -142,7 +142,7 @@ function associate(input: {
 }
 
 /**
- * Mount one body the first time it is shown (FR-013).
+ * Mount one body the first time it is shown.
  *
  * @param input - Runtime, specs, containers, and the disposer registry.
  * @param id - The tab whose body is wanted on screen.
@@ -176,7 +176,7 @@ function mountOnce(input: {
 }
 
 /**
- * Build the pair that shows exactly one body at a time (FR-012, FR-014).
+ * Build the pair that shows exactly one body at a time.
  *
  * @param input - Runtime, specs, containers, disposers, and the strip handle.
  * @returns `activate` for the strip's callback and `paint` for the shell.
@@ -233,8 +233,7 @@ function createActivation(input: {
  * Release everything the shell mounted: bodies in strip order, then the strip.
  *
  * The order is fixed and never depends on which tab was showing — `TabId` is
- * the closed union, so `TAB_IDS` reaches every body a spec could have mounted
- * (FR-017, NFR-108).
+ * the closed union, so `TAB_IDS` reaches every body a spec could have mounted.
  *
  * @param input - Runtime, disposers, strip handle, region, and containers.
  */

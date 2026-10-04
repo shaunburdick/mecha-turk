@@ -118,7 +118,7 @@ export function prerequisiteStateLabel(state: PrerequisiteState): string {
  * Deliberately three different answers: *met* is green because it is settled,
  * *not met* is red because it is the one state that raises FR-073's notice,
  * and *not checkable* stays neutral because a panel that could not look must
- * not paint a verdict it never reached (FR-072, AC-122).
+ * not paint a verdict it never reached.
  *
  * @param state - The prerequisite's state.
  * @returns The badge tone that state renders with.
@@ -136,7 +136,7 @@ export function prerequisiteTone(state: PrerequisiteState): Tone {
 }
 
 /**
- * The Default Agent pin: checkable only after a dispatch (FR-072).
+ * The Default Agent pin: checkable only after a dispatch.
  *
  * The remediation names the **setting path** and no agent name, because the
  * default is blank since 006 v1.5.0 / 002 v1.10.0 (product-owner order:
@@ -213,7 +213,7 @@ function desktopOrWebSurface(): Prerequisite {
  * without a readable matrix makes the whole set not checkable — one account
  * the panel cannot vouch for means it cannot vouch for the set. No surface in
  * this system reports write scopes, so *read* scopes decide the state and the
- * remediation keeps the no-write-scopes instruction visible (FR-071).
+ * remediation keeps the no-write-scopes instruction visible.
  *
  * @param accounts - Accounts as the last `GET /v1/accounts` read reported them.
  * @returns The prerequisite for the connected set.

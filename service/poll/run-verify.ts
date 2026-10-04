@@ -67,7 +67,7 @@ function judgeVerification(input: {
 }
 
 /**
- * Record a post-dispatch agent read-back — and change nothing else (FR-043).
+ * Record a post-dispatch agent read-back — and change nothing else.
  *
  * The stored outcome is what makes a mismatch *visible* on the run row, and the
  * row is what makes it auditable; neither may promote a warning into a block, so

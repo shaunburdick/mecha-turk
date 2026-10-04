@@ -62,7 +62,7 @@ export type DispatchOutcomeKind = 'dispatched' | 'failed';
  *
  * The union is the ordering guard: there is no constructor for a record that
  * does not name what `host.startSession()` returned, so the "persist before you
- * report" rule (FR-024) cannot be violated by calling this function too early —
+ * report" rule cannot be violated by calling this function too early —
  * the call would not type-check.
  */
 export type RecordedOutcome =
@@ -243,7 +243,7 @@ interface AttemptOutcome {
  * Read the outcome of one stored attempt, exactly as the host reported it.
  *
  * `outcome` decides which of `sessionId` / `reason` must be present, mirroring
- * the service's own "report exactly one outcome" rule (FR-040): a record that
+ * the service's own "report exactly one outcome" rule: a record that
  * carried both, or neither, would be a fact the reconciliation loop could not
  * turn into a single honest report.
  *
@@ -398,7 +398,7 @@ export function appendAttempt(
  *
  * Keyed by correlation id **and** attempt, so an acknowledgement for an earlier
  * attempt can never mark a later one as seen — the same discipline the handled
- * list uses in the relay (FR-034).
+ * list uses in the relay.
  *
  * @param input - The document, the run the 2xx was for, and its attempt.
  * @returns The new document.
@@ -423,7 +423,7 @@ export function acknowledgeAttempt(input: {
 }
 
 /**
- * The attempts reconciliation still owes the service (FR-025).
+ * The attempts reconciliation still owes the service.
  *
  * @param document - Current document.
  * @returns Every unacknowledged attempt, oldest first.
@@ -498,7 +498,7 @@ export async function recordDispatchOutcome(rt: PanelRuntime, input: {
 }
 
 /**
- * Mark one attempt acknowledged after its 2xx came back (FR-025).
+ * Mark one attempt acknowledged after its 2xx came back.
  *
  * @param input - The runtime plus the run and attempt the 2xx was for.
  * @returns `true` when the flip landed, `false` when nothing changed or the

@@ -312,7 +312,7 @@ function readDescriptor(raw: unknown): FieldDescriptor | null {
  * render *as configured* (AC-116, 005's own rule for a mismatched row). A
  * member with **no** descriptor is judged on its own shape only — it will be
  * rendered as *field this version does not show*, which needs a value to show
- * and makes no claim about which kind it should have been (FR-027).
+ * and makes no claim about which kind it should have been.
  *
  * @param descriptor - The governing descriptor, or `null` when there is none.
  * @param value - The document's value.
@@ -336,7 +336,7 @@ function fitsDescriptor(descriptor: FieldDescriptor | null, value: unknown): val
 
 /**
  * Split the `config` members into the ones this build can render as
- * configured and the ones it cannot (AC-116).
+ * configured and the ones it cannot.
  *
  * @param config - The document's members.
  * @param descriptors - The projection, which is what decides the fit.
@@ -430,7 +430,7 @@ export function parseConfigEnvelope(body: string): ConfigEnvelope | null {
  *
  * @param envelope - The parsed answer.
  * @param name - Document member to look up.
- * @returns Its descriptor, or `null` when the service declared none (AC-115).
+ * @returns Its descriptor, or `null` when the service declared none.
  */
 export function descriptorFor(envelope: ConfigEnvelope, name: string): FieldDescriptor | null {
     return envelope.fields.find((descriptor) => descriptor.name === name) ?? null;
@@ -441,7 +441,7 @@ export interface ConfigWriteAnswer {
     /** The configuration the service says it stored, as a full envelope. */
     readonly returned: ConfigEnvelope;
     /**
-     * Whether the `config.changed` row reached disk (FR-070, AC-139), or
+     * Whether the `config.changed` row reached disk, or
      * `null` when the answer carried no such member — which is *not* a claim
      * that it did: the panel never implies traceability it does not have.
      */

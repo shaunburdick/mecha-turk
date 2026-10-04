@@ -76,7 +76,7 @@ export const NOT_LISTED_LABEL = 'Not listed?';
  * The manual ways OpenChamber registers a project, in the order the operator
  * meets them.
  *
- * The extension has no project-creation call anywhere (FR-070, AC-121), so
+ * The extension has no project-creation call anywhere, so
  * these three routes are the *only* way a project comes to exist — naming
  * them is the whole affordance.
  */
@@ -203,7 +203,7 @@ export function pickerPlaceholder(picker: ProjectPickerState): string {
  * it the second time. Nothing changes when a selection is refused: without a
  * confirmed id the dispatch — and the binding draft — stay exactly as they
  * were, which is what keeps a binding in its recoverable `project_missing`
- * state until a registered project is chosen (FR-070).
+ * state until a registered project is chosen.
  *
  * @param picker - Project picker state.
  * @param id - Project id the caller asked to select.
@@ -216,7 +216,7 @@ export function projectRefusalReason(picker: ProjectPickerState, id: string): st
 }
 
 /**
- * The "Not listed?" guidance the pickers show (FR-070, AC-121).
+ * The "Not listed?" guidance the pickers show.
  *
  * Rendered as ordinary text inside the panel, so the routes are reachable
  * without leaving the panel — the operator reads them at the moment they

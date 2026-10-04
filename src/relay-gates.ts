@@ -73,7 +73,7 @@ export const ACTOR_NOT_ALLOWED = 'actor-not-allowed';
  *
  * A union rather than `ReserveAnswer | null` because the **actor-policy gate's**
  * refusal has to travel somewhere: the panel owes the run a `blocked:` report for
- * it (FR-078), and a bare `null` cannot distinguish "the service refused a
+ * it, and a bare `null` cannot distinguish "the service refused a
  * policy this panel must report" from "the service refused a stale lease, which
  * it merely notes". Every other refusal stays exactly as before — one kind, no
  * failure, and the run ends.
@@ -201,7 +201,7 @@ export async function guardRun(rt: PanelRuntime, run: ClaimedRun): Promise<Guard
  *
  * Nothing in the mount can re-open the target — a binding that vanished or a
  * project the host no longer lists — so the service holds the run in
- * `blocked:<reason>` (FR-042) where the operator can see the cause and retry
+ * `blocked:<reason>` where the operator can see the cause and retry
  * once it clears, rather than the panel pretending the run was dispatched.
  *
  * @param input - Runtime, the offered run, and why the guard refused.
@@ -257,7 +257,7 @@ export async function refuseWithBlocked(input: {
  * Names the **field**, never a login: the permitted set is configuration and
  * never reaches the panel (002 NFR-113, 005 FR-091). And it is true: with a
  * complete reference list, an allow-list edit *is* the remedy — the gate
- * re-judges the same list from the live policy on the retry (plan D17).
+ * re-judges the same list from the live policy on the retry.
  */
 const ALLOW_LIST_GUIDANCE = 'add the GitHub logins that may trigger this repository to the binding\'s allowedUsers, '
     + 'then retry this dispatch';
@@ -280,8 +280,8 @@ const ALLOW_LIST_GUIDANCE = 'add the GitHub logins that may trigger this reposit
  * re-judges that retry against the same list — so there is no control that
  * clears this run, and naming one that does not exist would be the same defect
  * in a new sentence. What the operator can do is therefore stated as
- * consequences: the run stays parked, it costs no attempt and no requeue budget
- * (FR-078), and nothing is waiting on them.
+ * consequences: the run stays parked, it costs no attempt and no requeue budget,
+ * and nothing is waiting on them.
  *
  * Names no login — neither a denied one (the service's `detail` carries those,
  * verbatim) nor a permitted one, which never leaves the service at all
@@ -342,7 +342,7 @@ export function actorGateFailure(refusal: {
  *
  * A refusal — stale lease, already reserved, already dispatched, invalid
  * transition — is surfaced on the note line and ends the attempt, which is what
- * keeps the host call out of reach after any refusal (FR-028). The **one** refusal
+ * keeps the host call out of reach after any refusal. The **one** refusal
  * that additionally owes a `blocked:` report is the actor-policy gate's
  * (FR-078), and it arrives as `failure` for {@link refuseWithBlocked} to post.
  *
@@ -374,7 +374,7 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
         // than merely notes (003 FR-078). The service's answer is the authority,
         // and the block report is this panel's account of it — through the
         // operation every other guard already uses, with no new route and no
-        // second membership comparison of its own (FR-076). The window rides with
+        // second membership comparison of its own. The window rides with
         // the code for the same reason: the guidance may only be honest about a
         // truncated list if the decision that saw it says so (003 T-038).
         const gate = actorGateFailure({

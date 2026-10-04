@@ -129,7 +129,7 @@ function refuse(remediation: string): { readonly issue: BindingIssue } {
 /**
  * Read one binding's optional actor allow-list.
  *
- * **Exactly three states, and no fourth** (plan D6): absent (`users: null`),
+ * **Exactly three states, and no fourth**: absent (`users: null`),
  * a non-empty list of logins, and the refusal that stands in for `[]`. A
  * value that is not an array is refused too, and an element that is not a
  * login is refused **once for the whole field** — an operator who typed three
@@ -183,7 +183,7 @@ export function bindingAllowedUsersOf(raw: Record<string, unknown>): {
  * gate's.
  *
  * Case-insensitive, because GitHub logins are case-insensitive and the stored
- * spelling is preserved verbatim; only the comparison folds case (plan D5).
+ * spelling is preserved verbatim; only the comparison folds case.
  *
  * **An absent list is the open state**: no policy is configured, so any human
  * actor may trigger. An empty login is nobody, and the open policy does not

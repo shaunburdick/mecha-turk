@@ -110,7 +110,7 @@ export interface SweepOutcome {
      *
      * `false` means the recovery is durable and the row is not **yet** — the
      * durable intent will write it on the next run-document read. Reported so
-     * the boot pass and any caller can see a degraded trail (FR-063).
+     * the boot pass and any caller can see a degraded trail.
      */
     readonly auditWritten: boolean;
 }
@@ -124,7 +124,7 @@ interface PlannedRecovery {
 }
 
 /**
- * The automatic requeue budget, as a secret-free reason line (FR-033).
+ * The automatic requeue budget, as a secret-free reason line.
  *
  * @param requeuesUsed - Automatic requeues the run has already consumed.
  * @returns The reason an exhausted run is parked with.
@@ -143,7 +143,7 @@ const MIGRATION_RECOVERY_REASON = 'lease expired on migration recovery after upg
  * Park a run whose next requeue would exceed the automatic budget.
  *
  * The budget bounds how often a crashed panel can requeue one run, so the run
- * that would exceed it stops moving and waits for an operator (FR-033). The
+ * that would exceed it stops moving and waits for an operator. The
  * attempt and the budget counters keep the values that explain the park — the
  * operator's return-to-waiting is the thing that resets them.
  *
@@ -200,7 +200,7 @@ function parkExhaustedRun(input: {
 }
 
 /**
- * Recover one run whose lease expired with no reservation (FR-032).
+ * Recover one run whose lease expired with no reservation.
  *
  * A **migrated** claim — the synthetic lease adoption mints for a legacy
  * `in-flight` row, which the lease's `provenance` names — is recovered once as
@@ -265,7 +265,7 @@ function recoverExpiredLease(input: { readonly run: Run; readonly now: string })
 }
 
 /**
- * Wedge one run whose result never arrived (FR-023).
+ * Wedge one run whose result never arrived.
  *
  * The row records the outstanding token's **fingerprint**, never the token
  * (T-040c): an unconsumed dispatch token is a live authorization to report a
@@ -426,7 +426,7 @@ export async function sweepOnce(input: {
         // first-read adoption must judge the lease it just minted with the
         // same clock sample, or a millisecond tick between the two reads makes
         // an already-expired migration lease look live and defers the one-shot
-        // recovery to a later pass (T-045).
+        // recovery to a later pass.
         const document = await readRunsDocument({ ...input, now });
         const outcome = planSweep({ document, now });
         if (outcome.recoveries.length === 0) {

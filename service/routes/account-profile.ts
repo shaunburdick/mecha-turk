@@ -195,7 +195,7 @@ function readProfileKey(input: {
  * they name. `displayName` runs through the shipped six-step
  * {@link validateDisplayName}, `startingPrompt` through the single
  * {@link validateStartingPrompt} under its own field name — identical shape
- * labels to the bindings and configuration paths (AC-150).
+ * labels to the bindings and configuration paths.
  *
  * @param raw - The parsed request body, exactly as it arrived.
  * @returns The two members, or every issue the body carries.
@@ -242,7 +242,7 @@ type ProfileOutcome =
  * itself (plan C20, mirroring `PUT /v1/bindings`). The pre-write observation
  * claims any hand edit the stored record carries; the post-write observation
  * claims only this submission's own change, so exactly one row exists per
- * change and a `displayName`-only write appends none at all (FR-088).
+ * change and a `displayName`-only write appends none at all.
  *
  * @param input - Open store, logger, path id, and the raw body.
  * @returns The outcome the handler answers with.

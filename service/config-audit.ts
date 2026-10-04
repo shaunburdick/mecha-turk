@@ -149,7 +149,7 @@ function recordedValue(field: ServiceConfigField, value: number | string): Confi
 /**
  * Compare the validated candidate with the stored document, field by field.
  *
- * This is also the **no-op detector** (FR-048): an empty result means the two
+ * This is also the **no-op detector**: an empty result means the two
  * documents are equal over every documented field, so the write changed
  * nothing, reports *already saved*, and owes no row at all. The comparison is
  * deliberately **raw** — a fingerprint decides nothing here, it only labels the
@@ -172,7 +172,7 @@ export function configChanges(previous: ServiceConfig, next: ServiceConfig): rea
 }
 
 /**
- * The take-effect class each changed field declares (FR-071).
+ * The take-effect class each changed field declares.
  *
  * @param changes - The changes the row is about to record.
  * @returns A field → class map, empty for a no-op.
@@ -192,7 +192,7 @@ function takeEffectOf(changes: readonly ConfigChange[]): Record<string, TakeEffe
  * A documented field keeps its name; anything else — a foreign key, the `body`
  * sentinel a non-object document answers with, or the validator's own
  * `<withheld>` — collapses to the withheld marker, because a durable trail is
- * strictly narrower than the refusal body the panel renders (FR-072, AC-114).
+ * strictly narrower than the refusal body the panel renders.
  * Duplicates collapse too: `issueCount` carries the count, `fields` the set of
  * names.
  *
@@ -213,7 +213,7 @@ function refusedFields(issues: readonly ConfigIssue[]): readonly string[] {
 }
 
 /**
- * Append the row for an accepted change to the document (FR-071).
+ * Append the row for an accepted change to the document.
  *
  * The **write** path calls it with the fields a `PUT` moved and actor
  * `operator`; the observation lane calls it with the single `startingPrompt`
@@ -268,7 +268,7 @@ export async function appendConfigApplied(input: {
 }
 
 /**
- * Append the row for a refused write (FR-072).
+ * Append the row for a refused write.
  *
  * @param input - The open store (or `null` when it is unusable), its logger,
  *   and the issue list the refusal answered with.

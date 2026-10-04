@@ -32,12 +32,12 @@ import { eventKindOf, readStatusRows } from './bindings-service.ts';
 export type SubjectType = 'issue' | 'pull_request';
 
 /**
- * The lease a claim issues, as the answer reports it (FR-030).
+ * The lease a claim issues, as the answer reports it.
  *
  * The lease is a **fencing/consistency token, not a capability**: holding the
  * id authorizes nothing (the service's bearer token is the only authentication
  * gate) and the single-use dispatch token is the only authorization to start a
- * session (FR-020, FR-021). It is what proves the service handed this run to
+ * session. It is what proves the service handed this run to
  * this panel — the guard keys off it, not off `state`, because `state` only
  * says the run was *offered*.
  */
@@ -228,8 +228,8 @@ function atLeast(value: number | null, min: number): number | null {
 /**
  * Read the claim's lease, which is what proves the service handed the run over.
  *
- * A run the answer does not lease is a run the panel must not dispatch
- * (FR-035), so an absent or malformed lease refuses the row rather than being
+ * A run the answer does not lease is a run the panel must not dispatch,
+ * so an absent or malformed lease refuses the row rather than being
  * defaulted — the guard keys off this member, never off `state`.
  *
  * @param value - The `lease` member as received.
@@ -495,7 +495,7 @@ function parseClaimedRun(value: unknown): ClaimedRun | null {
  * surfaces an unreadable answer on its own line rather than dispatching none
  * of it in silence.
  *
- * `auditWritten` is additive (FR-063): absent reads as `false`, so a build that
+ * `auditWritten` is additive: absent reads as `false`, so a build that
  * does not send it reports a degraded trail rather than claiming one it cannot
  * prove — a member that is present but not a boolean refuses the body.
  *

@@ -242,7 +242,7 @@ export function reloadBindingsAfterConnect(rt: PanelRuntime): void {
  * the binding is created prompt-less, and every *other* row's stored prompt
  * is preserved by the same omission — while a touched one travels with it,
  * an explicit empty value included. A refusal the prompt caused lands on the
- * field it belongs to (FR-052) rather than being left to the tab's note.
+ * field it belongs to rather than being left to the tab's note.
  *
  * @param rt - Panel runtime.
  */

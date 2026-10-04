@@ -283,7 +283,7 @@ async function itemEventsList(runtime: PollerRuntime, query: ItemEventsQuery): P
  * Create the GitHub client the poll loop uses.
  *
  * @param deps - Logger every wait is reported through, plus the optional
- *   injected `sleep` and `random` a deterministic test supplies (plan D7).
+ *   injected `sleep` and `random` a deterministic test supplies.
  * @param fetchImpl - Injectable `fetch`; defaults to the process global so
  *   production uses Node's built-in client and tests supply a fake.
  * @returns The poller bound to that transport and those injectables.

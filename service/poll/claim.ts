@@ -364,7 +364,7 @@ function hasEligibleRun(document: RunsDocument): boolean {
  * The durable order is: peek the document **outside** the chain (T-040d) and
  * return immediately when nothing is claimable; otherwise take the chain,
  * re-read, re-plan, and write. The leases are then durable before the audit
- * rows, which never roll back a lease the panel is already acting on (FR-063);
+ * rows, which never roll back a lease the panel is already acting on;
  * a row that cannot be appended is reported as `auditWritten: false` rather
  * than swallowed.
  *

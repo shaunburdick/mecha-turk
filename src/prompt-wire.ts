@@ -66,7 +66,7 @@ function absentReference(record: Record<string, unknown>): PromptReference | nul
  * `promptSources` must be present **and** be a non-empty, duplicate-free
  * subsequence of `global, account, binding` ({@link isPromptSourceList}): a
  * missing list, an explicit `null`, an empty list, an unknown tier, and an
- * out-of-order or duplicated list each refuse the entry (FR-087, AC-151).
+ * out-of-order or duplicated list each refuse the entry.
  *
  * @param record - The parsed entry.
  * @returns The reference, or `null` when any member is unusable.

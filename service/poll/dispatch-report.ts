@@ -134,11 +134,11 @@ function conflict(run: Run): RunRefusal {
  *
  * A record "spent" the token when it carries it **and** is closed: either the
  * stamp landed (`resultReportedAt`) or an outcome was recorded. The derivation
- * is a pure function of `(runKey, attempt)` (FR-020), and FR-033's reset returns
+ * is a pure function of `(runKey, attempt)`, and FR-033's reset returns
  * the run to attempt 1, so a later chain re-mints the exact bytes an earlier one
  * consumed — which is why "does the live reservation hold this token" is the
  * wrong question to ask on its own. The history is durable, append-only, and
- * survives the reset (plan D6), so it is the one record that can still tell the
+ * survives the reset, so it is the one record that can still tell the
  * chains apart.
  *
  * **The current attempt's own record is excluded, and only it.** That is the
@@ -217,11 +217,11 @@ function judgeReport(input: {
     // the run to attempt 1 and the derivation re-mints chain 1's bytes. Every
     // record the history already closed *around* this one is a token from a
     // chain the run has left, so the report in front of us is that chain's late
-    // arrival rather than this one's, and it is refused instead of applied
-    // (FR-020, FR-022, FR-028, AC-110). The live reservation's own record is
+    // arrival rather than this one's, and it is refused instead of applied.
+    //  The live reservation's own record is
     // excluded from that scan — it is the one `reservation.consumed` above
     // already governs, and the sweep's wedge closes it while the authorization
-    // is still meant to be reportable (FR-025, AC-111).
+    // is still meant to be reportable.
     if (tokenSpent(run, dispatchToken)) {
         return { refusal: stale };
     }
@@ -264,7 +264,7 @@ function closedAttempt(input: {
  * Build the run an applied report produces.
  *
  * A session makes the run `dispatched`; its absence makes it `failed` — never
- * `dispatched` (FR-040). The reservation is consumed and the claim dropped in
+ * `dispatched`. The reservation is consumed and the claim dropped in
  * this **same** object, so a run can never be left holding a token that
  * authorizes nothing while looking live.
  *
@@ -349,12 +349,12 @@ interface RefusedReport {
 }
 
 /**
- * Answer a refused report with its one `dispatch.refused` row (FR-003).
+ * Answer a refused report with its one `dispatch.refused` row.
  *
  * The row names the token as a **fingerprint**: a staleness verdict is about
  * *which* authorization was presented, and contract §9 asks the row to record
  * that reference — while contract's fingerprint rule forbids recording the
- * capability itself (FR-061).
+ * capability itself.
  *
  * @param input - The report's target, the run, the operation, the verdict, and
  *   the token whose fingerprint the row carries.
@@ -455,10 +455,10 @@ async function applyVerdict(input: {
 
 /**
  * Report the outcome of an authorized attempt: a session makes the run
- * `dispatched`, its absence makes it `failed` — never `dispatched` (FR-040).
+ * `dispatched`, its absence makes it `failed` — never `dispatched`.
  *
  * Abandon shares this operation and this matrix: it is a result report whose
- * outcome is *no session* (FR-026), distinguished from Result's `problem` shape
+ * outcome is *no session*, distinguished from Result's `problem` shape
  * by when it is true rather than by the state it ends in.
  *
  * @param input - Store, logger, the run, the token, the attempt, the outcome,

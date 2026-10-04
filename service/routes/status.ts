@@ -76,12 +76,12 @@ export interface StatusAccount {
 /**
  * One binding as the `repositories` member reports it (005 FR-032).
  *
- * The member keeps its historical name (FR-026) and every field but one comes
+ * The member keeps its historical name and every field but one comes
  * straight from the `readStatusRows` projection the Bindings tab reads, so the
  * two surfaces cannot disagree about a binding. `readable` is the addition: a
  * row whose scan projection could not be read appears with `readable: false`
- * and is **never omitted**, because an omitted binding reads as a deleted one
- * (AC-105).
+ * and is **never omitted**, because an omitted binding reads as a deleted one.
+ *
  */
 export interface StatusRepositoryRow {
     /** Binding the row describes. */
@@ -127,7 +127,7 @@ export interface StatusRepositoryRow {
  * Three shapes, and none of them means "ok": the most recent outcome the
  * service holds, an explicit *not available* marker when the run document that
  * holds them could not be read, or `null` when no dispatch has ever been
- * verified. `null` never renders as a pass (AC-106).
+ * verified. `null` never renders as a pass.
  */
 export type StatusVerification =
     /** The most recent read-back the service holds, matched or mismatched. */
@@ -203,7 +203,7 @@ export interface ServiceStatusBody {
  * The rate block reports the honest pre-poll baseline (data-model RateState
  * with `null` budget fields and zero usage): the poller that fills it lands
  * with T-014, and a truthful "not measured yet" beats a plausible-looking
- * number for a system that has never polled (FR-036, NFR-009).
+ * number for a system that has never polled.
  *
  * @param account - The stored account.
  * @returns The status row; no credential material crosses this boundary.
@@ -420,7 +420,7 @@ async function buildStatusBody(context: RouteContext): Promise<ServiceStatusBody
     const bindings = await storedBindings(context);
     const { repositories, verification } = await runDerivedProjection(context, bindings);
     // The scheduler's own answer: paused only when the loop is genuinely not
-    // running, never a literal the running process would contradict (FR-031).
+    // running, never a literal the running process would contradict.
     const running = storeUsable && polling.isRunning();
     const activeBindings = bindings.filter((binding) => binding.state === 'active').length;
     const pausedReason = pausedReasonOf({

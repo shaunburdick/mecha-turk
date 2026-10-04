@@ -45,7 +45,7 @@ const BINDINGS_REFUSAL =
 const NOTHING_SELECTED = 'Select the account to remove first.';
 
 /**
- * Record one working-state patch the Accounts body just made (FR-066).
+ * Record one working-state patch the Accounts body just made.
  *
  * A field's draft is working state, not data: it is loaded when a row opens
  * and written only through the profile write, so a repaint that lands
@@ -64,7 +64,7 @@ export function editAccounts(rt: PanelRuntime, patch: Partial<AccountsTabState>)
 }
 
 /**
- * Arm the Remove-account control for one row (FR-055).
+ * Arm the Remove-account control for one row.
  *
  * The first click changes no data: it only puts the cascade statement on the
  * row, so the count the operator reads is the count the delete will act on.
@@ -85,7 +85,7 @@ export function armAccountRemoval(rt: PanelRuntime, numericUserId: string): void
 }
 
 /**
- * Delete the armed account and leave its bindings disabled (FR-065, AC-127).
+ * Delete the armed account and leave its bindings disabled.
  *
  * Runs only after {@link armAccountRemoval} has stated the cascade; the
  * `force=1` query is that statement's confirmation, not a bypass of the
@@ -151,7 +151,7 @@ export async function removeAccount(rt: PanelRuntime, numericUserId: string): Pr
 }
 
 /**
- * Arm — or disarm — the Rotate-token control for one row (FR-064).
+ * Arm — or disarm — the Rotate-token control for one row.
  *
  * The arm is what makes the paste field above the list a rotation rather than
  * a second account: {@link `handoff.ts`} reads it to pick the route, and the
@@ -215,7 +215,7 @@ export type ProfileRefusal = Readonly<Record<AccountMember, string | null>>;
  * slots, so a reason is never dropped on its way to the operator.
  *
  * Every character a slot receives is the service's own copy (already redacted
- * by the caller), so nothing here can echo a submitted value back (FR-085).
+ * by the caller), so nothing here can echo a submitted value back.
  *
  * @param message - The service's `message`, exactly as it arrived.
  * @returns Each member's reason, or `null` for a member the refusal did not name.
@@ -288,7 +288,7 @@ function staleProfileRow(accounts: AccountsTabState, numericUserId: string): boo
  * save that silently did nothing. Each slot then takes the half that named
  * it; a member the refusal did not name keeps whatever its own field already
  * said, because this answer had nothing against it and it must not inherit
- * the other member's reason (FR-085).
+ * the other member's reason.
  *
  * @param input - The tab's working state, and the service's answer.
  */

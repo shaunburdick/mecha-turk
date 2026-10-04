@@ -144,9 +144,9 @@ function readResultOutcome(fields: Readonly<Record<string, unknown>>): ResultOut
  *
  * Reports the outcome of an authorized attempt. A report naming a session makes
  * the run `dispatched`; a report naming a problem makes it `failed` — never
- * `dispatched` (FR-040). The reservation is consumed in the same write, and a
+ * `dispatched`. The reservation is consumed in the same write, and a
  * repeat of an outcome already recorded answers `200` unchanged with one
- * `dispatch.duplicate-report` row (FR-025).
+ * `dispatch.duplicate-report` row.
  *
  * @param context - Route context carrying the open store.
  * @param request - Routed request; the path captures `:correlationId`.
@@ -195,7 +195,7 @@ async function handleDispatched(context: RouteContext, request: RouteRequest): P
  * Answer `POST /v1/events/:correlationId/abandon`.
  *
  * A reserved attempt that created no session because the panel aborted **before**
- * any host call (FR-026). The run becomes retryable `failed` with the reason —
+ * any host call. The run becomes retryable `failed` with the reason —
  * never `unconfirmed`, which would wedge a dispatch that provably happened. It is
  * distinguished from Result's `problem` shape by *when* it is true, not by the
  * state it ends in: both are honest, and both are `failed`.
@@ -291,7 +291,7 @@ function readBlockReport(fields: Readonly<Record<string, unknown>>): BlockReport
 /**
  * Answer `POST /v1/events/:correlationId/blocked`.
  *
- * A fail-closed guard refused the dispatch before any host call (FR-042). Valid
+ * A fail-closed guard refused the dispatch before any host call. Valid
  * only from `claimed` under the live lease, and the blocked reason is checked
  * against the four declared causes so the resulting `blocked:<reason>` state stays
  * parseable (data-model §2.2). The attempt number and the automatic requeue

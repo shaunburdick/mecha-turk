@@ -44,7 +44,7 @@ function formatTime(iso: string): string {
 }
 
 /**
- * The phase record, read-only (FR-075).
+ * The phase record, read-only.
  *
  * @param rt - Panel runtime whose ledger the line reads.
  * @returns The last recorded phase, or that there is none yet.
@@ -59,7 +59,7 @@ export function phaseRecordLine(rt: PanelRuntime): string {
 }
 
 /**
- * The ledger as text: sequence, kind, and time, newest first (FR-075).
+ * The ledger as text: sequence, kind, and time, newest first.
  *
  * @param rt - Panel runtime whose ledger the lines read.
  * @returns The lines, or the empty-state sentence.
@@ -80,7 +80,7 @@ export function ledgerLines(rt: PanelRuntime): string {
 }
 
 /**
- * Mount the read-only Diagnostics block's three lines (FR-075, FR-076).
+ * Mount the read-only Diagnostics block's three lines.
  *
  * @param input - Runtime whose ledger the block renders, and the block body.
  * @returns The three handles the pane carries.
