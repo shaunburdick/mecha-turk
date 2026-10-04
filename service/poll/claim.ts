@@ -60,11 +60,12 @@ import {
     writeRunsDocument,
 } from './runs-document.ts';
 import { leaseRun } from './runs-transitions.ts';
-import type { ClaimedLease, ClaimedReference, ClaimedRun, ClaimRecord } from './claim-project.ts';
+import type { ClaimedLease, ClaimedRun, ClaimRecord } from './claim-project.ts';
 import type { QueuedEvent } from './events-parse.ts';
 import type { Run, RunsDocument } from './runs-types.ts';
 
-export type { ClaimedLease, ClaimedReference, ClaimedRun, ClaimRecord };
+export type { ClaimedReference } from './claim-project.ts';
+export type { ClaimedLease, ClaimedRun, ClaimRecord };
 
 /** Holder recorded on a lease when the panel sent no `holder` parameter. */
 export const UNKNOWN_HOLDER = 'unknown';

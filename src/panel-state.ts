@@ -22,17 +22,9 @@ import type { AccountsBody } from './accounts-tab.ts';
 import { initialAccounts } from './accounts-state.ts';
 import type { AccountsTabState } from './accounts-state.ts';
 import { initialBindings } from './bindings-state.ts';
-import type { BindingsStatus, BindingsTabState } from './bindings-state.ts';
+import type { BindingsTabState } from './bindings-state.ts';
 import { initialProjectPicker } from './project-picker.ts';
 import type { ProjectPickerState } from './project-picker.ts';
-
-// The Accounts and Bindings tabs' working states moved out for the file-length
-// gate; both stay importable from here, so no call site had to change with the
-// move.
-export type { AccountsTabState } from './accounts-state.ts';
-export type { BindingsStatus, BindingsTabState };
-export { initialBindings };
-export { initialProjectPicker, type ProjectPickerState };
 import type { DispatchesBoard } from './dispatches-ui.ts';
 import type { StatusTabUi } from './status-tab.ts';
 import { initialStatusTab } from './status-document.ts';
@@ -43,6 +35,16 @@ import { initialAboutTab } from './about-tab.ts';
 import type { AboutTabState, AboutTabUi } from './about-tab.ts';
 import type { TabShell } from './tabs.ts';
 import type { PanelUi, ProjectPickerUi } from './panel-ui.ts';
+
+// The Accounts and Bindings tabs' working states moved out for the file-length
+// gate; both stay importable from here, so no call site had to change with the
+// move.
+export type { AccountsTabState } from './accounts-state.ts';
+export type { BindingsStatus } from './bindings-state.ts';
+export type { BindingsTabState };
+export { initialBindings };
+export { initialProjectPicker };
+export type { ProjectPickerState } from './project-picker.ts';
 
 export type { PanelUi, ProjectPickerUi } from './panel-ui.ts';
 import type { RunRow } from './dispatches-service.ts';

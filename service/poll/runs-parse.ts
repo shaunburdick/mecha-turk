@@ -36,7 +36,7 @@ import {
     parseSession,
     parseVerification,
 } from './runs-parts-parse.ts';
-import { isRunState, parseRunScalars, runTextFieldsHold } from './runs-scalars-parse.ts';
+import { parseRunScalars, runTextFieldsHold } from './runs-scalars-parse.ts';
 import type { RunScalars } from './runs-scalars-parse.ts';
 import type {
     DispatchAttempt,
@@ -56,7 +56,7 @@ import type {
  * `runs-types.ts`, which the file-length gate keeps them in.
  */
 export type { Run, RunsDocument };
-export { isRunState };
+export { isRunState } from './runs-scalars-parse.ts';
 
 /** Document schema marker this build writes into (and accepts from) `runs.json`. */
 export const RUNS_SCHEMA_VERSION = 1;

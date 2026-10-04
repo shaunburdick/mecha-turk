@@ -17,13 +17,11 @@
  */
 
 import { asRecord, fieldsHoldText, integerOrZero, parseJsonObject, textOrEmpty, textOrNull } from './json.ts';
-import { parseAccountsBody } from './accounts-service.ts';
-import type { AccountScopeMatrix, AccountScopeVerdict, PanelAccount } from './accounts-service.ts';
 
 // The accounts record moved to its own module for the file-length gate; these
 // names stay importable from here so no call site had to change with it.
-export { parseAccountsBody };
-export type { AccountScopeMatrix, AccountScopeVerdict, PanelAccount };
+export { parseAccountsBody } from './accounts-service.ts';
+export type { AccountScopeMatrix, AccountScopeVerdict, PanelAccount } from './accounts-service.ts';
 
 /** Path of the bindings collection. */
 

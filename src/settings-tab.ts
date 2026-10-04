@@ -52,7 +52,6 @@ import {
     SETTINGS_HEADING,
     SOURCE_LINES,
     SOURCE_NOTE,
-    initialSettingsTab,
     readFailureBody,
     readStateLine,
     writeFailureLines,
@@ -72,7 +71,8 @@ import type { SettingsEdit } from './settings-edit.ts';
 import type { SettingsTabState } from './settings-state.ts';
 
 /** Re-exported so the state keeps one import path for the shell and the suites. */
-export { initialSettingsTab, readStateLine };
+export { initialSettingsTab } from './settings-state.ts';
+export { readStateLine };
 export type { SettingsTabState };
 
 /** The mounted Settings tab: the handles a repaint updates, plus disposal. */

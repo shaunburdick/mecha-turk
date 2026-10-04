@@ -48,12 +48,12 @@ import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { PromptSnapshot } from '../prompt.ts';
 import type { ServiceStore } from '../store/index.ts';
-import { EVENTS_FILE, parseStoredEvent, parseStoredEvents } from './events-parse.ts';
+import { EVENTS_FILE, parseStoredEvents } from './events-parse.ts';
 import { recordEnqueueAudits } from './events-enqueue-audit.ts';
 import { applyEnqueue } from './runs-join.ts';
 import { inQueueChain, readRunsDocument, writeRunsDocument } from './runs-document.ts';
 import { readScanState, serializeScan, writeScanState } from './scan.ts';
-import type { EventKind, EventState, QueuedEvent, SubjectType } from './events-parse.ts';
+import type { QueuedEvent } from './events-parse.ts';
 import type { BindingScanState } from './scan.ts';
 
 /** Store file holding the event queue (declared beside the row schema). */
@@ -70,10 +70,12 @@ export { inQueueChain };
 export const MAX_DISPATCHED_EVENTS = 500;
 
 /** Re-exported: this module stays the one import path for the queue's readers. */
-export { parseStoredEvent, parseStoredEvents };
+export { parseStoredEvent } from './events-parse.ts';
+export { parseStoredEvents };
 
 /** Row types re-exported alongside them for the routes and the scan loop. */
-export type { EventKind, EventState, QueuedEvent, SubjectType };
+export type { EventKind, EventState, SubjectType } from './events-parse.ts';
+export type { QueuedEvent };
 // The attribution basis is declared in `attribution.ts` and re-exported by the
 // row's own module, so the queue keeps one import path for it too (002 FR-044).
 export type { ActorAttribution } from './events-parse.ts';
