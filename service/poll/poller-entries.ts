@@ -114,7 +114,6 @@ export interface PollPull {
 /**
  * Narrow a value to a record.
  *
- * @param value - Parsed JSON value.
  * @returns The record, or `null` for anything else.
  */
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -124,7 +123,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 /**
  * Read one positive integer field.
  *
- * @param value - Candidate value.
  * @returns The integer, or `null` when the value is not one.
  */
 function positiveIntOf(value: unknown): number | null {
@@ -134,8 +132,6 @@ function positiveIntOf(value: unknown): number | null {
 /**
  * Read one string field.
  *
- * @param record - Parsed record.
- * @param field - Field name.
  * @returns The text, or `null` when the field is not text.
  */
 function textOf(record: Record<string, unknown>, field: string): string | null {
@@ -147,7 +143,6 @@ function textOf(record: Record<string, unknown>, field: string): string | null {
 /**
  * Read a list of logins out of one list field.
  *
- * @param value - Candidate array (`assignees`, `requested_reviewers`).
  * @returns The logins, or `null` when the field is not an array of text.
  */
 function readLogins(value: unknown): readonly string[] | null {
@@ -172,7 +167,6 @@ function readLogins(value: unknown): readonly string[] | null {
 /**
  * Read one entry author's login, answering `''` when there is none.
  *
- * @param user - The entry's `user` object, or `null`.
  * @returns The login, or `''`.
  */
 function authorLoginOf(user: Record<string, unknown> | null): string {
@@ -182,7 +176,6 @@ function authorLoginOf(user: Record<string, unknown> | null): string {
 /**
  * Read one entry author's type, answering `''` when there is none.
  *
- * @param user - The entry's `user` object, or `null`.
  * @returns The type (`User`, `Bot`, …), or `''`.
  */
 function authorTypeOf(user: Record<string, unknown> | null): string {
@@ -200,13 +193,13 @@ function issueNumberOf(value: unknown): number | null {
         return null;
     }
 
-    return positiveIntOf(Number(value.slice(value.lastIndexOf('/') + 1)));
+    const lastSegment = value.slice(value.lastIndexOf('/') + 1);
+    return positiveIntOf(Number(lastSegment));
 }
 
 /**
  * Parse one issues-list entry, failing soft per entry.
  *
- * @param value - One element of the parsed list.
  * @returns The normalized issue, or `null`.
  */
 export function readIssueEntry(value: unknown): PollIssue | null {
@@ -248,7 +241,6 @@ export function readIssueEntry(value: unknown): PollIssue | null {
 /**
  * Parse one issue-comments-list entry, failing soft per entry.
  *
- * @param value - One element of the parsed list.
  * @returns The normalized comment, or `null`.
  */
 export function readCommentEntry(value: unknown): PollComment | null {
@@ -281,7 +273,6 @@ export function readCommentEntry(value: unknown): PollComment | null {
 /**
  * Parse one pulls-list entry, failing soft per entry.
  *
- * @param value - One element of the parsed list.
  * @returns The normalized pull request, or `null`.
  */
 export function readPullEntry(value: unknown): PollPull | null {

@@ -9627,7 +9627,8 @@ function issueNumberOf2(value) {
   if (typeof value !== "string") {
     return null;
   }
-  return positiveIntOf2(Number(value.slice(value.lastIndexOf("/") + 1)));
+  const lastSegment = value.slice(value.lastIndexOf("/") + 1);
+  return positiveIntOf2(Number(lastSegment));
 }
 function readIssueEntry(value) {
   const record = asRecord(value);
