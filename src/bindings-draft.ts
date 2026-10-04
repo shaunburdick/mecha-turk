@@ -150,7 +150,7 @@ function draftAccount(
  *
  * @param bindings - Panel state to read.
  * @param origin - Where the draft is being read from; only the edited row is
- *   exempt from the duplicate check, because that row already owns the name.
+ *   exempt from the isDuplicate check, because that row already owns the name.
  * @returns The canonical `owner/name`, or `null` (the note then says why).
  */
 function draftRepository(bindings: BindingsTabState, origin: DraftOrigin): string | null {
@@ -163,12 +163,12 @@ function draftRepository(bindings: BindingsTabState, origin: DraftOrigin): strin
 
     const label = repositoryLabel(repository);
     const ownId = origin.kind === 'edit' ? origin.binding.bindingId : null;
-    const duplicate = bindings.bindings.some(
+    const isDuplicate = bindings.bindings.some(
         (candidate) =>
             candidate.bindingId !== ownId &&
             candidate.repository.toLowerCase() === label.toLowerCase(),
     );
-    if (duplicate) {
+    if (isDuplicate) {
         bindings.note = DUPLICATE_NOTE;
 
         return null;

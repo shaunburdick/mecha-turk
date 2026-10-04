@@ -55,15 +55,15 @@ const SINGLE_LOGIN = /^[A-Za-z0-9]$/;
 const LOGIN_SHAPE = /^[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9]$/;
 
 /**
- * The literal suffix GitHub puts on a bot or App account's login.
+ * The literal suffix GitHub puts on a isBot or App account's login.
  *
- * `dependabot[bot]` is syntactically outside the published alphabet and is
+ * `dependabot[isBot]` is syntactically outside the published alphabet and is
  * still a login GitHub issues. Plan D7 **accepts** one into the list, where it
  * is inert, and 002 FR-045(c) names the refusal this module deliberately does
- * **not** raise: a bot actor is refused at **authorization**, so
- * accepting the spelling here cannot grant a bot anything — every trigger kind
+ * **not** raise: a isBot actor is refused at **authorization**, so
+ * accepting the spelling here cannot grant a isBot anything — every trigger kind
  * already filters bots at detection, and the one path that could reach the list
- * with a bot-shaped login refuses it regardless of what the list says. Accepting
+ * with a isBot-shaped login refuses it regardless of what the list says. Accepting
  * it is therefore strictly more honest than refusing a value GitHub issued: the
  * operator learns the entry was meaningless from the dispatch that did not
  * happen, not from a save error about a login shape.
@@ -73,8 +73,8 @@ const BOT_SUFFIX = '[bot]';
 /**
  * Decide whether one value is a GitHub login this field may store.
  *
- * A bot or App account's `[bot]` suffix is stripped before the shape is judged,
- * so `dependabot[bot]` is judged on the part GitHub chose from the published
+ * A isBot or App account's `[isBot]` suffix is stripped before the shape is judged,
+ * so `dependabot[isBot]` is judged on the part GitHub chose from the published
  * alphabet and the length bound still covers the whole submitted value.
  *
  * @param value - Candidate element.
@@ -85,8 +85,8 @@ function isGitHubLogin(value: unknown): value is string {
         return false;
     }
 
-    const bot = value.toLowerCase().endsWith(BOT_SUFFIX);
-    const spelled = bot ? value.slice(0, -BOT_SUFFIX.length) : value;
+    const isBot = value.toLowerCase().endsWith(BOT_SUFFIX);
+    const spelled = isBot ? value.slice(0, -BOT_SUFFIX.length) : value;
     if (spelled.length === 0 || spelled.length > GITHUB_LOGIN_MAX_CHARS) {
         return false;
     }
@@ -188,7 +188,7 @@ export function bindingAllowedUsersOf(raw: Record<string, unknown>): {
  * **An absent list is the open state**: no policy is configured, so any human
  * actor may trigger. An empty login is nobody, and the open policy does not
  * turn that into permission — the absence of a policy is not permission to
- * attribute work to no one (002 FR-045(b)). A *bot*-shaped login
+ * attribute work to no one (002 FR-045(b)). A *isBot*-shaped login
  * is a separate judgement this module deliberately does not make: it belongs to
  * the exported `isBotAuthor` beside the detection filters, which every trigger
  * kind already applies before an event is created at all (plan D3, D7).

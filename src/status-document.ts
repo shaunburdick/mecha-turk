@@ -376,10 +376,10 @@ function parseBinding(value: unknown): StatusBindingView | null {
     const lastError = asStringOrNull(row.lastError);
     const pendingCount = asNumber(row.pendingCount);
     const actorPolicy = readRequiredActorPolicy(row.actorPolicy);
-    const flags = typeof active === 'boolean' && typeof readable === 'boolean';
+    const isFlags = typeof active === 'boolean' && typeof readable === 'boolean';
     if (
         identity === null || lastScanAt === undefined || lastError === undefined
-        || pendingCount === null || actorPolicy === null || !flags
+        || pendingCount === null || actorPolicy === null || !isFlags
     ) {
         return null;
     }

@@ -61,9 +61,9 @@ function parseBindingSlot(value: unknown): BindingScanState | null {
     }
 
     const { lastScanAt, lastError } = value;
-    const stampHolds = lastScanAt === null || typeof lastScanAt === 'string';
-    const reasonHolds = lastError === null || typeof lastError === 'string';
-    if (!stampHolds || !reasonHolds) {
+    const isStampHolds = lastScanAt === null || typeof lastScanAt === 'string';
+    const isReasonHolds = lastError === null || typeof lastError === 'string';
+    if (!isStampHolds || !isReasonHolds) {
         return null;
     }
 

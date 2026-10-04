@@ -205,11 +205,11 @@ function parseRunScopeRequest(input: {
     readonly needs: RunScopeNeeds;
 }): RunScopeParse {
     const { raw, correlationId, needs } = input;
-    const structured = isBodyObject(raw) && raw !== undefined;
-    const record = structured ? raw as Record<string, unknown> : {};
+    const isStructured = isBodyObject(raw) && raw !== undefined;
+    const record = isStructured ? raw as Record<string, unknown> : {};
     const issues: MemberIssue[] = [];
 
-    if (raw !== undefined && !structured) {
+    if (raw !== undefined && !isStructured) {
         issues.push({ field: 'body', remediation: BODY_REMEDIATION });
     }
 
@@ -320,11 +320,11 @@ export interface RunScopeBody {
  */
 export function readRunScopeBody(input: ReadRequest): RunScopeBody | HttpResponse {
     const { raw, correlationId } = input;
-    const structured = isBodyObject(raw) && raw !== undefined;
-    const record = structured ? raw as Record<string, unknown> : {};
+    const isStructured = isBodyObject(raw) && raw !== undefined;
+    const record = isStructured ? raw as Record<string, unknown> : {};
     const issues: MemberIssue[] = [];
 
-    if (raw !== undefined && !structured) {
+    if (raw !== undefined && !isStructured) {
         issues.push({ field: 'body', remediation: BODY_REMEDIATION });
     }
 

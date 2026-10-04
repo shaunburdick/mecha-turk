@@ -228,13 +228,13 @@ export function allowedUsersSummary(count: number): string {
  * @returns The row's own clause.
  */
 export function policyClause(facts: PolicyFacts): string {
-    const watching = watchesAnything(facts.triggers);
+    const isWatching = watchesAnything(facts.triggers);
     const derived = derivedTriggerClause(facts.triggers);
     const count = facts.count === null ? null : allowedUsersSummary(facts.count);
 
     // ── Nothing is switched on: there is no exposed surface to describe, so
     //    every row says what *cannot* happen and why (FR-092's rows 3, 4, 7, 8).
-    if (!watching) {
+    if (!isWatching) {
         if (count === null) {
             return facts.state === 'active'
                 ? NOTHING_TRIGGERED_OPEN
@@ -256,7 +256,7 @@ export function policyClause(facts: PolicyFacts): string {
             : `${count} once this binding is enabled`;
     }
 
-    // ── Enabled, watching something: the count, or the open-policy warning
+    // ── Enabled, isWatching something: the count, or the open-policy warning
     //    whose *who* is derived rather than fixed (rows 1, 2).
     return count ?? `open to anyone — ${derived}; name the logins who may in allowedUsers to change that`;
 }
@@ -543,19 +543,19 @@ export function mountBindingActors(input: {
  * form whose switches have since changed.
  *
  * What the input shows does not depend on the selection: a form the operator
- * has open is typeable in both modes, exactly as the prompt field beside it is.
+ * has open is isTypeable in both modes, exactly as the prompt field beside it is.
  *
  * @param rt - Panel runtime.
  * @param controls - The mounted field.
  */
 export function repaintBindingActors(rt: PanelRuntime, controls: BindingActorControls): void {
     const state = rt.state.bindings;
-    const typeable = state.editorOpen && state.status !== 'loading';
+    const isTypeable = state.editorOpen && state.status !== 'loading';
     const facts = editorPolicyFacts(state);
 
     controls.field.update({
         value: state.allowedUsersInput,
-        disabled: !typeable,
+        disabled: !isTypeable,
         placeholder: allowedUsersNotSetPlaceholder(facts),
         helper: state.allowedUsersError ?? allowedUsersGuidance(facts.triggers),
     });

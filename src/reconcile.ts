@@ -231,12 +231,12 @@ async function reportOutstanding(input: {
         attempted += 1;
         const answer = await reportAttempt(rt, attempt);
         if (answer.ok) {
-            const flipped = await acknowledgeDispatch({
+            const isFlipped = await acknowledgeDispatch({
                 rt,
                 correlationId: attempt.correlationId,
                 attempt: attempt.attempt,
             });
-            if (flipped) {
+            if (isFlipped) {
                 acknowledged += 1;
             } else {
                 // The report landed but the panel could not record that it did;

@@ -183,7 +183,7 @@ export interface PromptChange {
  *   whether that rolls anything back (it never does — see the module header).
  */
 export async function appendPromptChange(input: PromptChange): Promise<void> {
-    const present = input.current !== null;
+    const isPresent = input.current !== null;
     let decision: string;
     if (input.current === null) {
         decision = 'cleared';
@@ -200,7 +200,7 @@ export async function appendPromptChange(input: PromptChange): Promise<void> {
         reason: null,
         details: {
             bindingId: input.bindingId,
-            promptPresent: present,
+            promptPresent: isPresent,
             promptFingerprint: input.current?.fingerprint ?? null,
             // Data-model §4.1 types this `number`: an absent prompt is zero
             // characters of instruction, which is a length rather than a hole.

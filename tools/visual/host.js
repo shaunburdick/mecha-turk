@@ -164,9 +164,9 @@ function answerStorage(message) {
     const { id, payload } = message;
 
     if (payload.op === 'get') {
-        const found = storage.has(payload.key);
+        const isFound = storage.has(payload.key);
 
-        return reply(id, { storage: true, op: 'get', found, value: found ? storage.get(payload.key) : undefined });
+        return reply(id, { storage: true, op: 'get', isFound, value: isFound ? storage.get(payload.key) : undefined });
     }
 
     if (payload.op === 'set') {

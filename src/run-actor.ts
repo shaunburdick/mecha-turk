@@ -78,10 +78,10 @@ export interface ActorFields {
  */
 export function actorFieldsOf(record: Record<string, unknown>): ActorFields | null {
     const { actorLogin, actorAttribution } = record;
-    const loginOk = actorLogin === undefined || (typeof actorLogin === 'string' && actorLogin !== '');
-    const basisOk = actorAttribution === undefined
+    const isLoginOk = actorLogin === undefined || (typeof actorLogin === 'string' && actorLogin !== '');
+    const isBasisOk = actorAttribution === undefined
         || (typeof actorAttribution === 'string' && ACTOR_ATTRIBUTIONS.has(actorAttribution));
-    if (!loginOk || !basisOk) {
+    if (!isLoginOk || !isBasisOk) {
         return null;
     }
 

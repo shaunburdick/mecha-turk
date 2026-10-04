@@ -60,7 +60,7 @@ export interface AccountPromptObservation {
     readonly store: ServiceStore;
     /** Logger for a failed append (account id and fingerprint only). */
     readonly log: ServiceLogger;
-    /** The accounts this observation saw present. */
+    /** The accounts this observation saw isPresent. */
     readonly accounts: readonly ObservedAccount[];
     /**
      * Ids whose record this observation proved **absent**. Their baselines are
@@ -70,7 +70,7 @@ export interface AccountPromptObservation {
     readonly absent?: readonly string[];
     /**
      * `true` when {@link accounts} is the whole custody directory (a list
-     * read), so every baseline id not present here is forgotten on the same
+     * read), so every baseline id not isPresent here is forgotten on the same
      * rule as `absent`. Single-account reads and the profile write leave other
      * accounts' baselines alone.
      */
@@ -209,7 +209,7 @@ export interface AccountPromptChange {
  *   whether that rolls anything back (it never does — see the module header).
  */
 export async function appendAccountPromptChange(input: AccountPromptChange): Promise<void> {
-    const present = input.current !== null;
+    const isPresent = input.current !== null;
     let decision: string;
     if (input.current === null) {
         decision = 'cleared';
@@ -225,7 +225,7 @@ export async function appendAccountPromptChange(input: AccountPromptChange): Pro
         decision,
         reason: null,
         details: {
-            promptPresent: present,
+            promptPresent: isPresent,
             promptFingerprint: input.current?.fingerprint ?? null,
             // Data-model §4.1 types this `number`: an absent prompt is zero
             // characters of instruction, which is a length rather than a hole.

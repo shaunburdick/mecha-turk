@@ -46,13 +46,13 @@ function readBytes(request: IncomingMessage): Promise<BufferOutcome> {
     return new Promise((resolve) => {
         const chunks: Buffer[] = [];
         let total = 0;
-        let settled = false;
+        let isSettled = false;
         const finish = (outcome: BufferOutcome): void => {
-            if (settled) {
+            if (isSettled) {
                 return;
             }
 
-            settled = true;
+            isSettled = true;
             resolve(outcome);
         };
 

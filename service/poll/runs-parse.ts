@@ -217,16 +217,16 @@ function sessionHistoryHolds(input: {
     );
     const knownSessionIds = new Set(sessionAttempts.flatMap((attempt) =>
         attempt.sessionId === null ? [] : [attempt.sessionId]));
-    const invalidAttemptSession = attempts.some(
+    const isInvalidAttemptSession = attempts.some(
         (attempt) => attempt.sessionId !== null && attempt.outcome !== 'dispatched',
     );
-    const contradictorySessionHistory = sessionAttempts.length > 0 && state !== 'dispatched';
-    const mismatchedSession = session !== null
+    const isContradictorySessionHistory = sessionAttempts.length > 0 && state !== 'dispatched';
+    const isMismatchedSession = session !== null
         && (state !== 'dispatched' || !knownSessionIds.has(session.sessionId));
 
-    return !invalidAttemptSession
-        && !contradictorySessionHistory
-        && !mismatchedSession
+    return !isInvalidAttemptSession
+        && !isContradictorySessionHistory
+        && !isMismatchedSession
         && knownSessionIds.size <= 1;
 }
 
@@ -244,15 +244,15 @@ function runRelationsHold(input: {
     // every delivery that joined — a count that cannot be reconciled with the
     // list would render a row that is silently lossy, or falsely complete, so
     // the run refuses rather than projects a lie (constitution II).
-    const referencesAccounted = scalars.referenceCount === references.length + scalars.referencesNotRetained
+    const isReferencesAccounted = scalars.referenceCount === references.length + scalars.referencesNotRetained
         && scalars.referencesTruncated === (scalars.referencesNotRetained > 0);
-    const basicRelationsHold = referencesAccounted
+    const isBasicRelationsHold = isReferencesAccounted
         && (objects.session === null || objects.session.attachmentId === attachmentId)
         && (objects.lease === null || objects.lease.attempt === scalars.attempt)
         && (objects.reservation === null || objects.reservation.attempt === scalars.attempt)
         && referenceIds.size === references.length;
 
-    return basicRelationsHold && sessionHistoryHolds({
+    return isBasicRelationsHold && sessionHistoryHolds({
         state: scalars.state,
         session: objects.session,
         attempts,

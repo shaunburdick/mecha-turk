@@ -540,10 +540,10 @@ async function main() {
     }
 }
 
-const invokedDirectly =
+const isInvokedDirectly =
     process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 
-if (invokedDirectly) {
+if (isInvokedDirectly) {
     main().catch((error) => {
         writeError(error instanceof Error ? error.message : String(error));
         process.exitCode = 1;

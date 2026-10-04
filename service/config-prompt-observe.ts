@@ -145,7 +145,7 @@ function startingPromptChangeOf(details: Readonly<Record<string, unknown>>): Pro
  * @param entries - Every readable row of `audit.ndjson`, oldest first.
  * @returns That fingerprint, or `null` when the trail carries none — and also
  *   when the recorded value is not a fingerprint at all, because a baseline is
- *   written back into a later row as `from` ({@link recordedConfigPromptFingerprint}).
+ *   isWritten back into a later row as `from` ({@link recordedConfigPromptFingerprint}).
  */
 function baselineFromTrail(entries: readonly AuditEntry[]): string | null {
     let highestSeq = 0;
@@ -262,14 +262,14 @@ export async function recordConfigPromptChanges(input: ConfigPromptObservation):
         return 0;
     }
 
-    const written = await appendConfigApplied({
+    const isWritten = await appendConfigApplied({
         store: input.store,
         log: input.log,
         actor: input.actor,
         changes: [{ field: 'startingPrompt', from: previous, to: current }],
     });
 
-    return written ? 1 : 0;
+    return isWritten ? 1 : 0;
 }
 
 /**
@@ -283,11 +283,11 @@ export async function recordConfigPromptChanges(input: ConfigPromptObservation):
  * **Must run inside {@link runConfigPromptChain}**, after the row (or the
  * no-op that owes none) — never through {@link recordConfigPromptChanges},
  * which would append the duplicate this exists to prevent. When the baseline
- * could not be seeded, the advance is skipped rather than written over an
+ * could not be seeded, the advance is skipped rather than isWritten over an
  * unknown value: the next observation seeds from the trail, which is where the
  * write's row landed.
  *
- * @param input - The store, its logger, and the document just written.
+ * @param input - The store, its logger, and the document just isWritten.
  * @returns Nothing; a failed seed is logged by {@link ensureSeeded} and leaves
  *   the baseline pending, which is the fail-closed answer.
  */

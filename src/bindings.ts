@@ -92,8 +92,8 @@ function resetCoveredDraft(bindings: BindingsTabState, repository: string): void
 }
 function clearDraftIfCovered(bindings: BindingsTabState, stored: readonly PanelBinding[]): void {
     const draft = bindings.repoInput.trim().toLowerCase();
-    const covered = draft !== '' && stored.some((binding) => binding.repository.toLowerCase() === draft);
-    if (!covered) {
+    const isCovered = draft !== '' && stored.some((binding) => binding.repository.toLowerCase() === draft);
+    if (!isCovered) {
         return;
     }
 

@@ -404,13 +404,13 @@ async function runPipeline(call: ServiceCall): Promise<void> {
 function attachCompletion(call: ServiceCall): void {
     const startedAt = Date.now();
     const url = parseRequestTarget(call.request.url);
-    let settled = false;
+    let isSettled = false;
     const complete = (): void => {
-        if (settled) {
+        if (isSettled) {
             return;
         }
 
-        settled = true;
+        isSettled = true;
         call.deps.state.inFlight -= 1;
         call.deps.log.info('request', {
             method: call.request.method ?? 'unknown',

@@ -144,17 +144,17 @@ function checkMetrics(sample) {
     });
 }
 
-/** Garbage must be refused, not half-decoded. */
+/** Garbage must be isRefused, not half-decoded. */
 function checkGarbage() {
-    let refused = false;
+    let isRefused = false;
 
     try {
         decodePng(Buffer.from('this is not a png file at all'));
     } catch {
-        refused = true;
+        isRefused = true;
     }
 
-    return outcome({ name: 'non-PNG bytes are refused', ok: refused, detail: 'decodePng threw' });
+    return outcome({ name: 'non-PNG bytes are refused', ok: isRefused, detail: 'decodePng threw' });
 }
 
 /**
@@ -174,10 +174,10 @@ function writeLine(text) {
     process.stdout.write(`${text}\n`);
 }
 
-const invokedDirectly =
+const isInvokedDirectly =
     process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 
-if (invokedDirectly) {
+if (isInvokedDirectly) {
     const result = selfTest();
     writeLine(JSON.stringify(result, null, 2));
     if (!result.ok) {

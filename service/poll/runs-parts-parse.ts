@@ -93,14 +93,14 @@ export function parseReference(raw: unknown): SourceReference | null {
     const detectedAt = readStamp(raw.detectedAt);
     const { kind, origin } = raw;
     const present = readFlag(raw.presentAtAuthorization);
-    const unusable = [
+    const isUnusable = [
         deliveryId, sourceUrl, detectedAt, present,
         readActorLoginField(raw), readActorAttributionField(raw),
     ].includes(null)
         || !isEventKind(kind)
         || typeof origin !== 'string'
         || !isValidOrigin(origin);
-    if (unusable || deliveryId === null || sourceUrl === null || detectedAt === null || present === null) {
+    if (isUnusable || deliveryId === null || sourceUrl === null || detectedAt === null || present === null) {
         return null;
     }
 

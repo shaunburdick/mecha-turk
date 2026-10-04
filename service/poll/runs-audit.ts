@@ -216,8 +216,8 @@ export async function flushRunAuditIntents(input: {
 
     const remaining: RunAuditIntent[] = [];
     for (const intent of intents) {
-        const persisted = await persistIntent({ ...input, intent, entries });
-        if (!persisted) {
+        const isPersisted = await persistIntent({ ...input, intent, entries });
+        if (!isPersisted) {
             remaining.push(intent);
         }
     }

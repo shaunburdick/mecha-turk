@@ -314,8 +314,8 @@ function planRemoval(input: {
     // trail sitting exactly at the cap stable instead of deleting one row per
     // cycle to make room for the row that would record the deletion
     // (FR-055's no-oscillation clause).
-    const overCap = ordered.length > maxEntries;
-    const neededForCap = overCap ? ordered.length + 1 - maxEntries : 0;
+    const isOverCap = ordered.length > maxEntries;
+    const neededForCap = isOverCap ? ordered.length + 1 - maxEntries : 0;
     const survivors: AuditEntry[] = [];
     const removed: AuditEntry[] = [];
     let limitReached: AuditLimit | null = null;
@@ -327,18 +327,18 @@ function planRemoval(input: {
         }
 
         const stamped = Date.parse(entry.timestamp);
-        const tooOld = Number.isFinite(stamped) && stamped < cutoff;
+        const isTooOld = Number.isFinite(stamped) && stamped < cutoff;
         // Cap-exempt, not age-exempt: a trim row is only ever taken here when
         // the day window took it.
-        const forCap = removed.length < neededForCap && entry.eventType !== TRIM_EVENT;
-        if (!tooOld && !forCap) {
+        const isForCap = removed.length < neededForCap && entry.eventType !== TRIM_EVENT;
+        if (!isTooOld && !isForCap) {
             survivors.push(entry);
             continue;
         }
 
         // Whichever limit trips first names the row: the walk is
         // oldest-first, so the first removal is the binding one.
-        limitReached ??= tooOld ? 'day-window' : 'entry-cap';
+        limitReached ??= isTooOld ? 'day-window' : 'entry-cap';
         removed.push(entry);
     }
 

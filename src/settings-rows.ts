@@ -213,8 +213,8 @@ function helperOf(descriptor: FieldDescriptor): string {
  * @returns The row: its painted line, its control's name, and its affordance.
  */
 function descriptorRow(envelope: ConfigEnvelope, descriptor: FieldDescriptor): SettingsRow {
-    const filled = envelope.defaultsApplied.includes(descriptor.name);
-    const suffix = filled ? ' · reads as default' : '';
+    const isFilled = envelope.defaultsApplied.includes(descriptor.name);
+    const suffix = isFilled ? ' · reads as default' : '';
     const words = takeEffectWords(descriptor.takesEffect);
     const value = envelope.config[descriptor.name];
     const label = labelOf(descriptor);

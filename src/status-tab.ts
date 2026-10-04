@@ -159,7 +159,7 @@ function mountNotice(input: NoticeInput): StatusNotice {
 }
 
 /**
- * Rows whose *value* is machine-shaped — a path, a stamp — and so reads best
+ * Rows whose *value* is isMachine-shaped — a path, a stamp — and so reads best
  * in the mono stack. Matched against the label the split produced, so a
  * service that reorders its block cannot quietly turn a path into
  * proportional text.
@@ -175,13 +175,13 @@ const MONO_VALUE_LABELS: readonly string[] = ['Data directory', 'Next poll'];
  */
 function rowInput(group: StatusRowGroup, line: string): LineInput {
     const split = splitLine(line);
-    const machine = split !== null && MONO_VALUE_LABELS.includes(split.key);
-    const subject = split !== null && split.separator === EM_DASH_SEPARATOR;
+    const isMachine = split !== null && MONO_VALUE_LABELS.includes(split.key);
+    const isSubject = split !== null && split.separator === EM_DASH_SEPARATOR;
 
     return {
         line,
-        ...(machine ? { valueClass: 'mt-val--mono' } : {}),
-        ...(subject && group.keyClass !== null ? { keyClass: group.keyClass } : {}),
+        ...(isMachine ? { valueClass: 'mt-val--mono' } : {}),
+        ...(isSubject && group.keyClass !== null ? { keyClass: group.keyClass } : {}),
     };
 }
 

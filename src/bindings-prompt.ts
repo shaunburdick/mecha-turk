@@ -147,7 +147,7 @@ export function mountBindingPrompt(input: {
  * back the moment the service accepts the next save.
  *
  * What the input shows does not depend on the selection: a form the operator
- * has open is typeable in both modes, and *New binding* selects no row *by
+ * has open is isTypeable in both modes, and *New binding* selects no row *by
  * design* (the add form's own signal throughout). That is also why the
  * guidance is unconditional — an idle line telling an operator who is
  * creating a binding to *select* one is copy FR-063 never asked for, and
@@ -159,11 +159,11 @@ export function mountBindingPrompt(input: {
  */
 export function repaintBindingPrompt(rt: PanelRuntime, controls: BindingPromptControls): void {
     const state = rt.state.bindings;
-    const typeable = state.editorOpen && state.status !== 'loading';
+    const isTypeable = state.editorOpen && state.status !== 'loading';
 
     controls.field.update({
         value: state.startingPromptInput,
-        disabled: !typeable,
+        disabled: !isTypeable,
         helper: state.startingPromptError ?? PROMPT_GUIDANCE,
     });
 }

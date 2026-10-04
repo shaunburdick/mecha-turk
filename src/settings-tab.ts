@@ -236,9 +236,9 @@ function rowsContext(
  * @param slice - The Settings tab's state.
  */
 function repaintBanner(ui: SettingsTabUi, slice: SettingsTabState): void {
-    const savable = slice.doc !== null && slice.edit.blocked === null;
+    const isSavable = slice.doc !== null && slice.edit.blocked === null;
     ui.banner.update(
-        savable
+        isSavable
             ? { tone: 'info', title: EDITABLE_TITLE, body: EDITABLE_BODY }
             : { tone: 'info', title: READ_ONLY_TITLE, body: READ_ONLY_BODY },
     );
@@ -355,10 +355,10 @@ function saveControlsFor(slice: SettingsTabState): {
  * @param slice - The Settings tab's state.
  */
 function repaintControls(ui: SettingsTabUi, slice: SettingsTabState): void {
-    const savable = slice.edit.blocked === null;
-    ui.saveBox.hidden = !savable;
-    ui.blockedBox.hidden = savable;
-    if (!savable) {
+    const isSavable = slice.edit.blocked === null;
+    ui.saveBox.hidden = !isSavable;
+    ui.blockedBox.hidden = isSavable;
+    if (!isSavable) {
         ui.blockedLine.update({ text: slice.edit.blocked ?? '' });
     }
 

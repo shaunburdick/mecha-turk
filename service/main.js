@@ -567,7 +567,7 @@ async function runAccountPromptChain(store, task) {
   return await run;
 }
 async function appendAccountPromptChange(input) {
-  const present = input.current !== null;
+  const isPresent = input.current !== null;
   let decision;
   if (input.current === null) {
     decision = "cleared";
@@ -582,7 +582,7 @@ async function appendAccountPromptChange(input) {
     decision,
     reason: null,
     details: {
-      promptPresent: present,
+      promptPresent: isPresent,
       promptFingerprint: input.current?.fingerprint ?? null,
       promptLength: input.current?.length ?? 0,
       previousFingerprint: input.previousFingerprint
@@ -1664,8 +1664,8 @@ async function protectedSeqsOf(input) {
 }
 function planRemoval(input) {
   const { ordered, protectedSeqs, cutoff, maxEntries } = input;
-  const overCap = ordered.length > maxEntries;
-  const neededForCap = overCap ? ordered.length + 1 - maxEntries : 0;
+  const isOverCap = ordered.length > maxEntries;
+  const neededForCap = isOverCap ? ordered.length + 1 - maxEntries : 0;
   const survivors = [];
   const removed = [];
   let limitReached = null;
@@ -1675,13 +1675,13 @@ function planRemoval(input) {
       continue;
     }
     const stamped = Date.parse(entry.timestamp);
-    const tooOld = Number.isFinite(stamped) && stamped < cutoff;
-    const forCap = removed.length < neededForCap && entry.eventType !== TRIM_EVENT;
-    if (!tooOld && !forCap) {
+    const isTooOld = Number.isFinite(stamped) && stamped < cutoff;
+    const isForCap = removed.length < neededForCap && entry.eventType !== TRIM_EVENT;
+    if (!isTooOld && !isForCap) {
       survivors.push(entry);
       continue;
     }
-    limitReached ??= tooOld ? "day-window" : "entry-cap";
+    limitReached ??= isTooOld ? "day-window" : "entry-cap";
     removed.push(entry);
   }
   return { survivors, removed, limitReached };
@@ -2250,7 +2250,7 @@ function parseReference(raw) {
   const detectedAt = readStamp(raw.detectedAt);
   const { kind, origin } = raw;
   const present = readFlag(raw.presentAtAuthorization);
-  const unusable = [
+  const isUnusable = [
     deliveryId,
     sourceUrl,
     detectedAt,
@@ -2258,7 +2258,7 @@ function parseReference(raw) {
     readActorLoginField(raw),
     readActorAttributionField(raw)
   ].includes(null) || !isEventKind(kind) || typeof origin !== "string" || !isValidOrigin(origin);
-  if (unusable || deliveryId === null || sourceUrl === null || detectedAt === null || present === null) {
+  if (isUnusable || deliveryId === null || sourceUrl === null || detectedAt === null || present === null) {
     return null;
   }
   return {
@@ -2549,17 +2549,17 @@ function sessionHistoryHolds(input) {
   const { state, session, attempts } = input;
   const sessionAttempts = attempts.filter((attempt) => attempt.outcome === "dispatched" || attempt.sessionId !== null);
   const knownSessionIds = new Set(sessionAttempts.flatMap((attempt) => attempt.sessionId === null ? [] : [attempt.sessionId]));
-  const invalidAttemptSession = attempts.some((attempt) => attempt.sessionId !== null && attempt.outcome !== "dispatched");
-  const contradictorySessionHistory = sessionAttempts.length > 0 && state !== "dispatched";
-  const mismatchedSession = session !== null && (state !== "dispatched" || !knownSessionIds.has(session.sessionId));
-  return !invalidAttemptSession && !contradictorySessionHistory && !mismatchedSession && knownSessionIds.size <= 1;
+  const isInvalidAttemptSession = attempts.some((attempt) => attempt.sessionId !== null && attempt.outcome !== "dispatched");
+  const isContradictorySessionHistory = sessionAttempts.length > 0 && state !== "dispatched";
+  const isMismatchedSession = session !== null && (state !== "dispatched" || !knownSessionIds.has(session.sessionId));
+  return !isInvalidAttemptSession && !isContradictorySessionHistory && !isMismatchedSession && knownSessionIds.size <= 1;
 }
 function runRelationsHold(input) {
   const { scalars, objects, references, attempts, attachmentId } = input;
   const referenceIds = new Set(references.map((reference) => reference.deliveryId));
-  const referencesAccounted = scalars.referenceCount === references.length + scalars.referencesNotRetained && scalars.referencesTruncated === scalars.referencesNotRetained > 0;
-  const basicRelationsHold = referencesAccounted && (objects.session === null || objects.session.attachmentId === attachmentId) && (objects.lease === null || objects.lease.attempt === scalars.attempt) && (objects.reservation === null || objects.reservation.attempt === scalars.attempt) && referenceIds.size === references.length;
-  return basicRelationsHold && sessionHistoryHolds({
+  const isReferencesAccounted = scalars.referenceCount === references.length + scalars.referencesNotRetained && scalars.referencesTruncated === scalars.referencesNotRetained > 0;
+  const isBasicRelationsHold = isReferencesAccounted && (objects.session === null || objects.session.attachmentId === attachmentId) && (objects.lease === null || objects.lease.attempt === scalars.attempt) && (objects.reservation === null || objects.reservation.attempt === scalars.attempt) && referenceIds.size === references.length;
+  return isBasicRelationsHold && sessionHistoryHolds({
     state: scalars.state,
     session: objects.session,
     attempts
@@ -2799,8 +2799,8 @@ async function flushRunAuditIntents(input) {
   }
   const remaining = [];
   for (const intent of intents) {
-    const persisted = await persistIntent({ ...input, intent, entries });
-    if (!persisted) {
+    const isPersisted = await persistIntent({ ...input, intent, entries });
+    if (!isPersisted) {
       remaining.push(intent);
     }
   }
@@ -3452,9 +3452,9 @@ function parseBindingSlot(value) {
     return null;
   }
   const { lastScanAt, lastError } = value;
-  const stampHolds = lastScanAt === null || typeof lastScanAt === "string";
-  const reasonHolds = lastError === null || typeof lastError === "string";
-  if (!stampHolds || !reasonHolds) {
+  const isStampHolds = lastScanAt === null || typeof lastScanAt === "string";
+  const isReasonHolds = lastError === null || typeof lastError === "string";
+  if (!isStampHolds || !isReasonHolds) {
     return null;
   }
   return {
@@ -3822,12 +3822,12 @@ function readBytes(request) {
   return new Promise((resolve) => {
     const chunks = [];
     let total = 0;
-    let settled2 = false;
+    let isSettled = false;
     const finish = (outcome) => {
-      if (settled2) {
+      if (isSettled) {
         return;
       }
-      settled2 = true;
+      isSettled = true;
       resolve(outcome);
     };
     request.on("data", (chunk) => {
@@ -4301,12 +4301,12 @@ async function runPipeline(call) {
 function attachCompletion(call) {
   const startedAt = Date.now();
   const url = parseRequestTarget(call.request.url);
-  let settled2 = false;
+  let isSettled = false;
   const complete = () => {
-    if (settled2) {
+    if (isSettled) {
       return;
     }
-    settled2 = true;
+    isSettled = true;
     call.deps.state.inFlight -= 1;
     call.deps.log.info("request", {
       method: call.request.method ?? "unknown",
@@ -4517,7 +4517,7 @@ async function handleListAccounts(context) {
 }
 function rotatedAccount(input) {
   const { account, outcome, token } = input;
-  const recovering = account.state !== "active";
+  const isRecovering = account.state !== "active";
   const verifiedAt = nowIso();
   return {
     ...account,
@@ -4525,7 +4525,7 @@ function rotatedAccount(input) {
     credential: { token, kind: outcome.credentialKind, verifiedAt },
     scopeCheck: outcome.scopeCheck,
     verifiedAt,
-    ...recovering ? { state: "active", connectionState: "connected", errorReason: null } : {}
+    ...isRecovering ? { state: "active", connectionState: "connected", errorReason: null } : {}
   };
 }
 async function recordRotationRejection(subject, reason) {
@@ -4672,8 +4672,8 @@ async function handleDeleteAccount(context, request) {
     return unknownAccountResponse();
   }
   const bindings = await bindingsReferencing(store, pathId);
-  const forced = request.url.searchParams.get(FORCE_QUERY_FLAG) === FORCE_QUERY_VALUE;
-  if (bindings.length > 0 && !forced) {
+  const isForced = request.url.searchParams.get(FORCE_QUERY_FLAG) === FORCE_QUERY_VALUE;
+  if (bindings.length > 0 && !isForced) {
     return bindingsRefusalResponse(bindings.length);
   }
   if (bindings.length > 0) {
@@ -5111,13 +5111,13 @@ async function recordConfigPromptChanges(input) {
   if (previous === current) {
     return 0;
   }
-  const written = await appendConfigApplied({
+  const isWritten = await appendConfigApplied({
     store: input.store,
     log: input.log,
     actor: input.actor,
     changes: [{ field: "startingPrompt", from: previous, to: current }]
   });
-  return written ? 1 : 0;
+  return isWritten ? 1 : 0;
 }
 async function advanceConfigPromptBaseline(input) {
   const state = stateFor2(input.store);
@@ -5253,8 +5253,8 @@ function isGitHubLogin(value) {
   if (typeof value !== "string") {
     return false;
   }
-  const bot = value.toLowerCase().endsWith(BOT_SUFFIX);
-  const spelled = bot ? value.slice(0, -BOT_SUFFIX.length) : value;
+  const isBot = value.toLowerCase().endsWith(BOT_SUFFIX);
+  const spelled = isBot ? value.slice(0, -BOT_SUFFIX.length) : value;
   if (spelled.length === 0 || spelled.length > GITHUB_LOGIN_MAX_CHARS) {
     return false;
   }
@@ -5488,8 +5488,8 @@ function collectBindingIssues(candidates, accountExists) {
       issues.push({ field: "bindings[]", remediation: "each binding must be a JSON object" });
       continue;
     }
-    const exists = typeof record.accountNumericUserId === "string" && accountExists(record.accountNumericUserId);
-    const verdict = parseBinding({ raw: record, accountExists: exists });
+    const isExists = typeof record.accountNumericUserId === "string" && accountExists(record.accountNumericUserId);
+    const verdict = parseBinding({ raw: record, accountExists: isExists });
     if ("issues" in verdict) {
       issues.push(...verdict.issues);
       continue;
@@ -5575,7 +5575,7 @@ async function runPromptChain(store, task) {
   return await run;
 }
 async function appendPromptChange(input) {
-  const present = input.current !== null;
+  const isPresent = input.current !== null;
   let decision;
   if (input.current === null) {
     decision = "cleared";
@@ -5591,7 +5591,7 @@ async function appendPromptChange(input) {
     reason: null,
     details: {
       bindingId: input.bindingId,
-      promptPresent: present,
+      promptPresent: isPresent,
       promptFingerprint: input.current?.fingerprint ?? null,
       promptLength: input.current?.length ?? 0,
       previousFingerprint: input.previousFingerprint
@@ -7179,10 +7179,10 @@ function requiredMember(input) {
 }
 function parseRunScopeRequest(input) {
   const { raw, correlationId, needs } = input;
-  const structured = isBodyObject(raw) && raw !== undefined;
-  const record = structured ? raw : {};
+  const isStructured = isBodyObject(raw) && raw !== undefined;
+  const record = isStructured ? raw : {};
   const issues = [];
-  if (raw !== undefined && !structured) {
+  if (raw !== undefined && !isStructured) {
     issues.push({ field: "body", remediation: BODY_REMEDIATION });
   }
   const echo = echoIssue(record, correlationId);
@@ -7222,10 +7222,10 @@ function readRunScopeRequest(input) {
 }
 function readRunScopeBody(input) {
   const { raw, correlationId } = input;
-  const structured = isBodyObject(raw) && raw !== undefined;
-  const record = structured ? raw : {};
+  const isStructured = isBodyObject(raw) && raw !== undefined;
+  const record = isStructured ? raw : {};
   const issues = [];
-  if (raw !== undefined && !structured) {
+  if (raw !== undefined && !isStructured) {
     issues.push({ field: "body", remediation: BODY_REMEDIATION });
   }
   const echo = echoIssue(record, correlationId);
@@ -9207,8 +9207,8 @@ function mentionEvents(input) {
   const known = new Map(issues.map((issue2) => [issue2.issueNumber, issue2]));
   const events = [];
   for (const comment of comments) {
-    const eligible = stampInWindow(comment.updatedAt, windowStart) && isMentionComment(comment, login);
-    if (!eligible) {
+    const isEligible = stampInWindow(comment.updatedAt, windowStart) && isMentionComment(comment, login);
+    if (!isEligible) {
       continue;
     }
     const issue2 = known.get(comment.issueNumber) ?? null;
@@ -9221,8 +9221,8 @@ function bodyMentionEvents(input) {
   const label = repositoryLabel(repositoryRefOf(binding.repository));
   const events = [];
   for (const issue2 of issues) {
-    const eligible = stampInWindow(issue2.updatedAt, windowStart) && isIssueBodyMention(issue2, login);
-    if (!eligible) {
+    const isEligible = stampInWindow(issue2.updatedAt, windowStart) && isIssueBodyMention(issue2, login);
+    if (!isEligible) {
       continue;
     }
     events.push(createEvent({
@@ -9822,19 +9822,19 @@ function createGitHubIssuePoller(deps, fetchImpl = (url, init) => globalThis.fet
 function startPollLoop(deps) {
   let timer = null;
   let stopped = false;
-  let inFlight = false;
+  let isInFlight = false;
   let nextAtMs = null;
   const cycle = async () => {
-    if (stopped || inFlight) {
+    if (stopped || isInFlight) {
       return;
     }
-    inFlight = true;
+    isInFlight = true;
     try {
       await runScanCycle(deps);
     } catch (cause) {
       deps.log.warn("poll cycle failed", { errorKind: describeKind(cause) });
     } finally {
-      inFlight = false;
+      isInFlight = false;
     }
     await currentIntervalMs(deps.store, deps.log).then((interval) => {
       if (stopped) {
@@ -9897,15 +9897,15 @@ function createVerifyThrottle(now = Date.now) {
       }
       stamps.push(at);
       active += 1;
-      let released = false;
+      let isReleased = false;
       return {
         allowed: true,
         lease: {
           release: () => {
-            if (released) {
+            if (isReleased) {
               return;
             }
-            released = true;
+            isReleased = true;
             active -= 1;
           }
         }

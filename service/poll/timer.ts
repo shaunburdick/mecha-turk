@@ -31,24 +31,24 @@ export type { PollLoop };
 export function startPollLoop(deps: ScanDeps): PollLoop {
     let timer: NodeJS.Timeout | null = null;
     let stopped = false;
-    let inFlight = false;
+    let isInFlight = false;
     // Epoch stamp of the armed timer, published read-only through `state()`
     // so the status projection reports the scheduler's own schedule instead of
     // a second one it could drift from.
     let nextAtMs: number | null = null;
 
     const cycle = async (): Promise<void> => {
-        if (stopped || inFlight) {
+        if (stopped || isInFlight) {
             return;
         }
 
-        inFlight = true;
+        isInFlight = true;
         try {
             await runScanCycle(deps);
         } catch (cause) {
             deps.log.warn('poll cycle failed', { errorKind: describeKind(cause) });
         } finally {
-            inFlight = false;
+            isInFlight = false;
         }
 
         await currentIntervalMs(deps.store, deps.log).then((interval) => {

@@ -258,7 +258,7 @@ export function runRequestOf(input: {
  * `failure`), which is what carries it through the existing failed-attempt
  * `problem` path into the operator's run row without a new state or reason.
  *
- * A rejected `host.startSession()` is recorded as a failure with the transport
+ * A rejected `host.startSession()` is isRecorded as a failure with the transport
  * problem as its reason: the guest bridge documents a created session as a
  * resolved result carrying its id, so a rejection means the request never came
  * back with one — and an outcome, either way, is exactly what FR-024 requires
@@ -393,14 +393,14 @@ export async function closeAttempt(input: {
         detail: started.detail,
     });
 
-    const recorded = await recordDispatchOutcome(rt, {
+    const isRecorded = await recordDispatchOutcome(rt, {
         correlationId: run.correlationId,
         runKey: run.runKey,
         attempt: run.attempt,
         dispatchToken: token,
         outcome: started.outcome,
     });
-    if (!recorded && stillRunning(rt)) {
+    if (!isRecorded && stillRunning(rt)) {
         rt.state.bindings.note = redact(`Run ${run.correlationId}: the dispatch record could not be written, so a lost`
             + ' report would not be recoverable from this panel.');
     }

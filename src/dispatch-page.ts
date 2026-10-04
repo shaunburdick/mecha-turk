@@ -109,9 +109,9 @@ export function resetDispatchListPage(page: DispatchListPage): DispatchListPage 
  * @returns The first page of the new set, at `limit`.
  */
 export function dispatchListPageAt(limit: number): DispatchListPage {
-    const accepted = DISPATCH_PAGE_SIZES.includes(limit as (typeof DISPATCH_PAGE_SIZES)[number]);
+    const isAccepted = DISPATCH_PAGE_SIZES.includes(limit as (typeof DISPATCH_PAGE_SIZES)[number]);
 
-    return { ...initialDispatchListPage(), limit: accepted ? limit : DEFAULT_PAGE_SIZE };
+    return { ...initialDispatchListPage(), limit: isAccepted ? limit : DEFAULT_PAGE_SIZE };
 }
 
 /**

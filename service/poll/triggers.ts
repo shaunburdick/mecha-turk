@@ -226,9 +226,9 @@ function mentionEvents(input: {
     const events: QueuedEvent[] = [];
 
     for (const comment of comments) {
-        const eligible = stampInWindow(comment.updatedAt, windowStart)
+        const isEligible = stampInWindow(comment.updatedAt, windowStart)
             && isMentionComment(comment, login);
-        if (!eligible) {
+        if (!isEligible) {
             continue;
         }
 
@@ -270,9 +270,9 @@ function bodyMentionEvents(input: {
     const events: QueuedEvent[] = [];
 
     for (const issue of issues) {
-        const eligible = stampInWindow(issue.updatedAt, windowStart)
+        const isEligible = stampInWindow(issue.updatedAt, windowStart)
             && isIssueBodyMention(issue, login);
-        if (!eligible) {
+        if (!isEligible) {
             continue;
         }
 

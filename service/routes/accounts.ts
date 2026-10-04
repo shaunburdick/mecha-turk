@@ -164,7 +164,7 @@ function rotatedAccount(input: {
     readonly token: string;
 }): Account {
     const { account, outcome, token } = input;
-    const recovering = account.state !== 'active';
+    const isRecovering = account.state !== 'active';
     const verifiedAt = nowIso();
 
     return {
@@ -173,7 +173,7 @@ function rotatedAccount(input: {
         credential: { token, kind: outcome.credentialKind, verifiedAt },
         scopeCheck: outcome.scopeCheck,
         verifiedAt,
-        ...(recovering ? { state: 'active' as const, connectionState: 'connected' as const, errorReason: null } : {}),
+        ...(isRecovering ? { state: 'active' as const, connectionState: 'connected' as const, errorReason: null } : {}),
     };
 }
 
@@ -400,7 +400,7 @@ async function handleRotateToken(context: RouteContext, request: RouteRequest): 
 }
 
 /**
- * Audit every binding a forced delete disabled (contract §2.2, §4 rule 7).
+ * Audit every binding a isForced delete disabled (contract §2.2, §4 rule 7).
  *
  * @param store - Open store.
  * @param bindings - The bindings that were disabled, as they were read.
@@ -455,8 +455,8 @@ async function handleDeleteAccount(context: RouteContext, request: RouteRequest)
     }
 
     const bindings = await bindingsReferencing(store, pathId);
-    const forced = request.url.searchParams.get(FORCE_QUERY_FLAG) === FORCE_QUERY_VALUE;
-    if (bindings.length > 0 && !forced) {
+    const isForced = request.url.searchParams.get(FORCE_QUERY_FLAG) === FORCE_QUERY_VALUE;
+    if (bindings.length > 0 && !isForced) {
         return bindingsRefusalResponse(bindings.length);
     }
 

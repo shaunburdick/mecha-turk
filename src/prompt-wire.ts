@@ -51,11 +51,11 @@ export interface ClaimPrompt extends PromptReference {
  * @returns The explicit unset quartet, or `null` when a member disagrees.
  */
 function absentReference(record: Record<string, unknown>): PromptReference | null {
-    const clean = record.promptFingerprint === null
+    const isClean = record.promptFingerprint === null
         && record.promptLength === null
         && record.promptSources === null;
 
-    return clean
+    return isClean
         ? { promptPresent: false, promptFingerprint: null, promptLength: null, promptSources: null }
         : null;
 }

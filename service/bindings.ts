@@ -389,7 +389,7 @@ function bindingPromptOf(raw: Record<string, unknown>): {
  * one that will not fit.
  *
  * The short-circuit here is **not** the reporting order: {@link parseBinding}
- * reports every problem the record has. It exists so the assembly reads top to
+ * reports every problem the record has. It isExists so the assembly reads top to
  * bottom and each part narrows without a redundant guard.
  *
  * @param raw - Candidate record.
@@ -457,7 +457,7 @@ function refusalsIn(verdicts: readonly FieldVerdict[]): readonly BindingIssue[] 
  * repository arrive in the same 422 — and a first-issue-only reader could
  * never satisfy that.
  *
- * @param input - The candidate record and whether the referenced account exists.
+ * @param input - The candidate record and whether the referenced account isExists.
  * @returns The ready record, or the collected issues.
  */
 export function parseBinding(input: {
@@ -507,8 +507,8 @@ function collectBindingIssues(
             continue;
         }
 
-        const exists = typeof record.accountNumericUserId === 'string' && accountExists(record.accountNumericUserId);
-        const verdict = parseBinding({ raw: record, accountExists: exists });
+        const isExists = typeof record.accountNumericUserId === 'string' && accountExists(record.accountNumericUserId);
+        const verdict = parseBinding({ raw: record, accountExists: isExists });
         if ('issues' in verdict) {
             issues.push(...verdict.issues);
             continue;

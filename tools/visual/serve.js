@@ -186,10 +186,10 @@ function portFromEnv() {
     return Number.isNaN(configured) ? DEFAULT_PORT : configured;
 }
 
-const invokedDirectly =
+const isInvokedDirectly =
     process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 
-if (invokedDirectly) {
+if (isInvokedDirectly) {
     startServer({ port: portFromEnv() })
         .then((server) => writeLine(`harness: ${server.url}/tools/visual/index.html`))
         .catch((error) => {

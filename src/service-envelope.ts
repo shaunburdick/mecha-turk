@@ -317,14 +317,14 @@ export function resultWithErrorOf(answer: GuestRequestResult, resource: ServiceR
         return { ok: true, body: answer.body };
     }
 
-    const inEnvelope = isErrorStatus(answer.status);
+    const isInEnvelope = isErrorStatus(answer.status);
 
     return {
         ok: false,
         problem: httpProblem(answer.status, resource),
-        code: inEnvelope ? envelopeFieldOf(answer.body, 'code') : null,
-        message: inEnvelope ? envelopeFieldOf(answer.body, 'message') : null,
-        referenceWindow: inEnvelope ? envelopeReferenceWindowOf(answer.body) : null,
+        code: isInEnvelope ? envelopeFieldOf(answer.body, 'code') : null,
+        message: isInEnvelope ? envelopeFieldOf(answer.body, 'message') : null,
+        referenceWindow: isInEnvelope ? envelopeReferenceWindowOf(answer.body) : null,
     };
 }
 
@@ -339,13 +339,13 @@ export function configResultOf(answer: GuestRequestResult): ServiceConfigPutResu
         return { ok: true, body: answer.body };
     }
 
-    const inEnvelope = isErrorStatus(answer.status);
+    const isInEnvelope = isErrorStatus(answer.status);
 
     return {
         ok: false,
         problem: httpProblem(answer.status, 'configuration'),
-        code: inEnvelope ? envelopeFieldOf(answer.body, 'code') : null,
-        issues: inEnvelope ? envelopeIssuesOf(answer.body) : [],
-        correlationId: inEnvelope ? envelopeFieldOf(answer.body, 'correlationId') : null,
+        code: isInEnvelope ? envelopeFieldOf(answer.body, 'code') : null,
+        issues: isInEnvelope ? envelopeIssuesOf(answer.body) : [],
+        correlationId: isInEnvelope ? envelopeFieldOf(answer.body, 'correlationId') : null,
     };
 }
