@@ -27,7 +27,6 @@ const UTF8_ENCODER = new TextEncoder();
  * — two units for a character the encoder writes as four bytes. Measuring in
  * bytes keeps the panel's own gate honest against the host's own limit.
  *
- * @param text - Serialized text, typically `JSON.stringify` output.
  * @returns The length of the text in UTF-8 bytes.
  */
 export function utf8ByteLength(text: string): number {
@@ -41,9 +40,7 @@ export class JsonShapeError extends Error {
     /** Stable machine-readable marker so callers can discriminate. */
     public override readonly name = 'JsonShapeError';
 
-    /**
-     * @param path - Location of the offending value inside the document.
-     */
+    /** `path` locates the offending value inside the document. */
     public constructor(path: string) {
         super(`value at ${path} is not plain JSON`);
     }
@@ -52,7 +49,6 @@ export class JsonShapeError extends Error {
 /**
  * Check that an unknown value is a JSON value.
  *
- * @param value - Candidate value, typically straight out of `JSON.parse`.
  * @returns `true` for strings, finite numbers, booleans, arrays, and objects.
  */
 export function isJsonValue(value: unknown): value is JsonValue {
@@ -78,7 +74,6 @@ export function isJsonValue(value: unknown): value is JsonValue {
 /**
  * Parse serialized JSON into a `JsonValue`, checking the shape first.
  *
- * @param text - Serialized JSON produced by this extension.
  * @returns The value, safe to hand to `host.storage.set`.
  * @throws {JsonShapeError} When the document is not valid JSON.
  */
@@ -100,7 +95,6 @@ export function parseJsonValue(text: string): JsonValue {
 /**
  * Parse JSON without throwing, returning `null` for anything unusable.
  *
- * @param text - Candidate JSON text, typically a response body.
  * @returns The parsed value, or `null` when the text is not valid JSON.
  */
 export function tryParseJson(text: string): JsonValue | null {
@@ -114,7 +108,6 @@ export function tryParseJson(text: string): JsonValue | null {
 /**
  * Parse JSON and require a plain object (never an array or a primitive).
  *
- * @param text - Candidate JSON text.
  * @returns The object, or `null` when the text is not a JSON object.
  */
 export function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -132,7 +125,6 @@ export function parseJsonObject(text: string): Record<string, unknown> | null {
  * One guard for the "is this object-shaped input?" check the response and
  * storage parsers share; arrays and primitives read as absent.
  *
- * @param value - Candidate value.
  * @returns The record, or `null` for arrays and others.
  */
 export function asRecord(value: unknown): Record<string, unknown> | null {
@@ -146,8 +138,6 @@ export function asRecord(value: unknown): Record<string, unknown> | null {
 /**
  * Check every field of one record holds usable text.
  *
- * @param record - Candidate record.
- * @param fields - Field names to require.
  * @returns `true` when every field is usable text.
  */
 export function fieldsHoldText(record: Record<string, unknown>, fields: readonly string[]): boolean {
@@ -157,8 +147,6 @@ export function fieldsHoldText(record: Record<string, unknown>, fields: readonly
 /**
  * Read one string field, defaulting to `''`.
  *
- * @param record - Parsed record.
- * @param field - Field name.
  * @returns The field text, or `''` when unusable.
  */
 export function textOrEmpty(record: Record<string, unknown>, field: string): string {
@@ -170,8 +158,6 @@ export function textOrEmpty(record: Record<string, unknown>, field: string): str
 /**
  * Read one stamp-or-null field.
  *
- * @param record - Parsed record.
- * @param field - Field name.
  * @returns The stamp, or `null` when unusable.
  */
 export function textOrNull(record: Record<string, unknown>, field: string): string | null {
@@ -183,8 +169,6 @@ export function textOrNull(record: Record<string, unknown>, field: string): stri
 /**
  * Read one non-negative integer field.
  *
- * @param record - Parsed record.
- * @param field - Field name.
  * @returns The integer, or `0` when unusable.
  */
 export function integerOrZero(record: Record<string, unknown>, field: string): number {

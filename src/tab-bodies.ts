@@ -34,8 +34,6 @@ import type { TabDisposer, TabSpec } from './tabs.ts';
  * the service answers with. Only this body's own handles are disposed here:
  * the handoff view stays owned by the panel root, exactly as before.
  *
- * @param rt - Panel runtime.
- * @param body - The Accounts body container the shell created.
  * @returns A disposer that releases the list, detail, and note handles.
  */
 function mountAccountsBody(rt: PanelRuntime, body: HTMLElement): () => void {
@@ -55,8 +53,6 @@ function mountAccountsBody(rt: PanelRuntime, body: HTMLElement): () => void {
  * checklist follows with its own remediation per line, and the unmet notice
  * it raises lives in the root region where switching tabs cannot hide it.
  *
- * @param rt - Panel runtime the body reads.
- * @param body - The Status body container the shell created.
  * @returns A disposer that releases the projection's handles; the section
  *   disposes through its own registry at teardown.
  */
@@ -74,8 +70,6 @@ function statusSpec(rt: PanelRuntime, body: HTMLElement): () => void {
  * its one retry — and the disposer releases every handle it created. Nothing
  * here writes: the configuration document is rendered, not edited.
  *
- * @param rt - Panel runtime the body reads and repaints.
- * @param body - The Settings body container the shell created.
  * @returns A disposer that releases the body's handles.
  */
 function settingsSpec(rt: PanelRuntime, body: HTMLElement): TabDisposer {
@@ -87,8 +81,6 @@ function settingsSpec(rt: PanelRuntime, body: HTMLElement): TabDisposer {
 /**
  * The Dispatches body: the list, its affordances, and its audit trail.
  *
- * @param rt - Panel runtime.
- * @param body - The body container the shell created.
  * @returns A disposer that releases the board's handles.
  */
 function mountDispatchesBody(rt: PanelRuntime, body: HTMLElement): () => void {
@@ -104,9 +96,6 @@ function mountDispatchesBody(rt: PanelRuntime, body: HTMLElement): () => void {
 /**
  * The Bindings body: the picker, the status/list, and the add form.
  *
- * @param rt - Panel runtime.
- * @param body - The body container the shell created.
- * @param handlers - The picker's callbacks.
  * @returns A disposer that releases the picker and the pane's handles.
  */
 function mountBindingsBody(input: {
@@ -152,8 +141,6 @@ function mountBindingsBody(input: {
  * The About body: static identity, the version, and the read-only
  * Diagnostics section.
  *
- * @param rt - Panel runtime the body reads and repaints.
- * @param body - The About body container the shell created.
  * @returns A disposer that releases the body's handles.
  */
 function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
@@ -165,8 +152,6 @@ function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
 /**
  * The six tab bodies order.
  *
- * @param rt - Panel runtime the bodies read and repaint.
- * @param handlers - The picker's callbacks, which live on the Bindings body.
  * @returns The specs the shell mounts from.
  */
 export function tabSpecs(rt: PanelRuntime, handlers: PanelHandlers): readonly TabSpec[] {

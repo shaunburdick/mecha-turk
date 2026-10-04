@@ -51,7 +51,6 @@ const BINDINGS_UNREADABLE = 'The binding list could not be read: the data direct
 /**
  * Format an interval for display.
  *
- * @param ms - Interval in milliseconds.
  * @returns The grouped digits.
  */
 function intervalText(ms: number): string {
@@ -61,7 +60,6 @@ function intervalText(ms: number): string {
 /**
  * Format a millisecond duration as a short human duration.
  *
- * @param ms - Milliseconds of uptime.
  * @returns e.g. `2h 5m 3s`, or `0s` for a non-positive input.
  */
 export function formatUptime(ms: number): string {
@@ -91,7 +89,6 @@ export function formatUptime(ms: number): string {
  * reports its own real count beside it. A panel that printed `0 of 0` here
  * would be reporting a measurement GitHub never gave.
  *
- * @param rate - The account's rate state.
  * @returns The rate line.
  */
 export function rateLine(rate: StatusAccountView['rate']): string {
@@ -109,7 +106,6 @@ export function rateLine(rate: StatusAccountView['rate']): string {
 /**
  * The projection's service block.
  *
- * @param view - The parsed status document.
  * @returns One line per service fact.
  */
 export function serviceLines(view: StatusView): readonly string[] {
@@ -137,8 +133,6 @@ export function serviceLines(view: StatusView): readonly string[] {
  * Render a poll cadence, marking a stamp the timer has not reached yet as
  * *overdue* rather than substituting the configured interval.
  *
- * @param stamp - RFC 3339 next-poll stamp.
- * @param nowMs - Clock to judge lateness against.
  * @returns The next-poll line.
  */
 function nextPollLine(stamp: string, nowMs: number): string {
@@ -163,7 +157,6 @@ export interface PollingLinesInput {
 /**
  * The configured-interval line, which is honest about not having been read.
  *
- * @param configured - Configured interval, or `null` when it was not read.
  * @returns The line.
  */
 function configuredIntervalLine(configured: number | null): string {
@@ -181,7 +174,6 @@ function configuredIntervalLine(configured: number | null): string {
  * While the surface cannot run a service at all, nothing here claims a loop
  * is running.
  *
- * @param input - The document, the configured interval, and the clock.
  * @returns One line per polling fact.
  */
 export function pollingLines(input: PollingLinesInput): readonly string[] {
@@ -209,14 +201,15 @@ export function pollingLines(input: PollingLinesInput): readonly string[] {
         // An out-of-vocabulary reason is rendered verbatim, never mapped to a
         // friendly guess.
         const reason = polling.pausedReason === '' ? 'no reason reported' : polling.pausedReason;
-        lines.push(`Polling: paused — ${reason}`);
-        lines.push('Next poll: none while polling is paused');
+        lines.push(`Polling: paused — ${reason}`, 'Next poll: none while polling is paused');
 
         return lines;
     }
 
-    lines.push('Polling: running');
-    lines.push(polling.nextPollAt === null ? 'Next poll: not scheduled' : nextPollLine(polling.nextPollAt, nowMs));
+    lines.push(
+        'Polling: running',
+        polling.nextPollAt === null ? 'Next poll: not scheduled' : nextPollLine(polling.nextPollAt, nowMs),
+    );
 
     return lines;
 }
@@ -228,7 +221,6 @@ export function pollingLines(input: PollingLinesInput): readonly string[] {
  * accounts says so, and a degraded one says it could not read them, because
  * "you have none" and "I cannot tell" are different facts.
  *
- * @param view - The parsed status document.
  * @returns One line per account, plus an empty-state line when there are none.
  */
 export function accountLines(view: StatusView): readonly string[] {
@@ -250,7 +242,6 @@ export function accountLines(view: StatusView): readonly string[] {
  * An empty list says which of the two empties it is, for the same reason the
  * account list does.
  *
- * @param view - The parsed status document.
  * @returns One line per binding, plus an empty-state line when there are none.
  */
 export function bindingLines(view: StatusView): readonly string[] {
@@ -308,7 +299,6 @@ export function bindingLines(view: StatusView): readonly string[] {
  *   to decide whether to go and look, and naming them would make Status a second
  *   index of the Bindings tab (005 FR-039, clarification row 42).
  *
- * @param view - The parsed document, or `null` when none has been read.
  * @returns The single roll-up line.
  */
 export function actorPolicyLines(view: StatusView | null): readonly string[] {
@@ -356,7 +346,6 @@ export interface StatusNoticeStates {
  * With nothing read there is nothing to claim either way, so a `null` document
  * raises neither: an empty tab must not look blocked.
  *
- * @param view - The parsed document, or `null` when no read has landed.
  * @returns Which notices are visible.
  */
 export function noticeStates(view: StatusView | null): StatusNoticeStates {
@@ -384,7 +373,6 @@ export interface ProjectGuidanceInput {
  * While the host's project list has not loaded, nothing is claimed — an
  * unlisted project and an unread list are different facts.
  *
- * @param input - The binding rows and the registered project ids.
  * @returns The guidance line, or none when there is nothing to point at.
  */
 export function projectGuidanceLines(input: ProjectGuidanceInput): readonly string[] {
@@ -415,7 +403,6 @@ export function projectGuidanceLines(input: ProjectGuidanceInput): readonly stri
  * observation that was **not compared** — never as a mismatch (002 FR-029 as
  * amended).
  *
- * @param view - The parsed status document.
  * @returns One or two lines describing what is known about the pin.
  */
 export function agentPinLines(view: StatusView): readonly string[] {
@@ -455,7 +442,6 @@ export function agentPinLines(view: StatusView): readonly string[] {
  * A failure keeps the document it already holds and says so with the word
  * *stale*; a failure with nothing retained says plainly that there is none.
  *
- * @param slice - The Status tab's read state.
  * @returns The read-state line.
  */
 export function readStateLine(slice: StatusTabState): string {

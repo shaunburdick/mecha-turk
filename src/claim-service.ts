@@ -200,8 +200,6 @@ const REFERENCE_STRING_FIELDS = ['deliveryId', 'origin', 'sourceUrl', 'detectedA
 /**
  * Read one finite integer member.
  *
- * @param record - Parsed record.
- * @param field - Member name.
  * @returns The value, or `null` when it is missing or not a number.
  */
 function readInteger(record: Record<string, unknown>, field: string): number | null {
@@ -213,8 +211,6 @@ function readInteger(record: Record<string, unknown>, field: string): number | n
 /**
  * Bound one already-read number below, refusing a fractional value.
  *
- * @param value - The number, or `null` when the member was unusable.
- * @param min - Smallest acceptable value.
  * @returns The value, or `null` when it is missing, fractional, or too small.
  */
 function atLeast(value: number | null, min: number): number | null {
@@ -232,7 +228,6 @@ function atLeast(value: number | null, min: number): number | null {
  * so an absent or malformed lease refuses the row rather than being
  * defaulted — the guard keys off this member, never off `state`.
  *
- * @param value - The `lease` member as received.
  * @returns The lease, or `null`.
  */
 function parseLease(value: unknown): ClaimedLease | null {
@@ -260,7 +255,6 @@ function parseLease(value: unknown): ClaimedLease | null {
 /**
  * Read one retained source reference off the claim answer.
  *
- * @param value - One element of `sourceReferences`.
  * @returns The reference, or `null` when its shape is unusable.
  */
 function parseClaimReference(value: unknown): ClaimedReference | null {
@@ -290,7 +284,6 @@ function parseClaimReference(value: unknown): ClaimedReference | null {
 /**
  * Read the `sourceReferences` list, or `null` when any element is unusable.
  *
- * @param value - The member as received.
  * @returns The references, or `null`.
  */
 function parseClaimReferences(value: unknown): ClaimedReference[] | null {
@@ -314,8 +307,6 @@ function parseClaimReferences(value: unknown): ClaimedReference[] | null {
 /**
  * Check the answer's three reference-counting members against each other.
  *
- * @param counts - The counting members as received.
- * @param retained - How many references the answer actually carried.
  * @returns `true` when they reconcile.
  */
 function claimCountsReconcile(counts: ClaimNumbers, retained: number): boolean {
@@ -353,7 +344,6 @@ type ClaimSubject = Pick<ClaimedRun, 'subjectType' | 'issueNumber' | 'headSha' |
 /**
  * Read the identity members of one offered run.
  *
- * @param record - Parsed offer.
  * @returns The members, or `null` when any is missing, not a string, or empty.
  */
 function readClaimScalars(record: Record<string, unknown>): ClaimScalars | null {
@@ -383,7 +373,6 @@ function readClaimScalars(record: Record<string, unknown>): ClaimScalars | null 
 /**
  * Read the counting members of one offered run.
  *
- * @param record - Parsed offer.
  * @returns The members, or `null` when any is missing, fractional, or out of bounds.
  */
 function readClaimNumbers(record: Record<string, unknown>): ClaimNumbers | null {
@@ -412,7 +401,6 @@ function readClaimNumbers(record: Record<string, unknown>): ClaimNumbers | null 
  * normalizes it: for the panel the two are the same fact, and the run-key
  * component that matters (`subjectType`) is refused rather than defaulted.
  *
- * @param record - Parsed offer.
  * @returns The members, or `null` when the subject cannot be identified.
  */
 function readClaimSubject(record: Record<string, unknown>): ClaimSubject | null {
@@ -435,7 +423,6 @@ function readClaimSubject(record: Record<string, unknown>): ClaimSubject | null 
  * once every step agreed — so a half-readable offer is a refused offer, never
  * a partially applied one (AGENTS invariant 8).
  *
- * @param value - One element of the `events` array.
  * @returns The run, or `null` when its shape is unusable.
  */
 function parseClaimedRun(value: unknown): ClaimedRun | null {
@@ -457,11 +444,9 @@ function parseClaimedRun(value: unknown): ClaimedRun | null {
         || lease === null
         || references === null
         || prompt === null
+        || record.state !== 'pending'
+        || !claimCountsReconcile(numbers, references.length)
     ) {
-        return null;
-    }
-
-    if (record.state !== 'pending' || !claimCountsReconcile(numbers, references.length)) {
         return null;
     }
 
@@ -494,7 +479,6 @@ function parseClaimedRun(value: unknown): ClaimedRun | null {
  * does not send it reports a degraded trail rather than claiming one it cannot
  * prove — a member that is present but not a boolean refuses the body.
  *
- * @param text - Response body text.
  * @returns The claim answer, or `null` when the shape is unusable.
  */
 export function parsePendingBody(text: string): ClaimAnswer | null {
@@ -531,7 +515,6 @@ export function parsePendingBody(text: string): ClaimAnswer | null {
  * — the authorization outlives the lease — so this reader accepts both and
  * gates on nothing but the token itself.
  *
- * @param text - Response body text.
  * @returns The answer, or `null` when the shape is unusable.
  */
 export function parseReserveBody(text: string): ReserveAnswer | null {
