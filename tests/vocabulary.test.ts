@@ -230,7 +230,7 @@ describe('the L4 domain vocabulary FR-022 retains is still present (005 T-003)',
                 .map((module) => module.text)
                 .join('\n');
 
-            expect(corpus.length).toBeGreaterThan(1000);
+            expect(corpus.length).toBeGreaterThan(1_000);
 
             for (const { token, note } of RETAINED_L4) {
                 expect(corpus.includes(token), `${token} (${note}) must survive the L2 rename`).toBe(true);

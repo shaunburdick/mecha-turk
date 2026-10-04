@@ -1129,7 +1129,7 @@ describe('002 FR-043–FR-045 attribution at detection (AC-024, AC-025, A-5, A-6
             }
 
             if (kind === 'mention') {
-                return createEvent({ ...attributed, kind, origin: 'comment', commentId: 4242 }).id;
+                return createEvent({ ...attributed, kind, origin: 'comment', commentId: 4_242 }).id;
             }
 
             return createEvent({ ...attributed, kind }).id;

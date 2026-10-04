@@ -17,7 +17,7 @@ import process from 'node:process';
 const HOST = '127.0.0.1';
 
 /** Port for the standalone server; `shot.js` always asks for an ephemeral one. */
-const DEFAULT_PORT = 8792;
+const DEFAULT_PORT = 8_792;
 
 /** Port the standalone server reads from the environment. */
 const PORT_ENV = 'MT_SHOT_PORT';

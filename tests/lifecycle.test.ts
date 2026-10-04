@@ -10,10 +10,10 @@ const CORRELATION = '3d1b7a1c-0d1e-4f2a-8b3c-4d5e6f7a8b9c';
 const T0 = '2026-09-26T12:00:00.000Z';
 
 /** Milliseconds in one second, used to build RFC 3339 offsets. */
-const MS_PER_SECOND = 1000;
+const MS_PER_SECOND = 1_000;
 
 /** Gap between the closed marker and the mount that analysed it. */
-const GAP_MS = 30000;
+const GAP_MS = 30_000;
 
 /**
  * Build a timestamp offset from the fixture start.

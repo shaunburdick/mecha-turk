@@ -815,7 +815,7 @@ describe('audit trim: durability (006 T-012, FR-053, FR-055)', () => {
 
             // A pass that removes nothing rewrites nothing, so the torn line is
             // still on disk — and the read that skipped it already warned.
-            const idle = await trimAudit({ store, log, config: configWith({ auditRetentionDays: 3650 }), now: NOW });
+            const idle = await trimAudit({ store, log, config: configWith({ auditRetentionDays: 3_650 }), now: NOW });
             expect(idle.removed).toBe(0);
             expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toContain(torn);
             expect(lines.some((line) => line.includes('unreadable lines'))).toBe(true);

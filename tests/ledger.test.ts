@@ -21,7 +21,7 @@ import { RedactionError } from '../src/redaction.ts';
 const T0 = '2026-09-26T12:00:00.000Z';
 
 /** Milliseconds in one second, used to build RFC 3339 offsets. */
-const MS_PER_SECOND = 1000;
+const MS_PER_SECOND = 1_000;
 
 /** Gap measured between the closed and reopened markers in the S6 tests. */
 const GAP_MS = 30_000;

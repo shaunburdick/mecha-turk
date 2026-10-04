@@ -147,10 +147,10 @@ const DEFAULT_WIDTH = 720;
 const NARROW_WIDTH = 560;
 
 /** Short viewport used before the full-height capture stretches the page. */
-const SANITY_HEIGHT = 1000;
+const SANITY_HEIGHT = 1_000;
 
 /** Tallest viewport the run will ask for before it gives up on a tab. */
-const DEFAULT_MAX_HEIGHT = 6000;
+const DEFAULT_MAX_HEIGHT = 6_000;
 
 /**
  * Where captures land, unless `--out` says otherwise: the repo-root

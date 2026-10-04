@@ -187,7 +187,7 @@ describe('service environment', () => {
         {
             const env = readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: VALID_TOKEN });
 
-            expect(env.port).toBe(8123);
+            expect(env.port).toBe(8_123);
             expect(env.token).toBe(VALID_TOKEN);
         }
     });

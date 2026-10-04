@@ -544,7 +544,7 @@ describe('T-009 the enqueued path still joins an in-flight run', () => {
             await enqueueEvents({
                 store,
                 log: LOGGER,
-                incoming: [createEvent({ ...assignment(161), kind: 'mention', origin: 'comment', commentId: 4242 })],
+                incoming: [createEvent({ ...assignment(161), kind: 'mention', origin: 'comment', commentId: 4_242 })],
             });
             const joined = await readRun(run.correlationId);
             const document = await readRunsDocument({ store, log: LOGGER });

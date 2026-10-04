@@ -78,7 +78,7 @@ function unitFraction(value: number): number {
 }
 
 /** Milliseconds one second holds; the guidance header speaks in seconds. */
-const MILLISECONDS_PER_SECOND = 1000;
+const MILLISECONDS_PER_SECOND = 1_000;
 
 /**
  * The jittered ladder delay before an attempt.

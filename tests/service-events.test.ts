@@ -601,7 +601,7 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
             ...fixtureSnapshot(12, ''),
             kind: 'mention',
             origin: 'comment',
-            commentId: 4242,
+            commentId: 4_242,
             actorAttribution: 'direct',
         });
         expect(mentioned.id).toBe('evt-acme~widget~12~77331~mention~4242');
@@ -609,7 +609,7 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
             ...fixtureSnapshot(12, ''),
             kind: 'mention',
             origin: 'comment',
-            commentId: 4242,
+            commentId: 4_242,
             actorAttribution: 'direct',
             actorLogin: 'another',
         });
@@ -1273,7 +1273,7 @@ describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-
     it('keeps a comment and a pull request to one event each across both observations', async () => {
         const { log } = capturingLogger();
         const comment = {
-            commentId: 4242,
+            commentId: 4_242,
             issueNumber: 12,
             body: `cc @${ACCOUNT_LOGIN}`,
             url: 'https://github.com/acme/widget/issues/12#issuecomment-4242',

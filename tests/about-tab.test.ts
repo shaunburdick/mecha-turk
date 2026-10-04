@@ -100,7 +100,7 @@ const HEALTH_BODY = JSON.stringify({ status: 'ok', version: SERVICE_VERSION, sch
 
 /** A `GET /v1/status` body whose service block reports {@link DATA_DIR}. */
 const STATUS_BODY = JSON.stringify({
-    service: { status: 'ok', uptimeMs: 1000, dataDir: DATA_DIR, schemaVersion: 1, storage: { writable: true } },
+    service: { status: 'ok', uptimeMs: 1_000, dataDir: DATA_DIR, schemaVersion: 1, storage: { writable: true } },
     accounts: [],
     repositories: [],
     agentPin: { expectedAgent: null, lastVerification: null },

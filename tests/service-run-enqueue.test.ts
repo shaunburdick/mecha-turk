@@ -230,7 +230,7 @@ describe('T-006 run-aware enqueue', () => {
             });
             expect(result.status).toBe('applied');
 
-            const second = await enqueue([commentMention(16, 4242)]);
+            const second = await enqueue([commentMention(16, 4_242)]);
             const document = await readRunsDocument({ store, log: LOGGER });
 
             expect(delivery?.runCorrelationId).toBe(first.runs[0]?.correlationId);

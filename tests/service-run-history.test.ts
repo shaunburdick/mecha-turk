@@ -273,7 +273,7 @@ function detection(input: {
             kind: 'mention',
             actorAttribution: 'direct',
             origin: 'comment',
-            commentId: input.commentId ?? 4242,
+            commentId: input.commentId ?? 4_242,
         }
         : { ...base, kind: 'assignment', actorAttribution: 'subject-author' };
 }

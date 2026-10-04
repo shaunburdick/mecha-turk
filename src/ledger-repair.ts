@@ -22,7 +22,7 @@ import { findSecretLeak, redact, RedactionError } from './redaction.ts';
 const QUARANTINED_DETAIL = 'secret-shaped detail removed before the ledger could be written';
 
 /** Working byte budget the ledger is evicted down to, below the host's hard limit. */
-export const LEDGER_BYTE_BUDGET = 60 * 1024;
+export const LEDGER_BYTE_BUDGET = 60 * 1_024;
 
 /** Result of a repair: the writable ledger plus what the repair changed. */
 export interface LedgerRepair {

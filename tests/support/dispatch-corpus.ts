@@ -161,7 +161,7 @@ function detection(input: {
     // its own author directly, an assignment is attributed to the issue author
     // as a documented proxy (002 FR-044).
     return input.kind === 'mention'
-        ? { ...base, kind: 'mention', actorAttribution: 'direct', origin: 'comment', commentId: 4242 }
+        ? { ...base, kind: 'mention', actorAttribution: 'direct', origin: 'comment', commentId: 4_242 }
         : { ...base, kind: 'assignment', actorAttribution: 'subject-author' };
 }
 

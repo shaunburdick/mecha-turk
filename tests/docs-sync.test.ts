@@ -87,7 +87,7 @@ describe('002 FR-042 / AC-022 the two operator documents describe the shipped pa
     it('reads both documents rather than an empty pair', () => {
         {
             for (const doc of PAGES) {
-                expect(page(doc).length, `${doc} is suspiciously short`).toBeGreaterThan(1500);
+                expect(page(doc).length, `${doc} is suspiciously short`).toBeGreaterThan(1_500);
             }
         }
         {
