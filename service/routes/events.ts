@@ -330,7 +330,7 @@ async function handleEventHistory(context: RouteContext, request: RouteRequest):
     const window = remaining.slice(0, query.limit + 1);
     const hasMore = window.length > query.limit;
     const events = window.slice(0, query.limit);
-    const last = events[events.length - 1];
+    const last = events.at(-1);
 
     return {
         status: STATUS.ok,

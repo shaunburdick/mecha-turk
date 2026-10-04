@@ -241,8 +241,8 @@ function subjectTypeOfSnapshot(snapshot: EventSnapshot): SubjectType {
  */
 export function createEvent(snapshot: EventSnapshot): QueuedEvent {
     const separatorIndex = snapshot.repository.indexOf('/');
-    const owner = separatorIndex < 0 ? snapshot.repository : snapshot.repository.slice(0, separatorIndex);
-    const name = separatorIndex < 0 ? '' : snapshot.repository.slice(separatorIndex + 1);
+    const owner = separatorIndex === -1 ? snapshot.repository : snapshot.repository.slice(0, separatorIndex);
+    const name = separatorIndex === -1 ? '' : snapshot.repository.slice(separatorIndex + 1);
 
     const base = {
         bindingId: snapshot.bindingId,

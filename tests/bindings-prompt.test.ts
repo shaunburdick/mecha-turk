@@ -715,7 +715,7 @@ function promptFieldProps(): Record<string, unknown> {
         (entry) => entry.key === TEXT_FIELD
             && (entry.props as { readonly label?: unknown }).label === STARTING_PROMPT_LABEL,
     );
-    if (at < 0) {
+    if (at === -1) {
         throw new Error('the starting-prompt field never mounted');
     }
 

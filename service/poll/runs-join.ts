@@ -78,7 +78,7 @@ function originOf(delivery: QueuedEvent): ReferenceOrigin | null {
 
     const marker = '~mention~';
     const at = delivery.id.lastIndexOf(marker);
-    if (at < 0) {
+    if (at === -1) {
         return null;
     }
 
@@ -356,7 +356,7 @@ export function applyEnqueue(input: EnqueueInput): EnqueueOutcome {
         }
 
         const index = runs.findIndex((run) => !isTerminalRun(run) && subjectKeyOfRun(run) === shape.subjectKey);
-        const open = index < 0 ? undefined : runs[index];
+        const open = index === -1 ? undefined : runs[index];
         if (open !== undefined) {
             const authorizedReference = { ...reference, presentAtAuthorization: open.reservation === null };
             const folded = joinReference({ run: open, reference: authorizedReference, now: input.now });

@@ -232,7 +232,7 @@ export function repositoryLabel(repository: RepositoryRef): string {
  */
 export function repositoryRefOf(repository: string): RepositoryRef {
     const index = repository.indexOf('/');
-    if (index < 0) {
+    if (index === -1) {
         return { owner: repository, name: '' };
     }
 

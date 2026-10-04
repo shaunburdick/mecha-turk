@@ -388,7 +388,7 @@ function configBody(expectedAgent?: string): string {
  */
 function reportOf(run: VerificationRun): Record<string, unknown> {
     const index = run.calls.findIndex((call) => call.startsWith('POST '));
-    const body = index < 0 ? undefined : run.bodies[index];
+    const body = index === -1 ? undefined : run.bodies[index];
     if (body === undefined) {
         throw new Error('the verification never reported to the service');
     }

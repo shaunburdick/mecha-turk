@@ -498,7 +498,7 @@ export async function planAdoption(input: AdoptionPlanInput): Promise<AdoptionPl
         const key = subjectKeyOf(record.event);
         const openIndex = runs.findIndex((run) => run.state !== 'dispatched'
             && run.state !== 'dead-lettered' && subjectKeyOfRun(run) === key);
-        if (openIndex >= 0 && !isTerminalLegacyOutcome(record.event)) {
+        if (openIndex !== -1 && !isTerminalLegacyOutcome(record.event)) {
             mergeLegacyRow({ runs, openIndex, record, now, branches });
         } else {
             addMigratedRun({ runs, record, now, subjects, branches, key });

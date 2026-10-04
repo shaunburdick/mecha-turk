@@ -563,5 +563,5 @@ export function analyzePollingGap(input: { ledger: PanelLedger; closedAt: string
  * @returns Up to `count` entries, newest first.
  */
 export function ledgerTail(ledger: PanelLedger, count: number): readonly LedgerEntry[] {
-    return ledger.entries.slice(-count).reverse();
+    return ledger.entries.slice(-count).toReversed();
 }

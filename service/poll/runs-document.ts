@@ -413,7 +413,7 @@ export function currentAttempt(run: Run): DispatchAttempt {
  */
 export function attemptHistory(run: Run, record: DispatchAttempt): readonly DispatchAttempt[] {
     const index = run.attempts.map((entry) => entry.attempt).lastIndexOf(record.attempt);
-    const updated = index < 0
+    const updated = index === -1
         ? [...run.attempts, record]
         : run.attempts.map((entry, position) => (position === index ? record : entry));
 

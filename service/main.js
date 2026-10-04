@@ -3102,7 +3102,7 @@ async function planAdoption(input) {
   for (const record of records) {
     const key = subjectKeyOf(record.event);
     const openIndex = runs.findIndex((run) => run.state !== "dispatched" && run.state !== "dead-lettered" && subjectKeyOfRun(run) === key);
-    if (openIndex >= 0 && !isTerminalLegacyOutcome(record.event)) {
+    if (openIndex !== -1 && !isTerminalLegacyOutcome(record.event)) {
       mergeLegacyRow({ runs, openIndex, record, now, branches });
     } else {
       addMigratedRun({ runs, record, now, subjects, branches, key });
@@ -3263,7 +3263,7 @@ function currentAttempt(run) {
 }
 function attemptHistory(run, record) {
   const index = run.attempts.map((entry) => entry.attempt).lastIndexOf(record.attempt);
-  const updated = index < 0 ? [...run.attempts, record] : run.attempts.map((entry, position) => position === index ? record : entry);
+  const updated = index === -1 ? [...run.attempts, record] : run.attempts.map((entry, position) => position === index ? record : entry);
   return updated.slice(-MAX_ATTEMPT_RECORDS);
 }
 function openedHistory(run) {
@@ -3295,7 +3295,7 @@ function originOf(delivery) {
   }
   const marker = "~mention~";
   const at = delivery.id.lastIndexOf(marker);
-  if (at < 0) {
+  if (at === -1) {
     return null;
   }
   const suffix = delivery.id.slice(at + marker.length);
@@ -3415,7 +3415,7 @@ function applyEnqueue(input) {
       continue;
     }
     const index = runs.findIndex((run2) => !isTerminalRun(run2) && subjectKeyOfRun2(run2) === shape.subjectKey);
-    const open = index < 0 ? undefined : runs[index];
+    const open = index === -1 ? undefined : runs[index];
     if (open !== undefined) {
       const authorizedReference = { ...reference, presentAtAuthorization: open.reservation === null };
       const folded = joinReference({ run: open, reference: authorizedReference, now: input.now });
@@ -3532,8 +3532,8 @@ function subjectTypeOfSnapshot(snapshot) {
 }
 function createEvent(snapshot) {
   const separatorIndex = snapshot.repository.indexOf("/");
-  const owner = separatorIndex < 0 ? snapshot.repository : snapshot.repository.slice(0, separatorIndex);
-  const name = separatorIndex < 0 ? "" : snapshot.repository.slice(separatorIndex + 1);
+  const owner = separatorIndex === -1 ? snapshot.repository : snapshot.repository.slice(0, separatorIndex);
+  const name = separatorIndex === -1 ? "" : snapshot.repository.slice(separatorIndex + 1);
   const base = {
     bindingId: snapshot.bindingId,
     kind: snapshot.kind,
@@ -5238,7 +5238,7 @@ function repositoryLabel(repository) {
 }
 function repositoryRefOf(repository) {
   const index = repository.indexOf("/");
-  if (index < 0) {
+  if (index === -1) {
     return { owner: repository, name: "" };
   }
   return { owner: repository.slice(0, index), name: repository.slice(index + 1) };
@@ -6046,7 +6046,7 @@ function reviewCoordinates2(delivery) {
   return { ...head === null ? {} : { headSha: head }, ...base === null ? {} : { baseRef: base } };
 }
 function recordedCause(run) {
-  for (let index = run.attempts.length - 1;index >= 0; index -= 1) {
+  for (let index = run.attempts.length - 1;index !== -1; index -= 1) {
     const reason = run.attempts[index]?.reason ?? null;
     if (reason !== null) {
       return reason;
@@ -6396,7 +6396,7 @@ async function handleEventHistory(context, request) {
   const window = remaining.slice(0, query.limit + 1);
   const hasMore = window.length > query.limit;
   const events = window.slice(0, query.limit);
-  const last = events[events.length - 1];
+  const last = events.at(-1);
   return {
     status: STATUS.ok,
     body: {

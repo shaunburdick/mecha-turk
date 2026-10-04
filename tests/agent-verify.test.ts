@@ -657,7 +657,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
     /** Parse the verification report's body, failing loudly when none arrived. */
     function reportBody(report: ReadBackReport): Record<string, unknown> {
         const index = report.paths.findIndex((path) => path.startsWith('POST '));
-        const body = index < 0 ? undefined : report.bodies[index];
+        const body = index === -1 ? undefined : report.bodies[index];
         if (body === undefined) {
             throw new Error('the verification never reported to the service');
         }

@@ -231,7 +231,7 @@ function reviewCoordinates(delivery: QueuedEvent | undefined): { headSha?: strin
  * @returns The recorded cause, or `null`.
  */
 function recordedCause(run: Run): string | null {
-    for (let index = run.attempts.length - 1; index >= 0; index -= 1) {
+    for (let index = run.attempts.length - 1; index !== -1; index -= 1) {
         const reason = run.attempts[index]?.reason ?? null;
         if (reason !== null) {
             return reason;

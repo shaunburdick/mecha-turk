@@ -171,7 +171,7 @@ export class FakeElement {
         }
 
         const at = parent.children.indexOf(this);
-        if (at >= 0) {
+        if (at !== -1) {
             parent.children.splice(at, 1);
         }
 

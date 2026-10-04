@@ -152,19 +152,19 @@ const LAST_FORBIDDEN_LOW_CODE_POINT = 0x08;
 const TAB_CODE_POINT = 0x09;
 
 /** Line feed, the second of the two control characters an instruction may contain. */
-const LINE_FEED_CODE_POINT = 0x0a;
+const LINE_FEED_CODE_POINT = 0X0A;
 
 /** First code point of the forbidden middle range: vertical tab. */
-const FORBIDDEN_MIDDLE_START = 0x0b;
+const FORBIDDEN_MIDDLE_START = 0X0B;
 
 /** Last code point of the forbidden middle range: unit separator. */
-const FORBIDDEN_MIDDLE_END = 0x1f;
+const FORBIDDEN_MIDDLE_END = 0X1F;
 
 /** First code point of the forbidden upper range: delete. */
-const FORBIDDEN_UPPER_START = 0x7f;
+const FORBIDDEN_UPPER_START = 0X7F;
 
 /** Last code point of the forbidden upper range: application program control. */
-const FORBIDDEN_UPPER_END = 0x9f;
+const FORBIDDEN_UPPER_END = 0X9F;
 
 /**
  * Trim whitespace from the two ends of a prompt only.

@@ -123,7 +123,7 @@ export function stillRunning(rt: PanelRuntime): boolean {
  */
 export function splitRepository(label: string): { readonly owner: string; readonly name: string } {
     const index = label.indexOf('/');
-    if (index < 0) {
+    if (index === -1) {
         return { owner: label, name: '' };
     }
 

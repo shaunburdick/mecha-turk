@@ -467,7 +467,7 @@ function listFieldProps(): Record<string, unknown> {
         (entry) => entry.key === TEXT_FIELD
             && (entry.props as { readonly label?: unknown }).label === ALLOWED_USERS_LABEL,
     );
-    if (at < 0) {
+    if (at === -1) {
         throw new Error('the allow-list field never mounted');
     }
 
@@ -1309,7 +1309,7 @@ describe('AC-148 one derivation over all eight subsets of the three switches (00
 
             expect(clause).not.toBeNull();
             const at = PHRASES.map(([, phrase]) => (clause ?? '').indexOf(phrase));
-            expect(at.every((index) => index >= 0)).toBe(true);
+            expect(at.every((index) => index !== -1)).toBe(true);
             expect([...at].toSorted((left, right) => left - right)).toEqual(at);
         }
 
