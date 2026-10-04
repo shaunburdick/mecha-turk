@@ -83,15 +83,13 @@ const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(lin
 /** Running harness instances, drained between tests. */
 const running: TestService[] = [];
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     while (running.length > 0) {
         const service = running.pop();
         await service?.shutdown();
     }
-};
-
-afterEach(afterEachWork1);
+});
 
 /** The store the harness instance is serving, already open. */
 function storeOf(service: TestService): NonNullable<TestService['handle']['store']> {

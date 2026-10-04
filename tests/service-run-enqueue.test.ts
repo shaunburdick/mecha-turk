@@ -52,8 +52,8 @@ let tempRoot = '';
 let dataDir = '';
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-run-enqueue-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
@@ -61,16 +61,12 @@ const beforeEachWork1 = async (): Promise<void> => {
     // (003 FR-076); this suite's single reserve needs the open policy so the
     // assertion stays about the enqueue path (002 FR-047).
     await writeOpenBinding({ store, bindingId: 'bnd-run-tests' });
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+});
 
 /** Build an assignment fixture for one issue. */
 function assignment(issueNumber: number): EventSnapshot {

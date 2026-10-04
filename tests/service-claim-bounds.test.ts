@@ -103,8 +103,13 @@ let tempRoot = '';
 let dataDir = '';
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
+/**
+ * Open a fresh temp store with the suite's configuration and an empty log.
+ *
+ * Named rather than inlined because a test that drives more than one chain in
+ * sequence calls this again between them.
+ */
+const openFixture = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-bounds-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
@@ -112,14 +117,14 @@ const beforeEachWork1 = async (): Promise<void> => {
     await store.writeJson('config.json', { ...DEFAULT_CONFIG, leaseMs: 45_000, resultDeadlineMs: 45_000 });
 };
 
-beforeEach(beforeEachWork1);
+beforeEach(openFixture);
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Remove the temp root the fixture opened. */
+const closeFixture = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
 };
 
-afterEach(afterEachWork2);
+afterEach(closeFixture);
 
 /**
  * Build one assignment detection, with a body excerpt of the given size.
@@ -233,10 +238,10 @@ describe('T-039 the answer is bounded and the page is complete', () => {
             expect(result.runs.every((run) => run.sourceReferences.length === MAX_SOURCE_REFERENCES)).toBe(true);
             expect(result.deferred).toBe(0);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             await seed(300);
 
@@ -248,10 +253,10 @@ describe('T-039 the answer is bounded and the page is complete', () => {
             expect(measureEvents(result.runs)).toBeLessThanOrEqual(CLAIM_EVENTS_BUDGET_CHARS);
             expect(result.deferred).toBe(300 - result.runs.length);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             // The reserve is what makes the per-page budget safe: the rest of the
             // answer (status rows, envelope) has to fit in what is left.
@@ -290,10 +295,10 @@ describe('T-039 no lease is stranded behind an answer the transport refuses', ()
             expect(claimRows.map((row) => row.correlationId).toSorted(byText))
                 .toEqual([...offered].toSorted(byText));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             await seed(MAX_CLAIMED_RUNS + 3);
 
@@ -309,10 +314,10 @@ describe('T-039 no lease is stranded behind an answer the transport refuses', ()
             expect(new Set([...first.runs, ...second.runs].map((run) => run.correlationId)).size)
                 .toBe(MAX_CLAIMED_RUNS + 3);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             await seed(2);
             // A budget too small for even one run: the documented refusal path.
@@ -386,10 +391,10 @@ describe('T-039 excerpt text is bounded with an explicit marker (FR-014, FR-013)
             // And the run as a whole stayed inside the page budget.
             expect(measureEvents([claimed])).toBeLessThanOrEqual(CLAIM_EVENTS_BUDGET_CHARS);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             // A single delivery whose stored excerpt is past the per-reference
             // bound — only reachable through a store written by another path, which
@@ -416,10 +421,10 @@ describe('T-039 excerpt text is bounded with an explicit marker (FR-014, FR-013)
             expect(claimed?.sourceReferences).toHaveLength(2);
             expect(claimed?.sourceReferences[0]?.excerpt).not.toContain(EXCERPT_TRUNCATION_MARKER);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             // The panel's context builder (T-020) reads these strings back; a
             // marker that changed shape on the wire would be read as source text.
@@ -431,10 +436,10 @@ describe('T-039 excerpt text is bounded with an explicit marker (FR-014, FR-013)
             expect(isExcerptMarker('')).toBe(false);
             expect(isExcerptMarker('a real excerpt')).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             // The budget FR-014 already fixes for the dispatch itself, applied to
             // the transport that feeds it — so no run can crowd out the page.

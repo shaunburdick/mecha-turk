@@ -103,8 +103,13 @@ const UNCOMPARED_ROW = 'agent.uncompared';
 let tempRoot = '';
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
+/**
+ * Open a fresh temp store with the suite's configuration and an empty log.
+ *
+ * Named rather than inlined because a test that drives more than one chain in
+ * sequence calls this again between them.
+ */
+const openFixture = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-runops-'));
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     // The gate reads `bindings.json` at authorization and denies when it cannot
@@ -118,14 +123,14 @@ const beforeEachWork1 = async (): Promise<void> => {
     LOG_LINES.length = 0;
 };
 
-beforeEach(beforeEachWork1);
+beforeEach(openFixture);
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Remove the temp root the fixture opened. */
+const closeFixture = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
 };
 
-afterEach(afterEachWork2);
+afterEach(closeFixture);
 
 /** Build an assignment detection for one issue on the fixture binding. */
 function assignment(issueNumber: number): EventSnapshot {
@@ -1538,10 +1543,10 @@ describe('FR-078 a blocked actor-not-allowed run burns nothing', () => {
             expect(refusal?.message).toContain(BINDING_ID);
             expect(await rowsOf(RETRY_ROW)).toHaveLength(0);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             const run = await seedRun({ issueNumber: 41, state: ACTOR_BLOCKED_STATE, requeuesUsed: 2 });
             await storeBindings([BINDING_ID, UNRELATED_LOGIN_LIST]);
@@ -1562,10 +1567,10 @@ describe('FR-078 a blocked actor-not-allowed run burns nothing', () => {
             expect(stored?.requeuesUsed).toBe(2);
             expect(stored?.state).toBe(ACTOR_BLOCKED_STATE);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             const run = await seedRun({ issueNumber: 42, state: ACTOR_BLOCKED_STATE, requeuesUsed: 1 });
             await storeBindings([BINDING_ID, PERMITTED_LOGIN_LIST]);

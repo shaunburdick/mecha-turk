@@ -116,8 +116,8 @@ const plantedRoots: string[] = [];
 /** Log lines the direct store calls in this suite keep out of the test output. */
 const SEED_LOG_LINES: string[] = [];
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     SEED_LOG_LINES.length = 0;
 
     while (running.length > 0) {
@@ -131,9 +131,7 @@ const afterEachWork1 = async (): Promise<void> => {
             await rm(root, { recursive: true, force: true });
         }
     }
-};
-
-afterEach(afterEachWork1);
+});
 
 /**
  * Start the service and register the fixture account, so a real credential

@@ -124,19 +124,15 @@ const NON_RUN_EVENTS: ReadonlySet<string> = new Set(['consent', 'account.verifie
 /** The running loop every case drives. */
 let loop: DispatchLoop;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
     loop = await startDispatchLoop();
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     await loop.shutdown();
-};
-
-afterEach(afterEachWork2);
+});
 
 /**
  * Read one correlation identifier's rows through the product's own route.

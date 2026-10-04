@@ -90,8 +90,8 @@ const running: TestService[] = [];
 /** Data directories a test owns outside the harness home, drained too. */
 const ownedDirs: string[] = [];
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     while (running.length > 0) {
         const service = running.pop();
         await service?.shutdown();
@@ -102,9 +102,7 @@ const afterEachWork1 = async (): Promise<void> => {
             await rm(dir, { recursive: true, force: true });
         }
     }
-};
-
-afterEach(afterEachWork1);
+});
 
 /**
  * Build a header map without writing HTTP header names as object keys.

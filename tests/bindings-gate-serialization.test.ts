@@ -242,21 +242,17 @@ const LOG_LINES: string[] = [];
 const LOGGER = createLogger({ level: 'debug', sink: (line) => LOG_LINES.push(line) });
 
 /** Per-test setup: a fresh store, a live lease window, and no log noise. */
-const beforeEachWork1 = async (): Promise<void> => {
+beforeEach(async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-serialized-'));
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, leaseMs: WINDOW_MS, resultDeadlineMs: WINDOW_MS });
     LOG_LINES.length = 0;
-};
-
-beforeEach(beforeEachWork1);
+});
 
 /** Per-test teardown. */
-const afterEachWork1 = async (): Promise<void> => {
+afterEach(async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork1);
+});
 
 /**
  * Seed the one account the grant's existence check requires.

@@ -117,21 +117,17 @@ let dataDir = '';
 /** Open store handle for the tests that read through the real store. */
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-events-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+});
 
 /**
  * Build a logger that records every line it is asked to write.
@@ -885,15 +881,13 @@ interface RunSeed {
 /** Services the paging block started; shut down before the store goes away. */
 const paged: TestService[] = [];
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork3 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     while (paged.length > 0) {
         const service = paged.pop();
         await service?.shutdown();
     }
-};
-
-afterEach(afterEachWork3);
+});
 
 /**
  * Build the delivery snapshot one seed describes.

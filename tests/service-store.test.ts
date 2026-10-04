@@ -61,21 +61,17 @@ let tempRoot = '';
 /** Absolute path of the store inside the temp directory. */
 let dataDir = '';
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-store-'));
     dataDir = join(tempRoot, 'store');
     await mkdir(dataDir, { recursive: true });
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+});
 
 /**
  * Read the permission bits of a path.

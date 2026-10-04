@@ -118,28 +118,24 @@ let store: ServiceStore;
 /** The service this suite boots, drained before the temp root goes. */
 let running: TestService | null = null;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-prompt-upgrade-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
     running = null;
     LOG_LINES.length = 0;
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
     }
 
     await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+});
 
 /** The pre-004 binding: no prompt member anywhere, and `disabled` so no scan runs. */
 function pre004Binding(): Record<string, unknown> {

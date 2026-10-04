@@ -65,15 +65,13 @@ const REFUSED_PROMPT = 'ghp_AbCdEf0123456789AbCdEf0123456789AbCd';
 /** Running harness instances, drained between tests. */
 const running: TestService[] = [];
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     while (running.length > 0) {
         const service = running.pop();
         await service?.shutdown();
     }
-};
-
-afterEach(afterEachWork1);
+});
 
 /** Build a header map without writing HTTP header names as object keys. */
 function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {

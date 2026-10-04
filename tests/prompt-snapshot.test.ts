@@ -78,21 +78,17 @@ const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(lin
 let tempRoot = '';
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'prompt-snapshot-'));
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     LOG_LINES.length = 0;
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+});
 
 /** A binding-shaped record carrying one prompt, as the poll loop holds it. */
 function bindingWith(prompt: string): { readonly bindingId: string; readonly startingPrompt: string } {

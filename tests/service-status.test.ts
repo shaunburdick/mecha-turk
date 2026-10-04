@@ -98,8 +98,8 @@ function scriptedLoop(state: { readonly stopped: boolean; readonly nextPollAtMs:
 /** Services this file started, shut down after every test. */
 const running: TestService[] = [];
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     while (running.length > 0) {
         const service = running.pop();
         await service?.shutdown();
@@ -109,9 +109,7 @@ const afterEachWork1 = async (): Promise<void> => {
         await rm(scratch, { recursive: true, force: true });
         scratch = null;
     }
-};
-
-afterEach(afterEachWork1);
+});
 
 /**
  * Start a service and keep it for teardown.

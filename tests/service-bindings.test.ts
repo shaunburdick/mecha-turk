@@ -67,15 +67,13 @@ function jsonHeaders(): Record<string, string> {
     return headerMap([['content-type', 'application/json']]);
 }
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     while (running.length > 0) {
         const service = running.pop();
         await service?.shutdown();
     }
-};
-
-afterEach(afterEachWork1);
+});
 
 /**
  * Start the service against a fake GitHub and register the fixture account.

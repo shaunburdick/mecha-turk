@@ -47,8 +47,8 @@ let entry: ChildProcess | null = null;
 /** Temporary home the current test's store lives under. */
 let home: string | null = null;
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+const resetFixture = async (): Promise<void> => {
     if (entry !== null) {
         entry.kill('SIGKILL');
         entry = null;
@@ -60,7 +60,7 @@ const afterEachWork1 = async (): Promise<void> => {
     }
 };
 
-afterEach(afterEachWork1);
+afterEach(resetFixture);
 
 /**
  * Build the environment the host documents for a guest service.
@@ -173,8 +173,8 @@ describe('service entry (spawned bundle)', () => {
             entry.kill('SIGTERM');
             expect(await exited).toBe(0);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+        await resetFixture();
+        await resetFixture();
         {
             home = await mkdtemp(join(tmpdir(), 'mecha-turk-entry-'));
             const shortToken = 'f'.repeat(TOKEN_FLOOR - 1);

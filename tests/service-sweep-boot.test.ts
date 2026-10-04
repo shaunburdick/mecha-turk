@@ -109,8 +109,8 @@ const LEGACY_CLAIMED_AT: string = sweepClockFixture().legacyRow.claimedAt;
 let running: TestService | null = null;
 let scratch: string | null = null;
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
@@ -120,9 +120,7 @@ const afterEachWork1 = async (): Promise<void> => {
         await rm(scratch, { recursive: true, force: true });
         scratch = null;
     }
-};
-
-afterEach(afterEachWork1);
+});
 
 /**
  * Seed the store from the fixture, then assert the shape a first boot needs.

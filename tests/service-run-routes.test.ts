@@ -233,17 +233,15 @@ function storageProbes(store: ServiceStore, log: ServiceLogger): readonly Storag
 
 let running: TestService | null = null;
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     if (running === null) {
         return;
     }
 
     await running.shutdown();
     running = null;
-};
-
-afterEach(afterEachWork1);
+});
 
 /**
  * Start a service instance and register it for cleanup.

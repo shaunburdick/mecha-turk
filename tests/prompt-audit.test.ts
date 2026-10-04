@@ -60,15 +60,13 @@ const PROMPT_HEAD = 'Reproduce first';
 /** Temporary directories this suite opened, drained between tests. */
 const temporaryDirs: string[] = [];
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     while (temporaryDirs.length > 0) {
         const dir = temporaryDirs.pop();
         await rm(dir ?? '', { recursive: true, force: true });
     }
-};
-
-afterEach(afterEachWork1);
+});
 
 /** A logger that keeps every warning this suite can provoke. */
 interface CapturedLogger extends ServiceLogger {

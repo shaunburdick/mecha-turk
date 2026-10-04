@@ -146,8 +146,13 @@ const LOGGER = createLogger({ level: 'debug', sink: (line) => LOG_LINES.push(lin
 let tempRoot = '';
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
+/**
+ * Open a fresh temp store with the suite's configuration and an empty log.
+ *
+ * Named rather than inlined because a test that drives more than one chain in
+ * sequence calls this again between them.
+ */
+const openFixture = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-authorize-'));
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     await store.writeJson('config.json', { ...DEFAULT_CONFIG, leaseMs: LEASE_MS, resultDeadlineMs: LEASE_MS });
@@ -163,14 +168,14 @@ const beforeEachWork1 = async (): Promise<void> => {
     LOG_LINES.length = 0;
 };
 
-beforeEach(beforeEachWork1);
+beforeEach(openFixture);
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Remove the temp root the fixture opened. */
+const closeFixture = async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
 };
 
-afterEach(afterEachWork2);
+afterEach(closeFixture);
 
 /**
  * Build an assignment detection for one issue.
@@ -1921,10 +1926,10 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
             const written = await trail();
             expect(JSON.stringify(written)).not.toContain(PERMITTED);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         // GitHub (002 NFR-011 as re-cut at v1.12.0)
         {
             await setPolicy([PERMITTED]);
@@ -1949,10 +1954,10 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
                 deniedAttributions: [PROXY_BASIS],
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             // `open` is permission for a named human actor, not for nobody: this
             // run's only reference records no attribution at all, which is only
@@ -1970,10 +1975,10 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
                 unreadableReferences: 1,
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             // The `[bot]` entry is legal in the list (plan D7) and inert: no bot
             // event is ever created for it to admit (002 FR-045(a)/(c)), so a
@@ -2014,10 +2019,10 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
             expect(row.deniedAttributions).toBeUndefined();
             expect(outcome.status === 'refused' ? outcome.refusal.message : '').toContain('bindings document');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         // and says **which** one it was rather than blaming an unreadable file
         {
             await writeOpenBinding({ store, bindingId: 'bnd-somewhere-else' });
@@ -2046,10 +2051,10 @@ describe('003 v1.8.0 the admitted cases (FR-077, FR-079, AC-132)', () => {
             expect(open.actorPolicy).toBe('open');
             expect(await firstRowOf(RESERVED_ROW)).toMatchObject({ actorPolicy: 'open' });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             await setPolicy([PERMITTED]);
             const { claim, outcome } = await reserveAs({ issueNumber: 97, login: PERMITTED, basis: DIRECT_BASIS });
@@ -2061,10 +2066,10 @@ describe('003 v1.8.0 the admitted cases (FR-077, FR-079, AC-132)', () => {
             expect(await firstRowOf(RESERVED_ROW)).toMatchObject({ actorPolicy: 'restricted' });
             expect(JSON.stringify(await trail())).not.toContain(PERMITTED);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             await setPolicy([PERMITTED]);
             const first = assignment(98, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
@@ -2260,10 +2265,10 @@ describe('003 v1.8.0 the verdict never pre-empts an existing one (FR-076, AC-130
             // The gate never reached a decision, so it wrote no row.
             expect(await refusalRowCount()).toBe(0);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             await setPolicy([PERMITTED]);
             const claim = await seedAndClaim(102, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
