@@ -11,7 +11,7 @@
  *
  * One field's rule set lives in [`bindings-allow-list.ts`](./bindings-allow-list.ts)
  * — `allowedUsers` validation plus its single membership comparison — read on
- * both the build and the collect-every-refusal pass (002 FR-024, plan D2).
+ * both the build and the collect-every-refusal pass.
  *
  * MVP-DEBT: the contract's per-binding `PATCH /v1/bindings/:bindingId` and
  * its draft/project-missing state machine are not implemented — the
@@ -63,11 +63,11 @@ export interface BindingRecord {
     /** RFC 3339 stamp of the last change. */
     readonly updatedAt: string;
     /**
-     * The operator's starting prompt for sessions this binding starts (004 FR-010).
+     * The operator's starting prompt for sessions this binding starts.
      *
      * **The key is absent when the prompt is unset** — never `''`, never
-     * `null` — so "unset" is a complete state that needs no sentinel (004
-     * FR-022, FR-071). It is validated on every read and every write of the
+     * `null` — so "unset" is a complete state that needs no sentinel. It is
+     * validated on every read and every write of the
      * file by {@link validateStartingPrompt}, which is what makes a hand-edited
      * file and a panel save answer the same rules.
      */
@@ -76,10 +76,10 @@ export interface BindingRecord {
      * The GitHub logins allowed to trigger dispatches from this repository.
      * **Absent means any human actor may trigger**: the key is
      * omitted, never `[]`/`null`/`''`, and `[]` is a refusal, not a
-     * state. The stored spelling is preserved; only the comparison folds case
-     * (plan D5), and {@link bindingAllowedUsersOf} validates it on every read
+     * state. The stored spelling is preserved; only the comparison folds case,
+     * and {@link bindingAllowedUsersOf} validates it on every read
      * and write. **Configuration, and it never leaves this store** — only the
-     * policy's *shape* is reported elsewhere (002 NFR-113).
+     * policy's *shape* is reported elsewhere.
      */
     readonly allowedUsers?: readonly string[];
 }
@@ -151,19 +151,13 @@ interface BindingTarget {
 /**
  * Read one non-empty string field.
  *
- * @param value - Candidate value.
  * @returns The value, or `null` when it is not usable text.
  */
 function stringFieldOf(value: unknown): string | null {
     return typeof value === 'string' && value !== '' ? value : null;
 }
 
-/**
- * Build the single issue verdict.
- *
- * @param value - The refusal to return.
- * @returns The issue verdict carrying that refusal.
- */
+/** Build the single issue verdict. */
 function issue(value: BindingIssue): { readonly issue: BindingIssue } {
     return { issue: value };
 }
@@ -176,7 +170,6 @@ function issue(value: BindingIssue): { readonly issue: BindingIssue } {
  * a field that is present but is not a boolean refuses the record — a
  * half-read trigger is worse than a missing one.
  *
- * @param value - Candidate value.
  * @returns The triggers, or `null` when the shape is unusable.
  */
 function triggersFieldOf(value: unknown): BindingTriggers | null {
@@ -200,7 +193,6 @@ function triggersFieldOf(value: unknown): BindingTriggers | null {
 /**
  * Validate the `state` field, treating an absent state as `active`.
  *
- * @param value - Candidate value.
  * @returns The state, or `null` when it is neither of the two values.
  */
 function stateFieldOf(value: unknown): 'active' | 'disabled' | null {
@@ -218,8 +210,6 @@ function stateFieldOf(value: unknown): 'active' | 'disabled' | null {
 /**
  * Read one stamp, keeping a fallback when the candidate is unusable.
  *
- * @param value - Candidate stamp.
- * @param fallback - Stamp to keep when the candidate is unusable.
  * @returns The usable stamp.
  */
 function stampOrKeep(value: unknown, fallback: string): string {
@@ -229,7 +219,6 @@ function stampOrKeep(value: unknown, fallback: string): string {
 /**
  * Read one `owner/name` repository field.
  *
- * @param value - Candidate value.
  * @returns The canonical label, or `null` when unusable.
  */
 function repositoryFieldOf(value: unknown): string | null {
@@ -245,7 +234,6 @@ function repositoryFieldOf(value: unknown): string | null {
 /**
  * Read one worktree option field, rendering the canonical text.
  *
- * @param value - Candidate value.
  * @returns The canonical option text, or `null` when unusable.
  */
 function worktreeFieldOf(value: unknown): string | null {
@@ -264,11 +252,9 @@ function worktreeFieldOf(value: unknown): string | null {
 /**
  * Read the identity fields (binding id, account id, and login).
  *
- * @param raw - Candidate record.
- * @param accountExists - `true` when the account custody holds the id.
  * @returns The identity partial, or the blocking issue.
  */
-function bindingIdentityOf(raw: Record<string, unknown>, accountExists: boolean): {
+function bindingIdentityOf(raw: Record<string, unknown>, hasAccount: boolean): {
     readonly binding: BindingIdentity;
 } | { readonly issue: BindingIssue } {
     const bindingId = stringFieldOf(raw.bindingId);
@@ -280,12 +266,14 @@ function bindingIdentityOf(raw: Record<string, unknown>, accountExists: boolean)
     }
 
     const accountId = raw.accountNumericUserId;
-    const accountCopy = 'accountNumericUserId must be the GitHub numeric user id of a registered account';
     if (typeof accountId !== 'string' || !NUMERIC_ID_PATTERN.test(accountId)) {
-        return issue({ field: 'accountNumericUserId', remediation: accountCopy });
+        return issue({
+            field: 'accountNumericUserId',
+            remediation: 'accountNumericUserId must be the GitHub numeric user id of a registered account',
+        });
     }
 
-    if (!accountExists) {
+    if (!hasAccount) {
         return issue({
             field: 'accountNumericUserId',
             remediation: 'register the account before binding it',
@@ -306,7 +294,6 @@ function bindingIdentityOf(raw: Record<string, unknown>, accountExists: boolean)
 /**
  * Read the dispatch-target fields (repository, project, worktree).
  *
- * @param raw - Candidate record.
  * @returns The target partial, or the blocking issue.
  */
 function bindingTargetOf(raw: Record<string, unknown>): {
@@ -342,7 +329,6 @@ function bindingTargetOf(raw: Record<string, unknown>): {
 /**
  * Read the `triggers` and `state` mode fields.
  *
- * @param raw - Candidate record.
  * @returns The fields, or the blocking issue.
  */
 function bindingModeOf(raw: Record<string, unknown>): {
@@ -373,7 +359,6 @@ function bindingModeOf(raw: Record<string, unknown>): {
  * The same function runs on the write path and the read path, so a submitted
  * value and a hand-edited file are judged by exactly one refusal set.
  *
- * @param raw - Candidate record.
  * @returns The normalised prompt (or `null` for unset), or the blocking issue.
  */
 function bindingPromptOf(raw: Record<string, unknown>): {
@@ -389,15 +374,14 @@ function bindingPromptOf(raw: Record<string, unknown>): {
  * one that will not fit.
  *
  * The short-circuit here is **not** the reporting order: {@link parseBinding}
- * reports every problem the record has. It isExists so the assembly reads top to
+ * reports every problem the record has. This short-circuit exists so the
+ * assembly reads top to
  * bottom and each part narrows without a redundant guard.
  *
- * @param raw - Candidate record.
- * @param accountExists - `true` when the account custody holds the id.
  * @returns The record, or `null` when any part refused.
  */
-function assembleBinding(raw: Record<string, unknown>, accountExists: boolean): BindingRecord | null {
-    const identity = bindingIdentityOf(raw, accountExists);
+function assembleBinding(raw: Record<string, unknown>, hasAccount: boolean): BindingRecord | null {
+    const identity = bindingIdentityOf(raw, hasAccount);
     if ('issue' in identity) {
         return null;
     }
@@ -440,7 +424,6 @@ function assembleBinding(raw: Record<string, unknown>, accountExists: boolean): 
 /**
  * Collect every refusal five field verdicts produced, in field order.
  *
- * @param verdicts - The verdicts, each either a value or a refusal.
  * @returns every refusal found, in the order the fields were named.
  */
 function refusalsIn(verdicts: readonly FieldVerdict[]): readonly BindingIssue[] {
@@ -451,33 +434,32 @@ function refusalsIn(verdicts: readonly FieldVerdict[]): readonly BindingIssue[] 
  * Parse one candidate binding field by field, collecting **every** problem.
  *
  * Every refusal names the field and the remediation; no submitted value is
- * ever echoed back (the same SEC-11 posture the config route fixed). Issues
- * accumulate rather than short-circuit: 004 FR-013/FR-027 require one answer
- * that lists every problem in the submission — a bad prompt *and* a bad
+ * ever echoed back (the same posture the config route fixed). Issues
+ * accumulate rather than short-circuit: one answer
+ * must list every problem in the submission — a bad prompt *and* a bad
  * repository arrive in the same 422 — and a first-issue-only reader could
  * never satisfy that.
  *
- * @param input - The candidate record and whether the referenced account isExists.
  * @returns The ready record, or the collected issues.
  */
 export function parseBinding(input: {
     /** Candidate binding, already known to be a record. */
     readonly raw: Record<string, unknown>;
     /** `true` when the account custody holds `accountNumericUserId`. */
-    readonly accountExists: boolean;
+    readonly hasAccount: boolean;
 }): BindingVerdict {
-    const { raw, accountExists } = input;
-    const record = assembleBinding(raw, accountExists);
+    const { raw, hasAccount } = input;
+    const record = assembleBinding(raw, hasAccount);
     if (record !== null) {
         return { binding: record };
     }
 
     // The build refused, so re-run the readers purely to collect *every*
-    // problem for one answer (004 FR-013/FR-027). They are pure, so the second
+    // problem for one answer. They are pure, so the second
     // pass can only ever disagree with the first by also refusing.
     return {
         issues: refusalsIn([
-            bindingIdentityOf(raw, accountExists),
+            bindingIdentityOf(raw, hasAccount),
             bindingTargetOf(raw),
             bindingModeOf(raw),
             bindingPromptOf(raw),
@@ -489,13 +471,11 @@ export function parseBinding(input: {
 /**
  * Run the per-binding checks and collect every issue.
  *
- * @param candidates - The raw candidate rows.
- * @param accountExists - `true` only for ids the custody has verified.
  * @returns The validated records, or the collected issues.
  */
 function collectBindingIssues(
     candidates: readonly unknown[],
-    accountExists: (numericUserId: string) => boolean,
+    hasAccount: (numericUserId: string) => boolean,
 ): BindingValidation {
     const issues: BindingIssue[] = [];
     const seen = new Set<string>();
@@ -507,8 +487,8 @@ function collectBindingIssues(
             continue;
         }
 
-        const isExists = typeof record.accountNumericUserId === 'string' && accountExists(record.accountNumericUserId);
-        const verdict = parseBinding({ raw: record, accountExists: isExists });
+        const isKnown = typeof record.accountNumericUserId === 'string' && hasAccount(record.accountNumericUserId);
+        const verdict = parseBinding({ raw: record, hasAccount: isKnown });
         if ('issues' in verdict) {
             issues.push(...verdict.issues);
             continue;
@@ -538,14 +518,13 @@ function collectBindingIssues(
  * field at once (the same additive-reporting shape the config route uses).
  * Binding ids must be unique; the count stays inside the operator cap.
  *
- * @param input - Raw body and the account-existence predicate to consult.
  * @returns The validated records, or every issue found.
  */
 export function validateBindings(input: {
     /** The PUT body, or anything else. */
     readonly raw: unknown;
     /** `true` only for ids the account custody has verified. */
-    readonly accountExists: (numericUserId: string) => boolean;
+    readonly hasAccount: (numericUserId: string) => boolean;
 }): BindingValidation {
     const bodyCopy = 'send `{ bindings: [...] }` holding every binding the panel keeps';
     const body = isRecord(input.raw) ? input.raw : null;
@@ -564,14 +543,12 @@ export function validateBindings(input: {
         };
     }
 
-    return collectBindingIssues(body.bindings, input.accountExists);
+    return collectBindingIssues(body.bindings, input.hasAccount);
 }
 
 /**
  * Store the bindings atomically, restoring the array-of-records shape the
  * hardened delete guard reads.
- *
- * @param input - Open store and the records to store.
  */
 export async function writeBindings(input: {
     /** Open store. */

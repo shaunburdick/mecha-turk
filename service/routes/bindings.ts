@@ -157,7 +157,7 @@ async function readCustodyAndValidate(input: {
         accounts,
         validation: validateBindings({
             raw: input.body,
-            accountExists: (numericUserId) => known.has(numericUserId),
+            hasAccount: (numericUserId: string) => known.has(numericUserId),
         }),
     };
 }
@@ -281,7 +281,7 @@ async function handlePutBindings(context: RouteContext, request: RouteRequest): 
 }
 
 /** Read the stored bindings, credential-free. */
-export const getBindingsRoute: Route = {
+export const bindingsRoute: Route = {
     method: 'GET',
     path: BINDINGS_PATH,
     handler: (context) => handleGetBindings(context),

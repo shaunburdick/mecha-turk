@@ -48,7 +48,7 @@ interface RefusalNote {
  */
 function noteFirstRefusal(note: RefusalNote, issues: readonly BindingIssue[]): void {
     const first = issues[0];
-    if (note.reason === null && first !== undefined) {
+    if (first !== undefined && note.reason === null) {
         note.reason = `${first.field}: ${first.remediation}`;
     }
 }
@@ -69,7 +69,7 @@ function parseBindingsFile(raw: unknown, note: RefusalNote): BindingRecord[] | n
 
     const bindings: BindingRecord[] = [];
     for (const entry of raw) {
-        const verdict = parseBinding({ raw: entry, accountExists: true });
+        const verdict = parseBinding({ raw: entry, hasAccount: true });
         if ('issues' in verdict) {
             noteFirstRefusal(note, verdict.issues);
             return null;

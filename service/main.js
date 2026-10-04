@@ -5327,7 +5327,7 @@ function worktreeFieldOf(value) {
   }
   return parsed.kind;
 }
-function bindingIdentityOf(raw, accountExists) {
+function bindingIdentityOf(raw, hasAccount) {
   const bindingId = stringFieldOf(raw.bindingId);
   if (bindingId === null || bindingId.length > MAX_BINDING_ID_CHARS) {
     return issue({
@@ -5336,11 +5336,13 @@ function bindingIdentityOf(raw, accountExists) {
     });
   }
   const accountId = raw.accountNumericUserId;
-  const accountCopy = "accountNumericUserId must be the GitHub numeric user id of a registered account";
   if (typeof accountId !== "string" || !NUMERIC_ID_PATTERN.test(accountId)) {
-    return issue({ field: "accountNumericUserId", remediation: accountCopy });
+    return issue({
+      field: "accountNumericUserId",
+      remediation: "accountNumericUserId must be the GitHub numeric user id of a registered account"
+    });
   }
-  if (!accountExists) {
+  if (!hasAccount) {
     return issue({
       field: "accountNumericUserId",
       remediation: "register the account before binding it"
@@ -5400,8 +5402,8 @@ function bindingPromptOf(raw) {
   const verdict = validateStartingPrompt(raw.startingPrompt);
   return verdict.ok ? { prompt: verdict.prompt } : { issue: verdict.issue };
 }
-function assembleBinding(raw, accountExists) {
-  const identity = bindingIdentityOf(raw, accountExists);
+function assembleBinding(raw, hasAccount) {
+  const identity = bindingIdentityOf(raw, hasAccount);
   if ("issue" in identity) {
     return null;
   }
@@ -5438,14 +5440,14 @@ function refusalsIn(verdicts) {
   return verdicts.flatMap((verdict) => ("issue" in verdict) ? [verdict.issue] : []);
 }
 function parseBinding(input) {
-  const { raw, accountExists } = input;
-  const record = assembleBinding(raw, accountExists);
+  const { raw, hasAccount } = input;
+  const record = assembleBinding(raw, hasAccount);
   if (record !== null) {
     return { binding: record };
   }
   return {
     issues: refusalsIn([
-      bindingIdentityOf(raw, accountExists),
+      bindingIdentityOf(raw, hasAccount),
       bindingTargetOf(raw),
       bindingModeOf(raw),
       bindingPromptOf(raw),
@@ -5453,7 +5455,7 @@ function parseBinding(input) {
     ])
   };
 }
-function collectBindingIssues(candidates, accountExists) {
+function collectBindingIssues(candidates, hasAccount) {
   const issues = [];
   const seen = new Set;
   const bindings = [];
@@ -5463,8 +5465,8 @@ function collectBindingIssues(candidates, accountExists) {
       issues.push({ field: "bindings[]", remediation: "each binding must be a JSON object" });
       continue;
     }
-    const isExists = typeof record.accountNumericUserId === "string" && accountExists(record.accountNumericUserId);
-    const verdict = parseBinding({ raw: record, accountExists: isExists });
+    const isKnown = typeof record.accountNumericUserId === "string" && hasAccount(record.accountNumericUserId);
+    const verdict = parseBinding({ raw: record, hasAccount: isKnown });
     if ("issues" in verdict) {
       issues.push(...verdict.issues);
       continue;
@@ -5497,7 +5499,7 @@ function validateBindings(input) {
       issues: [{ field: "bindings", remediation: capCopy }]
     };
   }
-  return collectBindingIssues(body.bindings, input.accountExists);
+  return collectBindingIssues(body.bindings, input.hasAccount);
 }
 async function writeBindings(input) {
   await input.store.writeJson(BINDINGS_FILE, input.bindings);
@@ -5625,7 +5627,7 @@ async function observePromptChanges(input) {
 // service/bindings-read.ts
 function noteFirstRefusal(note, issues) {
   const first = issues[0];
-  if (note.reason === null && first !== undefined) {
+  if (first !== undefined && note.reason === null) {
     note.reason = `${first.field}: ${first.remediation}`;
   }
 }
@@ -5635,7 +5637,7 @@ function parseBindingsFile(raw, note) {
   }
   const bindings = [];
   for (const entry of raw) {
-    const verdict = parseBinding({ raw: entry, accountExists: true });
+    const verdict = parseBinding({ raw: entry, hasAccount: true });
     if ("issues" in verdict) {
       noteFirstRefusal(note, verdict.issues);
       return null;
@@ -7581,7 +7583,7 @@ async function readCustodyAndValidate(input) {
     accounts,
     validation: validateBindings({
       raw: input.body,
-      accountExists: (numericUserId) => known.has(numericUserId)
+      hasAccount: (numericUserId) => known.has(numericUserId)
     })
   };
 }
@@ -7627,7 +7629,7 @@ async function handlePutBindings(context, request) {
   const status = await readStatusRows({ store, log: context.log, bindings });
   return { status: STATUS.ok, body: { bindings, status } };
 }
-var getBindingsRoute = {
+var bindingsRoute = {
   method: "GET",
   path: BINDINGS_PATH,
   handler: (context) => handleGetBindings(context)
@@ -8515,7 +8517,7 @@ var ROUTES = [
   putConfigRoute,
   statusRoute,
   listAccountsRoute,
-  getBindingsRoute,
+  bindingsRoute,
   putBindingsRoute,
   eventHistoryRoute,
   pendingEventsRoute,

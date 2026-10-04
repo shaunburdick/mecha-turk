@@ -4,7 +4,7 @@
  *
  * The ledger is evidence, not a production queue: it records lifecycle phases,
  * poll attempts, matches, dispatches, and host verification with correlation
- * IDs so the S1–S7 acceptance checklist can be answered from data instead of
+ * IDs so the acceptance checklist can be answered from data instead of
  * impressions. Every write passes {@link serializeLedger}, which fails closed
  * on secret-shaped content and on the host's 64 KiB value limit.
  *
@@ -94,7 +94,6 @@ export interface PanelLedger {
 /**
  * Narrow a JSON value to an object record.
  *
- * @param value - Candidate value.
  * @returns The value as a record, or `null` for anything else.
  */
 function asJsonRecord(value: JsonValue | undefined): Record<string, JsonValue> | null {
@@ -108,43 +107,32 @@ function asJsonRecord(value: JsonValue | undefined): Record<string, JsonValue> |
 /**
  * Read a non-empty string field from a record.
  *
- * @param record - Source record.
- * @param field - Field name.
  * @returns The value, or `null` when it is missing or empty.
  */
 function readStringField(record: Record<string, JsonValue>, field: string): string | null {
-    const { [field]: value } = record;
+    const value = record[field];
     return typeof value === 'string' && value !== '' ? value : null;
 }
 
 /**
  * Read a finite number field from a record.
  *
- * @param record - Source record.
- * @param field - Field name.
  * @returns The value, or `null` when it is missing or not a number.
  */
 function readNumberField(record: Record<string, JsonValue>, field: string): number | null {
-    const { [field]: value } = record;
+    const value = record[field];
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-/**
- * Read a boolean field from a record.
- *
- * @param record - Source record.
- * @param field - Field name.
- * @returns The value, or `null` when it is missing or not a boolean.
- */
+/** Read a boolean field from a record. */
 function readBooleanField(record: Record<string, JsonValue>, field: string): boolean | null {
-    const { [field]: value } = record;
+    const value = record[field];
     return typeof value === 'boolean' ? value : null;
 }
 
 /**
  * Check that a JSON value is a ledger scalar.
  *
- * @param value - Candidate value.
  * @returns `true` for strings, finite numbers, booleans, and `null`.
  */
 function isScalar(value: JsonValue): value is LedgerScalar {
@@ -155,12 +143,7 @@ function isScalar(value: JsonValue): value is LedgerScalar {
     return typeof value === 'number' && Number.isFinite(value);
 }
 
-/**
- * Narrow an unknown value to a lifecycle phase.
- *
- * @param value - Candidate value.
- * @returns `true` when the value names a known phase.
- */
+/** Narrow an unknown value to a lifecycle phase. */
 export function isLifecyclePhase(value: unknown): value is LifecyclePhase {
     return typeof value === 'string' && (LIFECYCLE_PHASES as readonly string[]).includes(value);
 }
@@ -176,7 +159,6 @@ interface EntryHead {
 /**
  * Validate the identity fields of a stored entry.
  *
- * @param record - Stored entry as a record.
  * @returns The identity fields, or `null` when any of them is malformed.
  */
 function readEntryHead(record: Record<string, JsonValue>): EntryHead | null {
@@ -200,7 +182,6 @@ function readEntryHead(record: Record<string, JsonValue>): EntryHead | null {
 /**
  * Validate the `kind` of a stored entry.
  *
- * @param record - Stored entry as a record.
  * @returns The kind, or `null` when it is unknown.
  */
 function readKindField(record: Record<string, JsonValue>): LedgerEntryKind | null {
@@ -215,7 +196,6 @@ function readKindField(record: Record<string, JsonValue>): LedgerEntryKind | nul
 /**
  * Validate the `detail` payload of a stored entry.
  *
- * @param record - Stored entry as a record.
  * @returns The detail map, or `null` when a value is not a scalar.
  */
 function readDetailField(record: Record<string, JsonValue>): LedgerDetail | null {
@@ -239,7 +219,6 @@ function readDetailField(record: Record<string, JsonValue>): LedgerDetail | null
 /**
  * Validate the optional `phase` of a stored entry.
  *
- * @param record - Stored entry as a record.
  * @returns `undefined` when absent, the phase when valid, or `null` when invalid.
  */
 function readPhaseField(record: Record<string, JsonValue>): LifecyclePhase | null | undefined {
@@ -254,7 +233,6 @@ function readPhaseField(record: Record<string, JsonValue>): LifecyclePhase | nul
 /**
  * Validate one stored entry.
  *
- * @param value - Candidate entry value.
  * @returns The entry, or `null` when its shape is unusable.
  */
 function readEntry(value: JsonValue): LedgerEntry | null {
@@ -277,7 +255,6 @@ function readEntry(value: JsonValue): LedgerEntry | null {
 /**
  * Validate a stored entry list.
  *
- * @param value - The `entries` value from storage.
  * @returns The entries, or `null` when any element is unusable.
  */
 function readEntries(value: JsonValue | undefined): LedgerEntry[] | null {
@@ -309,7 +286,6 @@ interface LedgerHeader {
 /**
  * Validate the scalar header fields of a stored ledger.
  *
- * @param record - Stored ledger as a record.
  * @returns The header, or `null` when any field is missing or malformed.
  */
 function readLedgerHeader(record: Record<string, JsonValue>): LedgerHeader | null {
@@ -333,7 +309,6 @@ function readLedgerHeader(record: Record<string, JsonValue>): LedgerHeader | nul
 /**
  * Read a ledger back from `host.storage`.
  *
- * @param value - Value read from storage, or `undefined`.
  * @returns The validated ledger, or `null` when unusable.
  */
 export function readLedger(value?: JsonValue): PanelLedger | null {
@@ -363,12 +338,7 @@ export interface CreateLedgerInput {
     readonly createdAt: string;
 }
 
-/**
- * Create an empty ledger for a panel mount.
- *
- * @param input - Correlation, generation, and storage-presence context.
- * @returns A new ledger ready for its first entry.
- */
+/** Create an empty ledger for a panel mount. */
 export function createLedger(input: CreateLedgerInput): PanelLedger {
     return {
         schemaVersion: LEDGER_SCHEMA_VERSION,
@@ -387,16 +357,17 @@ export function createLedger(input: CreateLedgerInput): PanelLedger {
  * provider message could carry a secret shape. Redacting it here neutralizes
  * the value at append time instead of leaving the persist gate to discover it.
  *
- * @param detail - Raw detail values from the panel.
  * @returns A copy whose strings are bounded, credential-free, and redacted.
  */
 function sanitizeDetail(detail: LedgerDetail): LedgerDetail {
     const clean = stripCredentialKeys(detail);
     for (const [key, value] of Object.entries(clean)) {
-        if (typeof value === 'string') {
-            const safe = key === 'error' ? redact(value) : value;
-            clean[key] = safe.length > MAX_DETAIL_CHARS ? `${safe.slice(0, MAX_DETAIL_CHARS - 1)}…` : safe;
+        if (typeof value !== 'string') {
+            continue;
         }
+
+        const safe = key === 'error' ? redact(value) : value;
+        clean[key] = safe.length > MAX_DETAIL_CHARS ? `${safe.slice(0, MAX_DETAIL_CHARS - 1)}…` : safe;
     }
 
     return clean;
@@ -421,8 +392,6 @@ export interface LedgerEntryInput {
 /**
  * Append one entry, returning a new ledger.
  *
- * @param ledger - Current ledger.
- * @param input - Entry to append.
  * @returns A new ledger containing the entry, with the oldest entry dropped
  * when {@link MAX_LEDGER_ENTRIES} would be exceeded.
  */
@@ -456,13 +425,7 @@ export interface PhaseInput {
     readonly note?: string;
 }
 
-/**
- * Append a lifecycle phase entry.
- *
- * @param ledger - Current ledger.
- * @param input - Phase, timestamp, and optional note.
- * @returns A new ledger containing the phase entry.
- */
+/** Append a lifecycle phase entry. */
 export function recordPhase(ledger: PanelLedger, input: PhaseInput): PanelLedger {
     return appendEntry(ledger, {
         at: input.at,
@@ -479,7 +442,6 @@ export function recordPhase(ledger: PanelLedger, input: PhaseInput): PanelLedger
  * `String.length` under-counts non-ASCII content and would let a ledger the
  * host refuses pass here.
  *
- * @param ledger - Ledger to serialize.
  * @returns Compact JSON asserted to be secret-free and within the host's value limit.
  * @throws {RedactionError} When the ledger matches a secret shape.
  * @throws {Error} When the serialized ledger exceeds the host's 64 KiB value limit.
@@ -497,7 +459,6 @@ export function serializeLedger(ledger: PanelLedger): string {
 /**
  * Assert that a ledger can be persisted without carrying secret material.
  *
- * @param ledger - Ledger about to be written.
  * @throws {RedactionError} When the serialized ledger matches a secret shape.
  */
 export function assertLedgerRedacted(ledger: PanelLedger): void {
@@ -507,7 +468,6 @@ export function assertLedgerRedacted(ledger: PanelLedger): void {
 /**
  * Check that an entry timestamp falls strictly inside an interval.
  *
- * @param input - Timestamp plus the interval bounds in epoch milliseconds.
  * @returns `true` when the timestamp is inside the open interval.
  */
 function isInside(input: { at: string; start: number; end: number }): boolean {
@@ -515,7 +475,7 @@ function isInside(input: { at: string; start: number; end: number }): boolean {
     return !Number.isNaN(parsed) && parsed > input.start && parsed < input.end;
 }
 
-/** Verdict of the panel-close gap analysis (S6). */
+/** Verdict of the panel-close gap analysis. */
 export type GapVerdict = 'polling-continued' | 'polling-stopped' | 'no-gap';
 
 /** Result of comparing poll activity across a panel-close interval. */
@@ -533,14 +493,13 @@ export interface GapAnalysis {
 }
 
 /**
- * Analyse whether polling continued while the panel was closed (S6).
+ * Analyse whether polling continued while the panel was closed.
  *
  * The ledger only receives `poll` entries from a running panel, so a gap with
  * no poll entries is direct evidence that the poll loop stopped with the
  * frame. The verdict is computed from stored entries, never inferred from an
  * open panel.
  *
- * @param input - Ledger plus the closed/reopened interval to analyse.
  * @returns The verdict plus the number of poll entries inside the interval.
  */
 export function analyzePollingGap(input: { ledger: PanelLedger; closedAt: string; reopenedAt: string }): GapAnalysis {
@@ -553,7 +512,7 @@ export function analyzePollingGap(input: { ledger: PanelLedger; closedAt: string
 
     const inside = { start: closed, end: reopened };
     const isPollInGap = (entry: LedgerEntry): boolean => entry.kind === 'poll' && isInside({ at: entry.at, ...inside });
-    const pollEntriesInGap = ledger.entries.filter(isPollInGap).length;
+    const pollEntriesInGap = ledger.entries.filter((entry) => isPollInGap(entry)).length;
     const verdict: GapVerdict = pollEntriesInGap > 0 ? 'polling-continued' : 'polling-stopped';
 
     return { verdict, pollEntriesInGap, closedAt, reopenedAt, gapMs: reopened - closed };
@@ -562,8 +521,6 @@ export function analyzePollingGap(input: { ledger: PanelLedger; closedAt: string
 /**
  * Return the most recent entries, newest first, for display.
  *
- * @param ledger - Ledger to slice.
- * @param count - Maximum number of entries to return.
  * @returns Up to `count` entries, newest first.
  */
 export function ledgerTail(ledger: PanelLedger, count: number): readonly LedgerEntry[] {

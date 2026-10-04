@@ -25,7 +25,7 @@ import { auditRoute } from './audit.ts';
 import { getConfigRoute, putConfigRoute } from './config.ts';
 import { eventHistoryRoute, pendingEventsRoute } from './events.ts';
 import { abandonRoute, blockedRoute, dispatchedRoute, reserveRoute } from './dispatch.ts';
-import { getBindingsRoute, putBindingsRoute } from './bindings.ts';
+import { bindingsRoute, putBindingsRoute } from './bindings.ts';
 import { healthRoute } from './health.ts';
 import { requeueRunRoute, resolveRunRoute, retryRunRoute, verificationRoute } from './run-ops.ts';
 import { statusRoute } from './status.ts';
@@ -39,7 +39,7 @@ export const ROUTES: readonly Route[] = [
     putConfigRoute,
     statusRoute,
     listAccountsRoute,
-    getBindingsRoute,
+    bindingsRoute,
     putBindingsRoute,
     eventHistoryRoute,
     pendingEventsRoute,
