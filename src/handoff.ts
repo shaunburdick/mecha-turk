@@ -2,10 +2,9 @@
  * The panel's one-shot credential handoff (task T-009, token-handoff §2).
  *
  * Write-through, one shot, no cache, no retry buffer: the token enters this
- * module as a function argument, lives in the module-scoped {@link activeToken}
- * variable for the duration of the request, and is cleared in a `finally`
- * block on **every** exit — success, service refusal, host failure, timeout, or
- * a thrown error (contract §2 step ⑧, failure modes F1–F16). It is never
+ * module as a function argument and is never retained anywhere — not in a
+ * module binding, not in `rt.state`, not in a `finally` that has to remember
+ * to clear it (contract §2 step ⑧, failure modes F1–F16). It is never
  * written to `host.storage`, never rendered, and never interpolated into a
  * note: the copy in this file is built from status *codes* only.
  *
@@ -58,9 +57,6 @@ const HTTP_OK = 200;
 /** Status a store-backed route answers with when storage is unusable (F14). */
 const HTTP_STORAGE_UNAVAILABLE = 503;
 
-/** The credential in flight; cleared in `finally` on every exit (§2 step ⑧). */
-let activeToken: string | undefined;
-
 /** What the panel knows about one handoff attempt. */
 export interface HandoffState {
     /** Whether `GET /v1/status` reported `service.storage.writable`. */
@@ -98,15 +94,6 @@ export function initialHandoffState(): HandoffState {
         note: '',
         busy: false,
     };
-}
-
-/**
- * Read the credential currently in flight (test seam for F-clear assertions).
- *
- * @returns The active token, or `undefined` when nothing is in flight.
- */
-export function currentHandoffToken(): string | undefined {
-    return activeToken;
 }
 
 /**
@@ -309,11 +296,15 @@ function finishRotation(rt: PanelRuntime, numericUserId: string): void {
 /**
  * Run one handoff from paste to result (token-handoff §2).
  *
+ * The credential is `input.token` and nothing else. It is not promoted to a
+ * module binding, so there is nowhere for it to survive this call: clearing is
+ * structural rather than a `finally` step, and the tests that prove it assert
+ * the fake host's recorded input value instead of a module variable.
+ *
  * @param rt - Panel runtime.
  * @param input - The pasted credential and optional expected login.
  */
 export async function runHandoff(rt: PanelRuntime, input: HandoffInput): Promise<void> {
-    activeToken = input.token;
     rt.state.handoff.busy = true;
     try {
         const refusal = await handoffGate(rt);
@@ -335,7 +326,6 @@ export async function runHandoff(rt: PanelRuntime, input: HandoffInput): Promise
     } catch (error) {
         await applyHostFailure(rt, error);
     } finally {
-        activeToken = undefined;
         rt.state.handoff.busy = false;
     }
 }

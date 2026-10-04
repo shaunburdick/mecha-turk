@@ -12,7 +12,6 @@
 import type { GuestRequest, GuestRequestResult, HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
 import { HostRequestError } from '@openchamber/sdk';
 import { expect } from 'vitest';
-import { currentHandoffToken } from '../../src/handoff.ts';
 import { STATUS_PATH } from '../../src/handoff-status.ts';
 import type { HandoffState } from '../../src/handoff.ts';
 import type { HandoffView } from '../../src/accounts-ui.ts';
@@ -219,7 +218,6 @@ export function expectNoCredential(host: ScriptedHost): void {
     ].join('\n');
 
     expect(surfaces).not.toContain(PANEL_TOKEN);
-    expect(currentHandoffToken()).toBeUndefined();
     // `scriptedRuntime` seeds this with the pasted credential; the handoff
     // must have cleared it (contract §2 step ⑧). The DOM-level proof — paste,
     // click, assert — lives in `tests/handoff-dom.test.ts`.

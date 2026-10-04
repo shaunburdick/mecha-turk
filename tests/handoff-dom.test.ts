@@ -16,7 +16,7 @@
 import type { GuestRequest, GuestRequestResult, HostRequestErrorCode } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
 import { mountHandoffDom, refreshHandoff, submitHandoffAndRepaint } from '../src/accounts-ui.ts';
-import { VERIFY_PATH, currentHandoffToken } from '../src/handoff.ts';
+import { VERIFY_PATH } from '../src/handoff.ts';
 import type { HandoffHandlers } from '../src/accounts-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
@@ -194,7 +194,6 @@ describe('credential input clearing (contract §2 step ⑧, FR-007)', () => {
 
             expect(mounted.input.value, `${spec.name}: input must clear on settle`).toBe('');
             expect(mounted.rt.state.handoff.busy, `${spec.name}: busy must clear`).toBe(false);
-            expect(currentHandoffToken(), `${spec.name}: token must be forgotten`).toBeUndefined();
             expect(mounted.renderedText(), `${spec.name}: rendered text must carry no token`)
                 .not.toContain(PANEL_TOKEN);
         }
@@ -351,7 +350,6 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(mounted.rt.state.handoff.note)
                 .toBe('The token belongs to a different account than the one expected.');
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
-            expect(currentHandoffToken()).toBeUndefined();
         }
     });
 
