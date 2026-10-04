@@ -34,13 +34,19 @@ export default [
             // empty array *should* fail loudly), and the rest null-check the
             // same binding or are guarded further up.
             'llm-core/no-unsafe-array-access': 'off',
-            // All 61 catch bindings in this repo are already named `cause`,
-            // which is the one name the rule says LLMs mix with `e`/`err`/`ex`.
-            // There is no mixing to fix, and `cause` is a domain word here, not
-            // just a convention: `UnreadablePolicyCause` is a member of the
-            // discriminated union in dispatch-actor-gate.ts, alongside 54 object
-            // literals that carry a `cause` member of their own. Renaming the
-            // catch binding cannot be done by pattern without renaming those.
+            // All 58 catch bindings in this repo are named `cause`, or
+            // `retryCause` where two are live in one function. That is the whole
+            // of what this rule is for — it exists because LLMs mix `e`, `err`,
+            // `error`, and `ex` within one codebase — and there is none of that
+            // here. `cause` is also a domain word, not a convention: it is a
+            // member of the discriminated union in dispatch-actor-gate.ts
+            // (`UnreadablePolicyCause`), a detail member on ~54 audit row
+            // literals, and the stem of `causeReport` / `causeClearedSource`.
+            // Its sibling `unicorn/catch-error-name` demands the opposite name
+            // and is disabled for the same reason; two rules insisting on
+            // opposite spellings is what makes the local choice deliberate
+            // rather than accidental.
+            'llm-core/consistent-catch-param-name': 'off',
             'unicorn/catch-error-name': 'off',
             // 44 findings, every one a module that re-exports a name its own
             // body reads — `utcStamp` in dispatches-rows, `inQueueChain` and
