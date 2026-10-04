@@ -155,9 +155,24 @@ const BINDING_STAMP_FIELDS = ['createdAt', 'updatedAt'] as const;
  * M7 has no `reviewRequest` at all, and it reads as `false` (its operator
  * never asked for it).
  *
- * @param value - Candidate triggers.
  * @returns The flags, or `null` when the object itself is unusable.
  */
+/**
+ * One trigger flag, typed or defaulted.
+ *
+ * The `typeof` is load-bearing and `??` would lose it: that answers only
+ * `null` and `undefined`, while a flag stored as `"yes"` or `0` must read as
+ * absent rather than as a truthy member.
+ */
+function booleanFlagOf(record: Record<string, unknown>, field: string, isAbsent: boolean): boolean {
+    const value = record[field];
+    if (typeof value === 'boolean') {
+        return value;
+    }
+
+    return isAbsent;
+}
+
 function readTriggerFlags(value: unknown): PanelTriggers | null {
     const record = asRecord(value);
     if (record === null) {
@@ -165,9 +180,9 @@ function readTriggerFlags(value: unknown): PanelTriggers | null {
     }
 
     return {
-        assignment: typeof record.assignment === 'boolean' ? record.assignment : true,
-        mention: typeof record.mention === 'boolean' ? record.mention : false,
-        reviewRequest: typeof record.reviewRequest === 'boolean' ? record.reviewRequest : false,
+        assignment: booleanFlagOf(record, 'assignment', true),
+        mention: booleanFlagOf(record, 'mention', false),
+        reviewRequest: booleanFlagOf(record, 'reviewRequest', false),
     };
 }
 
@@ -178,7 +193,6 @@ function readTriggerFlags(value: unknown): PanelTriggers | null {
  * projection — one reader, one rule, so the claim parser and the runs parser
  * can never disagree about what counts as an issue number.
  *
- * @param record - Parsed row.
  * @returns The number, or `0` when absent (the entry was already refused).
  */
 export function issueNumberFrom(record: Record<string, unknown>): number {
@@ -190,8 +204,6 @@ export function issueNumberFrom(record: Record<string, unknown>): number {
 /**
  * Read one status row, filling what the panel cannot trust with `''`/null.
  *
- * @param record - Parsed row.
- * @param ids - The identity fields the caller already narrowed.
  * @returns The row.
  */
 function statusRowOf(
@@ -213,7 +225,6 @@ function statusRowOf(
 /**
  * Read a status row collection leniently.
  *
- * @param rows - Parsed status rows.
  * @returns Rows this panel can render, dropping rows it cannot.
  */
 export function readStatusRows(rows: readonly unknown[]): BindingStatusRow[] {
@@ -259,7 +270,6 @@ type AllowedUsersRead =
  * The submitted spelling is preserved **verbatim** — the
  * panel compares nothing and normalizes nothing here; the service owns that.
  *
- * @param value - The member as received.
  * @returns The read, marked unusable for a shape this build may not half-apply.
  */
 function readAllowedUsers(value: unknown): AllowedUsersRead {
@@ -304,7 +314,6 @@ type OptionalMembers =
  * for both — that is the complete "this binding has none" state, never a
  * default the operator did not ask for.
  *
- * @param record - The parsed entry.
  * @returns Both members, or the refusal that stops the read.
  */
 function readOptionalMembers(record: Record<string, unknown>): OptionalMembers {
@@ -321,7 +330,6 @@ function readOptionalMembers(record: Record<string, unknown>): OptionalMembers {
 /**
  * Read one binding entry.
  *
- * @param value - One element of the `bindings` array.
  * @returns The binding, or `null` when its shape is unusable.
  */
 function parseBindingEntry(value: unknown): PanelBinding | null {
@@ -370,7 +378,6 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
  * Shared with `dispatches-service.ts` for exactly the same reason: the runs list
  * renders rows the panel's own build may not have enqueued.
  *
- * @param value - Candidate kind from a stored row.
  * @returns A kind this panel can render.
  */
 export function eventKindOf(value: unknown): EventKind {
@@ -385,7 +392,6 @@ export function eventKindOf(value: unknown): EventKind {
 /**
  * Count the enabled bindings in a list.
  *
- * @param bindings - Bindings as the panel last read (or granted) them.
  * @returns How many are currently `active`.
  */
 export function countEnabledBindings(bindings: readonly PanelBinding[]): number {
@@ -395,7 +401,6 @@ export function countEnabledBindings(bindings: readonly PanelBinding[]): number 
 /**
  * Parse the bindings response body.
  *
- * @param text - Response body text.
  * @returns The snapshot, or `null` when the shape is unusable.
  */
 export function parseBindingsBody(text: string): BindingsSnapshot | null {

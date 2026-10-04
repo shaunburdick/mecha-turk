@@ -199,8 +199,6 @@ const RUN_STRING_FIELDS = [
 /**
  * Read a required finite number member.
  *
- * @param record - Parsed row.
- * @param field - Member name.
  * @returns The value, or `null` when it is missing or not a number.
  */
 function requiredNumber(record: Record<string, unknown>, field: string): number | null {
@@ -217,7 +215,6 @@ function requiredNumber(record: Record<string, unknown>, field: string): number 
  * three disagree would render as either silently lossy or falsely complete.
  * Refusing it is the same call the store's own parser makes.
  *
- * @param input - The counting members and the retained list's length.
  * @returns `true` when they reconcile.
  */
 function countsReconcile(input: { readonly counts: RunCounts; readonly retained: number }): boolean {
@@ -232,8 +229,6 @@ function countsReconcile(input: { readonly counts: RunCounts; readonly retained:
 /**
  * Bound one already-read number below, refusing a fractional value.
  *
- * @param value - The number, or `null` when the member was unusable.
- * @param min - Smallest acceptable value.
  * @returns The value, or `null` when it is missing, fractional, or too small.
  */
 function atLeast(value: number | null, min: number): number | null {
@@ -247,7 +242,6 @@ function atLeast(value: number | null, min: number): number | null {
 /**
  * Read the twelve string members the row renders from, as one step.
  *
- * @param record - Parsed row.
  * @returns The members, or `null` when any is missing, not a string, or empty.
  */
 function readRunScalars(record: Record<string, unknown>): RunScalars | null {
@@ -279,7 +273,6 @@ function readRunScalars(record: Record<string, unknown>): RunScalars | null {
 /**
  * Read the counting members of the row as one step.
  *
- * @param record - Parsed row.
  * @returns The members, or `null` when any is missing, fractional, or out of bounds.
  */
 function readRunCounts(record: Record<string, unknown>): RunCounts | null {
@@ -305,7 +298,6 @@ function readRunCounts(record: Record<string, unknown>): RunCounts | null {
  * Read the projected detail: references, pointers, stamps, and the optional
  * coordinates a delivery row can be evicted out from under.
  *
- * @param record - Parsed row.
  * @returns The members, or `null` when any structured member is unusable.
  */
 function readRunDetail(record: Record<string, unknown>): RunDetail | null {
@@ -340,7 +332,6 @@ function readRunDetail(record: Record<string, unknown>): RunDetail | null {
  * every step agreed — so a half-readable row is a refused row, never a
  * partially applied one (AGENTS invariant 8).
  *
- * @param value - One element of the `events` array.
  * @returns The row, or `null` when its shape is unusable.
  */
 function parseRunEntry(value: unknown): RunRow | null {
@@ -375,7 +366,6 @@ function parseRunEntry(value: unknown): RunRow | null {
 /**
  * Parse the runs-history (`GET /v1/events`) response body.
  *
- * @param text - Response body text.
  * @returns The rows in the order the service sent them (newest detected
  *   first), or `null` when any part of the shape is unusable.
  */
@@ -387,7 +377,6 @@ function parseRunEntry(value: unknown): RunRow | null {
  * than being skipped, because a list with a hole in it is a record an operator
  * would misread.
  *
- * @param events - The `events` member (unchecked).
  * @returns The rows, or `null` when the member is not an array or a row fails.
  */
 export function parseEventRows(events: unknown): RunRow[] | null {
@@ -411,7 +400,6 @@ export function parseEventRows(events: unknown): RunRow[] | null {
 /**
  * Parse the runs-history (`GET /v1/events`) response body's rows alone.
  *
- * @param text - Response body text.
  * @returns The rows in the order the service sent them (newest detected
  *   first), or `null` when any part of the shape is unusable.
  */

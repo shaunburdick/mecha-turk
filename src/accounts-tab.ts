@@ -82,7 +82,6 @@ export interface AccountsBody {
 /**
  * Compose the body's one status line.
  *
- * @param input - How many accounts the service listed and how many can poll.
  * @returns The summary text the status line shows.
  */
 function composeStatus(input: { readonly total: number; readonly usable: number }): string {
@@ -105,8 +104,6 @@ const LIST_COLUMNS: readonly string[] = ['Lifecycle', 'Account', 'Bindings'];
  * Repaint the open row: its words, both members' fields, and the two
  * confirmations.
  *
- * @param rt - Panel runtime.
- * @param view - The mounted body.
  */
 function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
     const { bindings, accounts } = rt.state;
@@ -160,8 +157,6 @@ function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
 /**
  * Repaint the Accounts body from state.
  *
- * @param rt - Panel runtime.
- * @param view - The mounted body.
  */
 export function repaintAccountsBody(rt: PanelRuntime, view: AccountsBody): void {
     const { bindings } = rt.state;
@@ -182,8 +177,6 @@ export function repaintAccountsBody(rt: PanelRuntime, view: AccountsBody): void 
  * re-cut — the substance the consent copy carried is that
  * disclaimer).
  *
- * @param rt - Panel runtime whose handoff state the group renders.
- * @param pane - Pane root the group mounts into.
  */
 function mountHandoffGroup(rt: PanelRuntime, pane: HTMLElement): void {
     rt.handoffView = mountHandoffDom({
@@ -212,7 +205,6 @@ interface ListBoard {
 /**
  * Mount the status line, list, refresh, note, and the disclaimer, as re-cut.
  *
- * @param input - Runtime, pane root, and the callbacks the controls invoke.
  * @returns The handles the body carries.
  */
 function mountListBoard(input: {
@@ -267,7 +259,6 @@ interface AccountsParts {
 /**
  * Build the disposer that releases every node and handle the body mounted.
  *
- * @param parts - What the mount created.
  * @returns The disposer the body hands its caller.
  */
 function accountsDisposer(parts: AccountsParts): () => void {
@@ -289,7 +280,6 @@ function accountsDisposer(parts: AccountsParts): () => void {
 /**
  * Mount the Accounts body: handoff group, list, detail, and note.
  *
- * @param input - Runtime, body container, and the callbacks the controls use.
  * @returns The mounted body's handles.
  */
 export function mountAccountsBody(input: {
@@ -353,8 +343,6 @@ export function mountAccountsBody(input: {
  * across would let a confirm step — or a save — fire against the wrong
  * account.
  *
- * @param rt - Panel runtime.
- * @param id - Numeric user id of the row the operator selected.
  */
 export function selectAccountRow(rt: PanelRuntime, id: string): void {
     if (rt.disposed) {
@@ -384,7 +372,6 @@ export function selectAccountRow(rt: PanelRuntime, id: string): void {
  * Every row-scoped callback resolves the open row first, so a control with
  * no selection does nothing rather than acting on the first row it finds.
  *
- * @param rt - Panel runtime the actions read and repaint.
  * @returns The handler table for {@link mountAccountsBody}.
  */
 export function createAccountsHandlers(rt: PanelRuntime): AccountsHandlers {
