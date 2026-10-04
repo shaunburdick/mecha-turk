@@ -1,11 +1,11 @@
 /**
- * The panel's durable dispatch-attempt record (003 FR-024;
- * [contracts/reconciliation.md](../specs/003-dispatch-integrity/contracts/reconciliation.md) §1).
+ * The panel's durable dispatch-attempt record
+ * ([contracts/reconciliation.md](../specs/003-dispatch-integrity/contracts/reconciliation.md)).
  *
  * This is the half of the reconciliation contract the panel owns: one entry per
  * dispatch attempt, written to `host.storage` under `mecha-turk:dispatches` so
  * a report that never reached the service still leaves the truth recoverable on
- * remount. It is a **reconciliation aid, never an audit home** (002 FR-034) —
+ * remount. It is a **reconciliation aid, never an audit home** —
  * the service's `audit.ndjson` stays the trail.
  *
  * Three properties this module owes, in order of how badly they are missed:
@@ -16,7 +16,7 @@
  *   call has produced one, and every stored record therefore already carries an
  *   outcome. A crash before this write exists means the service's own
  *   reservation is the only evidence, and the run correctly wedges to
- *   `unconfirmed` (FR-023) instead of being guessed at.
+ *   `unconfirmed` instead of being guessed at.
  * - **`acknowledged` flips only on a 2xx for that exact attempt.**
  *   {@link acknowledgeDispatch} is the only writer of `true`, and it is keyed by
  *   `correlationId` *and* attempt so an acknowledgement can never land on a
@@ -24,16 +24,16 @@
  * - **Every write is scanned.** Writes go through `writeStorage`, which applies
  *   `assertRedacted` to the serialized document before `host.storage.set` is
  *   called. The record legitimately holds a `dispatchToken` (`dtk-…`, an
- *   authorization artifact, not a credential — see research §R3), which is why
+ *   authorization artifact, not a credential), which is why
  *   `SECRET_PATTERNS` deliberately does not cover that prefix: a redaction
  *   guard that refused tokens would break the feature it exists to protect.
  *
  * Parsing is fail closed (AGENTS invariant 8): a present but unusable document
  * reads as *unreadable*, never as an empty one, because silently reporting
  * "nothing to reconcile" over a corrupt record is exactly the quiet data loss
- * FR-024 exists to prevent. An **absent** key — a fresh install, an uninstall,
+ * this module exists to prevent. An **absent** key — a fresh install, an uninstall,
  * a wiped namespace — is different: it is evidence that there is nothing to
- * reconcile, and it reads as empty (the wipe semantics in data-model §3).
+ * reconcile, and it reads as empty.
  */
 
 import type { JsonValue } from '@openchamber/sdk';
@@ -42,7 +42,7 @@ import { nowIso } from './ids.ts';
 import { writeStorage } from './storage-write.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** Storage key holding the FR-024 attempt record (AGENTS invariant 4's prefix). */
+/** Storage key holding the attempt record (AGENTS invariant 4's prefix). */
 export const DISPATCH_STORAGE_KEY = 'mecha-turk:dispatches';
 
 /** Schema version stamped on every attempt record this build writes. */
@@ -75,7 +75,7 @@ export type RecordedOutcome =
 export interface DispatchAttemptRecord {
     /** Run identity; every later call is addressed by it. */
     readonly correlationId: string;
-    /** FR-010's human-readable run tuple, kept so a record is readable alone. */
+    /** The human-readable run tuple, kept so a record is readable alone. */
     readonly runKey: string;
     /** Attempt this record is for; pairs with the correlation id as the key. */
     readonly attempt: number;
@@ -87,7 +87,7 @@ export interface DispatchAttemptRecord {
     readonly sessionId: string | null;
     /** Recorded cause on a failed outcome, else `null`. */
     readonly reason: string | null;
-    /** RFC 3339 stamp of the write (FR-024's "before the result report"). */
+    /** RFC 3339 stamp of the write, i.e. before the result report. */
     readonly recordedAt: string;
     /** `true` once a 2xx for this exact attempt has come back. */
     readonly acknowledged: boolean;
@@ -97,7 +97,7 @@ export interface DispatchAttemptRecord {
 export interface DispatchRecordDocument {
     /** Contract schema version. */
     readonly schemaVersion: typeof DISPATCH_SCHEMA_VERSION;
-    /** Attempts, oldest first, newest last (data-model §3). */
+    /** Attempts, oldest first, newest last. */
     readonly attempts: readonly DispatchAttemptRecord[];
 }
 
@@ -115,7 +115,6 @@ export type DispatchRecordRead =
  * documents, and narrowing here means every member read below is typed as a
  * `JsonValue` rather than as `unknown`.
  *
- * @param value - Candidate value.
  * @returns The value as a record, or `null` for anything else.
  */
 function asJsonRecord(value: JsonValue | undefined): Record<string, JsonValue> | null {
@@ -138,8 +137,6 @@ function emptyDocument(): DispatchRecordDocument {
 /**
  * Read a required, non-empty string field.
  *
- * @param record - Stored record.
- * @param field - Field name.
  * @returns The value, or `null` when missing, not a string, or empty.
  */
 function readText(record: Record<string, JsonValue>, field: string): string | null {
@@ -151,8 +148,6 @@ function readText(record: Record<string, JsonValue>, field: string): string | nu
 /**
  * Read a required nullable string field: explicit `null` is a value here.
  *
- * @param record - Stored record.
- * @param field - Field name.
  * @returns The value, `null`, or `undefined` when the member is absent or malformed.
  */
 function readNullableText(record: Record<string, JsonValue>, field: string): string | null | undefined {
@@ -179,7 +174,6 @@ interface AttemptHead {
 /**
  * Read the identity and stamp members of one stored attempt.
  *
- * @param record - Stored attempt as a record.
  * @returns The members, or `null` when any is missing or malformed.
  */
 function readAttemptHead(record: Record<string, JsonValue>): AttemptHead | null {
@@ -191,8 +185,8 @@ function readAttemptHead(record: Record<string, JsonValue>): AttemptHead | null 
         correlationId === null ||
         runKey === null ||
         dispatchToken === null ||
-        !DISPATCH_TOKEN_PATTERN.test(dispatchToken) ||
         recordedAt === null ||
+        !DISPATCH_TOKEN_PATTERN.test(dispatchToken) ||
         Number.isNaN(Date.parse(recordedAt))
     ) {
         return null;
@@ -212,16 +206,15 @@ interface AttemptFlags {
 /**
  * Read the attempt number and the acknowledgement flag.
  *
- * @param record - Stored attempt as a record.
  * @returns The members, or `null` when either is malformed.
  */
 function readAttemptFlags(record: Record<string, JsonValue>): AttemptFlags | null {
     const { attempt, acknowledged } = record;
     if (
         typeof attempt !== 'number' ||
+        typeof acknowledged !== 'boolean' ||
         !Number.isSafeInteger(attempt) ||
-        attempt < 1 ||
-        typeof acknowledged !== 'boolean'
+        attempt < 1
     ) {
         return null;
     }
@@ -247,7 +240,6 @@ interface AttemptOutcome {
  * carried both, or neither, would be a fact the reconciliation loop could not
  * turn into a single honest report.
  *
- * @param record - Stored attempt as a record.
  * @returns The outcome, or `null` when it is not a fact this build can re-send.
  */
 function readAttemptOutcome(record: Record<string, JsonValue>): AttemptOutcome | null {
@@ -262,8 +254,8 @@ function readAttemptOutcome(record: Record<string, JsonValue>): AttemptOutcome |
         return null;
     }
 
-    const dispatched = outcome === 'dispatched';
-    if (dispatched !== (sessionId !== null) || dispatched === (reason !== null)) {
+    const wasDispatched = outcome === 'dispatched';
+    if (wasDispatched !== (sessionId !== null) || wasDispatched === (reason !== null)) {
         return null;
     }
 
@@ -273,7 +265,6 @@ function readAttemptOutcome(record: Record<string, JsonValue>): AttemptOutcome |
 /**
  * Validate one stored attempt.
  *
- * @param value - Candidate attempt.
  * @returns The attempt, or `null` when its shape is unusable.
  */
 function readAttempt(value: JsonValue): DispatchAttemptRecord | null {
@@ -295,7 +286,6 @@ function readAttempt(value: JsonValue): DispatchAttemptRecord | null {
 /**
  * Validate the attempt list of a stored document.
  *
- * @param value - The `attempts` member.
  * @returns The attempts, or `null` when any element is unusable.
  */
 function readAttempts(value: JsonValue | undefined): DispatchAttemptRecord[] | null {
@@ -319,7 +309,6 @@ function readAttempts(value: JsonValue | undefined): DispatchAttemptRecord[] | n
 /**
  * Read the attempt record back from `host.storage`.
  *
- * @param value - Value read from storage, or `undefined` when the key is absent.
  * @returns The document for an absent or usable value; `null` when the value is
  *   present but not a document this build may half-apply.
  */
@@ -341,7 +330,6 @@ export function readDispatchRecord(value?: JsonValue): DispatchRecordDocument | 
 /**
  * Load the attempt record from the panel's storage.
  *
- * @param rt - Panel runtime.
  * @returns The document (empty when the key is wiped/absent), or `unreadable`
  *   when storage threw or held a document this build refuses.
  */
@@ -365,11 +353,9 @@ export async function loadDispatchRecord(rt: PanelRuntime): Promise<DispatchReco
  * The victim is always the **oldest acknowledged** record; an unacknowledged
  * record is the only evidence that a session may exist, so eviction never takes
  * one. When nothing is acknowledged the cap gives way to that rule — losing the
- * reconciliation source to a bookkeeping bound would be the wrong trade (FR-024
- * over NFR-107 in this one pathological case).
+ * reconciliation source to a bookkeeping bound would be the wrong trade — one
+ * honest bound beats a bound that is merely persisted.
  *
- * @param document - Current document.
- * @param record - Attempt to append (newest last).
  * @returns The new document.
  */
 export function appendAttempt(
@@ -396,7 +382,6 @@ export function appendAttempt(
  * attempt can never mark a later one as seen — the same discipline the handled
  * list uses in the relay.
  *
- * @param input - The document, the run the 2xx was for, and its attempt.
  * @returns The new document.
  */
 export function acknowledgeAttempt(input: {
@@ -421,7 +406,6 @@ export function acknowledgeAttempt(input: {
 /**
  * The attempts reconciliation still owes the service.
  *
- * @param document - Current document.
  * @returns Every unacknowledged attempt, oldest first.
  */
 export function unacknowledgedAttempts(document: DispatchRecordDocument): readonly DispatchAttemptRecord[] {
@@ -431,8 +415,6 @@ export function unacknowledgedAttempts(document: DispatchRecordDocument): readon
 /**
  * Persist the record behind the redaction guard; never throws.
  *
- * @param rt - Panel runtime.
- * @param document - Document to write.
  * @returns `true` when the write landed, `false` when it was refused.
  */
 async function persist(rt: PanelRuntime, document: DispatchRecordDocument): Promise<boolean> {
@@ -441,25 +423,23 @@ async function persist(rt: PanelRuntime, document: DispatchRecordDocument): Prom
     }
 
     // `writeStorage` runs `assertRedacted` over the serialized document before
-    // the host is called — the "every write is scanned" half of T-019.
+    // the host is called — the "every write is scanned" half of the guard.
     return await writeStorage(rt, { key: DISPATCH_STORAGE_KEY, value: document });
 }
 
 /**
  * Record the outcome of one dispatch attempt, durably, before it is reported.
  *
- * This is the FR-024 write: the relay calls it after `host.startSession()`
+ * This is the durable write: the relay calls it after `host.startSession()`
  * returns and before the result POST goes out, so a report that never lands
  * still leaves a record reconciliation can re-send on the next mount.
  *
- * @param rt - Panel runtime.
- * @param input - The run identity, the attempt, its token, and the host's outcome.
  * @returns `true` when the record landed; `false` when the value was refused.
  */
 export async function recordDispatchOutcome(rt: PanelRuntime, input: {
     /** Run the attempt belongs to. */
     readonly correlationId: string;
-    /** FR-010's run tuple, so the record reads alone. */
+    /** The run tuple, so the record reads alone. */
     readonly runKey: string;
     /** Attempt number this outcome is for. */
     readonly attempt: number;
@@ -496,7 +476,6 @@ export async function recordDispatchOutcome(rt: PanelRuntime, input: {
 /**
  * Mark one attempt acknowledged after its 2xx came back.
  *
- * @param input - The runtime plus the run and attempt the 2xx was for.
  * @returns `true` when the flip landed, `false` when nothing changed or the
  *   write could not be persisted.
  */
@@ -515,8 +494,8 @@ export async function acknowledgeDispatch(input: {
     }
 
     const next = acknowledgeAttempt({ document: read.document, correlationId, attempt });
-    const changed = next.attempts.some((entry, index) => entry !== read.document.attempts[index]);
-    if (!changed) {
+    const wasChanged = next.attempts.some((entry, index) => entry !== read.document.attempts[index]);
+    if (!wasChanged) {
         // No matching attempt, or it was already acknowledged: writing would
         // only churn the key, and an acknowledgement for an attempt the panel
         // never recorded is not a fact worth persisting.
