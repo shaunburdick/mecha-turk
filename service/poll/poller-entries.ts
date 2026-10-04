@@ -8,6 +8,12 @@
  * upstream text leaves this module either — the shapes below carry only the
  * fields the triggers need, and the loop never sees a raw GitHub body
  * (SEC-11).
+ *
+ * The fourth feed the poller reads — one item's own event list — is **not** a
+ * list feed and its reader lives in `poller-events.ts`, beside the rules that
+ * decide which of its rows answers a candidate. The split is along the line of
+ * what the row is for: these three rows *are* the observations the triggers act
+ * on, and an event row is evidence about an observation already detected.
  */
 
 import { isRecord } from '../json.ts';
@@ -68,8 +74,23 @@ export interface PollComment {
 /**
  * Minimal pull-request shape the poller normalizes (M7).
  *
- * Only what the review-request trigger needs: who is asked to review, and
- * the head/base coordinates the event carries for the dispatch context.
+ * Only what the review-request trigger needs: who is asked to review, and the
+ * head/base coordinates the event carries for the dispatch context.
+ *
+ * **There is deliberately no author member here, and its absence is the record
+ * of a correction.** Two builds ago this shape gained `authorLogin` /
+ * `authorType` to make a `subject-author` attribution possible for the review
+ * trigger, on the premise — taken from the two *list* feeds this poller calls —
+ * that GitHub records no requester. That premise was false, and 002 v1.12.0
+ * struck the sentence that required these fields: GitHub records the requester
+ * in `review_requester` on the item's own `review_requested` event, which the
+ * per-item read in `poller-events.ts` now consults (002 FR-049, FR-050). The
+ * proxy was their only consumer, so with the proxy retired they are gone rather
+ * than left as a second, unread answer to "who asked" (research §R8, rewritten).
+ *
+ * `PollIssue` and `PollComment` **keep** their author members: a comment is the
+ * act that carried the mention, and an issue body that names the account is a
+ * mention the same way — so their authors are facts, not stand-ins.
  */
 export interface PollPull {
     /** Pull-request number within the repository. */

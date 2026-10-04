@@ -135,6 +135,7 @@ function fixtureRun(overrides: Partial<Run> = {}): Run {
         projectId: 'prj_42',
         worktreeOption: 'none',
         prompt: null,
+        actorPolicy: null,
         state: 'pending',
         stateReason: null,
         attempt: 1,
@@ -614,6 +615,104 @@ describe('fail-closed document and row validation', () => {
             expect(run?.referenceCount).toBe(MAX_SOURCE_REFERENCES + 7);
             expect(run?.referencesNotRetained).toBe(7);
             expect(run?.referencesTruncated).toBe(true);
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * The run model's two actor members (002 FR-043, FR-044; 003 FR-079, FR-080)
+ *
+ * A reference's actor is what the authorization gate judges, so it rides the
+ * run; the policy shape is what the two admitted audit rows report, so it rides
+ * the run too. Both are **absentable** — a run stored before either existed is
+ * history, and refusing it would quarantine the whole document — and both are
+ * **validated when present**, because defaulting an unreadable attribution to a
+ * guess would record an inference as a fact (002 NFR-011).
+ * ------------------------------------------------------------------------- */
+
+/** A reference carrying a direct attribution, as the enqueue path writes one. */
+function attributedReference(overrides: Partial<SourceReference> = {}): SourceReference {
+    return {
+        ...fixtureReference(),
+        actorLogin: 'alice',
+        actorAttribution: 'direct',
+        ...overrides,
+    };
+}
+
+describe('the run model gains the actor and the policy shape (003 FR-079, FR-080)', () => {
+    it('round-trips both members on real bytes (+4 cases)', async () => {
+        // case: round-trips an attributed reference and both policy words
+        {
+            const reference = attributedReference({ actorAttribution: 'subject-author' });
+            const document = fixtureDocument([
+                fixtureRun({ sourceReferences: [reference], actorPolicy: 'restricted' }),
+                fixtureRun({ subjectNumber: 13, actorPolicy: 'open' }),
+                fixtureRun({ subjectNumber: 14, actorPolicy: null }),
+            ]);
+
+            const result = await readBack(document);
+
+            expect(result.status).toBe('ok');
+            const runs = result.status === 'ok' ? result.value.runs : [];
+            expect(runs.map((run) => run.actorPolicy)).toEqual(['restricted', 'open', null]);
+            expect(runs[0]?.sourceReferences).toEqual([reference]);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: reads a run stored before either member existed (003 FR-080's reach)
+        {
+            const row = without('actorPolicy');
+            row.sourceReferences = [{ ...fixtureReference() }];
+
+            const run = parseRun(row);
+
+            expect(run).not.toBeNull();
+            expect(run?.actorPolicy).toBeNull();
+            // Absence reads as *no attribution recorded* — a third thing, never
+            // silently becoming a login or a basis (002 FR-044, NFR-011).
+            expect(run?.sourceReferences[0]).not.toHaveProperty('actorLogin');
+            expect(run?.sourceReferences[0]).not.toHaveProperty('actorAttribution');
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses an unknown basis and an unusable login on a stored reference
+        {
+            const bases: readonly unknown[] = ['subject_author', 'none', '', 7, null];
+            for (const actorAttribution of bases) {
+                const reference = { ...attributedReference(), actorAttribution };
+                expect(
+                    parseRun(poisoned('sourceReferences', [reference])),
+                    `basis ${String(actorAttribution)}`,
+                ).toBeNull();
+            }
+
+            const logins: readonly unknown[] = ['', 7, null];
+            for (const actorLogin of logins) {
+                const reference = { ...attributedReference(), actorLogin };
+                expect(
+                    parseRun(poisoned('sourceReferences', [reference])),
+                    `login ${String(actorLogin)}`,
+                ).toBeNull();
+            }
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: refuses an `actorPolicy` outside the closed two-word union
+        {
+            const stored: readonly unknown[] = ['Open', 'everyone', '', 1, {}, []];
+            for (const actorPolicy of stored) {
+                expect(parseRun(poisoned('actorPolicy', actorPolicy)), `policy ${String(actorPolicy)}`).toBeNull();
+            }
+
+            // The two legal words and the documented `null` all parse.
+            expect(parseRun(poisoned('actorPolicy', null))?.actorPolicy).toBeNull();
         }
     });
 });

@@ -17,7 +17,7 @@
  */
 
 import { readCount, readFlag, readPositiveInt, readStamp, readText } from '../json.ts';
-import type { Run, RunState } from './runs-types.ts';
+import type { ActorPolicy, Run, RunState } from './runs-types.ts';
 
 /** States stored as their own literal, without a suffix. */
 const SIMPLE_STATES: ReadonlySet<string> = new Set([
@@ -64,6 +64,11 @@ export interface RunScalars {
     readonly referencesNotRetained: number;
     /** Whether the reference list was cut. */
     readonly referencesTruncated: boolean;
+    /**
+     * The snapshotted allow-list shape, or `null` when no authorization has
+     * been recorded yet (003 FR-079).
+     */
+    readonly actorPolicy: ActorPolicy | null;
     /** Creation stamp. */
     readonly createdAt: string;
     /** Last-mutation stamp. */
@@ -153,6 +158,29 @@ function readStateLine(raw: Record<string, unknown>): StateLine | null {
 }
 
 /**
+ * Read the snapshotted actor policy (003 FR-079).
+ *
+ * Absent **or** stored `null` both read as *no authorization recorded*, which
+ * is how every run written before this member existed reads — a statement
+ * about that run rather than a hole in the record. A **present** value outside
+ * the closed two-word union refuses the row instead of defaulting to `'open'`,
+ * because defaulting would silently upgrade an unreadable policy into
+ * permission (constitution II, 002 FR-024).
+ *
+ * @param raw - Candidate row, already known to be a record.
+ * @returns The policy, `null` for "none recorded", or `undefined` when a
+ *   present value is unusable.
+ */
+function readActorPolicy(raw: Record<string, unknown>): ActorPolicy | null | undefined {
+    const value = raw.actorPolicy;
+    if (value === undefined || value === null) {
+        return null;
+    }
+
+    return value === 'open' || value === 'restricted' ? value : undefined;
+}
+
+/**
  * Validate one run row's scalar fields as a group.
  *
  * @param raw - Candidate row, already known to be a record.
@@ -160,8 +188,9 @@ function readStateLine(raw: Record<string, unknown>): StateLine | null {
  */
 export function parseRunScalars(raw: Record<string, unknown>): RunScalars | null {
     const line = readStateLine(raw);
+    const actorPolicy = readActorPolicy(raw);
     const { subjectType } = raw;
-    if (line === null || (subjectType !== 'issue' && subjectType !== 'pull_request')) {
+    if (line === null || actorPolicy === undefined || (subjectType !== 'issue' && subjectType !== 'pull_request')) {
         return null;
     }
 
@@ -190,6 +219,7 @@ export function parseRunScalars(raw: Record<string, unknown>): RunScalars | null
         referenceCount: referenceCount as number,
         referencesNotRetained: notRetained as number,
         referencesTruncated: truncated,
+        actorPolicy,
         createdAt: createdAt as string,
         updatedAt: updatedAt as string,
     };

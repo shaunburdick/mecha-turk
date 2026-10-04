@@ -1,12 +1,13 @@
 # Contracts index — `002-agent-event-extension`
 
-**Date**: 2026-09-27 · **Status**: planning artifacts (phases 4–5)
+**Date**: 2026-09-27 · **Amended**: 2026-10-03 (the actor allow-list, GitHub issue #9) · **Status**: planning artifacts (phases 4–5)
 
 | File | Role |
 | --- | --- |
 | [panel-service.md](./panel-service.md) | Binding HTTP contract between panel and local service: loopback transport, `OPENCHAMBER_SERVICE_TOKEN` auth, endpoints (accounts, bindings, relay/dispatch, runs, audit, health, config), limits, error catalog, contract-test invariants |
 | [token-handoff.md](./token-handoff.md) | **SECURITY-GATED** credential flow: two-part approval gate, exact handoff sequence, panel-state enter/clear table, redaction rules, failure modes F1–F12, custody rules, reviewer scope. Gate G1 (tasks T-001/T-002) must close before any token code |
-| [events-carry-forward.md](./events-carry-forward.md) | Carries 001's `contracts/events.md` (v1) forward as the reference schema; defines the additive v1.1 `Delivery` fields and the dispatch attachment mapping |
+| [events-carry-forward.md](./events-carry-forward.md) | Carries 001's `contracts/events.md` (v1) forward as the reference schema; defines the additive v1.1 `Delivery` fields, the **additive `schemaVersion 1.2` actor fields** (002 v1.11.0), and the dispatch attachment mapping |
+| [binding-allow-list.md](./binding-allow-list.md) | **New 2026-10-03**: `BindingRecord.allowedUsers` on the existing `GET`/`PUT /v1/bindings` grant — three states, the case-insensitive comparison, the `[]` refusal envelope, the omission-means-unset rule, and the "the list never leaves `bindings.json`" invariant (002 FR-047, NFR-113) |
 
 ## Supersession pointers (what 001 left behind, and where it now lives)
 

@@ -372,3 +372,130 @@ tests/
 ## Complexity tracking
 
 **None.** The constitution check passed without violations, so there are no violations to justify.
+
+---
+
+# Amendment record — 005 v1.11.0 (2026-10-03): the actor allow-list's rendering
+
+> **This section is a dated Phase-4 record added on 2026-10-03.** Everything above it is the plan of
+> 2026-09-28 and is retained as written. The v1.11.0 amendment is **additive** (block J,
+> FR-090 – FR-095, NFR-113, SC-113, AC-142 – AC-146) and re-cuts no existing requirement, renames
+> no audit row, adds no wire operation, and touches no existing member's shape.
+>
+> **The field and its rules are [`002-agent-event-extension`](../002-agent-event-extension/plan.md)'s
+> (002 v1.11.0); the gate that enforces them is [`003-dispatch-integrity`](../003-dispatch-integrity/plan.md)'s
+> (003 v1.8.0).** What is 005's is **rendering only** — and its centre of gravity is one obligation
+> the product owner attached to the fail-open posture: an absent allow-list means *any human may
+> trigger*, and that state MUST be **discoverable — visible in the panel and warned about — rather
+> than silently implying protection**.
+
+## C.1 Scope of 005's half
+
+| Requirement | What 005 builds | Where |
+| --- | --- | --- |
+| FR-090 | one field in the binding editor, free text, guidance stating all three of 002 FR-047's states, **no identity picker**, and **no client-side copy of the rule** | `src/bindings-actors.ts` (new), `src/bindings-grant.ts` |
+| FR-091 | **one rendering per list value** — the logins appear exactly once panel-wide, in the editor field; a **count** is permitted on a row summary and is not a second rendering | `src/bindings-actors.ts` |
+| FR-092 | an absent policy is a **visible worded warning** wherever a binding is listed outside its editor — text not colour alone, not an error, never phrased as *protected* | `src/bindings-actors.ts` |
+| FR-093 | Status states **how many** of the listed bindings carry no list, plus one line naming the consequence; a count of **zero** renders as a positive statement; unreachable renders *not available*; no login, no repository name | `service/routes/{status,events}.ts` (the `actorPolicy` member), `src/status-document.ts`, `src/status-lines.ts`, `src/status-tab.ts` |
+| FR-094 | the dispatch row names the attributed actor; a `direct` reference renders the login alone with **no basis clause**, and a legacy `subject-author` reference renders a **historical** basis clause — attributed under the rule in force when the row was written — that does **not** claim GitHub lacks the field; each source reference in the reveal carries its own; a gate-refused run names the **denied** login | `src/dispatches-rows.ts`, `src/run-actor.ts` |
+| FR-095 | a refusal splits back to the field, leaves every other binding byte-identical, is never reported as saved, and never echoes the submitted value | `src/bindings-actors.ts`, `src/bindings-grant.ts` |
+| NFR-113 | no element presents a binding as **protected / restricted / secure** unless the service said `restricted`; no element presents an absent policy as neutral or healthy | the `C-6` string scan |
+
+**Not 005's**: the field's rules (002's), the gate (003's), and every decision about what a dispatch
+may do (003's). 005 renders 003's verdict and never predicts it (FR-046).
+
+## C.2 Module map delta (005's files only)
+
+| Module | Change | Requirements |
+| --- | --- | --- |
+| `service/routes/events.ts` (`readStatusRows`) + `service/routes/status.ts` | each `repositories[]` row gains `actorPolicy` (`'open' \| 'restricted'`), derived from the binding the row is already built from — **never the logins** | FR-093 |
+| `src/status-document.ts` | the fail-closed parser gains `actorPolicy` and **refuses** an unrecognized value | FR-093, 005 NFR-112 |
+| `src/status-lines.ts`, `src/status-tab.ts` | the counted line, its zero case, its unreachable case, and the pointer at the Bindings tab | FR-093 |
+| `src/bindings-service.ts` | `PanelBinding.allowedUsers?`; the entry reader refuses a bad shape; the client-of-record rule | FR-090 |
+| `src/bindings-actors.ts` (**new**) | the editor field, its guidance, the row count, the absent-policy warning, the refusal slot | FR-090 – FR-092, FR-095 |
+| `src/bindings-grant.ts` | the member rides every row of the whole-file write | FR-090, FR-095 |
+| `src/dispatches-rows.ts` | each reference's actor + basis; the refused run's copy | FR-094 |
+
+## C.3 Key decisions — actor allow-list rendering (added 2026-10-03)
+
+> Numbered `D13…D18` to continue this plan's own `D1…D12` series.
+
+| # | Decision | Rationale | Rejected alternative |
+| --- | --- | --- | --- |
+| **D13** | **A new module `src/bindings-actors.ts`**, mirroring `src/bindings-prompt.ts` exactly: one field, one rendering, the row summary showing presence-and-length only. | 004's prompt and 005's allow-list are the same shape of requirement — *one value, one rendering* — and 004's rule already exists in the codebase, so the allow-list's rendering belongs beside it rather than inside `bindings-editor.ts`, which is a derived-views module and near the file-length gate. | Extending `bindings-prompt.ts` to own two fields (its name and its docblock are about one value; the exactly-once proof would have to reason about two); putting the field in `bindings-editor.ts` (that module is "the editor's derived field views" — a field is not a derived view). |
+| **D14** | **An empty editor field is submitted as an **absent key**, never as `[]`.** The panel therefore never manufactures an empty array. | **This is the flagged fork.** Under omission-preserves it would be impossible; under this contract (§2 of `binding-allow-list.md`) an absent key means unset, so "clear the field" is expressible with no sentinel — which is what makes 002 FR-047's own refusal remediation ("remove the field to allow everyone") actionable. `[]` remains reachable only from a hand-edited file or a non-panel client, which is exactly where 002 AC-026 puts it. The alternative — submitting `[]` and having the service refuse it — makes a configured list **impossible to remove**, a worse defect than the one it avoids. | Always submit the parsed array, so an empty text field produces `[]`: the operator then has no way to remove a list at all, and 005 AC-142's "no second control" leaves no affordance to add. **Flagged** in [`002/pm-handoff.md`](../002-agent-event-extension/pm-handoff.md) §Flagged #2 — if the owner prefers this reading, AC-142's "no second control" needs to permit a control inside the field's block that expresses *unset*. |
+| **D15** | **The panel renders the count it was given; it never computes a policy verdict.** `actorPolicy` on Status comes from the service; the row's warning is keyed on the **absence of the member**, not on a panel-side membership test. | FR-076 forbids a second membership comparison and FR-090 forbids a client-side copy of the rule. "The field is empty" is a fact about a rendered control, not a policy decision — and the two are the same thing here only because the service refuses `[]`. | The panel deciding "restricted vs open" from the array it already holds (a second implementation of a security rule, in the tier that is least trusted to enforce it). |
+| **D16** | **Status names no repository and no login; the count plus the consequence is the whole line.** | 005 FR-039 already forbids Status from presenting a value the Bindings tab owns, and clarification row 42 says so explicitly. Answering "is anything open" by name would make Status a second index of bindings. | Listing the open repositories (a second binding index on two tabs, and the names belong to the Bindings tab). |
+| **D17** | **`actorPolicy` is added to `BindingStatusRow`, so it also rides the claim answer's `status` array.** Additive, and the panel's existing `readStatusRows` parser must tolerate it. | `readStatusRows` is the single projection the Status route, the claim answer, and the Bindings tab all read — the same discipline plan D5 already established for the poll view, and the reason the two surfaces cannot disagree about a binding. | A separate `actorPolicies` map on the status document only (a second source for one fact, and the claim's copy would then disagree with Status's). |
+| **D18** | **A gate-refused run's copy names the denied login and 003's reason; the panel never predicts the verdict and never offers Retry until the service says the cause cleared.** | FR-094 renders 003's label and reason; FR-046 forbids predicting a service verdict. `blocked:actor-not-allowed` joins the existing state→affordance table, so its retry validity comes from that table rather than from a special case — which is also what makes the table assertion still fail for a cause with no row. | A panel-side pre-check that disables Retry until the operator's own list contains the denied login (a second implementation of the rule, and it would be *wrong* whenever the service's view differs). |
+
+## C.4 Constitution alignment (v1.3.0) — carried forward, re-read for this amendment
+
+> The v1.11.0 entry records the same review; this table restates it for the rendering rather than
+> re-litigating it. **No principle is weakened; one is applied harder than before.**
+
+| Principle / gate | How the rendering satisfies it |
+| --- | --- |
+| **I. Polling-first, contract-first** | Two reads change, both recorded in [contracts/](./contracts/): `GET /v1/status` gains one member per `repositories[]` row, and the bindings grant gains one member per row. Both additive within v1; no path renamed (FR-023, FR-026). |
+| **II. Safe autonomy by default** | The principle this amendment serves most directly, and the place the honest reading had to be written down: the owner chose fail-open, which on its own sits awkwardly with a principle that makes a missing authorization a stop condition. **II forbids ambiguity, not openness.** A binding with no allow-list is not ambiguous once the panel says *"anyone who can open an issue or comment on this repository can start a session"* on the row that lists it and again in a counted line on Status. What II forbids — and what FR-092/NFR-113 exist to prevent — is the panel rendering an open repository as though a control were in force. |
+| **III. Durable and idempotent work** | Nothing durable is rewritten; no store file changes shape; no `host.storage` key is added or renamed (FR-025). |
+| **IV. Human-visible auditability** | FR-094: the row names the actor, the basis, and a denial, so *"why did this run, and who asked"* is answerable in the product. |
+| **V. Minimal, self-hosted deployment** | No new process, dependency, container, capability, permission, or SDK re-pin; no new route. |
+| **VI. Specification and verification before implementation** | Why this is five acceptance criteria, one NFR, and a string scan rather than a copy decision. |
+| **VII. Thin orchestration boundary** | No host capability, no host call, and specifically **no invented GitHub identity picker** — the field is free text the service validates. |
+| **Quality gates** | Strict TS + lint, zero suppressions, no `any` (FR-088); offline suites per task; `npm run verify` at every wave boundary; committed bundles rebuilt with every source change (FR-087, invariant 1). |
+
+**`AGENTS.md` invariants — how the rendering touches each of the ten.** (1) committed bundles ship;
+(2) **no `version` bump** — a bump is a product-owner release decision (FR-087); (3) `capabilities[]`
+untouched, `contributes.service` gains no `permissions`; (4) kebab-case identity and every
+`mecha-turk:` key untouched — the allow-list rides `host.storage` **nowhere**, since it is read from
+`GET /v1/bindings` and never persisted (FR-025, invariant 9); (5) `SERVICE_VERSION` untouched;
+(6) SDK pin untouched; (7) zero suppressions, zero `any`; (8) **fail closed** — the bindings parser
+and the status parser both refuse an unusable member rather than defaulting it (invariant 8, and the
+same posture as `bindings-service.ts`'s prompt reader); (9) secrets never leave the service store —
+and the stronger, new rule: the **permitted list** reaches no ledger entry, no `host.storage` value,
+and no shipped bundle; (10) **`extension-spike-1` untouched** — the Diagnostics record keeps reading
+the evidence schema version, and nothing in this feature touches it.
+
+## C.5 Flagged items (Phase-5 findings — decide at the gate, not in code)
+
+1. **The empty-list round trip (D14).** 005 FR-090 says the panel "MUST NOT pre-emptively accept
+   input the service would refuse nor pre-emptively reject input it would accept", which reads both
+   ways for an empty text field; and 005 AC-142 requires that "submitting `[]` is refused by the
+   service" **while also** requiring "no second control". The three cannot all hold unless the panel
+   either submits `[]` (and cannot clear a list) or omits the key (and never produces `[]`). **Chosen:**
+   omit the key, and discharge AC-142's `[]` case against the **service** plus the panel's own
+   refusal-rendering path. **Recommended owner wording**: confirm that reading, or permit one
+   affordance inside the field's block that expresses *unset*.
+2. **A `[bot]` login the operator has typed** (002 plan D7). Accepted and inert. The field's guidance
+   copy is the honest place to say that bot-authored activity never triggers — which is a copy
+   decision inside FR-090's existing mandate, not a new requirement. Flagged so it is a deliberate
+   line rather than an omission.
+
+## C.6 Risks and mitigations (this amendment only)
+
+| Risk | Mitigation |
+| --- | --- |
+| A login string reaches a second surface (Status, a row, Diagnostics, a log) | `C-6`'s exactly-once count across **all six tabs**, failing at 0 **and** at 2, exactly as `SC-105` does for the prompt |
+| A copy string says *protected* about an open binding | `C-6`'s scan for *protected* / *restricted* / *secure* across every user-facing string, asserted only about bindings the service reported `restricted` (NFR-113) |
+| The absent-policy warning reads as an error and trains operators to dismiss warnings | FR-092 forbids the error framing in requirement text; `C-6` asserts the wording and that it carries text, not colour alone (FR-083) |
+| `actorPolicy` drifts from `allowedUsers` because two projections compute it | D17: one projection (`readStatusRows`), read by Status, the claim answer, and the Bindings tab |
+| The panel's parser starts accepting a malformed `allowedUsers` | `C-1`'s own gate refuses a non-array and a non-text element (invariant 8) |
+
+## C.7 Out-of-scope guard for the issue-#9 block (checked at every task)
+
+No panel-side policy **check** (only the service decides — 003 FR-076). No identity picker, search, or
+typeahead (FR-004, FR-089). No showing the permitted logins anywhere outside the editor field
+(FR-091). No second editor, second field, or second control for the list (FR-090, AC-142). No global,
+account-level, or shared allow-list; no team- or role-based rule. No `PUT /v1/config` call and no
+Settings row for the field (**006 is deliberately not amended**; a per-binding value cannot live in
+one global document, and its take-effect boundary is an authorization event, not a cycle boundary).
+No new run state, transition, refusal code, or audit row — 005 renders 003's. No migration or
+upgrade path for a binding stored without the field. No version bump, no capability, no SDK re-pin,
+no storage key.
+
+## C.8 Phase-6 task block for this amendment
+
+The consolidated execution list lives in
+[`002-agent-event-extension/tasks.md`](../002-agent-event-extension/tasks.md) §"Issue #9 block
+(2026-10-03)"; 005's own tasks are `C-1 … C-6`.

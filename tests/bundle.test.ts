@@ -25,6 +25,7 @@ import type { EventSnapshot } from '../service/poll/events.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import { readRuns } from './support/dispatch-corpus.ts';
 import { startDispatchLoop } from './support/dispatch-loop.ts';
+import { BINDING_ID, REPOSITORY } from './support/fixture-enqueue.ts';
 import { PROJECT_ID } from './support/panel.ts';
 import type { DispatchLoop } from './support/dispatch-loop.ts';
 
@@ -48,6 +49,9 @@ const PANEL_HTML = resolve(ROOT, 'panel/index.html');
 
 /** Encoding used when reading the shipped artifacts. */
 const UTF8 = 'utf8';
+
+/** Surface name the `GET /v1/audit` answer is scanned under in both scans. */
+const AUDIT_READ_SURFACE = 'the audit read';
 
 /** GitHub token shapes that must never appear in shipped artifacts. */
 const TOKEN_PATTERNS: readonly RegExp[] = [/\bgh[pousr]_[A-Za-z0-9]{20,}/, /\bgithub_pat_[A-Za-z0-9_]{20,}/];
@@ -236,10 +240,22 @@ const HTML_SINKS: readonly RegExp[] = [
 const SOURCE_DIRS: readonly string[] = ['src', 'service'];
 
 /** Modules allowed to talk to GitHub's REST API; every one of them reads. */
+/**
+ * The modules allowed to name GitHub's REST API at all (FR-002, FR-031).
+ *
+ * Every one of them is a **reader**: the panel's shape reader, the service's
+ * credential verifier, and the poller's two halves — the endpoint catalogue and
+ * the transport that builds and classifies every request they issue. The split
+ * at 002 v1.12.0 added `poller-transport.ts` beside `poller-github.ts`, and it is
+ * named here because a module that builds a URL is a gateway whether or not it
+ * also lists endpoints; leaving it out would have let a genuine write land in a
+ * module the scan had stopped covering.
+ */
 const GITHUB_GATEWAYS: ReadonlySet<string> = new Set([
     'src/github.ts',
     'service/github.ts',
     'service/poll/poller-github.ts',
+    'service/poll/poller-transport.ts',
 ]);
 
 /** A reference to GitHub's REST API, however the module spells it. */
@@ -442,7 +458,7 @@ describe('003 records carry no credential (AC-120, NFR-106)', () => {
                 [RUNS_FILE, await readFile(resolve(loop.service.dataDir, RUNS_FILE), UTF8)],
                 [AUDIT_FILE, auditBytes],
                 ['the run history projection', historyText],
-                ['the audit read', auditText],
+                [AUDIT_READ_SURFACE, auditText],
                 ['the panel dispatch record', JSON.stringify(record)],
                 ['the audit view', JSON.stringify(auditItems({
                     status: 'ready',
@@ -650,6 +666,8 @@ function containmentDetection(issueNumber: number): EventSnapshot {
             issueUrl: `https://github.com/${CONTAINMENT_REPOSITORY}/issues/${issueNumber}`,
             issueBodyExcerpt: '',
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assignment fixture',
         detectedAt: SCANNED_STAMP,
     };
@@ -1185,6 +1203,195 @@ describe('006 the suite runs offline (T-028, AC-144, SC-112)', () => {
                 .map((file) => file.path);
 
             expect(readers).toEqual([]);
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * 003 v1.8.0 — the NFR-113 containment scan, and the one-comparison scan
+ * (002 NFR-113, plan D9, D13; 003 AC-132)
+ *
+ * The **permitted set** is configuration; a copy of it in a file retained for
+ * months, or in a bundle an operator can read, is a liability rather than an
+ * audit aid. This is the scan that keeps that true: a real gate refusal is driven
+ * end to end under a populated list, and every surface the build can write is
+ * then grepped for a login that list permits.
+ *
+ * The fixture's permitted set is **disjoint** from every actor the run names
+ * (plan B.5 item 3), which is what makes the zero meaningful: the run's own
+ * denial names {@link SCANNED_DENIED}, so a second occurrence of *that* string
+ * anywhere would be a real leak rather than the expected denial.
+ * ------------------------------------------------------------------------- */
+
+/** The login the scan's binding permits; it may appear only in `bindings.json`. */
+const SCANNED_PERMITTED = 'permitted-operator';
+
+/** The login the scan's denied actor uses; the refusal row may name it (FR-077). */
+const SCANNED_DENIED = 'stranger-account';
+
+/**
+ * The scan's binding: the loop's own, active, with a populated allow-list.
+ *
+ * The mount installs the loop's binding as active, so the panel's own binding
+ * guard must pass for the gate to be reached at all; and the scan needs the list
+ * **populated**, which is the state that could leak.
+ *
+ * @returns The row the whole-file grant submits.
+ */
+function permitOnlyBinding(): Record<string, unknown> {
+    return {
+        bindingId: BINDING_ID,
+        accountNumericUserId: SCANNED_ACCOUNT_ID,
+        accountLogin: SCANNED_LOGIN,
+        repository: REPOSITORY,
+        projectId: PROJECT_ID,
+        worktreeOption: 'none',
+        triggers: { assignment: true, mention: true, reviewRequest: false },
+        state: 'active',
+        createdAt: SCANNED_STAMP,
+        updatedAt: SCANNED_STAMP,
+        allowedUsers: [SCANNED_PERMITTED],
+    };
+}
+
+/** Write the scan's populated-allow-list binding through the real grant. */
+async function permitOnly(loop: DispatchLoop): Promise<void> {
+    const put = await loop.service.call(BINDINGS_PATH, {
+        method: 'PUT',
+        headers: jsonHeaders(),
+        body: JSON.stringify({ bindings: [permitOnlyBinding()] }),
+    });
+    if (put.status !== 200) {
+        throw new Error(`the scan binding did not save: ${put.status}`);
+    }
+}
+
+describe('003 v1.8.0 no permitted login reaches any surface (NFR-113, AC-132)', () => {
+    it('drives a real refusal and finds the permitted set nowhere but its own store file', async () => {
+        const scanLogLines: string[] = [];
+        const loop = await startDispatchLoop();
+        try {
+            await loop.store.writeJson(CONTAINMENT_ACCOUNT_FILE, scannedAccount());
+            await permitOnly(loop);
+            // The one detection the scan drives, attributed to an actor the list
+            // does **not** permit — so the gate refuses, and a copy of the
+            // permitted login in any surface would be this feature leaking.
+            //
+            // It names the **loop's own** binding, because the mount's binding
+            // guard runs before the reserve: a run naming any other binding would
+            // be parked as `binding-missing` and the gate never reached.
+            await enqueueEvents({
+                store: loop.store,
+                // The queue's own logger lines are scanned below; this sink keeps
+                // them out of the test output the way the harness's does.
+                log: createLogger({ level: 'error', sink: (line) => scanLogLines.push(line) }),
+                incoming: [createEvent({
+                    ...containmentDetection(SCANNED_ISSUE),
+                    bindingId: BINDING_ID,
+                    actorLogin: SCANNED_DENIED,
+                    actorAttribution: 'subject-author',
+                })],
+            });
+
+            const rt = loop.mount();
+            await pollRelay(rt);
+
+            // The gate refused, and the panel reported it through the existing
+            // block report: the run is parked, and no session was started.
+            expect(loop.sessions).toEqual([]);
+            const runs = await readRuns(loop.store);
+            const run = runs[0];
+            if (run === undefined) {
+                throw new Error('the scan produced no run');
+            }
+
+            expect(run.state).toBe('blocked:actor-not-allowed');
+            // The refusal names the **denied** login and never the permitted one
+            // (FR-077): a denial nobody can attribute is not an explainable
+            // denial, but a copy of the *policy* is the liability NFR-113 names.
+            const trail = await answerText(
+                loop,
+                `${AUDIT_PATH}?correlationId=${encodeURIComponent(run.correlationId)}`,
+            );
+            expect(trail).toContain(SCANNED_DENIED);
+            expect(trail).not.toContain(SCANNED_PERMITTED);
+
+            const { dataDir } = loop.service;
+            const auditBytes = await readFile(join(dataDir, AUDIT_FILE), UTF8);
+            const surfaces: readonly (readonly [string, string])[] = [
+                [RUNS_FILE, await readFile(join(dataDir, RUNS_FILE), UTF8)],
+                [AUDIT_FILE, auditBytes],
+                ['the run history projection', await answerText(loop, EVENTS_PATH)],
+                [AUDIT_READ_SURFACE, trail],
+                ['the panel ledger', JSON.stringify(rt.state.ledger)],
+                ['host.storage', JSON.stringify([...loop.panelStorage])],
+                ['captured logs', JSON.stringify([...loop.service.logLines, ...scanLogLines])],
+                ['the panel dispatch record', JSON.stringify(loop.panelStorage.get(DISPATCH_STORAGE_KEY) ?? null)],
+                ['panel bundle', readFileSync(BUNDLE, UTF8)],
+                ['service bundle', readFileSync(SERVICE_BUNDLE, UTF8)],
+            ];
+
+            for (const [name, text] of surfaces) {
+                expect(text, `${name} carried a permitted login`).not.toContain(SCANNED_PERMITTED);
+            }
+
+            // The permitted set's own file is the one place it lives, which makes
+            // the scan above a containment proof rather than a tautology:
+            // something *was* written, and only there.
+            expect(await readFile(join(dataDir, BINDINGS_FILE), UTF8)).toContain(SCANNED_PERMITTED);
+        } finally {
+            await loop.shutdown();
+        }
+    });
+
+    it('reads the surface scan in both directions, so it cannot pass vacuously', () => {
+        // The scan above has to be able to fail: its needle is a string a surface
+        // really could carry, and its own store file really does carry it.
+        expect(readFileSync(SERVICE_BUNDLE, UTF8)).not.toContain(SCANNED_PERMITTED);
+        expect(JSON.stringify(scannedAccount())).not.toContain(SCANNED_PERMITTED);
+        expect(JSON.stringify(permitOnlyBinding())).toContain(SCANNED_PERMITTED);
+    });
+
+    it('finds the membership helper in exactly two files: its own and the gate (plan D9)', () => {
+        // One comparison in the product, so "may this run start a session?" has
+        // exactly one answer. A panel-side pre-check, a poll-loop filter, or a
+        // second service comparison would all fail here rather than drifting.
+        const gate = 'service/poll/dispatch-actor-gate.ts';
+        const callers = scanSources()
+            .filter((file) => /\bisActorAllowed\(/.test(file.text))
+            .map((file) => file.path)
+            .filter((path) => path !== 'service/bindings-allow-list.ts');
+
+        expect(callers).toEqual([gate]);
+    });
+
+    it('keeps detection deciding nothing: no trigger path reads the list (FR-076)', () => {
+        // Detection records the actor and **decides nothing** (002 FR-043). A
+        // poll-loop filter would be cheaper and would leave no audit row, so
+        // "why was this not dispatched?" would have no answer — the defect 003
+        // exists to end, repeated in a new place.
+        for (const path of ['service/poll/triggers.ts', 'service/poll/loop.ts']) {
+            const file = scanSources().find((candidate) => candidate.path === path);
+            expect(file, `${path} was not scanned`).toBeDefined();
+            expect(file?.text, `${path} compares the allow-list`).not.toContain('isActorAllowed');
+            expect(file?.text, `${path} reads the allow-list`).not.toContain('allowedUsers');
+        }
+    });
+
+    it('introduces no suppression and no `any` into a Wave-2 module (invariant 7)', () => {
+        const modules: readonly string[] = [
+            'service/poll/dispatch-actor-gate.ts',
+            'service/bindings-read.ts',
+            'src/relay-gates.ts',
+            'src/run-actor.ts',
+            'src/dispatches-detail.ts',
+        ];
+        const sources = scanSources().filter((file) => modules.includes(file.path));
+        expect(sources).toHaveLength(modules.length);
+        for (const file of sources) {
+            expect(file.text, `${file.path} suppresses a rule`)
+                .not.toMatch(/eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck/);
+            expect(file.text, `${file.path} uses \`any\``).not.toMatch(/:\s*any\b/);
         }
     });
 });

@@ -74,6 +74,9 @@ export { parseStoredEvent, parseStoredEvents };
 
 /** Row types re-exported alongside them for the routes and the scan loop. */
 export type { EventKind, EventState, QueuedEvent, SubjectType };
+// The attribution basis is declared in `attribution.ts` and re-exported by the
+// row's own module, so the queue keeps one import path for it too (002 FR-044).
+export type { ActorAttribution } from './events-parse.ts';
 
 /** Re-exported: this module stays the one import path for the queue's writer. */
 export { buildEventId, createEvent } from './events-write.ts';

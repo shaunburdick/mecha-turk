@@ -1,5 +1,7 @@
 # Research: Panel IA — Six Tabs — new findings only
 
+**Spec**: v1.12.0 · **Amended**: 2026-10-03 (§Q3, §Q4 — the actor allow-list's rendering, GitHub issue #9)
+
 **Feature**: `specs/005-panel-ia` · **Spec**: v1.3.0 · **Date**: 2026-09-28
 
 This file answers only the questions **005** raises. It opens with the honest headline: **005 needs no new platform research.** Every platform fact a plan for this feature might otherwise re-open is already settled with a stamped source; those are cited, not re-researched. Two items at the end are **confirmations Phase 4 returns to the product owner** — each is decided here with a stated default, so neither blocks Phase 5, and neither is written as a clarification marker (the spec has none).
@@ -40,8 +42,58 @@ This file answers only the questions **005** raises. It opens with the honest he
 - **Alternatives considered**: (a) hard-code ten rows and drop the extras — rejected, hides real configuration; (b) hard-code ten and add a "this build reports N fields" note — rejected, it reports a fact while withholding the values that explain it; (c) declare `leaseMs`/`resultDeadlineMs` bounds in 005's panel declaration — rejected, 005 has no requirement text stating those bounds, and inventing them is precisely the re-typed copy FR-071 forbids.
 - **Confirmation requested from the product owner**: *confirm that 005's Settings tab renders twelve rows when 003's fields are present, with 003's two carrying an honest "not declared by this build", and that AC-135's "ten" is read as "the ten FR-071 names" rather than as a hard row cap.*
 
+## Q3 — How the allow-list's editor field reaches the wire *(decided 2026-10-03; one confirmation requested)*
+
+- **Decision**: the editor's text is parsed **panel-side** into an array (split on newlines and
+  commas, trim, drop empty entries) and submitted **explicitly on every row** of the whole-file
+  grant: the array when the operator named someone, the **key omitted** when they named nobody. The
+  panel **never manufactures `[]`** (plan D14).
+- **Rationale**: it is the only reading under which all three of 002 FR-047's states are reachable
+  through **one** field with **no second control** and **no sentinel**. An absent key means unset
+  ([`002/contracts/binding-allow-list.md` §2](../002-agent-event-extension/contracts/binding-allow-list.md)),
+  which is what makes 002 FR-047's own refusal remediation — *"remove the field to allow everyone"* —
+  actionable; a configured list that could not be removed would be a worse defect than the ambiguity
+  this avoids. It also keeps 004 FR-014's rationale intact by contrast: a free-text **prompt** is
+  genuinely ambiguous between *"I did not touch this"* and *"I cleared it"*, so it is preserved; a
+  login **list** is enumerable, so it is not.
+- **Alternatives considered**: (a) submit the parsed array verbatim, so an empty field produces `[]` —
+  rejected: the operator then has **no** way to remove a list, and FR-090's "no second control" would
+  have to be relaxed to permit an affordance that expresses *unset*; (b) extend 004 FR-014's
+  omission-preserves to this field — rejected: it leaves unset **unreachable** on the wire, which is
+  worse than (a); (c) a second control (a picker, a checkbox, a sentinel token) — rejected:
+  005 AC-142 forbids a second control, and FR-004/FR-089 forbid inventing an identity API.
+- **Confirmation requested from the product owner**: *confirm that 005 AC-142's "submitting `[]` is
+  refused by the service" is discharged as a **service** behaviour (the route answers `422` on a body
+  carrying `[]`) plus the panel's refusal-rendering path — rather than by the panel's own editor
+  producing `[]`.* If the owner prefers the latter, the second control in (a) has to be permitted and
+  `C-2` grows one affordance.
+
+## Q4 — Whether an absent allow-list can be detected on the Bindings tab without the service's help
+
+- **Decision**: yes, and by the **absence of the member**, not by a policy computation. The panel
+  renders the count from `GET /v1/bindings`, renders the warning when the member is absent, and reads
+  `actorPolicy` from `GET /v1/status` where it needs the service's own word. It performs **no**
+  membership comparison anywhere (plan D15).
+- **Rationale**: FR-076 forbids a second implementation of the rule and FR-090 forbids a client-side
+  copy of it. The only judgement the panel makes is "is there a list", which is a fact about a
+  rendered control rather than a policy decision — and the two coincide precisely because the
+  service refuses `[]`, so an empty list cannot exist to be rendered.
+- **Alternatives considered**: the panel deciding "restricted vs open" from the array it holds —
+  rejected: a second implementation of a security rule, in the tier that is least trusted to enforce
+  it. **No external research was required**: everything above is decided from the shipped readers and
+  the two contracts already written for this amendment.
+
 ## Open items this research leaves
 
-Two confirmations, both decided above with defaults that are safe to implement as written: Q1 (bounds source) and Q2 (row count). Neither changes a requirement, neither reopens a gate answer, and neither needs to block Phase 5 — if either answer comes back differently, the change is a copy/test adjustment in one module (`src/settings-rows.ts` + its cross-check test), not a redesign.
+Two confirmations from 2026-09-28, both decided above with defaults that are safe to implement as
+written: Q1 (bounds source) and Q2 (row count). Neither changes a requirement, neither reopens a gate
+answer, and neither needs to block Phase 5 — if either answer comes back differently, the change is a
+copy/test adjustment in one module (`src/settings-rows.ts` + its cross-check test), not a redesign.
+
+**v1.11.0 adds one**: **Q3** (the empty-list round trip), decided above with a default and one
+confirmation requested — see [plan.md §C.5](./plan.md) and
+[`002/pm-handoff.md` §Flagged](../002-agent-event-extension/pm-handoff.md). Like Q1 and Q2 it changes
+no requirement and needs not block Phase 5: if the answer comes back the other way, the change is one
+affordance inside `src/bindings-actors.ts` and one test.
 
 Everything else this feature touches — the tab primitive's capabilities, `host.storage`'s limits, the list component's row-action model, the dispatch state machine, the prompt field, the wire paths — was already settled by 001/002/003/004's research and contracts, and is **cited in the table above, not re-researched here**.

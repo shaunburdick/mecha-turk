@@ -16,6 +16,7 @@
 
 import { createGitHubVerifier } from '../../service/github.ts';
 import type { FetchLike, GitHubVerifier, VerifyOutcome } from '../../service/github.ts';
+import type { GitHubIssuePoller } from '../../service/poll/poller-github.ts';
 
 /** One scripted answer for one GitHub endpoint. */
 export interface EndpointResponse {
@@ -196,4 +197,26 @@ export function scriptedVerifier(
  */
 export function offlineVerifier(): GitHubVerifier {
     return { verify: async (): Promise<VerifyOutcome> => ({ kind: 'unavailable', detail: 'offline' }) };
+}
+
+/**
+ * The harness-default **poller**: every feed answers empty, and no socket opens.
+ *
+ * Lives here beside {@link offlineVerifier} because it answers the same
+ * question from the other direction — a fixture that seeds an active binding
+ * makes `startService` arm its first scan fire-and-forget, and a real poller
+ * would send that cycle to `api.github.com` and write `scan-state.json` on a
+ * schedule no shutdown drains. Empty answers keep the cycle on the test's own
+ * clock, and an accidental per-item actor read (002 FR-049) reaches the same
+ * empty answer rather than the network.
+ *
+ * @returns A poller whose every call answers an empty, immediate list.
+ */
+export function offlinePoller(): GitHubIssuePoller {
+    return {
+        listOpenIssues: async () => ({ kind: 'ok', issues: [] }),
+        listIssueComments: async () => ({ kind: 'ok', comments: [] }),
+        listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
+        listIssueEvents: async () => ({ kind: 'ok', events: [], exhausted: false }),
+    };
 }

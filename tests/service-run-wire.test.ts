@@ -62,6 +62,7 @@ import type { RouteContext } from '../service/routes/types.ts';
 import { offlineVerifier } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { writeOpenBinding } from './support/binding-fixture.ts';
 
 /** The header carrying a JSON body, spelled as HTTP requires it. */
 const CONTENT_TYPE_HEADER = 'content-type';
@@ -189,6 +190,8 @@ function assignment(issueNumber: number): EventSnapshot {
             issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
             issueBodyExcerpt: `body ${issueNumber}`,
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assigned',
         detectedAt: nowIso(),
     };
@@ -208,6 +211,14 @@ async function startSeededService(): Promise<TestService> {
     }
 
     store = seeded;
+    // The gate reads `bindings.json` at authorization and denies when it cannot
+    // (003 FR-076); the open policy keeps every wire assertion here about the
+    // wire (002 FR-047).
+    await writeOpenBinding({
+        store,
+        bindingId: BINDING_ID,
+        options: { repository: REPOSITORY, projectId: 'prj_42' },
+    });
 
     return service;
 }

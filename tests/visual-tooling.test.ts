@@ -2,6 +2,12 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parseStatusView } from '../src/status-document.ts';
+import { parseBindingsBody } from '../src/bindings-service.ts';
+import { parseDispatchesBody } from '../src/dispatches-service.ts';
+import { parseAccountsBody } from '../src/accounts-service.ts';
+import { parseConfigEnvelope } from '../src/settings-schema.ts';
+import { parseAuditBody } from '../src/audit-view.ts';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
@@ -35,6 +41,26 @@ function runSelfTest(): SelfTestReport {
     });
 
     return JSON.parse(stdout) as SelfTestReport;
+}
+
+/**
+ * Read the harness's fixture document, one member per service route.
+ *
+ * @returns The parsed JSON, untyped: each reader below refuses its own member,
+ *   so the whole document is passed through as `unknown`.
+ */
+function fixtures(): Record<string, unknown> {
+    return JSON.parse(readFileSync(resolve(ROOT, 'tools/visual/fixtures.json'), 'utf8')) as Record<string, unknown>;
+}
+
+/**
+ * Read one fixture member back as the body text a reader parses.
+ *
+ * @param name - The fixture member, which is also the route's answer body.
+ * @returns The body text.
+ */
+function body(name: string): string {
+    return JSON.stringify(fixtures()[name] ?? {});
 }
 
 describe('the visual capture tooling stays wired up', () => {
@@ -95,3 +121,59 @@ describe('the visual capture tooling stays wired up', () => {
         }
     });
 });
+
+/* -------------------------------------------------------------------- *
+ * The fixture answers the panel's own fail-closed readers accept
+ * -------------------------------------------------------------------- */
+
+describe('every fixture answer is one the panel can read', () => {
+    it('passes all six routes through the readers that render them (+1 case)', () => {
+        // case: each route's answer parses through the reader that renders it
+        {
+            // The reader, the member, and what it produces — all six, so a new
+            // route the harness serves without a fixture cannot go unchecked by
+            // omission here.
+            const readers = [
+                ['status', () => parseStatusView(body('status'))],
+                ['config', () => parseConfigEnvelope(body('config'))],
+                ['bindings', () => parseBindingsBody(body('bindings'))],
+                ['accounts', () => parseAccountsBody(body('accounts'))],
+                ['events', () => parseDispatchesBody(body('events'))],
+                ['audit', () => parseAuditBody(body('audit'))],
+            ] as const;
+
+            // Not vacuous: the readers really ran, and really held rows. A
+            // reader that answered `[]` to an absent fixture would satisfy a
+            // truthiness check, so emptiness is refused alongside `null`.
+            const refused: string[] = [];
+            const rows: string[] = [];
+            for (const [name, read] of readers) {
+                const answer = read();
+                if (answer === null) {
+                    refused.push(name);
+                    continue;
+                }
+                if (Array.isArray(answer) && answer.length === 0) {
+                    refused.push(`${name} (no rows)`);
+                    continue;
+                }
+                rows.push(name);
+            }
+
+            expect(refused).toEqual([]);
+            expect(rows).toHaveLength(readers.length);
+
+            // And the *dispatch list* is the surface this guard was written for:
+            // its rows omit `promptSources`, which `prompt-wire.ts` refuses on
+            // read, so a stale fixture renders the honest refusal banner rather
+            // than a list. Named here so the next editor of that file knows the
+            // member is load-bearing.
+            const events = fixtures().events as { readonly events?: readonly unknown[] };
+            expect(Array.isArray(events.events)).toBe(true);
+            for (const row of events.events ?? []) {
+                expect(Object.hasOwn(row as object, 'promptSources')).toBe(true);
+            }
+        }
+    });
+});
+

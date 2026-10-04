@@ -8,7 +8,7 @@
  * observed reader — funnel the document through the prompt-change chain. Those
  * are reading concerns; the write path never runs them.
  *
- * Two readers, and the difference between them is load-bearing:
+ * Three readers, and the differences between them are load-bearing:
  *
  * - {@link readBindingsUnobserved} is the plain read. The `PUT` route calls it
  *   **while holding** the prompt-observation chain, so it must not take that
@@ -17,6 +17,13 @@
  *   route, and the `GET` route all use: same bytes, plus one diff against the
  *   baseline so a prompt edited in the store file is recorded exactly once,
  *   with actor `service`.
+ * - {@link readBindingsForAuthorization} answers a *different question*: not
+ *   "what bindings does the operator have?" but "can this binding's actor
+ *   policy be judged at all?". It is the one reader that keeps the difference
+ *   between **no bindings** and **an unreadable document** visible, because the
+ *   authorization gate denies on the second and cannot deny on the first for a
+ *   reason it would have to invent (003 FR-076, FR-077, plan D15; constitution
+ *   II: a policy that cannot be read is never permissive).
  */
 
 import { BINDINGS_FILE } from './accounts/store.ts';
@@ -145,4 +152,67 @@ export async function readBindings(input: {
     });
 
     return bindings;
+}
+
+/**
+ * What the authorization read produced (003 FR-076, plan D15).
+ *
+ * The `unreadable` half is the whole point of a separate reader: every other
+ * caller degrades an unusable document to "no bindings", which is the right
+ * answer for a poll cycle and the wrong one for a gate — a policy that could
+ * not be judged must be a **denial**, never an absent restriction that reads as
+ * permission (constitution II).
+ */
+export type AuthorizationBindings =
+    /** The document parsed; the binding may or may not be among these. */
+    | { readonly readable: true; readonly bindings: readonly BindingRecord[] }
+    /** The file is absent, quarantined, or unreadable — the policy cannot be judged. */
+    | { readonly readable: false };
+
+/**
+ * Read the stored bindings for one authorization decision (003 FR-076, plan
+ * D13/D15).
+ *
+ * **No prompt observation here.** This reader answers "may this run start a
+ * session?", and the observation funnel exists to record a prompt edit exactly
+ * once at the cadence the poll loop already gives it (004 FR-051, plan C3);
+ * running it per authorization would put a second writer on that chain for a
+ * decision that has nothing to do with prompts. The gate reads the live
+ * document exactly as it stands at this instant, which is the point of D13:
+ * **no cache**, because `ServiceStore` exposes no `stat`, so a cache invalidated
+ * only by `writeBindings` would never see a hand edit — and a gate reading a
+ * stale policy is worse than no gate.
+ *
+ * @param input - Open store and logger.
+ * @returns The parsed bindings, or the `unreadable` verdict that denies.
+ */
+export async function readBindingsForAuthorization(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Logger. */
+    readonly log: ServiceLogger;
+}): Promise<AuthorizationBindings> {
+    const { store, log } = input;
+    const note: RefusalNote = { reason: null };
+    try {
+        const result = await store.readJson(BINDINGS_FILE, (raw) => parseBindingsFile(raw, note));
+        if (result.status === 'ok') {
+            return { readable: true, bindings: result.value };
+        }
+
+        if (result.status === 'quarantined') {
+            // The reason is field + remediation only: the refusal vocabulary
+            // never echoes a value, so this line cannot leak one (004 FR-019).
+            log.warn('stored bindings were unusable and have been set aside', {
+                quarantinePath: result.quarantinePath,
+                ...(note.reason === null ? {} : { reason: note.reason }),
+            });
+        }
+
+        return { readable: false };
+    } catch (cause) {
+        log.warn('bindings read failed', { errorKind: cause instanceof Error ? cause.name : typeof cause });
+
+        return { readable: false };
+    }
 }

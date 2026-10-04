@@ -222,6 +222,29 @@ function recordingPoller(issues: readonly PollIssue[]): {
         // switches off, so the cycle never asks for them.
         listIssueComments: async () => ({ kind: 'ok', comments: [] }),
         listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
+        // The per-item actor read (002 FR-049) answers the naming event for
+        // whichever fixture issue the cycle asks about, with its own stamp so
+        // the event is in-window whenever the listing let the candidate through.
+        listIssueEvents: async (input) => {
+            const candidate = issues.find((issue) => issue.issueNumber === input.issueNumber);
+            if (candidate === undefined) {
+                return { kind: 'ok', events: [], exhausted: false };
+            }
+
+            return {
+                kind: 'ok',
+                events: [{
+                    event: 'assigned',
+                    assignee: { login: ACCOUNT_LOGIN, type: 'User' },
+                    assigner: { login: candidate.authorLogin, type: candidate.authorType },
+                    requestedReviewer: { login: '', type: '' },
+                    reviewRequester: { login: '', type: '' },
+                    issueNumber: candidate.issueNumber,
+                    createdAt: candidate.updatedAt ?? UPDATED_IN_WINDOW,
+                }],
+                exhausted: false,
+            };
+        },
     };
 
     return { poller, calls };

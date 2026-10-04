@@ -29,6 +29,7 @@ import { openStore } from '../service/store/index.ts';
 import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
+import { writeOpenBinding } from './support/binding-fixture.ts';
 
 const STAMP = '2026-09-28T12:00:00.000Z';
 const HOLDER = 'panel-mount-1';
@@ -56,6 +57,10 @@ const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-run-enqueue-'));
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
+    // The gate reads `bindings.json` at authorization and denies when it cannot
+    // (003 FR-076); this suite's single reserve needs the open policy so the
+    // assertion stays about the enqueue path (002 FR-047).
+    await writeOpenBinding({ store, bindingId: 'bnd-run-tests' });
 };
 
 beforeEach(beforeEachWork1);
@@ -83,6 +88,8 @@ function assignment(issueNumber: number): EventSnapshot {
             issueUrl: `${ISSUE_URL_PREFIX}${issueNumber}`,
             issueBodyExcerpt: 'body excerpt',
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assigned',
         detectedAt: STAMP,
     };
@@ -95,6 +102,8 @@ function commentMention(issueNumber: number, commentId: number): EventSnapshot {
         kind: 'mention',
         origin: 'comment',
         commentId,
+        actorLogin: 'alice',
+        actorAttribution: 'direct',
         triggerNote: `comment ${commentId} mention`,
     };
 }
@@ -105,6 +114,8 @@ function bodyMention(issueNumber: number): EventSnapshot {
         ...assignment(issueNumber),
         kind: 'mention',
         origin: 'body',
+        actorLogin: 'alice',
+        actorAttribution: 'direct',
         triggerNote: 'body mention',
     };
 }
@@ -308,7 +319,10 @@ describe('T-006 run-aware enqueue', () => {
             expect(full?.referenceCount).toBe(MAX_SOURCE_REFERENCES);
             expect(full?.referencesNotRetained).toBe(0);
             expect(full?.referencesTruncated).toBe(false);
-            // FR-013 detail is complete on the reference the cap last accepted.
+            // FR-013 detail is complete on the reference the cap last accepted,
+            // and since 002 v1.11.0 that includes the two actor members the gate
+            // judges (FR-043, FR-044) — a retained reference a gate could not
+            // attribute would be a reference it has to refuse.
             expect(lastRetained).toEqual({
                 deliveryId: `evt-acme~widget~22~77331~mention~${MAX_SOURCE_REFERENCES - 1}`,
                 kind: 'mention',
@@ -316,6 +330,8 @@ describe('T-006 run-aware enqueue', () => {
                 sourceUrl: `${ISSUE_URL_PREFIX}${SUBJECT_ISSUE}`,
                 detectedAt: STAMP,
                 presentAtAuthorization: true,
+                actorLogin: 'alice',
+                actorAttribution: 'direct',
             });
 
             // The 201st joining trigger still joins, and says it was not retained.

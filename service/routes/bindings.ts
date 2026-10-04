@@ -24,6 +24,7 @@ import { readBindings, readBindingsUnobserved } from '../bindings-read.ts';
 import { validateBindings, writeBindings } from '../bindings.ts';
 import { errorResponse, STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
 import { isRecord } from '../json.ts';
+import { inQueueChain } from '../poll/runs-document.ts';
 import { recordPromptChanges, runPromptChain } from '../prompt-audit.ts';
 import type { HttpResponse } from '../http.ts';
 import type { ServiceLogger } from '../log.ts';
@@ -162,6 +163,53 @@ async function readCustodyAndValidate(input: {
 }
 
 /**
+ * Persist one whole-file grant, on the queue chain the gate shares.
+ *
+ * **Two chains, outermost first, and the order is load-bearing** (003 FR-076,
+ * constitution II). `inQueueChain` is the chain every queue-or-run mutation
+ * serializes onto — including the authorization gate, whose read-policy →
+ * mint-token → persist sequence runs as one task inside it. Joining that chain
+ * here is what makes an operator's policy change and the gate's read-and-mint
+ * **one serialized pair**: a tightening can no longer land between the gate's
+ * read of `allowedUsers` and the reservation that read authorizes, which was the
+ * window in which `host.startSession()` could fire under a list the operator had
+ * just revoked. The prompt-observation chain nests inside it, never the other
+ * way round, so there is no lock order to invert.
+ *
+ * Inside, one task on the prompt-observation chain (plan C2): read the stored
+ * document fresh, record any hand edit it carries with actor `service`, merge
+ * the preserved prompts, write, then record this submission's own changes with
+ * actor `operator`. Reading, writing, and diffing inside one chain is what makes
+ * SC-125's "exactly one row per change" hold under a race rather than by luck.
+ *
+ * @param input - The open store, its logger, the validated rows, and the ids
+ *   whose submitted row left the prompt key out.
+ * @returns The rows as stored, which is what the answer echoes.
+ */
+async function writeGrant(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+    /** The validated submission, in submission order. */
+    readonly submitted: readonly BindingRecord[];
+    /** Ids whose submitted row carried no `startingPrompt` key. */
+    readonly omitted: ReadonlySet<string>;
+}): Promise<readonly BindingRecord[]> {
+    const { store, log, submitted, omitted } = input;
+
+    return await inQueueChain(async () => await runPromptChain(store, async () => {
+        const stored = await readBindingsUnobserved({ store, log });
+        await recordPromptChanges({ store, log, bindings: stored, actor: 'service' });
+        const merged = mergePrompts({ submitted, omitted, stored });
+        await writeBindings({ store, bindings: merged });
+        await recordPromptChanges({ store, log, bindings: merged, actor: 'operator' });
+
+        return merged;
+    }));
+}
+
+/**
  * Answer `PUT /v1/bindings` by replacing the stored bindings, validated.
  *
  * Every field the poll loop needs is validated before one byte is written:
@@ -175,12 +223,10 @@ async function readCustodyAndValidate(input: {
  * existence observes only once the write is certain to happen (004 FR-027,
  * AC-132/AC-133).
  *
- * The write itself runs as one task on the prompt-observation chain (plan C2):
- * read the stored document fresh, record any hand edit it carries with actor
- * `service`, merge the preserved prompts, write, then record this submission's
- * own changes with actor `operator`. Reading, writing, and diffing inside one
- * chain is what makes SC-125's "exactly one row per change" hold under a race
- * rather than by luck.
+ * The write itself is one task on the queue chain, which nests one task on the
+ * prompt-observation chain (plan C2, {@link writeGrant}) — and the **outer**
+ * chain is what keeps an operator's allow-list edit and the authorization gate's
+ * read-and-mint from interleaving (003 FR-076).
  *
  * @param context - Route context carrying the open store.
  * @param request - The routed request carrying the full replacement body.
@@ -219,17 +265,11 @@ async function handlePutBindings(context: RouteContext, request: RouteRequest): 
         actor: 'service',
     });
 
-    const submitted = custody.validation.bindings;
-    const body = request.body as { readonly bindings: readonly unknown[] };
-    const omitted = omittedPromptIds(body.bindings);
-    const bindings = await runPromptChain(store, async () => {
-        const stored = await readBindingsUnobserved({ store, log: context.log });
-        await recordPromptChanges({ store, log: context.log, bindings: stored, actor: 'service' });
-        const merged = mergePrompts({ submitted, omitted, stored });
-        await writeBindings({ store, bindings: merged });
-        await recordPromptChanges({ store, log: context.log, bindings: merged, actor: 'operator' });
-
-        return merged;
+    const bindings = await writeGrant({
+        store,
+        log: context.log,
+        submitted: custody.validation.bindings,
+        omitted: omittedPromptIds((request.body as { readonly bindings: readonly unknown[] }).bindings),
     });
 
     // The answer carries status rows too: the panel repaints its binding rows

@@ -17,8 +17,13 @@
  */
 
 import { asRecord, fieldsHoldText, integerOrZero, parseJsonObject, textOrEmpty, textOrNull } from './json.ts';
-import { readScopeMirror } from './account-mirror.ts';
-import type { ScopeCapability, ScopeResult } from './account-mirror.ts';
+import { parseAccountsBody } from './accounts-service.ts';
+import type { AccountScopeMatrix, AccountScopeVerdict, PanelAccount } from './accounts-service.ts';
+
+// The accounts record moved to its own module for the file-length gate; these
+// names stay importable from here so no call site had to change with it.
+export { parseAccountsBody };
+export type { AccountScopeMatrix, AccountScopeVerdict, PanelAccount };
 
 /** Path of the bindings collection. */
 
@@ -77,74 +82,30 @@ export interface PanelBinding {
      * key as *leave this one alone*.
      */
     readonly startingPrompt?: string | undefined;
+    /**
+     * The GitHub logins allowed to trigger dispatches from this binding, or
+     * **absent** when it carries no list (002 FR-047).
+     *
+     * Three states on the wire and two here: **absent** — no policy is
+     * configured, so any human actor may trigger this repository — and **a
+     * non-empty list**, meaning exactly those logins may. The third wire state,
+     * an explicitly empty array, is a **refusal** rather than a value
+     * (002 FR-047), so {@link parseBindingEntry} refuses it rather than holding
+     * a list the service would never send (invariant 8,
+     * `contracts/binding-allow-list.md` §1).
+     *
+     * Read only: the logins are rendered **exactly once** panel-wide — in the
+     * editor field the operator types into — while a row summary shows the
+     * **count** and nothing else (005 FR-091, NFR-113). `| undefined` is
+     * load-bearing in the *other* direction from the prompt's: a whole-file
+     * write carries this member on **every** row and **omission means unset**
+     * (contract §2), so an operator who clears the field takes the binding
+     * back to open. `| undefined` is explicit because `exactOptionalPropertyTypes`
+     * is on and the whole-file write spells the member out on every row.
+     */
+    readonly allowedUsers?: readonly string[] | undefined;
 }
 
-/** Verdict one account's recorded scope matrix gives its token (FR-010). */
-export type AccountScopeVerdict = 'ok' | 'missing' | 'unknown';
-
-/** The four-capability FR-010 matrix as the account DTO carries it (FR-062). */
-export type AccountScopeMatrix = Readonly<Record<ScopeCapability, ScopeResult>>;
-
-/** One registered account the panel can bind (credential never present). */
-export interface PanelAccount {
-    /** GitHub numeric user id. */
-    readonly numericUserId: string;
-    /** Display login. */
-    readonly login: string;
-    /**
-     * Operator display label as the service stored it, or `null` when unset
-     * (005 FR-066).
-     *
-     * The panel reads it; it never renders it as identity — `login` stays the
-     * fact the row shows when there is no label.
-     */
-    readonly displayName: string | null;
-    /**
-     * The account tier of the starting prompt, or absent when this account
-     * has none (004 FR-082).
-     *
-     * `null` on the wire and absent in this type both read as *unset* — a
-     * complete, valid state — so `?? ''` is all a reader needs. It is read
-     * only: the row summary shows presence and length, never this text and
-     * never a fingerprint (005 FR-051), the account mirror never stores it
-     * (AC-144), and the profile write carries it as **one member of a
-     * closed body**, absent = unchanged (004 FR-082, 005 FR-066).
-     *
-     * `| undefined` is explicit because `exactOptionalPropertyTypes` is on:
-     * a record that left the member out **omits** the key (the parse writes
-     * it only for a string), and a value that is neither text nor `null`
-     * refuses the whole body (invariant 8).
-     */
-    readonly startingPrompt?: string | null | undefined;
-    /** `true` only for accounts whose latest verification succeeded. */
-    readonly usable: boolean;
-    /**
-     * What this account's recorded FR-010 scope matrix says about its token
-     * (003 T-029), absent when the DTO carried no matrix this build reads.
-     *
-     * Absent means *no evidence*, never *no problem*: the prerequisites
-     * section renders it as not checkable, never as satisfied (FR-072).
-     */
-    readonly scope?: AccountScopeVerdict;
-    /**
-     * Lifecycle state as the accounts DTO reports it (005 FR-062), absent
-     * when this body carried none.
-     *
-     * Deliberately `string` rather than a closed union: an unknown state has
-     * to reach the operator as `unknown state: <raw>` rather than be narrowed
-     * away (FR-003, NFR-112), and `usable` below is derived from the value,
-     * not from this annotation.
-     */
-    readonly state?: string;
-    /** Connection state as the DTO reports it, absent when not carried (FR-062). */
-    readonly connectionState?: string;
-    /** RFC 3339 stamp of the last successful verification, or absent (FR-062). */
-    readonly verifiedAt?: string;
-    /** Cause when `state` is `error`; `null`/absent means none was recorded. */
-    readonly errorReason?: string | null;
-    /** The four-capability FR-010 matrix, absent when the DTO carried none. */
-    readonly scopeMatrix?: AccountScopeMatrix;
-}
 
 /** One per-binding poll-status row from the service. */
 export interface BindingStatusRow {
@@ -276,6 +237,89 @@ export function readStatusRows(rows: readonly unknown[]): BindingStatusRow[] {
     return usable;
 }
 
+/** What reading one row's `allowedUsers` member found. */
+type AllowedUsersRead =
+    /** Absent, or a non-empty list of logins with the submitted spelling. */
+    | { readonly ok: true; readonly users: readonly string[] | undefined }
+    /** Present and unusable; the whole body is refused (invariant 8). */
+    | { readonly ok: false };
+
+/**
+ * Read one binding's actor allow-list, fail closed (002 FR-047).
+ *
+ * Two refusals, each a decision rather than a default. A member that is not an
+ * array, and an element that is not text, are refused **whole**: neither can be
+ * rendered, counted, or re-sent honestly, and a row that silently dropped the
+ * field would let the next write take the binding back to open (invariant 8).
+ *
+ * An **explicitly empty array** is refused too, though the service refuses it
+ * first: 002 FR-047 makes `[]` a refusal on write *and* on read, so no
+ * compliant service can send one. Holding a value that means neither *open*
+ * nor *those logins* would be the third reading this product refuses to pick
+ * silently, and 005 renders that case as *unreadable* rather than as open.
+ *
+ * The submitted spelling is preserved **verbatim** (002 FR-047, plan D5) — the
+ * panel compares nothing and normalizes nothing here; the service owns that.
+ *
+ * @param value - The member as received.
+ * @returns The read, marked unusable for a shape this build may not half-apply.
+ */
+function readAllowedUsers(value: unknown): AllowedUsersRead {
+    if (value === undefined) {
+        return { ok: true, users: undefined };
+    }
+
+    if (!Array.isArray(value)) {
+        return { ok: false };
+    }
+
+    const users: string[] = [];
+    for (const entry of value) {
+        if (typeof entry !== 'string') {
+            return { ok: false };
+        }
+
+        users.push(entry);
+    }
+
+    return users.length === 0 ? { ok: false } : { ok: true, users };
+}
+
+/** The two optional members one entry reader refuses rather than defaults. */
+type OptionalMembers =
+    /** Both readable; `undefined` members are written as no key at all. */
+    | {
+        readonly ok: true;
+        readonly startingPrompt: string | undefined;
+        readonly allowedUsers: readonly string[] | undefined;
+    }
+    /** A member present and unusable: the whole body is refused (invariant 8). */
+    | { readonly ok: false };
+
+/**
+ * Read the two members a binding carries *optionally*, refusing a bad one.
+ *
+ * Both are fail-closed for the same reason and together because they share the
+ * shape: a value that is neither text nor a list of text cannot be rendered,
+ * cleared, or re-sent honestly, so the whole body stops rather than
+ * half-applying it (004 FR-028, 002 FR-047, invariant 8). Absent stays absent
+ * for both — that is the complete "this binding has none" state, never a
+ * default the operator did not ask for.
+ *
+ * @param record - The parsed entry.
+ * @returns Both members, or the refusal that stops the read.
+ */
+function readOptionalMembers(record: Record<string, unknown>): OptionalMembers {
+    const { startingPrompt } = record;
+    if (startingPrompt !== undefined && typeof startingPrompt !== 'string') {
+        return { ok: false };
+    }
+
+    const actors = readAllowedUsers(record.allowedUsers);
+
+    return actors.ok ? { ok: true, startingPrompt, allowedUsers: actors.users } : { ok: false };
+}
+
 /**
  * Read one binding entry.
  *
@@ -298,14 +342,12 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
         return null;
     }
 
-    const { bindingId, accountNumericUserId, accountLogin, repository, projectId, worktreeOption } = record;
-    // The prompt is the one member the reader refuses rather than defaults: a
-    // value that is not text cannot be rendered, cleared, or re-sent honestly,
-    // so the whole body stops (004 FR-028, invariant 8).
-    const { startingPrompt } = record;
-    if (startingPrompt !== undefined && typeof startingPrompt !== 'string') {
+    const optional = readOptionalMembers(record);
+    if (!optional.ok) {
         return null;
     }
+
+    const { bindingId, accountNumericUserId, accountLogin, repository, projectId, worktreeOption } = record;
 
     return {
         bindingId: bindingId as string,
@@ -318,7 +360,8 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
         state,
         createdAt: record.createdAt as string,
         updatedAt: record.updatedAt as string,
-        ...(startingPrompt === undefined ? {} : { startingPrompt }),
+        ...(optional.startingPrompt === undefined ? {} : { startingPrompt: optional.startingPrompt }),
+        ...(optional.allowedUsers === undefined ? {} : { allowedUsers: optional.allowedUsers }),
     };
 }
 
@@ -376,190 +419,4 @@ export function parseBindingsBody(text: string): BindingsSnapshot | null {
     const status = Array.isArray(root.status) ? root.status : [];
 
     return { bindings, status: readStatusRows(status) };
-}
-
-/**
- * Narrow one account's `scopeCheck` DTO field to a verdict (003 T-029).
- *
- * The narrowing itself is account-mirror's {@link readScopeMirror} — the same
- * four-capability matrix the handoff records into storage — so the mirror and
- * the wire DTO can never drift into two different meanings of "readable". A
- * body without a usable matrix answers `null`, which is *no evidence* rather
- * than *no problem*: the prerequisites section renders that as not checkable
- * and never as satisfied (FR-072).
- *
- * @param raw - `scopeCheck` from the accounts DTO, or anything else.
- * @returns The verdict, or `null` when the DTO carries no readable matrix.
- */
-function accountScope(raw: unknown): AccountScopeVerdict | null {
-    const mirror = readScopeMirror(raw);
-    if (mirror === null) {
-        return null;
-    }
-
-    const results = Object.values(mirror.results);
-    if (results.includes('missing')) {
-        return 'missing';
-    }
-
-    return results.includes('unknown') ? 'unknown' : 'ok';
-}
-
-/** The two operator-editable members of one account record (005 FR-066, 004 FR-082). */
-interface PanelMemberFields {
-    /** Operator display label, or `null` when the row leads with the login. */
-    readonly displayName: string | null;
-    /**
-     * The account tier of the prompt. The key is **absent** when the tier is
-     * unset — 004 FR-082's complete, valid state — which is what lets a
-     * `JSON.stringify` of this record never carry an empty member.
-     */
-    readonly startingPrompt?: string | undefined;
-}
-
-/** How the accounts reader narrows those two members. */
-type PanelMembers =
-    /** Both readable; `fields` joins the panel record as-is. */
-    | { readonly ok: true; readonly fields: PanelMemberFields }
-    /** A member present and not text: the whole body is refused (invariant 8). */
-    | { readonly ok: false };
-
-/**
- * Narrow the two members the account profile write edits (005 FR-066, 004
- * FR-082).
- *
- * Both are `string | null` on the wire and both read as *unset* when absent
- * — a store that predates either needs no migration (FR-005, 004 FR-018) —
- * and a value that is neither text nor `null` refuses the whole body rather
- * than being dropped: a record that silently lost its prompt would render
- * *not set* while the service still dispatched with it.
- *
- * Extracted so `parseAccountsBody` stays inside its complexity budget: one
- * pass, one refusal, and the unset prompt's key simply not written.
- *
- * @param record - One entry of the `accounts` array.
- * @returns Both members, or the refusal that stops the read.
- */
-function readPanelMembers(record: Record<string, unknown>): PanelMembers {
-    const { displayName, startingPrompt } = record;
-    for (const value of [displayName, startingPrompt]) {
-        if (value !== undefined && value !== null && typeof value !== 'string') {
-            return { ok: false };
-        }
-    }
-
-    return {
-        ok: true,
-        fields: {
-            displayName: typeof displayName === 'string' ? displayName : null,
-            ...(typeof startingPrompt === 'string' ? { startingPrompt } : {}),
-        },
-    };
-}
-
-/** Members of one account record the Accounts rows render, beyond identity. */
-type AccountDetail = Pick<
-    PanelAccount,
-    'state' | 'connectionState' | 'verifiedAt' | 'errorReason' | 'scopeMatrix'
->;
-
-/**
- * Read one account record's FR-062 detail members (005 FR-062, FR-067).
- *
- * Present-and-not-text refuses the whole body (invariant 8) rather than being
- * dropped, because a row that silently lost its lifecycle state would render
- * an account as unexplained. Absent stays absent: a member this DTO did not
- * carry reads as *not reported*, never as a plausible default (FR-003).
- *
- * @param record - One entry of the `accounts` array.
- * @returns The detail, or `null` when a member was present but unusable.
- */
-function readAccountDetail(record: Record<string, unknown>): AccountDetail | null {
-    const detail: {
-        state?: string;
-        connectionState?: string;
-        verifiedAt?: string;
-        errorReason?: string | null;
-        scopeMatrix?: AccountScopeMatrix;
-    } = {};
-
-    for (const field of ['state', 'connectionState', 'verifiedAt'] as const) {
-        const value = record[field];
-        if (value === undefined) {
-            continue;
-        }
-
-        if (typeof value !== 'string') {
-            return null;
-        }
-
-        detail[field] = value;
-    }
-
-    const { errorReason } = record;
-    if (errorReason !== undefined && errorReason !== null) {
-        if (typeof errorReason !== 'string') {
-            return null;
-        }
-
-        detail.errorReason = errorReason;
-    }
-
-    const matrix = readScopeMirror(record.scopeCheck)?.results;
-    if (matrix !== undefined) {
-        detail.scopeMatrix = matrix;
-    }
-
-    return detail;
-}
-
-/**
- * Parse the accounts response body into the records the picker offers.
- *
- * @param text - Response body text.
- * @returns The accounts, or `null` when the shape is unusable.
- */
-export function parseAccountsBody(text: string): PanelAccount[] | null {
-    const root = parseJsonObject(text);
-    if (root === null || !Array.isArray(root.accounts)) {
-        return null;
-    }
-
-    const accounts: PanelAccount[] = [];
-    for (const entry of root.accounts) {
-        const record = asRecord(entry);
-        if (record === null) {
-            return null;
-        }
-
-        const { numericUserId, login } = record;
-        if (typeof numericUserId !== 'string' || typeof login !== 'string') {
-            return null;
-        }
-
-        const members = readPanelMembers(record);
-        if (!members.ok) {
-            return null;
-        }
-
-        const detail = readAccountDetail(record);
-        if (detail === null) {
-            return null;
-        }
-
-        // The key stays *absent* when there is no readable matrix, so a
-        // record that never carried one and a matrix this build cannot read
-        // are indistinguishable — both mean "no evidence".
-        const scope = accountScope(record.scopeCheck);
-        accounts.push({
-            numericUserId,
-            login,
-            ...members.fields,
-            usable: detail.state === 'active',
-            ...detail,
-            ...(scope === null ? {} : { scope }),
-        });
-    }
-
-    return accounts;
 }

@@ -15,6 +15,7 @@
  */
 
 import type { PromptSnapshot } from '../prompt.ts';
+import { actorFieldsOf } from './attribution.ts';
 import { subjectTypeOf } from './events-parse.ts';
 import { isTerminalRun } from './runs-document.ts';
 import { buildAttachmentId, buildCorrelationId, buildRunKey, buildSubjectKey } from './run-key.ts';
@@ -94,6 +95,13 @@ function originOf(delivery: QueuedEvent): ReferenceOrigin | null {
 /**
  * Build the source reference one delivery contributes (FR-013).
  *
+ * The delivery's **actor members ride the reference verbatim** (002 FR-043,
+ * FR-044): the gate later judges one of them, and a run that recorded the
+ * delivery but not who it was attributed to would leave the gate nothing to
+ * judge. They are read through the attribution module's own absentable
+ * readers, so a delivery stored before attribution contributed one reference
+ * with neither member rather than an empty login.
+ *
  * @param delivery - The delivery joining the run.
  * @param presentAtAuthorization - `false` when the run already held a
  *   reservation when this delivery arrived.
@@ -112,6 +120,10 @@ export function referenceOf(delivery: QueuedEvent, presentAtAuthorization: boole
         sourceUrl: delivery.issueUrl,
         detectedAt: delivery.detectedAt,
         presentAtAuthorization,
+        ...actorFieldsOf({
+            actorLogin: delivery.actorLogin,
+            actorAttribution: delivery.actorAttribution,
+        }),
     };
 }
 
@@ -234,6 +246,10 @@ function runForDelivery(input: RunCreationInput): Run {
         projectId: delivery.projectId,
         worktreeOption: delivery.worktreeOption,
         prompt,
+        // The policy in force is decided at **authorization** (003 FR-076), not
+        // here: an enqueue pass reads no binding, and a run that predated the
+        // gate would otherwise carry a policy no gate ever judged.
+        actorPolicy: null,
         state: 'pending',
         stateReason: null,
         attempt: 1,

@@ -25,6 +25,8 @@ import {
     selectedRun,
     stateLabel,
 } from '../src/dispatches-rows.ts';
+import { referenceDetailLines } from '../src/dispatches-detail.ts';
+import { SUBJECT_AUTHOR_BASIS } from '../src/run-actor.ts';
 import type { RunAffordance } from '../src/dispatches-rows.ts';
 import {
     loadDispatches,
@@ -89,6 +91,27 @@ const BLOCKED_PROJECT_STATE: RunRow['state'] = 'blocked:project-missing';
 /** A guard-refused state naming a binding that no longer exists. */
 const BLOCKED_BINDING_STATE: RunRow['state'] = 'blocked:binding-missing';
 
+/** The fifth declared blocked cause, the one the actor-policy gate parks in (003 FR-078). */
+const BLOCKED_ACTOR_STATE: RunRow['state'] = 'blocked:actor-not-allowed';
+
+/** The badge tone every state needing an operator's decision reads as (FR-040). */
+const DECISION_TONE: Tone = 'warning';
+
+/** The badge label and state of the cause the actor-policy gate parks a run in. */
+const ACTOR_BLOCKED_LABEL = 'blocked: actor-not-allowed';
+
+/** The login the gate named as denied, used by 005 AC-145's fixtures. */
+const DENIED_LOGIN = 'stranger';
+
+/** The login an allowed actor is attributed as on a coalesced run. */
+const ALLOWED_LOGIN = 'alice';
+
+/**
+ * Detection stamp the coalesced-run fixtures give a reference that arrived after
+ * authorization: a rider on someone else's run, which is what has to stay visible
+ * (003 FR-011, FR-077).
+ */
+const RIDER_DETECTED_AT = '2026-09-28T09:05:00.000Z';
 /** Agent every read-back fixture expects (and, when matched, observes). */
 const EXPECTED_AGENT = 'project-manager';
 
@@ -171,6 +194,9 @@ function runFixture(overrides: Partial<RunRow> = {}): RunRow {
         promptFingerprint: null,
         promptLength: null,
         promptSources: null,
+        // No gate has judged this run yet, so no policy shape is recorded
+        // (003 FR-079) — the honest reading, never a silent `'open'`.
+        actorPolicy: null,
         ...overrides,
     };
 }
@@ -417,6 +443,10 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
             expect(retries(FAILED_STATE)).toBe(true);
             expect(retries(BLOCKED_PROJECT_STATE)).toBe(true);
             expect(retries(BLOCKED_BINDING_STATE)).toBe(true);
+            // The fifth declared cause retries on exactly the same terms (FR-078):
+            // the service re-checks the live policy and refuses with its own
+            // reason until it clears, which is what every other cause does.
+            expect(retries(BLOCKED_ACTOR_STATE)).toBe(true);
 
             const notRetryable: readonly RunRow['state'][] = [
                 'pending',
@@ -432,16 +462,20 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
         }
         // case: labels every state in operator vocabulary and never success-tones a failure
         {
+            // Every state that means "an operator must decide" — a failure, a
+            // wedge, and the whole blocked family — reads as one warning tone,
+            // so a refusal is never mistakable for a success at a glance (FR-040).
             const expected: readonly (readonly [RunRow['state'], string, Tone])[] = [
                 ['pending', 'waiting', 'neutral'],
                 ['claimed', 'claimed', 'info'],
                 ['starting', 'starting', 'info'],
                 ['dispatched', 'dispatched', 'success'],
-                [FAILED_STATE, 'dispatch failed', 'warning'],
-                [UNCONFIRMED_STATE, 'unconfirmed', 'warning'],
+                [FAILED_STATE, 'dispatch failed', DECISION_TONE],
+                [UNCONFIRMED_STATE, 'unconfirmed', DECISION_TONE],
                 [DEAD_LETTERED_STATE, DEAD_LETTERED_STATE, 'error'],
-                [BLOCKED_PROJECT_STATE, 'blocked: project-missing', 'warning'],
-                [BLOCKED_BINDING_STATE, 'blocked: binding-missing', 'warning'],
+                [BLOCKED_PROJECT_STATE, 'blocked: project-missing', DECISION_TONE],
+                [BLOCKED_BINDING_STATE, 'blocked: binding-missing', DECISION_TONE],
+                [BLOCKED_ACTOR_STATE, ACTOR_BLOCKED_LABEL, DECISION_TONE],
             ];
             for (const [state, label, tone] of expected) {
                 const rows = dispatchRows(runsState({ rows: [runFixture({ state })], status: 'ready' }));
@@ -504,9 +538,11 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
                 status: 'ready',
             }));
 
+            // 005 FR-094: the reference names its actor, and a run stored before
+            // attribution says *actor not recorded* rather than naming nobody.
             expect(rows[0]?.subtitle).toBe(
-                'acme/widget · assignment 2026-09-28 09:00 · waiting for a panel · not dispatched yet'
-                    + ' · prompt not set',
+                'acme/widget · assignment 2026-09-28 09:00 · actor not recorded'
+                    + ' · waiting for a panel · not dispatched yet · prompt not set',
             );
         }
         // case: shows prompt presence, tier sources, fingerprint, and length — never the text (004 FR-052, AC-139)
@@ -556,7 +592,7 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
                             deliveryId: 'evt-acme~widget~7~comment',
                             kind: 'mention',
                             origin: 'comment:4242',
-                            detectedAt: '2026-09-28T09:05:00.000Z',
+                            detectedAt: RIDER_DETECTED_AT,
                             presentAtAuthorization: false,
                         }),
                     ],
@@ -568,7 +604,7 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
 
             expect(subtitle).toContain('2 reasons · assignment 2026-09-28 09:00');
             expect(subtitle).toContain('mention 2026-09-28 09:05 via comment:4242'
-                + ' (after authorization, may not have been seen)');
+                + ' (after authorization, may not have been seen) · actor not recorded');
         }
     });
 
@@ -585,9 +621,8 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
                 status: 'ready',
             }));
 
-            expect(rows[0]?.subtitle).toContain(
-                '3 reasons · assignment 2026-09-28 09:00 +2 more reasons not listed',
-            );
+            expect(rows[0]?.subtitle).toContain('3 reasons · assignment 2026-09-28 09:00 · actor not recorded');
+            expect(rows[0]?.subtitle).toContain('+2 more reasons not listed');
         }
         // case: shows the read-back verdict and never success-tones a mismatch (FR-043, AC-125)
         {
@@ -805,6 +840,58 @@ describe('runAffordance (003’s state→affordance table, FR-041/FR-033/FR-027)
  * name — so a state added to 003 fails this suite until it is given a label
  * and an affordance, which is exactly what SC-104 asks for.
  */
+/**
+ * 003 v1.8.0 — the actor allow-list gate's row (FR-078; 005 FR-044, FR-046).
+ *
+ * The row's own two claims: the **denied login** the service named is visible,
+ * and the reason line names the field that restricts the binding rather than
+ * offering a retry the operator cannot act on. And the table still **fails** for
+ * a cause with no row of its own — the generic clause is a fallback, not a
+ * licence to render nothing.
+ */
+describe('003 v1.8.0 the blocked actor-not-allowed row (FR-078)', () => {
+    it('names the denied login, the field, and still refuses an unknown cause', async () => {
+        // case: the row renders the service's own reason, which names the denial
+        {
+            const rows = dispatchRows(runsState({
+                rows: [runFixture({
+                    state: BLOCKED_ACTOR_STATE,
+                    stateReason: "no source reference on this run names an actor the binding's allowedUsers "
+                        + 'permits: bob (the author GitHub recorded)',
+                })],
+                status: 'ready',
+            }));
+
+            expect(rows[0]?.subtitle).toContain('bob');
+            expect(rows[0]?.badge?.label).toBe(ACTOR_BLOCKED_LABEL);
+        }
+        // case: the affordance's reason names the field, not a generic guard
+        {
+            const affordance = runAffordance(runFixture({ state: BLOCKED_ACTOR_STATE }));
+
+            expect(affordance.action).toBe('retry');
+            expect(affordance.reason).toContain('allowedUsers');
+            expect(affordance.reason).not.toContain('a guard refused');
+            // The permitted set is configuration; the reason names the field only.
+            expect(affordance.reason).not.toMatch(/@|permitted:/);
+        }
+        // case: an undeclared cause still renders, and still offers nothing false
+        {
+            // The generic clause is honest about a cause this build does not
+            // produce, and the table keeps answering for a state from a future
+            // build (FR-074) rather than guessing a control.
+            const unknown = runAffordance({ state: 'blocked:not-yet-produced' });
+            expect(unknown.action).toBe('retry');
+            expect(unknown.reason).toContain('not-yet-produced');
+
+            const future = runAffordance({ state: 'archived' });
+            expect(future.action).toBe('none');
+            expect(future.label).toBeNull();
+            expect(future.reason).toContain('does not recognise');
+        }
+    });
+});
+
 describe('SC-104 one fixture per state of the dispatch state model', () => {
     /** Every declared state, with the label and control it must render. */
     const TABLE: readonly {
@@ -821,6 +908,7 @@ describe('SC-104 one fixture per state of the dispatch state model', () => {
         { state: DEAD_LETTERED_STATE, label: 'dead-lettered', action: 'requeue' },
         { state: BLOCKED_PROJECT_STATE, label: 'blocked: project-missing', action: 'retry' },
         { state: BLOCKED_BINDING_STATE, label: 'blocked: binding-missing', action: 'retry' },
+        { state: BLOCKED_ACTOR_STATE, label: ACTOR_BLOCKED_LABEL, action: 'retry' },
     ];
 
     it('names a label, a reason, and a control for every dec… (+2 cases)', () => {
@@ -846,7 +934,7 @@ describe('SC-104 one fixture per state of the dispatch state model', () => {
         // case: offers Retry on exactly failed and the blocked family, and Resolve only on unconfirmed
         {
             const retried = TABLE.filter((row) => row.action === 'retry').map((row) => row.state);
-            expect(retried).toEqual([FAILED_STATE, BLOCKED_PROJECT_STATE, BLOCKED_BINDING_STATE]);
+            expect(retried).toEqual([FAILED_STATE, BLOCKED_PROJECT_STATE, BLOCKED_BINDING_STATE, BLOCKED_ACTOR_STATE]);
 
             const resolved = TABLE.filter((row) => row.action === 'resolve').map((row) => row.state);
             expect(resolved).toEqual([UNCONFIRMED_STATE]);
@@ -1381,6 +1469,204 @@ describe('selection, open, and the pane handler table', () => {
 
             expect(rt.state.dispatches.status).toBe('ready');
             expect(rt.state.dispatches.rows).toHaveLength(1);
+        }
+    });
+});
+
+/* -------------------------------------------------------------------- *
+ * 005 AC-145 — the attributed actor, its basis, and the refused run
+ * -------------------------------------------------------------------- */
+
+/**
+ * The claim 005 v1.13.0 withdraws, in every wording the old copy used
+ * (002 NFR-011 as re-cut at v1.12.0).
+ *
+ * Both the panel's clause and the gate's refusal reason carried a version of
+ * *"GitHub does not record who assigned"*, which is **false** — GitHub records
+ * both, in `assigner` and `review_requester` on the item's own event list. The
+ * scan exists so a future edit cannot quietly put the falsehood back, and it
+ * matches on the substance (a claim about what the provider does not record)
+ * rather than on one exact sentence, so a rewording does not slip past it.
+ */
+const WITHDRAWN_CLAIM =
+    /does not record|never (?:who|records)|records no (?:assigner|requester|assign)|is a proxy|a proxy\b/i;
+
+/** A login the legacy-basis fixtures attribute a row to, named once (sonarjs). */
+const LEGACY_ACTOR_LOGIN = 'bob';
+
+/**
+ * The legacy attribution basis, readable and produced by nothing (002 FR-044 as
+ * re-cut at v1.12.0) — named once so the fixtures below cannot drift apart from
+ * the clause they are asserting the panel renders beside it.
+ */
+const LEGACY_BASIS = 'subject-author';
+
+
+describe('005 AC-145 the row names the actor, its basis, and the denied login', () => {
+    it('states each reference\'s own actor, and a legacy basis as its provenance (+4 cases)', () => {
+        // case: a direct attribution names the login and **no basis clause at
+        // all** — GitHub named the identity that performed the act, so there is
+        // nothing to qualify (005 FR-094 as re-cut at v1.13.0)
+        {
+            const rows = dispatchRows(runsState({
+                rows: [runFixture({
+                    sourceReferences: [referenceFixture({ actorLogin: ALLOWED_LOGIN, actorAttribution: 'direct' })],
+                    referenceCount: 1,
+                })],
+                status: 'ready',
+            }));
+
+            expect(rows[0]?.subtitle).toContain(`actor ${ALLOWED_LOGIN}`);
+            expect(rows[0]?.subtitle).not.toContain(SUBJECT_AUTHOR_BASIS);
+            // The whole point of the re-cut: not merely a different clause, but
+            // **none** on the basis every row written now carries.
+            expect(rows[0]?.subtitle).not.toContain('attributed');
+            expect(rows[0]?.subtitle).not.toContain('basis');
+        }
+
+        // case: a legacy `subject-author` row states its **provenance** — the rule
+        // in force when it was written — and claims nothing about GitHub
+        {
+            const rows = dispatchRows(runsState({
+                rows: [runFixture({
+                    sourceReferences: [referenceFixture({
+                        actorLogin: LEGACY_ACTOR_LOGIN,
+                        actorAttribution: LEGACY_BASIS,
+                    })],
+                    referenceCount: 1,
+                })],
+                status: 'ready',
+            }));
+            const subtitle = rows[0]?.subtitle ?? '';
+
+            expect(subtitle).toContain(`actor ${LEGACY_ACTOR_LOGIN}`);
+            expect(subtitle).toContain(SUBJECT_AUTHOR_BASIS);
+            expect(subtitle).toContain('under the rule in force when this row was written');
+            // 002 NFR-011 in the negative, and the claim this amendment withdrew:
+            // nothing says bob assigned the issue, and nothing says GitHub does
+            // not record who assigned — because it does, in `assigner`.
+            expect(subtitle).not.toContain(`${LEGACY_ACTOR_LOGIN} assigned`);
+            expect(subtitle).not.toContain('does not record');
+            expect(subtitle).not.toContain('is a proxy');
+        }
+
+        // case: a coalesced run shows every reference\'s own actor, so an
+        // outside rider is visible rather than silent (003 FR-011, FR-077)
+        {
+            const row = runFixture({
+                sourceReferences: [
+                    referenceFixture({ actorLogin: ALLOWED_LOGIN, actorAttribution: 'direct' }),
+                    referenceFixture({
+                        deliveryId: 'evt-acme~widget~7~comment',
+                        kind: 'mention',
+                        origin: 'comment:4242',
+                        detectedAt: RIDER_DETECTED_AT,
+                        presentAtAuthorization: false,
+                        actorLogin: DENIED_LOGIN,
+                        actorAttribution: LEGACY_BASIS,
+                    }),
+                ],
+                referenceCount: 2,
+            });
+            const [rendered] = dispatchRows(runsState({ rows: [row], status: 'ready' }));
+            const revealed = referenceDetailLines(row);
+
+            // Both surfaces name both actors…
+            for (const line of [String(rendered?.subtitle), revealed.join(' ')]) {
+                expect(line).toContain(`actor ${ALLOWED_LOGIN}`);
+                expect(line).toContain(`actor ${DENIED_LOGIN}`);
+                expect(line).toContain(SUBJECT_AUTHOR_BASIS);
+            }
+            // …one per line, because each reference carries **its own** actor
+            // and basis rather than inheriting the first reference's.
+            expect(revealed[0]).toContain(`actor ${ALLOWED_LOGIN}`);
+            expect(revealed[0]).not.toContain(`actor ${DENIED_LOGIN}`);
+            expect(revealed[1]).toContain(`actor ${DENIED_LOGIN}`);
+            expect(revealed[1]).toContain('arrived after authorization');
+        }
+
+        // case: an unattributed reference says so rather than naming nobody
+        {
+            const [rendered] = dispatchRows(runsState({
+                rows: [runFixture({ sourceReferences: [referenceFixture()], referenceCount: 1 })],
+                status: 'ready',
+            }));
+
+            // Absence is named, never filled in: printing a plausible login
+            // would record an inference as a fact (002 FR-024).
+            expect(rendered?.subtitle).toContain('actor not recorded');
+        }
+    });
+
+    it('names the denied login and 003\'s reason on the refused run, and offers Retry (+2 cases)', () => {
+        // case: the row carries the service's own refusal, naming who was denied
+        {
+            const reason = "no source reference on this run names an actor the binding's allowedUsers permits: "
+                + `${LEGACY_ACTOR_LOGIN} (the issue or pull-request author, attributed under the rule `
+                + 'in force when this row was written)';
+            const [row] = dispatchRows(runsState({
+                rows: [runFixture({ state: BLOCKED_ACTOR_STATE, stateReason: reason })],
+                status: 'ready',
+            }));
+
+            expect(row?.badge?.label).toBe(ACTOR_BLOCKED_LABEL);
+            expect(row?.subtitle).toContain(LEGACY_ACTOR_LOGIN);
+            expect(row?.subtitle).toContain('allowedUsers');
+            // The panel renders the verdict it was given and never predicts one
+            // (FR-046): the reason is the service's message, verbatim.
+            expect(row?.subtitle).toContain(reason);
+        }
+
+        // case: Retry stays offered, and the row does not change until the
+        // service answers (005 AC-145, 003 FR-041)
+        {
+            const row = runFixture({ state: BLOCKED_ACTOR_STATE, stateReason: 'bob is not on the allow-list' });
+            const before = dispatchRows(runsState({ rows: [row], status: 'ready' }));
+            const affordance = runAffordance(row);
+
+            expect(affordance.action).toBe('retry');
+            expect(affordance.label).toBe('Retry dispatch');
+            // Rendering is not deciding: a second render of an unchanged row is
+            // byte-identical, which is what "no local verdict" looks like.
+            expect(dispatchRows(runsState({ rows: [row], status: 'ready' }))).toEqual(before);
+        }
+
+        // case: **the copy scan**, asserted over what the panel composes and
+        // proved non-vacuous by a fixture that still renders the legacy basis
+        // (005 AC-145 as re-cut at v1.13.0)
+        {
+            // The scan needs to *find* the withdrawn claim, so it is first shown
+            // to bite: the scanner matches the sentence the pre-v1.13.0 clause
+            // carried, and that sentence is not what this build renders.
+            expect(WITHDRAWN_CLAIM.test('it does not record who assigned it or requested the review')).toBe(true);
+            expect(WITHDRAWN_CLAIM.test(SUBJECT_AUTHOR_BASIS)).toBe(false);
+
+            // Every user-facing string composed from a run's actor rows, on both
+            // the row and in the reveal — the two surfaces that name an actor.
+            const row = runFixture({
+                sourceReferences: [
+                    referenceFixture({ actorLogin: 'dana', actorAttribution: 'direct' }),
+                    referenceFixture({
+                        deliveryId: 'evt-acme~widget~7~legacy',
+                        kind: 'assignment',
+                        origin: 'assignment',
+                        detectedAt: RIDER_DETECTED_AT,
+                        presentAtAuthorization: false,
+                        actorLogin: LEGACY_ACTOR_LOGIN,
+                        actorAttribution: LEGACY_BASIS,
+                    }),
+                ],
+                referenceCount: 2,
+            });
+            const subtitles = dispatchRows(runsState({ rows: [row], status: 'ready' }))
+                .map((rendered) => String(rendered.subtitle));
+            const composed = [...subtitles, ...referenceDetailLines(row)].join('\n');
+
+            // Non-vacuity: the legacy fixture still renders its clause, so the
+            // scan is looking at live output rather than passing because the
+            // branch is gone.
+            expect(composed).toContain(SUBJECT_AUTHOR_BASIS);
+            expect(WITHDRAWN_CLAIM.test(composed), composed).toBe(false);
         }
     });
 });

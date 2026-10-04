@@ -150,6 +150,8 @@ function queuedRow(seed: QueueSeed): Record<string, unknown> {
         issueBodyExcerpt: seed.excerpt ?? DISPATCHED_BODY,
         headSha: null,
         baseRef: null,
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'Issue assigned to the bound account',
         detectedAt: seed.detectedAt,
         ...(seed.state === undefined ? {} : { state: seed.state, claimedAt: null, dispatchedAt: seed.detectedAt }),
@@ -244,6 +246,8 @@ async function plantLinkedQueue(
                 issueUrl: `https://github.com/acme/widget/issues/${seed.issueNumber}`,
                 issueBodyExcerpt: seed.excerpt ?? DISPATCHED_BODY,
             },
+            actorLogin: 'alice',
+            actorAttribution: 'subject-author',
             triggerNote: 'Issue assigned to the bound account',
             detectedAt: seed.detectedAt,
         }),);

@@ -25,12 +25,12 @@
  *   `run-verify.ts`) increments nothing and changes no state at all; the
  *   dead-letter return resets both counters (contract invariant 5, AC-106).
  * - **The service corroborates what it can and records what it cannot.**
- *   `blocked:binding-missing` is re-checked against the live binding table,
- *   because the service *can* check it; `blocked:project-missing` depends on a
- *   host API the service may not call (002's architecture), so the panel's
- *   same-mount check is the only evidence and is audited as *reported*, never as
- *   proof. Conflating those two would let a row claim a verification the service
- *   never performed (constitution IV).
+ *   `blocked:binding-missing` and `blocked:actor-not-allowed` are re-checked
+ *   against the live store, because the service *can* check them;
+ *   `blocked:project-missing` depends on a host API the service may not call
+ *   (002's architecture), so the panel's same-mount check is the only evidence and
+ *   is audited as *reported*, never as proof. Conflating the two would let a row
+ *   claim a verification the service never performed (constitution IV).
  * - **A resolution is the only way out of `unconfirmed`, and it is recorded as a
  *   human decision.** The row names the decision, the prior state, the operator's
  *   note, and the guidance they were shown, because the service records what it
@@ -42,14 +42,22 @@ import type { BindingRecord } from '../bindings.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { appendRunRow, resolvedRow, retryRow } from './dispatch-audit.ts';
+import {
+    CAUSE_NOT_CLEARED,
+    CORROBORATED_BLOCKED_REASONS,
+    CORROBORATED_BINDING_REASON,
+    judgeActorCause,
+} from './run-corroborate.ts';
 import { appendRefusalRow, operateRun, sessionRefOf } from './run-chain.ts';
 import { STALE_LEASE_CODE, refuse, staleAttemptMessage } from './run-refusal.ts';
+import type { CauseSource } from './run-corroborate.ts';
 import type { RunApplied, RunNotFound, RunRefused, RunRefusal } from './run-refusal.ts';
 import { attemptHistory, currentAttempt, runHistoryIndicatesSession } from './runs-document.ts';
 import type { Run, RunState } from './runs-types.ts';
 
-/** The blocked cause whose clearing the service can verify itself. */
-const CORROBORATED_BLOCKED_REASON = 'binding-missing';
+// The corroboration split — which blocked causes the service can re-check
+// itself, and how — lives in `run-corroborate.ts`, extracted for the size bound.
+export { CAUSE_NOT_CLEARED, judgeActorCause } from './run-corroborate.ts';
 
 /** The two explicit resolutions of an `unconfirmed` run (FR-027). */
 export type ResolveDecision = 'session-created' | 'no-session';
@@ -76,9 +84,6 @@ export interface RefusalTarget {
     /** Structured logger. */
     readonly log: ServiceLogger;
 }
-
-/** How a retry learned that the blocking cause had cleared. */
-type CauseSource = 'corroborated' | 'reported' | null;
 
 /**
  * The distinct verdict each refusing state gets (FR-041, contract §6).
@@ -146,8 +151,8 @@ export async function refused(input: RefusalTarget & {
  * half-apply that rule exists to prevent.
  *
  * @param input - The run, the attempt the operator names, whether they reported
- *   the cause cleared, and the live binding table for the one cause the service
- *   can re-check itself.
+ *   the cause cleared, and the live binding table for the causes the service can
+ *   re-check itself.
  * @returns The refusal, or how the cause was shown to have cleared.
  */
 function judgeRetry(input: {
@@ -174,19 +179,25 @@ function judgeRetry(input: {
     }
 
     const blockedReason = run.state.slice('blocked:'.length);
-    if (blockedReason === CORROBORATED_BLOCKED_REASON) {
-        return bindings.some((binding) => binding.bindingId === run.bindingId)
-            ? 'corroborated'
-            : refuse('cause-not-cleared', `the cause has not cleared: the binding ${run.bindingId} is still absent`);
+    if (!CORROBORATED_BLOCKED_REASONS.has(blockedReason)) {
+        // Not a cause the service can check itself: the panel's same-mount check
+        // is the only evidence, and it is audited as *reported* (constitution IV).
+        return causeCleared
+            ? 'reported'
+            : refuse(
+                CAUSE_NOT_CLEARED,
+                `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this `
+                + 'row records what was checked',
+            );
     }
 
-    return causeCleared
-        ? 'reported'
-        : refuse(
-            'cause-not-cleared',
-            `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this row `
-            + 'records what was checked',
-        );
+    if (blockedReason === CORROBORATED_BINDING_REASON) {
+        return bindings.some((binding) => binding.bindingId === run.bindingId)
+            ? 'corroborated'
+            : refuse(CAUSE_NOT_CLEARED, `the cause has not cleared: the binding ${run.bindingId} is still absent`);
+    }
+
+    return judgeActorCause({ run, bindings });
 }
 
 /**
@@ -431,9 +442,8 @@ function resolvedRun(input: {
             // parser requires a reservation to carry the run's *current* attempt.
             // A consumed-but-retained reservation for the previous attempt would
             // make the document unreadable — the fail-closed direction that reads
-            // as "the store is broken" rather than "the run is ready". Clearing is
-            // also the honest statement: the next attempt mints a new token, so
-            // the old authorization is dead rather than spent.
+            // as "the store is broken". Clearing is also the honest statement: the
+            // next attempt mints a new token, so the old authorization is spent.
             reservation: null,
             updatedAt: now,
         };

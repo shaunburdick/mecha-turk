@@ -1,6 +1,10 @@
 # Contract: Dispatch Authorization & Run Operations
 
-**Spec**: 003 FR-020–FR-029 (authorization), FR-033/FR-041/FR-042 (operator actions), FR-043 (verification) · wire-delta rows **Reserve, Result, Abandon, Retry, Resolve** + the two operations the Audit Vocabulary implies (Block report, Verification report) and FR-033's Requeue
+**Spec**: 003 FR-020–FR-029 (authorization), FR-033/FR-041/FR-042 (operator actions), FR-043 (verification), **FR-076–FR-080 (the actor allow-list gate, v1.8.0)** · wire-delta rows **Reserve, Result, Abandon, Retry, Resolve** + the two operations the Audit Vocabulary implies (Block report, Verification report) and FR-033's Requeue
+
+**Amended 2026-10-03** for the actor allow-list gate (GitHub issue #9): **§1** gains the `actorPolicy` details and the `409 actor-not-allowed` refusal row, **§2** gains the same detail, **§4** names `actor-not-allowed` as the **fifth** allowed `blockedReason`, **§9** names the gate as one of the refusals the row covers, and the error-code table gains the code. **No operation is added, no method or path changes, no existing code changes meaning, and no audit `eventType` is added.**
+
+**Amended 2026-10-03** for the block-report conformance that follows it (GitHub issue #9, v1.10.0): **§1**'s refusal table gains the **value-free** `referenceWindow` member on the `409 actor-not-allowed` rows, **§4** records that the panel's account of the block branches on that member rather than on the message, **§9** records that the member rides the **refusal envelope only** and gains the audit row nothing, and the error-code table's note records that the member is present on that code only. **No operation, method, path, status, code, or audit `eventType` is added, no detail key is added, and no member is renamed or retyped.**
 
 Every operation below is **run-scoped**: the path segment is the run's **correlation id** (`mt-run-…`), not a delivery id (wire delta: "Addressed by the run, not the delivery"). Paths keep their existing suffixes where they exist (`/dispatched`, `/retry`); new operations take verb suffixes under the same `/v1/events/:correlationId/` prefix. Co-ship assumption: [README](./README.md).
 
@@ -33,11 +37,13 @@ conclude its token dies at that instant, skip the report, and strand the run in
 
 **Service actions, in order, inside the queue chain**: validate **no recorded
 session** → validate lease (exists, matches, unexpired, holder irrelevant) →
-validate no live reservation → validate run state `claimed` → mint token
-deterministically (data-model §2.2) → persist
-`reservation { dispatchToken, attempt, reservedAt, now+resultDeadlineMs,
-consumed:false }`, state `starting` → write `dispatch.reserved` (details: lease
-id, attempt, token, attachment id) → answer.
+validate no live reservation → validate run state `claimed` → **evaluate the
+actor allow-list against the binding's stored `allowedUsers`, read inside this same
+chain task (v1.8.0, FR-076)** → mint token deterministically (data-model §2.2) →
+persist `reservation { dispatchToken, attempt, reservedAt, now+resultDeadlineMs,
+consumed:false }`, state `starting`, **and the snapshotted `run.actorPolicy`** →
+write `dispatch.reserved` (details: lease id, attempt, token, attachment id,
+`actorPolicy`) → answer.
 
 The order is the verdicts' precedence, and each move exists because the obvious
 order made a documented refusal unreachable: the **session** check runs first
@@ -47,7 +53,11 @@ session" (AC-112) could never fire. The **reservation** check runs ahead of the
 state check for the same reason: a `starting` run is not `claimed`, so reading
 the state first would answer `invalid-transition` where the table promises
 `already-reserved`. `invalid-transition` remains the answer for every other
-live-lease state.
+live-lease state. **The actor verdict runs last of all** (v1.8.0): it sits *after*
+`judgeReserve` returns `null` precisely so that `already-dispatched` (which names
+the session) and `stale-lease` stay reachable on their own paths — a policy check
+placed first would pre-empt both, which is the same mistake the order note above
+already records.
 
 | Refusal | Status | `code` | Distinct reason (FR-022) |
 | --- | --- | --- | --- |
@@ -55,7 +65,24 @@ live-lease state.
 | run already holds a live reservation | 409 | `already-reserved` | names the reservation's attempt and deadline; one run holds at most one live authorization |
 | run already has a recorded session | 409 | `already-dispatched` | **names the existing session id** (FR-022, AC-112) |
 | run not in `claimed` | 409 | `invalid-transition` | names the current state (`pending`, `starting`, `dispatched`, `failed`, `unconfirmed`, `dead-lettered`, `blocked:*`) |
+| **no source reference on the run names an actor the binding's allow-list allows** (v1.8.0) | 409 | **`actor-not-allowed`** | **names every denied login and each one's attribution basis**; it never names a *permitted* login. **The panel must not call `host.startSession()` after this** — it reports `blocked:actor-not-allowed` through §4 instead (FR-078). Carries the **value-free** `referenceWindow` member (v1.10.0) |
+| **a reference's actor is absent, empty, or bot-shaped** (v1.8.0, FR-080) | 409 | **`actor-not-allowed`** | names the unreadable actor and the fact that no readable actor was recorded — **never** admitted on the strength of the list, and never waved through by an absent policy. Carries the **value-free** `referenceWindow` member (v1.10.0) |
+| **the binding or its document cannot be read** (v1.8.0) | 409 | **`actor-not-allowed`** | names *which* failure it was (unknown binding id · bindings document unusable). Fail-closed: a policy that cannot be judged is never treated as permissive (constitution II). Carries the **value-free** `referenceWindow` member (v1.10.0) |
 | unknown run / bad id shape | 404 | `unknown-run` | unchanged catalog |
+
+**The admitted rule, stated once (FR-077)**: a run **coalesces** deliveries from several people
+(FR-011), and the authorization succeeds when **at least one** of its **retained** source references
+names an actor `allowedUsers` allows. A binding with **no** `allowedUsers` allows any human actor.
+A binding with a populated list requires one allowed reference. **Zero** retained references under a
+restricted policy is a **denial**; under an open policy it is an admission. The rule is a set
+quantifier over the references, so it does **not** depend on join order.
+
+> **Why the two obvious alternatives were refused, in one line each** (both wedge runs permanently,
+> because a `blocked:*` run is non-terminal and new deliveries **join** it rather than opening a new
+> ordinal): *refuse if **any** reference is disallowed* lets one stranger's comment disable every
+> dispatch on that issue forever; *judge only the **opening** reference* lets a stranger's comment open
+> a run that an allowed user's later mention can then never authorize. Ratified at the product-owner
+> gate, 2026-10-03.
 
 A refused reserve never writes `dispatch.reserved` (no reservation exists); it writes the single **refusal row** described in §9. `dispatch.reserved` is written only on the 200 path (FR-003, FR-060).
 
@@ -81,6 +108,42 @@ A refused reserve never writes `dispatch.reserved` (no reservation exists); it w
 > removed by it. Authoritative text:
 > [`004-starting-prompt/contracts/layered-prompt.md`](../../004-starting-prompt/contracts/layered-prompt.md) §3.
 
+> **v1.8.0's additive delta — `actorPolicy` (built)**: `dispatch.reserved`'s `details` gain one
+> **required, value-free** key, `actorPolicy`, whose value is `'open' | 'restricted'` — the **shape**
+> of the binding's allow-list at the moment of authorization, written from the same read that made
+> the gate's decision and snapshotted onto `run.actorPolicy`. **It never carries a permitted
+> login**; an audit trail listing who may trigger a repository is a second copy of the access
+> policy in a file retained for months and read by anyone who can read the file, and this contract
+> refuses to create it (NFR-113). No existing detail key, entity, or correlation id is renamed,
+> retyped, or removed. The field itself and its three states are 002's, specified in
+> [`002-agent-event-extension/contracts/binding-allow-list.md`](../../002-agent-event-extension/contracts/binding-allow-list.md).
+
+> **v1.10.0's additive delta — `referenceWindow` (built)**: the **`409 actor-not-allowed` refusal rows above
+> gain one member on the refusal answer**, `referenceWindow`, whose value is the closed pair
+> `'complete' | 'truncated'` — whether the gate could see the run's **whole retained** source-reference list or a
+> **cut** one. It answers the one question the gate's own set quantifier cannot: the verdict runs over the
+> **retained** references, and the run layer stops retaining at the cap (data-model §3), so on a run whose list
+> was cut the reference that would have authorized it may be among the dropped ones — visible under **no**
+> policy, and therefore clearable by **no** allow-list edit and by **no** retry, because the retry re-judges the
+> same list. The word and the message's trailing clause are **the same read in two forms**: the prose is for the
+> operator, the member is for the panel, and neither derives the other by parsing.
+>
+> Four properties are the member's contract, not implementation notes:
+>
+> - **Present on every refusal that code produces**, so a reader is never left guessing whether it was told —
+>   including the two refusals that name no login at all.
+> - **Absent on every other code**, and absent from any answer by a build older than v1.10.0.
+> - **Never defaulted.** Absence means *unreported*, never `complete` — which is exactly why it is a closed
+>   **word** and not a boolean: a reader handed `false` could not tell *"the decision saw the whole list"* from
+>   *"this build reports no window"*, and defaulting `false` would hand an ordinary refusal a truncated-list
+>   reading. A reader must **refuse** a word outside the pair rather than guess at one.
+> - **Value-free by construction** (NFR-113): two words about a list, never a login. It rides the **refusal
+>   envelope only** — see §9.
+>
+> The panel is the member's **only** reader. It cannot see the gate's chain task, so deriving the window from a
+> document read at another moment would be a stale second opinion and matching the message would be a parse of a
+> sentence the panel is only obliged to display. §4 governs what the panel then does with it.
+
 ---
 
 ## 2. Result — `POST /v1/events/:correlationId/dispatched`
@@ -104,6 +167,11 @@ A refused reserve never writes `dispatch.reserved` (no reservation exists); it w
 > token fingerprint, and `sessionId` **or** failure reason. No existing detail
 > key is renamed or removed. Authoritative text:
 > [`004-starting-prompt/contracts/dispatch-prompt.md`](../../004-starting-prompt/contracts/dispatch-prompt.md) §3.
+>
+> **v1.8.0's additive delta — `actorPolicy` (built)**: `dispatch.result`'s `details` gain the same
+> required, value-free `actorPolicy` key, read from the run's **snapshot** rather than re-reading the
+> binding — so the two rows provably describe the same policy even though the result report happens
+> after an operator may have changed the list. Never a permitted login (NFR-113).
 
 ### Staleness / idempotency matrix (plan D7 — this is the heart of AC-109/AC-110/AC-112)
 
@@ -141,13 +209,39 @@ Run → `failed` with the reason, reservation consumed, **retryable** (FR-041), 
 
 ```jsonc
 { "correlationId": "mt-run-…", "leaseId": "lse-…", "attempt": 1,
-  "blockedReason": "project-missing" | "binding-missing" | "credential" | "policy",
+  "blockedReason": "project-missing" | "binding-missing" | "credential" | "policy"
+                 | "actor-not-allowed",                       // added at v1.8.0 — the FIFTH declared cause
   "detail": "project \"prj_9\" is not registered in OpenChamber",
   "guidance": "register the project in OpenChamber, then retry" }
 // 200 → { "state": "blocked:project-missing", … }
 ```
 
-Valid **only from `claimed` with the live lease** (a guard runs after claim, before reserve); lease rules as in Reserve. Run → `blocked:<reason>` with `stateReason = detail`; `attempt` unchanged (a guard refusal consumes nothing — gate Q3); audit `run.blocked` (`blocked`, blocked reason, prior state, guidance offered). Retryable only once the cause clears (§6). `blockedReason` is validated against the four-value set so states stay parseable (data-model §2.2).
+Valid **only from `claimed` with the live lease** (a guard runs after claim, before reserve); lease rules as in Reserve. Run → `blocked:<reason>` with `stateReason = detail`; `attempt` unchanged (a guard refusal consumes nothing — gate Q3); audit `run.blocked` (`blocked`, blocked reason, prior state, guidance offered). Retryable only once the cause clears (§6). `blockedReason` is validated against the **declared five-value set** so states stay parseable (data-model §2.2): a **sixth** value would make the document unreadable to its own parser, so widening the set is a requirement change and not a call-site detail.
+
+> **v1.8.0: `actor-not-allowed` is the fifth declared cause, and this operation is how the gate's
+> refusal reaches the run (FR-078).** The reserve itself writes **nothing** to the run — no
+> reservation, no token, no state change, exactly like every other refused authorization (§1) — so
+> the panel reports the block through **this** operation, which already exists and gains no route, no
+> method, and no new body member. `detail` carries the service's own refusal message, which **names
+> every denied login and each one's attribution basis**; `guidance` names the field that restricts
+> the binding. **One refinement beyond the guard family**: the `attempt` is still untouched and no
+> requeue budget is consumed (it is a guard refusal), and the sweep never touches a `blocked:*` run
+> — so the run waits for the operator, not for a clock, and becomes retryable once the cause clears.
+>
+> **What `guidance` may say depends on §1's `referenceWindow` (v1.10.0), not on the block report's own fields.**
+> The panel has no way to see the gate's chain task, so the *only* honest source for the window the decision saw
+> is the member the refusal carried. On `'complete'` — and on an answer with no member at all, which is a build
+> older than v1.10.0 and is answered exactly as v1.8.0 was — `guidance` names the field that restricts the
+> binding. On `'truncated'` it MUST state that the allow-list cannot clear the run and MUST **not** instruct an
+> allow-list edit followed by a retry, because the permitted actor may be among the references the cap dropped.
+> The panel MUST NOT derive the word from `detail`'s prose, from a count it computes itself, or from a run
+> document read at another moment, and it MUST **refuse** a word outside the pair rather than guess at one — an
+> unknown word lands on the `'complete'` advice, which is the direction that is safe to be wrong in, because the
+> wrong branch would have an operator dead-letter a run one login would have dispatched. `guidance` may name no
+> control the state→affordance table does not offer for a `blocked:<reason>` run (FR-041, FR-074 — the
+> affordance table is **005's**; §6 states which blocked causes this service will corroborate, and
+> `blocked:actor-not-allowed` is retryable in form and refused in fact), and may carry no **permitted**
+> login (NFR-113).
 
 ---
 
@@ -190,8 +284,9 @@ All three carry details `{ sessionId, observedAgent, expectedAgent, note }`; `ag
 | From | Answer |
 | --- | --- |
 | `failed` | 200 → `pending`, `attempt += 1`, reservation + lease cleared, source references and prior attempt records preserved, same run key, audit `dispatch.retry` (`retry`, prior state, attempt before/after, `causeReportedCleared`) |
-| `blocked:<reason>` where the service can corroborate the cause (`binding-missing`: the binding exists again) | 200 as above, reason recorded as corroborated |
+| `blocked:<reason>` where the service can corroborate the cause (`binding-missing`: the binding exists again; **`actor-not-allowed`**: the live `allowedUsers` now admits at least one of the run's attributed actors — v1.8.0) | 200 as above, reason recorded as corroborated |
 | `blocked:<reason>` where only the panel can check (`project-missing`: `listProjects()` now resolves) | 200 with `causeReport` audited as **reported** cleared — the vocabulary's own wording ("cause reported cleared"); the service cannot call host APIs (002 architecture), so the panel's same-mount check is the evidence and it is audited as evidence, not as proof |
+| **`blocked:actor-not-allowed` where the live policy still admits nobody** (v1.8.0) | 409 **`cause-not-cleared`** — names the binding; the run is **not** requeued, so a retry cannot be used to probe the policy (FR-078) |
 | `pending` | 409 `invalid-transition` — "already waiting" (distinct reason) |
 | `dispatched` | 409 `invalid-transition` — "already dispatched; a dispatched run cannot be retried" (distinct reason) |
 | `unconfirmed` | 409 `invalid-transition` — "resolve this run instead" (distinct reason; the two resolutions are the only paths — FR-027) |
@@ -246,6 +341,28 @@ Only from `unconfirmed` (else 409 `invalid-transition`). The panel must present 
 | `eventType` | Actor | Written when | `decision` | required `details` |
 | --- | --- | --- | --- | --- |
 | `dispatch.refused` | `service` | a **state verdict** (`409`) on a run that exists, or a **`422`** whose path names a run that exists | `refused` | attempted operation, refusal `code`, prior state, attempt (and lease/token reference when the refusal was a staleness verdict) |
+| `dispatch.refused` — **the `actor-not-allowed` case only** (v1.8.0) | `service` | the gate refused the reserve (§1) | `refused` | everything above, **plus** `bindingId`, `actorPolicy` (`'open' \| 'restricted'`), `deniedLogins` (**every** denied login), and `deniedAttributions` (**each** denied login's basis, so the row says *proxy* where it was one) |
+
+The `actor-not-allowed` row is **the same row** with **more detail** — not a new `eventType`, which is
+the whole point (FR-078; `AGENTS.md` invariant 10 is a compatibility surface and 003 has paid it
+twice already). It names the **denial** because a refusal a reader cannot attribute is not an
+explainable refusal (FR-077), and it names **no permitted login** because the permitted set's home
+is `bindings.json` and a copy of it in a retained file is a liability, not an audit aid (NFR-113).
+002 NFR-011 binds the wording, and its **re-cut at 002 v1.12.0** binds it harder than v1.11.0 did:
+a row MUST NOT claim that GitHub fails to record the assigner or the reviewer, because **GitHub
+records both**, in `assigner` and `review_requester`. A legacy `subject-author` row — the only kind
+that can carry that basis, and only from a build that predates the correction — MUST be presented as
+what it is: attributed under the rule in force when it was written. **No new row carries it**, and
+`deniedAttributions` is **read, never written**; the detail is kept, and not dropped, because a detail
+key removed from a reader's vocabulary would make a real stored refusal row unreadable (FR-077).
+
+**`referenceWindow` is not one of this row's details (v1.10.0).** The member rides the **refusal
+envelope** (§1) and reaches the panel, which is its only reader; the row gains nothing by it. That is
+deliberate and follows from the row's own rule above — the run's reference counts and its
+`referencesTruncated` flag are already recorded on the row, so a machine reader of the trail can tell a cut
+list from a whole one without a second copy of the same word, while the panel, which holds no audit-trail read
+on this path, gets exactly one place to learn it. Adding the member here would put a second expression of one
+read in a retained file for no reader that lacks one.
 
 The row set is deliberately narrower than "any `4xx`". A state verdict is
 refused inside its operation module, which reads the run and owes the row; a
@@ -320,9 +437,30 @@ safety never depended on being unknown.
 | 409 | `already-reserved` | reserve on a run holding a live reservation | "this run is already authorized to start" |
 | 409 | `already-dispatched` | reserve on a run with a recorded session — **message names the session** | "a session already exists: `<id>`" |
 | 409 | `invalid-transition` | existing code, widened: retry/resolve/requeue/result refusals, each with a **distinct message naming the source state** | quote the service's message verbatim (005 renders it) |
-| 409 | `cause-not-cleared` | (retained from 002 §4; used when a blocked retry's corroborated cause still fails — e.g. binding still absent) | "the cause has not cleared: `<detail>`" |
+| 409 | `cause-not-cleared` | (retained from 002 §4; used when a blocked retry's corroborated cause still fails — e.g. binding still absent, **or — v1.8.0 — the binding's live `allowedUsers` still admits none of the run's attributed actors**) | "the cause has not cleared: `<detail>`" |
+| 409 | **`actor-not-allowed`** | **new at v1.8.0.** No source reference on the run names an actor the binding's `allowedUsers` allows; **or** a reference's actor is absent, empty, or bot-shaped (FR-080); **or** the binding or its document cannot be read, so the policy cannot be judged | "nobody who triggered this run is on the binding's allow-list — `<denied logins>`" / "this run carries no readable actor" / "the binding's allow-list could not be read". **The panel must not call `host.startSession()` after this**; it reports `blocked:actor-not-allowed` (§4) |
 
 No existing code changes meaning; `422 validation` continues to cover malformed bodies without echoing values.
+
+> **`referenceWindow` rides this code only (v1.10.0).** Of the codes in the table above, **exactly one** —
+> `actor-not-allowed` — answers with the **value-free** `referenceWindow` member, on **every** refusal it
+> produces. No other code carries it, no other code may gain it without the same specification decision that
+> added this one, and it is **never defaulted**: an answer without it is a build older than v1.10.0, and absence
+> means *unreported* rather than `'complete'`. It is a **member** rather than something derived from
+> `message` because the service is the only party that knows which list its decision saw — a caller that
+> inferred it would either re-read a document at a later moment (a stale second opinion about a decision already
+> made) or parse English the service is only obliged to display. §1 carries the member's full rules; §4
+> governs the one reader that has an obligation to act on it.
+
+> **Cost note (v1.8.0, NFR-114).** The authorized path is **unchanged**: the gate reads one local
+> JSON document inside the reserve's existing chain task — no panel↔service round trip, no network
+> call, no additional write. The single extra round trip a **refused** dispatch costs is the block
+> report the panel already owes for every guard, and it is not on any authorized path. p95
+> detection-to-session latency is therefore unchanged from NFR-101/NFR-110's measured baseline.
+> *(The requirement's sentence "the binding table the authorization path already reads" is **false
+> of the shipped build** — the authorization path reads `config.json` and the run document and no
+> bindings document. Recorded as a flagged wording defect in [plan.md](../plan.md) §B.5 with a
+> recommended replacement; the *intent*, which is the latency promise above, is met and asserted.)*
 
 ## Invariants (contract tests)
 
@@ -332,3 +470,4 @@ No existing code changes meaning; `422 validation` continues to cover malformed 
 4. **No zombie success**: `problem` results never yield `state: 'dispatched'` anywhere in the answer or the projection (FR-040, AC-113).
 5. **Attempt discipline**: retry and resolve-no-session each increment exactly once; guard reports increment never; dead-letter return resets both counters (AC-106, gate Q3).
 6. Every 2xx that changes state writes exactly one lifecycle row with the run's correlation id; every refusal writes exactly one row naming its cause (AC-115, AC-116, FR-003).
+7. **The gate, v1.8.0.** (a) `409 actor-not-allowed` ⇒ no `dispatch.reserved` row, no token, and the run document **byte-identical** before and after; exactly one `dispatch.refused` row carrying the operation, code, prior state, attempt, binding id, `actorPolicy`, every denied login, and each one's basis. (b) The verdict's **placement**: a run that already carries a session still answers `already-dispatched` and names the session; a stale lease still answers `stale-lease`. (c) A blocked run consumes no attempt and no budget, the sweep never touches it, and a retry is refused with its own distinct reason until the live policy admits someone. (d) The **coalesced rule**: a run carrying three references attributed to `bob`, `carol`, `alice` against `['alice']` is **authorized**; all three outside the list is refused and the row names all three. (e) A hand-edited run carrying an empty or bot-shaped actor is refused, never admitted. (f) The authorized path's round-trip count is unchanged. (g) Scanning every audit-writing path, the run record, the run-history projection, `GET /v1/audit`, and both committed bundles finds **no permitted login** — only the shape (NFR-113).

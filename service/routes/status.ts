@@ -34,7 +34,7 @@ import type { HttpResponse } from '../http.ts';
 import type { ServiceConfig } from '../config.ts';
 import type { Account, ConnectionState } from '../accounts/model.ts';
 import type { BindingRecord } from '../bindings.ts';
-import type { RunVerification } from '../poll/runs-types.ts';
+import type { ActorPolicy, RunVerification } from '../poll/runs-types.ts';
 import { readStatusRows } from './events.ts';
 import type { Route, RouteContext } from './types.ts';
 
@@ -107,6 +107,18 @@ export interface StatusRepositoryRow {
      * the row as *unreadable* rather than believing a zero (005 AC-105).
      */
     readonly readable: boolean;
+    /**
+     * The **shape** of this binding's actor allow-list (005 FR-093).
+     *
+     * `'open'` when the binding carries no `allowedUsers` member and
+     * `'restricted'` when it carries one — derived from the **binding**, not
+     * from the scan projection, so it stays truthful on a row that is otherwise
+     * unreadable (contract `status-projection.md`). It never carries a login:
+     * the permitted set's home is `bindings.json`, and a copy of it in a
+     * document the panel renders is the liability, not the control (003
+     * NFR-113, 005 FR-091).
+     */
+    readonly actorPolicy: ActorPolicy;
 }
 
 /**
@@ -268,7 +280,8 @@ async function storedBindings(context: RouteContext): Promise<readonly BindingRe
  * Identity members come from the binding file (which was read), every
  * scan-derived member is `null`/`0`, and `readable: false` tells the panel not
  * to believe them (AC-105; FR-003: a missing value never reads as a healthy
- * one).
+ * one). `actorPolicy` is **not** scan-derived: it comes from the binding, so it
+ * is as truthful here as on a readable row (005 FR-093).
  *
  * @param binding - The stored binding this row is keyed by.
  * @returns The unreadable row; present, never omitted.
@@ -284,6 +297,10 @@ function unreadableRepositoryRow(binding: BindingRecord): StatusRepositoryRow {
         lastError: null,
         pendingCount: 0,
         readable: false,
+        // Absent is open, and a present list is always non-empty by the rule
+        // that refuses `[]` — the same derivation the readable rows use, so
+        // one binding never reports two shapes (002 FR-047).
+        actorPolicy: binding.allowedUsers === undefined ? 'open' : 'restricted',
     };
 }
 

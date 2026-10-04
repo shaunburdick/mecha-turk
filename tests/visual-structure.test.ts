@@ -131,6 +131,7 @@ const STATUS_BODY = JSON.stringify({
             lastError: null,
             pendingCount: 2,
             readable: true,
+            actorPolicy: 'open',
         },
         {
             bindingId: 'bnd_2',
@@ -142,6 +143,7 @@ const STATUS_BODY = JSON.stringify({
             lastError: 'rate limit reached: 41 requests remaining in this window',
             pendingCount: 0,
             readable: true,
+            actorPolicy: 'open',
         },
     ],
     agentPin: { expectedAgent: 'project-manager', lastVerification: null },

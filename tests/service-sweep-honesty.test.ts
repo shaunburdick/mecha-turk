@@ -121,6 +121,8 @@ function assignment(issueNumber: number, bindingId = BINDING_ID): EventSnapshot 
             issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
             issueBodyExcerpt: `body ${issueNumber}`,
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assigned',
         detectedAt: DETECTED_AT,
     };

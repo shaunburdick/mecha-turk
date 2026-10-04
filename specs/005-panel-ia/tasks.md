@@ -373,3 +373,31 @@ Fail-first where behaviour changes (status literals, the paging/filter answer, `
 > be read as naming the *case* inside its merged proof; the `// case:` comment
 > in the file locates it. `crash-permutations.test.ts`,
 > `dispatch-end-to-end.test.ts`, and `redaction.test.ts` are untouched.
+
+---
+---
+
+## Issue #9 block — the actor allow-list's rendering (added 2026-10-03)
+
+**Task ids `C-1 … C-6`. The task text, its gate, and the wave graph live in the consolidated list** at
+[`002-agent-event-extension/tasks.md` §"Issue #9 block (2026-10-03)"](../002-agent-event-extension/tasks.md),
+which is the single source of truth for all three amended features. This block is a locality index
+and nothing more — do not fork a task from it.
+
+| Task | Surface | One line |
+| --- | --- | --- |
+| **C-1** | `src/bindings-service.ts` | `PanelBinding.allowedUsers?`; the entry reader **refuses all three unusable shapes** — non-array, non-text element, and explicitly empty array; the member is sent explicitly on every row and the key omitted when unset *(task text corrected 2026-10-03 to name the empty-array refusal; the task of record is 002 `tasks.md` §C-1)* |
+| **C-2** | `src/bindings-actors.ts` (**new**, beside `src/bindings-prompt.ts`) | the one editor field with its three-state guidance, the row **count**, the worded absent-policy warning, and the refusal slot |
+| **C-3** | `src/bindings-grant.ts` | the member rides every row of the whole-file write; the "nothing changed" refusal note keeps its allow-list slot |
+| **C-4** | `service/routes/{events,status}.ts`, `src/status-document.ts`, `src/status-lines.ts`, `src/status-tab.ts` | `actorPolicy` on each `repositories[]` row; the parser **refuses the whole document** on an out-of-vocabulary *or absent* value, because NFR-113 forbids the two defaults an absent member would invite; Status's counted line with its zero case, its unreachable case, and no login and no repository name *(task text corrected 2026-10-03 to state what an absent member does; the task of record is 002 `tasks.md` §C-4)* |
+| **C-5** | `src/dispatches-rows.ts` | each source reference's actor; a `direct` reference renders **no basis clause**, and a legacy `subject-author` reference renders a **historical** one — attributed under the rule in force when the row was written — that does not claim GitHub lacks the field (FR-094 as re-cut at 005 v1.13.0; supersedes "where it is a proxy — its basis in the panel's own words"); the refused run names the denied login; Retry's validity comes from the existing table |
+| **C-6** | `tests/bindings-actors.test.ts` (new), `tests/status-tab.test.ts`, `tests/dispatches.test.ts`, the string scan | **005 AC-142 – AC-146**, the exactly-once count, and the *protected/restricted/secure* scan |
+
+**Phase 5 gate flag for this block** (decided for planning only; see
+[plan.md §C.5](./plan.md) and [`002/pm-handoff.md` §Flagged](../002-agent-event-extension/pm-handoff.md)
+§Flagged #2): **the empty-list round trip.** 005 FR-090 ("the panel MUST NOT pre-emptively accept
+input the service would refuse") and 005 AC-142 ("submitting `[]` is refused by the service" **and**
+"the panel contains no second control") cannot all hold unless the panel either submits `[]` — and
+can then never remove a list — or omits the key. **Chosen:** omit the key, and discharge AC-142's
+`[]` case against the service plus the panel's own refusal-rendering path. **One confirmation
+requested** from the product owner (research §Q3).

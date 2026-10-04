@@ -61,6 +61,7 @@ import type { BindingRecord } from '../service/bindings.ts';
 import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller, PollIssue } from '../service/poll/poller-github.ts';
+import type { PollItemEvent } from '../service/poll/poller-events.ts';
 import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
@@ -149,6 +150,17 @@ function capturingLogger(): { readonly log: ServiceLogger; readonly lines: strin
 }
 
 /**
+ * The **legacy** attribution basis — readable, and produced by nothing (002
+ * FR-044 as re-cut at v1.12.0).
+ *
+ * Named because the fixture factories and the parser boundary speak it: rows the
+ * shipped build wrote carry it, and this suite asserts that such a row still
+ * round-trips and still parses. No row written now carries it, which is what the
+ * cycle-level cases assert instead.
+ */
+const LEGACY_BASIS = 'subject-author';
+
+/**
  * Build the writer's inputs for one assignment detection.
  *
  * @param issueNumber - Issue number the detection carries.
@@ -170,6 +182,8 @@ function fixtureSnapshot(issueNumber: number, excerpt: string): EventSnapshot {
             issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
             issueBodyExcerpt: excerpt,
         },
+        actorLogin: 'alice',
+        actorAttribution: LEGACY_BASIS,
         triggerNote: 'Issue assigned to the bound account',
         detectedAt: DETECTED_AT,
     };
@@ -247,16 +261,45 @@ interface RecordedPoller {
     readonly poller: GitHubIssuePoller;
     /** `since` value of each call, in call order. */
     readonly seenSince: (string | null)[];
+    /** Item numbers the per-item events read was asked for, in call order. */
+    readonly seenEvents: number[];
+}
+
+/**
+ * Build the per-item actor read's answer for one assignment fixture.
+ *
+ * The naming `assigned` event GitHub would carry: the **subject** (`assignee`)
+ * is the bound account — that is what makes it the evidence for this candidate —
+ * and the **actor** (`assigner`) is `alice`, the issue author these fixtures
+ * already used. Its `created_at` is the item's own `updated_at`, so the row is
+ * in-window exactly when the listing let the candidate through (002 FR-051) —
+ * a fixture cannot accidentally produce an event the window would have refused.
+ *
+ * @param issue - The candidate the read was issued for.
+ * @returns The one naming event, and the bound's own subject match.
+ */
+function namingEventFor(issue: PollIssue): readonly PollItemEvent[] {
+    return [{
+        event: 'assigned',
+        assignee: { login: ACCOUNT_LOGIN, type: 'User' },
+        assigner: { login: issue.authorLogin, type: issue.authorType },
+        requestedReviewer: { login: '', type: '' },
+        reviewRequester: { login: '', type: '' },
+        issueNumber: issue.issueNumber,
+        createdAt: issue.updatedAt ?? DETECTED_AT,
+    }];
 }
 
 /**
  * Build a poller that answers with one fixed issue list and records its windows.
  *
  * @param issues - Issues to return on every call.
- * @returns The poller and the windows it was asked to open.
+ * @returns The poller, the windows it was asked to open, and the items its
+ *   per-item actor read was asked about.
  */
 function recordingPoller(issues: readonly PollIssue[]): RecordedPoller {
     const seenSince: (string | null)[] = [];
+    const seenEvents: number[] = [];
     const poller: GitHubIssuePoller = {
         listOpenIssues: async (input) => {
             seenSince.push(input.since);
@@ -267,9 +310,19 @@ function recordingPoller(issues: readonly PollIssue[]): RecordedPoller {
         // switches off, so the cycle never asks for them.
         listIssueComments: async () => ({ kind: 'ok', comments: [] }),
         listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
+        // One read per matched candidate (002 FR-049), answered from the fixture
+        // issue of the same number.
+        listIssueEvents: async (input) => {
+            seenEvents.push(input.issueNumber);
+            const candidate = issues.find((issue) => issue.issueNumber === input.issueNumber);
+
+            return candidate === undefined
+                ? { kind: 'ok', events: [], exhausted: false }
+                : { kind: 'ok', events: namingEventFor(candidate), exhausted: false };
+        },
     };
 
-    return { poller, seenSince };
+    return { poller, seenSince, seenEvents };
 }
 
 /**
@@ -466,6 +519,115 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
         expect(buildEventId({ ...base, discriminator: '~mention~4242' })).toBe('evt-acme~widget~12~77331~mention~4242');
         expect(buildEventId({ ...base, discriminator: '~review' })).toBe('evt-acme~widget~12~77331~review');
         expect(createEvent(fixtureSnapshot(2, '')).id).toBe('evt-acme~widget~2~77331');
+    });
+
+    // 002 v1.11.0 adds two members to the row and changes **no** existing one.
+    // Each case below exists because of a decision, not because of a shape:
+    // absentable-on-read (plan D2) is the only reason a pre-existing queue
+    // still parses, and frozen ids (FR-046) are the only reason an issue
+    // observed twice is still one event.
+    it('carries the actor and its basis onto the row, and round-trips on real bytes', async () => {
+        const row = createEvent({ ...fixtureSnapshot(9, 'body'), actorLogin: 'Alice', actorAttribution: 'direct' });
+        const stored = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+
+        expect(stored.actorLogin).toBe('Alice');
+        expect(stored.actorAttribution).toBe('direct');
+
+        // Writer → store → reader, on the bytes the store actually wrote.
+        const { log } = capturingLogger();
+        await enqueueEvents({
+            store,
+            log,
+            incoming: [createEvent(fixtureSnapshot(9, 'body'))],
+        });
+        const [written] = await readEvents({ store, log });
+
+        expect(written?.actorLogin).toBe('alice');
+        expect(written?.actorAttribution).toBe(LEGACY_BASIS);
+        const onDisk = JSON.parse(await readFile(join(dataDir, EVENTS_FILE), 'utf8')) as Record<string, unknown>[];
+        expect(onDisk[0]).toMatchObject({ actorLogin: 'alice', actorAttribution: LEGACY_BASIS });
+    });
+
+    it('accepts both members when present and refuses an unrecognized basis', () => {
+        const row = JSON.parse(JSON.stringify(createEvent(fixtureSnapshot(4, '')))) as Record<string, unknown>;
+
+        expect(parseStoredEvent(row)).toMatchObject({ actorLogin: 'alice', actorAttribution: LEGACY_BASIS });
+        expect(parseStoredEvent({ ...row, actorAttribution: 'direct' })).toMatchObject({ actorAttribution: 'direct' });
+        // The union is closed and has no default: an unrecognized basis refuses
+        // the row rather than recording a guess as a fact (002 FR-024, NFR-011).
+        expect(parseStoredEvent({ ...row, actorAttribution: 'assumed' })).toBeNull();
+        expect(parseStoredEvent({ ...row, actorAttribution: 'direct ' })).toBeNull();
+        expect(parseStoredEvent({ ...row, actorAttribution: null })).toBeNull();
+        // An actor GitHub would not name is not a legal record either.
+        expect(parseStoredEvent({ ...row, actorLogin: '' })).toBeNull();
+        expect(parseStoredEvent({ ...row, actorLogin: 42 })).toBeNull();
+    });
+
+    it('parses a pre-v1.2 row with both members absent, and invents neither', () => {
+        // Exactly what `events.json` already holds: the shipped vocabulary and
+        // no attribution. Requiring the members would quarantine every one of
+        // those rows, which is the migration the product owner ruled out.
+        const preV12 = shippedRow();
+        delete preV12.actorLogin;
+        delete preV12.actorAttribution;
+
+        const parsed = parseStoredEvent(preV12);
+
+        expect(parsed).toEqual(preV12);
+        // Absence reads as *no attribution recorded*, which is a third thing and
+        // never silently becomes either member of the union.
+        expect('actorLogin' in (parsed ?? {})).toBe(false);
+        expect('actorAttribution' in (parsed ?? {})).toBe(false);
+        // One member alone is still accepted: they are independent, absentable.
+        expect(parseStoredEvent({ ...preV12, actorLogin: 'alice' })).toMatchObject({ actorLogin: 'alice' });
+        expect('actorAttribution' in (parseStoredEvent({ ...preV12, actorLogin: 'alice' }) ?? {})).toBe(false);
+    });
+
+    it('keeps delivery ids byte-identical whatever the actor (FR-046, AC-027)', () => {
+        // The actor rides the row and never its identity: the id is the dedupe
+        // key, the relay path segment, and the reference already recorded in
+        // panel ledgers, audit rows, and the run history.
+        const ids = [
+            createEvent(fixtureSnapshot(12, '')),
+            createEvent({ ...fixtureSnapshot(12, ''), actorLogin: 'someone-else' }),
+            createEvent({ ...fixtureSnapshot(12, ''), actorLogin: 'someone-else', actorAttribution: 'direct' }),
+        ].map((event) => event.id);
+
+        expect(new Set(ids).size).toBe(1);
+        expect(ids[0]).toBe('evt-acme~widget~12~77331');
+        // The mention and review discriminators are untouched by the same rule.
+        const mentioned = createEvent({
+            ...fixtureSnapshot(12, ''),
+            kind: 'mention',
+            origin: 'comment',
+            commentId: 4242,
+            actorAttribution: 'direct',
+        });
+        expect(mentioned.id).toBe('evt-acme~widget~12~77331~mention~4242');
+        const otherMention = createEvent({
+            ...fixtureSnapshot(12, ''),
+            kind: 'mention',
+            origin: 'comment',
+            commentId: 4242,
+            actorAttribution: 'direct',
+            actorLogin: 'another',
+        });
+        expect(otherMention.id).toBe(mentioned.id);
+        const reviewed = createEvent({
+            ...fixtureSnapshot(12, ''),
+            kind: 'review',
+            headSha: 'deadbeefcafe000000000000000000000000beef',
+            baseRef: 'main',
+        });
+        expect(reviewed.id).toBe('evt-acme~widget~12~77331~review');
+        const otherReview = createEvent({
+            ...fixtureSnapshot(12, ''),
+            kind: 'review',
+            headSha: reviewed.headSha,
+            baseRef: reviewed.baseRef,
+            actorLogin: 'another',
+        });
+        expect(otherReview.id).toBe(reviewed.id);
     });
 });
 
@@ -753,6 +915,8 @@ function snapshotFor(seed: RunSeed): EventSnapshot {
             issueUrl: `https://github.com/acme/widget/issues/${seed.issueNumber}`,
             issueBodyExcerpt: 'body excerpt',
         },
+        actorLogin: 'alice',
+        actorAttribution: LEGACY_BASIS,
         triggerNote: 'assigned',
         detectedAt: seed.detectedAt,
     };
@@ -1079,5 +1243,153 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
                 filter: { bindingId: null, state: null },
             }).total).toBeNull();
         }
+    });
+});
+
+/**
+ * One binding row carrying the allow-list this block varies, so the *only*
+ * thing that changes between the two observations is the operator's policy.
+ *
+ * @param input - `users` configures a list; omitting the member is the open state.
+ * @returns The stored binding row.
+ */
+function policyBinding(input: { readonly users?: readonly string[] }): BindingRecord {
+    const base = fixtureBinding(BINDING_A);
+
+    return input.users === undefined ? base : { ...base, allowedUsers: input.users };
+}
+
+describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-048)', () => {
+    it('produces one event with a byte-identical id under a populated list and an absent one', async () => {
+        const { log } = capturingLogger();
+        const issues = [assignmentIssue(12, PRE_BINDING_AT)];
+
+        // Observation one: a binding carrying a populated allow-list.
+        await writeAccount(store, fixtureAccount());
+        await writeBindings({ store, bindings: [policyBinding({ users: ['alice'] })] });
+        const first = recordingPoller(issues);
+        await runScanCycle({ store, log, poller: first.poller });
+        const afterFirst = await readEvents({ store, log });
+
+        // Observation two: the same repository, the same issue, the same
+        // account — with no list at all. The queue still holds one row, because
+        // the id is the dedupe key and the id never varied (002 FR-046).
+        await writeBindings({ store, bindings: [policyBinding({})] });
+        const second = recordingPoller(issues);
+        const cycle = await runScanCycle({ store, log, poller: second.poller });
+        const afterSecond = await readEvents({ store, log });
+
+        expect(afterFirst).toHaveLength(1);
+        expect(afterSecond).toHaveLength(1);
+        expect(cycle.enqueued).toBe(0);
+        expect(afterSecond[0]?.id).toBe(afterFirst[0]?.id);
+        // Byte-identical against the shipped format, computed by hand.
+        expect(afterSecond[0]?.id).toBe(`evt-acme~widget~12~${ACCOUNT_ID}`);
+        // The actor rides the row and is unaffected by the policy: the list is
+        // evaluated once, when a dispatch is authorized, never at detection.
+        // The basis is `direct` because the naming event names the assigner
+        // (002 AC-024, FR-044).
+        expect(afterSecond[0]?.actorLogin).toBe('alice');
+        expect(afterSecond[0]?.actorAttribution).toBe('direct');
+    });
+
+    it('keeps a comment and a pull request to one event each across both observations', async () => {
+        const { log } = capturingLogger();
+        const comment = {
+            commentId: 4242,
+            issueNumber: 12,
+            body: `cc @${ACCOUNT_LOGIN}`,
+            url: 'https://github.com/acme/widget/issues/12#issuecomment-4242',
+            authorLogin: 'alice',
+            authorType: 'User',
+            updatedAt: PRE_BINDING_AT,
+        };
+        const pull = {
+            pullNumber: 12,
+            title: 'Change 12',
+            url: 'https://github.com/acme/widget/pull/12',
+            state: 'open',
+            requestedReviewers: [ACCOUNT_LOGIN],
+            authorLogin: 'alice',
+            authorType: 'User',
+            headSha: 'deadbeefcafe000000000000000000000000beef',
+            baseRef: 'main',
+            updatedAt: PRE_BINDING_AT,
+        };
+        const observed = async (input: { readonly users?: readonly string[] }): Promise<readonly QueuedEvent[]> => {
+            await writeAccount(store, fixtureAccount());
+            const switches = { assignment: false, mention: true, reviewRequest: true };
+            const binding = { ...policyBinding(input), triggers: switches };
+            await writeBindings({ store, bindings: [binding] });
+            // The issue the comment and the pull request sit on, assigned to
+            // nobody: the assignment kind is the first test's subject, so this
+            // one isolates the comment and review pair.
+            const subject = { ...assignmentIssue(12, PRE_BINDING_AT), assignees: [] };
+            const poller: GitHubIssuePoller = {
+                listOpenIssues: async () => ({ kind: 'ok', issues: [subject] }),
+                listIssueComments: async () => ({ kind: 'ok', comments: [comment] }),
+                listOpenPulls: async () => ({ kind: 'ok', pulls: [pull] }),
+                // The review candidate's actor comes off the naming
+                // `review_requested` event, not off the listing (002 FR-050).
+                listIssueEvents: async () => ({
+                    kind: 'ok',
+                    events: [{
+                        event: 'review_requested',
+                        assignee: { login: '', type: '' },
+                        assigner: { login: '', type: '' },
+                        requestedReviewer: { login: ACCOUNT_LOGIN, type: 'User' },
+                        reviewRequester: { login: 'alice', type: 'User' },
+                        issueNumber: 12,
+                        createdAt: PRE_BINDING_AT,
+                    }],
+                    exhausted: false,
+                }),
+            };
+            await runScanCycle({ store, log, poller });
+
+            return await readEvents({ store, log });
+        };
+
+        const restricted = await observed({ users: ['alice'] });
+        const open = await observed({});
+
+        // Two kinds, two rows — and the same two rows whichever policy is in
+        // force. An allow-list neither splits an observation nor resurrects a
+        // deduplicated one, so the second observation enqueues nothing.
+        expect(restricted.map((event) => event.id).sort()).toEqual([
+            `evt-acme~widget~12~${ACCOUNT_ID}~mention~4242`,
+            `evt-acme~widget~12~${ACCOUNT_ID}~review`,
+        ]);
+        expect(open.map((event) => event.id).sort()).toEqual(restricted.map((event) => event.id).sort());
+        // Both kinds are `direct` now that each names its own actor, and the
+        // body's mention needed the issue list the cycle listed for it.
+        expect(open.map((event) => event.actorAttribution).sort()).toEqual(['direct', 'direct']);
+        expect(open.map((event) => event.actorLogin).sort()).toEqual(['alice', 'alice']);
+    });
+
+    it('asserts buildEventId\'s docblock promise against the shipped format (FR-046, AC-104)', () => {
+        // The docblock promises a `[A-Za-z0-9._~]`-only, one-path-segment id of
+        // the form `evt-<owner>~<repo>~<issue>~<account>` plus its discriminator.
+        // Every produced id is checked against that promise, not against itself.
+        const ids = [
+            ...['', '~mention~body', '~mention~4242', '~review'].map((discriminator) => buildEventId({
+                repository: { owner: 'acme', name: 'widget' },
+                issueNumber: 12,
+                accountNumericUserId: ACCOUNT_ID,
+                ...(discriminator === '' ? {} : { discriminator }),
+            })),
+        ];
+
+        for (const id of ids) {
+            expect(id).toMatch(/^evt-[A-Za-z0-9._~|-]+$/);
+            expect(id.split('~')[0]).toBe('evt-acme');
+            expect(id).not.toContain('/');
+            // "One URL path segment" means it needs no percent-encoding at all.
+            expect(encodeURIComponent(id)).toBe(id);
+        }
+
+        // The base is the four documented segments; only a discriminator extends it.
+        expect(ids[0]).toBe(`evt-acme~widget~12~${ACCOUNT_ID}`);
+        expect(ids.slice(1).every((id) => id.startsWith(`${ids[0]}~`))).toBe(true);
     });
 });

@@ -30,15 +30,23 @@
  *   rather than a disabled one (FR-041, FR-074, AC-123).
  *
  * Nothing here performs IO, so the copy is testable without a live DOM.
+ *
+ * 005 v1.11.0 adds the **actor** to each source reference it lists, with the
+ * basis spelled out where the attribution is a proxy (FR-094, 002
+ * FR-044/NFR-011). The wording is `run-actor.ts`'s {@link actorPhrase}, shared
+ * with the reveal in `dispatches-controls.ts`, which renders the same
+ * references and must not word them a second way.
  */
 
 import type { ListItem, Tone } from '@openchamber/sdk/ui';
 import { redact } from './redaction.ts';
 import { elapsedSince } from './bindings-rows.ts';
 import { utcStamp } from './ids.ts';
+import { actorPhrase } from './run-actor.ts';
 import { BLOCKED_PREFIX } from './dispatches-service.ts';
 import type { DispatchesState } from './panel-state.ts';
 import type { PlainRunState, RunReference, RunRow, RunState, RunVerification } from './dispatches-service.ts';
+import type { RunKind } from './dispatches-detail.ts';
 
 // The absolute-stamp reader lives with the clock helpers (`ids.ts`) so the
 // binding rows can take it without importing this module, which imports them.
@@ -58,7 +66,7 @@ export const DISPATCHES_EMPTY_STATUS =
 export const DISPATCHES_SELECT_HINT = 'select a row to open or retry';
 
 /** Short leading labels per trigger kind (the list's fixed-width slot). */
-const KIND_LABELS: Record<RunRow['kind'], string> = {
+const KIND_LABELS: Record<RunKind, string> = {
     assignment: 'assign',
     mention: 'mention',
     review: 'review',
@@ -66,6 +74,9 @@ const KIND_LABELS: Record<RunRow['kind'], string> = {
 
 /** The terminal parked state, named once so the tables and tests share it. */
 const DEAD_LETTERED = 'dead-lettered' as const;
+
+/** The declared blocked cause the service's actor-policy gate parks a run in. */
+const ACTOR_BLOCKED = 'actor-not-allowed';
 
 /**
  * Operator-readable badge label per plain state (FR-074, AC-123).
@@ -131,11 +142,44 @@ const PLAIN_STATE_TONES: Record<Exclude<PlainRunState, typeof DEAD_LETTERED>, To
 };
 
 /**
+ * The declared `blocked:` causes whose remedy is a named field (003 FR-078).
+ *
+ * Annotated as a wide record so a cause this build does not produce still
+ * renders through {@link blockedReasonText}'s generic clause rather than
+ * appearing as a missing label (FR-074).
+ */
+const BLOCKED_CAUSE_REASONS: Readonly<Record<string, string>> = {
+    [ACTOR_BLOCKED]: 'nobody who triggered this run is on this binding\'s allow-list — add those logins to the '
+        + 'binding\'s allowedUsers, then retry',
+};
+
+/**
+ * Why one declared `blocked:<reason>` cause parks a run, in the panel's words.
+ *
+ * The **generic** clause serves every cause with no entry in
+ * {@link BLOCKED_CAUSE_REASONS} — it says the true thing about all of them —
+ * while a cause whose remedy is *specific* gets its own line.
+ * `blocked:actor-not-allowed` is the only one so far (003 v1.8.0), because it is
+ * the only one whose fix is a **field the operator can find**: the binding's
+ * allow-list. An operator reading "a guard refused the dispatch" learns nothing;
+ * reading "nobody who triggered this run is on this binding's allow-list" knows
+ * exactly which row to open (005 FR-044).
+ *
+ * @param cause - The suffix after `blocked:`.
+ * @returns The reason line for that cause.
+ */
+function blockedReasonText(cause: string): string {
+    return BLOCKED_CAUSE_REASONS[cause]
+        ?? `a guard refused the dispatch (${cause}) — retry once the cause clears`;
+}
+
+/**
  * Whether a state is one of the open `blocked:<reason>` family.
  *
  * The family is open (`blocked:project-missing`, `blocked:binding-missing`,
- * and the declared-but-not-yet-produced `blocked:credential`/`blocked:policy`),
- * so it is matched by prefix rather than by an enum that would go stale.
+ * `blocked:actor-not-allowed`, and the declared-but-not-produced
+ * `blocked:credential`/`blocked:policy`), so it is matched by prefix rather than
+ * by an enum that would go stale.
  *
  * @param state - State of the run.
  * @returns `true` for the family, which a plain state can never be.
@@ -287,12 +331,14 @@ export function runAffordance(row: { readonly state: string }): RunAffordance {
     }
 
     if (isBlockedState(state)) {
-        const cause = state.slice(BLOCKED_PREFIX.length);
-
+        // Retry validity follows 003 FR-041 exactly as every other cleared
+        // cause's does — the service re-checks the live state and refuses with
+        // its own distinct reason if it has not cleared — so the affordance is
+        // the same control with a more specific reason line (FR-078).
         return {
             action: 'retry',
             label: RETRY_LABEL,
-            reason: `a guard refused the dispatch (${cause}) — retry once the cause clears`,
+            reason: blockedReasonText(state.slice(BLOCKED_PREFIX.length)),
         };
     }
 
@@ -333,7 +379,8 @@ function resultPhrase(row: RunRow): string {
 
 /**
  * One reference's line: kind, detection time, origin when it adds something,
- * and the mark on a reason the agent may never have seen (FR-015).
+ * its actor and basis, and the mark on a reason the agent may never have seen
+ * (FR-015, 005 FR-094).
  *
  * @param reference - One retained source reference.
  * @returns The reference's label.
@@ -342,7 +389,7 @@ function referenceLabel(reference: RunReference): string {
     const origin = reference.origin === reference.kind ? '' : ` via ${reference.origin}`;
     const seen = reference.presentAtAuthorization ? '' : ' (after authorization, may not have been seen)';
 
-    return `${reference.kind} ${utcStamp(reference.detectedAt)}${origin}${seen}`;
+    return `${reference.kind} ${utcStamp(reference.detectedAt)}${origin}${seen} · ${actorPhrase(reference)}`;
 }
 
 /**

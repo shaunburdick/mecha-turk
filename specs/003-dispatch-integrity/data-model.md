@@ -89,7 +89,8 @@ Bounds: file still carries the shipped eviction tail (`MAX_DISPATCHED_EVENTS` le
 | `ordinal` | number | 0-based = count of already-terminal runs for the subject **at creation**, read from the durable `subjects` counter (FR-010; "numbering never reused" edge case) |
 | `subjectType`, `subjectNumber`, `repository`, `accountNumericUserId`, `bindingId` | string / number | subject coordinates + routing; run key components |
 | `projectId`, `worktreeOption` | string | snapshotted at enqueue (002 FR-028 discipline; 004 will snapshot its prompt beside them) |
-| `state` | `pending \| claimed \| starting \| dispatched \| failed \| blocked:<reason> \| unconfirmed \| dead-lettered` | §1; transitions are chain-serialized |
+| `state` | `pending \| claimed \| starting \| dispatched \| failed \| blocked:<reason> \| unconfirmed \| dead-lettered` | §1; transitions are chain-serialized. **The declared `blocked:` causes are a closed set of FIVE since v1.8.0** (was four): `project-missing`, `binding-missing`, `credential`, `policy`, **`actor-not-allowed`**. The family is still prefix + non-empty kebab reason (so the parser is unchanged), but a **block report may only name one of the five** — a sixth would make the document unreadable to its own parser (FR-078) |
+| `actorPolicy` | `'open' \| 'restricted' \| null` | **added at v1.8.0 (FR-079).** The shape of the binding's allow-list **at the moment of authorization**, snapshotted so a later read of the run never has to re-derive it and so `dispatch.reserved` and `dispatch.result` provably agree. `null` = no authorization recorded yet (a freshly enqueued or adopted run). **The value is the shape and never the logins**: an audit trail listing who may trigger a repository is a second copy of the access policy in a file retained for months (NFR-113). `'restricted'` therefore always means **at least one** login — an empty list cannot reach here, because 002 FR-047 refuses it at save *and* on read (plan D16) |
 | `stateReason` | string | why the run sits where it does — required on every non-`pending` state, rendered as the row's reason line (FR-074, NFR-108) |
 | `attempt` | number | starts 1; incremented by **lease expiry**, **operator retry**, and **resolve→no-session**; carried on the lease and every attempt record (see plan "Attempt counting") |
 | `requeuesUsed` | number | 0…`MAX_AUTO_REQUEUES` (3, a module constant — **not** a config field, 003 v1.3.0 / 006 `## Deferred`); incremented only by automatic requeues; reset with `attempt` on dead-letter return (FR-033) |
@@ -112,6 +113,23 @@ Bounds: file still carries the shipped eviction tail (`MAX_DISPATCHED_EVENTS` le
 | `detectedAt` | string | that delivery's detection stamp |
 | `excerpt` | string (claim-transport only) | bounded trigger excerpt (≤600 chars at detection) — carried on the **claim** answer for context building; **not** stored on the run (excerpts live on the delivery; the run stores the pointer) |
 | `presentAtAuthorization` | boolean | `false` iff the run already held a reservation when this delivery joined; drives FR-015's "may not have been seen by the agent" mark |
+| `actorLogin` | string \| **absent** | **added at v1.8.0 (002 FR-043).** The delivery's attributed actor, copied from the row at join. **Absentable on read** — a run written before this feature has none, which is exactly what makes FR-080's refusal reachable — and **validated when present** |
+| `actorAttribution` | `'direct' \| 'subject-author'` \| **absent** | **added at v1.8.0 (002 FR-044).** The closed basis union, copied from the row. An unrecognized value **refuses the run document** rather than defaulting (002 FR-024). Every surface that renders it must honour it (002 NFR-011) |
+
+**What the run model does with the actors (v1.8.0).** Coalescing (FR-011) joins deliveries from
+different people onto one run, so a run **may carry several actors**, and **FR-077's rule decides
+the dispatch: the authorization succeeds when at least one retained reference names an actor the
+binding's allow-list allows** (ratified at the gate, 2026-10-03). Both rejected alternatives wedge
+runs permanently, because a `blocked:*` run is non-terminal and new deliveries **join** it rather
+than opening a new ordinal — refusing when *any* reference is disallowed lets one stranger's comment
+disable every dispatch on that issue forever; judging only the opening reference lets a stranger's
+comment open a run that an allowed user's later mention can then never authorize. Zero retained
+references under a restricted policy is a **denial** (no allowed actor can be shown); under an open
+policy it is an admission. A reference whose actor is **absent, empty, or bot-shaped** is a
+**refusal regardless of the policy** (FR-080): 002 FR-045(b) means such a reference can only have
+come from a hand edit, and the fail-closed reading of an unreadable actor is *no actor*, never *the
+list says yes*. The gate **also denies when the policy cannot be read** — an absent binding id or an
+unusable bindings document — with the cause named in the refusal message (plan D15).
 
 ### 2.4 DispatchAttempt (element of `run.attempts`)
 
@@ -197,7 +215,21 @@ Both are additive to `GET/PUT /v1/config` (contract §1: additive within v1), va
 
 Event types outside this list are unchanged and keep their own identifiers (FR-052). `binding.prompt-updated` (004) will sit under a non-lifecycle `binding.` prefix — the vocabulary's prefixing scheme is why 003's write path must be additive, and it is.
 
-**One addition, justified by FR-003**: the seventeen types each describe a successful transition or a dedicated outcome, so refusals need their own row — `dispatch.refused` (actor `service`, decision `refused`, details: attempted operation, refusal code, prior state, attempt/lease/token reference). It keeps the `dispatch.` prefix (readable as lifecycle at a glance), leaves the seventeen untouched (AC-115 samples those, unchanged), carries the run's correlation id like every lifecycle row (FR-062), and is specified in [contracts/dispatch-authorization.md](./contracts/dispatch-authorization.md) §9, including the scope reading that panel-side no-ops which never reach the service are ledger entries, not service rows.
+**One addition, justified by FR-003**: the seventeen types each describe a successful transition or a dedicated outcome, so refusals need their own row — `dispatch.refused` (actor `service`, decision `refused`, details: attempted operation, refusal code, prior state, attempt/lease/token reference). It keeps the `dispatch.` prefix (readable as lifecycle at a glance), leaves the seventeen untouched (AC-115 samples those, unchanged), carries the run's correlation id like every lifecycle row (FR-062), and is specified in [contracts/dispatch-authorization.md](./contracts/dispatch-authorization.md) §9, including the scope reading that panel-side no-ops which never reached the service are ledger entries, not service rows.
+
+**v1.8.0 adds NO event type (the actor allow-list gate).** The gate reuses `dispatch.refused` for its refusal and adds **one value-free detail key** to two existing rows. A vocabulary row is a compatibility surface (`AGENTS.md` invariant 10), and 003 has already paid that tax twice (`binding.prompt-updated` at v1.1.0, `agent.uncompared` at v1.7.0); neither an additive detail key nor a reuse of an existing refusal row is that tax. The three changes, all additive:
+
+| Row | v1.8.0 `details` addition | What it records | What it never records |
+| --- | --- | --- | --- |
+| `dispatch.reserved` | `actorPolicy` | `'open' \| 'restricted'` — written from the same read that made the gate's decision (FR-079) | **never** a permitted login |
+| `dispatch.result` | `actorPolicy` | the same shape, read from the run's snapshot, so the two rows provably agree | **never** a permitted login |
+| `dispatch.refused` (the `actor-not-allowed` case only) | `bindingId`, `actorPolicy`, `deniedLogins`, `deniedAttributions` | **every** denied login and **each one's** attribution basis, so the row says *proxy* where it was one and never states that a denied actor caused anything (FR-077, 002 NFR-011) | **never** a permitted login |
+
+**The refusal names the denial; nothing names the policy's contents.** `actorPolicy` answers
+"was this repository restricted at the moment of the dispatch?" in two words; a refusal additionally
+names every *denied* login, because a denial a reader cannot attribute is not an explainable denial.
+The **permitted** set's home is `bindings.json`, and a copy of it in a retained, world-readable file
+is a liability rather than an audit aid (NFR-113).
 
 ### 4.3 Transition → row coverage (FR-044, AC-115 — the test matrix)
 
@@ -244,3 +276,9 @@ Every entity ──> AuditEntry (0..N): run rows share the run's correlationId (
 10. **Secrets**: runs, references, attempts, tokens, audit rows, projection, and the panel record scanned ⇒ zero credential occurrences; `dispatchToken` survives redaction byte-identically (AC-120, NFR-106).
 11. **Bounded growth**: a run with 201 coalescing deliveries retains the first 200 references in full and records `referencesNotRetained: 1` with `referencesTruncated: true`; every overflow delivery still has its `run.coalesced` row, and a stored document whose counts do not reconcile is refused (AC-129, NFR-107; T-038).
 12. **Audit-write failure**: store `appendLine` throws mid-transition ⇒ state stands, warning names the run, service log has the failure (AC-119).
+13. **The gate, refused (v1.8.0)**: a binding whose `allowedUsers` is `['alice']` and a run whose only reference is `bob` ⇒ the reserve answers **409 `actor-not-allowed`**, **no** `dispatch.reserved` row, **no** token, the run document **byte-identical** before and after, and exactly **one** `dispatch.refused` row carrying the operation, code, prior state, attempt, binding id, `actorPolicy: 'restricted'`, `bob`, and `bob`'s basis; the panel then calls **no** `host.startSession()` (003 AC-130).
+14. **The gate, blocking not burning (v1.8.0)**: after that refusal the run is reported as `blocked:actor-not-allowed` through the existing block report, consumes **no** attempt and **no** requeue budget, is never touched by the sweep, and its row names the denied login; with the policy unchanged a retry answers its own distinct refusal and dispatches nothing; with `bob` added to the list the same retry succeeds, produces exactly one session, and its `dispatch.retry` row names the cause reported cleared (003 AC-131, FR-078).
+15. **The gate, admitted and open (v1.8.0)**: a binding with **no** `allowedUsers` ⇒ any human-attributed run reserves, and both `dispatch.reserved` and `dispatch.result` carry `actorPolicy: 'open'`; a populated list ⇒ both carry `'restricted'`; a hand-edited run carrying an empty or bot-shaped actor is **refused**, never admitted (003 AC-132, FR-080).
+16. **The gate, coalesced (v1.8.0)**: one open run carrying three references attributed to `bob`, `carol`, and `alice` against `['alice']` ⇒ the reserve **succeeds** — it needs one allowed reference, not all of them — and the row shows all three actors with their bases; the same run with all three outside the list ⇒ refused, and the row names all three (003 AC-133, FR-077).
+17. **No policy in the trail (v1.8.0)**: with a populated list, a scan over every audit row the build can write, the run record, the run-history projection, `GET /v1/audit`, and both committed bundles finds **no permitted login** — only the shape — while the gate's own refusal row still names every **denied** login; and the membership helper's identifier appears in exactly two source files (NFR-113, 002 plan D9).
+18. **The gate costs nothing (v1.8.0)**: the authorized path's panel↔service round-trip count is **unchanged** and adds no network call; the single refused path costs exactly the one block report every guard already owes (NFR-114, SC-112) — asserted as counts, never wall-clock (NFR-112).

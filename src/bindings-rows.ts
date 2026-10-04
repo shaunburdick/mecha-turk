@@ -10,10 +10,23 @@
  *
  * Everything here is a pure function of panel state, so the copy the operator
  * reads is testable without a live DOM.
+ *
+ * Two of this tab's clauses live beside it rather than here, each because it is
+ * one value with its own rule set: the prompt's presence-and-length summary
+ * ({@link promptSummary}, 004/005 FR-051) and the allow-list's row clause
+ * (computed in `bindings-actors.ts`, 005 FR-091/FR-092) — a **count** when the
+ * binding carries a list, and the worded absent-policy warning when it does not,
+ * which is the one place outside its own editor that this product says *anyone
+ * may trigger this repository*. That clause is a function of three members and
+ * not of the allow-list alone: a binding that is off, or that watches no
+ * trigger, has no exposed surface to describe, and the row says so rather than
+ * asserting a capability the machine does not have (FR-092's eight-row table,
+ * FR-096, NFR-114).
  */
 
 import type { ListItem } from '@openchamber/sdk/ui';
 import { utcStamp } from './ids.ts';
+import { actorsSummary } from './bindings-actors.ts';
 import type { BindingsTabState } from './panel-state.ts';
 import type { PanelBinding } from './bindings-service.ts';
 
@@ -50,13 +63,23 @@ export interface BindingView {
     readonly state: 'active' | 'disabled';
     /** Length of the stored prompt in code points, or `null` when there is none. */
     readonly promptLength: number | null;
+    /**
+     * The allow-list's row clause, or `null` when this row carries none.
+     *
+     * Held as **one clause rather than the list** so a login can never reach a
+     * row even by accident: the count and the absent-policy warning are computed
+     * once, in `bindings-actors.ts`, and the row only decides where they go
+     * (005 FR-091, FR-092, NFR-113).
+     */
+    readonly actorsClause: string | null;
 }
 
 /**
  * Narrow one stored binding to what a row may show.
  *
  * @param binding - The binding as the service projected it.
- * @returns The view, with the prompt reduced to its length.
+ * @returns The view, with the prompt reduced to its length and the allow-list
+ *   reduced to one clause.
  */
 function toView(binding: PanelBinding): BindingView {
     return {
@@ -67,6 +90,7 @@ function toView(binding: PanelBinding): BindingView {
         projectId: binding.projectId,
         state: binding.state,
         promptLength: binding.startingPrompt === undefined ? null : [...binding.startingPrompt].length,
+        actorsClause: actorsSummary(binding),
     };
 }
 
@@ -256,6 +280,7 @@ export function bindingRow(bindings: BindingsTabState, binding: BindingView): Li
         consequence,
         binding.projectId,
         promptSummary(binding),
+        binding.actorsClause,
         scan,
     ];
     const subtitle = parts.filter((part): part is string => part !== null).join(' · ');

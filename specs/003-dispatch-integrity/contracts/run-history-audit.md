@@ -51,6 +51,24 @@ Credential-free by construction: nothing in the projection is or can be a creden
 > [`004-starting-prompt/contracts/layered-prompt.md`](../../004-starting-prompt/contracts/layered-prompt.md) §3.
 > No field above is renamed, retyped, or removed by it.
 
+> **v1.8.0's additive delta — the attributed actor and the policy shape (built)**: `RunHistoryRow`
+> gains **two** members and each `sourceReferences[]` entry gains **two more**, all additive:
+>
+> | Member | Type | Rule |
+> | --- | --- | --- |
+> | `actorPolicy` | `'open' \| 'restricted' \| null` | the **shape** of the binding's allow-list **at the moment of authorization**, snapshotted from `run.actorPolicy`; `null` when no authorization has been recorded yet (a freshly enqueued or adopted run). **It never carries a permitted login** (NFR-113) |
+> | `sourceReferences[].actorLogin` | string | that delivery's attributed actor (002 FR-043). Present on every reference this build writes |
+> | `sourceReferences[].actorAttribution` | `'direct' \| 'subject-author'` | that attribution's **provenance** (002 FR-044). The panel must honour it wherever it renders the actor (002 NFR-011). **`'direct'` — GitHub named the identity that performed the act**: the text's author for a mention, and the event's `assigner` / `review_requester` for an assignment or review request. **This is the only value a row written since 002 v1.12.0 carries.** `'subject-author'` — **legacy and readable**: rows written by the earlier build attributed assignment and review triggers to the issue or pull-request author because the **list** feeds named no actor, and those rows must still parse and render. **It is read, never written.** *(This cell previously read: *"'subject-author'" is a **documented proxy** — GitHub records the issue or pull-request author and does **not** record who assigned or requested the review.* **That claim was false** and is withdrawn at 003 v1.11.0 — GitHub records both, in `assigner` and `review_requester`.)* |
+>
+> `GET /v1/events/pending` (the **claim** answer) is **deliberately unchanged** by v1.8.0: the panel
+> is forbidden a second membership comparison (003 FR-076), so it has nothing to decide from a
+> claim, and the two audit rows are built service-side from the run in hand. See
+> [plan.md](../plan.md) D19.
+>
+> No field above is renamed, retyped, or removed by this addition, and the credential-free
+> discipline is unchanged: a GitHub login is public repository identity, never a secret, while the
+> **permitted set** is configuration and appears in no projection.
+
 ### Refusals
 
 `503 storage-unavailable` only (a read claims nothing and can refuse nothing else).

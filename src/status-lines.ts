@@ -9,6 +9,14 @@
  * than being replaced by the configured interval, and the agent pin is
  * *not checkable* / *not available* / an outcome — never "ok" (FR-033,
  * AC-106). FR-080 applies in full: these strings are rendered as text.
+ *
+ * {@link actorPolicyLines} is the same rule applied to the one value where a
+ * plausible-looking default would be a security control that does not exist:
+ * an open allow-list is stated as a **count with its consequence**, a count of
+ * zero over a non-empty enabled set is stated positively, and an unreadable
+ * document reads *not available*. The count is over **enabled** bindings and the
+ * consequence clause names **no act** (005 FR-093 as re-cut at v1.14.0,
+ * NFR-113, NFR-114, AC-149).
  */
 
 import type { StatusAccountView, StatusBindingView, StatusTabState, StatusView } from './status-document.ts';
@@ -262,6 +270,76 @@ export function bindingLines(view: StatusView): readonly string[] {
 
         return `${binding.repository} — ${state} · ${scan} · ${pending}${cause}`;
     });
+}
+
+/**
+ * The counted line: how many of the **enabled** bindings carry **no**
+ * allow-list, and what that means (005 FR-093 as re-cut at v1.14.0).
+ *
+ * This is Status's whole answer to *"which of my repositories are open?"*, and
+ * five properties are load-bearing, each a decision rather than a default:
+ *
+ * - **The count is over enabled bindings, in both halves.** A disabled binding
+ *   can start no session, so it is neither an exposure nor a non-exposure: it
+ *   is excluded from the numerator *and* from the denominator, and the
+ *   denominator is **labelled** `enabled` wherever a count renders. A count that
+ *   filtered on `actorPolicy` alone is non-conforming **whatever it renders** —
+ *   `npm run shot` found exactly that, reporting a binding Status itself lists as
+ *   `disabled` two lines above as a live exposure.
+ * - **The consequence clause is trigger-neutral.** It says *whoever the trigger
+ *   lets act*, never *open an issue* or *assign*: one clause spans N bindings
+ *   whose switch sets differ, and no single act is true of all of them. A union
+ *   would claim an act is possible when for the aggregate it may be something
+ *   else, which is the overstatement being fixed. Per-binding derivation belongs
+ *   to the Bindings row (FR-096); Status carries no trigger set and is
+ *   forbidden from acquiring one (005 FR-039, clarification row 48).
+ * - **Zero is a positive statement, and it is scoped to `enabled`.** *"Every
+ *   enabled binding restricts who may trigger"* is a fact worth reading, and
+ *   silence is not: an operator cannot tell an absent line from a panel that did
+ *   not check (FR-003). It is scoped because the unqualified form is **false**
+ *   the moment a disabled binding is open.
+ * - **`0 of 0` is banned in every case**, including bindings-present-but-none-
+ *   enabled. A bare `0 of 0` is the reassuring default NFR-113 exists to
+ *   prevent: uninformative and reassuring at once, and indistinguishable from a
+ *   panel that did not check. That case gets its own sentence naming both how
+ *   many bindings exist and that none is on, so the operator never has to infer
+ *   a denominator of zero.
+ * - **No login, no repository, and no trigger act, ever.** The count is enough
+ *   to decide whether to go and look, and naming them would make Status a second
+ *   index of the Bindings tab (005 FR-039, clarification row 42).
+ *
+ * @param view - The parsed document, or `null` when none has been read.
+ * @returns The single roll-up line.
+ */
+export function actorPolicyLines(view: StatusView | null): readonly string[] {
+    if (view === null) {
+        return ['Who may trigger: not available (service unreachable, or its status could not be read)'];
+    }
+
+    const total = view.bindings.length;
+    if (total === 0) {
+        return ['Who may trigger: no bindings yet, so nothing can trigger until one is bound'];
+    }
+
+    const enabled = view.bindings.filter((binding) => binding.active);
+    const count = enabled.length;
+    if (count === 0) {
+        return [`Who may trigger: none of the ${total} bindings is enabled, so nothing can start a session right now`];
+    }
+
+    const remedy = 'open the Bindings tab to see or change a binding\'s allowedUsers';
+    const open = enabled.filter((binding) => binding.actorPolicy === 'open').length;
+    if (open === 0) {
+        return [
+            'Who may trigger: every enabled binding restricts who may trigger '
+            + `(${count} of ${count} enabled); ${remedy}`,
+        ];
+    }
+
+    return [
+        `Who may trigger: ${open} of ${count} enabled bindings has no allow-list, `
+        + `so whoever the trigger lets act can start a session; ${remedy}`,
+    ];
 }
 
 /** Which blocking notices the current document raises (FR-035, FR-036). */

@@ -323,3 +323,146 @@ tests/                      # offline: fake host, loopback service on temp dirs,
 ## Complexity tracking
 
 **None.** The constitution check passed without violations, so there are no violations to justify.
+
+---
+
+# Amendment record — 003 v1.8.0 (2026-10-03): the actor allow-list gate
+
+> **This section is a dated Phase-4 record added on 2026-10-03.** Everything above it is the plan of
+> 2026-09-28 and is retained as written. The v1.8.0 amendment is **additive** (block I,
+> FR-076 – FR-080, NFR-113, NFR-114, SC-112, AC-130 – AC-133) and re-cuts no existing requirement,
+> renames no audit row, adds no audit event type, and changes no state, no lease, no token, and no
+> wire path.
+>
+> **The actor identity and the per-binding `allowedUsers` field are
+> [`002-agent-event-extension`](../002-agent-event-extension/plan.md)'s (002 v1.11.0); the panel
+> rendering is [`005-panel-ia`](../005-panel-ia/plan.md)'s (005 v1.11.0).** What is missing and only
+> this document can supply is the **decision** — the one place that answers *"may this run start a
+> session at all?"*, which is word for word what `service/poll/dispatch-authorize.ts` already exists
+> for.
+
+## B.1 Scope of 003's half
+
+| Requirement | What 003 builds | Where |
+| --- | --- | --- |
+| FR-076 | the gate **is** the authorization decision: inside the one `operateRun` chain task, after `judgeReserve` returns `null`, before any token is derived; the binding's stored `allowedUsers` read at that moment; **no second membership comparison anywhere** | `service/poll/dispatch-authorize.ts` |
+| FR-077 | one verdict, one refusal code (`actor-not-allowed`), one `dispatch.refused` row carrying every denied login and its basis; nothing written to the run | `service/poll/dispatch-authorize.ts`, `service/poll/run-refusal.ts`, `service/poll/dispatch-audit.ts` |
+| FR-078 | the refusal **blocks, never burns**: a fifth declared `blocked:` cause through the existing block report, no attempt and no requeue budget consumed, never touched by the sweep, retryable once the cause clears — and the retry re-checks the **live** policy | `service/poll/dispatch-block.ts`, `service/poll/run-operate.ts`, `src/relay-gates.ts` |
+| FR-079 | a required, **value-free** `actorPolicy` detail (`'open' \| 'restricted'`) on `dispatch.reserved` and `dispatch.result`, written from the same read that made the decision | `service/poll/dispatch-audit.ts`, `service/poll/runs-types.ts` |
+| FR-080 | bots can never be authorized and the gate adds **no** second bot predicate; a stored run carrying a bot-shaped or absent actor is **refused** | `service/poll/dispatch-authorize.ts` |
+| NFR-113 | no policy in the trail: the **shape** only, never which logins are permitted | the `B-6` scan |
+| NFR-114 | the gate costs nothing on the happy path | `B-7` |
+
+**Not 003's**: the actor members and the field itself (002's), the `SourceReference` members' *semantics*
+(002 FR-043/FR-044 — 003's `SourceReference` clause consumes them), and every rendered string (005's).
+
+## B.2 Module map delta (003's files only)
+
+| Module | Change | Requirements |
+| --- | --- | --- |
+| `service/poll/dispatch-authorize.ts` | `judgeActorPolicy` after `judgeReserve`; `run.actorPolicy` set on the admitted path; the read of the live binding | FR-076 – FR-080 |
+| `service/poll/run-refusal.ts` | `actor-not-allowed` in `RunRefusalCode` | FR-077 |
+| `service/routes/run-answer.ts` (status map) | the code → **409** | FR-077 |
+| `service/poll/dispatch-audit.ts` | the `dispatch.refused` detail set for this code; `actorPolicy` on `reservedRow` and `resultRow` | FR-077, FR-079 |
+| `service/poll/dispatch-block.ts` | `BLOCKED_REASONS` four → five | FR-078 |
+| `service/poll/run-operate.ts` | the service-corroborated blocked-cause set widens to `{ binding-missing, actor-not-allowed }` | FR-078 |
+| `service/poll/runs-types.ts`, `runs-parse.ts`, `runs-join.ts` | `SourceReference.actorLogin` / `.actorAttribution` (absentable, validated); `Run.actorPolicy: 'open' \| 'restricted' \| null` | FR-077, FR-079 |
+| `service/poll/run-history-project.ts` | project `actorPolicy` and each reference's actor + basis; never a permitted login | FR-079, NFR-113 |
+| `src/relay-gates.ts` | `BlockedReason` gains the cause; a `409 actor-not-allowed` reserve is reported through the **existing** block report, and `host.startSession()` is never called | FR-078 |
+| `src/dispatches-service.ts`, `src/dispatches-rows.ts` | the DTO's new members; the new cause's label, reason, and retry validity | FR-078, 005 FR-044 |
+| `contracts/dispatch-authorization.md` | §1 refusal row, §4 the fifth cause, §9 the gate's refusal, the error-code table | FR-077 – FR-079 |
+| `contracts/run-history-audit.md` | the projection's new members | FR-079 |
+| `contracts/claim-lease.md` | **unchanged**, with a dated note saying so | — |
+
+## B.3 Key decisions — actor allow-list gate (added 2026-10-03)
+
+> Numbered `D13…D20` to continue this plan's own `D1…D12` series rather than restating it; 002's and
+> 005's amendments use their own `D`-series for the same reason.
+
+| # | Decision | Rationale | Rejected alternative |
+| --- | --- | --- | --- |
+| **D13** | **The gate reads the bindings document inside the chain task, once, per reserve.** | FR-076 requires the *live* policy at the moment of authorization so an operator's edit takes effect on the next dispatch without a re-scan or a restart. The only reader that can give that is `service/bindings-read.ts`. The read is one small JSON file, bounded by dispatch rate rather than by request rate, and it is **off the hot path** relative to the multi-minute `host.startSession()` that follows. | A cached read invalidated on `writeBindings` (satisfies NFR-114's letter, but `ServiceStore` exposes no `stat`, so a hand-edited `bindings.json` would never be seen until restart — a worse staleness hole than the one read it saves); reading the policy from the run's snapshot (that is exactly the "decided at enqueue" behaviour FR-076 refuses, and it would make a tightened list take effect only on new runs). **Flagged** — see B.5. |
+| **D14** | **The admitted predicate is `∃ r ∈ run.sourceReferences : isActorAllowed(r.actorLogin, binding.allowedUsers)`.** With no `allowedUsers` the run is admitted; a reference whose actor is absent, empty, or bot-shaped is a **refusal regardless of the policy**, because 002 FR-045(b) guarantees such a reference can only come from a hand edit and constitution II makes that a stop condition. | FR-077, ratified at the gate. The two rejected alternatives both wedge permanently, because a `blocked:*` run is non-terminal and new deliveries **join** it (FR-011): refusing when *any* reference is disallowed means a stranger's comment disables every dispatch on that issue forever; judging only the opening reference means a stranger's comment opens a run that an allowed user's later mention can then never authorize. Zero references under a restricted policy is a denial (no allowed actor can be shown); under an open policy it is admitted. | The two wedging rules above; and "the majority wins", which is not a policy anyone can state in one sentence. |
+| **D15** | **A policy the gate cannot read is a denial, with the cause in the message.** An absent binding id, a quarantined bindings document, and a document whose validation failed all answer `actor-not-allowed` with a message naming which of those it was. | FR-076 says the service reads the live binding table; a gate that answers "allowed" when the table is unreadable would be fail-open, which constitution II and 002 FR-024 both forbid, and it would be the *only* fail-open path in the operation. `run-refusal.ts`'s existing guarantee — each refusal carries its own distinct reason — makes one code with four honest messages fit the declared vocabulary. | A new refusal code `binding-unreadable` (FR-078 declares **one** new code; a second is a wire addition no requirement asks for, and it would widen the closed `dispatch.refused` vocabulary for a case the panel cannot act on differently); treating an unreadable table as open (fail-open). |
+| **D16** | **The gate sets `run.actorPolicy` on the admitted path and nowhere else.** `null` means "no authorization recorded yet" (an adopted or freshly enqueued run). | FR-079 requires the detail written "from the same read that made the decision", and 003's `### Key Entities` requires the run to *snapshot* the policy so a later read never has to re-derive it. Both audit rows therefore read the snapshot rather than re-reading the binding, which is also what makes the two rows provably agree. | Re-reading the binding in each audit-row builder (two reads, two chances to disagree, and `dispatch.result` happens after an operator could have changed the list — the row would then describe a policy that was not the one in force); storing the policy on the run at **enqueue** (the snapshot would then predate the decision, which is what FR-076 exists to avoid). |
+| **D17** | **Retry corroboration widens the *service-corroborated* set, not the block-report vocabulary alone.** `run-operate.ts`'s `CORROBORATED_BLOCKED_REASON` becomes a two-member set, and the policy cause is re-evaluated with the **same predicate** `judgeActorPolicy` uses. | FR-078 requires the retry path to "re-check the live policy … exactly as it re-checks the live binding table for `blocked:binding-missing`". The shipped code already has exactly that mechanism for exactly that cause; widening a one-member constant is the smallest change that satisfies the requirement, and reusing the predicate is what makes "cannot be retried into a dispatch this gate would refuse again" true rather than aspirational. It also needs **no new state**: the denied actor is re-derived from the run's own references. | A stored `deniedLogins` on the run (a second copy of a fact the references already hold, and it would go stale the moment the operator edits the list); treating the policy cause as panel-reported only (that would let a retry be authorized without any policy check at all). |
+| **D18** | **No new audit `eventType`.** The gate reuses `dispatch.refused` and adds one detail key to two existing rows. | `AGENTS.md` invariant 10 makes a vocabulary row a compatibility surface, and 003 has already paid that tax twice (`binding.prompt-updated` at v1.1.0, `agent.uncompared` at v1.7.0). A detail key is additive; a row is a surface. | A `dispatch.policy-refused` row (the same tax a third time, for no new information — the decision is `refused` either way). |
+| **D19** | **The claim answer is unchanged.** The two new members ride the **run** and its **history projection**, not the relay's claim answer. | FR-076 forbids a second membership comparison, so the panel has nothing to decide from a claim; the audit rows are built service-side from the run in hand, so nothing needs the claim to carry an actor. Minimal diff on a wire surface that 003's own contract governs, and one fewer member in the answer that had to be byte-bounded. | Adding `actorLogin`/`actorAttribution` to `ClaimedRun`'s references (additive, but nothing reads them, and 003's `claim-lease.md` is explicitly **unchanged** by this amendment). |
+| **D20** | **The panel maps the refusal; the service decides.** `src/relay-gates.ts` gains the fifth `BlockedReason` and, on a `409 actor-not-allowed` reserve, posts the **existing** block report with the service's own message as the `detail`. | FR-078 requires the block report and forbids a new operation; the panel already reports every other guard refusal through it. FR-076 separately forbids a panel-side pre-check, so this is a **reporter**, not a checker. | A panel-side guard mirroring `relay-gates.ts`'s existing membership pattern (003's own clarification row 21 rejects it: two implementations of one rule, and a check the requester performs on itself is a request for permission, not a grant); mutating the run on the refusal inside the reserve (breaks §1's "nothing is minted before the verdict", which every existing verdict depends on). |
+
+## B.4 Constitution alignment (v1.3.0) — carried forward, re-read for this amendment
+
+> The v1.8.0 entry records the same review; this table restates it for the gate rather than
+> re-litigating it. **No principle is weakened.**
+
+| Principle / gate | How the gate satisfies it |
+| --- | --- |
+| **I. Polling-first, contract-first** | The provider limitation that forces proxy attribution is recorded as a contract limitation ([`002/research.md`](../002-agent-event-extension/research.md) §R8), not papered over. No new feed, no webhook, no second API call. |
+| **II. Safe autonomy by default** | The principle this gate serves. It does not weaken it in the one place it could — the **absent** list. Absence is *visible* (005 FR-092/FR-093 render it with a worded warning and a counted Status line), and the gate itself fails **closed** on an unreadable policy (D15). II forbids ambiguity, not openness. |
+| **III. Durable and idempotent work** | Unchanged and unstrained: no extra round trip on any authorized path (NFR-114, `B-7`), and the actor is not part of the delivery identifier (002 FR-046), so a changed list cannot manufacture duplicate work. |
+| **IV. Human-visible auditability** | The principle that **decided the gate's location**. One row, the exact cause, every denied login, each one's basis, and nothing dropped in a poll loop at 03:00 (SC-112). |
+| **V. Minimal, self-hosted deployment** | No new process, dependency, container, capability, or permission; no new store file; no new route. |
+| **VI. Specification and verification before implementation** | Why this is four acceptance criteria and a scan, not a code change. |
+| **VII. Thin orchestration boundary** | No host capability, no host call, no change to the `host.startSession()` framing. |
+| **Quality gates** | Strict TS + lint, zero suppressions, no `any` (invariant 7); offline suites per task; `npm run verify` at every wave boundary; committed bundles rebuilt with every source change (invariant 1). |
+
+**`AGENTS.md` invariants — how the gate touches each of the ten.** (1) committed bundles ship;
+(2) **no `version` bump** — a bump is a product-owner release decision, and this is a feature, not
+a release; (3) `capabilities[]` untouched, `contributes.service` gains no `permissions`;
+(4) kebab-case identity and every `mecha-turk:` key untouched; (5) `SERVICE_VERSION` untouched, still
+pinned by `tests/service-server.test.ts`; (6) SDK pin untouched; (7) zero suppressions, zero `any` —
+the predicate's input is `string | undefined` narrowed by the reader, never `any`;
+(8) **fail closed** — the load-bearing one here: an unreadable policy, an absent actor, and a
+bot-shaped actor are all denials (D14, D15); (9) secrets never leave the service store — a login is
+public identity, not a secret, but the **permitted set** is configuration and must reach no trail,
+record, projection, or bundle (NFR-113); (10) **`extension-spike-1` is a wire contract** — untouched,
+and so is the delivery id format (002 FR-046).
+
+## B.5 Flagged items (Phase-5 findings — decide at the gate, not in code)
+
+1. **NFR-114's letter does not match the shipped code.** It reads *"The gate reads the binding table
+   the authorization path already reads"* — but `reserveDispatch` today reads `config.json` and the
+   run document, and **no** bindings document. So reading the live policy is, strictly, *a service
+   store read that is not already made on that path*. **Decision adopted**: read it (D13), because
+   the requirement's stated purpose — p95 unchanged, no extra round trip, no network — is met, and
+   because the alternative (a `writeBindings`-invalidated cache) trades one JSON read for a
+   permanent staleness hole the store API cannot close. **Recommended owner wording for a future
+   amendment**: replace "the binding table the authorization path already reads" with "one read of the
+   bindings document, which the authorization path does not otherwise make, off the hot path".
+2. **The refusal code for an unreadable bindings document.** One code with an honest message (D15)
+   rather than a new code. No requirement text changes either way; the choice is only which wire
+   vocabulary the panel must recognise.
+3. **A stale `stateReason` may name a now-permitted login.** After the operator adds a denied login
+   to the list, the historical `run.blocked` row and the run's `stateReason` still name it. This is
+   **allowed and intended**: NFR-113 forbids recording which logins the policy *permits*, and a
+   row naming a denial that was true when written is a true statement about a past decision —
+   the same posture 003 v1.7.0 recorded for the `agent.mismatch` rows it did not rewrite. The `B-6`
+   scan is therefore written against a fixture whose permitted set is disjoint from everything the
+   trail names, plus a second case asserting the *next* reserve's rows carry only the shape.
+
+## B.6 Risks and mitigations (this amendment only)
+
+| Risk | Mitigation |
+| --- | --- |
+| A second membership comparison creeps in (the panel, the poll loop, the claim) | the `B-6` one-comparison source scan asserts the helper's identifier appears in exactly two files (002 plan D9); FR-076 forbids the others in requirement text |
+| The verdict is placed before `judgeReserve` and pre-empts `already-dispatched` / `stale-lease` | `B-2` places it **after**, and `B-6`'s matrix re-asserts both existing verdicts on their own paths (003 AC-130) |
+| A coalesced run's authorization becomes order-dependent | `D14`'s predicate is a set quantifier over retained references, so it does not depend on join order; `B-6` drives a three-reference run in both join orders |
+| Widening `BLOCKED_REASONS` breaks the runs document's own parser | the parser validates `blocked:<reason>` as prefix + non-empty kebab reason, so the fifth value parses unchanged; `B-4` asserts the block report accepts it and **refuses a sixth** |
+| The permitted list leaks into a log, a projection, or a bundle | the `B-6` NFR-113 scan runs over every audit-writing path, the run record, the projection, `GET /v1/audit`, and both committed bundles; the existing secret suites **gain cases**, never exemptions |
+| NFR-114's latency promise is asserted and then quietly broken | `B-7` counts round trips and asserts counts, never wall-clock (NFR-112), on the authorized path and on the refused path |
+
+## B.7 Out-of-scope guard for the issue-#9 block (checked at every task)
+
+No detection-time filtering of the allow-list — detection records the actor and decides nothing
+(002 FR-043; a filtered event leaves no audit row, which constitution IV forbids). No panel-side
+pre-check (D20). No enforcement anywhere but `dispatch-authorize.ts`. No audit event type (D18). No
+change to any existing state, lease, token, verdict, or refusal code. No change to the claim
+contract (D19). No migration, shim, legacy default, or upgrade criterion. No team-, organisation-, or
+role-based rule; no per-actor priority, rate, or quota. No bot admission. No recording of the
+permitted set anywhere.
+
+## B.8 Phase-6 task block for this amendment
+
+The consolidated execution list lives in
+[`002-agent-event-extension/tasks.md`](../002-agent-event-extension/tasks.md) §"Issue #9 block
+(2026-10-03)"; 003's own tasks are `B-1 … B-7`.

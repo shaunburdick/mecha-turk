@@ -51,6 +51,16 @@ Panel-side mapping of host transport errors: `NO_SERVICE` → "service not appro
 
 ### 2.3 Repository bindings
 
+> **Amended 2026-10-03 (002 v1.11.0) — one additive member, no new row below.** The
+> `allowedUsers` login list rides `GET /v1/bindings` and the whole-file `PUT /v1/bindings` — the
+> same surface `startingPrompt` already rides (`../../004-starting-prompt/contracts/binding-prompt.md`)
+> — and is specified in full in
+> [`binding-allow-list.md`](./binding-allow-list.md). **No route, method, or error code is added;
+> the per-binding `PUT`/`POST`/`DELETE` rows below remain the documented MVP-DEBT and are not
+> reopened.** §2.3's shape is the pre-2026-09 record of the intended surface; the shipped
+> implementation is `GET` + whole-file `PUT` (`service/routes/bindings.ts`, 005 FR-050), and the
+> `allowedUsers` contract is written against the **shipped** surface.
+
 | Method | Path | Body → Response |
 | --- | --- | --- |
 | `GET` | `/v1/bindings` | → `{ bindings: RepositoryBinding[] }` (no credential fields) |

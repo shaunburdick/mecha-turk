@@ -145,6 +145,8 @@ function assignment(issueNumber: number, excerptChars = 40): EventSnapshot {
             issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
             issueBodyExcerpt: 'x'.repeat(excerptChars),
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assigned',
         detectedAt: STAMP,
     };

@@ -21,10 +21,17 @@ import type { BindingsPane } from './bindings-ui.ts';
 import type { AccountsBody } from './accounts-tab.ts';
 import { initialAccounts } from './accounts-state.ts';
 import type { AccountsTabState } from './accounts-state.ts';
+import { initialBindings } from './bindings-state.ts';
+import type { BindingsStatus, BindingsTabState } from './bindings-state.ts';
 import { initialProjectPicker } from './project-picker.ts';
 import type { ProjectPickerState } from './project-picker.ts';
 
+// The Accounts and Bindings tabs' working states moved out for the file-length
+// gate; both stay importable from here, so no call site had to change with the
+// move.
 export type { AccountsTabState } from './accounts-state.ts';
+export type { BindingsStatus, BindingsTabState };
+export { initialBindings };
 export { initialProjectPicker, type ProjectPickerState };
 import type { DispatchesBoard } from './dispatches-ui.ts';
 import type { StatusTabUi } from './status-tab.ts';
@@ -38,7 +45,6 @@ import type { TabShell } from './tabs.ts';
 import type { PanelUi, ProjectPickerUi } from './panel-ui.ts';
 
 export type { PanelUi, ProjectPickerUi } from './panel-ui.ts';
-import type { PanelAccount, PanelBinding, BindingStatusRow } from './bindings-service.ts';
 import type { RunRow } from './dispatches-service.ts';
 import type { SpikeHost } from './session.ts';
 import { initialDispatchFilters, initialDispatchListPage } from './dispatch-page.ts';
@@ -84,34 +90,6 @@ export function initialDispatches(): DispatchesState {
         filters: initialDispatchFilters(),
         page: initialDispatchListPage(),
         referencesOpen: false,
-    };
-}
-
-/**
- * Build the empty Bindings tab state.
- *
- * @returns The state before the first load.
- */
-export function initialBindings(): BindingsTabState {
-    return {
-        bindings: [],
-        accounts: [],
-        status: 'idle',
-        note: '',
-        repoInput: '',
-        accountSelection: null,
-        repoProjectSelection: null,
-        triggerAssignment: true,
-        triggerMention: false,
-        triggerReviewRequest: true,
-        worktreeSelection: 'none',
-        selectedBinding: null,
-        statusRows: [],
-        editorOpen: false,
-        editing: false,
-        startingPromptInput: '',
-        startingPromptDirty: false,
-        startingPromptError: null,
     };
 }
 
@@ -190,17 +168,6 @@ export interface PanelState {
     relay: Relay;
 }
 
-/** Lifecycle of the Bindings tab's data. */
-export type BindingsStatus =
-    /** Nothing fetched yet. */
-    | 'idle'
-    /** A GET /v1/bindings or /v1/accounts is in flight. */
-    | 'loading'
-    /** Both sources answered. */
-    | 'ready'
-    /** The host or service refused. */
-    | 'error';
-
 /** The event-relay loop's runtime state (M4, widened by 003 T-021). */
 export interface Relay {
     /** Timer handle while the loop runs. */
@@ -225,69 +192,6 @@ export interface Relay {
     handled: readonly string[];
     /** Last relay error line, else empty. */
     lastError: string | null;
-}
-
-/** The Bindings tab's working state (M3). */
-export interface BindingsTabState {
-    /** Bindings as GET /v1/bindings answered. */
-    bindings: readonly PanelBinding[];
-    /** Accounts offered to the binding form. */
-    accounts: readonly PanelAccount[];
-    /** Where the data stands. */
-    status: BindingsStatus;
-    /** Operator-facing note; never credential material. */
-    note: string;
-    /** Draft repository input (`owner/name`). */
-    repoInput: string;
-    /** Draft account selection (numeric id). */
-    accountSelection: string | null;
-    /** Draft project selection (id the picker confirmed from the host list). */
-    repoProjectSelection: string | null;
-    /** Draft assignment trigger. */
-    triggerAssignment: boolean;
-    /** Draft mention trigger (M6 comment and issue-body scan). */
-    triggerMention: boolean;
-    /** Draft review-request trigger (M7), on by default for a new binding. */
-    triggerReviewRequest: boolean;
-    /** Draft worktree option. */
-    worktreeSelection: 'none' | 'generated';
-    /** The row the operator last clicked, for the enable/disable toggle. */
-    selectedBinding: string | null;
-    /** Last relay status rows rendered per binding. */
-    statusRows: readonly BindingStatusRow[];
-    /**
-     * Whether the binding editor block is on screen at all (2026-10-01 review).
-     *
-     * The editor is **not open by default**: the tab entry shows the list, a
-     * row click loads that row into the editor and opens it, and **New
-     * binding** opens an empty one. `false` at mount, and false again after a
-     * save, a cancel, or a refusal to load — the list is the surface the
-     * operator returns to.
-     */
-    editorOpen: boolean;
-    /**
-     * Whether the form is loaded with `selectedBinding` and its primary
-     * control **saves** that row instead of adding one (005 FR-050).
-     *
-     * Set by the row click that loads a binding into the editor (the Edit
-     * affordance the post-install review added, now the row itself) and
-     * cleared by a save, a cancel, or a refusal to load — so the draft on
-     * screen always describes the row the primary control would write, which
-     * is what keeps a displayed value and a saved value the same thing.
-     */
-    editing: boolean;
-    /** The starting-prompt editor field's current text (005 FR-051). */
-    startingPromptInput: string;
-    /**
-     * Whether the operator changed that field on this selection (004 FR-014).
-     *
-     * Untouched means a save **omits** `startingPrompt` entirely, so the
-     * service keeps whatever it holds; a change — clearing the field included —
-     * means the save carries the value explicitly.
-     */
-    startingPromptDirty: boolean;
-    /** The service's field-level refusal for the prompt, or `null` (FR-052). */
-    startingPromptError: string | null;
 }
 
 /** Everything the panel's functions share. */

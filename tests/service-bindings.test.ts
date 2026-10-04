@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseBindingsBody } from '../src/bindings-service.ts';
 import { BINDINGS_FILE } from '../service/bindings.ts';
+import { isActorAllowed } from '../service/bindings-allow-list.ts';
 import { promptFingerprint } from '../service/prompt.ts';
 import { SCAN_STATE_FILE } from '../service/poll/scan.ts';
 import { VERIFY_PATH } from '../service/routes/verify.ts';
@@ -683,5 +684,294 @@ describe('T-005 a hand edit is observed once, by whoever actually made it (AC-13
             expect(await promptRows(restarted)).toHaveLength(beforeRestart.length);
             expect(await promptRows(first)).toHaveLength(beforeRestart.length);
         }
+    });
+});
+
+/** A login list the operator typed, with deliberate mixed case (002 FR-047). */
+const TYPED_USERS = ['Alice', 'bob'];
+
+/** A login the operator did not type, used to prove the comparison is closed. */
+const OTHER_LOGIN = 'carol';
+
+/** A bot account's login: syntactically a login GitHub issues, inert here (plan D7). */
+const BOT_LOGIN = 'dependabot[bot]';
+
+/** The longest login research §R9 accepts, and the first one past it. */
+const LONGEST_LOGIN = `a${'b'.repeat(38)}`;
+const OVERLONG_LOGIN = `a${'b'.repeat(39)}`;
+
+/** Longer than any bound the field needs, to prove there is no length cap (plan D6). */
+const NO_CAP_USERS = Array.from({ length: 40 }, (_, index) => `user${index}`);
+
+/**
+ * Every element the per-element rule refuses, each labelled by why.
+ *
+ * One case per way a value fails research §R9's shape rather than an array of
+ * near-duplicates: a number where a login belongs, a nested list, the empty
+ * string, a leading hyphen, a trailing hyphen, doubled hyphens, an interior
+ * space, an underscore, and one character past the length bound.
+ */
+const BAD_ELEMENTS: readonly (readonly [string, unknown])[] = [
+    ['a number', 42],
+    ['a nested list', ['alice']],
+    ['the empty string', ''],
+    ['a leading hyphen', '-alice'],
+    ['a trailing hyphen', 'alice-'],
+    ['doubled hyphens', 'al--ice'],
+    ['an interior space', 'ali ce'],
+    ['an underscore', 'ali_ce'],
+    ['one character past the bound', OVERLONG_LOGIN],
+];
+
+/** The four non-array values the `[]`-shaped states do not cover. */
+const NON_ARRAY_USERS: readonly (readonly [string, unknown])[] = [
+    ['a string', 'alice'],
+    ['an object', { login: 'alice' }],
+    ['a literal null', null],
+    ['a number', 42],
+];
+
+/** Read the stored `bindings.json` bytes verbatim. */
+async function storedBytes(service: TestService): Promise<string> {
+    return await readFile(join(service.dataDir, BINDINGS_FILE), 'utf8');
+}
+
+/** Every stored row the service reports, in document order. */
+async function storedRows(service: TestService): Promise<readonly Record<string, unknown>[]> {
+    const response = await service.call(BINDINGS_PATH);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { readonly bindings: readonly Record<string, unknown>[] };
+
+    return body.bindings;
+}
+
+/** The one stored row, or `undefined` when the document was quarantined. */
+async function storedRow(service: TestService): Promise<Record<string, unknown> | undefined> {
+    const rows = await storedRows(service);
+    expect(rows.length).toBeLessThanOrEqual(1);
+
+    return rows[0];
+}
+
+/** One field-level refusal as the `422` envelope carries it. */
+interface RefusalIssue {
+    /** Field the refusal names. */
+    readonly field: string;
+    /** Actionable remediation; never a submitted value. */
+    readonly remediation: string;
+}
+
+/** The issue list a refused `PUT` answers with, or `[]` when it answered none. */
+async function refusalIssues(text: string): Promise<readonly RefusalIssue[]> {
+    const body = JSON.parse(text) as {
+        readonly error: {
+            readonly code: string;
+            readonly issues?: readonly RefusalIssue[];
+        };
+    };
+    expect(body.error.code).toBe('validation');
+
+    return body.error.issues ?? [];
+}
+
+/** The quarantine files a store wrote beside the document it set aside. */
+async function quarantines(service: TestService): Promise<readonly string[]> {
+    const entries = await readdir(service.dataDir);
+
+    return entries.filter((entry) => entry.includes('.corrupt-'));
+}
+
+describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', () => {
+    it('reads a pre-field document with zero bytes rewritten… (+4 cases)', async () => {
+        // case: absent reads valid, the key stays omitted, and the file is byte-identical afterwards
+        {
+            const service = await startWithAccount();
+            // Exactly what an installation from before this field holds.
+            await plantBindings(service, [bindingFixture()]);
+            const before = await storedBytes(service);
+
+            const row = await storedRow(service);
+
+            expect(row?.bindingId).toBe(BINDING_ID);
+            // Absent is a complete state, so no member is invented to stand in for it.
+            expect('allowedUsers' in (row as Record<string, unknown>)).toBe(false);
+            // Reading a pre-field document rewrites not one byte of it (no migration).
+            expect(await storedBytes(service)).toBe(before);
+            expect(await quarantines(service)).toEqual([]);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: ['Alice','bob'] round-trips byte-identically and matches case-insensitively
+        {
+            const service = await startWithAccount();
+            await putBindings(service, [panelRow({ allowedUsers: TYPED_USERS })]);
+            const stored = await storedBytes(service);
+            // The submitted spelling survives the store byte for byte (plan D5):
+            // nothing is lowercased, trimmed, or de-duplicated on the way in.
+            expect(stored).toContain('"Alice"');
+            expect(stored).toContain('"bob"');
+
+            // Only the comparison folds case, so every spelling matches.
+            expect(isActorAllowed('alice', TYPED_USERS)).toBe(true);
+            expect(isActorAllowed('ALICE', TYPED_USERS)).toBe(true);
+            expect(isActorAllowed('Bob', TYPED_USERS)).toBe(true);
+            expect(isActorAllowed(OTHER_LOGIN, TYPED_USERS)).toBe(false);
+
+            const row = await storedRow(service);
+            expect(row?.allowedUsers).toEqual(TYPED_USERS);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: an absent list is the open state, and an unreadable actor is nobody either way
+        {
+            const service = await startWithAccount();
+            // A binding stored before the field existed *is* the open state, so
+            // the predicate is driven with the value the store actually yields
+            // rather than with a literal standing in for it.
+            await plantBindings(service, [bindingFixture()]);
+            const openRow = await storedRow(service);
+            const open = openRow?.allowedUsers as readonly string[] | undefined;
+
+            expect(open).toBeUndefined();
+            expect(isActorAllowed(OTHER_LOGIN, open)).toBe(true);
+            expect(isActorAllowed('ALICE', open)).toBe(true);
+            // The open policy is not permission to attribute work to no one.
+            expect(isActorAllowed('', open)).toBe(false);
+            expect(isActorAllowed('', TYPED_USERS)).toBe(false);
+            // A bot login may sit in the list and is inert (plan D7): bots are
+            // filtered at detection, so no bot event exists for it to admit.
+            expect(isActorAllowed(BOT_LOGIN, [BOT_LOGIN])).toBe(true);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: [] is refused, naming both honest alternatives, with nothing of it echoed
+        {
+            const service = await startWithAccount();
+            await putBindings(service, [panelRow({ allowedUsers: TYPED_USERS })]);
+            const bytesBefore = await storedBytes(service);
+
+            const refused = await putBindings(service, [panelRow({ allowedUsers: [] })]);
+            expect(refused.status).toBe(422);
+
+            const issues = await refusalIssues(refused.text);
+            expect(issues.map((issue) => issue.field)).toEqual(['allowedUsers']);
+            const remediation = issues[0]?.remediation ?? '';
+            // Both honest alternatives, plus how *every* trigger stops: an empty
+            // list has two plausible readings and this product picks neither.
+            expect(remediation).toContain('omit the field');
+            expect(remediation).toContain('any human actor may trigger this repository');
+            expect(remediation).toContain('disable the binding');
+            // Zero characters of the submitted value — not even its brackets.
+            expect(remediation).not.toContain('[');
+            expect(remediation).not.toContain(']');
+            // A refusal writes nothing, so the configured list is still in force.
+            expect(await storedBytes(service)).toBe(bytesBefore);
+            const row = await storedRow(service);
+            expect(row?.allowedUsers).toEqual(TYPED_USERS);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: accepts a [bot] login, the longest legal login, and a 42-entry list
+        {
+            const service = await startWithAccount();
+            const answer = await putBindings(service, [
+                panelRow({ allowedUsers: [BOT_LOGIN, LONGEST_LOGIN, ...NO_CAP_USERS] }),
+            ]);
+
+            expect(answer.status).toBe(200);
+            // A `[bot]` login is accepted and inert (plan D7): bots are already
+            // filtered at detection, so no bot event exists for it to admit.
+            expect(isActorAllowed(BOT_LOGIN, [BOT_LOGIN])).toBe(true);
+            // No list-length cap (plan D6): boundedness is carried elsewhere.
+            const row = await storedRow(service);
+            const stored = row?.allowedUsers as readonly string[];
+            expect(stored).toHaveLength(NO_CAP_USERS.length + 2);
+            expect(stored[0]).toBe(BOT_LOGIN);
+            expect(stored[1]).toBe(LONGEST_LOGIN);
+        }
+        await afterEachWork1();
+    });
+});
+
+describe('002 FR-024 the allow-list refusals: one rule set, every issue at once', () => {
+    it('refuses a non-array and each bad element naming the field… (+2 cases)', async () => {
+        // case: a non-array and every bad element are refused, naming `allowedUsers`
+        {
+            for (const [label, value] of NON_ARRAY_USERS) {
+                const service = await startWithAccount();
+                await putBindings(service, [panelRow({ allowedUsers: TYPED_USERS })]);
+                const bytesBefore = await storedBytes(service);
+
+                const refused = await putBindings(service, [panelRow({ allowedUsers: value })]);
+                expect(refused.status, `${label} must be refused`).toBe(422);
+
+                const issues = await refusalIssues(refused.text);
+                expect(issues.map((issue) => issue.field), label).toEqual(['allowedUsers']);
+                // The remediation names the shape to send, never the text typed.
+                expect(issues[0]?.remediation, label).not.toContain(String(JSON.stringify(value)));
+                expect(await storedBytes(service), label).toBe(bytesBefore);
+            }
+
+            for (const [label, element] of BAD_ELEMENTS) {
+                const service = await startWithAccount();
+                await putBindings(service, [panelRow({ allowedUsers: TYPED_USERS })]);
+                const bytesBefore = await storedBytes(service);
+
+                const refused = await putBindings(service, [panelRow({ allowedUsers: ['alice', element] })]);
+                expect(refused.status, `an element that is ${label} must be refused`).toBe(422);
+
+                const issues = await refusalIssues(refused.text);
+                expect(issues.map((issue) => issue.field), label).toEqual(['allowedUsers']);
+                // One refusal for the whole field, and no echo of the bad element.
+                expect(issues[0]?.remediation, label).not.toContain(String(JSON.stringify(element)));
+                expect(await storedBytes(service), label).toBe(bytesBefore);
+            }
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: a bad list and a bad repository arrive in one 422, and nothing is written
+        {
+            const service = await startWithAccount();
+            await putBindings(service, [
+                panelRow({ allowedUsers: TYPED_USERS }),
+                panelRow({ bindingId: SECOND_BINDING_ID, repository: SECOND_REPOSITORY }),
+            ]);
+            const bytesBefore = await storedBytes(service);
+
+            const refused = await putBindings(service, [
+                panelRow({ repository: BAD_REPOSITORY, allowedUsers: ['-not-a-login'] }),
+                panelRow({ bindingId: SECOND_BINDING_ID, repository: SECOND_REPOSITORY }),
+            ]);
+            expect(refused.status).toBe(422);
+
+            // Collected rather than short-circuited: one answer for the whole
+            // submission, exactly as `startingPrompt` collects (004 FR-027).
+            const issues = await refusalIssues(refused.text);
+            expect(issues.map((issue) => issue.field)).toContain('repository');
+            expect(issues.map((issue) => issue.field)).toContain('allowedUsers');
+            // All-or-nothing after validation: both other bindings byte-identical.
+            expect(await storedBytes(service)).toBe(bytesBefore);
+        }
+        await afterEachWork1();
+        await afterEachWork1();
+        // case: a hand-edited stored [] is refused on read, by the same rule set
+        {
+            const service = await startWithAccount();
+            // The hand edit the contract forbids an operator from making: an empty
+            // list typed straight into the store file.
+            await plantBindings(service, [{ ...bindingFixture(), allowedUsers: [] }]);
+
+            // Quarantined rather than half-read: no binding is coerced into
+            // "open", so nothing scans until the operator repairs the file.
+            expect(await storedRows(service)).toEqual([]);
+            expect(await quarantines(service)).toHaveLength(1);
+
+            const line = service.logLines.find((entry) => entry.includes('stored bindings were unusable'));
+            expect(line).toBeDefined();
+            const logged = JSON.parse(line ?? '{}') as { readonly reason?: unknown };
+            expect(String(logged.reason)).toContain('allowedUsers');
+            expect(String(logged.reason)).toContain('disable the binding');
+        }
+        await afterEachWork1();
     });
 });

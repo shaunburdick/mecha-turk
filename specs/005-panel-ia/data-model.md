@@ -92,8 +92,16 @@ Source: a read-only view over `service/poll/timer.ts` + `service/poll/loop.ts` (
 | `lastError` | `string \| null` | last machine skip/error reason |
 | `pendingCount` | `number` | pending + in-flight for that binding |
 | `readable` | `boolean` (**new**) | `false` when the row could not be read — **the row appears with an unreadable marker; it is never omitted** (an omitted binding reads as a deleted one) |
+| `actorPolicy` | `'open' \| 'restricted'` (**added at v1.11.0, FR-093)** | the **shape** of the binding's allow-list, derived from the binding the row is already built from. **Never the logins** — Status must not become a second index of access policy (FR-091, 003 NFR-113). `'restricted'` always means **at least one** login, because 002 FR-047 refuses an empty list at save *and* on read. **The panel refuses an unrecognized value** rather than defaulting (fail-closed, invariant 8) |
 
-The array is built from the **same** `readStatusRows` the Bindings tab reads, so the two surfaces cannot disagree about a binding. Member name stays `repositories` (FR-026); the panel renders it under the heading **Bindings**.
+The array is built from the **same** `readStatusRows` the Bindings tab reads, so the two surfaces cannot disagree about a binding. Member name stays `repositories` (FR-026); the panel renders it under the heading **Bindings**. **`actorPolicy` is derived in that one projection**, so it also rides the claim answer's `status` array — additive, and the panel's existing `readStatusRows` parser tolerates it (plan D17).
+
+**What Status renders from it (FR-093), and what it does not.** One line stating **how many** of the
+listed bindings carry **no** allow-list plus one line naming the consequence; a count of **zero**
+renders as a **positive statement** (*every binding restricts who may trigger*), never as an absent
+row; where the service could not be read the line reads **not available** with the service named,
+exactly like every other unmeasured value on the tab (NFR-112). Status names **no login and no
+repository** and points at the Bindings tab for the fix (FR-039, plan D16).
 
 ### 2.3 `agentPin` — widened (FR-033)
 
@@ -183,6 +191,9 @@ The row the panel renders is **003's `RunHistoryRow`** (defined in 003's `contra
 | session pointer | `session` |
 | verification warning | `verification` (warn-only, never a blocker) |
 | "+N more reasons" + reveal | `sourceReferences[]`, `referenceCount`, `referencesTruncated`, `presentAtAuthorization` (post-authorization references marked) |
+| **attributed actor, and its provenance where the attribution is an inference** (**added at v1.11.0, FR-094; re-cut at v1.13.0**) | `sourceReferences[].actorLogin` + `sourceReferences[].actorAttribution`. Each reference carries **its own**, because a coalesced run can carry several people and an actor who is **outside** the binding's policy but riding on an authorized run is thereby **visible rather than silent**. **Rendering is a function of the basis, and the two cases are asymmetric**: a **`direct`** reference renders the login **alone**, with **no basis clause**, because GitHub named the identity that performed the act and there is nothing to qualify — and since 002 v1.12.0 this is **every** row the service writes. A legacy **`subject-author`** reference renders the login plus a clause saying the attribution was made **under the rule in force when the row was written**, naming the standing-in author; the clause is **reachable only by rows already on disk** and **must not claim GitHub fails to record the assigner or the reviewer**, because it does (002 NFR-011 as re-cut, 002 FR-044) |
+| **the denied login on a gate-refused run** (FR-094) | `state === 'blocked:actor-not-allowed'` renders 003's own label and reason and the **denied** login 003's refusal named. **The panel never predicts the verdict** (FR-046): Retry's validity comes from the same state→affordance table as every other cause, and the row does not change until the service answers |
+| **the policy in force at authorization** | `actorPolicy` (`'open' \| 'restricted' \| null`) — the **shape** only, and **never** a permitted login. `null` renders as *not authorized yet*, never as *open* (plan D15: the panel computes no policy verdict) |
 | copyable correlation id | `correlationId` (= `id`) |
 | affordance | **derived**: `f(state)` from the single table in plan.md — never stored, never predicted |
 
@@ -256,6 +267,7 @@ No key is renamed; the panel id `mecha-turk` is unchanged; nothing 005 does can 
 | --- | --- | --- |
 | **Run** (run key, ordinal, attempt, states, lease, token, correlation id) | 003 | rendered as a **dispatch row**; the L4 identifiers are retained verbatim (FR-022) |
 | **Binding** (`BindingRecord`, incl. `startingPrompt`) | 002 + 004 | rendered and edited through the existing whole-file grant; 005 adds no field and no endpoint (FR-050) |
+| **Binding's actor allow-list** (`allowedUsers?: readonly string[]`, **added at v1.11.0**) | **002 v1.11.0** (FR-047) | **005 renders and edits it; it does not define it.** One editor field (the logins' only rendering panel-wide, FR-091), a **count** on the row summary, a **worded warning** when the member is absent (FR-092), and the member carried on **every** row of the whole-file grant — the array when set, the **key omitted** when unset (plan D14, [`002/contracts/binding-allow-list.md` §2](../002-agent-event-extension/contracts/binding-allow-list.md)). The panel's parser **refuses** a non-array or a non-text element rather than defaulting (invariant 8), it performs **no** membership comparison (plan D15), and the list reaches **no** `host.storage` key, no ledger entry, and no bundle (invariant 9 / NFR-113) |
 | **Prerequisite** (met / not-met / not-checkable + remediation) | 003 FR-071–FR-073 | **placement only** — rendered on Status (FR-037) with its unmet notice at panel top |
 | **Diagnostic** (ledger entry, evidence schema version, observed-phase record) | 002 + spike era | read-only in About (FR-075); the live writer is deleted (FR-011); no diagnostic is editable or deleted |
 | **Config field declaration** (bounds, unit, default, enum) | `service/config.ts` (006 adds the wire projection) | mirrored once in `src/settings-rows.ts` and **pinned by a cross-check test** — see [research.md](./research.md) Q1 |

@@ -1766,6 +1766,41 @@ async function trimAudit(input) {
 // service/poll/events.ts
 import { basename, join } from "node:path";
 
+// service/poll/attribution.ts
+var AUTHOR_LOGIN_MAX_CHARS = 60;
+function isBotAuthor(authorLogin, authorType) {
+  return authorLogin.toLowerCase().endsWith("[bot]") || authorType.toLowerCase() === "bot";
+}
+function isAttributableAuthor(authorLogin, authorType) {
+  return authorLogin !== "" && !isBotAuthor(authorLogin, authorType);
+}
+function actorLoginOf(authorLogin) {
+  return authorLogin.slice(0, AUTHOR_LOGIN_MAX_CHARS);
+}
+var ACTOR_ATTRIBUTIONS = new Set(["direct", "subject-author"]);
+function readActorLoginField(record) {
+  const value = record.actorLogin;
+  if (value === undefined) {
+    return;
+  }
+  return typeof value === "string" && value !== "" ? value : null;
+}
+function readActorAttributionField(record) {
+  const value = record.actorAttribution;
+  if (value === undefined) {
+    return;
+  }
+  return typeof value === "string" && ACTOR_ATTRIBUTIONS.has(value) ? value : null;
+}
+function actorFieldsOf(record) {
+  const actorLogin = readActorLoginField(record);
+  const actorAttribution = readActorAttributionField(record);
+  return {
+    ...actorLogin === undefined || actorLogin === null ? {} : { actorLogin },
+    ...actorAttribution === undefined || actorAttribution === null ? {} : { actorAttribution }
+  };
+}
+
 // service/poll/events-parse.ts
 var EVENTS_FILE = "events.json";
 var REQUIRED_FIELDS = [
@@ -1839,7 +1874,7 @@ function readTrimMarkerField(record) {
   return Number.isNaN(Date.parse(value)) ? null : value;
 }
 function fieldsHold(record) {
-  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS) && typeof record.kind === "string" && KNOWN_KINDS.has(record.kind) && readStateField(record) !== null && readSubjectTypeField(record) !== null && readRunLinkField(record) !== null && readTrimMarkerField(record) !== null;
+  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS) && typeof record.kind === "string" && KNOWN_KINDS.has(record.kind) && readStateField(record) !== null && readSubjectTypeField(record) !== null && readRunLinkField(record) !== null && readTrimMarkerField(record) !== null && readActorAttributionField(record) !== null && readActorLoginField(record) !== null;
 }
 function lifecycleOf(record, state) {
   const fields = {};
@@ -1907,7 +1942,8 @@ function parseStoredEvent(raw) {
     detectedAt,
     ...lifecycleOf(record, state),
     ...runLinkOf(record, subjectType),
-    ...trimMarkerOf(record)
+    ...trimMarkerOf(record),
+    ...actorFieldsOf(record)
   };
 }
 function subjectTypeOf(delivery) {
@@ -2214,10 +2250,26 @@ function parseReference(raw) {
   const detectedAt = readStamp(raw.detectedAt);
   const { kind, origin } = raw;
   const present = readFlag(raw.presentAtAuthorization);
-  if (deliveryId === null || sourceUrl === null || detectedAt === null || present === null || !isEventKind(kind) || typeof origin !== "string" || !isValidOrigin(origin)) {
+  const unusable = [
+    deliveryId,
+    sourceUrl,
+    detectedAt,
+    present,
+    readActorLoginField(raw),
+    readActorAttributionField(raw)
+  ].includes(null) || !isEventKind(kind) || typeof origin !== "string" || !isValidOrigin(origin);
+  if (unusable || deliveryId === null || sourceUrl === null || detectedAt === null || present === null) {
     return null;
   }
-  return { deliveryId, kind, origin, sourceUrl, detectedAt, presentAtAuthorization: present };
+  return {
+    deliveryId,
+    kind,
+    origin,
+    sourceUrl,
+    detectedAt,
+    presentAtAuthorization: present,
+    ...actorFieldsOf(raw)
+  };
 }
 function parseAttempt(raw) {
   if (!isRecord(raw)) {
@@ -2390,10 +2442,18 @@ function readStateLine(raw) {
   }
   return { state, reason: stateReason };
 }
+function readActorPolicy(raw) {
+  const value = raw.actorPolicy;
+  if (value === undefined || value === null) {
+    return null;
+  }
+  return value === "open" || value === "restricted" ? value : undefined;
+}
 function parseRunScalars(raw) {
   const line = readStateLine(raw);
+  const actorPolicy = readActorPolicy(raw);
   const { subjectType } = raw;
-  if (line === null || subjectType !== "issue" && subjectType !== "pull_request") {
+  if (line === null || actorPolicy === undefined || subjectType !== "issue" && subjectType !== "pull_request") {
     return null;
   }
   const ordinal = readCount(raw.ordinal);
@@ -2420,6 +2480,7 @@ function parseRunScalars(raw) {
     referenceCount,
     referencesNotRetained: notRetained,
     referencesTruncated: truncated,
+    actorPolicy,
     createdAt,
     updatedAt
   };
@@ -2539,6 +2600,7 @@ function runFromParts(raw, parts) {
     projectId: raw.projectId,
     worktreeOption: raw.worktreeOption,
     prompt,
+    actorPolicy: scalars.actorPolicy,
     state: scalars.state,
     stateReason: scalars.stateReason,
     attempt: scalars.attempt,
@@ -2913,14 +2975,13 @@ function retainedReferences(reference) {
 function migratedRun(input) {
   const { event, ordinal, now, reserved } = input;
   const subjectType = subjectTypeOf(event);
-  const keyInput = {
+  const runKey = buildRunKey({
     accountNumericUserId: event.accountNumericUserId,
     repository: event.repository,
     subjectType,
     subjectNumber: event.issueNumber,
     ordinal
-  };
-  const runKey = buildRunKey(keyInput);
+  });
   const correlationId = buildCorrelationId(runKey);
   const classification = classifyLegacy({ event, runKey, correlationId, now, reserved });
   const reference = referenceOf(event, true);
@@ -2939,6 +3000,7 @@ function migratedRun(input) {
       projectId: event.projectId,
       worktreeOption: event.worktreeOption,
       prompt: null,
+      actorPolicy: null,
       state: classification.state,
       stateReason: classification.stateReason,
       attempt: 1,
@@ -3254,7 +3316,11 @@ function referenceOf(delivery, presentAtAuthorization) {
     origin,
     sourceUrl: delivery.issueUrl,
     detectedAt: delivery.detectedAt,
-    presentAtAuthorization
+    presentAtAuthorization,
+    ...actorFieldsOf({
+      actorLogin: delivery.actorLogin,
+      actorAttribution: delivery.actorAttribution
+    })
   };
 }
 function joinReference(input) {
@@ -3308,6 +3374,7 @@ function runForDelivery(input) {
     projectId: delivery.projectId,
     worktreeOption: delivery.worktreeOption,
     prompt,
+    actorPolicy: null,
     state: "pending",
     stateReason: null,
     attempt: 1,
@@ -3479,6 +3546,8 @@ function createEvent(snapshot) {
     issueTitle: snapshot.issue.issueTitle,
     issueUrl: snapshot.issue.issueUrl,
     issueBodyExcerpt: snapshot.issue.issueBodyExcerpt,
+    actorLogin: snapshot.actorLogin,
+    actorAttribution: snapshot.actorAttribution,
     headSha: headShaOf(snapshot),
     baseRef: baseRefOf(snapshot),
     triggerNote: snapshot.triggerNote,
@@ -5167,6 +5236,67 @@ function parseProjectId(raw) {
 function repositoryLabel(repository) {
   return `${repository.owner}/${repository.name}`;
 }
+function repositoryRefOf(repository) {
+  const index = repository.indexOf("/");
+  if (index < 0) {
+    return { owner: repository, name: "" };
+  }
+  return { owner: repository.slice(0, index), name: repository.slice(index + 1) };
+}
+
+// service/bindings-allow-list.ts
+var GITHUB_LOGIN_MAX_CHARS = 39;
+var SINGLE_LOGIN = /^[A-Za-z0-9]$/;
+var LOGIN_SHAPE = /^[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9]$/;
+var BOT_SUFFIX = "[bot]";
+function isGitHubLogin(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const bot = value.toLowerCase().endsWith(BOT_SUFFIX);
+  const spelled = bot ? value.slice(0, -BOT_SUFFIX.length) : value;
+  if (spelled.length === 0 || spelled.length > GITHUB_LOGIN_MAX_CHARS) {
+    return false;
+  }
+  return spelled.length === 1 ? SINGLE_LOGIN.test(spelled) : LOGIN_SHAPE.test(spelled) && !spelled.includes("--");
+}
+var FIELD = "allowedUsers";
+var NOT_AN_ARRAY_REMEDIATION = "allowedUsers must be an array of GitHub logins, or omitted so any human " + "actor may trigger this repository";
+var EMPTY_REMEDIATION = "allowedUsers must name at least one GitHub login: omit the field to let any human " + "actor may trigger this repository, or list the logins who may; to stop every trigger, disable the binding";
+var NOT_A_LOGIN_REMEDIATION = "allowedUsers must name GitHub logins: at most 39 characters, " + "alphanumeric with single interior hyphens";
+function refuse2(remediation) {
+  return { issue: { field: FIELD, remediation } };
+}
+function bindingAllowedUsersOf(raw) {
+  const value = raw.allowedUsers;
+  if (value === undefined) {
+    return { users: null };
+  }
+  if (!Array.isArray(value)) {
+    return refuse2(NOT_AN_ARRAY_REMEDIATION);
+  }
+  if (value.length === 0) {
+    return refuse2(EMPTY_REMEDIATION);
+  }
+  const users = [];
+  for (const entry of value) {
+    if (!isGitHubLogin(entry)) {
+      return refuse2(NOT_A_LOGIN_REMEDIATION);
+    }
+    users.push(entry);
+  }
+  return { users };
+}
+function isActorAllowed(login, allowedUsers) {
+  if (login === "") {
+    return false;
+  }
+  if (allowedUsers === undefined) {
+    return true;
+  }
+  const wanted = login.toLowerCase();
+  return allowedUsers.some((candidate) => candidate.toLowerCase() === wanted);
+}
 
 // service/bindings.ts
 var MAX_BINDINGS = 100;
@@ -5312,6 +5442,10 @@ function assembleBinding(raw, accountExists) {
   if ("issue" in prompt) {
     return null;
   }
+  const allowedUsers = bindingAllowedUsersOf(raw);
+  if ("issue" in allowedUsers) {
+    return null;
+  }
   const login = identity.binding.accountLogin.trim();
   const createdAt = stampOrKeep(raw.createdAt, nowIso());
   return {
@@ -5320,6 +5454,7 @@ function assembleBinding(raw, accountExists) {
     ...target.binding,
     ...mode.binding,
     ...prompt.prompt === null ? {} : { startingPrompt: prompt.prompt },
+    ...allowedUsers.users === null ? {} : { allowedUsers: allowedUsers.users },
     createdAt,
     updatedAt: stampOrKeep(raw.updatedAt, createdAt)
   };
@@ -5338,7 +5473,8 @@ function parseBinding(input) {
       bindingIdentityOf(raw, accountExists),
       bindingTargetOf(raw),
       bindingModeOf(raw),
-      bindingPromptOf(raw)
+      bindingPromptOf(raw),
+      bindingAllowedUsersOf(raw)
     ])
   };
 }
@@ -5562,6 +5698,26 @@ async function readBindings(input) {
     actor: "service"
   });
   return bindings;
+}
+async function readBindingsForAuthorization(input) {
+  const { store, log } = input;
+  const note = { reason: null };
+  try {
+    const result = await store.readJson(BINDINGS_FILE, (raw) => parseBindingsFile(raw, note));
+    if (result.status === "ok") {
+      return { readable: true, bindings: result.value };
+    }
+    if (result.status === "quarantined") {
+      log.warn("stored bindings were unusable and have been set aside", {
+        quarantinePath: result.quarantinePath,
+        ...note.reason === null ? {} : { reason: note.reason }
+      });
+    }
+    return { readable: false };
+  } catch (cause) {
+    log.warn("bindings read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
+    return { readable: false };
+  }
 }
 
 // service/poll/claim-bounds.ts
@@ -6004,7 +6160,8 @@ function historyRowOf(input) {
     dispatchResult: dispatchResultOf(run),
     claimedAt: lease.claimedAt,
     dispatchedAt: dispatchStamp,
-    ...promptViewOf2(run)
+    ...promptViewOf2(run),
+    actorPolicy: run.actorPolicy
   }, delivery);
 }
 function projectRunHistory(input) {
@@ -6152,6 +6309,9 @@ function buildEventPage(input) {
 // service/routes/events.ts
 var EVENTS_PENDING_PATH = "/v1/events/pending";
 var EVENTS_PATH = "/v1/events";
+function actorPolicyOf(binding) {
+  return binding.allowedUsers === undefined ? "open" : "restricted";
+}
 function claimLimitOf(raw) {
   if (raw === null || raw === "") {
     return MAX_CLAIMED_RUNS;
@@ -6180,7 +6340,8 @@ async function readStatusRows(input) {
       active: binding.state === "active",
       lastScanAt: scan?.lastScanAt ?? null,
       lastError: scan?.lastError ?? null,
-      pendingCount: counts.get(binding.bindingId) ?? 0
+      pendingCount: counts.get(binding.bindingId) ?? 0,
+      actorPolicy: actorPolicyOf(binding)
     };
   });
 }
@@ -6262,19 +6423,24 @@ var eventHistoryRoute = {
   handler: (context, request) => handleEventHistory(context, request)
 };
 
+// service/poll/row-text.ts
+var MAX_ROW_TEXT_CHARS = 500;
+var TEXT_TRUNCATION_MARKER = "… [truncated]";
+function boundText(value) {
+  if (value.length <= MAX_ROW_TEXT_CHARS) {
+    return value;
+  }
+  return `${value.slice(0, MAX_ROW_TEXT_CHARS)}${TEXT_TRUNCATION_MARKER}`;
+}
+function rowText(value) {
+  return value === null ? null : boundText(value);
+}
+
 // service/poll/dispatch-audit.ts
 var RUN_ENTITY_KIND2 = "run";
 var PANEL_ACTOR = "panel";
 var SERVICE_ACTOR2 = "service";
 var OPERATOR_ACTOR = "operator";
-var MAX_ROW_TEXT_CHARS = 500;
-var TEXT_TRUNCATION_MARKER = "… [truncated]";
-function rowText(value) {
-  if (value === null || value.length <= MAX_ROW_TEXT_CHARS) {
-    return value;
-  }
-  return `${value.slice(0, MAX_ROW_TEXT_CHARS)}${TEXT_TRUNCATION_MARKER}`;
-}
 function runRow(run) {
   return { entity: { kind: RUN_ENTITY_KIND2, id: run.correlationId }, correlationId: run.correlationId };
 }
@@ -6284,7 +6450,8 @@ function promptDetails(run) {
     promptPresent: run.prompt !== null,
     promptFingerprint: run.prompt === null ? null : run.prompt.fingerprint,
     promptLength: run.prompt === null ? null : run.prompt.length,
-    promptSources: run.prompt === null ? null : run.prompt.sources
+    promptSources: run.prompt === null ? null : run.prompt.sources,
+    actorPolicy: run.actorPolicy
   };
 }
 function reservedRow(input) {
@@ -6408,6 +6575,18 @@ function verificationRow(input) {
     }
   };
 }
+function actorDetails(actor) {
+  return {
+    bindingId: actor.bindingId,
+    actorPolicy: actor.actorPolicy,
+    ...actor.deniedLogins === undefined ? {} : { deniedLogins: actor.deniedLogins.map(boundText) },
+    ...actor.deniedAttributions === undefined ? {} : { deniedAttributions: [...actor.deniedAttributions] },
+    unreadableReferences: actor.unreadableReferences,
+    retainedReferences: actor.retainedReferences,
+    referencesNotRetained: actor.referencesNotRetained,
+    referencesTruncated: actor.referencesTruncated
+  };
+}
 function refusedRow(input) {
   return {
     eventType: "dispatch.refused",
@@ -6421,7 +6600,8 @@ function refusedRow(input) {
       priorState: input.run.state,
       attempt: input.attempt,
       ...input.leaseId === undefined ? {} : { leaseId: input.leaseId },
-      ...input.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: input.dispatchTokenFingerprint }
+      ...input.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: input.dispatchTokenFingerprint },
+      ...input.actor === undefined ? {} : actorDetails(input.actor)
     }
   };
 }
@@ -6437,6 +6617,133 @@ async function appendRunRow(input) {
     });
     return false;
   }
+}
+
+// service/poll/run-refusal.ts
+var STALE_LEASE_CODE = "stale-lease";
+function refuse3(code, message) {
+  return { code, message };
+}
+function refuseOnWindow(input) {
+  return { ...refuse3(input.code, input.message), referenceWindow: input.referenceWindow };
+}
+function staleAttemptMessage(attempt, current) {
+  return `the request names attempt ${attempt} but this run stands on attempt ${current}; ` + "read the run again and act on the attempt it reports";
+}
+
+// service/poll/dispatch-actor-gate.ts
+var ACTOR_NOT_ALLOWED = "actor-not-allowed";
+var ACTOR_BLOCKED_REASON = ACTOR_NOT_ALLOWED;
+var UNRECORDED_BASIS = "unrecorded";
+function classifyActor(reference) {
+  const login = reference.actorLogin;
+  if (login === undefined || login === "" || login.toLowerCase().endsWith("[bot]")) {
+    return { readable: false };
+  }
+  return { readable: true, login, attribution: reference.actorAttribution ?? null };
+}
+function classifyRun(run) {
+  const classified = run.sourceReferences.map(classifyActor);
+  return {
+    readable: classified.filter((actor) => actor.readable),
+    unreadableReferences: classified.filter((actor) => !actor.readable).length
+  };
+}
+function judgedWindow(run) {
+  return {
+    retained: run.sourceReferences.length,
+    notRetained: run.referencesNotRetained,
+    truncated: run.referencesTruncated
+  };
+}
+function refusalDetails(input) {
+  const window = judgedWindow(input.run);
+  return {
+    bindingId: input.run.bindingId,
+    actorPolicy: input.policy,
+    ...input.deniedLogins === undefined ? {} : { deniedLogins: input.deniedLogins },
+    ...input.deniedAttributions === undefined ? {} : { deniedAttributions: input.deniedAttributions },
+    unreadableReferences: input.unreadableReferences,
+    retainedReferences: window.retained,
+    referencesNotRetained: window.notRetained,
+    referencesTruncated: window.truncated
+  };
+}
+function judgedWindowWord(run) {
+  return judgedWindow(run).truncated ? "truncated" : "complete";
+}
+function truncatedNote(run) {
+  if (!run.referencesTruncated) {
+    return "";
+  }
+  return `; this run's source reference list was cut at ${run.sourceReferences.length} of ` + `${run.referenceCount} triggers, so this decision was made on an incomplete list and adding a login to ` + "the binding's allowedUsers cannot clear it";
+}
+function namedActors(actors) {
+  return actors.map((actor) => `${actor.login} (${actor.attribution === "subject-author" ? "the issue or pull-request author, attributed under the rule in force when this row was written" : actor.attribution ?? UNRECORDED_BASIS})`).join(", ");
+}
+function unreadableNote(unreadableReferences) {
+  return unreadableReferences === 0 ? "every reference names a readable actor" : `${unreadableReferences} of this run's references name no readable actor`;
+}
+function deniedPolicyRefusal(input) {
+  return {
+    admitted: false,
+    refused: {
+      refusal: refuseOnWindow({
+        code: ACTOR_NOT_ALLOWED,
+        message: `${input.message}${truncatedNote(input.run)}`,
+        referenceWindow: judgedWindowWord(input.run)
+      }),
+      actor: refusalDetails({
+        run: input.run,
+        policy: input.policy,
+        deniedLogins: input.readable.map((actor) => actor.login),
+        deniedAttributions: input.readable.map((actor) => actor.attribution ?? UNRECORDED_BASIS),
+        unreadableReferences: input.unreadableReferences
+      })
+    }
+  };
+}
+function judgeActorPolicy(input) {
+  const { run, allowedUsers } = input;
+  const { readable, unreadableReferences } = classifyRun(run);
+  const policy = allowedUsers === undefined ? "open" : "restricted";
+  if (readable.some((actor) => isActorAllowed(actor.login, allowedUsers))) {
+    return { admitted: true, policy };
+  }
+  const refuseWith = (message) => deniedPolicyRefusal({ run, policy, message, readable, unreadableReferences });
+  if (readable.length > 0) {
+    return refuseWith("no source reference on this run names an actor the binding's allowedUsers permits: " + `${namedActors(readable)}; ${unreadableNote(unreadableReferences)}`);
+  }
+  return refuseWith(unreadableReferences === 0 ? "this run records no source reference, so no actor can be permitted" : `this run records no readable actor: all ${unreadableReferences} of its references name no ` + "attribution or name a bot account, which no binding can permit");
+}
+function unreadablePolicyRefusal(run, cause) {
+  const { unreadableReferences } = classifyRun(run);
+  const message = cause === "binding-absent" ? `no binding ${run.bindingId} exists, so its allow-list cannot be read and no dispatch is authorized` : `the bindings document could not be read, so the allow-list for binding ${run.bindingId} cannot be ` + "judged and no dispatch is authorized";
+  return {
+    admitted: false,
+    refused: {
+      refusal: refuseOnWindow({
+        code: ACTOR_NOT_ALLOWED,
+        message: `${message}${truncatedNote(run)}`,
+        referenceWindow: judgedWindowWord(run)
+      }),
+      actor: refusalDetails({
+        run,
+        policy: null,
+        deniedLogins: undefined,
+        deniedAttributions: undefined,
+        unreadableReferences
+      })
+    }
+  };
+}
+async function readLivePolicy(input) {
+  const read = await readBindingsForAuthorization({ store: input.store, log: input.log });
+  if (!read.readable) {
+    return { readable: false, cause: "document-unreadable" };
+  }
+  const binding = read.bindings.find((candidate) => candidate.bindingId === input.bindingId);
+  return binding === undefined ? { readable: false, cause: "binding-absent" } : { readable: true, allowedUsers: binding.allowedUsers };
 }
 
 // service/poll/run-chain.ts
@@ -6469,7 +6776,8 @@ async function appendRefusalRow(input) {
     reason: refusal.refusal.message,
     attempt: refusal.attempt,
     ...refusal.leaseId === undefined ? {} : { leaseId: refusal.leaseId },
-    ...refusal.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint }
+    ...refusal.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint },
+    ...refusal.actor === undefined ? {} : { actor: refusal.actor }
   });
   return await appendRunRow({
     store: input.store,
@@ -6489,15 +6797,6 @@ function sessionRefOf(input) {
   };
 }
 
-// service/poll/run-refusal.ts
-var STALE_LEASE_CODE = "stale-lease";
-function refuse2(code, message) {
-  return { code, message };
-}
-function staleAttemptMessage(attempt, current) {
-  return `the request names attempt ${attempt} but this run stands on attempt ${current}; ` + "read the run again and act on the attempt it reports";
-}
-
 // service/poll/dispatch-authorize.ts
 var INVALID_TRANSITION = "invalid-transition";
 var STALE_MESSAGE = "the lease is expired or does not match this run";
@@ -6509,7 +6808,7 @@ function sessionIdOf(run) {
 }
 function judgeLease(input) {
   const { run, leaseId, attempt, now } = input;
-  const stale = refuse2("stale-lease", STALE_MESSAGE);
+  const stale = refuse3("stale-lease", STALE_MESSAGE);
   if (run.lease?.leaseId !== leaseId) {
     return stale;
   }
@@ -6522,7 +6821,7 @@ function judgeReserve(input) {
   const { run } = input;
   if (runHistoryIndicatesSession(run)) {
     const sessionId = sessionIdOf(run);
-    return refuse2("already-dispatched", sessionId === null ? "this run already produced a session" : `a session already exists: ${sessionId}`);
+    return refuse3("already-dispatched", sessionId === null ? "this run already produced a session" : `a session already exists: ${sessionId}`);
   }
   const lease = judgeLease(input);
   if (lease !== null) {
@@ -6530,16 +6829,17 @@ function judgeReserve(input) {
   }
   const { reservation } = run;
   if (reservation !== null) {
-    return refuse2("already-reserved", `this run is already authorized: attempt ${reservation.attempt} must report by ` + `${reservation.resultDeadlineAt}`);
+    return refuse3("already-reserved", `this run is already authorized: attempt ${reservation.attempt} must report by ` + `${reservation.resultDeadlineAt}`);
   }
-  return run.state === "claimed" ? null : refuse2(INVALID_TRANSITION, `this run is ${run.state}; only a claimed run can be authorized`);
+  return run.state === "claimed" ? null : refuse3(INVALID_TRANSITION, `this run is ${run.state}; only a claimed run can be authorized`);
 }
 function reservedRun(input) {
-  const { run, dispatchToken, resultDeadlineAt, now } = input;
+  const { run, dispatchToken, resultDeadlineAt, actorPolicy, now } = input;
   return {
     ...run,
     state: "starting",
     stateReason: `authorized at ${now}; result due by ${resultDeadlineAt}`,
+    actorPolicy,
     reservation: { dispatchToken, attempt: run.attempt, reservedAt: now, resultDeadlineAt, consumed: false },
     attempts: attemptHistory(run, { ...currentAttempt(run), dispatchToken, reservedAt: now }),
     updatedAt: now
@@ -6555,7 +6855,7 @@ async function readResultDeadlineMs(store, log) {
   }
 }
 async function refusedReserve(input) {
-  const { call, run, refusal } = input;
+  const { call, run, refusal, actor } = input;
   return {
     status: "refused",
     refusal,
@@ -6568,7 +6868,8 @@ async function refusedReserve(input) {
         operation: "reserve",
         refusal,
         attempt: call.attempt,
-        leaseId: call.leaseId
+        leaseId: call.leaseId,
+        ...actor === undefined ? {} : { actor }
       }
     })
   };
@@ -6580,10 +6881,20 @@ async function reserveDispatch(input) {
     if (refusal !== null) {
       return await refusedReserve({ call: input, run, refusal });
     }
+    const policy = await readLivePolicy({ store: input.store, log: input.log, bindingId: run.bindingId });
+    const gate = policy.readable ? judgeActorPolicy({ run, allowedUsers: policy.allowedUsers }) : unreadablePolicyRefusal(run, policy.cause);
+    if (!gate.admitted) {
+      return await refusedReserve({
+        call: input,
+        run,
+        refusal: gate.refused.refusal,
+        actor: gate.refused.actor
+      });
+    }
     const lease = run.lease;
     const dispatchToken = buildDispatchToken(run.runKey, run.attempt);
     const resultDeadlineAt = new Date(Date.parse(now) + deadlineMs).toISOString();
-    const starting = reservedRun({ run, dispatchToken, resultDeadlineAt, now });
+    const starting = reservedRun({ run, dispatchToken, resultDeadlineAt, actorPolicy: gate.policy, now });
     await persist(starting);
     return {
       status: "applied",
@@ -6606,7 +6917,8 @@ var BLOCKED_REASONS = new Set([
   "project-missing",
   "binding-missing",
   "credential",
-  "policy"
+  "policy",
+  ACTOR_BLOCKED_REASON
 ]);
 var INVALID_TRANSITION2 = "invalid-transition";
 function judgeBlock(input) {
@@ -6617,9 +6929,9 @@ function judgeBlock(input) {
   }
   if (runHistoryIndicatesSession(run)) {
     const sessionId = sessionIdOf(run);
-    return refuse2(INVALID_TRANSITION2, sessionId === null ? "this run already produced a session and cannot be blocked" : `this run already produced session ${sessionId} and cannot be blocked`);
+    return refuse3(INVALID_TRANSITION2, sessionId === null ? "this run already produced a session and cannot be blocked" : `this run already produced session ${sessionId} and cannot be blocked`);
   }
-  return run.state === "claimed" ? null : refuse2(INVALID_TRANSITION2, `this run is ${run.state}; only a claimed run can be blocked`);
+  return run.state === "claimed" ? null : refuse3(INVALID_TRANSITION2, `this run is ${run.state}; only a claimed run can be blocked`);
 }
 function blockedRun(input) {
   const { run, blockedReason, detail, now } = input;
@@ -6696,7 +7008,7 @@ function repeatedOutcome(input) {
 }
 function conflict(run) {
   const sessionId = sessionIdOf(run);
-  return refuse2(INVALID_TRANSITION3, sessionId === null ? "a different outcome is already recorded for this attempt and cannot be replaced" : `this attempt already reported session ${sessionId}; a different outcome cannot replace it`);
+  return refuse3(INVALID_TRANSITION3, sessionId === null ? "a different outcome is already recorded for this attempt and cannot be replaced" : `this attempt already reported session ${sessionId}; a different outcome cannot replace it`);
 }
 function tokenSpent(run, dispatchToken) {
   const live = currentAttempt(run);
@@ -6704,7 +7016,7 @@ function tokenSpent(run, dispatchToken) {
 }
 function judgeReport(input) {
   const { run, dispatchToken, attempt, outcome } = input;
-  const stale = refuse2("stale-lease", STALE_TOKEN_MESSAGE);
+  const stale = refuse3("stale-lease", STALE_TOKEN_MESSAGE);
   const { reservation } = run;
   if (reservation?.dispatchToken !== dispatchToken) {
     return { refusal: stale };
@@ -6719,7 +7031,7 @@ function judgeReport(input) {
     return { refusal: stale };
   }
   return run.state === "starting" || run.state === "unconfirmed" ? { verdict: "apply" } : {
-    refusal: refuse2(INVALID_TRANSITION3, `this run is ${run.state}; an authorized outcome can only be reported while it is ` + "starting or unconfirmed")
+    refusal: refuse3(INVALID_TRANSITION3, `this run is ${run.state}; an authorized outcome can only be reported while it is ` + "starting or unconfirmed")
   };
 }
 function closedAttempt(input) {
@@ -6933,6 +7245,7 @@ var REFUSAL_STATUS = new Map([
   ["already-reserved", STATUS.conflict],
   ["already-dispatched", STATUS.conflict],
   ["invalid-transition", STATUS.conflict],
+  ["actor-not-allowed", STATUS.conflict],
   ["cause-not-cleared", STATUS.conflict],
   ["validation", STATUS.validation]
 ]);
@@ -6955,9 +7268,11 @@ function runOutcomeResponse(input) {
     });
   }
   if (outcome.status === "refused") {
-    return errorResponse(REFUSAL_STATUS.get(outcome.refusal.code) ?? STATUS.conflict, {
-      code: outcome.refusal.code,
-      message: outcome.refusal.message
+    const { code, message, referenceWindow } = outcome.refusal;
+    return errorResponse(REFUSAL_STATUS.get(code) ?? STATUS.conflict, {
+      code,
+      message,
+      ...referenceWindow === undefined ? {} : { referenceWindow }
     });
   }
   return { status: STATUS.ok, body: success(outcome.run, outcome.auditWritten) };
@@ -6990,7 +7305,7 @@ async function refuseRunRequest(input) {
     await operateRun({ store, log: context.log, correlationId }, async ({ run }) => await appendRefusalRow({
       store,
       log: context.log,
-      refusal: { run, operation, refusal: refuse2("validation", reason), attempt: run.attempt }
+      refusal: { run, operation, refusal: refuse3("validation", reason), attempt: run.attempt }
     }));
   }
   return response;
@@ -7294,6 +7609,17 @@ async function readCustodyAndValidate(input) {
     })
   };
 }
+async function writeGrant(input) {
+  const { store, log, submitted, omitted } = input;
+  return await inQueueChain(async () => await runPromptChain(store, async () => {
+    const stored = await readBindingsUnobserved({ store, log });
+    await recordPromptChanges({ store, log, bindings: stored, actor: "service" });
+    const merged = mergePrompts({ submitted, omitted, stored });
+    await writeBindings({ store, bindings: merged });
+    await recordPromptChanges({ store, log, bindings: merged, actor: "operator" });
+    return merged;
+  }));
+}
 async function handlePutBindings(context, request) {
   const { store } = context;
   if (store === null) {
@@ -7316,16 +7642,11 @@ async function handlePutBindings(context, request) {
     complete: true,
     actor: "service"
   });
-  const submitted = custody.validation.bindings;
-  const body = request.body;
-  const omitted = omittedPromptIds(body.bindings);
-  const bindings = await runPromptChain(store, async () => {
-    const stored = await readBindingsUnobserved({ store, log: context.log });
-    await recordPromptChanges({ store, log: context.log, bindings: stored, actor: "service" });
-    const merged = mergePrompts({ submitted, omitted, stored });
-    await writeBindings({ store, bindings: merged });
-    await recordPromptChanges({ store, log: context.log, bindings: merged, actor: "operator" });
-    return merged;
+  const bindings = await writeGrant({
+    store,
+    log: context.log,
+    submitted: custody.validation.bindings,
+    omitted: omittedPromptIds(request.body.bindings)
   });
   const status = await readStatusRows({ store, log: context.log, bindings });
   return { status: STATUS.ok, body: { bindings, status } };
@@ -7355,8 +7676,25 @@ var healthRoute = {
   handler: (context) => healthResponse(context)
 };
 
+// service/poll/run-corroborate.ts
+var CAUSE_NOT_CLEARED = "cause-not-cleared";
+var CORROBORATED_BINDING_REASON = "binding-missing";
+var ACTOR_BLOCKED_REASON2 = "actor-not-allowed";
+var CORROBORATED_BLOCKED_REASONS = new Set([
+  CORROBORATED_BINDING_REASON,
+  ACTOR_BLOCKED_REASON2
+]);
+function judgeActorCause(input) {
+  const { run, bindings } = input;
+  const binding = bindings.find((candidate) => candidate.bindingId === run.bindingId);
+  const gate = binding === undefined ? { admitted: false } : judgeActorPolicy({ run, allowedUsers: binding.allowedUsers });
+  if (gate.admitted) {
+    return "corroborated";
+  }
+  return refuse3(CAUSE_NOT_CLEARED, run.referencesTruncated ? "the cause has not cleared: this run's source reference list was cut at " + `${run.sourceReferences.length} of ${run.referenceCount} triggers, so binding ` + `${run.bindingId}'s allow-list is judged against an incomplete list, and adding a login cannot ` + "clear it" : `the cause has not cleared: the allow-list for binding ${run.bindingId} still admits none of this ` + "run's attributed actors");
+}
+
 // service/poll/run-operate.ts
-var CORROBORATED_BLOCKED_REASON = "binding-missing";
 var INVALID_TRANSITION4 = "invalid-transition";
 function invalidTransition(state) {
   const messages = new Map([
@@ -7367,7 +7705,7 @@ function invalidTransition(state) {
     ["starting", "an attempt is in flight; this run is already authorized to start"],
     ["dead-lettered", "this run is dead-lettered; use return-to-waiting, which resets the attempt count"]
   ]);
-  return refuse2(INVALID_TRANSITION4, messages.get(state) ?? `this run is ${state}; it cannot be retried`);
+  return refuse3(INVALID_TRANSITION4, messages.get(state) ?? `this run is ${state}; it cannot be retried`);
 }
 async function refused(input) {
   const { run, operation, refusal, store, log } = input;
@@ -7385,7 +7723,7 @@ async function refused(input) {
 function judgeRetry(input) {
   const { run, causeCleared, bindings } = input;
   if (input.attempt !== run.attempt) {
-    return refuse2(STALE_LEASE_CODE, staleAttemptMessage(input.attempt, run.attempt));
+    return refuse3(STALE_LEASE_CODE, staleAttemptMessage(input.attempt, run.attempt));
   }
   if (run.state === "failed") {
     return null;
@@ -7394,10 +7732,13 @@ function judgeRetry(input) {
     return invalidTransition(run.state);
   }
   const blockedReason = run.state.slice("blocked:".length);
-  if (blockedReason === CORROBORATED_BLOCKED_REASON) {
-    return bindings.some((binding) => binding.bindingId === run.bindingId) ? "corroborated" : refuse2("cause-not-cleared", `the cause has not cleared: the binding ${run.bindingId} is still absent`);
+  if (!CORROBORATED_BLOCKED_REASONS.has(blockedReason)) {
+    return causeCleared ? "reported" : refuse3(CAUSE_NOT_CLEARED, `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this ` + "row records what was checked");
   }
-  return causeCleared ? "reported" : refuse2("cause-not-cleared", `the cause has not cleared: report the ${blockedReason} cause as cleared once it is, so this row ` + "records what was checked");
+  if (blockedReason === CORROBORATED_BINDING_REASON) {
+    return bindings.some((binding) => binding.bindingId === run.bindingId) ? "corroborated" : refuse3(CAUSE_NOT_CLEARED, `the cause has not cleared: the binding ${run.bindingId} is still absent`);
+  }
+  return judgeActorCause({ run, bindings });
 }
 function waitingRun(input) {
   const { run, now } = input;
@@ -7461,7 +7802,7 @@ async function requeueDispatch(input) {
         ...input,
         run,
         operation: "requeue",
-        refusal: refuse2(INVALID_TRANSITION4, `this run is ${run.state}; only a dead-lettered run can be returned to waiting`)
+        refusal: refuse3(INVALID_TRANSITION4, `this run is ${run.state}; only a dead-lettered run can be returned to waiting`)
       });
     }
     const attemptBefore = run.attempt;
@@ -7492,9 +7833,9 @@ async function requeueDispatch(input) {
 function judgeResolve(input) {
   const { run } = input;
   if (run.state === "unconfirmed") {
-    return runHistoryIndicatesSession(run) ? refuse2(INVALID_TRANSITION4, "this run already records a session and cannot be resolved") : null;
+    return runHistoryIndicatesSession(run) ? refuse3(INVALID_TRANSITION4, "this run already records a session and cannot be resolved") : null;
   }
-  return refuse2(INVALID_TRANSITION4, `this run is ${run.state}; only an unconfirmed run can be resolved`);
+  return refuse3(INVALID_TRANSITION4, `this run is ${run.state}; only an unconfirmed run can be resolved`);
 }
 function resolvedRun(input) {
   const { run, sessionId, now } = input;
@@ -7557,12 +7898,12 @@ var INVALID_TRANSITION5 = "invalid-transition";
 function judgeVerification(input) {
   const { run, attempt, sessionId } = input;
   if (attempt !== run.attempt) {
-    return refuse2(STALE_LEASE_CODE, staleAttemptMessage(attempt, run.attempt));
+    return refuse3(STALE_LEASE_CODE, staleAttemptMessage(attempt, run.attempt));
   }
   if (run.session === null) {
-    return refuse2(INVALID_TRANSITION5, `this run is ${run.state} and records no session, so there is nothing to read back`);
+    return refuse3(INVALID_TRANSITION5, `this run is ${run.state} and records no session, so there is nothing to read back`);
   }
-  return run.session.sessionId === sessionId ? null : refuse2(INVALID_TRANSITION5, "the reported session is not the session this run recorded");
+  return run.session.sessionId === sessionId ? null : refuse3(INVALID_TRANSITION5, "the reported session is not the session this run recorded");
 }
 async function recordVerification(input) {
   return await operateRun(input, async ({ run, now, persist }) => {
@@ -7936,7 +8277,8 @@ function unreadableRepositoryRow(binding) {
     lastScanAt: null,
     lastError: null,
     pendingCount: 0,
-    readable: false
+    readable: false,
+    actorPolicy: binding.allowedUsers === undefined ? "open" : "restricted"
   };
 }
 function mostRecentVerification(runs) {
@@ -8504,27 +8846,33 @@ async function readCycleConfig(input) {
   }
 }
 
-// service/poll/triggers.ts
-var BODY_EXCERPT_MAX_CHARS = 600;
-var AUTHOR_LOGIN_MAX_CHARS = 60;
-function repositoryRefOf(binding) {
-  const index = binding.repository.indexOf("/");
-  if (index < 0) {
-    return { owner: binding.repository, name: "" };
+// service/poll/window.ts
+function windowFor(input) {
+  const recorded = input.scanned.bindings[input.binding.bindingId];
+  const lastScanAt = recorded?.lastScanAt ?? null;
+  if (lastScanAt === null) {
+    return null;
   }
-  return { owner: binding.repository.slice(0, index), name: binding.repository.slice(index + 1) };
+  const openedAt = Date.parse(lastScanAt) - input.overlapMs;
+  if (!Number.isFinite(openedAt)) {
+    return null;
+  }
+  return new Date(openedAt).toISOString();
 }
-function updatedInWindow(updatedAt, windowStart) {
+function stampInWindow(stamp, windowStart) {
   if (windowStart === null) {
     return true;
   }
-  if (updatedAt === null) {
+  if (stamp === null) {
     return false;
   }
-  const stamp = Date.parse(updatedAt);
+  const observed = Date.parse(stamp);
   const start = Date.parse(windowStart);
-  return !Number.isNaN(stamp) && !Number.isNaN(start) && stamp >= start;
+  return !Number.isNaN(observed) && !Number.isNaN(start) && observed >= start;
 }
+
+// service/poll/trigger-scan.ts
+var BODY_EXCERPT_MAX_CHARS = 600;
 function bodyExcerptOf(body) {
   if (body === null) {
     return "";
@@ -8534,6 +8882,263 @@ function bodyExcerptOf(body) {
   }
   return `${body.slice(0, BODY_EXCERPT_MAX_CHARS - 1)}…`;
 }
+
+// service/poll/poller-events.ts
+var ITEM_EVENT_MAX_PAGES = 2;
+var NO_ACTOR = { login: "", type: "" };
+function actorOf(value) {
+  if (!isRecord(value)) {
+    return NO_ACTOR;
+  }
+  const { login, type } = value;
+  return {
+    login: typeof login === "string" ? login : "",
+    type: typeof type === "string" ? type : ""
+  };
+}
+function issueNumberOf(value) {
+  const record = isRecord(value) ? value : null;
+  if (record === null) {
+    return null;
+  }
+  const issueNumber = record.number;
+  return typeof issueNumber === "number" && Number.isInteger(issueNumber) && issueNumber > 0 ? issueNumber : null;
+}
+function createdAtOf(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return Number.isNaN(Date.parse(value)) ? null : value;
+}
+function readItemEventEntry(value) {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const createdAt = createdAtOf(value.created_at);
+  if (typeof value.event !== "string" || value.event === "" || createdAt === null) {
+    return null;
+  }
+  return {
+    event: value.event,
+    assignee: actorOf(value.assignee),
+    assigner: actorOf(value.assigner),
+    requestedReviewer: actorOf(value.requested_reviewer),
+    reviewRequester: actorOf(value.review_requester),
+    issueNumber: issueNumberOf(value.issue),
+    createdAt
+  };
+}
+function pageEndsWalk(input) {
+  return input.events.length < input.perPage || input.events.every((event) => !stampInWindow(event.createdAt, input.windowStart));
+}
+function qualifies(input, event) {
+  const isAssignment = input.kind === "assignment";
+  const subject = isAssignment ? event.assignee : event.requestedReviewer;
+  return (isAssignment ? event.event === "assigned" : event.event === "review_requested") && (event.issueNumber === null || event.issueNumber === input.issueNumber) && stampInWindow(event.createdAt, input.windowStart) && subject.login !== "" && subject.login.toLowerCase() === input.boundLogin.toLowerCase();
+}
+function namingEventOf(events, input) {
+  let newest = null;
+  for (const event of events) {
+    if (!qualifies(input, event)) {
+      continue;
+    }
+    if (newest === null || Date.parse(event.createdAt) > Date.parse(newest.createdAt)) {
+      newest = event;
+    }
+  }
+  return newest;
+}
+function actorOfNamingEvent(input) {
+  const named = input.kind === "assignment" ? input.event.assigner : input.event.reviewRequester;
+  if (!isAttributableAuthor(named.login, named.type)) {
+    return { usable: false, reason: named.login === "" ? "unreadable-actor" : "bot-actor" };
+  }
+  return { usable: true, login: actorLoginOf(named.login) };
+}
+function recordNoEvent(input) {
+  const { request, reason } = input;
+  request.log.warn("matched candidate produced no event this cycle", {
+    path: `issues/${request.issueNumber}`,
+    kind: request.kind,
+    reason,
+    maxPages: ITEM_EVENT_MAX_PAGES
+  });
+}
+async function resolveCandidateActor(request) {
+  const { repository } = request;
+  const listed = await request.poller.listIssueEvents({
+    token: request.token,
+    owner: repository.owner,
+    name: repository.name,
+    issueNumber: request.issueNumber,
+    windowStart: request.windowStart,
+    pace: request.pace
+  });
+  if (listed.kind !== "ok") {
+    return { kind: "failed", failure: listed };
+  }
+  const event = namingEventOf(listed.events, {
+    kind: request.kind,
+    boundLogin: request.boundLogin,
+    issueNumber: request.issueNumber,
+    windowStart: request.windowStart
+  });
+  if (event === null) {
+    if (listed.exhausted) {
+      request.log.warn("matched candidate produced no event this cycle", {
+        path: `issues/${request.issueNumber}`,
+        kind: request.kind,
+        reason: "page-bound-reached",
+        maxPages: ITEM_EVENT_MAX_PAGES
+      });
+      return { kind: "exhausted" };
+    }
+    recordNoEvent({ request, reason: "no-qualifying-event" });
+    return { kind: "refused", reason: "no-qualifying-event" };
+  }
+  const actor = actorOfNamingEvent({ kind: request.kind, event });
+  if (!actor.usable) {
+    recordNoEvent({ request, reason: actor.reason });
+    return { kind: "refused", reason: actor.reason };
+  }
+  return { kind: "actor", login: actor.login };
+}
+
+// service/poll/triggers-assignment.ts
+function isIssueAssignment(issue2, bindingLogin) {
+  if (issue2.state !== "open") {
+    return false;
+  }
+  return issue2.assignees.some((login) => login.toLowerCase() === bindingLogin.toLowerCase());
+}
+function assignmentEvent(input) {
+  const { binding, issue: issue2, actorLogin, detectedAt } = input;
+  const repository = repositoryRefOf(binding.repository);
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repository),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "assignment",
+    issue: {
+      issueNumber: issue2.issueNumber,
+      issueTitle: issue2.title,
+      issueUrl: issue2.url,
+      issueBodyExcerpt: bodyExcerptOf(issue2.body)
+    },
+    actorLogin,
+    actorAttribution: "direct",
+    triggerNote: "Issue assigned to the bound account",
+    detectedAt,
+    subjectType: issue2.isPullRequest ? "pull_request" : "issue"
+  });
+}
+async function assignmentEvents(input) {
+  const events = [];
+  for (const issue2 of input.issues) {
+    if (!stampInWindow(issue2.updatedAt, input.windowStart) || !isIssueAssignment(issue2, input.login)) {
+      continue;
+    }
+    const actor = await resolveCandidateActor({
+      poller: input.poller,
+      log: input.log,
+      token: input.token,
+      repository: repositoryRefOf(input.binding.repository),
+      issueNumber: issue2.issueNumber,
+      kind: "assignment",
+      boundLogin: input.login,
+      windowStart: input.windowStart,
+      pace: input.pace
+    });
+    if (actor.kind === "failed") {
+      return { ok: false, failure: actor.failure };
+    }
+    if (actor.kind === "actor") {
+      events.push(assignmentEvent({
+        binding: input.binding,
+        issue: issue2,
+        actorLogin: actor.login,
+        detectedAt: input.detectedAt
+      }));
+    }
+  }
+  return { ok: true, events };
+}
+
+// service/poll/triggers-review.ts
+function isReviewRequestPull(pull, bindingLogin) {
+  if (bindingLogin === "") {
+    return false;
+  }
+  const wanted = bindingLogin.toLowerCase();
+  return pull.requestedReviewers.some((candidate) => candidate.toLowerCase() === wanted);
+}
+function reviewEvent(input) {
+  const { binding, pull, actorLogin, detectedAt } = input;
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repositoryRefOf(binding.repository)),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "review",
+    headSha: pull.headSha,
+    baseRef: pull.baseRef,
+    issue: {
+      issueNumber: pull.pullNumber,
+      issueTitle: pull.title,
+      issueUrl: pull.url,
+      issueBodyExcerpt: ""
+    },
+    actorLogin,
+    actorAttribution: "direct",
+    triggerNote: `Pull request #${pull.pullNumber} requested the bound account's review`,
+    detectedAt,
+    subjectType: "pull_request"
+  });
+}
+async function reviewRequestEvents(input) {
+  const { binding, poller, token, login, windowStart, detectedAt, pace } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const listed = await poller.listOpenPulls({
+    token,
+    owner: repository.owner,
+    name: repository.name,
+    pace
+  });
+  if (listed.kind !== "ok") {
+    return { ok: false, failure: listed };
+  }
+  const events = [];
+  for (const pull of listed.pulls) {
+    if (!stampInWindow(pull.updatedAt, windowStart) || !isReviewRequestPull(pull, login)) {
+      continue;
+    }
+    const actor = await resolveCandidateActor({
+      poller,
+      log: input.log,
+      token,
+      repository,
+      issueNumber: pull.pullNumber,
+      kind: "review",
+      boundLogin: login,
+      windowStart,
+      pace
+    });
+    if (actor.kind === "failed") {
+      return { ok: false, failure: actor.failure };
+    }
+    if (actor.kind === "actor") {
+      events.push(reviewEvent({ binding, pull, actorLogin: actor.login, detectedAt }));
+    }
+  }
+  return { ok: true, events };
+}
+
+// service/poll/triggers.ts
 function isLoginCharacter(character) {
   return /^[A-Za-z0-9_-]$/.test(character);
 }
@@ -8554,38 +9159,25 @@ function mentionsLogin(body, login) {
   }
   return false;
 }
-function isBotAuthor(authorLogin, authorType) {
-  return authorLogin.toLowerCase().endsWith("[bot]") || authorType.toLowerCase() === "bot";
-}
-function isMentionableAuthor(authorLogin, authorType) {
-  return authorLogin !== "" && !isBotAuthor(authorLogin, authorType);
-}
 function isMentionComment(comment, bindingLogin) {
-  if (!isMentionableAuthor(comment.authorLogin, comment.authorType)) {
+  if (!isAttributableAuthor(comment.authorLogin, comment.authorType)) {
     return false;
   }
   return mentionsLogin(comment.body, bindingLogin);
 }
 function isIssueBodyMention(issue2, bindingLogin) {
-  if (!isMentionableAuthor(issue2.authorLogin, issue2.authorType)) {
+  if (!isAttributableAuthor(issue2.authorLogin, issue2.authorType)) {
     return false;
   }
   return mentionsLogin(issue2.body ?? "", bindingLogin);
-}
-function isReviewRequestPull(pull, bindingLogin) {
-  if (bindingLogin === "") {
-    return false;
-  }
-  const wanted = bindingLogin.toLowerCase();
-  return pull.requestedReviewers.some((candidate) => candidate.toLowerCase() === wanted);
 }
 function subjectShapeOf2(isPullRequest) {
   return isPullRequest ? "pull_request" : "issue";
 }
 function mentionEvent(input) {
   const { binding, comment, issue: issue2, detectedAt } = input;
-  const repository = repositoryRefOf(binding);
-  const commenter = comment.authorLogin.slice(0, AUTHOR_LOGIN_MAX_CHARS);
+  const repository = repositoryRefOf(binding.repository);
+  const commenter = actorLoginOf(comment.authorLogin);
   const fallbackUrl = `https://github.com/${repository.owner}/${repository.name}/issues/${comment.issueNumber}`;
   return createEvent({
     bindingId: binding.bindingId,
@@ -8603,6 +9195,8 @@ function mentionEvent(input) {
       issueUrl: issue2?.url ?? fallbackUrl,
       issueBodyExcerpt: bodyExcerptOf(comment.body)
     },
+    actorLogin: commenter,
+    actorAttribution: "direct",
     triggerNote: `Comment by ${commenter} on issue #${comment.issueNumber} mentioned the bound account`,
     detectedAt,
     ...issue2 === null ? {} : { subjectType: subjectShapeOf2(issue2.isPullRequest) }
@@ -8613,7 +9207,7 @@ function mentionEvents(input) {
   const known = new Map(issues.map((issue2) => [issue2.issueNumber, issue2]));
   const events = [];
   for (const comment of comments) {
-    const eligible = updatedInWindow(comment.updatedAt, windowStart) && isMentionComment(comment, login);
+    const eligible = stampInWindow(comment.updatedAt, windowStart) && isMentionComment(comment, login);
     if (!eligible) {
       continue;
     }
@@ -8624,10 +9218,10 @@ function mentionEvents(input) {
 }
 function bodyMentionEvents(input) {
   const { binding, login, issues, windowStart, detectedAt } = input;
-  const label = repositoryLabel(repositoryRefOf(binding));
+  const label = repositoryLabel(repositoryRefOf(binding.repository));
   const events = [];
   for (const issue2 of issues) {
-    const eligible = updatedInWindow(issue2.updatedAt, windowStart) && isIssueBodyMention(issue2, login);
+    const eligible = stampInWindow(issue2.updatedAt, windowStart) && isIssueBodyMention(issue2, login);
     if (!eligible) {
       continue;
     }
@@ -8646,6 +9240,8 @@ function bodyMentionEvents(input) {
         issueUrl: issue2.url,
         issueBodyExcerpt: bodyExcerptOf(issue2.body)
       },
+      actorLogin: actorLoginOf(issue2.authorLogin),
+      actorAttribution: "direct",
       triggerNote: "mentioned in issue body",
       detectedAt,
       subjectType: subjectShapeOf2(issue2.isPullRequest)
@@ -8653,41 +9249,9 @@ function bodyMentionEvents(input) {
   }
   return events;
 }
-function reviewEvents(input) {
-  const { binding, login, pulls, windowStart, detectedAt } = input;
-  const label = repositoryLabel(repositoryRefOf(binding));
-  const events = [];
-  for (const pull of pulls) {
-    const eligible = updatedInWindow(pull.updatedAt, windowStart) && isReviewRequestPull(pull, login);
-    if (!eligible) {
-      continue;
-    }
-    events.push(createEvent({
-      bindingId: binding.bindingId,
-      repository: label,
-      accountNumericUserId: binding.accountNumericUserId,
-      accountLogin: binding.accountLogin,
-      projectId: binding.projectId,
-      worktreeOption: binding.worktreeOption,
-      kind: "review",
-      headSha: pull.headSha,
-      baseRef: pull.baseRef,
-      issue: {
-        issueNumber: pull.pullNumber,
-        issueTitle: pull.title,
-        issueUrl: pull.url,
-        issueBodyExcerpt: ""
-      },
-      triggerNote: `Pull request #${pull.pullNumber} requested the bound account's review`,
-      detectedAt,
-      subjectType: "pull_request"
-    }));
-  }
-  return events;
-}
 async function mentionEventsOf(input) {
   const { poller, token, binding, login, windowStart, detectedAt, issues, pace } = input;
-  const repository = repositoryRefOf(binding);
+  const repository = repositoryRefOf(binding.repository);
   const listed = await poller.listIssueComments({
     token,
     owner: repository.owner,
@@ -8704,31 +9268,35 @@ async function mentionEventsOf(input) {
   ];
   return { ok: true, events };
 }
-async function reviewRequestEvents(input) {
-  const { poller, token, binding, login, windowStart, detectedAt, pace } = input;
-  const repository = repositoryRefOf(binding);
-  const listed = await poller.listOpenPulls({
+async function collectTriggerEvents(input) {
+  const { binding, poller, token, windowStart, pace } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const events = [];
+  const issues = binding.triggers.assignment || binding.triggers.mention ? await poller.listOpenIssues({
     token,
     owner: repository.owner,
     name: repository.name,
+    since: windowStart,
     pace
-  });
-  if (listed.kind !== "ok") {
-    return { ok: false, failure: listed };
+  }) : { kind: "ok", issues: [] };
+  if (issues.kind !== "ok") {
+    return { ok: false, failure: issues };
   }
-  const events = reviewEvents({ binding, login, pulls: listed.pulls, windowStart, detectedAt });
-  return { ok: true, events };
-}
-async function collectTriggerEvents(input) {
-  const events = [];
-  if (input.binding.triggers.mention === true) {
-    const branch = await mentionEventsOf(input);
+  if (binding.triggers.assignment) {
+    const branch = await assignmentEvents({ ...input, issues: issues.issues });
     if (!branch.ok) {
       return branch;
     }
     events.push(...branch.events);
   }
-  if (input.binding.triggers.reviewRequest === true) {
+  if (binding.triggers.mention) {
+    const branch = await mentionEventsOf({ ...input, issues: issues.issues });
+    if (!branch.ok) {
+      return branch;
+    }
+    events.push(...branch.events);
+  }
+  if (binding.triggers.reviewRequest) {
     const branch = await reviewRequestEvents(input);
     if (!branch.ok) {
       return branch;
@@ -8738,30 +9306,10 @@ async function collectTriggerEvents(input) {
   return { ok: true, events };
 }
 
-// service/poll/window.ts
-function windowFor(input) {
-  const recorded = input.scanned.bindings[input.binding.bindingId];
-  const lastScanAt = recorded?.lastScanAt ?? null;
-  if (lastScanAt === null) {
-    return null;
-  }
-  const openedAt = Date.parse(lastScanAt) - input.overlapMs;
-  if (!Number.isFinite(openedAt)) {
-    return null;
-  }
-  return new Date(openedAt).toISOString();
-}
-
 // service/poll/loop.ts
 function watchesAnything(binding) {
   const { assignment, mention, reviewRequest } = binding.triggers;
   return assignment || mention || reviewRequest;
-}
-function isIssueAssignment(issue2, bindingLogin) {
-  if (issue2.state !== "open") {
-    return false;
-  }
-  return issue2.assignees.some((login) => login.toLowerCase() === bindingLogin.toLowerCase());
 }
 function skipOf(outcome) {
   if (outcome.kind === "auth-failed") {
@@ -8772,41 +9320,10 @@ function skipOf(outcome) {
   }
   return outcome.detail === "timeout" || outcome.detail === "offline" ? "offline" : "upstream";
 }
-function eventsForBinding(input) {
-  const repository = repositoryRefOf(input.binding);
-  const { accountNumericUserId, accountLogin, projectId, worktreeOption } = input.binding;
-  const label = repositoryLabel(repository);
-  const events = [];
-  for (const issue2 of input.issues) {
-    const eligible = updatedInWindow(issue2.updatedAt, input.windowStart) && isIssueAssignment(issue2, input.binding.accountLogin);
-    if (!eligible) {
-      continue;
-    }
-    events.push(createEvent({
-      bindingId: input.binding.bindingId,
-      repository: label,
-      accountNumericUserId,
-      accountLogin,
-      projectId,
-      worktreeOption,
-      kind: "assignment",
-      issue: {
-        issueNumber: issue2.issueNumber,
-        issueTitle: issue2.title,
-        issueUrl: issue2.url,
-        issueBodyExcerpt: bodyExcerptOf(issue2.body)
-      },
-      triggerNote: "Issue assigned to the bound account",
-      detectedAt: input.detectedAt,
-      subjectType: issue2.isPullRequest ? "pull_request" : "issue"
-    }));
-  }
-  return events;
-}
 function blankScan(binding) {
   return {
     bindingId: binding.bindingId,
-    repository: repositoryLabel(repositoryRefOf(binding)),
+    repository: binding.repository,
     enqueued: 0,
     windowFrom: null,
     skipped: null
@@ -8814,32 +9331,17 @@ function blankScan(binding) {
 }
 async function collectScanEvents(input) {
   const { deps, binding, windowStart, detectedAt, token, login } = input;
-  const repository = repositoryRefOf(binding);
-  const issues = binding.triggers.assignment || binding.triggers.mention ? await deps.poller.listOpenIssues({
-    token,
-    owner: repository.owner,
-    name: repository.name,
-    since: windowStart,
-    pace: deps.pace
-  }) : { kind: "ok", issues: [] };
-  if (issues.kind !== "ok") {
-    return { ok: false, skipped: skipOf(issues) };
-  }
   const collected = await collectTriggerEvents({
     poller: deps.poller,
+    log: deps.log,
     token,
     binding,
     login,
     windowStart,
     detectedAt,
-    issues: issues.issues,
     pace: deps.pace
   });
-  if (!collected.ok) {
-    return { ok: false, skipped: skipOf(collected.failure) };
-  }
-  const matched = eventsForBinding({ binding, windowStart, issues: issues.issues, detectedAt });
-  return { ok: true, events: [...matched, ...collected.events] };
+  return collected.ok ? { ok: true, events: collected.events } : { ok: false, skipped: skipOf(collected.failure) };
 }
 async function scanBinding(input) {
   const { deps, scanned, detectedAt, binding } = input;
@@ -8970,129 +9472,35 @@ async function waitForRetry(input) {
   return record;
 }
 
-// service/poll/poller-entries.ts
-function asRecord(value) {
-  return isRecord(value) ? value : null;
-}
-function positiveIntOf2(value) {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
-}
-function textOf(record, field) {
-  const value = record[field];
-  return typeof value === "string" ? value : null;
-}
-function readLogins(value) {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const logins = [];
-  for (const entry of value) {
-    const login = asRecord(entry);
-    const candidate = login === null ? null : login.login;
-    if (typeof candidate !== "string" || candidate === "") {
-      return null;
-    }
-    logins.push(candidate);
-  }
-  return logins;
-}
-function authorLoginOf(user) {
-  return user === null ? "" : textOf(user, "login") ?? "";
-}
-function authorTypeOf(user) {
-  return user === null ? "" : textOf(user, "type") ?? "";
-}
-function issueNumberOf(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-  return positiveIntOf2(Number(value.slice(value.lastIndexOf("/") + 1)));
-}
-function readIssueEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const issueNumber = positiveIntOf2(record.number);
-  const title = textOf(record, "title");
-  const url = textOf(record, "html_url");
-  const state = textOf(record, "state");
-  const assignees = readLogins(record.assignees);
-  if (issueNumber === null || title === null || url === null || state === null || assignees === null) {
-    return null;
-  }
-  const user = asRecord(record.user);
-  return {
-    issueNumber,
-    title,
-    url,
-    state,
-    body: textOf(record, "body"),
-    authorLogin: authorLoginOf(user),
-    authorType: authorTypeOf(user),
-    assignees,
-    isPullRequest: "pull_request" in record,
-    updatedAt: textOf(record, "updated_at")
-  };
-}
-function readCommentEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const commentId = positiveIntOf2(record.id);
-  const issueNumber = issueNumberOf(record.issue_url);
-  const body = textOf(record, "body");
-  const url = textOf(record, "html_url");
-  const user = asRecord(record.user);
-  const authorLogin = authorLoginOf(user);
-  if (commentId === null || issueNumber === null || body === null || url === null || authorLogin === "") {
-    return null;
-  }
-  return {
-    commentId,
-    issueNumber,
-    body,
-    url,
-    authorLogin,
-    authorType: authorTypeOf(user),
-    updatedAt: textOf(record, "updated_at")
-  };
-}
-function readPullEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const pullNumber = positiveIntOf2(record.number);
-  const title = textOf(record, "title");
-  const url = textOf(record, "html_url");
-  const state = textOf(record, "state");
-  const requestedReviewers = readLogins(record.requested_reviewers);
-  if (pullNumber === null || title === null || url === null || state === null || requestedReviewers === null) {
-    return null;
-  }
-  const head = asRecord(record.head);
-  const base = asRecord(record.base);
-  return {
-    pullNumber,
-    title,
-    url,
-    state,
-    requestedReviewers,
-    headSha: head === null ? null : textOf(head, "sha"),
-    baseRef: base === null ? null : textOf(base, "ref"),
-    updatedAt: textOf(record, "updated_at")
-  };
-}
-
-// service/poll/poller-github.ts
+// service/poll/poller-transport.ts
 var STATUS_UNAUTHORIZED2 = 401;
 var STATUS_NOT_FOUND2 = 404;
 var STATUS_FORBIDDEN2 = 403;
 var STATUS_TOO_MANY_REQUESTS2 = 429;
 var MAX_LIST_PAGES = 2;
-var NEWEST_UPDATED_FIRST = { sort: "updated", direction: "desc" };
+var systemSleep = async (milliseconds) => {
+  await new Promise((resolve3) => {
+    setTimeout(resolve3, milliseconds);
+  });
+};
+function pollerRuntime(deps, fetchImpl) {
+  return {
+    fetchImpl,
+    log: deps.log,
+    sleep: deps.sleep ?? systemSleep,
+    random: deps.random ?? (() => Math.random())
+  };
+}
+function listUrl(input) {
+  const url = new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/${input.path}`);
+  for (const [key, value] of Object.entries(input.query)) {
+    url.searchParams.set(key, value);
+  }
+  if (input.since !== null) {
+    url.searchParams.set("since", input.since);
+  }
+  return url;
+}
 function parseListPage(input) {
   const parsed = parseJsonText(input.text);
   if (!parsed.ok || !Array.isArray(parsed.value)) {
@@ -9103,7 +9511,7 @@ function parseListPage(input) {
     return item === null ? [] : [item];
   });
 }
-async function classifyListOutcome(response) {
+async function classifyOutcome(response) {
   if (response.status === STATUS_UNAUTHORIZED2 || response.status === STATUS_NOT_FOUND2) {
     return { kind: "auth-failed" };
   }
@@ -9154,7 +9562,7 @@ async function requestPage(input) {
     if (response.ok) {
       return { response };
     }
-    last = await classifyListOutcome(response);
+    last = await classifyOutcome(response);
     if (last.kind === "auth-failed" || attempt >= attempts) {
       return { failure: last };
     }
@@ -9163,52 +9571,164 @@ async function requestPage(input) {
   }
   return { failure: last };
 }
+async function readOnePage(input) {
+  const attempt = await requestPage({
+    runtime: input.runtime,
+    token: input.token,
+    url: input.url,
+    pace: input.pace
+  });
+  if (!("response" in attempt)) {
+    return attempt.failure;
+  }
+  try {
+    return {
+      kind: "ok",
+      items: parseListPage({
+        text: await attempt.response.text(),
+        message: input.message,
+        read: input.read
+      })
+    };
+  } catch {
+    return { kind: "unavailable", detail: "upstream" };
+  }
+}
 async function listPages(input) {
   const items = [];
   for (let page = 1;page <= MAX_LIST_PAGES; page += 1) {
     input.url.searchParams.set("page", String(page));
     input.url.searchParams.set("per_page", String(input.pace.perPage));
-    const attempt = await requestPage({
-      runtime: input.runtime,
-      token: input.token,
-      url: input.url,
-      pace: input.pace
-    });
-    if (!("response" in attempt)) {
-      return attempt.failure;
+    const parsed = await readOnePage(input);
+    if (parsed.kind !== "ok") {
+      return parsed;
     }
-    let parsed;
-    try {
-      parsed = parseListPage({
-        text: await attempt.response.text(),
-        message: input.message,
-        read: input.read
-      });
-    } catch {
-      return { kind: "unavailable", detail: "upstream" };
-    }
-    items.push(...parsed);
-    if (parsed.length < input.pace.perPage) {
+    items.push(...parsed.items);
+    if (parsed.items.length < input.pace.perPage) {
       break;
     }
   }
   return { kind: "ok", items };
 }
-function listUrl(input) {
-  const url = new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/${input.path}`);
-  for (const [key, value] of Object.entries(input.query)) {
-    url.searchParams.set(key, value);
-  }
-  if (input.since !== null) {
-    url.searchParams.set("since", input.since);
-  }
-  return url;
+
+// service/poll/poller-entries.ts
+function asRecord(value) {
+  return isRecord(value) ? value : null;
 }
-var systemSleep = async (milliseconds) => {
-  await new Promise((resolve3) => {
-    setTimeout(resolve3, milliseconds);
-  });
-};
+function positiveIntOf2(value) {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+function textOf(record, field) {
+  const value = record[field];
+  return typeof value === "string" ? value : null;
+}
+function readLogins(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const logins = [];
+  for (const entry of value) {
+    const login = asRecord(entry);
+    const candidate = login === null ? null : login.login;
+    if (typeof candidate !== "string" || candidate === "") {
+      return null;
+    }
+    logins.push(candidate);
+  }
+  return logins;
+}
+function authorLoginOf(user) {
+  return user === null ? "" : textOf(user, "login") ?? "";
+}
+function authorTypeOf(user) {
+  return user === null ? "" : textOf(user, "type") ?? "";
+}
+function issueNumberOf2(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return positiveIntOf2(Number(value.slice(value.lastIndexOf("/") + 1)));
+}
+function readIssueEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const issueNumber = positiveIntOf2(record.number);
+  const title = textOf(record, "title");
+  const url = textOf(record, "html_url");
+  const state = textOf(record, "state");
+  const assignees = readLogins(record.assignees);
+  if (issueNumber === null || title === null || url === null || state === null || assignees === null) {
+    return null;
+  }
+  const user = asRecord(record.user);
+  return {
+    issueNumber,
+    title,
+    url,
+    state,
+    body: textOf(record, "body"),
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user),
+    assignees,
+    isPullRequest: "pull_request" in record,
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+function readCommentEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const commentId = positiveIntOf2(record.id);
+  const issueNumber = issueNumberOf2(record.issue_url);
+  const body = textOf(record, "body");
+  const url = textOf(record, "html_url");
+  const user = asRecord(record.user);
+  const authorLogin = authorLoginOf(user);
+  if (commentId === null || issueNumber === null || body === null || url === null || authorLogin === "") {
+    return null;
+  }
+  return {
+    commentId,
+    issueNumber,
+    body,
+    url,
+    authorLogin,
+    authorType: authorTypeOf(user),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+function readPullEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const pullNumber = positiveIntOf2(record.number);
+  const title = textOf(record, "title");
+  const url = textOf(record, "html_url");
+  const state = textOf(record, "state");
+  const requestedReviewers = readLogins(record.requested_reviewers);
+  if (pullNumber === null || title === null || url === null || state === null || requestedReviewers === null) {
+    return null;
+  }
+  const head = asRecord(record.head);
+  const base = asRecord(record.base);
+  return {
+    pullNumber,
+    title,
+    url,
+    state,
+    requestedReviewers,
+    headSha: head === null ? null : textOf(head, "sha"),
+    baseRef: base === null ? null : textOf(base, "ref"),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+
+// service/poll/poller-github.ts
+var NEWEST_UPDATED_FIRST = { sort: "updated", direction: "desc" };
 async function issuesList(runtime, query) {
   const result = await listPages({
     runtime,
@@ -9260,17 +9780,41 @@ async function pullsList(runtime, query) {
   });
   return result.kind === "ok" ? { kind: "ok", pulls: result.items } : result;
 }
-function createGitHubIssuePoller(deps, fetchImpl = (url, init) => globalThis.fetch(url, init)) {
-  const runtime = {
-    fetchImpl,
-    log: deps.log,
-    sleep: deps.sleep ?? systemSleep,
-    random: deps.random ?? (() => Math.random())
+function itemEventsUrl(input) {
+  return new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/issues/${input.issueNumber}/events`);
+}
+async function itemEventsList(runtime, query) {
+  const url = itemEventsUrl({ owner: query.owner, name: query.name, issueNumber: query.issueNumber });
+  const input = {
+    runtime,
+    token: query.token,
+    url,
+    pace: query.pace,
+    message: "issue events response was not an array",
+    read: readItemEventEntry
   };
+  const events = [];
+  for (let page = 1;page <= ITEM_EVENT_MAX_PAGES; page += 1) {
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("per_page", String(query.pace.perPage));
+    const parsed = await readOnePage(input);
+    if (parsed.kind !== "ok") {
+      return parsed;
+    }
+    events.push(...parsed.items);
+    if (pageEndsWalk({ events: parsed.items, windowStart: query.windowStart, perPage: query.pace.perPage })) {
+      return { kind: "ok", events, exhausted: false };
+    }
+  }
+  return { kind: "ok", events, exhausted: true };
+}
+function createGitHubIssuePoller(deps, fetchImpl = (url, init) => globalThis.fetch(url, init)) {
+  const runtime = pollerRuntime(deps, fetchImpl);
   return {
     listOpenIssues: (query) => issuesList(runtime, query),
     listIssueComments: (query) => commentsList(runtime, query),
-    listOpenPulls: (query) => pullsList(runtime, query)
+    listOpenPulls: (query) => pullsList(runtime, query),
+    listIssueEvents: (query) => itemEventsList(runtime, query)
   };
 }
 

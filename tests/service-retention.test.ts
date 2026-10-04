@@ -246,6 +246,7 @@ function idlePoller(): GitHubIssuePoller {
         listOpenIssues: async () => ({ kind: 'ok', issues: [] as readonly PollIssue[] }),
         listIssueComments: async () => ({ kind: 'ok', comments: [] }),
         listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
+        listIssueEvents: async () => ({ kind: 'ok', events: [], exhausted: false }),
     };
 }
 

@@ -1,7 +1,7 @@
 # Research: Agent Event Extension (Production) — new findings only
 
 **Feature**: `specs/002-agent-event-extension`
-**Researched**: 2026-09-27
+**Researched**: 2026-09-27 · **Amended**: 2026-10-03 (§R8, §R9, for the actor allow-list — GitHub issue #9)
 **Scope**: Everything already settled in `specs/001-agent-event-orchestrator/research.md` (GitHub platform §a, OpenChamber platform §b) is **not** re-researched here — that file was the canonical record. **Historical-path note (2026-09-28, cleanup review):** the whole `specs/001-agent-event-orchestrator/` directory was removed in commit `110c0a2` when `README.md` and `AGENTS.md` shipped, so that citation is **stamped provenance, not a live link** — recover it with `git show 110c0a2^:specs/001-agent-event-orchestrator/research.md`. Where its §a/§b findings bind the production system they are restated as requirements in `spec.md` (FR-004, FR-010, FR-011, FR-029, FR-034, `## Setup Prerequisites`) and in `spec.md`'s `## Research and Platform Decisions` table; **every short-form `001 §…` reference later in this file reads against that same removed file and is covered by this note** — none is a live link. This document records only what 002's planning added, with sources and version stamps.
 
 **Sources used here** (all retrieved 2026-09-27):
@@ -115,8 +115,171 @@ Cadence/budget arithmetic and the budget controller that keeps NFR-003 are speci
 - No per-call agent/model/variant (001 §b.2) — unchanged; docs `/sdk/host/`: "The extension never picks them."
 - SDK pin `1.24.2` exact (`spike-evidence.md` §1 — **historical path**: that file was removed with the 001 directory in commit `110c0a2`; the pin is live in `package.json` and its provenance in `spec.md` NFR-008); `engines.openchamber: ">=1.24.0"`; re-pin to the host release before live execution (NFR-008).
 
+## R8. Who acted — what the **list** feeds name, and what the **events** feed names (added 2026-10-03 for FR-044/FR-045; **entirely rewritten 2026-10-03 at v1.12.0**, because its original claim was false)
+
+> **What changed, and why this section is rewritten rather than amended.** The original §R8
+> established that *"GitHub's issues list exposes no `assigned_by`, no assign-event, and no
+> timeline"*, recorded the absent actor as a **contract limitation of the provider**, and
+> declared that this research *"does not propose a second API call to close the gap"* because the
+> specification had already ruled a **documented proxy** to be the honest reading. **That was
+> wrong.** The claim is true of the two endpoints the table examined and **false of GitHub**. A
+> two-endpoint sample was generalized to a provider, and the generalization was then recorded in
+> the same confident register as the rest of this file — with a "verified against the shipped
+> code, not from memory" note, which is true and which is exactly what made it misleading: the
+> shipped reader was verified, and the *provider* was not. The rewritten section below keeps the
+> correct half of the original (the list feeds really do name no actor) and replaces the rest.
+
+### The corrected finding
+
+**GitHub records both actors, in named fields.** They are on the **per-item events** feed, one
+endpoint away from the list feeds the poller already calls:
+
+`GET /repos/{owner}/{repo}/issues/{issue_number}/events` → item schema **`issue-event`**. Verified
+against the live API on this repository and against GitHub's own OpenAPI description
+(`github/rest-api-description`, path `/repos/{owner}/{repo}/issues/{issue_number}/events`).
+
+| Member | Type | What it is | Why it matters here |
+| --- | --- | --- | --- |
+| `event` | string, **no enum in the schema** | the kind word — `assigned`, `unassigned`, `review_requested`, `closed`, `merged`, `labeled`, `referenced`, `head_ref_deleted` observed | An unrecognized word must be **ignored**, never coerced into a known kind (FR-050) |
+| **`assigner`** | nullable `simple-user` | *"the person who performed the assignment"* | **The actor of an assignment.** Issue-events only — **not** on the timeline endpoint |
+| **`review_requester`** | nullable `simple-user` | *"the person who requested a review"* | **The actor of a review request** |
+| `assignee` | nullable `simple-user` | who was assigned | The **subject** — must equal the bound account for the event to answer an assignment candidate (FR-050) |
+| `requested_reviewer` | nullable `simple-user` | whose review was requested | The **subject** — must equal the bound account for a review candidate (FR-050) |
+| `actor` | nullable `simple-user` | *"the person who generated the event"* | **Not the field to read** — see below |
+| `created_at` | date-time | when the event happened | The **only** way to apply the window: these endpoints have **no `since` parameter** (FR-051) |
+| `issue` | nullable issue | carries `number` and `pull_request` | The `pull_request` member is what distinguishes a pull request from an issue |
+
+**Live evidence on this repository.** A `review_requested` event on issue **#14** returned
+`review_requester: shaunburdick`. `assigned` events on issues **#12, #8, #3** and **#2** each
+returned `assigner: shaunburdick`.
+
+**`actor` is not the field, and the distinction is the reason the correction is worth its cost.**
+In *every* row observed here `actor` equalled the explicit field — which is precisely why reading
+`actor` would look correct against this repository's data and be wrong in production. `actor` is
+documented as the person who **generated** the event; `assigner` and `review_requester` name the
+actor **of the act**. The two differ exactly where it matters most: an app or bot that acts on a
+human's instruction generates the event as the app and records the assignment or review request
+against the human. Reading `actor` would record the automation as the person who assigned the
+issue, and would put an app login into an allow-list comparison as though a person had. FR-049
+names the explicit fields for this reason and not for tidiness.
+
+### What the list feeds name — still true, and still why the events read is *additional*
+
+The original table's finding about the **list** feeds was correct and is preserved, because it is
+the reason the two stages exist rather than collapsing into one:
+
+| Feed | Endpoint the scan already calls | Names the author? | Names the actor of the *act*? |
+| --- | --- | --- | --- |
+| issues | `GET /repos/{owner}/{repo}/issues` | **yes** — `user` (the issue/PR **author**) | **no.** `assignees` is the *current* assignee set with nobody behind it on this endpoint |
+| issue comments | `GET /repos/{owner}/{repo}/issues/comments` | **yes** — `user` is the **comment's** author | **yes**, because the comment *is* the act that carried the mention |
+| pulls | `GET /repos/{owner}/{repo}/pulls` | on this endpoint's own shape, no — the shipped reader takes `requested_reviewers`, `head.sha`, `base.ref`, `state`, `html_url`, `updated_at` | **no.** `requested_reviewers` is the current reviewer set with no requester behind it |
+
+So the two stages are not redundant and the original author was right about **that**: the list
+feeds are how the product **detects** a candidate, cheaply and in bulk, and they cannot say who
+acted. The events feed is how it **attributes** one, per item, and it can. The defect was not in
+the two-stage shape. It was in concluding from "the list feed cannot say" that "nothing can say",
+and then declining to look one endpoint over.
+
+### The window: there is no `since`, and that is a hard constraint on the requirement
+
+| Endpoint | Query parameters | `since`? |
+| --- | --- | --- |
+| `GET /repos/{owner}/{repo}/issues/{issue_number}/events` | `per_page`, `page` | **no** |
+| `GET /repos/{owner}/{repo}/issues/events` (repository-wide) | `per_page`, `page` | **no** |
+| `GET /repos/{owner}/{repo}/issues/{issue_number}/timeline` | `per_page`, `page`, **`exclude`** | **no** |
+
+Any requirement phrased as "read the events since the window start" specifies a capability GitHub
+does not have. The window MUST be applied client-side by comparing `created_at` against
+`lastScanAt − overlapMs` (FR-051). This is also the second reason the read is **per item** rather
+than repository-wide: with no server-side window anywhere, a repository-wide read needs its own
+pagination-truncation concept, and a busy repository can push a rarely-scanned binding's in-window
+events past the page cap. Per-item reads keep the truncation surface the scan already has.
+
+### What is **not** established here, and must therefore fail closed
+
+Stated plainly because the honest reading of this section's history is that a confident claim in
+this file was wrong once, so the untested parts are named rather than left to be discovered in
+production. **This repository's data has only ever had one human actor**, which means three cases
+are **unobserved** and are specified by refusing rather than by guessing:
+
+- **Bot and app actors** on `assigner` / `review_requester`. Handled by the existing `isBotAuthor`
+  predicate, which reads the `simple-user` `type` exactly as it already does on every other feed —
+  `simple-user` carries both `login` and `type`, so **no new bot logic is invented**. If a future
+  row shows a bot that predicate misses, the outcome is a refused event, not a granted one.
+- **Bulk assignment** — several events naming the bound account inside one window. Handled by the
+  maximum-`created_at` rule (FR-050), which is defined for it whether or not it has been seen.
+- **A `null` `assigner` or `review_requester`** — never observed. Handled by **refusing** (FR-052),
+  deliberately, and specified to fail closed *even though the same row's `actor` member would
+  usually have been readable* — because that substitution is precisely the one that would make the
+  correction cosmetic. The refusal is self-healing rather than lossy: the scan window **overlaps**,
+  so the candidate is re-detected on the next cycle and the event is created exactly once.
+
+### What changed about the specification's shape, and what did not
+
+**The correction is mechanical, not structural.** Nothing about the actor's *member* changed: not
+its name, not its validation, not the closed union, not the additive `schemaVersion 1.2`, and not
+FR-046's rule keeping the actor out of the deterministic event identifier. The gate (003), the
+panel's rendering (005), and the containment rules are all untouched in shape. **What changed is
+which login lands on `actorLogin` for two of the four trigger kinds** — which is a change of
+correctness, not of scope.
+
+**`PollPull`'s `authorLogin` / `authorType` lose their stated reason to exist.** They were added at
+v1.11.0 for one purpose, quoted from that requirement: *"to make FR-044's `subject-author` basis
+possible at all … without them the review kind has no identity to attribute to."* The basis they
+existed for is gone, and the review kind's actor now comes from `review_requester`. FR-045's
+sentence requiring them is **struck**, no requirement now asks for them, and whether the
+implementation keeps or removes them is Phase 6's business. The strike is recorded here as well as
+in the requirement because a field that quietly stops having a consumer is the exact shape of drift
+a reader of the code would find before a reader of the spec.
+
+**`'subject-author'` survives as a readable, unproduced member** (FR-044). Rows the shipped build
+already wrote to `events.json` carry it; the union cannot be narrowed without refusing real stored
+rows, and a refused run row hides an entire dispatch at the panel. Collapsing the union to
+`'direct'` alone is the tidy-looking alternative and is explicitly **rejected** — recorded in
+`## Out of Scope` so a later reader does not "clean it up" into a data-loss bug.
+
+### On the method, because the method is what failed
+
+The original section ended by declining to propose the second call, and its stated reason was cost:
+*"one extra request per trigger — a real cost against SC-005's 1,500 requests/hour budget and a
+whole new pagination and failure surface for a value the specification has already ruled is a
+documented proxy."* Both halves of that reasoning were sound and the premise was not, which is the
+shape of mistake worth writing down: **a cost argument cannot make an unsound fact sound, and a
+ruling that rests on an unsound fact has to be re-examined, not re-costed.** The corrected design
+keeps the cost concern exactly as it was stated — per-item reads cost **zero** when nothing matched,
+are small when something did, and are charged to the same per-account budget as the scan (FR-049,
+SC-005 re-cut) — and it does not pay for that with a guessed actor. A wrong login in an audit trail
+is a cost too; it is just the one that does not appear on a rate-limit graph.
+
+## R9. GitHub login shape and length (added 2026-10-03, for FR-047's validation)
+
+The validator needs a definition of "a GitHub login" that is a **fact about
+GitHub** rather than a house rule, because the comparison is against a login
+GitHub itself issued.
+
+- **Alphabet**: alphanumeric, plus single hyphens between alphanumeric runs. A
+  login may not begin or end with a hyphen and may not contain consecutive
+  hyphens.
+- **Length**: at most **39** characters. A longer value can never match any
+  login GitHub issues, so refusing it at save is refusing an input that could
+  not have worked — the honest direction, and consistent with 002 FR-024's
+  refuse-malformed posture.
+- **Case**: GitHub logins are **case-insensitive** in practice — the same
+  repository reports them with the casing its owner chose. This is why 002
+  FR-047 compares case-insensitively and preserves the stored spelling, and it
+  is the same reason `mentionsLogin` folds case (FR-015).
+- **Bots**: an App or bot account's login carries a literal `[bot]` suffix. It
+  is syntactically a normal login, which is why the bot judgement checks the
+  suffix rather than the alphabet (and why plan D7 records that naming one is
+  accepted and inert rather than refused).
+- **Not a research dependency**: none of this needs a network call, a live host,
+  or a newer SDK. It is a fact about an API this project already polls, and it
+  is pinned by tests against fixtures rather than by a live probe — consistent
+  with the repository's offline testing rule (`AGENTS.md`).
+
 ## Open items this research leaves
 
 1. **Uninstall survival is an expectation, not a proof** (R2) — MUST-verify task T-033; docs claim gated on it.
 2. Live host build version was never recorded by the operator (001 §1 — *historical citation: the 001 record that carried it was removed in commit `110c0a2`; recover with `git show 110c0a2^:specs/001-agent-event-orchestrator/spike-evidence.md`*) — record it during T-033's live run.
 3. Whether the panel's `onSession` also fires without `openSession` (e.g. `navigation:'open'`) is *undocumented*; the plan does not depend on it, and tests pin only the documented path (R3).
+4. **002 v1.11.0 adds none.** R8 and R9 settle the two questions the allow-list raised (who the actor is, and what counts as a login) from the shipped readers and from GitHub's documented login rules. Three items the amendment raised are **not** research questions and are recorded as decisions or flags instead, each in the place that owns it: the `schemaVersion 1.2` question is plan D1, the omission-means-unset reading is plan D4, and the `[bot]`-entry reading is plan D7.

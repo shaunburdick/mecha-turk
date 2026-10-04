@@ -31,6 +31,7 @@ import { refresh } from './panel-ui.ts';
 import { CONFIG_PATH, serviceGet } from './service-calls.ts';
 import {
     accountLines,
+    actorPolicyLines,
     agentPinLines,
     bindingLines,
     noticeStates,
@@ -123,7 +124,7 @@ export interface StatusTabUi {
     readonly polling: StatusRowGroup;
     /** One row per account, with its rate baseline. */
     readonly accounts: StatusRowGroup;
-    /** One row per binding, under the heading **Bindings**. */
+    /** The allow-list roll-up, then one row per binding, under **Bindings**. */
     readonly bindings: StatusRowGroup;
     /** The Default Agent pin's three shapes. */
     readonly agentPin: StatusRowGroup;
@@ -288,6 +289,12 @@ export function repaintStatusTab(rt: PanelRuntime): void {
             paintRowGroup(group, []);
         }
 
+        // The one exception to "nothing claimed with nothing read": the
+        // allow-list roll-up states *not available* rather than vanishing,
+        // because an operator who cannot see it cannot tell a missing warning
+        // from a panel that did not check (005 FR-093, NFR-113).
+        paintRowGroup(ui.bindings, actorPolicyLines(view));
+
         return;
     }
 
@@ -295,6 +302,7 @@ export function repaintStatusTab(rt: PanelRuntime): void {
     paintRowGroup(ui.polling, pollingLines({ view, configured: slice.configuredIntervalMs, nowMs: Date.now() }));
     paintRowGroup(ui.accounts, accountLines(view));
     paintRowGroup(ui.bindings, [
+        ...actorPolicyLines(view),
         ...bindingLines(view),
         ...projectGuidanceLines({ bindings: view.bindings, registeredProjectIds: registeredProjects(rt) }),
     ]);

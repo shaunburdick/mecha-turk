@@ -92,6 +92,7 @@ const STATUS_BODY = JSON.stringify({
             lastError: null,
             pendingCount: 2,
             readable: true,
+            actorPolicy: 'open',
         },
     ],
     agentPin: { expectedAgent: 'project-manager', lastVerification: null },

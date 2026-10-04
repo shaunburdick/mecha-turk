@@ -92,6 +92,11 @@ const REFUSING_OPERATIONS = [
  * "carries the key" check.
  */
 const RESERVED_DETAIL_KEYS: readonly string[] = [
+    // `actorPolicy` is 003 v1.8.0's one required, **value-free** addition to this
+    // row (FR-079): the *shape* of the binding's allow-list at authorization,
+    // beside 004's prompt members. A permitted login here would be a second copy
+    // of the access policy in a file retained for months (NFR-113).
+    'actorPolicy',
     'attachmentId',
     'attempt',
     'bindingId',
@@ -105,6 +110,7 @@ const RESERVED_DETAIL_KEYS: readonly string[] = [
 
 /** The same, for `dispatch.result` in its dispatched shape (no `leaseId`, a `sessionId`). */
 const RESULT_DETAIL_KEYS: readonly string[] = [
+    'actorPolicy',
     'attempt',
     'bindingId',
     'dispatchTokenFingerprint',
@@ -659,6 +665,7 @@ function runWith(prompt: PromptSnapshot | null): Run {
         projectId: 'prj_42',
         worktreeOption: 'none',
         prompt,
+        actorPolicy: 'open',
         state: 'starting',
         stateReason: null,
         attempt: 1,

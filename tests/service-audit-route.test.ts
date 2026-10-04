@@ -231,6 +231,8 @@ function detection(): EventSnapshot {
             issueUrl: `https://github.com/${REPOSITORY}/issues/9`,
             issueBodyExcerpt: '',
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assigned',
         detectedAt: '2026-09-28T12:00:00.000Z',
     };

@@ -33,6 +33,7 @@ import { promptFingerprint, resolvePromptSnapshot } from '../service/prompt.ts';
 import { findSecretLeak } from '../src/redaction.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import { startTestService } from './support/service.ts';
+import { writeOpenBinding } from './support/binding-fixture.ts';
 import type { TestService } from './support/service.ts';
 
 /** Stamp every fixture uses, so no test ever waits on a clock. */
@@ -92,15 +93,6 @@ const afterEachWork1 = async (): Promise<void> => {
 
 afterEach(afterEachWork1);
 
-/** Start the real service against the offline GitHub fixture. */
-async function startService(): Promise<TestService> {
-    const service = await startTestService();
-    running.push(service);
-    await service.handle.reconciled;
-
-    return service;
-}
-
 /** The store the harness instance is serving, already open. */
 function storeOf(service: TestService): NonNullable<TestService['handle']['store']> {
     const { store } = service.handle;
@@ -109,6 +101,19 @@ function storeOf(service: TestService): NonNullable<TestService['handle']['store
     }
 
     return store;
+}
+
+/** Start the real service against the offline GitHub fixture. */
+async function startService(): Promise<TestService> {
+    const service = await startTestService();
+    running.push(service);
+    await service.handle.reconciled;
+    // The gate reads `bindings.json` at authorization and denies when it cannot
+    // (003 FR-076); the open policy keeps every "what was sent" assertion here
+    // about the prompt rather than the allow-list (002 FR-047).
+    await writeOpenBinding({ store: storeOf(service), bindingId: BINDING_ID });
+
+    return service;
 }
 
 /** Build an assignment detection for one issue. */
@@ -127,6 +132,8 @@ function assignment(issueNumber: number): EventSnapshot {
             issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
             issueBodyExcerpt: `body of issue ${issueNumber}`,
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assigned',
         detectedAt: STAMP,
     };

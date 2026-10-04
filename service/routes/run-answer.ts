@@ -35,6 +35,11 @@ const REFUSAL_STATUS = new Map<RunRefusal['code'], number>([
     ['already-reserved', STATUS.conflict],
     ['already-dispatched', STATUS.conflict],
     ['invalid-transition', STATUS.conflict],
+    // The actor-policy gate (003 FR-077). A `409` like every other state verdict
+    // on this path: the run exists, the request was well-formed, and the service
+    // answered "not authorized" — which the panel then reports as
+    // `blocked:actor-not-allowed` through the existing block report (FR-078).
+    ['actor-not-allowed', STATUS.conflict],
     ['cause-not-cleared', STATUS.conflict],
     // Mapped for completeness: a `422` is refused by this module through
     // {@link refuseRunRequest} rather than routed through
@@ -104,9 +109,18 @@ export function runOutcomeResponse(input: {
     }
 
     if (outcome.status === 'refused') {
-        return errorResponse(REFUSAL_STATUS.get(outcome.refusal.code) ?? STATUS.conflict, {
-            code: outcome.refusal.code,
-            message: outcome.refusal.message,
+        const { code, message, referenceWindow } = outcome.refusal;
+
+        // `referenceWindow` rides the envelope only where the gate set it, and is
+        // **copied** like the message rather than re-derived here: the route layer
+        // knows a status and a code, and the window is a fact about the decision
+        // the run layer just made (constitution II). Its absence is meaningful —
+        // it is how a panel tells "the gate judged the whole list" from "this
+        // build states no window" — so it is never defaulted to `complete`.
+        return errorResponse(REFUSAL_STATUS.get(code) ?? STATUS.conflict, {
+            code,
+            message,
+            ...(referenceWindow === undefined ? {} : { referenceWindow }),
         });
     }
 

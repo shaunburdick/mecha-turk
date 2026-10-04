@@ -1,6 +1,6 @@
 # Research: Dispatch Integrity & Recovery — new findings only
 
-**Feature**: `specs/003-dispatch-integrity` · **Spec**: v1.3.0 · **Date**: 2026-09-28
+**Feature**: `specs/003-dispatch-integrity` · **Spec**: v1.3.0 → **v1.10.0** · **Date**: 2026-09-28 · **Amended**: 2026-10-03 (§R5, for the actor allow-list gate — GitHub issue #9)
 
 This file answers only the questions **003** raises. Everything a platform question would otherwise re-open is already settled with stamped sources elsewhere; those are listed first and are *cited, not re-researched*.
 
@@ -44,6 +44,43 @@ This file answers only the questions **003** raises. Everything a platform quest
 - **Rationale**: crash between (1) and (2) leaves a run whose joining delivery was never stored — the next scan re-detects that observation (its delivery id was never written, so dedup does not suppress it) and coalesces into the same still-open run: no loss, no duplicate (FR-011, NFR-103). The reverse order would leave a delivery whose run does not exist, which nothing can repair (dedup would suppress the re-detection forever). Audit rows are written last because FR-063 already fixes the posture: an audit failure never rolls back durable state, it is logged and surfaced.
 - **Alternatives considered**: one merged file for both layers — rejected in plan.md D1 (a parser regression would take out both layers at once, and FR-012 puts the run link on the delivery, which presumes the delivery store survives); two-phase commit — rejected as disproportionate for a single-writer stdlib store at <10 repositories (constitution V).
 
+## R5. Where the gate's policy read goes, and what it costs (added 2026-10-03, for FR-076 / NFR-114)
+
+- **Decision**: `reserveDispatch` reads the bindings document **inside its `operateRun` chain
+  task**, through `service/bindings-read.ts`, once per reserve; `judgeActorPolicy` is handed the
+  binding it found (plan D13).
+- **Rationale**: FR-076 requires the *live* stored policy at the moment of authorization, and the
+  only reader that can supply it is the bindings read path — the same one the poll loop, the claim
+  route, and `GET /v1/bindings` use. The read is one small JSON file; its frequency is bounded by
+  **dispatch rate** (one per authorization) rather than by request rate, and it is entirely off the
+  hot path: the minute-scale call it precedes is `host.startSession()`.
+- **The finding that makes this a research item rather than a decision**: **NFR-114's premise is
+  false of the shipped code.** It states *"The gate reads the binding table the authorization path
+  already reads"* — but `reserveDispatch` today reads `CONFIG_FILE` (the result deadline) and the run
+  document, and **no** bindings document. Read strictly, adding the read violates NFR-114's letter.
+  The intent behind the sentence is a *latency* promise (p95 unchanged, no extra round trip, no
+  network), and that intent is met: one local file read, no HTTP, no extra panel↔service call, and
+  `B-7` asserts the round-trip count on the authorized path is **unchanged**. The letter is recorded
+  as a **flagged wording defect** in plan §B.5 with a recommended replacement, not silently
+  reinterpreted.
+- **Alternatives considered**:
+  (a) **a `writeBindings`-invalidated in-process cache** — rejected: `ServiceStore` exposes
+  `readJson`/`writeJson`/`appendLine`/`writeLines` and **no `stat`**, so a hand-edited
+  `bindings.json` would never be observed until a restart. 002 FR-047 requires the field to be
+  validated "on every read and every write", and a cache that cannot see a hand edit is a store
+  read whose result can be wrong. Trading one honest read for a silent staleness hole is the wrong
+  direction for a security control.
+  (b) **read the policy from the run's snapshot at enqueue** — rejected: that is the
+  "decided at enqueue" behaviour FR-076 exists to forbid, and it would mean a tightened list takes
+  effect only on **new** runs, leaving every queued run dispatchable under the old policy.
+  (c) **cache keyed on file mtime** — rejected for now: it needs the store to grow a `stat`
+  surface, which is a change to the store's public contract for a file whose read is already
+  bounded and cheap. Recorded here so the option is not rediscovered as if it did not exist.
+- **No external research was required.** The gate is this repository's own operation over its own
+  store; nothing here needs a network call, a live host, or a newer SDK.
+
 ## Open items this research leaves
 
 None blocking. Two items are *recorded decisions*, not open questions, and both are carried in plan.md: the attempt-count reading (plan "Attempt counting") and the FR-020 ↔ FR-033 token/reset tension (plan D6). Neither needs a product answer — each is the reading under which the spec's own normative sentences and acceptance criteria are simultaneously satisfiable — and both are pinned by tests in [tasks.md](./tasks.md) so a future reader argues with evidence, not with this file.
+
+**v1.8.0 adds none.** R5 settles the only question the gate raised — where its policy read goes — from the shipped code (`dispatch-authorize.ts` reads `config.json`; `ServiceStore` exposes no `stat`), and it leaves **one flagged item** rather than an open question: NFR-114's premise about an existing bindings read is false of the shipped build, and the wording is recommended for amendment at the gate (plan §B.5).

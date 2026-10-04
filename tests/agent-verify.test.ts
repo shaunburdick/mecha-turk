@@ -499,6 +499,8 @@ const RUN_ROW: RunRow = {
     promptFingerprint: null,
     promptLength: null,
     promptSources: null,
+    // No gate has judged this run yet (003 FR-079), so no policy shape exists.
+    actorPolicy: null,
 };
 
 describe('relay dispatch → verification wiring (M9 in the real path)', () => {

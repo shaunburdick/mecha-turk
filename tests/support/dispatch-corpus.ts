@@ -29,6 +29,7 @@ import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceStore } from '../../service/store/index.ts';
 import { startTestService } from './service.ts';
 import type { TestService } from './service.ts';
+import { writeOpenBinding } from './binding-fixture.ts';
 
 /** Hex characters behind the lease id prefix this build mints. */
 const LEASE_HEX_CHARS = 24;
@@ -151,13 +152,17 @@ function detection(input: {
             issueUrl: `https://github.com/${REPOSITORY}/issues/${input.issueNumber}`,
             issueBodyExcerpt: '',
         },
+        actorLogin: 'alice',
         triggerNote: `${input.kind} fixture`,
         detectedAt: input.detectedAt,
     };
 
+    // The basis is per trigger kind, not per fixture: a comment mention names
+    // its own author directly, an assignment is attributed to the issue author
+    // as a documented proxy (002 FR-044).
     return input.kind === 'mention'
-        ? { ...base, kind: 'mention', origin: 'comment', commentId: 4242 }
-        : { ...base, kind: 'assignment' };
+        ? { ...base, kind: 'mention', actorAttribution: 'direct', origin: 'comment', commentId: 4242 }
+        : { ...base, kind: 'assignment', actorAttribution: 'subject-author' };
 }
 
 /** The legacy row adoption starts from: shipped vocabulary, still `pending`. */
@@ -203,6 +208,18 @@ export async function startWithLegacyQueue(): Promise<{
 
         throw new Error('the harness store is unavailable');
     }
+
+    // The corpus drives every transition in the data model, several of which
+    // authorize a dispatch — and the authorization gate reads `bindings.json` at
+    // that moment and denies when it cannot (003 FR-076, constitution II). So the
+    // store holds the corpus's own binding, with the **open** policy a store
+    // predating the allow-list would carry (002 FR-047): the corpus keeps
+    // exercising the vocabulary, and the gate admits every run it reserves.
+    await writeOpenBinding({
+        store: opened,
+        bindingId: BINDING_ID,
+        options: { repository: REPOSITORY, accountNumericUserId: ACCOUNT_ID },
+    });
 
     return { service, store: opened };
 }

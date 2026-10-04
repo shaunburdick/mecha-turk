@@ -67,3 +67,25 @@ assertion, read it as citing the *behaviour* the string carried.
 **Functional requirements, security rules, and AGENTS.md's invariants are
 untouched.** The three security-floor proof files (`crash-permutations`,
 `dispatch-end-to-end`, `redaction`) were excluded from the consolidation.
+
+---
+
+## Amendment note — 2026-10-03 (spec v1.8.0: the actor allow-list gate; **not yet met**)
+
+The table above is the record of what proved what when this feature was
+accepted. **v1.8.0 adds four criteria and none of them is implemented yet** —
+they are listed here so the status file is the single place a reader checks, with
+each row pointing at the task that will discharge it rather than at evidence that
+does not exist. Nothing above changes: v1.8.0 re-cuts no requirement, renames no
+audit row, adds no audit event type, and changes no state, lease, token, or wire
+path.
+
+| Criterion | Status | Will be discharged by |
+| --- | --- | --- |
+| **003 AC-130** *(gate placement and refusal)* | **not started** | `B-2` + `B-3` (`tests/service-run-authorize.test.ts`): `409 actor-not-allowed`, no `dispatch.reserved` row, no token, a byte-identical run document, exactly one `dispatch.refused` row with the full detail set, no `host.startSession()` afterwards, and `already-dispatched` / `stale-lease` still reachable on their own paths |
+| **003 AC-131** *(blocking, not burning)* | **not started** | `B-4` + `B-5` (`tests/service-run-operations.test.ts`, `tests/relay-integrity.test.ts`): no attempt and no budget consumed, the sweep never touches it, the retry refused then succeeding once the login is allowed, with the cause recorded as corroborated |
+| **003 AC-132** *(open vs restricted, and no policy in the trail)* | **not started** | `B-3` + `B-6` (`tests/audit-vocabulary.test.ts`, `tests/bundle.test.ts`): `actorPolicy` on both admitted rows; a scan of every audit-writing path, the run record, the projection, the audit read, and both bundles finding **no permitted login**; a hand-edited run with an empty or bot-shaped actor refused |
+| **003 AC-133** *(coalesced run, and the cost)* | **not started** | `B-2` + `B-4` + `B-7` (`tests/service-run-authorize.test.ts`, `tests/relay-integrity.test.ts`): three references under `['alice']` authorize; three outside the list are refused with all three named; the authorized path's round-trip count unchanged |
+
+**Task ids refer to the consolidated list** at
+[`002-agent-event-extension/tasks.md` §"Issue #9 block (2026-10-03)"](../002-agent-event-extension/tasks.md).

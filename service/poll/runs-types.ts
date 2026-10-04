@@ -14,6 +14,7 @@
  */
 
 import type { PromptSnapshot } from '../prompt.ts';
+import type { ActorAttribution } from './attribution.ts';
 import type { EventKind } from './events-parse.ts';
 import type { RunSubjectType } from './run-key.ts';
 
@@ -45,6 +46,90 @@ export interface SourceReference {
     readonly detectedAt: string;
     /** `false` iff the run already held a reservation when this arrived. */
     readonly presentAtAuthorization: boolean;
+    /**
+     * The actor this delivery is attributed to (002 FR-043), copied from the
+     * queue row at join.
+     *
+     * **Absentable on read, validated when present.** A run stored before
+     * attribution existed carries neither actor member and still parses: it is
+     * history, and refusing it would quarantine the whole document. Absence
+     * means *no attribution was recorded*, which is a third thing — not an empty
+     * actor and not a guessed one — and it is exactly what makes 003 FR-080
+     * reachable: the authorization gate refuses such a run rather than admitting
+     * it on the strength of the binding's list.
+     */
+    readonly actorLogin?: string;
+    /**
+     * How that attribution was made (002 FR-044): `direct` when GitHub named
+     * the author of the text that carried the trigger, `subject-author` when the
+     * issue or pull-request author stands in as a documented proxy.
+     *
+     * Absentable and validated on the same terms as {@link
+     * SourceReference.actorLogin}; an unrecognized basis refuses the run rather
+     * than defaulting to a guess (002 FR-024, NFR-011).
+     */
+    readonly actorAttribution?: ActorAttribution;
+}
+
+/**
+ * The **shape** of the binding's allow-list at the moment of authorization
+ * (003 FR-079, NFR-113).
+ *
+ * Two words, never the logins: an audit trail or a run record listing who may
+ * trigger a repository is a second copy of the access policy in a file retained
+ * for months, and the permitted set's home is `bindings.json`. `'restricted'`
+ * therefore always means **at least one** login — an empty list is refused at
+ * save *and* on read (002 FR-047), so it can never reach here.
+ */
+export type ActorPolicy = 'open' | 'restricted';
+
+/**
+ * The gate's extra `dispatch.refused` details (003 FR-077, NFR-113).
+ *
+ * A refusal a reader cannot attribute is not an explainable refusal, so the row
+ * names **every denied login and each one's basis** — including where that basis
+ * was a proxy (002 NFR-011). What it never carries is a *permitted* login: the
+ * detail set is built from the run's own references and the policy's **shape**,
+ * never from the stored list, so there is no path by which the permitted set
+ * reaches the trail (NFR-113).
+ *
+ * Declared here rather than beside the gate because the shared chain
+ * ([`run-chain.ts`](./run-chain.ts)) threads it to the row builder, and the run
+ * vocabulary is the one module both already import.
+ */
+export interface ActorGateRefusal {
+    /** The binding whose policy refused the dispatch. */
+    readonly bindingId: string;
+    /** Shape of the allow-list in force, or `null` when it could not be read. */
+    readonly actorPolicy: ActorPolicy | null;
+    /**
+     * Every denied login, in the order the run's references list them.
+     *
+     * **Absent** on the one refusal made without a policy in hand — an
+     * unreadable bindings document, or a binding the document does not carry —
+     * because nothing was compared and naming a "denial" there would record a
+     * verdict the gate never reached (constitution II: a missing authorization
+     * is a stop condition, not a finding).
+     */
+    readonly deniedLogins?: readonly string[] | undefined;
+    /** Each denied login's basis, index-parallel to {@link deniedLogins}. */
+    readonly deniedAttributions?: readonly string[] | undefined;
+    /** How many references named no readable actor at all. */
+    readonly unreadableReferences: number;
+    /**
+     * How many references the gate actually judged.
+     *
+     * Recorded beside the refusal because a truncated list is what makes the
+     * verdict incomplete: the gate classifies from `sourceReferences`
+     * **exclusively**, so a run whose list was cut at the cap (T-038) is judged
+     * on less than it recorded, and an actor among the *dropped* references is
+     * invisible to the gate under **every** policy.
+     */
+    readonly retainedReferences: number;
+    /** How many joining triggers the cap refused to retain (T-038). */
+    readonly referencesNotRetained: number;
+    /** Whether the retained list was cut at the cap (NFR-107, T-038). */
+    readonly referencesTruncated: boolean;
 }
 
 /** One recorded dispatch attempt (003 Key Entities: DispatchAttempt). */
@@ -192,6 +277,18 @@ export interface Run {
      * and therefore composes a byte-identical message (004 AC-138).
      */
     readonly prompt: PromptSnapshot | null;
+    /**
+     * The shape of the binding's allow-list **in force when this run was
+     * authorized** (003 FR-079), snapshotted by the gate from the same read that
+     * made its decision so `dispatch.reserved` and `dispatch.result` provably
+     * describe one policy.
+     *
+     * `null` means **no authorization has been recorded yet** — a freshly
+     * enqueued run, an adopted pre-`actorPolicy` row, or one the gate refused
+     * (a refusal writes nothing to the run at all). It is a statement about the
+     * run, never a default of `'open'`, and it is never a permitted login.
+     */
+    readonly actorPolicy: ActorPolicy | null;
     /** Current state: one of the eight model states, or `blocked:<reason>`. */
     readonly state: RunState;
     /** Why the run sits where it does; required off `pending` (FR-074). */

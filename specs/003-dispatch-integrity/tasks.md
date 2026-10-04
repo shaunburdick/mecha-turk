@@ -180,3 +180,31 @@ Every task names its files and its suite above; the standing rules: tests are wr
 > be read as naming the *case* inside its merged proof; the `// case:` comment
 > in the file locates it. `crash-permutations.test.ts`,
 > `dispatch-end-to-end.test.ts`, and `redaction.test.ts` are untouched.
+
+---
+---
+
+## Issue #9 block — the actor allow-list gate (added 2026-10-03)
+
+**Task ids `B-1 … B-7`. The task text, its gate, and the wave graph live in the consolidated list**
+at [`002-agent-event-extension/tasks.md` §"Issue #9 block (2026-10-03)"](../002-agent-event-extension/tasks.md),
+which is the single source of truth for all three amended features. This block is a locality index
+and nothing more — do not fork a task from it.
+
+| Task | Surface | One line |
+| --- | --- | --- |
+| **B-1** | `runs-types.ts`, `runs-parse.ts`, `runs-join.ts`, `run-history-project.ts` | the run model gains `SourceReference.actorLogin` / `.actorAttribution` (absentable, validated) and the snapshotted `Run.actorPolicy`; the projection carries them and never a permitted login |
+| **B-2** | `dispatch-authorize.ts` | **the gate** — the one membership comparison, inside the chain task, after `judgeReserve` returns `null` and before any token is derived; encodes the coalesced rule and the bot/unreadable/unreadable-policy refusals as assertions |
+| **B-3** | `run-refusal.ts`, `routes/run-answer.ts`, `dispatch-audit.ts` | `409 actor-not-allowed`; the refusal row names every denied login and each one's basis; `actorPolicy` on `dispatch.reserved` and `dispatch.result`; **no new event type** |
+| **B-4** | `dispatch-block.ts`, `run-operate.ts` | the **fifth** declared `blocked:` cause, and retry corroboration re-checking the live policy with the same predicate |
+| **B-5** | `relay-gates.ts`, `dispatches-service.ts`, `dispatches-rows.ts` | the panel reports the block through the operation it already has, calls no `host.startSession()`, and gains the cause's label/reason/retry validity |
+| **B-6** | `tests/service-run-authorize.test.ts`, `tests/service-run-operations.test.ts`, `tests/audit-vocabulary.test.ts`, `tests/bundle.test.ts` | **003 AC-130 – AC-133**, plus the NFR-113 containment scan and the one-comparison source scan |
+| **B-7** | `tests/relay-integrity.test.ts` | the authorized path's round-trip count is unchanged; the refused path costs exactly one block report; a tightened list takes effect on the next authorization |
+
+**Phase 5 gate flags for this block** (decided for planning only; ratify before `B-2`/`B-3` are
+implemented — full statements in [plan.md §B.5](./plan.md) and
+[`002/pm-handoff.md`](../002-agent-event-extension/pm-handoff.md) §Flagged): **NFR-114's letter is
+false of the shipped build** (the authorization path reads no bindings document); **an unreadable
+bindings document answers the gate's one code** with an honest message rather than a new wire code;
+and **a historical `run.blocked` row may still name a login the operator has since permitted**, which
+is a true statement about a past decision and is therefore allowed.

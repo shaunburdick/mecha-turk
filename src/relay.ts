@@ -90,18 +90,25 @@ async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: Cla
     }
 
     const reserved = await reserveRun(rt, run);
-    if (reserved === null) {
+    if (reserved.kind === 'refused') {
+        // The actor-policy gate's one refusal this panel owes a report for
+        // (FR-078), posted through the operation every other guard already uses.
+        // Every other refusal ends the attempt here, having written nothing.
+        if (reserved.failure !== undefined) {
+            await refuseWithBlocked({ rt, run, failure: reserved.failure });
+        }
+
         return;
     }
 
     if (!stillRunning(rt)) {
-        await abandonReservation({ rt, run, token: reserved.dispatchToken });
+        await abandonReservation({ rt, run, token: reserved.reservation.dispatchToken });
 
         return;
     }
 
     const started = await startRunSession({ rt, run, project: verdict.project });
-    await closeAttempt({ rt, run, token: reserved.dispatchToken, started });
+    await closeAttempt({ rt, run, token: reserved.reservation.dispatchToken, started });
 }
 
 /**

@@ -22,6 +22,8 @@
  */
 
 import { parseJsonObject } from './json.ts';
+import { readRequiredActorPolicy } from './run-actor.ts';
+import type { ActorPolicy } from './run-actor.ts';
 
 /** One account row as the Status tab renders it (005 FR-030, FR-034). */
 export interface StatusAccountView {
@@ -67,6 +69,18 @@ export interface StatusBindingView {
     readonly pendingCount: number;
     /** `false` marks every scan-derived member unreadable (AC-105). */
     readonly readable: boolean;
+    /**
+     * The **shape** of this binding's actor allow-list, never its contents
+     * (005 FR-093; 003 NFR-113).
+     *
+     * **Required, and fail-closed on both counts.** A row whose value is
+     * outside the closed union, and a row that carries no value at all, each
+     * refuse the document: the panel has no honest way to render *unknown* for
+     * this one value, and NFR-113 forbids exactly the two defaults that would
+     * let it slip through — an absent policy rendered as neutral, or as
+     * `'open'`.
+     */
+    readonly actorPolicy: ActorPolicy;
 }
 
 /** Process health, location, and store state (005 FR-030). */
@@ -361,10 +375,11 @@ function parseBinding(value: unknown): StatusBindingView | null {
     const lastScanAt = asStringOrNull(row.lastScanAt);
     const lastError = asStringOrNull(row.lastError);
     const pendingCount = asNumber(row.pendingCount);
+    const actorPolicy = readRequiredActorPolicy(row.actorPolicy);
     const flags = typeof active === 'boolean' && typeof readable === 'boolean';
     if (
         identity === null || lastScanAt === undefined || lastError === undefined
-        || pendingCount === null || !flags
+        || pendingCount === null || actorPolicy === null || !flags
     ) {
         return null;
     }
@@ -376,6 +391,7 @@ function parseBinding(value: unknown): StatusBindingView | null {
         lastError,
         pendingCount,
         readable,
+        actorPolicy,
     };
 }
 

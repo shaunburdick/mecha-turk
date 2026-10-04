@@ -416,6 +416,28 @@ describe('GET /v1/status repositories — one row per stored binding (005 FR-032
         }
         await afterEachWork1();
         await afterEachWork1();
+        // case: rows the allow-list's shape, never a login (005 FR-093, NFR-113)
+        {
+            const service = await start();
+            await plantBindings(service, [
+                { ...bindingRow('open'), allowedUsers: ['alice', 'bob'] },
+                bindingRow('bare'),
+            ]);
+
+            const body = await readStatus(service);
+            const listed = body.repositories.find((row) => row.bindingId === 'bnd_open');
+            const bare = body.repositories.find((row) => row.bindingId === 'bnd_bare');
+
+            // `allowedUsers` present and non-empty is `restricted`; the member's
+            // absence is `open` (002 FR-047), and `'restricted'` therefore always
+            // means *at least one* login.
+            expect(listed?.actorPolicy).toBe('restricted');
+            expect(bare?.actorPolicy).toBe('open');
+            // The permitted set never leaves `bindings.json`.
+            expect(JSON.stringify(body)).not.toContain('alice');
+        }
+        await afterEachWork1();
+        await afterEachWork1();
         // case: rows five bindings, each with its own stamp, reason, and count (AC-104)
         {
             const service = await start();

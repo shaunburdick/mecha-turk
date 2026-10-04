@@ -5,14 +5,24 @@
  * Once per configured interval (existing `ServiceConfig.intervalMs`, default
  * 60 s) the loop walks every *enabled* binding carrying at least one trigger
  * this loop implements. Each scan presents the bound account's credential and
- * lists only the feeds those switches ask for — open issues newest-updated
- * first for the assignment, for the mention scan's issue-body pass, and for
- * the titles comment mentions resolve against; issue comments for M6; open
- * pull requests for M7 — each capped per the cut (two pages at ≤ 30 items
- * each, inside `poller-github.ts`). Every match becomes one queued event: one
- * observation (an assignment, a comment or issue-body mention, a review
- * request) can only ever produce one event, because the event id is
- * deterministic.
+ * turns the scan over to `triggers.ts`, which lists only the feeds those
+ * switches ask for — open issues newest-updated first for the assignment, for
+ * the mention scan's issue-body pass, and for the titles comment mentions
+ * resolve against; issue comments for M6; open pull requests for M7 — each
+ * capped per the cut (two pages at ≤ 30 items each, inside
+ * `poller-github.ts`). Every match becomes one queued event: one observation
+ * (an assignment, a comment or issue-body mention, a review request) can only
+ * ever produce one event, because the event id is deterministic.
+ *
+ * Two of those observations are now attributed from a **second** read, one per
+ * matched candidate: the item's own `…/issues/{number}/events` list, which is
+ * where GitHub records who assigned an issue and who requested a review (002
+ * FR-049). What this loop contributes to that is the rule that a **failure**
+ * there behaves like a list failure — one honest skip reason per binding, and a
+ * checkpoint that is retained rather than advanced (006 FR-058) — so a read that
+ * could not name the actor cannot slide the window past the assignment it could
+ * not attribute. A candidate that simply produced no event is a different
+ * outcome, recorded by the read itself and never a skip.
  *
  * The first scan of a binding *replays*: with no recorded `lastScanAt` the
  * loop sends no `since` filter, so every open item matching a trigger is
@@ -27,7 +37,6 @@
  * MVP cut asked for.
  */
 
-import { repositoryLabel } from '../../src/config.ts';
 import { readAccount } from '../accounts/store.ts';
 import { readBindings } from '../bindings-read.ts';
 import { resolvePromptSnapshot } from '../prompt.ts';
@@ -37,12 +46,12 @@ import type { BindingRecord } from '../bindings.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { readCycleConfig } from './cycle-config.ts';
-import { createEvent, enqueueEvents, readEvents } from './events.ts';
+import { enqueueEvents, readEvents } from './events.ts';
 import type { QueuedEvent } from './events.ts';
-import type { GitHubIssuePoller, ListPace, PollFailure, PollIssue } from './poller-github.ts';
+import type { GitHubIssuePoller, ListPace, PollFailure } from './poller-github.ts';
 import { readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
 import type { ScanState } from './scan.ts';
-import { bodyExcerptOf, collectTriggerEvents, repositoryRefOf, updatedInWindow } from './triggers.ts';
+import { collectTriggerEvents } from './triggers.ts';
 import { windowFor } from './window.ts';
 
 // The window rule lives beside its own rationale in `window.ts`; the loop
@@ -143,26 +152,12 @@ function watchesAnything(binding: BindingRecord): boolean {
 }
 
 /**
- * Decide whether one issue is an assignment the binding should react to.
- *
- * Closed subjects are skipped, and the assignment must name the bound
- * account's login. Pull-request assignment and review triggers can
- * both fire; the run layer coalesces them using the same PR subject key.
- *
- * @param issue - Normalized issue.
- * @param bindingLogin - The bound account's login.
- * @returns `true` when the issue is an open issue assigned to that account.
- */
-export function isIssueAssignment(issue: PollIssue, bindingLogin: string): boolean {
-    if (issue.state !== 'open') {
-        return false;
-    }
-
-    return issue.assignees.some((login) => login.toLowerCase() === bindingLogin.toLowerCase());
-}
-
-/**
  * Translate one upstream failure into a skip reason.
+ *
+ * One mapping for **every** upstream call the scan makes, the per-item events
+ * read included: `skipOf` is what turns a `PollFailure` into the one honest
+ * reason a binding's scan reports, and a second mapping for the actor read
+ * would be a second answer to "why did this scan stop" (constitution IV).
  *
  * @param outcome - The upstream classification; never `ok`.
  * @returns The short machine reason logged for the binding.
@@ -180,59 +175,6 @@ function skipOf(outcome: PollFailure): ScanSkip {
 }
 
 /**
- * Collect the events one binding's scan should enqueue.
- *
- * @param input - Binding, its window, the issues on the page, and the stamp.
- * @returns The events, in page order.
- */
-function eventsForBinding(input: {
-    /** The binding that produced the window. */
-    readonly binding: BindingRecord;
-    /** The window start the scan used; `null` on a replay scan. */
-    readonly windowStart: string | null;
-    /** The issues the pages yielded. */
-    readonly issues: readonly PollIssue[];
-    /** RFC 3339 stamp pinned at cycle start. */
-    readonly detectedAt: string;
-}): QueuedEvent[] {
-    const repository = repositoryRefOf(input.binding);
-    const { accountNumericUserId, accountLogin, projectId, worktreeOption } = input.binding;
-    const label = repositoryLabel(repository);
-
-    const events: QueuedEvent[] = [];
-    for (const issue of input.issues) {
-        const eligible = updatedInWindow(issue.updatedAt, input.windowStart)
-            && isIssueAssignment(issue, input.binding.accountLogin);
-        if (!eligible) {
-            continue;
-        }
-
-        events.push(
-            createEvent({
-                bindingId: input.binding.bindingId,
-                repository: label,
-                accountNumericUserId,
-                accountLogin,
-                projectId,
-                worktreeOption,
-                kind: 'assignment',
-                issue: {
-                    issueNumber: issue.issueNumber,
-                    issueTitle: issue.title,
-                    issueUrl: issue.url,
-                    issueBodyExcerpt: bodyExcerptOf(issue.body),
-                },
-                triggerNote: 'Issue assigned to the bound account',
-                detectedAt: input.detectedAt,
-                subjectType: issue.isPullRequest ? 'pull_request' : 'issue',
-            }),
-        );
-    }
-
-    return events;
-}
-
-/**
  * The outcome a binding's scan starts from, before anything is observed.
  *
  * @param binding - The binding the blank belongs to.
@@ -241,7 +183,7 @@ function eventsForBinding(input: {
 function blankScan(binding: BindingRecord): BindingScan {
     return {
         bindingId: binding.bindingId,
-        repository: repositoryLabel(repositoryRefOf(binding)),
+        repository: binding.repository,
         enqueued: 0,
         windowFrom: null,
         skipped: null,
@@ -256,14 +198,14 @@ type ScanListing =
 /**
  * List every feed this binding's triggers ask for and collect its events.
  *
- * The issue list feeds the assignment trigger, the mention scan's
- * issue-body pass, and the titles comment mentions resolve against;
- * {@link collectTriggerEvents} owns the comment and pull-request feeds. A
- * binding with none of those switches on lists no issues at all, so the rate
- * budget only ever pays for triggers the operator turned on. The first list
- * failure ends the listing and reports its class as the loop's skip reason.
+ * The work itself belongs to `triggers.ts`, which owns each branch's detection
+ * and its per-item actor read; what this function contributes is the cycle's own
+ * rule — **the first failure of any call ends the listing and becomes the loop's
+ * one skip reason for the binding**. A binding with none of its switches on lists
+ * nothing at all, so the rate budget only ever pays for triggers the operator
+ * turned on.
  *
- * @param input - Poller, credential, binding, window, and the cycle stamp.
+ * @param input - Poller, credential, logger, binding, window, and the cycle stamp.
  * @returns Every event this scan matched, or the skip reason.
  */
 async function collectScanEvents(input: {
@@ -281,31 +223,18 @@ async function collectScanEvents(input: {
     readonly login: string;
 }): Promise<ScanListing> {
     const { deps, binding, windowStart, detectedAt, token, login } = input;
-    const repository = repositoryRefOf(binding);
-    const issues = binding.triggers.assignment || binding.triggers.mention
-        ? await deps.poller.listOpenIssues({
-            token,
-            owner: repository.owner,
-            name: repository.name,
-            since: windowStart,
-            pace: deps.pace,
-        })
-        : { kind: 'ok' as const, issues: [] as readonly PollIssue[] };
-    if (issues.kind !== 'ok') {
-        return { ok: false, skipped: skipOf(issues) };
-    }
-
     const collected = await collectTriggerEvents({
-        poller: deps.poller, token, binding, login, windowStart, detectedAt, issues: issues.issues,
+        poller: deps.poller,
+        log: deps.log,
+        token,
+        binding,
+        login,
+        windowStart,
+        detectedAt,
         pace: deps.pace,
     });
-    if (!collected.ok) {
-        return { ok: false, skipped: skipOf(collected.failure) };
-    }
 
-    const matched = eventsForBinding({ binding, windowStart, issues: issues.issues, detectedAt });
-
-    return { ok: true, events: [...matched, ...collected.events] };
+    return collected.ok ? { ok: true, events: collected.events } : { ok: false, skipped: skipOf(collected.failure) };
 }
 
 /**

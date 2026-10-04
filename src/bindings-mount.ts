@@ -41,6 +41,7 @@ import {
     startNewBinding,
     stopEditingBinding,
 } from './bindings-edit.ts';
+import { storedActorsFor } from './bindings-actors.ts';
 import { storedPromptFor } from './bindings-prompt.ts';
 import { mountBindingsBody } from './bindings-body.ts';
 import { repaintBindingsPane } from './bindings-ui.ts';
@@ -69,7 +70,7 @@ import {
 
 /**
  * The prompt field's callback, and the row click that opens the editor
- * (005 FR-051, FR-052).
+ * (005 FR-051, FR-052, FR-090).
  *
  * Split out so the handler table below stays a table. Selecting a row both
  * selects it and loads it into the editor — the row *is* the Edit affordance
@@ -78,11 +79,11 @@ import {
  * selected before (005 FR-051).
  *
  * @param rt - Panel runtime the actions read and repaint.
- * @returns The handlers the field invokes.
+ * @returns The handlers the fields invoke.
  */
 function promptHandlers(rt: PanelRuntime): Pick<
     BindingsPaneHandlers,
-    'selectBinding' | 'setStartingPrompt'
+    'selectBinding' | 'setStartingPrompt' | 'setAllowedUsers'
 > {
     return {
         selectBinding: (id) => {
@@ -106,12 +107,15 @@ function promptHandlers(rt: PanelRuntime): Pick<
             // `editBindings`, because the load below repaints: one click must
             // paint once, and SC-105 counts the paints that carry the prompt.
             bindings.selectedBinding = id;
-            // The editor field opens on what the service holds for this row
-            // (004 FR-012) — never on a fingerprint, and never on whichever
-            // row was selected before (005 FR-051).
+            // The editor fields open on what the service holds for this row
+            // (004 FR-012, 002 FR-012) — never on a fingerprint, and never on
+            // whichever row was selected before (005 FR-051).
             bindings.startingPromptInput = storedPromptFor(bindings, id);
             bindings.startingPromptDirty = false;
             bindings.startingPromptError = null;
+            bindings.allowedUsersInput = storedActorsFor(bindings, id);
+            bindings.allowedUsersDirty = false;
+            bindings.allowedUsersError = null;
             // The click opens the editor on this row — or refuses to open it
             // (a worktree option this editor cannot render) and says why with
             // the editor shut and the draft clean (FR-003).
@@ -121,6 +125,11 @@ function promptHandlers(rt: PanelRuntime): Pick<
             startingPromptInput: value,
             startingPromptDirty: true,
             startingPromptError: null,
+        }),
+        setAllowedUsers: (value) => editBindings(rt, {
+            allowedUsersInput: value,
+            allowedUsersDirty: true,
+            allowedUsersError: null,
         }),
     };
 }

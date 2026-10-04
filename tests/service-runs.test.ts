@@ -94,6 +94,10 @@ const PROJECTED_FIELDS = [
     'promptFingerprint',
     'promptLength',
     'promptSources',
+    // The **shape** of the binding's allow-list at authorization, never a login
+    // (003 FR-079, NFR-113). Present on every row, including `null` for a run no
+    // gate has judged yet, so a reader never has to default it.
+    'actorPolicy',
 ] as const;
 
 /** Build a header map without writing HTTP header names as object keys. */
@@ -195,23 +199,28 @@ function snapshotOf(input: {
             issueUrl: `https://github.com/acme/widget/issues/${input.issueNumber}`,
             issueBodyExcerpt: '',
         },
+        actorLogin: 'alice',
         triggerNote: `${input.kind} fixture`,
         detectedAt: input.detectedAt,
     };
+    // The basis is per trigger kind, not per fixture: a comment mention names
+    // its own author directly, while an assignment and a review request are
+    // attributed to the subject's author as a documented proxy (002 FR-044).
     if (input.kind === 'review') {
         return {
             ...base,
             kind: 'review',
+            actorAttribution: 'subject-author',
             headSha: 'deadbeefcafe000000000000000000000000beef',
             baseRef: 'main',
         };
     }
 
     if (input.kind === 'mention') {
-        return { ...base, kind: 'mention', origin: 'comment', commentId: 4242 };
+        return { ...base, kind: 'mention', actorAttribution: 'direct', origin: 'comment', commentId: 4242 };
     }
 
-    return { ...base, kind: 'assignment' };
+    return { ...base, kind: 'assignment', actorAttribution: 'subject-author' };
 }
 
 /**

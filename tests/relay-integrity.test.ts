@@ -34,6 +34,13 @@ import type {
     StartSessionResult,
 } from '@openchamber/sdk';
 import { drainVerifications } from '../src/agent-verify.ts';
+import { actorGateFailure, ACTOR_NOT_ALLOWED as PANEL_ACTOR_NOT_ALLOWED } from '../src/relay-gates.ts';
+import type { BlockedReason } from '../src/relay-gates.ts';
+import {
+    ACTOR_BLOCKED_REASON as SERVICE_ACTOR_BLOCKED_REASON,
+    ACTOR_NOT_ALLOWED as SERVICE_ACTOR_NOT_ALLOWED,
+    judgeActorPolicy,
+} from '../service/poll/dispatch-actor-gate.ts';
 import { dispatchClaimedRun, handledKey, pollRelay } from '../src/relay.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
@@ -96,6 +103,9 @@ const EXPECTED_AGENT = 'project-manager';
 /** Title every fixture issue and session carries. */
 const ISSUE_TITLE = 'Fix the flaky test';
 
+/** The staleness code a reserve answers when the lease is expired or superseded. */
+const STALE_LEASE_CODE = 'stale-lease';
+
 /** One answer in the service-double route table. */
 interface RouteAnswer {
     /** HTTP status the service answers with. */
@@ -106,6 +116,12 @@ interface RouteAnswer {
 
 /** Route table keyed by `METHOD path`. */
 type RouteTable = Readonly<Record<string, RouteAnswer>>;
+
+/** A `409 stale-lease` reserve: a refusal the panel only notes, never a block. */
+const STALE_RESERVE_REFUSAL: RouteAnswer = {
+    status: 409,
+    body: JSON.stringify({ error: { code: STALE_LEASE_CODE, message: 'lease expired' } }),
+};
 
 /**
  * Build one offered run.
@@ -403,16 +419,13 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
         {
             const relay = harness({
                 ...OK_ROUTES,
-                [`POST ${RUN_PATH}/reserve`]: {
-                    status: 409,
-                    body: JSON.stringify({ error: { code: 'stale-lease', message: 'lease expired' } }),
-                },
+                [`POST ${RUN_PATH}/reserve`]: STALE_RESERVE_REFUSAL,
             });
 
             await dispatchClaimedRun(relay.rt, claimedRun());
 
             expect(relay.timeline).toEqual([`POST ${RUN_PATH}/reserve`]);
-            expect(relay.rt.state.bindings.note).toContain('stale-lease');
+            expect(relay.rt.state.bindings.note).toContain(STALE_LEASE_CODE);
         }
         // case: never reaches the host when the service answers an unreadable authorization
         {
@@ -591,6 +604,55 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
 /** Round trips 002's relay spent between detection and the host call. */
 const SHIPPED_ROUND_TRIPS = 1;
 
+/* ------------------------------------------------------------------------- *
+ * 003 v1.8.0 — the actor allow-list gate, from the panel's side (FR-076, FR-078)
+ *
+ * The panel **never pre-checks the list**. Everything here is about what it does
+ * with the service's answer: report the refusal as the block report every other
+ * guard already posts, and never reach `host.startSession()`.
+ * ------------------------------------------------------------------------- */
+
+/** The gate's wire code, as the refusal envelope and the blocked reason both spell it. */
+const ACTOR_BLOCKED_CODE = 'actor-not-allowed';
+
+/** The service's own refusal message, naming the denied login and its basis. */
+const GATE_REFUSAL_MESSAGE = "no source reference on this run names an actor the binding's allowedUsers permits: "
+    + 'bob (the author GitHub recorded)';
+
+/**
+ * The guidance an ordinary refusal carries, spelled as the panel posts it.
+ *
+ * One constant, used both to pin the ordinary block report byte-for-byte and as
+ * the value the truncated case must **differ** from — so "the truncated guidance
+ * says something else" is asserted against the sentence itself rather than
+ * against a substring of it.
+ */
+const ALLOW_LIST_GUIDANCE = 'add the GitHub logins that may trigger this repository to the binding\'s allowedUsers, '
+    + 'then retry this dispatch';
+
+/** The route table a `409 actor-not-allowed` reserve produces. */
+const ACTOR_GATE_REFUSAL: RouteTable = {
+    ...OK_ROUTES,
+    [`POST ${RUN_PATH}/reserve`]: {
+        status: 409,
+        body: JSON.stringify({
+            error: { code: ACTOR_BLOCKED_CODE, message: GATE_REFUSAL_MESSAGE },
+        }),
+    },
+};
+
+/**
+ * The login the binding's list permits.
+ *
+ * Named here so the one assertion that matters can be written against it: no
+ * permitted login may reach the panel, the trail, or a bundle (002 NFR-113),
+ * and this is the only member of the fixture the gate must keep to itself.
+ */
+const PERMITTED = 'alice';
+
+/** The login every reference on the saturated run below is attributed to. */
+const DENIED = 'bob';
+
 /** Runs the run-history cap fixture opens beyond the cap itself. */
 const RUN_HISTORY_OVERFLOW = 50;
 
@@ -619,6 +681,8 @@ function boundsDetection(issueNumber: number): EventSnapshot {
             issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
             issueBodyExcerpt: '',
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'bounds fixture',
         detectedAt: FIXTURE_TIMESTAMP,
     };
@@ -642,6 +706,79 @@ function seededRuns(count: number): {
         runs: planned.document.runs,
         deliveries: new Map(deliveries.map((delivery) => [delivery.id, delivery])),
     };
+}
+
+/**
+ * One retained reference on the saturated run, attributed to the denied login.
+ *
+ * @param index - The reference's position, used to keep ids and origins distinct.
+ * @returns The reference.
+ */
+function deniedReference(index: number): Run['sourceReferences'][number] {
+    // `comment:0` is not a legal origin, so the ordinal is 1-based — as it is in
+    // the store's own parser, which is what makes this a real reference.
+    const commentId = index + 1;
+
+    return {
+        deliveryId: `dlv-saturated-${commentId}`,
+        kind: MENTION_KIND,
+        origin: `comment:${commentId}`,
+        sourceUrl: `https://github.com/${REPOSITORY}/issues/1#issuecomment-${commentId}`,
+        detectedAt: FIXTURE_TIMESTAMP,
+        presentAtAuthorization: true,
+        actorLogin: DENIED,
+        actorAttribution: 'direct',
+    };
+}
+
+/**
+ * A run whose reference list the cap cut, with the **allowed** actor arriving
+ * last and therefore dropped.
+ *
+ * The exact wedge the gate's set quantifier exists to prevent, arriving by the
+ * other door (003 T-038): no policy can admit it, because the gate classifies
+ * from the retained list only. Seeded through the real enqueue pass so the run
+ * is one the product itself produced.
+ *
+ * @returns The saturated run.
+ */
+function saturatedRun(): Run {
+    const [seeded] = seededRuns(1).runs;
+    if (seeded === undefined) {
+        throw new Error('the enqueue pass created no run');
+    }
+
+    return {
+        ...seeded,
+        sourceReferences: Array.from({ length: MAX_SOURCE_REFERENCES }, (_unused, index) => deniedReference(index)),
+        referenceCount: MAX_SOURCE_REFERENCES + 1,
+        referencesNotRetained: 1,
+        referencesTruncated: true,
+    };
+}
+
+/**
+ * Drive one relay tick against a reserve that refuses with `error`, and read the
+ * guidance the block report carried.
+ *
+ * The whole path is exercised — envelope, classifier, gate failure, and the POST
+ * the service receives — so the assertion is about what an operator is actually
+ * told, not about one pure function's return value.
+ *
+ * @param error - The envelope's `error` member, verbatim.
+ * @returns The `guidance` the panel posted.
+ */
+async function guidanceFor(error: Readonly<Record<string, unknown>>): Promise<string> {
+    const relay = harness({
+        ...OK_ROUTES,
+        [`POST ${RUN_PATH}/reserve`]: { status: 409, body: JSON.stringify({ error }) },
+    });
+
+    await pollRelay(relay.rt);
+
+    const report = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/blocked`)) as Record<string, unknown>;
+
+    return typeof report.guidance === 'string' ? report.guidance : '';
 }
 
 /** The stored dispatch record, read without trusting its shape. */
@@ -679,6 +816,212 @@ describe('detection-to-session round trips (NFR-101, AC-127, SC-110)', () => {
         const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
         expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
         expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+    });
+
+    it('adds nothing on the authorized path, and one report on the refused one (003 NFR-114)', async () => {
+        // The gate is a **decision inside the reserve**, not a call of its own:
+        // the panel↔service round trip count on an authorized path is exactly
+        // what it was before this block, because the panel never asks about the
+        // allow-list (003 FR-076 — one membership comparison, in the service).
+        {
+            const relay = harness();
+            await pollRelay(relay.rt);
+
+            const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
+            expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
+            expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+        }
+        // The refused path costs exactly the **one** block report every guard
+        // already owes — no second call to re-ask, no probe of the list.
+        {
+            const relay = harness(ACTOR_GATE_REFUSAL);
+
+            await pollRelay(relay.rt);
+
+            expect(relay.timeline).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`, `POST ${RUN_PATH}/blocked`]);
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
+        }
+    });
+});
+
+describe('003 v1.8.0 the panel reports the gate through the block report (FR-078)', () => {
+    it('posts blocked with the service own words, and calls no host method (+3 cases)', async () => {
+        // case: reserve → 409 → blocked, with **zero** `host.startSession()`
+        {
+            const relay = harness(ACTOR_GATE_REFUSAL);
+
+            await pollRelay(relay.rt);
+
+            // The whole call log, in order. Nothing else happened: no result, no
+            // record, no read-back, and above all no host call (FR-028).
+            expect(relay.timeline).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`, `POST ${RUN_PATH}/blocked`]);
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
+        }
+        // case: the report names the cause, the denied login, and the field to fix
+        {
+            const relay = harness(ACTOR_GATE_REFUSAL);
+
+            await pollRelay(relay.rt);
+
+            const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/blocked`)) as Record<string, unknown>;
+            expect(body).toEqual({
+                correlationId: CORRELATION,
+                leaseId: LEASE_ID,
+                attempt: 1,
+                blockedReason: ACTOR_BLOCKED_CODE,
+                // The service's own message, verbatim: it names every denied
+                // login and its basis, and the panel adds no opinion (FR-077).
+                detail: GATE_REFUSAL_MESSAGE,
+                // The guidance names the **field**, never a login: the permitted
+                // set is configuration and never reaches the panel (NFR-113).
+                guidance: ALLOW_LIST_GUIDANCE,
+            });
+            expect(JSON.stringify(body)).not.toContain('permitted');
+        }
+        // case: a `409` that is not the gate's stays a bare refusal, un-reported
+        {
+            // `stale-lease` and `already-reserved` are `409` too. Reporting one of
+            // those as a policy denial would be this panel announcing a verdict
+            // the service never reached — the drift 003 exists to end.
+            const relay = harness({
+                ...OK_ROUTES,
+                [`POST ${RUN_PATH}/reserve`]: STALE_RESERVE_REFUSAL,
+            });
+
+            await pollRelay(relay.rt);
+
+            expect(relay.timeline).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+        }
+    });
+
+    it('narrows on the code, never the status (003 FR-076)', () => {
+        // The pure reader, so the narrowing rule is asserted directly rather
+        // than only through one route table: a `409` that is not the gate's
+        // yields `null` and the relay merely notes it.
+        expect(actorGateFailure({ code: ACTOR_BLOCKED_CODE, message: 'nobody is allowed', referenceWindow: null }))
+            .toMatchObject({
+                reason: ACTOR_BLOCKED_CODE,
+                detail: 'nobody is allowed',
+            });
+        for (const code of ['stale-lease', 'already-reserved', 'cause-not-cleared', null]) {
+            expect(
+                actorGateFailure({ code, message: 'some message', referenceWindow: null }),
+                `${String(code)} is not the gate's`,
+            ).toBeNull();
+        }
+        // A missing message still yields the panel's own honest phrase rather
+        // than an empty detail the route would refuse.
+        expect(
+            actorGateFailure({ code: ACTOR_BLOCKED_CODE, message: null, referenceWindow: null })?.detail,
+        ).toContain('allow-list');
+    });
+
+    it('tells the operator the truth about a cut reference list (003 T-038)', async () => {
+        // case: the service states the window it judged, as a value-free word
+        //
+        // Built by running the **real** gate over a saturated run rather than by
+        // writing a literal here, so this doubles as the drift test between the
+        // two vocabularies: the panel's closed pair and the service's can only
+        // agree if the word the panel reads is the word the gate writes.
+        {
+            const verdict = judgeActorPolicy({ run: saturatedRun(), allowedUsers: [PERMITTED] });
+            const refusal = verdict.admitted ? null : verdict.refused.refusal;
+
+            expect(verdict.admitted, 'the gate admitted a run no policy can admit').toBe(false);
+            expect(refusal?.code).toBe(ACTOR_BLOCKED_CODE);
+            expect(refusal?.referenceWindow).toBe('truncated');
+            // The word is value-free, and so is the sentence beside it.
+            expect(refusal?.message).toContain('incomplete list');
+            expect(refusal?.message).not.toContain(PERMITTED);
+        }
+        // case: the truncated guidance is a different sentence, and names no login
+        {
+            const ordinary = await guidanceFor({ code: ACTOR_BLOCKED_CODE, message: GATE_REFUSAL_MESSAGE });
+            const truncated = await guidanceFor({
+                code: ACTOR_BLOCKED_CODE,
+                message: GATE_REFUSAL_MESSAGE,
+                referenceWindow: 'truncated',
+            });
+
+            expect(truncated).not.toBe(ordinary);
+            // The ordinary case still names the field and still says retry —
+            // with a complete list that advice is true, and T-038 must not have
+            // quietly taken it away from the case it is right for.
+            expect(ordinary).toBe(ALLOW_LIST_GUIDANCE);
+            expect(ordinary).toContain('allowedUsers');
+            // The truncated case says the allow-list cannot clear it, so it must
+            // not tell the operator to change the allow-list and retry.
+            expect(truncated).toContain('cannot clear it');
+            expect(truncated).not.toContain('then retry this dispatch');
+            // Neither the permitted login the gate held nor the denied one it
+            // named may reach the guidance (002 NFR-113).
+            expect(truncated).not.toContain(PERMITTED);
+            expect(truncated).not.toContain(DENIED);
+            expect(ordinary).not.toContain(PERMITTED);
+        }
+        // case: neither branch reads the message — the word decides, alone
+        {
+            // A `complete` window with the truncated sentence attached still gets
+            // the ordinary guidance: the panel does not match prose, so a
+            // reworded message upstream can never move this branch.
+            const proseWithoutAWord = await guidanceFor({
+                code: ACTOR_BLOCKED_CODE,
+                message: `${GATE_REFUSAL_MESSAGE}; this run's source reference list was cut, so this decision was `
+                    + 'made on an incomplete list and no login on the repository can clear it',
+            });
+            const declaredComplete = await guidanceFor({
+                code: ACTOR_BLOCKED_CODE,
+                message: GATE_REFUSAL_MESSAGE,
+                referenceWindow: 'complete',
+            });
+
+            expect(proseWithoutAWord).toBe(declaredComplete);
+
+            // And the word alone is enough: an ordinary message plus `truncated`
+            // yields the truncated guidance, so nothing about the sentence is
+            // consulted.
+            const wordOnly = await guidanceFor({
+                code: ACTOR_BLOCKED_CODE,
+                message: 'no permitted actor',
+                referenceWindow: 'truncated',
+            });
+
+            expect(wordOnly).toBe(await guidanceFor({
+                code: ACTOR_BLOCKED_CODE,
+                message: GATE_REFUSAL_MESSAGE,
+                referenceWindow: 'truncated',
+            }));
+            // A word from a future build is refused rather than guessed at, and
+            // refusal lands on the ordinary guidance — the safe direction.
+            const unknownWord = await guidanceFor({
+                code: ACTOR_BLOCKED_CODE,
+                message: GATE_REFUSAL_MESSAGE,
+                referenceWindow: 'partly-seen',
+            });
+
+            expect(unknownWord).toBe(declaredComplete);
+        }
+    });
+
+    it('keeps the panel word and the service word in agreement', () => {
+        // Four declarations of one wire string exist because the extension and
+        // the service cannot import across their boundary: the panel's
+        // `BlockedReason` union, the panel's `ACTOR_NOT_ALLOWED`, the service's
+        // code, and the service's blocked cause. Nothing but this assertion stops
+        // one of them being renamed, and a rename on the panel side alone would
+        // make the panel **silently stop reporting** the gate's refusals — the
+        // reserve would be noted and the run would never be parked.
+        //
+        // The union is a **type**, so no runtime read can check it; assigning the
+        // exported value to it is the half that needs no assertion at all,
+        // because `npm run typecheck` fails the day the word leaves the union.
+        const declaredByTheUnion: BlockedReason = PANEL_ACTOR_NOT_ALLOWED;
+
+        expect(declaredByTheUnion).toBe(SERVICE_ACTOR_NOT_ALLOWED);
+        expect(SERVICE_ACTOR_BLOCKED_REASON).toBe(SERVICE_ACTOR_NOT_ALLOWED);
+        // And the fixture the rest of this block drives is the same word, so the
+        // block-report case above cannot pass on a stale literal either.
+        expect(ACTOR_BLOCKED_CODE).toBe(SERVICE_ACTOR_NOT_ALLOWED);
     });
 });
 

@@ -159,7 +159,7 @@ export async function servicePut(input: {
 
         return resultWithErrorOf(answer, LEGACY_RESOURCE);
     } catch (cause) {
-        return { ok: false, problem: describeTransport(cause), code: null, message: null };
+        return { ok: false, problem: describeTransport(cause), code: null, message: null, referenceWindow: null };
     }
 }
 
@@ -224,7 +224,7 @@ export async function servicePost(input: {
 
         return resultWithErrorOf(answer, LEGACY_RESOURCE);
     } catch (cause) {
-        return { ok: false, problem: describeTransport(cause), code: null, message: null };
+        return { ok: false, problem: describeTransport(cause), code: null, message: null, referenceWindow: null };
     }
 }
 
@@ -250,7 +250,7 @@ export async function serviceDelete(input: {
 
         return resultWithErrorOf(answer, LEGACY_RESOURCE);
     } catch (cause) {
-        return { ok: false, problem: describeTransport(cause), code: null, message: null };
+        return { ok: false, problem: describeTransport(cause), code: null, message: null, referenceWindow: null };
     }
 }
 

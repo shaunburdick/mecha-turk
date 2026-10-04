@@ -50,6 +50,7 @@ import type { BindingRecord } from '../service/bindings.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { DispatchAttempt, Run, RunState } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { writeOpenBinding } from './support/binding-fixture.ts';
 
 /** Stamp every fixture uses; no test ever waits on a clock. */
 const STAMP = '2026-09-28T09:00:00.000Z';
@@ -106,6 +107,14 @@ let store: ServiceStore;
 const beforeEachWork1 = async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-runops-'));
     store = await openStore({ dataDir: join(tempRoot, 'store') });
+    // The gate reads `bindings.json` at authorization and denies when it cannot
+    // (003 FR-076); the open policy keeps every retry assertion here testing the
+    // retry path rather than the allow-list (002 FR-047).
+    await writeOpenBinding({
+        store,
+        bindingId: BINDING_ID,
+        options: { repository: REPOSITORY, accountNumericUserId: ACCOUNT_ID },
+    });
     LOG_LINES.length = 0;
 };
 
@@ -134,6 +143,8 @@ function assignment(issueNumber: number): EventSnapshot {
             issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
             issueBodyExcerpt: `body ${issueNumber}`,
         },
+        actorLogin: 'alice',
+        actorAttribution: 'subject-author',
         triggerNote: 'assigned',
         detectedAt: STAMP,
     };
@@ -155,10 +166,45 @@ function binding(bindingId: string): BindingRecord {
     };
 }
 
-/** Persist the bindings the corroboration re-check reads. */
-async function storeBindings(...ids: readonly string[]): Promise<void> {
-    await writeBindings({ store, bindings: ids.map(binding) });
+/**
+ * Persist the bindings the corroboration re-check reads.
+ *
+ * @param ids - One binding id, optionally with its own allow-list — a policy
+ *   this suite's gate cases set directly.
+ * @returns A promise that settles once the document is durable.
+ */
+async function storeBindings(...ids: readonly (string | [string, readonly string[]])[]): Promise<void> {
+    await writeBindings({
+        store,
+        bindings: ids.map((entry) => typeof entry === 'string' ? binding(entry) : {
+            ...binding(entry[0]),
+            allowedUsers: entry[1],
+        }),
+    });
 }
+
+/** The retry code a blocked cause that has not cleared answers with (FR-041). */
+const CAUSE_NOT_CLEARED = 'cause-not-cleared';
+
+/** The fifth declared blocked cause the actor-policy gate parks a run in (003 FR-078). */
+const ACTOR_BLOCKED_STATE: RunState = 'blocked:actor-not-allowed';
+
+/**
+ * The login the gate fixtures permit, and the list form `storeBindings` takes.
+ *
+ * Seeded runs are attributed to `alice`, so a list naming that login is exactly
+ * the widened policy 003 AC-131's second half describes.
+ */
+const PERMITTED_LOGIN = 'alice';
+
+/**
+ * {@link PERMITTED_LOGIN} as the reader's list, named once so the two halves of
+ * AC-131 differ by exactly one thing: whether this list names the run's actor.
+ */
+const PERMITTED_LOGIN_LIST: readonly string[] = [PERMITTED_LOGIN];
+
+/** A populated list naming somebody who never triggered this run. */
+const UNRELATED_LOGIN_LIST: readonly string[] = ['someone-else'];
 
 /**
  * The outcome an attempt record must carry for the state it is seeded in.
@@ -702,7 +748,7 @@ describe('T-014 retry corroborates a blocked cause only where it can (FR-042, co
 
             expect(outcome.status).toBe('refused');
             const refusal = outcome.status === 'refused' ? outcome.refusal : null;
-            expect(refusal?.code).toBe('cause-not-cleared');
+            expect(refusal?.code).toBe(CAUSE_NOT_CLEARED);
             expect(refusal?.message).toContain(BINDING_ID);
         }
         await afterEachWork2();
@@ -775,7 +821,7 @@ describe('T-014 retry corroborates a blocked cause only where it can (FR-042, co
             });
 
             expect(outcome.status).toBe('refused');
-            expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe('cause-not-cleared');
+            expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe(CAUSE_NOT_CLEARED);
         }
     });
 });
@@ -1507,6 +1553,107 @@ describe('T-014 no audit row carries a dispatch token value (FR-061)', () => {
         for (const entry of entries) {
             expect(JSON.stringify(entry), `${entry.eventType} carried a dispatch token`)
                 .not.toMatch(/dtk-[0-9a-f]{8,}/);
+        }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * 003 v1.8.0 — the fifth declared cause (FR-078; AC-131)
+ *
+ * A policy refusal **parks** a run; it never burns it. That is the same treatment
+ * every other guard already gets, and the two properties worth proving are that a
+ * retry **re-checks the live policy with the gate's own predicate** — so a run
+ * cannot be retried into a dispatch the gate would refuse again — and that a
+ * refused retry consumes no attempt and no requeue budget.
+ * ------------------------------------------------------------------------- */
+
+describe('FR-078 a blocked actor-not-allowed run burns nothing', () => {
+    it('re-checks the live policy, and a refused retry consumes nothing (AC-131)', async () => {
+        // case: refuses a retry while the live policy still admits nobody
+        {
+            const run = await seedRun({ issueNumber: 40, state: ACTOR_BLOCKED_STATE });
+            // A populated list naming a **different** login: the gate would refuse
+            // this run again right now, so the retry must refuse too.
+            await storeBindings([BINDING_ID, UNRELATED_LOGIN_LIST]);
+
+            const outcome = await retryDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                causeCleared: true,
+                causeReport: 'I widened the list',
+                now: NOW,
+            });
+
+            expect(outcome.status).toBe('refused');
+            const refusal = outcome.status === 'refused' ? outcome.refusal : null;
+            expect(refusal?.code).toBe(CAUSE_NOT_CLEARED);
+            // Its own distinct reason, naming the binding whose policy still refuses.
+            expect(refusal?.message).toContain(BINDING_ID);
+            expect(await rowsOf(RETRY_ROW)).toHaveLength(0);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: a refused retry consumes neither an attempt nor requeue budget
+        {
+            const run = await seedRun({ issueNumber: 41, state: ACTOR_BLOCKED_STATE, requeuesUsed: 2 });
+            await storeBindings([BINDING_ID, UNRELATED_LOGIN_LIST]);
+
+            await retryDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                causeCleared: true,
+                causeReport: null,
+                now: NOW,
+            });
+
+            const after = await readRunsDocument({ store, log: LOGGER });
+            const stored = after.runs.find((candidate) => candidate.correlationId === run.correlationId);
+            expect(stored?.attempt).toBe(1);
+            expect(stored?.requeuesUsed).toBe(2);
+            expect(stored?.state).toBe(ACTOR_BLOCKED_STATE);
+        }
+        await afterEachWork2();
+        await beforeEachWork1();
+        await afterEachWork2();
+        await beforeEachWork1();
+        // case: widens the list, and the same retry succeeds as **corroborated**
+        {
+            const run = await seedRun({ issueNumber: 42, state: ACTOR_BLOCKED_STATE, requeuesUsed: 1 });
+            await storeBindings([BINDING_ID, PERMITTED_LOGIN_LIST]);
+
+            const outcome = await retryDispatch({
+                store,
+                log: LOGGER,
+                correlationId: run.correlationId,
+                attempt: 1,
+                causeCleared: true,
+                causeReport: null,
+                now: NOW,
+            });
+
+            expect(outcome.status).toBe('applied');
+            // The service re-read the list itself, so `corroborated` is the honest
+            // word — the same one `blocked:binding-missing` already earns.
+            const rows = await rowsOf(RETRY_ROW);
+            expect(rows[0]).toMatchObject({
+                causeClearedSource: CORROBORATED,
+                priorState: ACTOR_BLOCKED_STATE,
+                attemptBefore: 1,
+                attemptAfter: 2,
+            });
+            // The counters move exactly as for any other retry: the attempt moves,
+            // the budget does not (FR-041, plan D5).
+            const after = await readRunsDocument({ store, log: LOGGER });
+            const stored = after.runs.find((candidate) => candidate.correlationId === run.correlationId);
+            expect(stored?.attempt).toBe(2);
+            expect(stored?.requeuesUsed).toBe(1);
+            expect(stored?.state).toBe('pending');
         }
     });
 });
