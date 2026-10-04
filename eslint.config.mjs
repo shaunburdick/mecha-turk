@@ -58,6 +58,34 @@ export default [
             // were merged into `export … from` and the rule is silent on them
             // now that it ships `checkUsedVariables: false`.
             'unicorn/prefer-export-from': 'off',
+            // Eight findings, one of them in product code: redactDeep in audit.ts, the
+            // redaction pass that maps a JSON-ish value to the same value with
+            // every secret-shaped string replaced. Its input is `unknown` on
+            // purpose — it is the boundary-crossing mapper — and its four
+            // branches are string, array, record, and pass-through, so
+            // `unknown` is the honest union. The named type the rule asks for is
+            // real (`string | number | boolean | null | Json[] | {…}`) but
+            // `AuditInput.details` is `Record<string, unknown>` at 126 call
+            // sites across the service, so adopting it is a DTO change across
+            // every route rather than a lint fix — and it would also force a
+            // decision this module does not currently make about what happens
+            // to a value that is not JSON at all.
+            'llm-core/no-unknown-returns': 'off',
+            // 46 findings, and 13 of them sit in a function that must *not* become
+            // async. These are the chain-join and memoisation helpers —
+            // inWriteChain in audit.ts and scan.ts, inQueueChain and
+            // whenQueueIdle in runs-document.ts, auditCacheFor, serializeAudit,
+            // serializeScan, startAdoption, startReconciliation, startBootSweep
+            // — and each one either assigns to the chain it is joining before
+            // returning, or memoises its promise synchronously so that
+            // concurrent first callers share one seed read. `await` inserts a
+            // suspension point before that assignment, so complying would break
+            // the invariant the surrounding docblocks state as the reason the
+            // function exists. prefer-then-catch compounds it: the two-armed
+            // `.then(task, task)` is deliberate, because the chain must carry a
+            // previous rejection into the next slot without wedging.
+            'unicorn/prefer-await': 'off',
+            'unicorn/prefer-then-catch': 'off',
             // Wants a module renamed to match its single export: `auth.ts` ->
             // `is-authorized.ts`, `audit-protect.ts` ->
             // `chain-and-decision-seqs.ts`. That is a module-identity change

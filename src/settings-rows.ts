@@ -1,18 +1,18 @@
 /**
- * The Settings tab's row builder (006 T-018; FR-014, FR-022, FR-027, FR-030).
+ * The Settings tab's row builder.
  *
- * **005's stand-in is retired.** This file used to carry a panel-side copy of
- * the service's bounds, defaults, and enum set — a declaration that had to be
- * cross-checked against `service/config.ts` on every run because it *would*
- * drift, and that `tests/settings-rows.test.ts` has now reversed into
- * AC-106's zero-literals scan: the panel source carries no bound, unit,
- * default, accepted-value, or take-effect literal of its own (plan X7's single
+ * **The panel's stand-in copy is retired.** This file used to carry a panel-side
+ * copy of the service's bounds, defaults, and enum set — a declaration that had
+ * to be cross-checked against `service/config.ts` on every run because it
+ * *would* drift, and that `tests/settings-rows.test.ts` has now reversed into a
+ * zero-literals scan: the panel source carries no bound, unit,
+ * default, accepted-value, or take-effect literal of its own (the single
  * documented exception is `DEFAULT_EXPECTED_AGENT`, pinned to
  * `DEFAULT_CONFIG.expectedAgent` by test).
  *
  * What is here now is the projection-driven half: one row per descriptor the
  * service sent, plus a row for any `config` member it sent **no** descriptor
- * for. Three rules the rows obey (FR-014, FR-027, NFR-112):
+ * for. Three rules the rows obey:
  *
  * 1. **Every attribute comes from the wire** — name, unit-or-*none*,
  *    bounds-or-format, value, the class the service declared, and since the
@@ -20,25 +20,24 @@
  *    declares `multiline` gets a textarea). Nothing here knows a number the
  *    service did not send.
  * 2. **A value the build cannot type renders *unreadable*** with a remediation
- *    derived from the descriptor, and **never** a default in its place
- *    (AC-116, FR-028).
+ *    derived from the descriptor, and **never** a default in its place.
  * 3. **A member with no descriptor renders *field this version does not
- *    show***, with no borrowed bound and no promised effect (AC-115, FR-027).
+ *    show***, with no borrowed bound and no promised effect.
  *
- * And one rule on top of those, added with 004's layered prompt: a **string**
+ * And one rule on top of those, from the layered prompt: a **string**
  * field whose value is the empty document's *unset* shows the not-set word in
  * its value slot — in the row line, and as the placeholder that fills the
  * control's box — instead of an empty box that reads as an empty instruction
- * the agent will receive (004 FR-064, FR-089). The word is panel copy: FR-064
+ * the agent will receive. The word is panel copy: the requirement
  * asks for a *state*, which is the one thing a descriptor cannot declare about
  * its own emptiness. Every fact beside it — the service's `format` guidance
- * rendered as text, the cap, the default, the class — still comes off the wire
- * (006 FR-014; research R-4, plan D23).
+ * rendered as text, the cap, the default, the class — still comes off the wire.
  *
  * The take-effect *words* are panel copy — the service sends the class token,
- * and FR-030 requires the product's own words beside the field — so the map
+ * and the product's own words are required beside the field — so the map
  * below is keyed by the service's vocabulary and names no field: it claims
- * nothing about any particular row, which is exactly the line AC-106 draws.
+ * nothing about any particular row, which is exactly the line the zero-literals
+ * scan draws.
  */
 
 import { mountSelect, mountText, mountTextField } from '@openchamber/sdk/ui';
@@ -58,7 +57,7 @@ export interface SettingsRow {
     readonly field: string;
     /** The painted line: value, unit-or-none, bounds-or-format, and class. */
     readonly text: string;
-    /** The control's accessible name: name, unit, and the boundary (FR-018, FR-039). */
+    /** The control's accessible name: name, unit, and the boundary. */
     readonly label: string;
     /** The presentation affordance: bounds or format, plus the default. */
     readonly helper: string;
@@ -76,7 +75,6 @@ export interface SettingsRow {
  * `none` and `restart` are covered because the vocabulary is closed;
  * no field in this feature declares either.
  *
- * @param takesEffect - The class the descriptor carried.
  * @returns The words to print beside the field.
  */
 export function takeEffectWords(takesEffect: TakeEffectClass): string {
@@ -105,7 +103,7 @@ export function takeEffectWords(takesEffect: TakeEffectClass): string {
  * Panel copy rather than a descriptor member, because it reports a *state* —
  * this field is not set — and a declaration cannot describe its own absence.
  * It is the one sentence this module composes that names no bound, unit,
- * default, accepted value, or boundary, so AC-106's zero-literals scan still
+ * default, accepted value, or boundary, so the zero-literals scan still
  * holds: everything printed beside the word is the service's own.
  */
 const NOT_SET_WORD = 'not set';
@@ -116,7 +114,7 @@ const NOT_SET_WORD = 'not set';
  * Panel copy rather than a wire member: it is the same presentation constant
  * the account tier (`accounts-tab.ts`) and the binding tier
  * (`bindings-prompt.ts`) already render with, and unlike a bound, a default,
- * or an accepted value it claims nothing about the configuration — AC-106's
+ * or an accepted value it claims nothing about the configuration — the
  * scan looks for declarations of value, which this is not. *Whether* a row is
  * multiline is the descriptor's; *how many rows* is the panel's.
  */
@@ -128,10 +126,8 @@ const MULTILINE_ROWS = 4;
  *
  * An empty string is not printed as an empty slot: it prints the not-set word
  * while the format guidance beside it stays the descriptor's own text, so the
- * row reads as an honest state rather than a gap (004 FR-064; research R-4).
+ * row reads as an honest state rather than a gap.
  *
- * @param descriptor - The field's descriptor.
- * @param value - Its value as read from the document.
  * @returns The value segment.
  */
 function valuePart(descriptor: FieldDescriptor, value: number | string): string {
@@ -152,10 +148,8 @@ function valuePart(descriptor: FieldDescriptor, value: number | string): string 
  * The remediation for a value that does not match its descriptor.
  *
  * Built from the descriptor, never from a literal, so an operator who sees it
- * here and in a `422` reads the same sentence the service would have sent
- * (FR-024's spirit on the read path).
+ * here and in a `422` reads the same sentence the service would have sent.
  *
- * @param descriptor - The field's descriptor.
  * @returns The action that would make the row render as configured.
  */
 function shapeRemediation(descriptor: FieldDescriptor): string {
@@ -176,7 +170,6 @@ function shapeRemediation(descriptor: FieldDescriptor): string {
  * The control's accessible name: the documented name, its unit (or its
  * absence), and the boundary in the product's words.
  *
- * @param descriptor - The field's descriptor.
  * @returns The label the control is mounted with.
  */
 function labelOf(descriptor: FieldDescriptor): string {
@@ -187,10 +180,9 @@ function labelOf(descriptor: FieldDescriptor): string {
 
 /**
  * The presentation affordance: what the service declares about the shape of
- * the value, plus its default (FR-023 — these shape the control and the hint
- * and nothing else; the service remains the only validator).
+ * the value, plus its default — these shape the control and the hint and
+ * nothing else; the service remains the only validator.
  *
- * @param descriptor - The field's descriptor.
  * @returns The helper text the control carries.
  */
 function helperOf(descriptor: FieldDescriptor): string {
@@ -208,8 +200,6 @@ function helperOf(descriptor: FieldDescriptor): string {
 /**
  * Build the row for a member the service declared.
  *
- * @param envelope - The parsed document.
- * @param descriptor - The member's descriptor.
  * @returns The row: its painted line, its control's name, and its affordance.
  */
 function descriptorRow(envelope: ConfigEnvelope, descriptor: FieldDescriptor): SettingsRow {
@@ -243,8 +233,6 @@ function descriptorRow(envelope: ConfigEnvelope, descriptor: FieldDescriptor): S
  * and it gets **no affordance**, because a control here could not be wired to
  * a declaration the service never made.
  *
- * @param envelope - The parsed document.
- * @param name - The member's name.
  * @returns The row, which is never editable.
  */
 function undisplayedRow(envelope: ConfigEnvelope, name: string): SettingsRow {
@@ -274,10 +262,9 @@ function undisplayedRow(envelope: ConfigEnvelope, name: string): SettingsRow {
  * then one per member it declared nothing for.
  *
  * The count is derived, never asserted from a literal: twelve against an
- * 006-only projection, fourteen once 003's two fields are in it, and one more
+ * 006-only projection, fourteen once the dispatch fields are in it, and one more
  * for every key the service sent without a descriptor.
  *
- * @param envelope - The parsed `GET /v1/config` answer.
  * @returns The rows, in paint order.
  */
 export function settingsRows(envelope: ConfigEnvelope): readonly SettingsRow[] {
@@ -291,7 +278,7 @@ export function settingsRows(envelope: ConfigEnvelope): readonly SettingsRow[] {
 
 /** One mounted row: a control for a declared member, or a line for the rest. */
 export type SettingsRowHandle =
-    /** A member this build declares no control for (AC-115: no affordance). */
+    /** A member this build declares no control for, so no affordance at all. */
     | { readonly field: string; readonly kind: 'text'; readonly handle: TextHandle }
     /** A declared enum member, edited through the accepted set. */
     | { readonly field: string; readonly kind: 'enum'; readonly handle: SelectHandle }
@@ -329,7 +316,6 @@ export interface RowsContext {
 /**
  * The enum control's options, taken from the descriptor's accepted values.
  *
- * @param descriptor - The enum descriptor.
  * @returns The options, verbatim (an unknown value renders as itself).
  */
 function optionsFor(descriptor: FieldDescriptor): readonly { readonly id: string; readonly label: string }[] {
@@ -337,13 +323,12 @@ function optionsFor(descriptor: FieldDescriptor): readonly { readonly id: string
 }
 
 /**
- * The props a declared **enum** member's select mounts with (006 FR-010, FR-014).
+ * The props a declared **enum** member's select mounts with.
  *
  * Every attribute is the descriptor's or the tab's own state: the accepted
  * set verbatim, the label composed upstream from the same declaration, and
  * the service's current value — nothing here decides an option or a class.
  *
- * @param input - The row, its enum descriptor, and the tab's state.
  * @returns What `mountSelect` mounts with.
  */
 function enumFieldProps(input: {
@@ -366,22 +351,21 @@ function enumFieldProps(input: {
 }
 
 /**
- * The props a declared **value** member's text control mounts with (006 FR-010, FR-014).
+ * The props a declared **value** member's text control mounts with.
  *
  * Two rules ride the descriptor rather than the field's name:
  *
- * - a **string** field shows FR-064's honest absence in its value slot — an
+ * - a **string** field shows the honest-absence word in its value slot — an
  *   empty box states *not set* instead of reading as an empty instruction,
  *   and the word leaves the moment anything is in the field (the control
  *   underneath is untouched: same input, same keyboard path, same accessible
- *   name, 006 FR-018);
+ *   name);
  * - a descriptor that declares **`multiline`** mounts a textarea (owner
  *   ruling, PR #12), so the control's *shape* comes off the wire like every
  *   other row attribute — `expectedAgent`, which declares none, stays a
  *   one-line input. The row count is the shared presentation constant the
  *   account and binding tiers render with: a height, not a bound.
  *
- * @param input - The row, its descriptor, and the tab's state.
  * @returns What `mountTextField` mounts with.
  */
 function valueFieldProps(input: {
@@ -415,7 +399,6 @@ function valueFieldProps(input: {
  * nothing else: the label, the affordance, and the value were all composed
  * from the same declaration upstream, and the service stays the only validator.
  *
- * @param input - The container, the row, its descriptor, and the tab's state.
  * @returns The handle, tagged with which shape it mounted.
  */
 function mountDeclaredRow(input: {
@@ -447,7 +430,6 @@ function mountDeclaredRow(input: {
 /**
  * Mount one row's control (or its line) into the rows region.
  *
- * @param input - The container, the row, and everything the control reads.
  * @returns The handle, tagged with what kind it is.
  */
 function mountRow(input: {
@@ -477,7 +459,6 @@ function mountRow(input: {
 /**
  * Mount the whole rows region.
  *
- * @param input - The container, and everything the controls read.
  * @returns The mounted rows, plus the field list they were built from.
  */
 export function mountSettingsRows(input: {
@@ -502,9 +483,6 @@ export function mountSettingsRows(input: {
 /**
  * Patch the mounted rows for a repaint — no rebuild, so an input keeps its
  * focus and the operator's typing survives every state change.
- *
- * @param ui - The mounted rows.
- * @param context - Everything the controls read.
  */
 export function updateSettingsRows(ui: SettingsRowsUi, context: RowsContext): void {
     for (const handle of ui.handles) {

@@ -163,11 +163,10 @@ function redactDeep(input) {
     return value.map((item, index) => redactDeep({ value: item, path: `${path}[${index}]`, fields }));
   }
   if (isRecord(value)) {
-    const result = {};
-    for (const [key, child] of Object.entries(value)) {
-      result[key] = redactDeep({ value: child, path: path === "" ? key : `${path}.${key}`, fields });
-    }
-    return result;
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [
+      key,
+      redactDeep({ value: child, path: path === "" ? key : `${path}.${key}`, fields })
+    ]));
   }
   return value;
 }
