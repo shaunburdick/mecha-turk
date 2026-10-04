@@ -159,7 +159,6 @@ export interface AboutTabUi {
  * The version line: read, unread, or unreachable — never a synthesised
  * number.
  *
- * @param slice - The About tab's read state.
  * @returns The line the tab paints.
  */
 export function versionLine(slice: AboutTabState): string {
@@ -175,9 +174,8 @@ export function versionLine(slice: AboutTabState): string {
 }
 
 /**
- * The tab's own read state, in FR-019's three shapes.
+ * The tab's own read state, in the three shapes.
  *
- * @param slice - The About tab's read state.
  * @returns The read-state line the tab paints.
  */
 export function readStateLine(slice: AboutTabState): string {
@@ -206,8 +204,6 @@ export function readStateLine(slice: AboutTabState): string {
  *
  * Nothing runs when the tab has never been activated: the state still
  * updates, and the first activation repaints from it.
- *
- * @param rt - Panel runtime.
  */
 export function repaintAboutTab(rt: PanelRuntime): void {
     const ui = rt.aboutUi;
@@ -216,12 +212,12 @@ export function repaintAboutTab(rt: PanelRuntime): void {
     }
 
     const slice = rt.state.aboutTab;
-    const loading = slice.phase === 'loading';
+    const isLoading = slice.phase === 'loading';
 
     ui.version.update({ text: versionLine(slice) });
     ui.repoNote.update({ text: slice.repoProblem ?? '' });
     ui.readLine.update({ text: readStateLine(slice) });
-    ui.retry.update({ disabled: loading, loading });
+    ui.retry.update({ disabled: isLoading, loading: isLoading });
     ui.failureBox.hidden = slice.phase !== 'failed';
     if (slice.phase === 'failed') {
         ui.failure.update({
@@ -245,8 +241,6 @@ export function repaintAboutTab(rt: PanelRuntime): void {
  * One named action rather than an inline closure, so the control's own
  * behaviour is testable without reaching through mount props: closed by
  * default, opened by its control, and its label says which it currently is.
- *
- * @param rt - Panel runtime whose About state the control flips.
  */
 export function toggleDiagnostics(rt: PanelRuntime): void {
     rt.state.aboutTab.diagnosticsOpen = !rt.state.aboutTab.diagnosticsOpen;
@@ -260,9 +254,6 @@ export function toggleDiagnostics(rt: PanelRuntime): void {
  * link, so the About page reaches for the same one — no capability, no
  * invented navigation, no anchor that could unload the panel. A refusal lands
  * on the link's own line rather than being swallowed.
- *
- * @param rt - Panel runtime.
- * @param url - The href the operator activated.
  */
 export async function openRepository(rt: PanelRuntime, url: string): Promise<void> {
     try {
@@ -280,7 +271,6 @@ export async function openRepository(rt: PanelRuntime, url: string): Promise<voi
 /**
  * Read the version out of a health answer, fail closed.
  *
- * @param body - Response body text.
  * @returns The version string, or `null` when the answer carries none.
  */
 function versionFrom(body: string): string | null {
@@ -294,7 +284,6 @@ function versionFrom(body: string): string | null {
  * Whether the runtime was torn down mid-read: a call rather than a bare
  * `rt.disposed` read, so the analyzer cannot narrow the check away.
  *
- * @param rt - Panel runtime.
  * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
@@ -306,8 +295,6 @@ function tornDown(rt: PanelRuntime): boolean {
  *
  * Fail closed: an answer the panel cannot read is a failed read, never a
  * value. The tab retries only on an explicit operator action (contract §2).
- *
- * @param rt - Panel runtime.
  */
 export async function loadVersion(rt: PanelRuntime): Promise<void> {
     const slice = rt.state.aboutTab;
@@ -346,7 +333,6 @@ export async function loadVersion(rt: PanelRuntime): Promise<void> {
  * Mount the identity block: name, version, description, and the repository
  * link with its refusal line.
  *
- * @param input - Runtime whose read state paints the version, and the pane.
  * @returns The five handles.
  */
 function mountHeader(input: {
@@ -381,7 +367,6 @@ function mountHeader(input: {
 /**
  * Mount the re-read row and the failure notice behind it.
  *
- * @param input - Runtime whose read the control starts, and the pane.
  * @returns The four handles plus the notice wrapper.
  */
 function mountRetryRow(input: {
@@ -430,8 +415,6 @@ function mountRetryRow(input: {
  * `hidden` write on one element, and its label states which of the two it
  * currently is (FR-083: state as text, never colour alone).
  *
- * @param pane - Pane the disclosure mounts into.
- * @param onClick - What activating the control does.
  * @returns The control and the wrapper around the Diagnostics block.
  */
 function mountDisclosure(pane: HTMLElement, onClick: () => void): {
@@ -452,8 +435,6 @@ function mountDisclosure(pane: HTMLElement, onClick: () => void): {
 
 /**
  * Release every handle and node the About tab mounted.
- *
- * @param ui - The mounted view.
  */
 function disposeAbout(ui: AboutTabUi): void {
     ui.identity.dispose();
@@ -477,7 +458,6 @@ function disposeAbout(ui: AboutTabUi): void {
  * Mount the About tab: the identity block, the one re-read control, and the
  * Diagnostics disclosure.
  *
- * @param input - Runtime and the body container the shell created.
  * @returns The mounted view.
  */
 export function mountAboutTab(input: {
@@ -537,8 +517,6 @@ export function mountAboutTab(input: {
 
 /**
  * Dispose the About tab's handles and clear its slot.
- *
- * @param rt - Panel runtime being torn down.
  */
 export function disposeAboutTab(rt: PanelRuntime): void {
     const ui = rt.aboutUi;

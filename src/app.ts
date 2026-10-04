@@ -88,8 +88,7 @@ export interface PanelApp {
  * orchestration tests; the panel itself reaches this through the `onSettings`
  * subscription registered in {@link createPanelApp}.
  *
- * @param rt - Panel runtime.
- * @param settings - Values from `ctx.settings` (an empty record in practice).
+ * Values come from `ctx.settings`, which in practice is an empty record.
  */
 export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string, string>>): void {
     rt.state.settings = settings;
@@ -121,8 +120,6 @@ export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string
  *
  * Exported for the orchestration tests, which drive the picker without a DOM.
  *
- * @param rt - Panel runtime.
- * @param id - Project id the operator picked.
  */
 export async function selectProject(rt: PanelRuntime, id: string): Promise<void> {
     const candidate = parseProjectId(id);
@@ -153,8 +150,6 @@ export async function selectProject(rt: PanelRuntime, id: string): Promise<void>
  * the remount path — including restoring the evidence a reopened panel needs to
  * dispatch — can be driven directly by the orchestration tests.
  *
- * @param rt - Panel runtime.
- * @param mountedAt - RFC 3339 time of this mount.
  */
 export async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<void> {
     let stored: JsonValue | undefined;
@@ -204,7 +199,6 @@ export async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<v
  * collected on the runtime is released; the panel reaches it through the
  * `pagehide` hook and the `dispose()` handed back from {@link createPanelApp}.
  *
- * @param rt - Panel runtime to tear down.
  */
 export function teardown(rt: PanelRuntime): void {
     if (rt.disposed) {
@@ -266,7 +260,6 @@ export function teardown(rt: PanelRuntime): void {
  * before `disposed` is set, so the write is never skipped by the runtime's own
  * guard.
  *
- * @param rt - Panel runtime.
  */
 export function handlePagehide(rt: PanelRuntime): void {
     if (rt.disposed) {
@@ -286,7 +279,6 @@ export function handlePagehide(rt: PanelRuntime): void {
  * while the frame really can go away between two awaits — and carrying on would
  * reconcile, claim, and dispatch from a disposed panel.
  *
- * @param rt - Panel runtime.
  * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
@@ -295,9 +287,6 @@ function tornDown(rt: PanelRuntime): boolean {
 
 /**
  * Mount the panel: restore, configure, read, reconcile, repaint.
- *
- * @param rt - Panel runtime.
- * @param context - Ready snapshot from the host.
  */
 async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
     await loadLedger(rt, nowIso());
@@ -350,9 +339,6 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
  * only after every outstanding attempt has been re-reported, in a
  * `finally` so no mount path can leave the relay unarmed — or armed ahead of
  * its own reconciliation.
- *
- * @param rt - Panel runtime.
- * @param context - Ready snapshot from the host.
  */
 async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
     rt.reconcileSettled = false;
@@ -369,8 +355,7 @@ async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void>
  * Every registration is collected on the runtime so `teardown` can release
  * them, keeping the frame inside the host's 32-subscription budget.
  *
- * @param rt - Panel runtime.
- * @param root - Panel root element, needed to apply the theme once.
+ * The root element is needed to apply the theme once.
  */
 function registerHostListeners(rt: PanelRuntime, root: HTMLElement): void {
     const { host } = rt;
@@ -406,7 +391,6 @@ function registerHostListeners(rt: PanelRuntime, root: HTMLElement): void {
  * Mounts the UI immediately, then waits for `onReady` before reading settings
  * and storage, so the theme and context are applied exactly once.
  *
- * @param options - Host client, root element, and frame window.
  * @returns A handle that tears the panel down again.
  */
 export function createPanelApp(options: PanelAppOptions): PanelApp {
