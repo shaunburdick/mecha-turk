@@ -53,8 +53,8 @@
  *   `already-dispatched` — which names the session FR-022 and AC-112 require — and
  *   `stale-lease`, making both unreachable on the paths they exist for.
  *
- * Requirements: 003 FR-076 – FR-080, NFR-107, NFR-113; contract §1 in
- * [`contracts/dispatch-authorization.md`](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md).
+ * Contract: §1 of
+ * [`dispatch-authorization.md`](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md).
  */
 
 import { isActorAllowed } from '../bindings-allow-list.ts';
@@ -135,7 +135,6 @@ export type ActorPolicyVerdict =
  * list: a login GitHub marked as a bot is never attributed onto an event at all,
  * so one here can only come from a hand-edited document.
  *
- * @param reference - One retained source reference.
  * @returns The reference's classification.
  */
 function classifyActor(reference: Run['sourceReferences'][number]): ClassifiedActor {
@@ -158,7 +157,6 @@ interface ClassifiedRun {
 /**
  * Split one run's references into the two kinds the verdict is about.
  *
- * @param run - The run being authorized.
  * @returns The readable actors and the unreadable count.
  */
 function classifyRun(run: Run): ClassifiedRun {
@@ -184,7 +182,6 @@ interface JudgedWindow {
  * Read the window the verdict was decided on, for the detail set and the
  * messages that must admit the decision was made on an incomplete list.
  *
- * @param run - The run being authorized.
  * @returns The three counts the refusal records.
  */
 function judgedWindow(run: Run): JudgedWindow {
@@ -236,7 +233,6 @@ function refusalDetails(input: {
  *
  * Names no login — NFR-113's rule is absolute, and this word is about a list.
  *
- * @param run - The run being authorized.
  * @returns The window, complete or truncated.
  */
 function judgedWindowWord(run: Run): ReferenceWindow {
@@ -246,26 +242,16 @@ function judgedWindowWord(run: Run): ReferenceWindow {
 /**
  * The clause naming an incomplete reference list, and what cannot clear it.
  *
- * **The operator-facing half of the liveness rule.** The gate's quantifier runs
- * over the **retained** references, and the cap stops retaining at
- * {@link MAX_SOURCE_REFERENCES} — so a run whose list was cut can hold
- * an allowed actor among the *dropped* references, and no policy change can ever
- * admit it. That is exactly the permanent wedge the quantifier exists to
- * prevent, arriving by the other door: admitting on truncation would admit an
- * authorization nobody granted (constitution II), and refusing silently would
- * break constitution IV's promise that an operator can tell *why*. So the
- * refusal says the decision was made on a partial list and that the remedy is
- * **not** an allow-list edit.
+ * **The operator-facing half of the liveness rule** the module header states:
+ * the decision was made on a partial list, and the remedy is **not** an
+ * allow-list edit.
  *
- * The sentence and {@link judgedWindowWord} are the same fact in two forms: the
- * first for a reader, the second for a machine. They are built from the same
- * boolean on purpose — the prose is for the operator, the word is for the
- * panel, and neither derives the other by parsing.
+ * The sentence and {@link judgedWindowWord} are that one fact in two forms,
+ * built from the same boolean on purpose, so neither derives the other by
+ * parsing.
  *
- * Names no login — NFR-113's rule is absolute, and this clause has nothing to
- * do with whose login it is.
+ * Names no login: this clause is about a list, not about whose login it is.
  *
- * @param run - The run being authorized.
  * @returns The clause, or the empty string when the list is complete.
  */
 function truncatedNote(run: Run): string {
@@ -281,21 +267,19 @@ function truncatedNote(run: Run): string {
 /**
  * Name every denied login with its basis, as the refusal message reads it.
  *
- * Each basis is spelled in the vocabulary 002 FR-044 defines, so a login is
- * named with the provenance of its attribution and never as a claim that a
- * denied actor caused anything.
+ * Each basis is spelled in the vocabulary the attribution union defines, so a
+ * login is named with the provenance of its attribution and never as a claim
+ * that a denied actor caused anything.
  *
- * The `subject-author` clause is the one string here that had to be re-cut at
- * 002 v1.12.0. It used to say *"a proxy, GitHub does not record who assigned or
- * requested"*, which was **false**: GitHub records both, in `assigner` and
- * `review_requester` on the item's own event list, and every row this service
- * writes now carries `direct` because of it. What a `subject-author` row still
- * needs an operator to know is narrower — *this login was whatever the rule in
- * force at write time could name* — and that stays true whatever GitHub supports
- * now, so the clause states the row's provenance and asserts nothing about the
- * provider.
+ * The `subject-author` clause is the one string here that had to change when the
+ * attribution premise was corrected. It used to say *"a proxy, GitHub does not
+ * record who assigned or requested"*, which was **false** — GitHub records
+ * both, in `assigner` and `review_requester` on the item's own event list. What
+ * a `subject-author` row still needs an operator to know is narrower: *this
+ * login was whatever the rule in force at write time could name*. That stays
+ * true whatever GitHub supports now, so the clause states the row's provenance
+ * and asserts nothing about the provider.
  *
- * @param actors - Every denied login, in reference order.
  * @returns The comma-separated list.
  */
 function namedActors(actors: readonly Extract<ClassifiedActor, { readonly readable: true }>[]): string {
@@ -309,7 +293,6 @@ function namedActors(actors: readonly Extract<ClassifiedActor, { readonly readab
 /**
  * The trailing clause naming references the list could never have judged.
  *
- * @param unreadableReferences - How many such references the run carries.
  * @returns The clause, honest in both directions.
  */
 function unreadableNote(unreadableReferences: number): string {
@@ -321,22 +304,13 @@ function unreadableNote(unreadableReferences: number): string {
 /**
  * The refusal one denied run leaves behind, whatever its message.
  *
+ * **One builder for both denials**, because the two facts it adds — the
+ * truncation clause and the window word — are added by the same two lines and
+ * must never be added to one denial and not the other. An operator told to
+ * widen a list that cannot widen it has been told to do something useless, and
+ * the retry re-judges from the same truncated list anyway.
  *
- * **One builder for both denials**, because the two facts they add to the
- * message are added by the same two lines and must never be added to one and
- * not the other:
- *
- * - the truncation clause, which rides **every** refusal message: an operator
- *   told to widen a list that cannot widen it has been told to do something
- *   useless, and FR-078's retry re-judges from the same truncated list anyway;
- *
- * - and the window as a **word** beside it, so the panel can tell this case
- *   from an ordinary one without a second parse of a sentence it is otherwise
- *   only obliged to copy.
- *
- * @param input - The run, the policy in force, the message, and the run's
- *   classified actors.
- * @returns The refusal, carrying FR-077's detail set and the judged window.
+ * @returns The refusal, carrying the gate's detail set and the judged window.
  */
 function deniedPolicyRefusal(input: {
     /** The run being authorized. */
@@ -370,28 +344,20 @@ function deniedPolicyRefusal(input: {
 }
 
 /**
- * Judge one run's actor policy (003 FR-076 – FR-080; plan D14).
+ * Judge one run's actor policy.
  *
- * An unreadable actor is refused **regardless** of the policy, so the
- * admitted case requires at least one reference that names a readable login the
- * list allows. Under an **open** policy every readable login is allowed, so the
- * admitted condition reduces to "some reference names a readable actor" — and a
- * run with no readable actor at all is refused under either policy.
+ * An unreadable actor is refused **regardless** of the policy, so the admitted
+ * case requires at least one reference naming a readable login the list allows.
+ * Under an **open** policy every readable login is allowed, so the condition
+ * reduces to "some reference names a readable actor" — and a run with no
+ * readable actor at all is refused under either policy.
  *
- * The quantifier reads `sourceReferences` and nothing else, so a **truncated**
- * list is judged as though the dropped references did not exist — see the
- * module's fourth bullet. Every refusal this returns carries that fact in its
- * message, in its detail set, and as a word on the wire, so neither the caller
- * nor the panel has to guess whether the list it judged was the whole history.
+ * Pure: the caller owns the store read and the write, so the same predicate can
+ * re-judge a `blocked:actor-not-allowed` run against a live read on the retry
+ * path. That is what makes "a run cannot be retried into a dispatch this gate
+ * would refuse again" a property rather than a hope.
  *
- * Pure: the caller owns the store read and the write, so the same
- * predicate can re-judge a `blocked:actor-not-allowed` run against a live read on
- * the retry path — which is what makes "a run cannot be
- * retried into a dispatch this gate would refuse again" a property rather than a
- * hope.
- *
- * @param input - The run, and the policy exactly as the live read found it.
- * @returns The shape in force, or the refusal carrying FR-077's detail set.
+ * @returns The shape in force, or the refusal carrying the gate's detail set.
  */
 export function judgeActorPolicy(input: {
     /** The run being authorized. */
@@ -434,17 +400,16 @@ export type UnreadablePolicyCause =
     | 'binding-absent';
 
 /**
- * The gate's verdict when the policy could not be read at all (constitution II,
- * 002 FR-024; plan D15).
+ * The gate's verdict when the policy could not be read at all.
  *
- * **One code, not a new one.** A vocabulary addition is a compatibility tax
- * (`AGENTS.md` invariant 10, paid twice already), and this decision needs no new
- * one: an absent document, an unusable one, and a document that simply no longer
- * carries the binding leave the run in the same place and are repaired the same
- * way. What they are **not** the same is the operator's next action, so the
- * message names which of the three it was — "the allow-list for binding X could
- * not be read" is exactly the sentence an operator cannot act on, and pointing
- * somebody at a file that is perfectly readable is worse than saying nothing.
+ * **One code, not a new one.** A vocabulary addition is a compatibility tax,
+ * paid twice already, and this decision needs no new one: an absent document, an
+ * unusable one, and a document that simply no longer carries the binding leave
+ * the run in the same place and are repaired the same way. What they are **not**
+ * the same is the operator's next action, so the message names which of the
+ * three it was — "the allow-list for binding X could not be read" is exactly the
+ * sentence an operator cannot act on, and pointing somebody at a file that is
+ * perfectly readable is worse than saying nothing.
  *
  * `actorPolicy` is `null` rather than a guessed `'open'`, because there was no
  * policy to shape: the row says what it knows, which is that it knows nothing.
@@ -453,8 +418,6 @@ export type UnreadablePolicyCause =
  * refused* (constitution IV). The counts the run alone answers **are** recorded,
  * because they are facts about the run and not about a policy nobody read.
  *
- * @param run - The run being authorized.
- * @param cause - Which of the two unreadable-policy causes fired.
  * @returns The refusal, naming the cause without naming a login.
  */
 export function unreadablePolicyRefusal(run: Run, cause: UnreadablePolicyCause): ActorPolicyVerdict {
@@ -491,7 +454,7 @@ export type LivePolicy =
     | { readonly readable: false; readonly cause: UnreadablePolicyCause };
 
 /**
- * Read the binding's live allow-list, fail-closed (003 FR-076, plan D13/D15).
+ * Read the binding's live allow-list, fail-closed.
  *
  * Called **inside the one chain task**, so an operator's edit takes effect on the
  * next authorization with no re-scan, no restart, and **no cache**:
@@ -502,7 +465,6 @@ export type LivePolicy =
  * interleave: a token is never minted against a list the operator has just
  * revoked.
  *
- * @param input - Open store, logger, and the binding the run dispatches through.
  * @returns The list to judge with `undefined` for an open policy, or the cause
  *   no policy could be judged.
  */
