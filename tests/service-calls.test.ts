@@ -24,6 +24,9 @@ import {
     EVENTS_PATH,
     EVENTS_PENDING_PATH,
     abandonPath,
+    accountDeletePath,
+    accountProfilePath,
+    accountTokenPath,
     auditPath,
     blockedPath,
     dispatchedPath,
@@ -74,6 +77,23 @@ describe('run-scoped path helpers (the correlation-id namespace)', () => {
         {
             expect(AUDIT_PATH).toBe('/v1/audit');
             expect(auditPath(CORRELATION)).toBe(`/v1/audit?correlationId=${CORRELATION}`);
+        }
+    });
+
+    it('substitutes the id literally, so `$&` cannot rewrite the pattern', () => {
+        // `String#replace` reads `$&`, `$1`, and `$'` in a *string* replacement
+        // as substitution directives, so an id carrying one would splice the
+        // placeholder back in and send the request at the wrong path. A numeric
+        // GitHub id cannot contain one; the replacer-function form is what makes
+        // that irrelevant rather than merely unlikely.
+        const hostile = '$&$1$\'`x';
+
+        for (const [helper, verb] of RUN_OPERATIONS) {
+            expect(helper(hostile)).toBe(`/v1/events/${hostile}/${verb}`);
+        }
+
+        for (const helper of [accountDeletePath, accountProfilePath, accountTokenPath]) {
+            expect(helper(hostile)).toContain(`/${hostile}`);
         }
     });
 });
