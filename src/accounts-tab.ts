@@ -131,12 +131,12 @@ function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
     for (const { member, painted } of views) {
         view.controls.members[member].field.update({
             value: painted.value,
-            disabled: painted.disabled,
+            disabled: painted.isDisabled,
             helper: painted.helper,
             placeholder: painted.placeholder,
         });
     }
-    view.controls.saveProfile.update({ disabled: views.some(({ painted }) => painted.disabled) });
+    view.controls.saveProfile.update({ disabled: views.some(({ painted }) => painted.isDisabled) });
     view.controls.rotateToken.update({
         label: armLabel({
             armed: accounts.rotateArmed,

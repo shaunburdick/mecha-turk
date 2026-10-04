@@ -6525,15 +6525,18 @@ function resolvedRow(input) {
   };
 }
 function readBackVerdict(input) {
-  if (!input.compared) {
+  if (!input.wasCompared) {
     return { eventType: "agent.uncompared", decision: "observed" };
   }
-  return input.matched ? { eventType: "agent.verified", decision: "verified" } : { eventType: "agent.mismatch", decision: "warn" };
+  return input.wasMatched ? { eventType: "agent.verified", decision: "verified" } : { eventType: "agent.mismatch", decision: "warn" };
 }
 function verificationRow(input) {
   const { verification } = input;
-  const compared = verification.expectedAgent !== "";
-  const verdict = readBackVerdict({ compared, matched: compared && verification.ok });
+  const wasCompared = verification.expectedAgent !== "";
+  const verdict = readBackVerdict({
+    wasCompared,
+    wasMatched: wasCompared && verification.ok
+  });
   return {
     eventType: verdict.eventType,
     actorSource: PANEL_ACTOR,
@@ -6543,7 +6546,7 @@ function verificationRow(input) {
       sessionId: input.run.session?.sessionId ?? "",
       observedAgent: verification.observedAgent,
       expectedAgent: verification.expectedAgent,
-      ...!compared && { baselineProvenance: input.baselineProvenance },
+      ...!wasCompared && { baselineProvenance: input.baselineProvenance },
       note: rowText(verification.note)
     }
   };
@@ -6552,7 +6555,7 @@ function actorDetails(actor) {
   return {
     bindingId: actor.bindingId,
     actorPolicy: actor.actorPolicy,
-    ...actor.deniedLogins !== undefined && { deniedLogins: actor.deniedLogins.map(boundText) },
+    ...actor.deniedLogins !== undefined && { deniedLogins: actor.deniedLogins.map((login) => boundText(login)) },
     ...actor.deniedAttributions !== undefined && { deniedAttributions: [...actor.deniedAttributions] },
     unreadableReferences: actor.unreadableReferences,
     retainedReferences: actor.retainedReferences,
@@ -8889,7 +8892,7 @@ function readItemEventEntry(value) {
     return null;
   }
   const createdAt = createdAtOf(value.created_at);
-  if (typeof value.event !== "string" || value.event === "" || createdAt === null) {
+  if (createdAt === null || typeof value.event !== "string" || value.event === "") {
     return null;
   }
   return {

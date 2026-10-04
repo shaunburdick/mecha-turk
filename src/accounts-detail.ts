@@ -103,7 +103,7 @@ function mountMemberControls(input: {
         value: view.value,
         placeholder: view.placeholder,
         ...(view.multiline && { multiline: true, rows: 4 }),
-        disabled: view.disabled,
+        disabled: view.isDisabled,
         helper: view.helper,
         onChange,
     });
@@ -142,7 +142,7 @@ function mountRowControls(input: {
         disabled: true,
         onClick: input.handlers.rotateToken,
     });
-    const removeAccount = mountButton(input.pane, {
+    const accountRemoval = mountButton(input.pane, {
         label: REMOVE_IDLE_LABEL,
         variant: 'outline',
         disabled: true,
@@ -151,10 +151,10 @@ function mountRowControls(input: {
 
     return {
         rotateToken,
-        removeAccount,
+        removeAccount: accountRemoval,
         dispose: (): void => {
             rotateToken.dispose();
-            removeAccount.dispose();
+            accountRemoval.dispose();
         },
     };
 }
