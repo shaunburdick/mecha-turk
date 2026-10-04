@@ -67,10 +67,10 @@ export function mountDetailChips(detailBox: HTMLElement): DetailChips {
             return;
         }
 
-        const active = row.state === 'active';
+        const isActive = row.state === 'active';
         chips.push(mountBadge(container, {
-            label: active ? STATE_ON : STATE_OFF,
-            tone: active ? 'success' : 'warning',
+            label: isActive ? STATE_ON : STATE_OFF,
+            tone: isActive ? 'success' : 'warning',
         }));
         const triggers = [
             [row.triggers.assignment, TRIGGER_ASSIGNMENT],

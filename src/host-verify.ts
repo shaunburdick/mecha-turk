@@ -286,7 +286,7 @@ interface HostLists {
  */
 async function readLists(input: { host: PanelHost; projectId: string }): Promise<HostLists> {
     const problems: string[] = [];
-    let projectFound = false;
+    let isProjectFound = false;
     let projectDirectory: string | null = null;
     let projectCount = 0;
     let worktreeCount = 0;
@@ -297,7 +297,7 @@ async function readLists(input: { host: PanelHost; projectId: string }): Promise
     try {
         const projects = await input.host.listProjects();
         const match = projects.projects.find((project) => project.id === input.projectId);
-        projectFound = match !== undefined;
+        isProjectFound = match !== undefined;
         projectDirectory = match?.directory ?? null;
         projectCount = projects.projects.length;
     } catch (cause) {
@@ -321,7 +321,7 @@ async function readLists(input: { host: PanelHost; projectId: string }): Promise
     }
 
     return {
-        projectFound,
+        projectFound: isProjectFound,
         projectDirectory,
         projectCount,
         worktreeCount,

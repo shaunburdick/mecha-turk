@@ -51,7 +51,7 @@ export function mountAccountsDisclaimer(parent: HTMLElement): HTMLElement {
     const doc = parent.ownerDocument;
     const box = doc.createElement('div');
     box.className = 'oc-sdk';
-    box.setAttribute('data-accounts-disclaimer', 'informational');
+    box.dataset.accountsDisclaimer = 'informational';
     const text = doc.createElement('p');
     text.className = DISCLAIMER_NOTE_CLASS;
     text.style.whiteSpace = 'pre-line';

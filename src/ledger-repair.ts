@@ -42,16 +42,16 @@ export interface LedgerRepair {
  * @param detail - Detail payload that failed the redaction gate.
  * @returns The redacted detail plus whether any value changed.
  */
-function redactDetailValues(detail: LedgerDetail): { readonly detail: LedgerDetail; readonly changed: boolean } {
-    let changed = false;
+function redactDetailValues(detail: LedgerDetail): { readonly detail: LedgerDetail; readonly didChange: boolean } {
+    let didChange = false;
     const result: LedgerDetail = {};
     for (const [key, value] of Object.entries(detail)) {
         const safe = typeof value === 'string' ? redact(value) : value;
-        changed ||= safe !== value;
+        didChange ||= safe !== value;
         result[key] = safe;
     }
 
-    return { detail: result, changed };
+    return { detail: result, didChange };
 }
 
 /**
@@ -64,14 +64,14 @@ function redactDetailValues(detail: LedgerDetail): { readonly detail: LedgerDeta
  * @param entry - Entry whose detail failed the redaction gate.
  * @returns The repaired entry plus whether it changed.
  */
-function repairEntry(entry: LedgerEntry): { readonly entry: LedgerEntry; readonly changed: boolean } {
+function repairEntry(entry: LedgerEntry): { readonly entry: LedgerEntry; readonly didChange: boolean } {
     const redacted = redactDetailValues(entry.detail);
     const candidate: LedgerEntry = { ...entry, detail: redacted.detail };
     if (findSecretLeak(JSON.stringify(candidate)) === null) {
-        return { entry: candidate, changed: redacted.changed };
+        return { entry: candidate, didChange: redacted.didChange };
     }
 
-    return { entry: { ...entry, detail: { quarantined: QUARANTINED_DETAIL } }, changed: true };
+    return { entry: { ...entry, detail: { quarantined: QUARANTINED_DETAIL } }, didChange: true };
 }
 
 /**
@@ -84,7 +84,7 @@ function quarantineSecretMaterial(ledger: PanelLedger): LedgerRepair | null {
     let quarantined = 0;
     const entries = ledger.entries.map((entry) => {
         const repaired = repairEntry(entry);
-        if (repaired.changed) {
+        if (repaired.didChange) {
             quarantined += 1;
         }
 

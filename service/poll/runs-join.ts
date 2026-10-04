@@ -103,11 +103,11 @@ function originOf(delivery: QueuedEvent): ReferenceOrigin | null {
  * with neither member rather than an empty login.
  *
  * @param delivery - The delivery joining the run.
- * @param presentAtAuthorization - `false` when the run already held a
+ * @param isPresentAtAuthorization - `false` when the run already held a
  *   reservation when this delivery arrived.
  * @returns The reference, or `null` when the delivery's origin is unusable.
  */
-export function referenceOf(delivery: QueuedEvent, presentAtAuthorization: boolean): SourceReference | null {
+export function referenceOf(delivery: QueuedEvent, isPresentAtAuthorization: boolean): SourceReference | null {
     const origin = originOf(delivery);
     if (origin === null) {
         return null;
@@ -119,7 +119,7 @@ export function referenceOf(delivery: QueuedEvent, presentAtAuthorization: boole
         origin,
         sourceUrl: delivery.issueUrl,
         detectedAt: delivery.detectedAt,
-        presentAtAuthorization,
+        presentAtAuthorization: isPresentAtAuthorization,
         ...actorFieldsOf({
             actorLogin: delivery.actorLogin,
             actorAttribution: delivery.actorAttribution,

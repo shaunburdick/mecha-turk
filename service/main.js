@@ -1524,10 +1524,10 @@ function openersOf(entries) {
   }
   return openers;
 }
-function latestOf(entries, accept) {
+function latestOf(entries, isAccepted) {
   const latest = new Map;
   for (const entry of entries) {
-    if (!accept(entry)) {
+    if (!isAccepted(entry)) {
       continue;
     }
     const seen = latest.get(entry.correlationId);
@@ -3281,7 +3281,7 @@ function originOf(delivery) {
   const commentId = Number(suffix);
   return commentId > 0 && String(commentId) === suffix ? `comment:${commentId}` : null;
 }
-function referenceOf(delivery, presentAtAuthorization) {
+function referenceOf(delivery, isPresentAtAuthorization) {
   const origin = originOf(delivery);
   if (origin === null) {
     return null;
@@ -3292,7 +3292,7 @@ function referenceOf(delivery, presentAtAuthorization) {
     origin,
     sourceUrl: delivery.issueUrl,
     detectedAt: delivery.detectedAt,
-    presentAtAuthorization,
+    presentAtAuthorization: isPresentAtAuthorization,
     ...actorFieldsOf({
       actorLogin: delivery.actorLogin,
       actorAttribution: delivery.actorAttribution
@@ -8164,12 +8164,12 @@ var verificationRoute = {
 // service/poll/view.ts
 function createPollingView() {
   let loop = null;
-  let stopping = false;
-  const running = () => !stopping && loop !== null && !loop.state().stopped;
+  let isStopping = false;
+  const isRunning = () => !isStopping && loop !== null && !loop.state().stopped;
   const view = {
-    isRunning: () => running(),
-    nextPollAtMs: () => running() ? loop?.state().nextPollAtMs ?? null : null,
-    isStopping: () => stopping
+    isRunning: () => isRunning(),
+    nextPollAtMs: () => isRunning() ? loop?.state().nextPollAtMs ?? null : null,
+    isStopping: () => isStopping
   };
   return {
     view,
@@ -8177,7 +8177,7 @@ function createPollingView() {
       loop = next;
     },
     beginShutdown: () => {
-      stopping = true;
+      isStopping = true;
     }
   };
 }
@@ -8655,18 +8655,18 @@ function recoverExpiredLease(input) {
   if (lease === null) {
     return null;
   }
-  const migration = lease.provenance === "migration";
-  const requeued = expireLease({ run, now, chargeBudget: !migration });
+  const isMigration = lease.provenance === "migration";
+  const requeued = expireLease({ run, now, chargeBudget: !isMigration });
   if (requeued === null) {
     return null;
   }
-  if (!migration) {
+  if (!isMigration) {
     const parked = parkExhaustedRun({ run, lease, now });
     if (parked !== null) {
       return parked;
     }
   }
-  const reason = migration ? MIGRATION_RECOVERY_REASON : LEASE_EXPIRED_REASON;
+  const reason = isMigration ? MIGRATION_RECOVERY_REASON : LEASE_EXPIRED_REASON;
   const details = {
     priorState: run.state,
     leaseId: lease.leaseId,
@@ -8676,7 +8676,7 @@ function recoverExpiredLease(input) {
     requeuesBefore: run.requeuesUsed,
     requeuesAfter: requeued.requeuesUsed,
     budget: MAX_AUTO_REQUEUES,
-    migrationRecovery: migration
+    migrationRecovery: isMigration
   };
   return {
     run: requeued,
@@ -9802,11 +9802,11 @@ function createGitHubIssuePoller(deps, fetchImpl = (url, init) => globalThis.fet
 // service/poll/timer.ts
 function startPollLoop(deps) {
   let timer = null;
-  let stopped = false;
+  let isStopped = false;
   let isInFlight = false;
   let nextAtMs = null;
   const cycle = async () => {
-    if (stopped || isInFlight) {
+    if (isStopped || isInFlight) {
       return;
     }
     isInFlight = true;
@@ -9818,7 +9818,7 @@ function startPollLoop(deps) {
       isInFlight = false;
     }
     await currentIntervalMs(deps.store, deps.log).then((interval) => {
-      if (stopped) {
+      if (isStopped) {
         return null;
       }
       nextAtMs = Date.now() + interval;
@@ -9834,14 +9834,15 @@ function startPollLoop(deps) {
   cycle();
   return {
     stop: () => {
-      stopped = true;
+      isStopped = true;
       nextAtMs = null;
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
+      if (timer === null) {
+        return;
       }
+      clearTimeout(timer);
+      timer = null;
     },
-    state: () => ({ stopped, nextPollAtMs: nextAtMs })
+    state: () => ({ stopped: isStopped, nextPollAtMs: nextAtMs })
   };
 }
 function createDefaultPoller(log) {

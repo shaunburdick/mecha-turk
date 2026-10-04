@@ -71,14 +71,14 @@ export interface PollingViewSlot {
  */
 export function createPollingView(): PollingViewSlot {
     let loop: PollLoop | null = null;
-    let stopping = false;
+    let isStopping = false;
 
-    const running = (): boolean => !stopping && loop !== null && !loop.state().stopped;
+    const isRunning = (): boolean => !isStopping && loop !== null && !loop.state().stopped;
 
     const view: PollingView = {
-        isRunning: (): boolean => running(),
-        nextPollAtMs: (): number | null => (running() ? loop?.state().nextPollAtMs ?? null : null),
-        isStopping: (): boolean => stopping,
+        isRunning: (): boolean => isRunning(),
+        nextPollAtMs: (): number | null => (isRunning() ? loop?.state().nextPollAtMs ?? null : null),
+        isStopping: (): boolean => isStopping,
     };
 
     return {
@@ -87,7 +87,7 @@ export function createPollingView(): PollingViewSlot {
             loop = next;
         },
         beginShutdown: (): void => {
-            stopping = true;
+            isStopping = true;
         },
     };
 }

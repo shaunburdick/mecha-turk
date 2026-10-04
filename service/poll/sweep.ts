@@ -218,20 +218,20 @@ function recoverExpiredLease(input: { readonly run: Run; readonly now: string })
         return null;
     }
 
-    const migration = lease.provenance === 'migration';
-    const requeued = expireLease({ run, now, chargeBudget: !migration });
+    const isMigration = lease.provenance === 'migration';
+    const requeued = expireLease({ run, now, chargeBudget: !isMigration });
     if (requeued === null) {
         return null;
     }
 
-    if (!migration) {
+    if (!isMigration) {
         const parked = parkExhaustedRun({ run, lease, now });
         if (parked !== null) {
             return parked;
         }
     }
 
-    const reason = migration ? MIGRATION_RECOVERY_REASON : LEASE_EXPIRED_REASON;
+    const reason = isMigration ? MIGRATION_RECOVERY_REASON : LEASE_EXPIRED_REASON;
     const details = {
         priorState: run.state,
         leaseId: lease.leaseId,
@@ -241,7 +241,7 @@ function recoverExpiredLease(input: { readonly run: Run; readonly now: string })
         requeuesBefore: run.requeuesUsed,
         requeuesAfter: requeued.requeuesUsed,
         budget: MAX_AUTO_REQUEUES,
-        migrationRecovery: migration,
+        migrationRecovery: isMigration,
     };
 
     return {

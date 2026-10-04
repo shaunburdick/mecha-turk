@@ -139,16 +139,16 @@ function openersOf(entries: readonly AuditEntry[]): ReadonlyMap<string, AuditEnt
  * takes — the outcome axis and the hop axis are two calls of this one rule.
  *
  * @param entries - Trail rows, in any order.
- * @param accept - Whether this row belongs on the axis at all.
+ * @param isAccepted - Whether this row belongs on the axis at all.
  * @returns The latest accepted row of every chain, keyed by correlation id.
  */
 function latestOf(
     entries: readonly AuditEntry[],
-    accept: (entry: AuditEntry) => boolean,
+    isAccepted: (entry: AuditEntry) => boolean,
 ): ReadonlyMap<string, AuditEntry> {
     const latest = new Map<string, AuditEntry>();
     for (const entry of entries) {
-        if (!accept(entry)) {
+        if (!isAccepted(entry)) {
             continue;
         }
 

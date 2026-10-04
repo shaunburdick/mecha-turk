@@ -120,11 +120,11 @@ export interface BindingsPaneHandlers extends DispatchControlsHandlers, BindingP
     /** Operators picked a project. */
     readonly selectProject: (id: string) => void;
     /** Operators set the assignment trigger checkbox. */
-    readonly setAssignment: (checked: boolean) => void;
+    readonly setAssignment: (isChecked: boolean) => void;
     /** Operators set the mention trigger checkbox. */
-    readonly setMention: (checked: boolean) => void;
+    readonly setMention: (isChecked: boolean) => void;
     /** Operators set the review-request trigger checkbox. */
-    readonly setReviewRequest: (checked: boolean) => void;
+    readonly setReviewRequest: (isChecked: boolean) => void;
     /** Operators picked a worktree option. */
     readonly setWorktree: (id: 'none' | 'generated') => void;
     /** Operators clicked a binding row — which loads it into the editor. */

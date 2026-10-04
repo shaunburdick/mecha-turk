@@ -30,7 +30,7 @@ export type { PollLoop };
  */
 export function startPollLoop(deps: ScanDeps): PollLoop {
     let timer: NodeJS.Timeout | null = null;
-    let stopped = false;
+    let isStopped = false;
     let isInFlight = false;
     // Epoch stamp of the armed timer, published read-only through `state()`
     // so the status projection reports the scheduler's own schedule instead of
@@ -38,7 +38,7 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
     let nextAtMs: number | null = null;
 
     const cycle = async (): Promise<void> => {
-        if (stopped || isInFlight) {
+        if (isStopped || isInFlight) {
             return;
         }
 
@@ -52,7 +52,7 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
         }
 
         await currentIntervalMs(deps.store, deps.log).then((interval) => {
-            if (stopped) {
+            if (isStopped) {
                 return null;
             }
 
@@ -72,14 +72,16 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
 
     return {
         stop: (): void => {
-            stopped = true;
+            isStopped = true;
             nextAtMs = null;
-            if (timer !== null) {
-                clearTimeout(timer);
-                timer = null;
+            if (timer === null) {
+                return;
             }
+
+            clearTimeout(timer);
+            timer = null;
         },
-        state: (): PollLoopState => ({ stopped, nextPollAtMs: nextAtMs }),
+        state: (): PollLoopState => ({ stopped: isStopped, nextPollAtMs: nextAtMs }),
     };
 }
 

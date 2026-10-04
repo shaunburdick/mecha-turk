@@ -86,7 +86,7 @@ function createBodyRegion(
 ): { readonly region: HTMLElement; readonly bodies: Map<TabId, HTMLElement> } {
     const document = root.ownerDocument;
     const region = document.createElement('div');
-    region.setAttribute('data-body-region', 'true');
+    region.dataset.bodyRegion = 'true';
     region.style.display = 'flex';
     region.style.flexDirection = 'column';
     region.style.gap = '12px';
@@ -99,7 +99,7 @@ function createBodyRegion(
     const bodies = new Map<TabId, HTMLElement>();
     for (const spec of specs) {
         const body = document.createElement('div');
-        body.setAttribute('data-body', spec.id);
+        body.dataset.body = spec.id;
         region.append(body);
         bodies.set(spec.id, body);
     }

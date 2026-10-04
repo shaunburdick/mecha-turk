@@ -49,7 +49,7 @@ export interface HandoffHandlers {
 /** Every surface the render step may write to. */
 export interface HandoffView {
     /** Enable or disable the credential input (F10 pre-flight gate). */
-    setTokenEnabled(enabled: boolean): void;
+    setTokenEnabled(isEnabled: boolean): void;
     /** Replace the credential input's value; `''` clears it (§2 step ⑧). */
     setTokenValue(value: string): void;
     /** Render the operator-facing note; never credential material. */
@@ -57,9 +57,9 @@ export interface HandoffView {
     /** Render `Connected as <login>`, or hide the line with `null`. */
     setConnected(text: string | null): void;
     /** Show or hide the paste row (credential input and submit). */
-    setPasteVisible(visible: boolean): void;
+    setPasteVisible(isVisible: boolean): void;
     /** Enable or disable the submit button. */
-    setSubmitEnabled(enabled: boolean): void;
+    setSubmitEnabled(isEnabled: boolean): void;
     /** Remove every node this view created. */
     dispose(): void;
 }
@@ -88,11 +88,11 @@ export function handoffInputEnabled(state: HandoffState): boolean {
  * @param view - Surface to write to.
  */
 export function renderHandoff(state: HandoffState, view: HandoffView): void {
-    const connected = state.connected !== null;
-    view.setPasteVisible(!connected);
-    const enabled = handoffInputEnabled(state);
-    view.setTokenEnabled(enabled);
-    view.setSubmitEnabled(enabled);
+    const isConnected = state.connected !== null;
+    view.setPasteVisible(!isConnected);
+    const isEnabled = handoffInputEnabled(state);
+    view.setTokenEnabled(isEnabled);
+    view.setSubmitEnabled(isEnabled);
     view.setNote(state.note);
     view.setConnected(state.connected === null ? null : connectedLine(state.connected.login));
 }
@@ -225,9 +225,9 @@ type HandoffButtonVariant = 'default' | 'outline';
  * transparent border as its base and paints every real treatment from an
  * attribute selector (`[data-variant="…"]`), so a button with no variant is
  * bare text on the page — which is how every button here used to read before
- * the variant rule landed (product-owner review 2026-10-01). The attribute is written with
- * `setAttribute` rather than `dataset` so the offline DOM double records it
- * like any other attribute and a test can pin it.
+ * the variant rule landed (product-owner review 2026-10-01). The attribute is
+ * written through `dataset`, which records the same `data-variant` the sheet's
+ * selector matches.
  *
  * @param spec - Document, label, variant, and click handler.
  * @returns The button.
@@ -240,7 +240,7 @@ function makeButton(spec: {
 }): HTMLButtonElement {
     const button = spec.doc.createElement('button');
     button.className = 'oc-sdk oc-sdk-btn';
-    button.setAttribute('data-variant', spec.variant);
+    button.dataset.variant = spec.variant;
     button.type = 'button';
     button.textContent = spec.label;
     button.addEventListener('click', spec.onClick);
@@ -373,8 +373,8 @@ export function mountHandoffDom(input: DomInput): HandoffView {
     root.append(group);
 
     return {
-        setTokenEnabled: (enabled: boolean): void => {
-            credential.input.disabled = !enabled;
+        setTokenEnabled: (isEnabled: boolean): void => {
+            credential.input.disabled = !isEnabled;
         },
         setTokenValue: (value: string): void => {
             credential.input.value = value;
@@ -387,12 +387,12 @@ export function mountHandoffDom(input: DomInput): HandoffView {
             connected.textContent = text ?? '';
             connected.hidden = text === null;
         },
-        setPasteVisible: (visible: boolean): void => {
-            credential.field.hidden = !visible;
-            submit.hidden = !visible;
+        setPasteVisible: (isVisible: boolean): void => {
+            credential.field.hidden = !isVisible;
+            submit.hidden = !isVisible;
         },
-        setSubmitEnabled: (enabled: boolean): void => {
-            submit.disabled = !enabled;
+        setSubmitEnabled: (isEnabled: boolean): void => {
+            submit.disabled = !isEnabled;
         },
         dispose: (): void => {
             group.remove();

@@ -34,6 +34,21 @@ export interface FakeDocument {
     createElement(tagName: string): FakeElement;
 }
 
+/**
+ * The `data-*` attribute name a `dataset` key stands for.
+ *
+ * The DOM's own rule: the camelCase key `myFlag` is the attribute
+ * `data-my-flag`, and the leading `data-` is added if the key does not carry it
+ * (`dataId` and `data-id` are the same attribute).
+ *
+ * @param key - Property read off `dataset`.
+ * @returns The attribute name to record in {@link FakeElement.attributes}.
+ */
+function dataAttribute(key: string): string {
+    const kebab = key.replaceAll(/[A-Z]/gu, (character) => `-${character.toLowerCase()}`);
+    return kebab.startsWith('data-') ? kebab : `data-${kebab}`;
+}
+
 /** One element in the double: tags, attributes, children, and listeners. */
 export class FakeElement {
     /** Tag this element was created with; the only structural fact we keep. */
@@ -81,6 +96,32 @@ export class FakeElement {
     public constructor(tagName: string, ownerDocument: FakeDocument) {
         this.tagName = tagName;
         this.ownerDocument = ownerDocument;
+    }
+
+    /**
+     * The `data-*` attributes under their `dataset` keys.
+     *
+     * A live view over {@link attributes}, because that is what it is in a
+     * browser: `el.dataset.variant = 'x'` *is* `el.setAttribute('data-variant',
+     * 'x')`, and a double that kept its own separate map would let the adapter
+     * and the test disagree about what the page actually carries. The
+     * camelCase↔kebab-case mapping is the DOM's own rule — `data-my-flag` is
+     * `dataset.myFlag` — and it is the reason this is a proxy rather than a
+     * fixed shape: `data-id` and `data-mount` are both written by the shell.
+     */
+    public get dataset(): Record<string, string | undefined> {
+        return new Proxy(
+            {},
+            {
+                get: (_target, key: PropertyKey): string | undefined =>
+                    typeof key === 'string' ? this.attributes.get(dataAttribute(key)) : undefined,
+                set: (_target, key: PropertyKey, value: unknown): boolean => {
+                    this.attributes.set(dataAttribute(String(key)), String(value));
+                    return true;
+                },
+                has: (_target, key: PropertyKey): boolean => this.attributes.has(dataAttribute(String(key))),
+            },
+        );
     }
 
     /**

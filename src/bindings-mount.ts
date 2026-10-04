@@ -181,9 +181,9 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
         setRepoInput: (value) => editBindings(rt, { repoInput: value }),
         selectAccount: (id) => editBindings(rt, { accountSelection: id }),
         selectProject: (id) => selectBindingProject(rt, id),
-        setAssignment: (checked) => editBindings(rt, { triggerAssignment: checked }),
-        setMention: (checked) => editBindings(rt, { triggerMention: checked }),
-        setReviewRequest: (checked) => editBindings(rt, { triggerReviewRequest: checked }),
+        setAssignment: (isChecked) => editBindings(rt, { triggerAssignment: isChecked }),
+        setMention: (isChecked) => editBindings(rt, { triggerMention: isChecked }),
+        setReviewRequest: (isChecked) => editBindings(rt, { triggerReviewRequest: isChecked }),
         setWorktree: (id) => editBindings(rt, { worktreeSelection: id }),
         ...promptHandlers(rt),
         refreshProjects: () => void loadProjects(rt),
@@ -241,7 +241,7 @@ export function mountBindingsTabBody(input: {
     // literal that only ships when this pane is wired (identifier names are
     // minified away, so a marker must ride live code). It also names the pane
     // for the operator's DOM inspector.
-    view.pane.setAttribute('data-mount', 'mountBindingsBody');
+    view.pane.dataset.mount = 'mountBindingsBody';
     input.rt.bindingsUi = view;
     // Paint what the runtime already knows, before anything is read: the
     // status line mounts composed from state, but the list does not, and the
