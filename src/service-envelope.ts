@@ -53,7 +53,7 @@ const STATUS_OK_MAX_EXCLUSIVE = 300;
 export type ServiceResource =
     /** The whole-file bindings grant (005 FR-088's original wording). */
     | 'bindings list'
-    /** The whole-file configuration document (006 FR-043). */
+    /** The whole-file configuration document. */
     | 'configuration';
 
 /**
@@ -70,7 +70,7 @@ export type ServiceResource =
  * this pair — the drift test, without a new exported constant.
  *
  * Value-free, like the thing it describes: two words about a list, never a
- * login (002 NFR-113).
+ * login.
  */
 export type ReferenceWindow =
     /** The gate judged every trigger the run accumulated. */
@@ -101,8 +101,8 @@ export type ServiceErrorResult =
         /** The envelope's own refusal copy, verbatim; `null` when it sent none. */
         readonly message: string | null;
         /**
-         * The window a deciding gate judged, on the one code that judges one
-         * (003 T-038); `null` on every other refusal **and** on any answer from a
+         * The window a deciding gate judged, on the one code that judges one;
+         * `null` on every other refusal **and** on any answer from a
          * build that states no window.
          *
          * Read as a member rather than derived from `message`, because the
@@ -119,11 +119,11 @@ export type ServiceConfigPutResult =
     | { readonly ok: true; readonly body: string }
     | {
         readonly ok: false;
-        /** Names the configuration, never the bindings list (006 AC-112). */
+        /** Names the configuration, never the bindings list. */
         readonly problem: string;
         /** The envelope's machine code; `null` when none was sent. */
         readonly code: string | null;
-        /** The issues in the order the service returned them (006 AC-107). */
+        /** The issues in the order the service returned them. */
         readonly issues: readonly ConfigIssueView[];
         /**
          * The envelope's own correlation identifier, when it sent one — the
@@ -207,7 +207,7 @@ export function envelopeFieldOf(body: string, field: string): string | null {
 
 /**
  * Read the window a refusal's gate judged, refusing every word but the two
- * this build knows (003 T-038).
+ * this build knows.
  *
  * **Closed, so a word from a future build is a refusal rather than a guess**:
  * an unrecognised word reads as `null`, which is the same as *the service said

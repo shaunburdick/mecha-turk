@@ -24,7 +24,7 @@ const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] a
 /** One FR-010 capability name (contract §2 step ⑥). */
 export type ScopeCapability = (typeof SCOPE_CAPABILITIES)[number];
 
-/** Result recorded for one capability: `ok`, `missing`, or `unknown` (FR-010). */
+/** Result recorded for one capability: `ok`, `missing`, or `unknown`. */
 export type ScopeResult = 'ok' | 'missing' | 'unknown';
 
 /** FR-010 scope matrix as the account mirror records it (contract §3, review M1). */

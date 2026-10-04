@@ -55,8 +55,8 @@ export function startNewBinding(rt: PanelRuntime): void {
 }
 
 /**
- * Load the selected binding into the editor and enter edit mode
- * (005 FR-050, FR-053).
+ * Load the selected binding into the editor and enter edit mode.
+ *
  *
  * Every field the editor presents is loaded from the stored row — repository,
  * bound account, project, the three triggers, the worktree option, and the
@@ -109,7 +109,7 @@ export function startEditingBinding(rt: PanelRuntime): void {
     bindings.startingPromptInput = storedPromptFor(bindings, binding.bindingId);
     bindings.startingPromptDirty = false;
     bindings.startingPromptError = null;
-    // The allow-list loads the same way (002 FR-047): the field shows what the
+    // The allow-list loads the same way: the field shows what the
     // service holds for this row, so what the form shows is what a save writes.
     bindings.allowedUsersInput = storedActorsFor(bindings, binding.bindingId);
     bindings.allowedUsersDirty = false;
@@ -143,7 +143,7 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
     bindings.startingPromptError = null;
     // The allow-list returns to what the service stores, so a draft the
     // operator walks away from cannot be mistaken for a saved one — which is
-    // the same reason the dirty flag is reset with it (002 FR-047).
+    // the same reason the dirty flag is reset with it.
     bindings.allowedUsersInput = storedActorsFor(bindings, bindings.selectedBinding);
     bindings.allowedUsersDirty = false;
     bindings.allowedUsersError = null;
@@ -161,7 +161,7 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
  * The row is rebuilt from the draft under its own id, state, and creation
  * stamp; a prompt the operator touched in the same pass travels with the
  * write, and one they left alone is omitted so the service keeps what it
- * holds (004 FR-014). A refusal leaves the stored list byte-identical
+ * holds. A refusal leaves the stored list byte-identical
  * and keeps the draft on screen with the remediation — on the
  * prompt field when it belongs there, on the tab note otherwise.
  *
@@ -172,7 +172,7 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
  *
  * **Accepted** closes the editor and repaints both fields from what the service
  * actually stored — which is what makes a *cleared* field read as cleared rather
- * than as a draft that failed to save (004 FR-014, 002 FR-047). **Refused**
+ * than as a draft that failed to save. **Refused**
  * leaves the draft on screen with the service's own remediation split back to
  * whichever field it names and never reports the value as
  * saved; the stored list stays byte-identical because the grant is
@@ -221,7 +221,7 @@ function applySaveOutcome(input: {
  * The row is rebuilt from the draft under its own id, state, and creation
  * stamp; a prompt the operator touched in the same pass travels with the
  * write, and one they left alone is omitted so the service keeps what it
- * holds (004 FR-014). The allow-list rides the same write with the opposite
+ * holds. The allow-list rides the same write with the opposite
  * default: every row states its own, and only the operator's edit overrides it
  * (002 FR-047, contract §2). A refusal leaves the stored list byte-identical
  * and keeps the draft on screen with the remediation — on the prompt

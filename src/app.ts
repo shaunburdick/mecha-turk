@@ -114,7 +114,7 @@ export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string
  * The id must come from the list the host just loaded, so a stale or invented
  * value can never reach the dispatch path. It is then persisted to extension
  * storage — integration settings are read-only from the panel in SDK 1.24.2,
- * and since 002 FR-041 there are none to write anyway — and recorded on the
+ * and there are none to write anyway — and recorded on the
  * runtime as this mount's selection. A refused write keeps the in-memory
  * selection for this mount and says so on the picker line; either way the
  * panel fails closed until a valid id is resolved.

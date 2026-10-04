@@ -81,7 +81,7 @@ export interface BlockInput {
     readonly detail: string;
     /** In-panel guidance offered alongside the block. */
     readonly guidance: string | null;
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }
 

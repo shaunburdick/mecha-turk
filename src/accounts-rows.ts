@@ -66,19 +66,19 @@ const LIFECYCLE_COPY = new Map<string, LifecycleCopy>([
     ['error', { label: 'error', remediation: 'Rotate the token, or remove the account once nothing needs it.' }],
 ]);
 
-/** Why an account was stopped short of polling, for the cause line (FR-063). */
+/** Why an account was stopped short of polling, for the cause line. */
 const INTERRUPTED_HANDOFF = 'interrupted-handoff';
 
-/** Words for a connection state the DTO did not carry (NFR-112). */
+/** Words for a connection state the DTO did not carry. */
 const CONNECTION_UNREPORTED = 'connection not reported';
 
-/** Words for a lifecycle state the DTO did not carry (NFR-112). */
+/** Words for a lifecycle state the DTO did not carry. */
 const LIFECYCLE_UNREPORTED = 'state not reported';
 
-/** Words for a verification stamp the DTO did not carry (NFR-112). */
+/** Words for a verification stamp the DTO did not carry. */
 const VERIFIED_UNREPORTED = 'last verified: not reported';
 
-/** Words for a scope matrix the DTO did not carry (FR-010, NFR-112). */
+/** Words for a scope matrix the DTO did not carry. */
 export const SCOPE_UNCHECKED = 'scope: not checked';
 
 /** Order the four FR-010 capabilities render in, so two rows read alike. */
@@ -223,7 +223,7 @@ export function bindingsBacked(bindings: BindingsTabState, account: PanelAccount
  *
  * Length is counted the way 004 caps the text — by code point, so a
  * supplementary character is one and not two — and an account whose tier is
- * unset (004 FR-082) says so rather than showing nothing, because *absent*
+ * unset says so rather than showing nothing, because *absent*
  * is a state an operator should be able to read.
  *
  * @param account - The account being rendered.
@@ -315,7 +315,7 @@ export function accountDetail(bindings: BindingsTabState, account: PanelAccount)
 }
 
 /**
- * What a rotation keeps, stated before it happens (005 FR-064).
+ * What a rotation keeps, stated before it happens.
  *
  * It is the operator's first question about rotation and never the one they
  * fear, so the confirmation answers it rather than asking for faith: every
@@ -333,7 +333,7 @@ export function rotationStatement(login: string): string {
 }
 
 /**
- * What a removal does, stated before it happens (005 FR-055, FR-065).
+ * What a removal does, stated before it happens.
  *
  * The count is the whole point of the arm step: the service's hardened guard
  * disables exactly these bindings when the delete lands, and an operator who
@@ -352,7 +352,7 @@ export function removalStatement(bindings: BindingsTabState, account: PanelAccou
     );
 }
 
-/** What the note says once a rotation landed (005 FR-064). */
+/** What the note says once a rotation landed. */
 export function rotationRetained(login: string): string {
     return (
         `Token rotated for ${login} — every checkpoint, delivery, dispatch, and audit record `
@@ -446,7 +446,7 @@ const DISPLAY_NAME_HINT = 'Shown in the list instead of the login';
  * The binding tier's label says *from this repository*; this one says *from
  * this account*, so two fields carrying two different values never read as
  * one — the single-rendering rule is about a *value*, and distinct labels
- * keep the surfaces distinct too (005 FR-051).
+ * keep the surfaces distinct too.
  */
 export const ACCOUNT_PROMPT_LABEL = 'Starting prompt for dispatches from this account';
 
@@ -459,7 +459,7 @@ export const ACCOUNT_PROMPT_LABEL = 'Starting prompt for dispatches from this ac
  * terms: sent verbatim, no placeholders, the pinned Default Agent, the
  * refusal shape, and the cap. It is *fixed* copy on purpose — a panel
  * sentence must never become a second validator that disagrees with the one
- * the service runs (004 plan D24).
+ * the service runs.
  */
 export const ACCOUNT_PROMPT_GUIDANCE =
     'Sent to the agent verbatim — there are no placeholders, and the text cannot change the '
@@ -495,7 +495,7 @@ export interface AccountFieldView {
  *
  * Pure, and the only place either field's words are decided, so mount and
  * repaint cannot drift apart and a test can read the copy without a DOM.
- * The service stays the single save boundary (004 plan D24): nothing here
+ * The service stays the single save boundary: nothing here
  * validates, lengths, or shapes the draft — it only says what to show and
  * whether the row the draft was loaded for is still the one on screen.
  *

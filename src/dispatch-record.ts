@@ -48,7 +48,7 @@ export const DISPATCH_STORAGE_KEY = 'mecha-turk:dispatches';
 /** Schema version stamped on every attempt record this build writes. */
 export const DISPATCH_SCHEMA_VERSION = 'dispatch-attempts-1';
 
-/** Most attempts the record holds; eviction removes the oldest acknowledged first (NFR-107). */
+/** Most attempts the record holds; eviction removes the oldest acknowledged first. */
 export const MAX_RECORDED_ATTEMPTS = 50;
 
 /** The single-use token's minted shape — the same rule the service validates. */
@@ -73,13 +73,13 @@ export type RecordedOutcome =
 
 /** One stored dispatch attempt. */
 export interface DispatchAttemptRecord {
-    /** Run identity; every later call is addressed by it (FR-050). */
+    /** Run identity; every later call is addressed by it. */
     readonly correlationId: string;
     /** FR-010's human-readable run tuple, kept so a record is readable alone. */
     readonly runKey: string;
     /** Attempt this record is for; pairs with the correlation id as the key. */
     readonly attempt: number;
-    /** Single-use authorization the result report presents (FR-020). */
+    /** Single-use authorization the result report presents. */
     readonly dispatchToken: string;
     /** What the host call produced. */
     readonly outcome: DispatchOutcomeKind;

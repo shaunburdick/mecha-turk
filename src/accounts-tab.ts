@@ -57,9 +57,9 @@ export interface AccountsBody {
     readonly pane: HTMLElement;
     /** Status line above the list. */
     readonly status: TextHandle;
-    /** The credential-free account list (FR-062, FR-067). */
+    /** The credential-free account list. */
     readonly list: ListHandle;
-    /** Explicit re-read of the accounts list (FR-014). */
+    /** Explicit re-read of the accounts list. */
     readonly refreshAccounts: ButtonHandle;
     /** Wrapper around the selected account's own line. */
     readonly detailBox: HTMLElement;
@@ -75,7 +75,7 @@ export interface AccountsBody {
     readonly controls: DetailControls;
     /** Note under the body; never credential material. */
     readonly note: TextHandle;
-    /** Remove every node this body mounted (FR-017). */
+    /** Remove every node this body mounted. */
     readonly dispose: () => void;
 }
 
@@ -179,7 +179,7 @@ export function repaintAccountsBody(rt: PanelRuntime, view: AccountsBody): void 
 /**
  * Mount the relocated one-shot handoff group: paste → connect, with the
  * static disclaimer beneath it and no Accept/Decline step (002 FR-060 as
- * re-cut at v1.9.0 — the substance the consent copy carried is that
+ * re-cut — the substance the consent copy carried is that
  * disclaimer).
  *
  * @param rt - Panel runtime whose handoff state the group renders.
@@ -210,7 +210,7 @@ interface ListBoard {
 }
 
 /**
- * Mount the status line, list, refresh, note, and the disclaimer, as re-cut at v1.9.0 (002 FR-008).
+ * Mount the status line, list, refresh, note, and the disclaimer, as re-cut.
  *
  * @param input - Runtime, pane root, and the callbacks the controls invoke.
  * @returns The handles the body carries.
@@ -351,7 +351,7 @@ export function mountAccountsBody(input: {
  * Selecting a different row closes whatever the previous one had open: both
  * members' drafts and both armed controls belong to a row, and carrying them
  * across would let a confirm step — or a save — fire against the wrong
- * account (FR-066, 004 FR-089).
+ * account.
  *
  * @param rt - Panel runtime.
  * @param id - Numeric user id of the row the operator selected.

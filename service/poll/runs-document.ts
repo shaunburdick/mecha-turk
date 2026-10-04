@@ -36,7 +36,7 @@ import type { DispatchAttempt, Run, RunState, RunsDocument } from './runs-types.
 /** Store file holding the run document. */
 export const RUNS_FILE = 'runs.json';
 
-/** Terminal runs kept before the oldest is evicted (NFR-107, plan D3). */
+/** Terminal runs kept before the oldest is evicted. */
 export const MAX_TERMINAL_RUNS = 500;
 
 /** Store and logger every run operation reads. */
@@ -71,7 +71,7 @@ export interface RunsReadInput extends RunsStoreInput {
 export interface RunTransitionInput extends RunsStoreInput {
     /** The run this transition addresses, by correlation id. */
     readonly correlationId: string;
-    /** Service-clock stamp for the mutation (NFR-112); defaults to `nowIso()`. */
+    /** Service-clock stamp for the mutation; defaults to `nowIso()`. */
     readonly now?: string | undefined;
 }
 

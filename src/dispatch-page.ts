@@ -12,16 +12,16 @@
 /** Smallest page the Dispatches list offers (FR-042). */
 const MIN_PAGE_SIZE = 10;
 
-/** Page size a fresh Dispatches list asks for (FR-042). */
+/** Page size a fresh Dispatches list asks for. */
 export const DEFAULT_PAGE_SIZE = 25;
 
-/** Middle page the Dispatches list offers (FR-042). */
+/** Middle page the Dispatches list offers. */
 const MID_PAGE_SIZE = 50;
 
 /** Largest page the Dispatches list offers — the service's own cap (FR-042). */
 export const MAX_PAGE_SIZE = 100;
 
-/** Every page size the Dispatches list offers, smallest first (FR-042). */
+/** Every page size the Dispatches list offers, smallest first. */
 export const DISPATCH_PAGE_SIZES = [MIN_PAGE_SIZE, DEFAULT_PAGE_SIZE, MID_PAGE_SIZE, MAX_PAGE_SIZE] as const;
 
 /**

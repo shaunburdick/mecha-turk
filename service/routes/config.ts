@@ -88,7 +88,7 @@ async function handleGetConfig(context: RouteContext): Promise<HttpResponse> {
  *
  * @param input - The open store, its logger, and the validated replacement.
  * @returns `true` when the row (if one was owed) reached disk; `false` when
- *   the append failed, which never rolls the write back (006 FR-070).
+ *   the append failed, which never rolls the write back.
  */
 async function runConfigWrite(input: {
     /** Open store; the null check lives at the handler's own entry. */

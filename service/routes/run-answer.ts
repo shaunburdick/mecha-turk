@@ -35,7 +35,7 @@ const REFUSAL_STATUS = new Map<RunRefusal['code'], number>([
     ['already-reserved', STATUS.conflict],
     ['already-dispatched', STATUS.conflict],
     ['invalid-transition', STATUS.conflict],
-    // The actor-policy gate (003 FR-077). A `409` like every other state verdict
+    // The actor-policy gate. A `409` like every other state verdict
     // on this path: the run exists, the request was well-formed, and the service
     // answered "not authorized" — which the panel then reports as
     // `blocked:actor-not-allowed` through the existing block report.
@@ -133,7 +133,7 @@ export function runAnswer(input: {
     readonly correlationId: string;
     /** The run as it stands; a duplicate repeats it byte-stably. */
     readonly run: Run;
-    /** Whether the lifecycle row reached the trail (FR-063). */
+    /** Whether the lifecycle row reached the trail. */
     readonly auditWritten: boolean;
 }): Record<string, unknown> {
     return {
@@ -183,7 +183,7 @@ function refusalReason(response: HttpResponse): string {
  * is owed first.
  *
  * Contract §9 promises a `dispatch.refused` row for every `4xx` an operation in
- * this directory answers — narrowed by T-044 to the state verdicts **plus** a
+ * this directory answers — narrowed to the state verdicts **plus** a
  * `422` on a run that exists, because a state verdict is refused inside its
  * operation module while a malformed body never reaches one. The run is read
  * inside the chain the operation modules use, so the row's `priorState` and

@@ -80,7 +80,7 @@ export interface ReportInput {
     readonly outcome: ReportOutcome;
     /** Which operation is reporting, for the row and the refusal. */
     readonly operation: 'result' | 'abandon';
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }
 
@@ -202,7 +202,7 @@ function judgeReport(input: {
     }
 
     // A newer attempt owns the run: the panel is reporting for an attempt the
-    // service has already moved past (FR-031, plan D7). This is what makes a
+    // service has already moved past. This is what makes a
     // slow panel's late report a refusal rather than a second outcome.
     if (reservation.attempt !== run.attempt || attempt !== run.attempt) {
         return { refusal: stale };

@@ -103,7 +103,7 @@ export const EXCERPT_TRUNCATION_MARKER = '… [truncated]';
  */
 export const EXCERPT_OMITTED_MARKER = '[excerpt omitted: the claim answer carried this reference without its text]';
 
-/** One reference as the claim answer carries it (FR-013, FR-014). */
+/** One reference as the claim answer carries it. */
 export interface BoundedReference {
     /** The joining delivery's unchanged id (FR-012). */
     readonly deliveryId: string;

@@ -259,7 +259,7 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
     const prompt = bindings.startingPromptDirty
         ? { bindingId: draft.bindingId, startingPrompt: bindings.startingPromptInput }
         : undefined;
-    // The allow-list rides this write the same way (002 FR-047): a brand-new row
+    // The allow-list rides this write the same way: a brand-new row
     // has no policy yet, so a field the operator never touched creates the
     // binding open, and a touched one travels with it. A cleared field omits the
     // key, which for a new row is the same unset state.

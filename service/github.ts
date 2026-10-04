@@ -59,7 +59,7 @@ const TIMEOUT_ERROR_NAME = 'TimeoutError';
 /** Capabilities of the FR-010 scope matrix, in reporting order. */
 export type ScopeCapability = 'metadata' | 'issues' | 'pull-requests' | 'contents';
 
-/** Result recorded for one capability (FR-010). */
+/** Result recorded for one capability. */
 export type ScopeResult = 'ok' | 'missing' | 'unknown';
 
 /** Scope results plus when they were taken. */
@@ -75,9 +75,9 @@ export type CredentialKind = 'fine-grained' | 'classic' | 'unknown';
 
 /** Identity recovered from `GET /user`. */
 export interface GitHubIdentity {
-    /** Numeric GitHub user id — the durable account key (FR-009). */
+    /** Numeric GitHub user id — the durable account key. */
     readonly numericUserId: string;
-    /** Display login; renames update this field only (AC-004). */
+    /** Display login; renames update this field only. */
     readonly login: string;
 }
 

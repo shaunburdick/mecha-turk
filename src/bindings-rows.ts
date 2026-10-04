@@ -42,7 +42,7 @@ const HOUR_MS = 60 * MINUTE_MS;
 /** Milliseconds in a day. */
 const DAY_MS = 24 * HOUR_MS;
 
-/** What a binding no scan has ever reached reads as (005 FR-053). */
+/** What a binding no scan has ever reached reads as. */
 const NOT_SCANNED = 'not scanned yet';
 
 /** The slice of one status row the binding rows read. */
@@ -68,8 +68,8 @@ export interface BindingView {
      *
      * Held as **one clause rather than the list** so a login can never reach a
      * row even by accident: the count and the absent-policy warning are computed
-     * once, in `bindings-actors.ts`, and the row only decides where they go
-     * (005 FR-091, FR-092, NFR-113).
+     * once, in `bindings-actors.ts`, and the row only decides where they go.
+     *
      */
     readonly actorsClause: string | null;
 }
@@ -225,7 +225,7 @@ function statePhrase(state: BindingView['state'], reason: string | null): string
 }
 
 /**
- * Why a binding cannot poll because its account cannot (005 FR-063).
+ * Why a binding cannot poll because its account cannot.
  *
  * A binding whose account is unusable is the thing the operator is actually
  * looking at when nothing arrives, so the consequence is stated on *this*

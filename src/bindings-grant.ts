@@ -39,7 +39,7 @@ import type { PanelBinding } from './bindings-service.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import type { ServiceErrorResult } from './service-calls.ts';
 
-/** The one binding whose prompt a whole-file write carries (004 FR-014). */
+/** The one binding whose prompt a whole-file write carries. */
 export interface PromptPatch {
     /** Binding whose prompt the operator edited. */
     readonly bindingId: string;
@@ -199,8 +199,8 @@ function unreadableListRefusal(): ServiceErrorResult {
  * A granted list with an enabled row also arms the relay (see
  * {@link armRelayForBindings}), so the first binding created in-session
  * dispatches without waiting for a remount. Every row is built by
- * {@link rowForGrant}: an untouched prompt is omitted rather than re-submitted
- * (004 FR-014), while every row states its own allow-list and the edited one
+ * {@link rowForGrant}: an untouched prompt is omitted rather than re-submitted,
+ * while every row states its own allow-list and the edited one
  * states the operator's (002 FR-047, contract §2).
  *
  * The result is handed back as well as rendered: the note carries the

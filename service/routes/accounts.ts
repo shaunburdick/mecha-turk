@@ -77,7 +77,7 @@ const FORCE_QUERY_VALUE = '1';
 /** Copy for a rotation whose new token belongs to another account (SEC-06). */
 const ROTATION_ID_MISMATCH = 'the new token belongs to a different GitHub account than this one';
 
-/** Copy for a rotation whose new token belongs to another login (FR-009). */
+/** Copy for a rotation whose new token belongs to another login. */
 const ROTATION_LOGIN_MISMATCH = 'the new token belongs to a different GitHub login';
 
 /** Audit vocabulary shared by the refusal rows on these routes. */

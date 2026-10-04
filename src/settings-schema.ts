@@ -34,7 +34,7 @@
 
 import { asRecord, parseJsonObject } from './json.ts';
 
-/** Take-effect classes the projection may carry (006 FR-030). */
+/** Take-effect classes the projection may carry. */
 export type TakeEffectClass = 'immediate' | 'next-cycle' | 'next-dispatch' | 'restart' | 'none';
 
 /** Where a resolved configuration came from (006 contract §3). */
@@ -79,7 +79,7 @@ export interface EnumDescriptor {
     readonly name: string;
     /** Kind discriminator. */
     readonly kind: 'enum';
-    /** An enum has no unit; none may be fabricated (FR-014). */
+    /** An enum has no unit; none may be fabricated. */
     readonly unit: null;
     /** Accepted values, verbatim — unknown ones are kept, never mapped. */
     readonly values: readonly string[];
@@ -95,7 +95,7 @@ export interface StringDescriptor {
     readonly name: string;
     /** Kind discriminator. */
     readonly kind: 'string';
-    /** A string has no unit; none may be fabricated (FR-014). */
+    /** A string has no unit; none may be fabricated. */
     readonly unit: null;
     /** Service-authored prose about the allowed characters, rendered as text. */
     readonly format: string;
@@ -381,7 +381,7 @@ function isConfigSource(value: string): value is ConfigSource {
 }
 
 /**
- * Read a `GET /v1/config` body fail closed (006 FR-003, FR-021).
+ * Read a `GET /v1/config` body fail closed.
  *
  * @param body - Response body text.
  * @returns The envelope, or `null` when any part of it cannot be trusted.
@@ -449,7 +449,7 @@ export interface ConfigWriteAnswer {
 }
 
 /**
- * Read a `PUT /v1/config` answer fail closed (006 T-024; FR-044, FR-070).
+ * Read a `PUT /v1/config` answer fail closed.
  *
  * The contract's write answer is `{ config, auditWritten }` (§4) — **not** the
  * read envelope, because a write has no `source` or `defaultsApplied` to

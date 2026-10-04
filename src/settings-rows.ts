@@ -56,13 +56,13 @@ import type {
 export interface SettingsRow {
     /** Document member this row renders (a descriptor name, or an extra key). */
     readonly field: string;
-    /** The painted line: value, unit-or-none, bounds-or-format, and class (FR-014). */
+    /** The painted line: value, unit-or-none, bounds-or-format, and class. */
     readonly text: string;
     /** The control's accessible name: name, unit, and the boundary (FR-018, FR-039). */
     readonly label: string;
-    /** The presentation affordance: bounds or format, plus the default (FR-023). */
+    /** The presentation affordance: bounds or format, plus the default. */
     readonly helper: string;
-    /** Whether this member gets a control; an undocumented member does not (FR-027). */
+    /** Whether this member gets a control; an undocumented member does not. */
     readonly editable: boolean;
 }
 
@@ -100,7 +100,7 @@ export function takeEffectWords(takesEffect: TakeEffectClass): string {
 }
 
 /**
- * The word an empty string field shows in its value slot (004 FR-064).
+ * The word an empty string field shows in its value slot.
  *
  * Panel copy rather than a descriptor member, because it reports a *state* —
  * this field is not set — and a declaration cannot describe its own absence.
@@ -318,7 +318,7 @@ export interface RowsContext {
     readonly values: Readonly<Record<string, string>>;
     /** The service's remediation per field, for the field's own error slot. */
     readonly issues: Readonly<Record<string, string>>;
-    /** Extra helper text per field, such as the pending marker (FR-038). */
+    /** Extra helper text per field, such as the pending marker. */
     readonly notes: Readonly<Record<string, string>>;
     /** Whether every control is currently disabled (no save, or a write in flight). */
     readonly disabled: boolean;
@@ -411,7 +411,7 @@ function valueFieldProps(input: {
 }
 
 /**
- * Mount the control for a member the service declared (006 FR-010, FR-014).
+ * Mount the control for a member the service declared.
  *
  * The descriptor decides the *shape* — the accepted set, or an input — and
  * nothing else: the label, the affordance, and the value were all composed

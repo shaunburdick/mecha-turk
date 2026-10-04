@@ -59,7 +59,7 @@ export function isReviewRequestPull(pull: PollPull, bindingLogin: string): boole
  *
  * The basis is `direct`: GitHub records who requested the review, in
  * `review_requester`, so this row carries a fact and there is no inference on it
- * to disclose (002 FR-044, FR-050). The legacy `subject-author` basis remains
+ * to disclose. The legacy `subject-author` basis remains
  * readable for rows written before this correction and is written by nothing here.
  *
  * @param input - The binding, the matched pull request, the actor, and the stamp.

@@ -47,7 +47,7 @@ export interface SourceReference {
     /** `false` iff the run already held a reservation when this arrived. */
     readonly presentAtAuthorization: boolean;
     /**
-     * The actor this delivery is attributed to (002 FR-043), copied from the
+     * The actor this delivery is attributed to, copied from the
      * queue row at join.
      *
      * **Absentable on read, validated when present.** A run stored before
@@ -60,26 +60,26 @@ export interface SourceReference {
      */
     readonly actorLogin?: string;
     /**
-     * How that attribution was made (002 FR-044): `direct` when GitHub named
+     * How that attribution was made: `direct` when GitHub named
      * the author of the text that carried the trigger, `subject-author` when the
      * issue or pull-request author stands in as a documented proxy.
      *
      * Absentable and validated on the same terms as {@link
      * SourceReference.actorLogin}; an unrecognized basis refuses the run rather
-     * than defaulting to a guess (002 FR-024, NFR-011).
+     * than defaulting to a guess.
      */
     readonly actorAttribution?: ActorAttribution;
 }
 
 /**
- * The **shape** of the binding's allow-list at the moment of authorization
- * (003 FR-079, NFR-113).
+ * The **shape** of the binding's allow-list at the moment of authorization.
+ *
  *
  * Two words, never the logins: an audit trail or a run record listing who may
  * trigger a repository is a second copy of the access policy in a file retained
  * for months, and the permitted set's home is `bindings.json`. `'restricted'`
  * therefore always means **at least one** login — an empty list is refused at
- * save *and* on read (002 FR-047), so it can never reach here.
+ * save *and* on read, so it can never reach here.
  */
 export type ActorPolicy = 'open' | 'restricted';
 
@@ -88,7 +88,7 @@ export type ActorPolicy = 'open' | 'restricted';
  *
  * A refusal a reader cannot attribute is not an explainable refusal, so the row
  * names **every denied login and each one's basis** — including where that basis
- * was a proxy (002 NFR-011). What it never carries is a *permitted* login: the
+ * was a proxy. What it never carries is a *permitted* login: the
  * detail set is built from the run's own references and the policy's **shape**,
  * never from the stored list, so there is no path by which the permitted set
  * reaches the trail.
@@ -126,9 +126,9 @@ export interface ActorGateRefusal {
      * invisible to the gate under **every** policy.
      */
     readonly retainedReferences: number;
-    /** How many joining triggers the cap refused to retain (T-038). */
+    /** How many joining triggers the cap refused to retain. */
     readonly referencesNotRetained: number;
-    /** Whether the retained list was cut at the cap (NFR-107, T-038). */
+    /** Whether the retained list was cut at the cap. */
     readonly referencesTruncated: boolean;
 }
 
@@ -185,7 +185,7 @@ export interface RunLease {
     readonly provenance: LeaseProvenance;
 }
 
-/** The reservation that authorizes one `host.startSession()` (FR-021). */
+/** The reservation that authorizes one `host.startSession()`. */
 export interface RunReservation {
     /** The single-use token handed to the panel. */
     readonly dispatchToken: string;
@@ -215,7 +215,7 @@ export interface SessionRef {
     readonly worktree: { readonly directory: string; readonly branch: string } | null;
 }
 
-/** The recorded outcome of the post-dispatch agent read-back (FR-043). */
+/** The recorded outcome of the post-dispatch agent read-back. */
 export interface RunVerification {
     /** Agent the read-back observed, or `null` when it was unreadable. */
     readonly observedAgent: string | null;
@@ -246,7 +246,7 @@ export type BaselineProvenance = 'configured' | 'defaulted' | 'unset';
 export interface Run {
     /** FR-010 tuple, human-readable by design. */
     readonly runKey: string;
-    /** `mt-run-<hash>` — the id every hop of the chain carries (FR-050). */
+    /** `mt-run-<hash>` — the id every hop of the chain carries. */
     readonly correlationId: string;
     /** Attachment id for `host.startSession()`; the correlation id itself. */
     readonly attachmentId: string;
@@ -273,13 +273,13 @@ export interface Run {
      * `null` for a run queued with no prompt — which includes every run
      * written before this field existed, so absence keeps its plain reading.
      * It is never re-read from the binding: an edit, a clear, or a delete
-     * changes nothing about a stored run, and a retry (003 FR-041) reuses it
-     * and therefore composes a byte-identical message (004 AC-138).
+     * changes nothing about a stored run, and a retry reuses it
+     * and therefore composes a byte-identical message.
      */
     readonly prompt: PromptSnapshot | null;
     /**
      * The shape of the binding's allow-list **in force when this run was
-     * authorized** (003 FR-079), snapshotted by the gate from the same read that
+     * authorized**, snapshotted by the gate from the same read that
      * made its decision so `dispatch.reserved` and `dispatch.result` provably
      * describe one policy.
      *
@@ -291,7 +291,7 @@ export interface Run {
     readonly actorPolicy: ActorPolicy | null;
     /** Current state: one of the eight model states, or `blocked:<reason>`. */
     readonly state: RunState;
-    /** Why the run sits where it does; required off `pending` (FR-074). */
+    /** Why the run sits where it does; required off `pending`. */
     readonly stateReason: string | null;
     /** Attempt count; starts at 1, incremented by expiry, retry, and resolve. */
     readonly attempt: number;
@@ -315,7 +315,7 @@ export interface Run {
      * so the operator can see that a row is lossy instead of inferring it.
      */
     readonly referencesNotRetained: number;
-    /** Whether the reference list was cut at the cap (NFR-107, T-038). */
+    /** Whether the reference list was cut at the cap. */
     readonly referencesTruncated: boolean;
     /** The live lease, or `null` when no panel holds the run. */
     readonly lease: RunLease | null;
@@ -323,7 +323,7 @@ export interface Run {
     readonly reservation: RunReservation | null;
     /** Ordered attempt history, bounded by the attempt-record cap. */
     readonly attempts: readonly DispatchAttempt[];
-    /** The session this run produced, at most one ever (FR-028). */
+    /** The session this run produced, at most one ever. */
     readonly session: SessionRef | null;
     /** Recorded verification outcome, or `null` when none was reported. */
     readonly verification: RunVerification | null;

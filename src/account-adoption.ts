@@ -180,7 +180,7 @@ async function writeMissingMirrors(rt: PanelRuntime, usable: readonly ServiceAcc
  * never touches the one-shot paste path: a failed read or an unreadable body
  * simply leaves the flow exactly as it was. There is nothing to ask the
  * operator here: the service already holds the credential, and the consent
- * step this flow used to skip is gone (002 v1.9.0).
+ * step this flow used to skip is gone.
  *
  * @param rt - Panel runtime.
  * @returns The adopted identity, or `null` when the service answered nothing

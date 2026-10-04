@@ -179,7 +179,7 @@ function chainSeqs(entries: readonly AuditEntry[], openers: ReadonlyMap<string, 
     // keeps three things: the opener and the outcome together — which is what
     // makes "an outcome with no opener" structurally impossible — and
     // the latest hop, the row whose `decision` carries the run's final state,
-    // its session, and the reason for it (003 FR-065, cited by 006 FR-053).
+    // its session, and the reason for it (003 FR-065, cited).
     // Every hop type is run-scoped by prefix, so a hop's chain always reaches
     // this loop.
     for (const [correlationId, outcome] of outcomes) {

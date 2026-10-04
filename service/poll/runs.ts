@@ -68,7 +68,7 @@ export type { AdoptionOutcome, RunChange, RunTransitionInput, RunsStoreInput } f
 
 /** Extra input one transition needs beyond {@link RunTransitionInput}. */
 interface ClaimInput extends RunTransitionInput {
-    /** Opaque mount id taking the lease (FR-030). */
+    /** Opaque mount id taking the lease. */
     readonly holder: string;
     /** Lease identifier to record. */
     readonly leaseId: string;

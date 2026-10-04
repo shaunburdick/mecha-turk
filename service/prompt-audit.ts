@@ -41,7 +41,7 @@ import type { ServiceStore } from './store/index.ts';
  */
 export const PROMPT_UPDATED_EVENT = 'binding.prompt-updated';
 
-/** Who caused the change: `operator` through the panel, `service` otherwise (004 FR-051). */
+/** Who caused the change: `operator` through the panel, `service` otherwise. */
 export type PromptChangeActor = 'operator' | 'service';
 
 /** The binding members an observation reads. */
@@ -320,7 +320,7 @@ export async function recordPromptChanges(input: PromptObservation): Promise<num
  *
  * This is the entry point `readBindings` funnels through with actor `service`,
  * so a prompt edited outside the panel is recorded by whoever the service
- * could actually attribute the change to (004 FR-051).
+ * could actually attribute the change to.
  *
  * @param input - The document, the actor, the store, and the logger.
  * @returns How many rows this observation appended.

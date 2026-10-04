@@ -72,7 +72,7 @@ export function isBotAuthor(authorLogin: string, authorType: string): boolean {
 /**
  * Decide whether one author's text may be attributed to a detection at all.
  *
- * One predicate for **all four** trigger kinds (002 FR-045, plan D3): the two
+ * One predicate for **all four** trigger kinds: the two
  * judgements this product already applied to mention authorship, applied
  * unchanged rather than reinvented. Bots are noise (they mention each other for
  * a living), and an author GitHub would not name (`authorLogin === ''`) is
@@ -103,30 +103,30 @@ export function actorLoginOf(authorLogin: string): string {
  * How one delivery's actor was attributed (002 FR-044).
  *
  * The union is closed and stays closed — an unrecognized basis refuses the row
- * rather than defaulting to a guess (002 FR-024) — and the distinction is
+ * rather than defaulting to a guess — and the distinction is
  * load-bearing, because it is the difference between a record and an inference:
  *
  * - `direct` — GitHub named the identity that **performed the act**: the author
- *   of the text for a comment or issue-body mention, and, since v1.12.0, the
+ *   of the text for a comment or issue-body mention, and the
  *   `assigner` of the naming `assigned` event and the `review_requester` of the
  *   naming `review_requested` event. This is the **only** basis any row written
  *   now carries, for all four kinds.
  * - `subject-author` — a **legacy** basis, and no longer produced. It stood the
  *   issue or pull-request author in for an actor the two *list* feeds could not
- *   name. It is still read, because the rows this product wrote before v1.12.0
+ *   name. It is still read, because the rows this product wrote
  *   carry it and a refused row is a hidden dispatch; it is written by nothing.
  *
  * Every surface that names an actor must honour this basis beside it and must
- * never present an inference as a fact (002 NFR-011) — and, after v1.12.0, must
+ * never present an inference as a fact — and must
  * never claim GitHub fails to record the actor, because it does.
  */
 export type ActorAttribution = 'direct' | 'subject-author';
 
-/** Attribution bases a stored row may carry (002 FR-044), and nothing else. */
+/** Attribution bases a stored row may carry, and nothing else. */
 const ACTOR_ATTRIBUTIONS: ReadonlySet<string> = new Set(['direct', 'subject-author']);
 
 /**
- * Read the attributed login one stored row carries (002 FR-043).
+ * Read the attributed login one stored row carries.
  *
  * Absentable, and validated when present the same way {@link
  * readActorAttributionField} validates its sibling: a non-text value, or an
@@ -148,12 +148,12 @@ export function readActorLoginField(record: Record<string, unknown>): string | u
 }
 
 /**
- * Read the attribution basis one stored row carries (002 FR-044).
+ * Read the attribution basis one stored row carries.
  *
  * Absentable — a row written before this member existed predates the feature
  * and reads as *no attribution recorded*, which is a third thing rather than
  * either member of the union. **Validated when present**: an unrecognized
- * basis refuses the row instead of defaulting (002 FR-024, plan D2).
+ * basis refuses the row instead of defaulting.
  *
  * @param record - Parsed candidate row.
  * @returns `undefined` when the row carries no basis, the basis, or `null`
@@ -170,18 +170,18 @@ export function readActorAttributionField(record: Record<string, unknown>): Acto
 
 /** The actor members one row carries, when it carries them at all. */
 export interface ActorFields {
-    /** The login this delivery is attributed to (002 FR-043). */
+    /** The login this delivery is attributed to. */
     readonly actorLogin?: string;
-    /** How that attribution was made (002 FR-044). */
+    /** How that attribution was made. */
     readonly actorAttribution?: ActorAttribution;
 }
 
 /**
  * Read the actor members a row carries, omitting the ones it does not.
  *
- * A row written before 002 v1.11.0 carries neither and keeps neither: the
+ * A row written carries neither and keeps neither: the
  * parser never fills in a value the file did not hold, because inventing a
- * basis would record an inference as a fact (002 FR-044, NFR-011). `null` is
+ * basis would record an inference as a fact. `null` is
  * typed out here rather than asserted away because the caller has already
  * refused a row whose members it could not read.
  *

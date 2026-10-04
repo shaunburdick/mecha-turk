@@ -60,7 +60,7 @@ export interface BindingContext {
 export const DEFAULT_POLL_INTERVAL_MS = 60_000;
 
 /**
- * Documented default for the agent-verification baseline (002 FR-029).
+ * Documented default for the agent-verification baseline.
  *
  * **Blank, on purpose.** The product owner's order of 2026-10-01, verbatim:
  * *"Default Agent pin should default to blank, not everyone is going to use
@@ -165,10 +165,10 @@ export function parseWorktreeOption(value: string): WorktreeSelection | null {
  *
  * Shared by the panel's project picker and by the selection restore, so a
  * stored selection and a freshly picked id are held to the same rule. The
- * integration card no longer supplies a `project-id` value (002 FR-041): the
+ * integration card no longer supplies a `project-id` value: the
  * stored `mecha-turk:project` selection and the host's own project list are
  * the only sources, and a source that holds no valid id leaves the resolution
- * `null` rather than inventing a project (002 FR-004).
+ * `null` rather than inventing a project.
  *
  * @param raw - Candidate id from a stored selection or a picker pick.
  * @returns The trimmed id, or `null` when the candidate is absent or malformed.

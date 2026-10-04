@@ -77,7 +77,7 @@ function reportQuarantine(input: {
     const { result, subject, log, note } = input;
     if (result.status === 'quarantined') {
         // The reason is field + remediation only: the refusal vocabulary never
-        // echoes a value, so this line cannot leak one (004 FR-024, FR-019).
+        // echoes a value, so this line cannot leak one.
         log.warn('stored record was unusable and has been set aside', {
             subject,
             quarantinePath: result.quarantinePath,
@@ -110,7 +110,7 @@ export async function readAccountUnobserved(input: ReadAccountInput): Promise<Ac
  * The observation runs *after* the read answered, on the per-store account
  * chain, so a prompt edited outside the panel is recorded exactly once with
  * the actor the service can actually attribute it to — `service`, because no
- * panel asked for it (004 FR-088). A read that finds **no** account forgets
+ * panel asked for it. A read that finds **no** account forgets
  * that id's baseline: the tier died with the record, so a re-added account
  * reads as a fresh `set` rather than a diff against a fingerprint nobody holds
  * any more.

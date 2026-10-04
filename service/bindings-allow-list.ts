@@ -60,7 +60,7 @@ const LOGIN_SHAPE = /^[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9]$/;
  * `dependabot[bot]` is syntactically outside the published alphabet and is
  * still a login GitHub issues. Plan D7 **accepts** one into the list, where it
  * is inert, and 002 FR-045(c) names the refusal this module deliberately does
- * **not** raise: a bot actor is refused at **authorization** (003 FR-080), so
+ * **not** raise: a bot actor is refused at **authorization**, so
  * accepting the spelling here cannot grant a bot anything — every trigger kind
  * already filters bots at detection, and the one path that could reach the list
  * with a bot-shaped login refuses it regardless of what the list says. Accepting
@@ -96,7 +96,7 @@ function isGitHubLogin(value: unknown): value is string {
         : LOGIN_SHAPE.test(spelled) && !spelled.includes('--');
 }
 
-/** Field name every refusal on this member uses (002 FR-024). */
+/** Field name every refusal on this member uses. */
 const FIELD = 'allowedUsers';
 
 /** Remediation for a value that is not an array of logins. */
@@ -106,7 +106,7 @@ const NOT_AN_ARRAY_REMEDIATION = 'allowedUsers must be an array of GitHub logins
 /**
  * Remediation for an explicitly empty array — the refusal that has to name
  * **both** honest alternatives, because "nobody" is not one of this field's
- * meanings (002 FR-047). Disabling the binding is the way to stop *every*
+ * meanings. Disabling the binding is the way to stop *every*
  * trigger, and `state` already models it, so the sentence says so.
  */
 const EMPTY_REMEDIATION = 'allowedUsers must name at least one GitHub login: omit the field to let any human '
@@ -139,7 +139,7 @@ function refuse(remediation: string): { readonly issue: BindingIssue } {
  * own body cap, and an unnamed refusal is one an operator can hit through no
  * fault of their own.
  *
- * No issue in this set ever quotes what was submitted (002 FR-024); every
+ * No issue in this set ever quotes what was submitted; every
  * remediation names the *shape* an operator must send instead.
  *
  * @param raw - The candidate record, read for its `allowedUsers` member.
@@ -176,7 +176,7 @@ export function bindingAllowedUsersOf(raw: Record<string, unknown>): {
 /**
  * Decide whether one actor may trigger under one binding's allow-list.
  *
- * **The one membership comparison in the product** (plan D9, 003 FR-076): the
+ * **The one membership comparison in the product**: the
  * authorization gate calls this and nothing else may, so there is exactly one
  * answer to "may this run start a session?". A source scan in the test suite
  * asserts the identifier appears in exactly two files — this one and the

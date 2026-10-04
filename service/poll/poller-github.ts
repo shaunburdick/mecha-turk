@@ -76,7 +76,7 @@ interface WindowedListQuery {
     readonly name: string;
     /** Window start, or `null` for a replay scan; sent as `since`. */
     readonly since: string | null;
-    /** Page size and retry ladder this call runs under (006 FR-058, FR-059). */
+    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
 
@@ -88,7 +88,7 @@ interface RepoListQuery {
     readonly owner: string;
     /** Repository name. */
     readonly name: string;
-    /** Page size and retry ladder this call runs under (006 FR-058, FR-059). */
+    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
 
@@ -125,9 +125,9 @@ export interface GitHubIssuePoller {
      *
      * Called **once per matched candidate item**, never for a whole repository
      * and never through the timeline, so a cycle in which nothing matched costs
-     * zero requests (002 AC-028). It sends `per_page` and `page` only: this
+     * zero requests. It sends `per_page` and `page` only: this
      * endpoint has no `since` parameter, so the caller's window is compared
-     * against `created_at` here rather than sent (002 FR-051).
+     * against `created_at` here rather than sent.
      *
      * @param query - Token, repository, item number, window start, and pace.
      * @returns The events read plus whether the page bound was reached, or the
@@ -216,7 +216,7 @@ async function pullsList(runtime: PollerRuntime, query: RepoListQuery): Promise<
 }
 
 /**
- * Build the per-item events URL (002 FR-049, FR-051).
+ * Build the per-item events URL.
  *
  * The query string carries **`per_page` and `page` and nothing else**, which is
  * not a style choice: GitHub's own OpenAPI description for this path accepts

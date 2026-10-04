@@ -42,7 +42,7 @@ const ALL_FILTERS = 'all';
  */
 const CONTROLS_TOOLBAR_CLASS = 'mt-toolbar mt-toolbar--controls';
 
-/** Label of the correlation-id copy control (FR-049). */
+/** Label of the correlation-id copy control. */
 const COPY_CORRELATION_LABEL = 'Copy correlation id';
 
 /** Label the source-reference reveal carries before a row is selected. */
@@ -79,17 +79,17 @@ function stateFilterLabel(token: string): string {
 
 /** Callbacks the paging, filter, and row-detail controls invoke. */
 export interface DispatchControlsHandlers {
-    /** Step to the previous page of the current set (FR-042). */
+    /** Step to the previous page of the current set. */
     readonly previousPage: () => void;
-    /** Step to the next page of the current set (FR-042). */
+    /** Step to the next page of the current set. */
     readonly nextPage: () => void;
-    /** Change the page size and restart at page one of the same set (FR-042). */
+    /** Change the page size and restart at page one of the same set. */
     readonly setPageLimit: (limit: number) => void;
-    /** Filter by binding, server-side (FR-043). */
+    /** Filter by binding, server-side. */
     readonly setBindingFilter: (bindingId: string | null) => void;
-    /** Filter by state, server-side (FR-043). */
+    /** Filter by state, server-side. */
     readonly setStateFilter: (state: string | null) => void;
-    /** Clear both filters and return to page one of the whole set (AC-122). */
+    /** Clear both filters and return to page one of the whole set. */
     readonly clearFilters: () => void;
     /** Reveal or hide the selected row's source references (FR-048). */
     readonly toggleReferences: () => void;
@@ -111,13 +111,13 @@ export interface DispatchControlsInput {
 export interface PagingControls {
     /** Which slice of the filtered set is on screen, and when it was read. */
     readonly rangeLine: TextHandle;
-    /** The active filters, named whether or not any is on (FR-043). */
+    /** The active filters, named whether or not any is on. */
     readonly filterLine: TextHandle;
     /** Step one page back; disabled on the first page. */
     readonly previousPage: ButtonHandle;
     /** Step one page forward; disabled when the answer reported no more. */
     readonly nextPage: ButtonHandle;
-    /** Page-size select: 10, 25, 50, or 100 (FR-042). */
+    /** Page-size select: 10, 25, 50, or 100. */
     readonly pageSize: SelectHandle;
     /** Server-side binding filter. */
     readonly bindingFilter: SelectHandle;
@@ -133,7 +133,7 @@ export interface RowDetail {
     readonly detailBox: HTMLElement;
     /** Wrapper around the reveal control, hidden below two references. */
     readonly revealBox: HTMLElement;
-    /** The control that names how many further reasons fired (FR-048). */
+    /** The control that names how many further reasons fired. */
     readonly sourceReveal: ButtonHandle;
     /** Wrapper around the reference list, hidden until the reveal opens it. */
     readonly listBox: HTMLElement;
@@ -145,7 +145,7 @@ export interface RowDetail {
 
 /** Every control the Dispatches body mounts around its list. */
 export interface DispatchesControls extends PagingControls, RowDetail {
-    /** Release every handle this module mounted (FR-017). */
+    /** Release every handle this module mounted. */
     readonly dispose: () => void;
 }
 

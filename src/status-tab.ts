@@ -48,16 +48,16 @@ import type { PanelRuntime } from './panel-state.ts';
 /** Heading above the projection's service block. */
 const SERVICE_HEADING = 'Service';
 
-/** Heading above the polling block; the effective interval lives here (FR-039). */
+/** Heading above the polling block; the effective interval lives here. */
 const POLLING_HEADING = 'Polling';
 
-/** Heading above the per-account rows (FR-030). */
+/** Heading above the per-account rows. */
 const ACCOUNTS_HEADING = 'Accounts';
 
-/** Heading above the per-binding rows — the wire says `repositories` (FR-026). */
+/** Heading above the per-binding rows — the wire says `repositories`. */
 const BINDINGS_HEADING = 'Bindings';
 
-/** Heading above the agent-pin block (FR-033). */
+/** Heading above the agent-pin block. */
 const AGENT_PIN_HEADING = 'Agent pin';
 
 /**
@@ -76,7 +76,7 @@ const SUBJECT_KEY_CLASS = 'mt-key--mono';
 interface NoticeInput {
     /** Element to append into. */
     readonly parent: HTMLElement;
-    /** Banner tone; the copy carries the state as well (FR-083). */
+    /** Banner tone; the copy carries the state as well. */
     readonly tone: 'warning' | 'error';
     /** Banner title. */
     readonly title: string;
@@ -102,7 +102,7 @@ export interface StatusRowGroup {
 export interface StatusNotice {
     /** Wrapper whose `hidden` flag is "there is nothing to report here". */
     readonly box: HTMLElement;
-    /** The banner inside the wrapper (FR-035, FR-036). */
+    /** The banner inside the wrapper. */
     readonly banner: BannerHandle;
 }
 
@@ -110,9 +110,9 @@ export interface StatusNotice {
 export interface StatusTabUi {
     /** The first block: the tab title over the two notices and the controls. */
     readonly overview: Block;
-    /** Unsupported-surface notice, hidden while the surface supports a service (FR-036). */
+    /** Unsupported-surface notice, hidden while the surface supports a service. */
     readonly unsupported: StatusNotice;
-    /** Blocking storage notice, hidden while the data directory is writable (FR-035). */
+    /** Blocking storage notice, hidden while the data directory is writable. */
     readonly storageBlocked: StatusNotice;
     /** Explicit refresh — the tab's one way to re-read (FR-014). */
     readonly refreshButton: ButtonHandle;
@@ -292,7 +292,7 @@ export function repaintStatusTab(rt: PanelRuntime): void {
         // The one exception to "nothing claimed with nothing read": the
         // allow-list roll-up states *not available* rather than vanishing,
         // because an operator who cannot see it cannot tell a missing warning
-        // from a panel that did not check (005 FR-093, NFR-113).
+        // from a panel that did not check.
         paintRowGroup(ui.bindings, actorPolicyLines(view));
 
         return;
@@ -413,7 +413,7 @@ export function mountStatusTab(input: {
     const { rt, parent } = input;
     // One rule across the six tabs (2026-10-01 review): the tab title is the
     // first block's heading, and the tab's controls live inside that block.
-    // The two blocking notices go in with them, in FR-036's own order — the
+    // The two blocking notices go in with them own order — the
     // blocking facts still come before anything that could read as healthy.
     const overview = createBlock(parent, { heading: OVERVIEW_HEADING, title: true });
     const unsupported = mountNotice({

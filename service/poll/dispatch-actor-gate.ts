@@ -70,7 +70,7 @@ import type { ActorGateRefusal, ActorPolicy, Run } from './runs-types.ts';
 export const ACTOR_NOT_ALLOWED = 'actor-not-allowed';
 
 /**
- * The declared `blocked:<reason>` cause a refused run waits in (003 FR-078).
+ * The declared `blocked:<reason>` cause a refused run waits in.
  *
  * Exported, and spelled once here, because this is the **only** place the gate
  * exists: the block report's declared set
@@ -84,10 +84,10 @@ export const ACTOR_BLOCKED_REASON = ACTOR_NOT_ALLOWED;
 /**
  * The word a denied login's basis reads as when the run recorded none.
  *
- * `subject-author` and `direct` are the only two legal values (002 FR-044), so a
+ * `subject-author` and `direct` are the only two legal values, so a
  * login with no basis beside it came from a reference stored before attribution
  * existed. It is **named** rather than defaulted: printing `direct` there would
- * record an inference as a fact (002 NFR-011, FR-024).
+ * record an inference as a fact.
  */
 const UNRECORDED_BASIS = 'unrecorded';
 
@@ -100,7 +100,7 @@ const UNRECORDED_BASIS = 'unrecorded';
  * exists to prevent.
  */
 type ClassifiedActor =
-    /** No readable actor: absent, empty, or bot-shaped (FR-080). */
+    /** No readable actor: absent, empty, or bot-shaped. */
     | { readonly readable: false }
     /** A readable login, with the basis the run recorded for it. */
     | {
@@ -112,7 +112,7 @@ type ClassifiedActor =
         readonly attribution: ActorAttribution | null;
     };
 
-/** What the gate refused, and the detail set the row records (003 FR-077). */
+/** What the gate refused, and the detail set the row records. */
 export interface ActorPolicyRefusal {
     /** The wire code and the secret-free cause the response carries. */
     readonly refusal: RunRefusal;
@@ -124,7 +124,7 @@ export interface ActorPolicyRefusal {
 export type ActorPolicyVerdict =
     /** At least one reference names an allowed, readable actor. */
     | { readonly admitted: true; readonly policy: ActorPolicy }
-    /** No reference does; the row records why (FR-077, FR-080). */
+    /** No reference does; the row records why. */
     | { readonly admitted: false; readonly refused: ActorPolicyRefusal };
 
 /**
@@ -132,8 +132,8 @@ export type ActorPolicyVerdict =
  *
  * **An absent, empty, or bot-shaped actor is unreadable, whatever the policy
  * is.** That is FR-080's whole rule and the reason the gate never asks the
- * list: a login GitHub marked as a bot is never attributed onto an event at all
- * (002 FR-045), so one here can only come from a hand-edited document.
+ * list: a login GitHub marked as a bot is never attributed onto an event at all,
+ * so one here can only come from a hand-edited document.
  *
  * @param reference - One retained source reference.
  * @returns The reference's classification.
@@ -195,7 +195,7 @@ function judgedWindow(run: Run): JudgedWindow {
     };
 }
 
-/** The detail set one denial records, whatever its message (FR-077, NFR-113). */
+/** The detail set one denial records, whatever its message. */
 function refusalDetails(input: {
     /** The run being authorized. */
     readonly run: Run;
@@ -223,7 +223,7 @@ function refusalDetails(input: {
 }
 
 /**
- * The window this decision saw, as the wire states it (003 T-038, NFR-107).
+ * The window this decision saw, as the wire states it.
  *
  * Read through {@link judgedWindow} — the same helper the detail set records
  * `referencesTruncated` from — so the word on the envelope and the flag on the
@@ -248,7 +248,7 @@ function judgedWindowWord(run: Run): ReferenceWindow {
  *
  * **The operator-facing half of the liveness rule.** The gate's quantifier runs
  * over the **retained** references, and the cap stops retaining at
- * {@link MAX_SOURCE_REFERENCES} (T-038) — so a run whose list was cut can hold
+ * {@link MAX_SOURCE_REFERENCES} — so a run whose list was cut can hold
  * an allowed actor among the *dropped* references, and no policy change can ever
  * admit it. That is exactly the permanent wedge the quantifier exists to
  * prevent, arriving by the other door: admitting on truncation would admit an
@@ -283,7 +283,7 @@ function truncatedNote(run: Run): string {
  *
  * Each basis is spelled in the vocabulary 002 FR-044 defines, so a login is
  * named with the provenance of its attribution and never as a claim that a
- * denied actor caused anything (002 NFR-011).
+ * denied actor caused anything.
  *
  * The `subject-author` clause is the one string here that had to be re-cut at
  * 002 v1.12.0. It used to say *"a proxy, GitHub does not record who assigned or
@@ -319,8 +319,8 @@ function unreadableNote(unreadableReferences: number): string {
 }
 
 /**
- * The refusal one denied run leaves behind, whatever its message
- * (003 FR-077, T-038).
+ * The refusal one denied run leaves behind, whatever its message.
+ *
  *
  * **One builder for both denials**, because the two facts they add to the
  * message are added by the same two lines and must never be added to one and
@@ -386,7 +386,7 @@ function deniedPolicyRefusal(input: {
  *
  * Pure: the caller owns the store read and the write, so the same
  * predicate can re-judge a `blocked:actor-not-allowed` run against a live read on
- * the retry path (FR-078, plan D17) — which is what makes "a run cannot be
+ * the retry path — which is what makes "a run cannot be
  * retried into a dispatch this gate would refuse again" a property rather than a
  * hope.
  *
@@ -426,7 +426,7 @@ export function judgeActorPolicy(input: {
             + 'attribution or name a bot account, which no binding can permit');
 }
 
-/** Why the live policy could not be judged, when it could not be (plan D15). */
+/** Why the live policy could not be judged, when it could not be. */
 export type UnreadablePolicyCause =
     /** `bindings.json` is absent, quarantined, or unreadable. */
     | 'document-unreadable'

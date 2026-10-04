@@ -31,7 +31,7 @@ export const MAX_LEDGER_ENTRIES = 100;
 /** Maximum characters kept for one entry's detail value. */
 export const MAX_DETAIL_CHARS = 200;
 
-/** Lifecycle phases the experiment must observe explicitly (FR-039). */
+/** Lifecycle phases the experiment must observe explicitly. */
 export type LifecyclePhase = 'mounted' | 'closed' | 'paused' | 'removed' | 'server-switch';
 
 /** All lifecycle phases, in experiment order. */

@@ -296,7 +296,7 @@ async function runProfileWrite(input: {
  * Run `PUT /v1/accounts/:numericUserId` from request to response.
  *
  * One handler, one contract, two operator-editable members: `displayName`
- * (005 FR-066) and the account's `startingPrompt` tier (004 FR-082) ride the
+ * and the account's `startingPrompt` tier (004 FR-082) ride the
  * same route instead of a dedicated endpoint per field. `401` and `503` are
  * the route guard's and the store check's, unchanged.
  *

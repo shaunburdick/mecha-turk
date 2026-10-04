@@ -29,7 +29,7 @@
 
 import type { ConfigEnvelope, FieldDescriptor } from './settings-schema.ts';
 
-/** Which control armed a confirmation (006 FR-016, FR-051). */
+/** Which control armed a confirmation. */
 export type ConfirmAction = 'save' | 'restore';
 
 /** One armed confirmation: what it authorises, and what the bar says. */
@@ -54,7 +54,7 @@ export interface RetentionLowering {
     readonly unit: string;
 }
 
-/** How one retention knob is described when it is lowered (006 FR-036). */
+/** How one retention knob is described when it is lowered. */
 interface RetentionRule {
     /** What the limit governs — the audit trail, the entry cap, the excerpts. */
     readonly governs: string;
@@ -102,7 +102,7 @@ const SURVIVORS =
     'records its outcome, account and binding rows, and decision rows — are never removed, and the trim ' +
     'appends an audit.trimmed row recording exactly what it took.';
 
-/** Raising a limit deletes nothing (FR-052). */
+/** Raising a limit deletes nothing. */
 const RAISE = 'Raising a limit deletes nothing.';
 
 /** Trimming has no undo in this feature (006 `## Out of Scope`). */

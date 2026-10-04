@@ -41,7 +41,7 @@ import type { PanelAccount, PanelBinding } from './bindings-service.ts';
 /** The three states FR-072 allows, and nothing else. */
 export type PrerequisiteState = 'met' | 'not-met' | 'not-checkable';
 
-/** The five prerequisites FR-071 names after 005 v1.7.0, as stable identifiers. */
+/** The five prerequisites FR-071 names as stable identifiers. */
 export type PrerequisiteId =
     /** Session Defaults → Default Agent pin (002 prerequisite 1). */
     | 'default-agent'
@@ -95,7 +95,7 @@ export const STATE_NOT_MET = 'not-met';
 export const STATE_NOT_CHECKABLE = 'not-checkable';
 
 /**
- * Label one state is rendered with, in FR-072's own vocabulary.
+ * Label one state is rendered with own vocabulary.
  *
  * @param state - The prerequisite's state.
  * @returns The operator-facing label, never a bare enum value.
@@ -139,7 +139,7 @@ export function prerequisiteTone(state: PrerequisiteState): Tone {
  * The Default Agent pin: checkable only after a dispatch.
  *
  * The remediation names the **setting path** and no agent name, because the
- * default is blank since 006 v1.5.0 / 002 v1.10.0 (product-owner order:
+ * default is blank / 002 v1.10.0 (product-owner order:
  * *"Default Agent pin should default to blank, not everyone is going to use
  * project-manager"*). Prescribing an agent here would tell every operator the
  * same thing the owner just refused to assume, so the line asks for the agent
@@ -322,7 +322,7 @@ function registeredProjectPerBinding(bindings: readonly PanelBinding[]): Prerequ
  * leave stale.
  *
  * @param state - Panel state to read.
- * @returns The five prerequisites, in FR-071's order.
+ * @returns The five prerequisites order.
  */
 export function derivePrerequisites(state: PanelState): readonly Prerequisite[] {
     return [

@@ -27,13 +27,13 @@ const NEWLINE = '\n';
 /** Appended to excerpt text this module cut (FR-014's explicit truncation marker). */
 export const EXCERPT_TRUNCATION_MARKER = '… [truncated]';
 
-/** Stands in for excerpt text this context had no room for; never silent (FR-014). */
+/** Stands in for excerpt text this context had no room for; never silent. */
 export const EXCERPT_OMITTED_MARKER = '[excerpt omitted: no room in this dispatch context]';
 
-/** Opening delimiter of the untrusted source text (FR-026). */
+/** Opening delimiter of the untrusted source text. */
 export const BEGIN_UNTRUSTED = '--- BEGIN UNTRUSTED ISSUE TEXT (truncated) ---';
 
-/** Closing delimiter of the untrusted source text (FR-026). */
+/** Closing delimiter of the untrusted source text. */
 export const END_UNTRUSTED = '--- END UNTRUSTED ISSUE TEXT ---';
 
 /** Hyphen used to elide a delimiter that hostile source text tried to forge. */

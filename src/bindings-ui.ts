@@ -69,9 +69,9 @@ export interface BindingsPane {
     readonly repoField: TextFieldHandle;
     /** Account select: fixed to the binding in edit mode, a picker in add mode. */
     readonly accountSelect: SelectHandle;
-    /** The mention token in force, marked when it differs (005 FR-057). */
+    /** The mention token in force, marked when it differs. */
     readonly mentionToken: TextHandle;
-    /** The actor allow-list field — the only element holding its logins (FR-090). */
+    /** The actor allow-list field — the only element holding its logins. */
     readonly actors: BindingActorControls;
     /** Project select (from the host's project list). */
     readonly projectSelect: SelectHandle;

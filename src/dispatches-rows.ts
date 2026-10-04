@@ -119,7 +119,7 @@ const STATE_REASONS: Record<PlainRunState, string> = {
     [DEAD_LETTERED]: 'the automatic requeue budget is spent — return it to waiting to reset the attempt count',
 };
 
-/** Reason a dispatch carries a state this build does not recognise (FR-074). */
+/** Reason a dispatch carries a state this build does not recognise. */
 const UNKNOWN_STATE_REASON = 'this dispatch reports a state the panel does not recognise — no action is offered';
 
 /**
@@ -142,7 +142,7 @@ const PLAIN_STATE_TONES: Record<Exclude<PlainRunState, typeof DEAD_LETTERED>, To
 };
 
 /**
- * The declared `blocked:` causes whose remedy is a named field (003 FR-078).
+ * The declared `blocked:` causes whose remedy is a named field.
  *
  * Annotated as a wide record so a cause this build does not produce still
  * renders through {@link blockedReasonText}'s generic clause rather than
@@ -159,11 +159,11 @@ const BLOCKED_CAUSE_REASONS: Readonly<Record<string, string>> = {
  * The **generic** clause serves every cause with no entry in
  * {@link BLOCKED_CAUSE_REASONS} — it says the true thing about all of them —
  * while a cause whose remedy is *specific* gets its own line.
- * `blocked:actor-not-allowed` is the only one so far (003 v1.8.0), because it is
+ * `blocked:actor-not-allowed` is the only one so far, because it is
  * the only one whose fix is a **field the operator can find**: the binding's
  * allow-list. An operator reading "a guard refused the dispatch" learns nothing;
  * reading "nobody who triggered this run is on this binding's allow-list" knows
- * exactly which row to open (005 FR-044).
+ * exactly which row to open.
  *
  * @param cause - The suffix after `blocked:`.
  * @returns The reason line for that cause.
@@ -235,7 +235,7 @@ function stateTone(state: RunState): Tone {
  *
  * A read-back against **no configured baseline** (`expectedAgent === ''`)
  * changes nothing: there was no expectation to miss, so the run keeps the
- * tone its own state earns (002 FR-029 as amended at v1.10.0).
+ * tone its own state earns (002 FR-029 as amended).
  *
  * @param row - Run to judge.
  * @returns The tone the badge renders with.
@@ -379,8 +379,7 @@ function resultPhrase(row: RunRow): string {
 
 /**
  * One reference's line: kind, detection time, origin when it adds something,
- * its actor and basis, and the mark on a reason the agent may never have seen
- * (FR-015, 005 FR-094).
+ * its actor and basis, and the mark on a reason the agent may never have seen.
  *
  * @param reference - One retained source reference.
  * @returns The reference's label.
@@ -424,7 +423,7 @@ function referencePhrase(row: RunRow): string | null {
  *
  * An empty `expectedAgent` is the documented *no baseline configured*, so the
  * line reports the observation and the absence together and never the word
- * *mismatch* — nothing was compared (002 FR-029 as amended at v1.10.0).
+ * *mismatch* — nothing was compared (002 FR-029 as amended).
  *
  * @param verification - The recorded read-back.
  * @returns The line, naming the observed agent, the expected one, the verdict,

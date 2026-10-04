@@ -36,13 +36,13 @@ import type { Run } from './runs-types.ts';
 /** How a retry learned that the blocking cause had cleared. */
 export type CauseSource = 'corroborated' | 'reported' | null;
 
-/** The reason every un-cleared cause answers with (FR-041). */
+/** The reason every un-cleared cause answers with. */
 export const CAUSE_NOT_CLEARED = 'cause-not-cleared';
 
 /** The blocked cause whose clearing the service verifies by table lookup alone. */
 export const CORROBORATED_BINDING_REASON = 'binding-missing';
 
-/** The declared `blocked:` cause the actor-policy gate parks a run in (FR-078). */
+/** The declared `blocked:` cause the actor-policy gate parks a run in. */
 const ACTOR_BLOCKED_REASON = 'actor-not-allowed';
 
 /** The two blocked causes the service can re-check itself, and so corroborate. */

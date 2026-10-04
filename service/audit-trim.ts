@@ -358,7 +358,7 @@ function planRemoval(input: {
 async function composeTrimRow(input: {
     /** The plan that produced the removals. */
     readonly plan: RemovalPlan;
-    /** The limit that tripped first; the row names it (FR-073). */
+    /** The limit that tripped first; the row names it. */
     readonly limitReached: AuditLimit;
     /** Protected rows deliberately kept (FR-056's floor). */
     readonly minimalReferencesPreserved: number;
@@ -386,7 +386,7 @@ async function composeTrimRow(input: {
             // The loss this rewrite performs that no removal accounts for. It
             // rides on *this* row because this row is the only thing written
             // for a rewrite: recording it here is what turns an invisible
-            // erasure into an auditable one (006 FR-053).
+            // erasure into an auditable one.
             malformedLinesDropped,
         },
     });
@@ -411,7 +411,7 @@ async function readOrderedTrail(store: ServiceStore): Promise<AuditTrailRead> {
  * The warn lands here, on the read whose result is destructive: this is the
  * pass that erases those lines if it goes on to rewrite, and it says so before
  * it does. The count then travels onto the trim row itself, so the loss is
- * recorded rather than performed invisibly (006 FR-053).
+ * recorded rather than performed invisibly.
  *
  * @param input - Open store and the logger to report the count through.
  * @returns The ordered rows plus the unreadable-line count.

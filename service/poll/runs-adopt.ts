@@ -357,7 +357,7 @@ function migratedRun(input: {
             projectId: event.projectId,
             worktreeOption: event.worktreeOption,
             prompt: null,
-            // The allow-list shape is decided at authorization (003 FR-076).
+            // The allow-list shape is decided at authorization.
             actorPolicy: null,
             state: classification.state,
             stateReason: classification.stateReason,

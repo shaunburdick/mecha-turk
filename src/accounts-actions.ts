@@ -238,7 +238,7 @@ export function splitProfileRefusal(message: string): ProfileRefusal {
 }
 
 /**
- * Put both members to the account profile write (004 FR-082, 005 FR-066).
+ * Put both members to the account profile write.
  *
  * The route has always taken the two members together (absent = unchanged),
  * so the wire did not change when the owner ruled "One Save button, both
@@ -338,7 +338,7 @@ function clearProfileRefusals(accounts: AccountsTabState): void {
  * across two fields — and it is why the refusal is split *per member* below
  * rather than rendered whole on both.
  *
- * The service stays the only validator (004 plan D24): nothing here checks a
+ * The service stays the only validator: nothing here checks a
  * draft, so a refusal is always the service's own, and the answer for a
  * member the service did not name is left untouched rather than cleared or
  * borrowed from the other field. Both drafts stay exactly as typed, both

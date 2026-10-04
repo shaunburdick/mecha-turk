@@ -36,7 +36,7 @@ export type EventKind = 'assignment' | 'mention' | 'review';
 /** Lifecycle of one relay event, as the shipped three-state queue stored it. */
 export type EventState = 'pending' | 'in-flight' | 'dispatched';
 
-/** The subject shapes a delivery can be about (003 FR-010). */
+/** The subject shapes a delivery can be about. */
 export type SubjectType = 'issue' | 'pull_request';
 
 /**
@@ -81,7 +81,7 @@ export interface QueuedEvent {
     /** RFC 3339 detection stamp. */
     readonly detectedAt: string;
     /**
-     * The run this delivery belongs to (003 FR-012), assigned at enqueue.
+     * The run this delivery belongs to, assigned at enqueue.
      *
      * Absent on rows written before the run layer and on rows whose subject
      * was too ambiguous to fold into a run; rows 003 enqueues carry it.
@@ -122,7 +122,7 @@ export interface QueuedEvent {
      */
     readonly excerptTrimmedAt?: string;
     /**
-     * The GitHub login this delivery is attributed to (002 FR-043).
+     * The GitHub login this delivery is attributed to.
      *
      * **Absentable on read, validated when present**, and both rules live in
      * [`attribution.ts`](./attribution.ts) beside the basis's own vocabulary.
@@ -130,16 +130,16 @@ export interface QueuedEvent {
      * requiring it would quarantine every pre-existing row, which is a
      * migration by side effect. Absence is not a permission — the
      * authorization gate refuses a run whose references name no readable actor
-     * rather than reading absence as allowed (003 FR-080).
+     * rather than reading absence as allowed.
      *
      * Public repository identity, never a credential, so the member is
      * credential-free by construction.
      */
     readonly actorLogin?: string;
     /**
-     * How that attribution was made (002 FR-044), absentable on read and
+     * How that attribution was made, absentable on read and
      * **validated when present**: an unrecognized basis refuses the row rather
-     * than defaulting to a guess (002 FR-024). A row written before this
+     * than defaulting to a guess. A row written before this
      * member existed reads as *no attribution was recorded* — which is not the
      * same as `direct`, and never silently becomes it.
      */
@@ -187,7 +187,7 @@ const KNOWN_STATES = new Set<string>(['pending', 'in-flight', 'dispatched']);
 /** Trigger kinds the writer and migration know how to interpret. */
 const KNOWN_KINDS = new Set<string>(['assignment', 'mention', 'review']);
 
-/** Subject shapes a delivery may carry (003 FR-010). */
+/** Subject shapes a delivery may carry. */
 const SUBJECT_TYPES: ReadonlySet<string> = new Set(['issue', 'pull_request']);
 
 /** Correlation ids are service-minted, fixed-format path segments. */
@@ -295,7 +295,7 @@ function readRunLinkField(record: Record<string, unknown>): string | undefined |
 }
 
 /**
- * Read the retention marker the excerpt pass writes (006 FR-057).
+ * Read the retention marker the excerpt pass writes.
  *
  * @param record - Parsed candidate row.
  * @returns `undefined` when the row carries no marker (a literal `null`
@@ -383,9 +383,9 @@ function lifecycleOf(record: Record<string, unknown>, state: EventState | undefi
 
 /** The run-layer fields one row carries, when it carries them at all. */
 interface RunLinkFields {
-    /** The run this delivery belongs to, assigned at enqueue (FR-012). */
+    /** The run this delivery belongs to, assigned at enqueue. */
     readonly runCorrelationId?: string;
-    /** Subject shape captured at detection (FR-010). */
+    /** Subject shape captured at detection. */
     readonly subjectType?: SubjectType;
 }
 
@@ -409,7 +409,7 @@ function runLinkOf(record: Record<string, unknown>, subjectType: SubjectType | u
 
 /** The retention marker one row carries, when the pass has touched it. */
 interface TrimMarkerFields {
-    /** Stamp the excerpt was cleared at (006 FR-057); omitted when untouched. */
+    /** Stamp the excerpt was cleared at; omitted when untouched. */
     readonly excerptTrimmedAt?: string;
 }
 
@@ -453,10 +453,10 @@ function coordinatesOf(
  * with both read as `null` — and the legacy lifecycle stamps may be missing
  * too, which is how a row 003 enqueued reads. The two actor members
  * (`actorLogin`, `actorAttribution`) may be missing outright as well: they are
- * **absentable on read and validated when present** (002 FR-043, plan D2), so
- * a row written before 002 v1.11.0 still parses and reads as *no attribution
+ * **absentable on read and validated when present**, so
+ * a row written still parses and reads as *no attribution
  * recorded* — never as a default basis, because a defaulted basis states an
- * inference as a fact (002 FR-044, NFR-011). Anything else — including a row
+ * inference as a fact. Anything else — including a row
  * missing `issueNumber` outright, a `state` outside the shipped three, or an
  * unrecognized attribution basis — answers `null`, which the store turns into
  * a quarantine.

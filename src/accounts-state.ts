@@ -33,7 +33,7 @@ export type AccountMember = 'displayName' | 'startingPrompt';
 export const PROFILE_MEMBERS: readonly AccountMember[] = ['displayName', 'startingPrompt'];
 
 /**
- * Callbacks the mounted Accounts body invokes (005 FR-062, 004 FR-089).
+ * Callbacks the mounted Accounts body invokes.
  *
  * The body paints state and calls back; every one of these ends in an action
  * `accounts-actions.ts` owns, so the contract sits beside the state it edits
@@ -44,13 +44,13 @@ export interface AccountsHandlers {
     readonly selectAccount: (id: string) => void;
     /** The operator asked for a fresh accounts read. */
     readonly refresh: () => void;
-    /** The operator typed into the display-name field (FR-066). */
+    /** The operator typed into the display-name field. */
     readonly setDisplayName: (value: string) => void;
-    /** The operator typed into the account-tier prompt field (004 FR-089). */
+    /** The operator typed into the account-tier prompt field. */
     readonly setStartingPrompt: (value: string) => void;
     /**
-     * The operator saved the profile — **both** members in one write
-     * (FR-066, AC-130; 004 FR-082, AC-150).
+     * The operator saved the profile — **both** members in one write.
+     *
      *
      * One control writes both fields because the product owner ruled it so
      * ("One Save button, both fields", PR #12): the two *inputs* stay
@@ -58,9 +58,9 @@ export interface AccountsHandlers {
      * one-pass refusal is split back into the member slots by field name.
      */
     readonly submitProfile: () => void;
-    /** The operator armed or cancelled the token rotation (FR-064). */
+    /** The operator armed or cancelled the token rotation. */
     readonly rotateToken: () => void;
-    /** The operator armed, then confirmed, the removal (FR-055, FR-065). */
+    /** The operator armed, then confirmed, the removal. */
     readonly removeAccount: () => void;
 }
 
@@ -68,13 +68,13 @@ export interface AccountsHandlers {
 export interface AccountsTabState {
     /** The row the operator selected (numeric id), or `null`. */
     selected: string | null;
-    /** The row whose display-name field is open, or `null` (FR-066). */
+    /** The row whose display-name field is open, or `null`. */
     displayNameRow: string | null;
     /** The display-name field's current text for that row (FR-066). */
     displayNameDraft: string;
     /** The service's refusal for the last display-name write, or `null` (FR-085). */
     displayNameError: string | null;
-    /** The row whose starting-prompt field is open, or `null` (004 FR-089). */
+    /** The row whose starting-prompt field is open, or `null`. */
     startingPromptRow: string | null;
     /** The starting-prompt field's current text for that row (004 FR-089). */
     startingPromptDraft: string;
@@ -89,7 +89,7 @@ export interface AccountsTabState {
      * is per row, so the count the confirm step states is that row's own.
      */
     removeArmed: string | null;
-    /** The row whose Rotate-token control is armed (FR-064), or `null`. */
+    /** The row whose Rotate-token control is armed, or `null`. */
     rotateArmed: string | null;
     /** Operator-facing note for this tab; never credential material. */
     note: string;
@@ -196,7 +196,7 @@ export function setMemberEdit(input: {
 }
 
 /**
- * Build the empty Accounts tab working state (005 FR-060, FR-064–FR-066).
+ * Build the empty Accounts tab working state.
  *
  * Nothing here survives as data the service owns: the list, the display
  * names, the prompts, and the lifecycle states come back from

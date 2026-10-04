@@ -383,7 +383,7 @@ async function appendSweepAudit(input: {
  *
  * The intents travel in the **same atomic write** as the state change they
  * describe, so a crash between the recovery and its row leaves the row owed
- * rather than lost — the same durability the enqueue path gets from T-037's
+ * rather than lost — the same durability the enqueue path gets
  * outbox, reused rather than reinvented.
  *
  * @param input - The document to persist and the recoveries it owes rows for.

@@ -70,21 +70,21 @@ export interface PanelBinding {
     /** RFC 3339 stamp of the last change. */
     readonly updatedAt: string;
     /**
-     * The stored starting prompt, or absent when this binding has none
-     * (004 FR-012).
+     * The stored starting prompt, or absent when this binding has none.
+     *
      *
      * Read only: the row summary renders presence and length, never this text
-     * and never a fingerprint (005 FR-051), and a whole-file write carries it
+     * and never a fingerprint, and a whole-file write carries it
      * for exactly one binding — the one whose prompt the operator edited —
-     * so every other row omits the key and the service preserves its prompt
-     * (004 FR-014). `| undefined` is what lets that omission be expressed as
+     * so every other row omits the key and the service preserves its prompt.
+     * `| undefined` is what lets that omission be expressed as
      * data: `JSON.stringify` drops the member, and the route reads an absent
      * key as *leave this one alone*.
      */
     readonly startingPrompt?: string | undefined;
     /**
      * The GitHub logins allowed to trigger dispatches from this binding, or
-     * **absent** when it carries no list (002 FR-047).
+     * **absent** when it carries no list.
      *
      * Three states on the wire and two here: **absent** — no policy is
      * configured, so any human actor may trigger this repository — and **a
@@ -96,7 +96,7 @@ export interface PanelBinding {
      *
      * Read only: the logins are rendered **exactly once** panel-wide — in the
      * editor field the operator types into — while a row summary shows the
-     * **count** and nothing else (005 FR-091, NFR-113). `| undefined` is
+     * **count** and nothing else. `| undefined` is
      * load-bearing in the *other* direction from the prompt's: a whole-file
      * write carries this member on **every** row and **omission means unset**
      * (contract §2), so an operator who clears the field takes the binding
@@ -258,7 +258,7 @@ type AllowedUsersRead =
  * nor *those logins* would be the third reading this product refuses to pick
  * silently, and 005 renders that case as *unreadable* rather than as open.
  *
- * The submitted spelling is preserved **verbatim** (002 FR-047, plan D5) — the
+ * The submitted spelling is preserved **verbatim** — the
  * panel compares nothing and normalizes nothing here; the service owns that.
  *
  * @param value - The member as received.

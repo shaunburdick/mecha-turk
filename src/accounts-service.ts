@@ -26,7 +26,7 @@ import type { ScopeCapability, ScopeResult } from './account-mirror.ts';
 /** Verdict one account's recorded scope matrix gives its token (FR-010). */
 export type AccountScopeVerdict = 'ok' | 'missing' | 'unknown';
 
-/** The four-capability FR-010 matrix as the account DTO carries it (FR-062). */
+/** The four-capability FR-010 matrix as the account DTO carries it. */
 export type AccountScopeMatrix = Readonly<Record<ScopeCapability, ScopeResult>>;
 
 /** One registered account the panel can bind (credential never present). */
@@ -36,8 +36,8 @@ export interface PanelAccount {
     /** Display login. */
     readonly login: string;
     /**
-     * Operator display label as the service stored it, or `null` when unset
-     * (005 FR-066).
+     * Operator display label as the service stored it, or `null` when unset.
+     *
      *
      * The panel reads it; it never renders it as identity — `login` stays the
      * fact the row shows when there is no label.
@@ -45,14 +45,14 @@ export interface PanelAccount {
     readonly displayName: string | null;
     /**
      * The account tier of the starting prompt, or absent when this account
-     * has none (004 FR-082).
+     * has none.
      *
      * `null` on the wire and absent in this type both read as *unset* — a
      * complete, valid state — so `?? ''` is all a reader needs. It is read
      * only: the row summary shows presence and length, never this text and
-     * never a fingerprint (005 FR-051), the account mirror never stores it,
+     * never a fingerprint, the account mirror never stores it,
      * and the profile write carries it as **one member of a
-     * closed body**, absent = unchanged (004 FR-082, 005 FR-066).
+     * closed body**, absent = unchanged.
      *
      * `| undefined` is explicit because `exactOptionalPropertyTypes` is on:
      * a record that left the member out **omits** the key (the parse writes
@@ -63,15 +63,15 @@ export interface PanelAccount {
     /** `true` only for accounts whose latest verification succeeded. */
     readonly usable: boolean;
     /**
-     * What this account's recorded FR-010 scope matrix says about its token
-     * (003 T-029), absent when the DTO carried no matrix this build reads.
+     * What this account's recorded FR-010 scope matrix says about its token,
+     * absent when the DTO carried no matrix this build reads.
      *
      * Absent means *no evidence*, never *no problem*: the prerequisites
      * section renders it as not checkable, never as satisfied.
      */
     readonly scope?: AccountScopeVerdict;
     /**
-     * Lifecycle state as the accounts DTO reports it (005 FR-062), absent
+     * Lifecycle state as the accounts DTO reports it, absent
      * when this body carried none.
      *
      * Deliberately `string` rather than a closed union: an unknown state has
@@ -80,9 +80,9 @@ export interface PanelAccount {
      * not from this annotation.
      */
     readonly state?: string;
-    /** Connection state as the DTO reports it, absent when not carried (FR-062). */
+    /** Connection state as the DTO reports it, absent when not carried. */
     readonly connectionState?: string;
-    /** RFC 3339 stamp of the last successful verification, or absent (FR-062). */
+    /** RFC 3339 stamp of the last successful verification, or absent. */
     readonly verifiedAt?: string;
     /** Cause when `state` is `error`; `null`/absent means none was recorded. */
     readonly errorReason?: string | null;
@@ -91,7 +91,7 @@ export interface PanelAccount {
 }
 
 
-/** The two operator-editable members of one account record (005 FR-066, 004 FR-082). */
+/** The two operator-editable members of one account record. */
 interface PanelMemberFields {
     /** Operator display label, or `null` when the row leads with the login. */
     readonly displayName: string | null;
@@ -115,7 +115,7 @@ type PanelMembers =
  * FR-082).
  *
  * Both are `string | null` on the wire and both read as *unset* when absent
- * — a store that predates either needs no migration (FR-005, 004 FR-018) —
+ * — a store that predates either needs no migration —
  * and a value that is neither text nor `null` refuses the whole body rather
  * than being dropped: a record that silently lost its prompt would render
  * *not set* while the service still dispatched with it.

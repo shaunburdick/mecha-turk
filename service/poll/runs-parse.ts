@@ -63,7 +63,7 @@ export const RUNS_SCHEMA_VERSION = 1;
 
 /**
  * Cap on `run.sourceReferences` (FR-013 + NFR-107; product-owner ruling
- * 2026-09-28, T-038 — raised from plan D11's 20).
+ * 2026-09-28, T-038 — raised 20).
  *
  * Overflow is visible rather than silent: a delivery that joins a full list
  * still joins the run, still earns its `run.coalesced` row, and increments
@@ -72,7 +72,7 @@ export const RUNS_SCHEMA_VERSION = 1;
  */
 export const MAX_SOURCE_REFERENCES = 200;
 
-/** Cap on `run.attempts` (NFR-107); the writer keeps the newest records. */
+/** Cap on `run.attempts`; the writer keeps the newest records. */
 export const MAX_ATTEMPT_RECORDS = 50;
 
 /** Confirm the stored identity tuple matches its deterministic hash values. */
@@ -201,7 +201,7 @@ interface ParsedRunParts {
     readonly references: readonly SourceReference[];
     /** Bounded attempt history. */
     readonly attempts: readonly DispatchAttempt[];
-    /** The prompt snapshot, or `null` when the run queued with none (004 FR-015). */
+    /** The prompt snapshot, or `null` when the run queued with none. */
     readonly prompt: PromptSnapshot | null;
 }
 

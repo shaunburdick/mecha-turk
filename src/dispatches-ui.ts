@@ -87,11 +87,11 @@ export interface DispatchesBoard {
     readonly retryRun: ButtonHandle;
     /** Wrapper around return-to-waiting, hidden unless the run is parked. */
     readonly requeueRunBox: HTMLElement;
-    /** Return the selected parked run to waiting (FR-033). */
+    /** Return the selected parked run to waiting. */
     readonly requeueRun: ButtonHandle;
     /** Wrapper around FR-027's two resolutions, hidden unless `unconfirmed`. */
     readonly resolveBox: HTMLElement;
-    /** The resolution group's heading — the affordance's own label (T-024). */
+    /** The resolution group's heading — the affordance's own label. */
     readonly resolveHeading: TextHandle;
     /** First resolution: the dispatch did create a session. */
     readonly resolveSession: ButtonHandle;

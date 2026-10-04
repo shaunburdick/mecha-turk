@@ -122,7 +122,7 @@ interface Form {
     readonly reviewRequest: CheckboxHandle;
     /** Worktree select. */
     readonly worktree: SelectHandle;
-    /** The actor allow-list field, beside the mention-token override (FR-090). */
+    /** The actor allow-list field, beside the mention-token override. */
     readonly actors: BindingActorControls;
 }
 
@@ -443,7 +443,7 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
 /**
  * Mount the Bindings tab body: the list first, the editor behind it.
  *
- * The six-tab shell owns the strip (005 FR-010), so this mounts no tabs of
+ * The six-tab shell owns the strip, so this mounts no tabs of
  * its own and no dispatches board — those live in their own bodies, which is
  * what makes each capability reachable through exactly one tab.
  *

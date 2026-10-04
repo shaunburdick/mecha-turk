@@ -35,14 +35,14 @@ export interface CredentialRecord {
 
 /** One durable account. */
 export interface Account {
-    /** GitHub numeric user id — the durable key (FR-009); never the login. */
+    /** GitHub numeric user id — the durable key; never the login. */
     readonly numericUserId: string;
-    /** Display login; a rename updates this field only (AC-004). */
+    /** Display login; a rename updates this field only. */
     readonly login: string;
     /** Operator-supplied expected login, or `null` when not constrained. */
     readonly expectedLogin: string | null;
     /**
-     * Operator-supplied display label, or `null` when unset (005 FR-066).
+     * Operator-supplied display label, or `null` when unset.
      *
      * Display only: it never takes part in identity, in a durable key, or in
      * the binding's account reference — the numeric id stays the key (002
@@ -91,7 +91,7 @@ export interface AccountDto {
     readonly login: string;
     /** Operator-supplied expected login, or `null`. */
     readonly expectedLogin: string | null;
-    /** Operator-supplied display label, or `null` when unset (005 FR-066). */
+    /** Operator-supplied display label, or `null` when unset. */
     readonly displayName: string | null;
     /**
      * The account's starting-prompt tier, or `null` when unset (004 FR-082).
@@ -247,7 +247,7 @@ interface StoredAccountStrings {
  * ever logging a byte of what it held. `reason` is written at most once —
  * later refusals do not overwrite the first — and the refusal vocabulary never
  * echoes a value, so a credential-shaped prompt cannot reach the log line
- * through it (004 FR-024, AC-133).
+ * through it.
  */
 export interface AccountRefusalNote {
     /** First `field: remediation` the parser refused, or `null` when none was named. */

@@ -28,7 +28,7 @@
 
 /** The three knobs one request's ladder runs on, read at the cycle boundary. */
 export interface RetryPolicy {
-    /** Attempts per request, the **first attempt included** (FR-058). */
+    /** Attempts per request, the **first attempt included**. */
     readonly maxAttempts: number;
     /** Delay the ladder starts from, before jitter. */
     readonly baseMs: number;

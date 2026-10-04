@@ -34,7 +34,7 @@ import type { ServiceConfig } from './config.ts';
 export type ServiceConfigField = keyof ServiceConfig;
 
 /**
- * The closed take-effect vocabulary (006 FR-030).
+ * The closed take-effect vocabulary.
  *
  * `restart` and `none` stay in the vocabulary because it is a wire contract
  * and removing a value would be a wire change; no field in this
@@ -51,8 +51,8 @@ const NEXT_CYCLE = 'next-cycle';
  * `Record<ServiceConfigField, TakeEffect>` is exhaustive by construction:
  * adding a member to `ServiceConfig` without declaring a class
  * fails `tsc --noEmit`, so "a field gained no consumer" cannot survive a
- * typecheck (006 SC-106). `leaseMs` and `resultDeadlineMs` are 003's fields
- * and are declared `next-cycle` by 006 under plan X1's count-dynamics rule.
+ * typecheck. `leaseMs` and `resultDeadlineMs` are 003's fields
+ * and are declared `next-cycle` by 006 count-dynamics rule.
  *
  * `startingPrompt` is 004's global prompt tier (004 FR-081): the poll loop
  * re-reads configuration once per cycle and the snapshot resolves at
@@ -76,7 +76,7 @@ export const TAKE_EFFECT = {
     startingPrompt: NEXT_CYCLE,
 } as const satisfies Record<ServiceConfigField, TakeEffect>;
 
-/** A bounded numeric field, projected (006 FR-021). */
+/** A bounded numeric field, projected. */
 export interface IntegerFieldDescriptor {
     /** Documented key. */
     readonly name: keyof typeof NUMERIC_BOUNDS;
@@ -94,13 +94,13 @@ export interface IntegerFieldDescriptor {
     readonly takesEffect: TakeEffect;
 }
 
-/** A closed enum field, projected (006 FR-021). */
+/** A closed enum field, projected. */
 export interface EnumFieldDescriptor {
     /** Documented key. */
     readonly name: 'logLevel';
     /** Closed kind discriminator. */
     readonly kind: 'enum';
-    /** An enum has no unit; none may be fabricated (FR-014, FR-021). */
+    /** An enum has no unit; none may be fabricated. */
     readonly unit: null;
     /** Accepted values, verbatim. */
     readonly values: readonly LogLevel[];
@@ -123,7 +123,7 @@ export interface StringFieldDescriptor {
     readonly name: 'expectedAgent' | 'startingPrompt';
     /** Closed kind discriminator. */
     readonly kind: 'string';
-    /** A string has no unit; none may be fabricated (FR-014, FR-021). */
+    /** A string has no unit; none may be fabricated. */
     readonly unit: null;
     /** Service-authored prose describing the allowed characters, rendered as text only. */
     readonly format: string;
@@ -173,7 +173,7 @@ export type FieldDescriptor = IntegerFieldDescriptor | EnumFieldDescriptor | Str
  * beside this validator's own rules (trim, the cap, the three refusal shapes,
  * and empty meaning *unset*). The one number it quotes is interpolated from
  * {@link STARTING_PROMPT_MAX_CODE_POINTS}, so the cap cannot move in the
- * validator and stay put on the wire (006 SC-101).
+ * validator and stay put on the wire.
  */
 const STARTING_PROMPT_FORMAT = 'text sent to the agent verbatim, with no placeholders; '
     + `at most ${STARTING_PROMPT_MAX_CODE_POINTS} code points after trimming; `

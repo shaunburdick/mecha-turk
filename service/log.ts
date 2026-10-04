@@ -42,7 +42,7 @@ export interface ServiceLogger extends LoggerControl {
 
 /**
  * The logger's movable half: the threshold stops being a construction
- * constant (006 FR-033, FR-037).
+ * constant.
  *
  * Every logger in the tree comes from {@link createLogger}, so requiring this
  * half of the surface on {@link ServiceLogger} is enough for `startService`
@@ -102,7 +102,7 @@ function serialize(entry: PendingEntry): string {
  *
  * The emit path reads the **current** threshold per entry rather than a value
  * captured at construction, so `setLevel` changes the very next line with no
- * restart (006 FR-033). The redaction pass runs after the filter, unchanged:
+ * restart. The redaction pass runs after the filter, unchanged:
  * a level change can decide *whether* a line is written, never *what* it says.
  *
  * @param options - Level plus an optional sink (tests capture lines here).

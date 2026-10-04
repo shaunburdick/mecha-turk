@@ -52,7 +52,7 @@ export const VERIFY_PATH = '/v1/accounts/verify';
 /** Success status of `POST /v1/accounts/verify` (contract §2.2). */
 const HTTP_CREATED = 201;
 
-/** Success status of the token-replacement route (005 FR-064). */
+/** Success status of the token-replacement route. */
 const HTTP_OK = 200;
 
 /** Status a store-backed route answers with when storage is unusable (F14). */
@@ -81,7 +81,7 @@ export interface HandoffState {
 export interface HandoffInput {
     /** The pasted credential; lives only in this call's scope. */
     readonly token: string;
-    /** Optional operator-supplied expected login (FR-009). */
+    /** Optional operator-supplied expected login. */
     readonly expectedLogin?: string;
 }
 
@@ -286,7 +286,7 @@ async function requestVerification(rt: PanelRuntime, input: HandoffInput): Promi
 }
 
 /**
- * Settle a rotation the service accepted (005 FR-064).
+ * Settle a rotation the service accepted.
  *
  * The account's identity does not change when its credential does, so
  * nothing in the panel's mirror or its connected line is rewritten — only

@@ -46,7 +46,7 @@ const RUN_TEXT_FIELDS = [
 export interface RunScalars {
     /** Current state. */
     readonly state: RunState;
-    /** Reason line: `null` while pending, required everywhere else (FR-074). */
+    /** Reason line: `null` while pending, required everywhere else. */
     readonly stateReason: string | null;
     /** Subject shape. */
     readonly subjectType: Run['subjectType'];
@@ -60,13 +60,13 @@ export interface RunScalars {
     readonly requeuesUsed: number;
     /** Deliveries that joined, retained or not. */
     readonly referenceCount: number;
-    /** Joining triggers the cap kept off the list (T-038). */
+    /** Joining triggers the cap kept off the list. */
     readonly referencesNotRetained: number;
     /** Whether the reference list was cut. */
     readonly referencesTruncated: boolean;
     /**
      * The snapshotted allow-list shape, or `null` when no authorization has
-     * been recorded yet (003 FR-079).
+     * been recorded yet.
      */
     readonly actorPolicy: ActorPolicy | null;
     /** Creation stamp. */
@@ -158,7 +158,7 @@ function readStateLine(raw: Record<string, unknown>): StateLine | null {
 }
 
 /**
- * Read the snapshotted actor policy (003 FR-079).
+ * Read the snapshotted actor policy.
  *
  * Absent **or** stored `null` both read as *no authorization recorded*, which
  * is how every run written before this member existed reads — a statement

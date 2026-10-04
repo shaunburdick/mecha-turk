@@ -60,7 +60,7 @@ export interface ServiceConfig {
     readonly intervalMs: number;
     /** Look-back window re-scanned on resume, so a restart never misses work. */
     readonly overlapMs: number;
-    /** GitHub `per_page`; the platform truncates larger values (FR-020). */
+    /** GitHub `per_page`; the platform truncates larger values. */
     readonly perPage: number;
     /** Attempts per failed request before the stream is marked blocked. */
     readonly retryMaxAttempts: number;
@@ -83,7 +83,7 @@ export interface ServiceConfig {
      */
     readonly leaseMs: number;
     /**
-     * How long an authorized attempt has to report its result (FR-023, plan D9).
+     * How long an authorized attempt has to report its result.
      *
      * `starting` runs past this deadline become `unconfirmed`; the value is
      * armed onto the run at reservation time, not read at the deadline.
@@ -93,25 +93,25 @@ export interface ServiceConfig {
     readonly logLevel: LogLevel;
     /**
      * Comparison baseline 002 FR-029 evaluates the observed agent against
-     * after every dispatch (006 FR-100).
+     * after every dispatch.
      *
      * The service only serves it — `GET /v1/config` hands the value to the
      * panel, which posts it with each verification read-back. The value is a
      * single token (never credential-shaped), trimmed on write, and **empty is
      * a first-class value**: it is the documented *no baseline configured*
      * state, in which verification records the observed agent and compares
-     * nothing (002 FR-029 as amended at v1.10.0; 006 FR-100(b)(c) as amended
-     * at v1.5.0). The documented default is the empty string, so a fresh store
+     * nothing (002 FR-029 as amended; 006 FR-100(b)(c) as amended
+     *). The documented default is the empty string, so a fresh store
      * starts with no baseline rather than presuming one.
      */
     readonly expectedAgent: string;
     /**
      * The **global tier** of the layered starting prompt (004 FR-081; 006
-     * FR-010, FR-084 as amended at v1.6.0, which admits the field by name).
+     * FR-010, FR-084 as amended which admits the field by name).
      *
      * The service serves it through the document `GET /v1/config` already
-     * returns and refuses it through the single validator every tier shares
-     * (004 FR-083): `collectIssues` routes the member through
+     * returns and refuses it through the single validator every tier shares:
+     * `collectIssues` routes the member through
      * {@link startingPromptIssue}, whose only rule is
      * {@link validateStartingPrompt}, so a whole-document `PUT` answers the
      * same additive `422` — `field: 'startingPrompt'`, a remediation, and
@@ -181,9 +181,9 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     // First member: 004's global prompt tier, by product-owner ruling on PR
     // #12 ("move it to the top of the list"). This key order *is* the
     // declaration order — `parseStoredConfig` reports fills in it, and
-    // `configSchema()` and `collectIssues` both mirror it (006 AC-107).
+    // `configSchema()` and `collectIssues` both mirror it.
     // Blank, not a placeholder: empty **is** the documented *unset* state of
-    // the global prompt tier (004 FR-081), and a document written before the
+    // the global prompt tier, and a document written before the
     // field existed is filled with exactly this value (FR-018's no-migration
     // rule), never with invented instruction text.
     startingPrompt: '',
@@ -200,7 +200,7 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     resultDeadlineMs: 120_000,
     logLevel: 'info',
     // Blank, not a name: the documented default is *no baseline configured*
-    // (006 FR-100(b) as amended at v1.5.0 — "not everyone is going to use
+    // (006 FR-100(b) as amended — "not everyone is going to use
     // project-manager").
     expectedAgent: '',
 };
@@ -394,8 +394,8 @@ function readExpectedAgent(raw: Record<string, unknown>): string {
  * trim and line-ending normalisation applied — so a save/load round trip is
  * stable, exactly like `expectedAgent`'s trimmed value (006 data-model §1.3),
  * and *unset* is stored as the empty string the document declares as its
- * default (004 FR-081). The validator is re-run rather than a second trimming
- * rule being written here: one rule set at three save boundaries (004 FR-083)
+ * default. The validator is re-run rather than a second trimming
+ * rule being written here: one rule set at three save boundaries
  * means the read cannot disagree with the write about what the text is.
  *
  * @param raw - Document that already passed {@link validateConfig}.

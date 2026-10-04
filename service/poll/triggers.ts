@@ -187,7 +187,7 @@ function mentionEvent(input: {
             issueBodyExcerpt: bodyExcerptOf(comment.body),
         },
         // GitHub named the author of the very comment that carried the mention,
-        // so this attribution is a fact rather than an inference (002 FR-044).
+        // so this attribution is a fact rather than an inference.
         actorLogin: commenter,
         actorAttribution: 'direct',
         triggerNote: `Comment by ${commenter} on issue #${comment.issueNumber} mentioned the bound account`,
@@ -293,7 +293,7 @@ function bodyMentionEvents(input: {
                     issueBodyExcerpt: bodyExcerptOf(issue.body),
                 },
                 // GitHub named the author of the very issue body that carried the
-                // mention, so this attribution is a fact too (002 FR-044).
+                // mention, so this attribution is a fact too.
                 actorLogin: actorLoginOf(issue.authorLogin),
                 actorAttribution: 'direct',
                 triggerNote: 'mentioned in issue body',

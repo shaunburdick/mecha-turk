@@ -50,7 +50,7 @@ import { buildDispatchTokenFingerprint } from './run-key.ts';
 import type { ActorGateRefusal, BaselineProvenance, Run, RunState, RunVerification } from './runs-types.ts';
 
 
-/** Entity kind every run-scoped lifecycle row names (FR-061). */
+/** Entity kind every run-scoped lifecycle row names. */
 const RUN_ENTITY_KIND = 'run';
 
 /** The panel declares the intent; the panel reports the outcome. */
@@ -92,11 +92,11 @@ function promptDetails(run: Run): {
     readonly promptFingerprint: string | null;
     /** Its length, or `null` when none. */
     readonly promptLength: number | null;
-    /** Contributing tiers in FR-087's order, or `null` when none. */
+    /** Contributing tiers order, or `null` when none. */
     readonly promptSources: readonly PromptSource[] | null;
     /**
      * The **shape** of the binding's allow-list in force when the gate
-     * authorized this attempt (003 FR-079, NFR-113).
+     * authorized this attempt.
      *
      * Read from the run's own snapshot rather than re-reading the binding,
      * which is what makes this row and `dispatch.result` provably describe one
@@ -284,7 +284,7 @@ export function retryRow(input: {
     readonly causeReportedCleared: boolean | null;
     /** Whether the service corroborated it, the panel reported it, or neither applies. */
     readonly causeClearedSource: 'corroborated' | 'reported' | null;
-    /** Whether this action reset the attempt chain (FR-033). */
+    /** Whether this action reset the attempt chain. */
     readonly reset: boolean;
     /** The operator's or panel's own words about the cause. */
     readonly causeReport: string | null;
@@ -339,7 +339,7 @@ export function resolvedRow(input: {
 }
 
 /**
- * The vocabulary name and decision one agent read-back owes (003 v1.7.0).
+ * The vocabulary name and decision one agent read-back owes.
  *
  * Split out of {@link verificationRow} for the one rule it encodes: the axis
  * only exists where a comparison did. A blank baseline has no verdict to
@@ -367,7 +367,7 @@ function readBackVerdict(input: {
 
 /**
  * `agent.verified` / `agent.mismatch` / `agent.uncompared` — the post-dispatch
- * agent read-back (003 v1.7.0).
+ * agent read-back.
  *
  * One builder for all three because the details are identical and only the
  * vocabulary name, the decision, and one extra member differ: the read-back is
@@ -482,8 +482,8 @@ export function refusedRow(input: {
     /** Token the caller presented as its fingerprint, for a token verdict. */
     readonly dispatchTokenFingerprint?: string | undefined;
     /**
-     * The actor gate's detail set, on the one refusal that carries one
-     * (003 FR-077). Omitted for every other code, so no row gains a
+     * The actor gate's detail set, on the one refusal that carries one.
+     * Omitted for every other code, so no row gains a
      * meaningless `actorPolicy: null`.
      */
     readonly actor?: ActorGateRefusal | undefined;

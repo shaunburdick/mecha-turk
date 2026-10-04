@@ -84,7 +84,7 @@ export interface PollComment {
  * that GitHub records no requester. That premise was false, and 002 v1.12.0
  * struck the sentence that required these fields: GitHub records the requester
  * in `review_requester` on the item's own `review_requested` event, which the
- * per-item read in `poller-events.ts` now consults (002 FR-049, FR-050). The
+ * per-item read in `poller-events.ts` now consults. The
  * proxy was their only consumer, so with the proxy retired they are gone rather
  * than left as a second, unread answer to "who asked" (research §R8, rewritten).
  *

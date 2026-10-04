@@ -59,7 +59,7 @@ import type { ConfigChangeActor } from './config-audit.ts';
 import type { ServiceLogger } from './log.ts';
 import type { ServiceStore } from './store/index.ts';
 
-/** The configuration member an observation reads (004 FR-081). */
+/** The configuration member an observation reads. */
 export interface ObservedConfigPrompt {
     /** The global tier as the document carries it; absent reads as unset. */
     readonly startingPrompt?: string | null;
@@ -73,7 +73,7 @@ export interface ConfigPromptObservation {
     readonly log: ServiceLogger;
     /** The document as this read produced it. */
     readonly config: ObservedConfigPrompt;
-    /** Who made the change this observation carries (006 FR-070). */
+    /** Who made the change this observation carries. */
     readonly actor: ConfigChangeActor;
 }
 
@@ -106,7 +106,7 @@ function stateFor(store: ServiceStore): ConfigPromptObservationState {
     return state;
 }
 
-/** The one triple this lane seeds from: what a row says the tier became (006 FR-071). */
+/** The one triple this lane seeds from: what a row says the tier became. */
 interface PromptChangeTriple {
     /** The recorded `to`; read through {@link recordedConfigPromptFingerprint}. */
     readonly to: unknown;
@@ -275,8 +275,8 @@ export async function recordConfigPromptChanges(input: ConfigPromptObservation):
 /**
  * Teach the lane what a configuration write's own row just recorded.
  *
- * The `PUT /v1/config` row already carries this field's `from`/`to`
- * (006 FR-071), so the lane must not append a second one at the next cycle —
+ * The `PUT /v1/config` row already carries this field's `from`/`to`,
+ * so the lane must not append a second one at the next cycle —
  * but its baseline would still hold the pre-write value and would therefore
  * claim the write as an unobserved change. This makes the two agree.
  *

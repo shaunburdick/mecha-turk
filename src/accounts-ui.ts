@@ -139,7 +139,7 @@ export async function preflightAndRepaint(rt: PanelRuntime): Promise<void> {
 export interface HandoffSubmission {
     /** The pasted credential; lives only in the call's scope. */
     readonly token: string;
-    /** Optional expected-login constraint; omitted means none (FR-006). */
+    /** Optional expected-login constraint; omitted means none. */
     readonly expectedLogin?: string;
 }
 
@@ -158,7 +158,7 @@ export interface HandoffSubmission {
  * The expected-login constraint travels only when the operator
  * typed one: an empty or blank field omits the `expectedLogin` member
  * entirely, which is how the service is told *no constraint* and stores
- * `expectedLogin: null` (002 FR-009, 005 AC-141).
+ * `expectedLogin: null`.
  *
  * @param rt - Panel runtime.
  * @param submission - The pasted credential and its optional constraint.
@@ -249,7 +249,7 @@ function makeButton(spec: {
 }
 
 /**
- * Mount the optional expected-login input (005 FR-006, 002 FR-009).
+ * Mount the optional expected-login input.
  *
  * The add form's **only** other field: a plain login string the *service*
  * validates, so the panel renders it as an ordinary optional input with no

@@ -193,7 +193,7 @@ function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRu
  * frame is exactly what this build produced before the feature existed (004
  * FR-032, SC-121). Composition does not decide whether the message may be sent:
  * {@link budgetFloorProblem} measures what comes back of this against
- * {@link CONTEXT_MAX_CHARS} immediately before the host call (004 FR-085).
+ * {@link CONTEXT_MAX_CHARS} immediately before the host call.
  *
  * @param input - Runtime, the run, and the project the host confirmed.
  * @returns The request exactly as the host would receive it.
@@ -211,7 +211,7 @@ export function runRequestOf(input: {
     const issue = issueOf(run);
     // The snapshot arrives on the claim answer and nowhere else; an unset run
     // composes exactly what it composed before this feature existed — no
-    // fence, no blank line, no placeholder (004 FR-032, SC-121).
+    // fence, no blank line, no placeholder.
     const prompt = run.promptPresent ? run.promptText : null;
     const frame = buildBoundedContext({
         repository: run.repository,
@@ -250,7 +250,7 @@ export function runRequestOf(input: {
 /**
  * Make the one authorized host call; never throws.
  *
- * **The floor sits here** (004 FR-085): the message is composed first, then
+ * **The floor sits here**: the message is composed first, then
  * measured against {@link CONTEXT_MAX_CHARS} — and an over-budget composition
  * is refused **before** `host.startSession()` is called, so no session is
  * started and nothing is truncated. The refusal takes the same shape a rejected

@@ -36,7 +36,7 @@ export interface RunOperationTarget {
     readonly log: ServiceLogger;
     /** The run this operation addresses, by correlation id. */
     readonly correlationId: string;
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }
 
@@ -103,8 +103,8 @@ export interface RefusalRowInput {
     /** Token the caller presented as its fingerprint, when the verdict was about the token. */
     readonly dispatchTokenFingerprint?: string | undefined;
     /**
-     * The gate's extra details, on the one refusal that carries them
-     * (003 FR-077).
+     * The gate's extra details, on the one refusal that carries them.
+     *
      *
      * Optional rather than required so the *other* six operations' refusals are
      * unchanged: a staleness verdict has no policy to describe, and a required

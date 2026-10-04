@@ -129,7 +129,7 @@ function baselineFromConfig(body: string): VerificationBaseline {
 }
 
 /**
- * Read the agent-verification baseline from the service (002 FR-029).
+ * Read the agent-verification baseline from the service.
  *
  * One `GET /v1/config` per verification — the baseline is read fresh each
  * time so a value saved after a dispatch is in force for the next one, with
@@ -374,7 +374,7 @@ async function postReadBack(input: {
     readonly sessionId: string;
     /** Outcome the verification reached. */
     readonly result: AgentVerification;
-    /** The baseline the judgment used, and where it came from (002 FR-029). */
+    /** The baseline the judgment used, and where it came from. */
     readonly baseline: VerificationBaseline;
 }): Promise<void> {
     const { rt, correlationId, attempt, sessionId, result, baseline } = input;
@@ -413,7 +413,7 @@ async function postReadBack(input: {
  * Runs after the dispatch result has reached the service, so a slow or
  * failing verification can never delay (or lose) the run's own record. The
  * outcome lands three places: as a `session` ledger entry correlated to the
- * run, as the runs-area banner, and — since 003 T-027 — as the service's own
+ * run, as the runs-area banner, and — as the service's own
  * read-back row (`agent.verified`, `agent.mismatch`, or `agent.uncompared`)
  * behind `POST …/verification`, which is warn-only by construction (the route
  * never changes run state).

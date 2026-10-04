@@ -77,7 +77,7 @@ function isOutcome(value: unknown): value is DispatchAttempt['outcome'] {
  * still parses, because refusing it would quarantine the whole document for
  * history that is perfectly readable. A member that *is* present must be
  * usable — an unrecognized basis refuses the reference rather than defaulting
- * to a guess (002 FR-024, NFR-011), and that refusal is what makes the run
+ * to a guess, and that refusal is what makes the run
  * unreadable rather than silently unattributed.
  *
  * @param raw - Candidate value.

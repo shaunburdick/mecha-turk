@@ -32,11 +32,11 @@ import type { ConfigIssueView } from './service-envelope.ts';
 import type { SettingsConfirmation } from './settings-confirm.ts';
 import type { ConfigEnvelope, ConfigValue, FieldDescriptor, TakeEffectClass } from './settings-schema.ts';
 
-/** Where one save stands (006 FR-013). */
+/** Where one save stands. */
 export type SaveState = 'idle' | 'editing' | 'saving' | 'saved' | 'refused' | 'failed';
 
 /**
- * The four causes a configuration write can fail with (006 FR-061 – FR-064).
+ * The four causes a configuration write can fail with.
  *
  * The panel never guesses which one it met: each member names a documented
  * answer (`503 storage-unavailable`, `401`, a transport failure, and anything
@@ -55,7 +55,7 @@ export interface SettingsFailure {
     readonly correlationId: string | null;
 }
 
-/** One field saved but not yet observed as effective (006 FR-038). */
+/** One field saved but not yet observed as effective. */
 export interface PendingField {
     /** Document member the marker belongs to. */
     readonly field: string;
@@ -71,7 +71,7 @@ export interface SettingsEdit {
     readonly dirty: readonly string[];
     /** Where the save stands. */
     readonly saveState: SaveState;
-    /** Why no save is offered; `null` when one is (FR-042). */
+    /** Why no save is offered; `null` when one is. */
     readonly blocked: string | null;
     /** Issues the last refusal answered with, in the service's order. */
     readonly issues: readonly ConfigIssueView[];
@@ -79,7 +79,7 @@ export interface SettingsEdit {
     readonly problem: string | null;
     /** Fields saved but not yet observed effective, with their boundary. */
     readonly pending: readonly PendingField[];
-    /** What the last discard reverted, so the tab can say it out loud (AC-122). */
+    /** What the last discard reverted, so the tab can say it out loud. */
     readonly reverted: readonly string[];
     /**
      * The confirmation this write is armed behind, or `null` (006 FR-051,
@@ -104,11 +104,11 @@ export interface SettingsEdit {
     readonly auditWritten: boolean | null;
 }
 
-/** Why a save is not offered when nothing has ever been read (AC-124). */
+/** Why a save is not offered when nothing has ever been read. */
 export const NO_BASELINE_REASON =
     'no configuration has been read yet, so there is no document to send';
 
-/** Why a save is not offered while the document carries a member we cannot show (AC-115). */
+/** Why a save is not offered while the document carries a member we cannot show. */
 export const UNDISPLAYED_REASON =
     'the document carries a field this version does not show; sending it would drop that field';
 
@@ -116,7 +116,7 @@ export const UNDISPLAYED_REASON =
 export const READ_FAILED_REASON =
     'the latest read did not land, so there is no current document to send';
 
-/** Why a second save activation is refused rather than queued (AC-126). */
+/** Why a second save activation is refused rather than queued. */
 export const BUSY_REASON = 'a save is already in flight';
 
 /**
@@ -393,7 +393,7 @@ export function beginSave(edit: SettingsEdit, envelope: ConfigEnvelope | null): 
 export function recordSaved(input: {
     /** Current state. */
     readonly edit: SettingsEdit;
-    /** The configuration the answer carried (FR-044). */
+    /** The configuration the answer carried. */
     readonly returned: ConfigEnvelope;
     /** The fields the write changed, as the service reported them. */
     readonly changed: readonly string[];

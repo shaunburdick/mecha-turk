@@ -45,7 +45,7 @@ export interface ClaimedLease {
     readonly expiresAt: string;
 }
 
-/** One retained source reference as the claim answer carries it (FR-013). */
+/** One retained source reference as the claim answer carries it. */
 export type ClaimedReference = BoundedReference;
 
 /** One claimed run, as the panel receives it. */
@@ -93,11 +93,11 @@ export interface ClaimedRun {
     readonly baseRef?: string;
     /** `= correlationId`; the panel uses it verbatim as `startSession().id`. */
     readonly attachmentId: string;
-    /** Every retained source reference, in join order (FR-014). */
+    /** Every retained source reference, in join order. */
     readonly sourceReferences: readonly ClaimedReference[];
     /** How many triggers joined the run, retained or not. */
     readonly referenceCount: number;
-    /** How many joining triggers the cap kept off the list (T-038). */
+    /** How many joining triggers the cap kept off the list. */
     readonly referencesNotRetained: number;
     /** Whether the reference list was cut at the cap. */
     readonly referencesTruncated: boolean;
@@ -105,14 +105,14 @@ export interface ClaimedRun {
     readonly issueBodyExcerpt: string;
     /** Earliest source reference's detection stamp (row age). */
     readonly detectedAt: string;
-    /** Whether a starting prompt was set when this run was queued (004 FR-015). */
+    /** Whether a starting prompt was set when this run was queued. */
     readonly promptPresent: boolean;
     /** The prompt's `mtp-…` fingerprint, or `null` when none (004 FR-037). */
     readonly promptFingerprint: string | null;
     /** Code points of the normalised prompt, or `null` when none. */
     readonly promptLength: number | null;
     /**
-     * The tiers that contributed, most general first (004 FR-087).
+     * The tiers that contributed, most general first.
      *
      * A duplicate-free subsequence of `global, account, binding` whenever a
      * prompt is present, and an explicit `null` whenever it is not — the two
@@ -224,7 +224,7 @@ function promptViewOf(run: Run): {
     readonly promptFingerprint: string | null;
     /** The length, or `null` when none. */
     readonly promptLength: number | null;
-    /** The contributing tiers, most general first, or `null` when none (FR-087). */
+    /** The contributing tiers, most general first, or `null` when none. */
     readonly promptSources: readonly PromptSource[] | null;
     /** The text, or `null` when none (claim transport only). */
     readonly promptText: string | null;

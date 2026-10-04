@@ -246,7 +246,7 @@ function runForDelivery(input: RunCreationInput): Run {
         projectId: delivery.projectId,
         worktreeOption: delivery.worktreeOption,
         prompt,
-        // The policy in force is decided at **authorization** (003 FR-076), not
+        // The policy in force is decided at **authorization**, not
         // here: an enqueue pass reads no binding, and a run that predated the
         // gate would otherwise carry a policy no gate ever judged.
         actorPolicy: null,
@@ -284,7 +284,7 @@ function subjectKeyOfRun(run: Run): string {
     });
 }
 
-/** One delivery joining an existing run (FR-016). */
+/** One delivery joining an existing run. */
 export interface EnqueueJoin {
     /** The run it joined. */
     readonly run: Run;
@@ -307,9 +307,9 @@ export interface EnqueueOutcome {
     readonly document: RunsDocument;
     /** Delivery id → run correlation id, for the rows the caller links. */
     readonly links: ReadonlyMap<string, string>;
-    /** Runs created this pass: one `run.created` row each (FR-017). */
+    /** Runs created this pass: one `run.created` row each. */
     readonly created: readonly Run[];
-    /** Joins this pass made: one `run.coalesced` row each (FR-016). */
+    /** Joins this pass made: one `run.coalesced` row each. */
     readonly joins: readonly EnqueueJoin[];
 }
 
@@ -323,7 +323,7 @@ export interface EnqueueInput {
     readonly now: string;
     /**
      * The scanning binding's prompt snapshot, snapshotted with the same
-     * binding object that produced `projectId`/`worktreeOption` (004 FR-015).
+     * binding object that produced `projectId`/`worktreeOption`.
      *
      * Absent reads as `null`: a run opened with no prompt, which is also how
      * every caller outside the poll loop behaves.

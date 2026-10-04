@@ -64,7 +64,7 @@ export const FINGERPRINT_PREFIX = 'tokfp-';
 /** Separator joining the run key's tuple segments. */
 const KEY_SEPARATOR = '|';
 
-/** The subject shapes a run can be about (FR-010). */
+/** The subject shapes a run can be about. */
 export type RunSubjectType = 'issue' | 'pull_request';
 
 /** Coordinates a run key and its ordinal-free subject key are built from. */
@@ -77,7 +77,7 @@ export interface RunKeyInput {
     readonly subjectType: RunSubjectType;
     /** Issue or pull request number. */
     readonly subjectNumber: number;
-    /** 0-based ordinal of this run for its subject (FR-010). */
+    /** 0-based ordinal of this run for its subject. */
     readonly ordinal: number;
 }
 

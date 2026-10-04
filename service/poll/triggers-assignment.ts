@@ -42,7 +42,7 @@ import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
  * `assignees` name the bound account — and it says nothing about who did it,
  * which is why the event read behind it is not optional. Pull-request assignment
  * and the review trigger can both fire on one pull request; the run layer
- * coalesces them on the same subject key (003 FR-011).
+ * coalesces them on the same subject key.
  *
  * @param issue - Normalized issue.
  * @param bindingLogin - The bound account's login.
@@ -61,7 +61,7 @@ export function isIssueAssignment(issue: PollIssue, bindingLogin: string): boole
  *
  * The basis is `direct` for the same reason the mention kinds are: GitHub records
  * who performed the assignment, in `assigner`, so there is no inference on this
- * row to disclose (002 FR-044). The legacy `subject-author` basis stays in the
+ * row to disclose. The legacy `subject-author` basis stays in the
  * union and stays readable for rows written before this correction; **nothing
  * here writes it**, and no fallback path below reaches for it.
  *
@@ -97,7 +97,7 @@ function assignmentEvent(input: {
         },
         // GitHub named the person who performed the assignment on the naming
         // event's `assigner` member, so this attribution is a fact (002 FR-044,
-        // FR-050). The issue author is *not* a fallback for it (002 FR-052).
+        // FR-050). The issue author is *not* a fallback for it.
         actorLogin,
         actorAttribution: 'direct',
         triggerNote: 'Issue assigned to the bound account',

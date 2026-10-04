@@ -67,14 +67,14 @@ export interface StatusAccount {
     readonly login: string;
     /** Last observed connection state. */
     readonly connectionState: ConnectionState;
-    /** Rate budget; baseline values until the poller lands (T-014). */
+    /** Rate budget; baseline values until the poller lands. */
     readonly rate: RateStateReport;
-    /** Bound streams; empty until repository bindings land (T-020). */
+    /** Bound streams; empty until repository bindings land. */
     readonly streams: readonly unknown[];
 }
 
 /**
- * One binding as the `repositories` member reports it (005 FR-032).
+ * One binding as the `repositories` member reports it.
  *
  * The member keeps its historical name and every field but one comes
  * straight from the `readStatusRows` projection the Bindings tab reads, so the
@@ -104,7 +104,7 @@ export interface StatusRepositoryRow {
      * Whether the scan projection behind this row could be read.
      *
      * `false` turns every scan-derived member into "unknown": the panel renders
-     * the row as *unreadable* rather than believing a zero (005 AC-105).
+     * the row as *unreadable* rather than believing a zero.
      */
     readonly readable: boolean;
     /**
@@ -179,7 +179,7 @@ export interface ServiceStatusBody {
         /** Most recent verification, an explicit *not available*, or `null`. */
         readonly lastVerification: StatusVerification;
     };
-    /** Polling schedule, computed from the live scheduler (005 FR-031). */
+    /** Polling schedule, computed from the live scheduler. */
     readonly polling: {
         /** Effective interval from the configuration. */
         readonly intervalMs: number;
@@ -281,7 +281,7 @@ async function storedBindings(context: RouteContext): Promise<readonly BindingRe
  * scan-derived member is `null`/`0`, and `readable: false` tells the panel not
  * to believe them (AC-105; FR-003: a missing value never reads as a healthy
  * one). `actorPolicy` is **not** scan-derived: it comes from the binding, so it
- * is as truthful here as on a readable row (005 FR-093).
+ * is as truthful here as on a readable row.
  *
  * @param binding - The stored binding this row is keyed by.
  * @returns The unreadable row; present, never omitted.
@@ -299,7 +299,7 @@ function unreadableRepositoryRow(binding: BindingRecord): StatusRepositoryRow {
         readable: false,
         // Absent is open, and a present list is always non-empty by the rule
         // that refuses `[]` — the same derivation the readable rows use, so
-        // one binding never reports two shapes (002 FR-047).
+        // one binding never reports two shapes.
         actorPolicy: binding.allowedUsers === undefined ? 'open' : 'restricted',
     };
 }
@@ -410,7 +410,7 @@ async function readConfig(context: RouteContext): Promise<ServiceConfig> {
  *
  * @param context - Route context carrying store, clock, and data directory.
  * @returns The health model, with every member computed from what the service
- *   actually knows (005 FR-031–FR-034).
+ *   actually knows.
  */
 async function buildStatusBody(context: RouteContext): Promise<ServiceStatusBody> {
     const config = await readConfig(context);

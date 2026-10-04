@@ -226,7 +226,7 @@ async function writeGrant(input: {
  * The write itself is one task on the queue chain, which nests one task on the
  * prompt-observation chain (plan C2, {@link writeGrant}) — and the **outer**
  * chain is what keeps an operator's allow-list edit and the authorization gate's
- * read-and-mint from interleaving (003 FR-076).
+ * read-and-mint from interleaving.
  *
  * @param context - Route context carrying the open store.
  * @param request - The routed request carrying the full replacement body.
@@ -256,7 +256,7 @@ async function handlePutBindings(context: RouteContext, request: RouteRequest): 
     // Only a submission that will actually be written earns the observation
     // its read implied: the whole custody directory, exactly as `listAccounts`
     // would have observed it, so a hand edit outside the panel is still
-    // recorded exactly once with actor `service` (004 FR-088).
+    // recorded exactly once with actor `service`.
     await observeAccountPromptChanges({
         store,
         log: context.log,

@@ -41,7 +41,7 @@ interface BaseEventSnapshot {
         readonly issueBodyExcerpt: string;
     };
     /**
-     * The GitHub login this delivery is attributed to (002 FR-043).
+     * The GitHub login this delivery is attributed to.
      *
      * **Required on every snapshot**, because attribution is mandatory and
      * fail-closed: a trigger that cannot name a human author must not build a
@@ -50,12 +50,12 @@ interface BaseEventSnapshot {
      */
     readonly actorLogin: string;
     /**
-     * How that attribution was made (002 FR-044) — the difference between a
+     * How that attribution was made — the difference between a
      * record and an inference, and never left implicit: `direct` when GitHub
-     * named the identity that performed the act, which since v1.12.0 is every
+     * named the identity that performed the act, which is every
      * kind — the text's author for a mention, and the `assigner` /
      * `review_requester` the naming event recorded for an assignment or a
-     * review request (002 NFR-011). The legacy `subject-author` member is still
+     * review request. The legacy `subject-author` member is still
      * readable and is written by nothing.
      */
     readonly actorAttribution: ActorAttribution;
@@ -231,8 +231,8 @@ function subjectTypeOfSnapshot(snapshot: EventSnapshot): SubjectType {
  * The two actor members ride beside the other optional snapshot members
  * (`subjectType`), **not** the id: `buildEventId` is untouched, because that
  * id is simultaneously the dedupe key, the relay path segment, and the
- * reference already recorded in panel ledgers, audit rows, and the run history
- * (002 FR-046). An issue observed once before this change and once after it is
+ * reference already recorded in panel ledgers, audit rows, and the run history.
+ * An issue observed once before this change and once after it is
  * still **one** event, and tightening a binding's allow-list can never
  * manufacture duplicate work.
  *

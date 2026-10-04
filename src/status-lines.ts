@@ -33,19 +33,19 @@ const SECONDS_PER_HOUR = 3_600;
 /** Seconds in one minute. */
 const SECONDS_PER_MINUTE = 60;
 
-/** Copy for a rate budget nothing has measured yet (FR-034, AC-107). */
+/** Copy for a rate budget nothing has measured yet. */
 const RATE_UNMEASURED = 'not measured yet';
 
 /** Empty state for a healthy service that holds no accounts. */
 const ACCOUNTS_NONE = 'No accounts connected yet.';
 
-/** Empty state for accounts the degraded store could not answer (FR-003). */
+/** Empty state for accounts the degraded store could not answer. */
 const ACCOUNTS_UNREADABLE = 'The account list could not be read: the data directory is unavailable.';
 
 /** Empty state for a healthy service that holds no bindings. */
 const BINDINGS_NONE = 'No bindings yet.';
 
-/** Empty state for bindings the degraded store could not answer (FR-003). */
+/** Empty state for bindings the degraded store could not answer. */
 const BINDINGS_UNREADABLE = 'The binding list could not be read: the data directory is unavailable.';
 
 /**
@@ -274,7 +274,7 @@ export function bindingLines(view: StatusView): readonly string[] {
 
 /**
  * The counted line: how many of the **enabled** bindings carry **no**
- * allow-list, and what that means (005 FR-093 as re-cut at v1.14.0).
+ * allow-list, and what that means (005 FR-093 as re-cut).
  *
  * This is Status's whole answer to *"which of my repositories are open?"*, and
  * five properties are load-bearing, each a decision rather than a default:
@@ -342,7 +342,7 @@ export function actorPolicyLines(view: StatusView | null): readonly string[] {
     ];
 }
 
-/** Which blocking notices the current document raises (FR-035, FR-036). */
+/** Which blocking notices the current document raises. */
 export interface StatusNoticeStates {
     /** Show the unsupported-surface notice. */
     readonly unsupported: boolean;
@@ -413,7 +413,7 @@ export function projectGuidanceLines(input: ProjectGuidanceInput): readonly stri
  * A blank baseline reads as *no comparison baseline configured* rather than as
  * an empty name, and a read-back taken against one is reported as an
  * observation that was **not compared** — never as a mismatch (002 FR-029 as
- * amended at v1.10.0).
+ * amended).
  *
  * @param view - The parsed status document.
  * @returns One or two lines describing what is known about the pin.

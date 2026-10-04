@@ -43,7 +43,7 @@ import type { ServiceStore } from './store/index.ts';
  */
 export const ACCOUNT_PROMPT_UPDATED_EVENT = 'account.prompt-updated';
 
-/** Who caused the change: `operator` through the write, `service` observed (FR-088). */
+/** Who caused the change: `operator` through the write, `service` observed. */
 export type AccountPromptActor = 'operator' | 'service';
 
 /** The account members an observation reads. */
@@ -65,7 +65,7 @@ export interface AccountPromptObservation {
     /**
      * Ids whose record this observation proved **absent**. Their baselines are
      * forgotten, so a re-added account reads as a fresh `set` rather than as a
-     * diff against a tier that died with the old record (004 AC-149).
+     * diff against a tier that died with the old record.
      */
     readonly absent?: readonly string[];
     /**
@@ -327,7 +327,7 @@ export async function recordAccountPromptChanges(input: AccountPromptObservation
  * This is the entry point the observed read funnels (`readAccount`,
  * `listAccounts`) call with actor `service`, so a prompt edited outside the
  * panel is recorded by whoever the service could actually attribute the change
- * to (004 FR-088).
+ * to.
  *
  * @param input - The accounts seen, the ids proved absent, the actor, the logger.
  * @returns How many rows this observation appended.

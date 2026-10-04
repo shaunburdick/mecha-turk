@@ -57,7 +57,7 @@ import type { PanelBinding, PanelTriggers } from './bindings-service.ts';
 export const ALLOWED_USERS_FIELD = 'allowedUsers';
 
 /**
- * What the field is, in 005 FR-090's words: the set of GitHub logins allowed
+ * What the field is words: the set of GitHub logins allowed
  * to trigger dispatches from **this repository**.
  *
  * It names the binding's own scope rather than the product's, because an
@@ -75,7 +75,7 @@ export const ALLOWED_USERS_LABEL = 'GitHub logins allowed to trigger dispatches 
 
 /**
  * One trigger switch and the phrase it contributes, in the fixed composition
- * order `assignment`, `mention`, `reviewRequest` (005 FR-096).
+ * order `assignment`, `mention`, `reviewRequest`.
  *
  * Each phrase names **the act the trigger matches on** rather than the
  * switch's key: an operator reading *assignment* learns the switch's name,
@@ -128,7 +128,7 @@ function joinPhrases(phrases: readonly string[]): string {
 
 /**
  * The one clause that names who may start a session on a binding whose
- * allow-list is absent (005 FR-096).
+ * allow-list is absent.
  *
  * The exposed surface of a binding with no allow-list is exactly the triggers
  * switched on for it, so the sentence must name those and no others: naming
@@ -144,7 +144,7 @@ function joinPhrases(phrases: readonly string[]): string {
  *   FR-092's table is what supplies the sentence in that case.
  * - **The bound account's login is never named.** The phrases say *the
  *   account*, because the row already renders that member and this must not
- *   become a second rendering of it (005 FR-039, FR-091).
+ *   become a second rendering of it.
  *
  * @param triggers - The binding's switches, as the panel reads them.
  * @returns `anyone who can … can start a session`, or `null` when nothing is on.
@@ -203,7 +203,7 @@ export function allowedUsersSummary(count: number): string {
  *
  * Three facts decide it and every row's wording is normative, because the
  * table exists to stop the panel asserting a capability the machine does not
- * have (005 NFR-114). The four rules underneath are the ones a reader can get
+ * have. The four rules underneath are the ones a reader can get
  * wrong:
  *
  * - **A disabled binding leads with what cannot happen**, then names what
@@ -267,7 +267,7 @@ export function policyClause(facts: PolicyFacts): string {
  * A binding with **no** list gets the worded warning and no count (there is
  * nothing to count, and printing `0 users` would read as a verdict rather
  * than as the absence of a configuration); a binding **with** one gets the
- * count and **no** warning (005 FR-092, AC-143, AC-144, NFR-114).
+ * count and **no** warning.
  *
  * @param binding - The binding whose row is being composed.
  * @returns The row's own clause.
@@ -281,8 +281,8 @@ export function actorsSummary(binding: PanelBinding): string {
 }
 
 /**
- * The editor guidance's three states, with the first one **derived**
- * (005 FR-090, FR-096).
+ * The editor guidance's three states, with the first one **derived**.
+ *
  *
  * FR-090's obligation is untouched — all three of 002 FR-047's states are
  * stated in the field's own words — but its **first** state's fixed sentence is
@@ -316,8 +316,8 @@ export function allowedUsersGuidance(triggers: PanelTriggers): string {
 }
 
 /**
- * The value-slot word an empty field shows, with its consequence derived
- * (005 FR-064, FR-091, FR-096, NFR-114).
+ * The value-slot word an empty field shows, with its consequence derived.
+ *
  *
  * `not set` is FR-064's honest-absence word and is unchanged; what follows it
  * is FR-096's clause, for the same reason the guidance's first state is. This
@@ -346,7 +346,7 @@ export function allowedUsersNotSetPlaceholder(facts: Omit<PolicyFacts, 'count'>)
  *
  * Comma-separated with a comma and a space, which is what the guidance's "one
  * login per entry" implies and what {@link parseAllowedUsers} reads back. The
- * **submitted spelling** is preserved verbatim (002 FR-047): this is not a
+ * **submitted spelling** is preserved verbatim: this is not a
  * canonical form, and re-saving an untouched list must not rewrite how an
  * operator spelled a login.
  *
@@ -362,12 +362,12 @@ export function storedActorsText(binding: PanelBinding): string {
  *
  * Splits on commas and newlines and trims each entry — and **nothing else**:
  * no case folding, no de-duplication, no login-shape check, and no dropping of
- * an empty entry. Each omission is a decision (002 FR-024, 005 FR-090):
+ * an empty entry. Each omission is a decision:
  *
  * - Folding or de-duplicating would be the panel deciding the stored value, and
  *   the service's stored spelling must survive a re-save unchanged.
  * - Dropping an empty entry would **manufacture `[]`** from text the operator
- *   wrote, and `[]` is a refusal (002 FR-047) — the panel must not turn a
+ *   wrote, and `[]` is a refusal — the panel must not turn a
  *   typing mistake into a wire value the service will reject with a sentence the
  *   operator then has to interpret.
  *
@@ -462,7 +462,7 @@ export interface BindingActorControls {
 }
 
 /**
- * The state and switches the **editor** is currently showing (005 FR-096).
+ * The state and switches the **editor** is currently showing.
  *
  * The switches are the draft's in **both modes**: `bindings-mount.ts` wires the
  * three checkboxes to `triggerAssignment` / `triggerMention` /
@@ -527,7 +527,7 @@ export function mountBindingActors(input: {
 }
 
 /**
- * Repaint the field from state (005 FR-090, FR-095, FR-096).
+ * Repaint the field from state.
  *
  * The refusal is rendered **as the field's own helper**, directly under the
  * input, because FR-095 asks for a *field-level* refusal with its remediation —
@@ -571,7 +571,7 @@ export function disposeBindingActors(controls: BindingActorControls): void {
 }
 
 /**
- * Read the stored allow-list a freshly selected binding carries (002 FR-047).
+ * Read the stored allow-list a freshly selected binding carries.
  *
  * @param bindings - The Bindings tab's state.
  * @param bindingId - The row the operator selected.

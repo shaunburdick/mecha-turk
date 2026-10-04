@@ -31,7 +31,7 @@ export type TabDisposer = () => void;
 export interface TabSpec {
     /** The tab's id; also the key its `oc-tab-<id>` association uses. */
     readonly id: TabId;
-    /** Visible label, in {@link TAB_IDS} order (FR-010). */
+    /** Visible label, in {@link TAB_IDS} order. */
     readonly label: string;
     /**
      * Mount this body's contents into `body`, exactly once.
@@ -57,9 +57,9 @@ export interface TabShell {
      * @param at - RFC 3339 stamp of the read that landed.
      */
     noteRead(id: TabId, at: string): void;
-    /** Re-stamp the tab↔body association (FR-016, FR-082). */
+    /** Re-stamp the tab↔body association. */
     associate(): void;
-    /** Dispose every mounted body in strip order, then the strip (FR-017). */
+    /** Dispose every mounted body in strip order, then the strip. */
     dispose(): void;
 }
 
@@ -77,7 +77,7 @@ export interface TabShell {
  * every other child of `#root`.
  *
  * @param root - Panel root element the strip already appended to.
- * @param specs - The six specs, in FR-010's order.
+ * @param specs - The six specs order.
  * @returns The region and the containers it holds, keyed by tab id.
  */
 function createBodyRegion(
@@ -277,7 +277,7 @@ export function mountTabShell(input: {
     readonly rt: PanelRuntime;
     /** Panel root element from `panel/index.html`. */
     readonly root: HTMLElement;
-    /** The six specs, in FR-010's order. */
+    /** The six specs order. */
     readonly specs: readonly TabSpec[];
 }): TabShell {
     const { rt, root, specs } = input;

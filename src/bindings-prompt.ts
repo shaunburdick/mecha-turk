@@ -37,7 +37,7 @@ import type { TextFieldHandle } from '@openchamber/sdk/ui';
 import type { ServiceErrorResult } from './service-envelope.ts';
 import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
 
-/** What the field is, in 005 FR-051's words (the operator's instruction). */
+/** What the field is words (the operator's instruction). */
 export const STARTING_PROMPT_LABEL = 'Starting prompt for dispatches from this repository';
 
 /**
@@ -56,7 +56,7 @@ export const STARTING_PROMPT_LABEL = 'Starting prompt for dispatches from this r
  *
  * It is fixed copy on purpose: a panel sentence that measured or refused
  * anything would be a second validator disagreeing with the one the service
- * runs (004 plan D24), so this states what happens and gates nothing.
+ * runs, so this states what happens and gates nothing.
  */
 export const PROMPT_GUIDANCE =
     'Sent first in every dispatch from this binding, to the agent verbatim — there are no '
@@ -70,7 +70,7 @@ export const PROMPT_GUIDANCE =
  * An empty text box reads as an empty instruction the agent will receive;
  * this says otherwise instead — the same word the Settings row and the
  * Accounts field use, so an unset tier reads as one state on all three
- * surfaces (004 FR-064).
+ * surfaces.
  */
 export const PROMPT_NOT_SET = 'not set';
 
@@ -178,7 +178,7 @@ export function disposeBindingPrompt(controls: BindingPromptControls): void {
 }
 
 /**
- * Read the stored prompt a freshly selected binding carries (004 FR-012).
+ * Read the stored prompt a freshly selected binding carries.
  *
  * @param bindings - The Bindings tab's state.
  * @param bindingId - The row the operator selected.

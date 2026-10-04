@@ -59,7 +59,7 @@ import type { Run, RunState } from './runs-types.ts';
 // itself, and how — lives in `run-corroborate.ts`, extracted for the size bound.
 export { CAUSE_NOT_CLEARED, judgeActorCause } from './run-corroborate.ts';
 
-/** The two explicit resolutions of an `unconfirmed` run (FR-027). */
+/** The two explicit resolutions of an `unconfirmed` run. */
 export type ResolveDecision = 'session-created' | 'no-session';
 
 /**
@@ -236,7 +236,7 @@ interface RetryRowInput {
     readonly causeReportedCleared: boolean | null;
     /** Whether the service corroborated it, the panel reported it, or neither. */
     readonly causeClearedSource: CauseSource;
-    /** Whether this action reset the attempt chain (FR-033). */
+    /** Whether this action reset the attempt chain. */
     readonly reset: boolean;
     /** The operator's or panel's own words about the cause. */
     readonly causeReport: string | null;
@@ -292,7 +292,7 @@ export async function retryDispatch(input: {
     readonly causeCleared: boolean;
     /** The operator's own words about the cause. */
     readonly causeReport: string | null;
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }): Promise<OperationResult> {
     const bindings = await readBindings({ store: input.store, log: input.log });
@@ -348,7 +348,7 @@ export async function requeueDispatch(input: {
     readonly log: ServiceLogger;
     /** The run to return to waiting, by correlation id. */
     readonly correlationId: string;
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }): Promise<OperationResult> {
     return await operateRun(input, async ({ run, now, persist }): Promise<OperationResult> => {
@@ -489,7 +489,7 @@ export async function resolveDispatch(input: {
     readonly note: string | null;
     /** The guidance the operator was shown before deciding. */
     readonly guidance: string | null;
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }): Promise<OperationResult> {
     return await operateRun(input, async ({ run, now, persist }): Promise<OperationResult> => {

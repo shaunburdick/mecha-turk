@@ -23,7 +23,7 @@ import type { ScanState } from './scan.ts';
  * filter at all, a full replay.
  *
  * This is 002 FR-019's configurable overlap made real: the requirement has
- * asked for a ten-minute look-back since 002 v1.1.0 and nothing in the service
+ * asked for a ten-minute look-back and nothing in the service
  * read `overlapMs` until now, so the widened window is a **conformance gap
  * closing**, not a new behaviour. The widened window re-observes what the
  * previous cycle already saw and `enqueueEvents`'s deterministic event id

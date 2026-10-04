@@ -105,14 +105,14 @@ export interface BindingStatusRow {
     /** Events for this binding that are pending or in flight. */
     readonly pendingCount: number;
     /**
-     * The **shape** of this binding's actor allow-list, never its contents
-     * (005 FR-091, FR-093; 003 NFR-113).
+     * The **shape** of this binding's actor allow-list, never its contents.
+     *
      *
      * Derived here, from the binding this row is already built from, so the
      * Status route, the claim answer, and the Bindings tab all read one
-     * projection and one source for the fact (005 plan D17). `'restricted'`
+     * projection and one source for the fact. `'restricted'`
      * therefore always means *at least one* login: the service refuses an empty
-     * list on write **and** on read (002 FR-047), so no permitted login is
+     * list on write **and** on read, so no permitted login is
      * needed — or permitted — to answer it.
      */
     readonly actorPolicy: ActorPolicy;
@@ -122,8 +122,8 @@ export interface BindingStatusRow {
  * The allow-list shape one binding's row reports.
  *
  * **Absent is open**: no `allowedUsers` member is the complete "no policy
- * configured" state, meaning any human actor may trigger this repository
- * (002 FR-047). A present member is a non-empty list by the same rule that
+ * configured" state, meaning any human actor may trigger this repository.
+ * A present member is a non-empty list by the same rule that
  * refuses `[]`, so it is always `'restricted'`.
  *
  * @param binding - The binding this row is keyed by.
@@ -298,7 +298,7 @@ async function projectHistory(
 }
 
 /**
- * Answer `GET /v1/events` with one page of the runs history (005 FR-042).
+ * Answer `GET /v1/events` with one page of the runs history.
  *
  * The read is read-only: it never flips a state, so it can be polled as often
  * as the operator likes without stealing runs from a live relay. The query is

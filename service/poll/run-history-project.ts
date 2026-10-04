@@ -42,7 +42,7 @@ import type { PromptSource } from '../prompt.ts';
 import type { EventKind, QueuedEvent } from './events-parse.ts';
 import type { Run, SourceReference } from './runs-types.ts';
 
-/** Why a run that has never moved sits where it does (FR-074, NFR-108). */
+/** Why a run that has never moved sits where it does. */
 const WAITING_REASON = 'waiting for a panel';
 
 /**
@@ -65,13 +65,13 @@ export type HistoryReference = SourceReference;
 export interface HistorySession {
     /** Host-owned session id. */
     readonly sessionId: string;
-    /** `= correlationId`; the id the session was started with (FR-029). */
+    /** `= correlationId`; the id the session was started with. */
     readonly attachmentId: string;
     /** RFC 3339 dispatch stamp. */
     readonly dispatchedAt: string;
 }
 
-/** The recorded agent read-back as the run history carries it (FR-043). */
+/** The recorded agent read-back as the run history carries it. */
 export interface HistoryVerification {
     /** Agent the read-back observed, or `null` when it was unreadable. */
     readonly observedAgent: string | null;
@@ -93,17 +93,17 @@ export interface RunHistoryRow {
     readonly stateReason: string;
     /** FR-010's human-readable tuple, shown beside the correlation id. */
     readonly runKey: string;
-    /** 0-based ordinal of this run for its subject (FR-010). */
+    /** 0-based ordinal of this run for its subject. */
     readonly ordinal: number;
     /** Current attempt count. */
     readonly attempt: number;
     /** Same value as {@link RunHistoryRow.id}; the panel's copy affordance reads it (FR-053). */
     readonly correlationId: string;
-    /** `= correlationId`; displayed so an operator can find the session (FR-029). */
+    /** `= correlationId`; displayed so an operator can find the session. */
     readonly attachmentId: string;
-    /** Target project, snapshotted at enqueue (AC-124). */
+    /** Target project, snapshotted at enqueue. */
     readonly projectId: string;
-    /** Worktree option, snapshotted at enqueue (AC-124). */
+    /** Worktree option, snapshotted at enqueue. */
     readonly worktreeOption: string;
     /** Live lease expiry, else `null` (the lease is fencing, not authority). */
     readonly leaseExpiresAt: string | null;
@@ -119,17 +119,17 @@ export interface RunHistoryRow {
      * is not a fact worth projecting.
      */
     readonly resultDeadlineAt: string | null;
-    /** Every retained reference, in join order (FR-013); excerpts never projected. */
+    /** Every retained reference, in join order; excerpts never projected. */
     readonly sourceReferences: readonly HistoryReference[];
     /** How many triggers have joined, retained or not (T-038's total). */
     readonly referenceCount: number;
-    /** Whether the reference list was cut at the cap (NFR-107). */
+    /** Whether the reference list was cut at the cap. */
     readonly referencesTruncated: boolean;
-    /** How many joining triggers the cap kept off the list; `0` when none (T-038). */
+    /** How many joining triggers the cap kept off the list; `0` when none. */
     readonly referencesNotRetained: number;
-    /** Session pointer, or `null` when this run never produced one (FR-028). */
+    /** Session pointer, or `null` when this run never produced one. */
     readonly session: HistorySession | null;
-    /** Recorded agent read-back, or `null` when none was filed (FR-043). */
+    /** Recorded agent read-back, or `null` when none was filed. */
     readonly verification: HistoryVerification | null;
     /** Trigger kind that opened the run (the earliest reference's). */
     readonly kind: EventKind;
@@ -137,7 +137,7 @@ export interface RunHistoryRow {
     readonly repository: string;
     /** Issue (or pull request) number. */
     readonly issueNumber: number;
-    /** Issue title; untrusted source text, copied verbatim (NFR-109). */
+    /** Issue title; untrusted source text, copied verbatim. */
     readonly issueTitle: string;
     /** Canonical issue URL. */
     readonly issueUrl: string;
@@ -161,7 +161,7 @@ export interface RunHistoryRow {
     /** RFC 3339 dispatch stamp once a session exists, else `null` (shipped member). */
     readonly dispatchedAt: string | null;
     /**
-     * Whether a starting prompt was set when this run was queued (004 FR-052).
+     * Whether a starting prompt was set when this run was queued.
      *
      * `false` for a run written before this feature — a true statement about
      * that run rather than a hole in the record.
@@ -172,12 +172,12 @@ export interface RunHistoryRow {
     /** Code points of the normalised prompt, or `null` when none. */
     readonly promptLength: number | null;
     /**
-     * The ordered tiers that contributed, or `null` when no tier was set
-     * (004 FR-087).
+     * The ordered tiers that contributed, or `null` when no tier was set.
+     *
      *
      * It rides beside the fingerprint — never the text — so the row itself
      * answers *which tiers produced this run* under any retention, while the
-     * projection still carries no prompt text at all (004 FR-052). The value
+     * projection still carries no prompt text at all. The value
      * is the snapshot's own list, copied rather than derived: ordered
      * `global → account → binding`, duplicate-free, and `null` exactly when
      * there is no snapshot to read it from.
@@ -185,14 +185,14 @@ export interface RunHistoryRow {
     readonly promptSources: readonly PromptSource[] | null;
     /**
      * The **shape** of the binding's allow-list at the moment of authorization,
-     * snapshotted from `run.actorPolicy` (003 FR-079, NFR-113).
+     * snapshotted from `run.actorPolicy`.
      *
      * `null` is *no authorization recorded yet* — a freshly enqueued or adopted
      * run — and never a silent `'open'`. It is the only policy fact this
      * projection carries: the permitted set is configuration in
      * `bindings.json`, this projection is a pure function of stored runs that
      * reads no binding, and so it is structurally unable to carry a permitted
-     * login however the gate judged one (003 NFR-113).
+     * login however the gate judged one.
      */
     readonly actorPolicy: Run['actorPolicy'];
     /** Head SHA of a review-origin pull request; absent on every other kind. */
@@ -383,7 +383,7 @@ function verificationViewOf(run: Run): HistoryVerification | null {
 
 /**
  * The prompt reference the run history carries — presence, fingerprint,
- * length, sources, and never the text (004 FR-052, FR-053, FR-087).
+ * length, sources, and never the text.
  *
  * @param run - The run being projected.
  * @returns The four reference members; `promptSources` is the snapshot's own

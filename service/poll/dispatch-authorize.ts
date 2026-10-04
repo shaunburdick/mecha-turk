@@ -82,7 +82,7 @@ export interface ReserveInput {
     readonly leaseId: string;
     /** Attempt the panel believes is current. */
     readonly attempt: number;
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }
 
@@ -130,7 +130,7 @@ export function judgeLease(input: {
     readonly leaseId: string;
     /** Attempt the caller claims to be acting under. */
     readonly attempt: number;
-    /** Service-clock stamp expiry is judged against (NFR-112). */
+    /** Service-clock stamp expiry is judged against. */
     readonly now: string;
 }): RunRefusal | null {
     const { run, leaseId, attempt, now } = input;

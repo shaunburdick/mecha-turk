@@ -92,7 +92,7 @@ export type {
 /**
  * The one rule for "this **legacy** row is finished" — used by the
  * dispatched-tail cap, and by 006's excerpt retention pass as the first half
- * of its eligibility rule (006 FR-057, plan D6).
+ * of its eligibility rule.
  *
  * A row is terminal exactly when it carries the shipped `dispatched` state:
  * such a row answers `409` to a retry and can never re-enter the queue, so
@@ -435,7 +435,7 @@ export async function enqueueEvents(input: {
      * events the same binding produced `projectId`/`worktreeOption` for.
      *
      * **No field is added to the delivery rows** — the text persists in
-     * exactly two places, the binding and this run snapshot (004 FR-053) — so
+     * exactly two places, the binding and this run snapshot — so
      * `buildEventId`, dedupe, and the NDJSON event contract are untouched.
      */
     readonly prompt?: PromptSnapshot | null;

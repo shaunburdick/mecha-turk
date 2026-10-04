@@ -81,7 +81,7 @@ export interface SettingsTabUi {
     readonly pane: HTMLElement;
     /** Tab heading. */
     readonly heading: TextHandle;
-    /** The banner: editable copy, or the read-only statement (FR-011). */
+    /** The banner: editable copy, or the read-only statement. */
     readonly banner: BannerHandle;
     /** One line of read state: idle, loading, landed, failed with a cause. */
     readonly readLine: TextHandle;
@@ -89,7 +89,7 @@ export interface SettingsTabUi {
     readonly refresh: ButtonHandle;
     /** Wrapper around the failure notice, hidden while nothing failed. */
     readonly failureBox: HTMLElement;
-    /** Failure notice naming what could not be read and from where (FR-078). */
+    /** Failure notice naming what could not be read and from where. */
     readonly failure: BannerHandle;
     /** Where the rows come from. */
     readonly sourceNote: TextHandle;
@@ -103,27 +103,27 @@ export interface SettingsTabUi {
     readonly saveBox: HTMLElement;
     /** The one write the tab offers. */
     readonly save: ButtonHandle;
-    /** The discard control (FR-015). */
+    /** The discard control. */
     readonly discard: ButtonHandle;
-    /** The non-primary restore-defaults control (FR-016). */
+    /** The non-primary restore-defaults control. */
     readonly restore: ButtonHandle;
-    /** One line of save state plus the pending markers (FR-013, FR-038). */
+    /** One line of save state plus the pending markers. */
     readonly saveLine: TextHandle;
     /** Wrapper around the armed confirmation, hidden while nothing is armed. */
     readonly armBox: HTMLElement;
     /** What an armed write will do — the contract's content items (FR-051). */
     readonly armText: TextHandle;
-    /** Disarms the confirmation and returns the fields to the last read (FR-054). */
+    /** Disarms the confirmation and returns the fields to the last read. */
     readonly cancel: ButtonHandle;
     /** Wrapper around the "no save is possible" reason, hidden while one is. */
     readonly blockedBox: HTMLElement;
-    /** The named reason a save is not offered (FR-042). */
+    /** The named reason a save is not offered. */
     readonly blockedLine: TextHandle;
     /** Wrapper around the refusal/failure region, hidden while there is none. */
     readonly issuesBox: HTMLElement;
     /** The service's issues in the service's order, or the write's cause. */
     readonly issues: TextHandle;
-    /** Remove every node and handle this view mounted (FR-017). */
+    /** Remove every node and handle this view mounted. */
     readonly dispose: () => void;
 }
 
@@ -389,7 +389,7 @@ function repaintControls(ui: SettingsTabUi, slice: SettingsTabState): void {
  * Repaint the Settings tab from its state.
  *
  * Nothing runs when the tab has never been activated: the state still
- * updates, and the first activation repaints from it (005 FR-013).
+ * updates, and the first activation repaints from it.
  *
  * @param rt - Panel runtime.
  */

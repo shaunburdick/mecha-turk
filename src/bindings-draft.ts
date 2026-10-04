@@ -198,7 +198,7 @@ function draftProject(bindings: BindingsTabState): string | null {
  * Read the allow-list a saved row keeps, which the draft must not lose.
  *
  * A brand-new row has none — absent is the complete "no policy configured"
- * state (002 FR-047) — while an edit carries the row's stored list through, so
+ * state — while an edit carries the row's stored list through, so
  * changing an unrelated field cannot take a restricted binding back to open
  * (contract §2). The grant's patch then overrides this one row from the field
  * the operator actually edited.

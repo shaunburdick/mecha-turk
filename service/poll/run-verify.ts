@@ -79,7 +79,7 @@ function judgeVerification(input: {
  * baseline** (002 FR-029 case (ii)): nothing was compared, and this stores the
  * observed agent beside the empty baseline so the absence — not a fabricated
  * match — is what the row says, under `agent.uncompared` rather than
- * `agent.mismatch` (003 v1.7.0). Verdict, note, and state rules are otherwise
+ * `agent.mismatch`. Verdict, note, and state rules are otherwise
  * untouched.
  *
  * @param input - Store, logger, the run, the attempt the panel names, the
@@ -103,13 +103,13 @@ export async function recordVerification(input: {
     readonly observedAgent: string | null;
     /** Baseline judged against; `""` means none configured and nothing compared. */
     readonly expectedAgent: string;
-    /** Where that baseline came from; recorded on the uncompared row (002 FR-029). */
+    /** Where that baseline came from; recorded on the uncompared row. */
     readonly baselineProvenance: BaselineProvenance;
     /** Whether the two matched. */
     readonly ok: boolean;
     /** Note explaining a mismatch or an unreadable read-back. */
     readonly note: string | null;
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }): Promise<OperationResult> {
     return await operateRun(input, async ({ run, now, persist }): Promise<OperationResult> => {

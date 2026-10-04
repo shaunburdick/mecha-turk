@@ -52,7 +52,7 @@ export const NO_SESSION_PROBLEM = 'no-session';
  *
  * A **subset** of the service's five, deliberately: the panel raises the two it
  * can see locally (a binding this tab no longer holds, a project the host no
- * longer lists) and, since 003 v1.8.0, the one the service's actor-policy gate
+ * longer lists) and the one the service's actor-policy gate
  * answers with. The other two — `credential` and `policy` — are declared so a
  * run's state parses, but no panel guard in this build produces them, so this
  * panel never sends them.
@@ -90,7 +90,7 @@ export interface GuardFailure {
     readonly reason: BlockedReason;
     /** What specifically is wrong, bounded before it goes on the wire. */
     readonly detail: string;
-    /** The in-panel guidance offered with it (FR-042). */
+    /** The in-panel guidance offered with it. */
     readonly guidance: string;
 }
 
@@ -252,10 +252,10 @@ export async function refuseWithBlocked(input: {
 }
 
 /**
- * The guidance an ordinary `actor-not-allowed` refusal carries (003 FR-078).
+ * The guidance an ordinary `actor-not-allowed` refusal carries.
  *
  * Names the **field**, never a login: the permitted set is configuration and
- * never reaches the panel (002 NFR-113, 005 FR-091). And it is true: with a
+ * never reaches the panel. And it is true: with a
  * complete reference list, an allow-list edit *is* the remedy — the gate
  * re-judges the same list from the live policy on the retry.
  */
@@ -264,7 +264,7 @@ const ALLOW_LIST_GUIDANCE = 'add the GitHub logins that may trigger this reposit
 
 /**
  * The guidance the same refusal carries when the gate judged a **partial**
- * reference list (003 T-038).
+ * reference list.
  *
  * The whole point of this branch: `ALLOW_LIST_GUIDANCE` is *false* there. The
  * gate judges the run's **retained** references and the run layer stops
@@ -284,8 +284,8 @@ const ALLOW_LIST_GUIDANCE = 'add the GitHub logins that may trigger this reposit
  * and nothing is waiting on them.
  *
  * Names no login — neither a denied one (the service's `detail` carries those,
- * verbatim) nor a permitted one, which never leaves the service at all
- * (002 NFR-113).
+ * verbatim) nor a permitted one, which never leaves the service at all.
+ *
  */
 const TRUNCATED_WINDOW_GUIDANCE = 'this run collected more triggers than the service retains, so the allow-list was '
     + 'judged against an incomplete list: adding a login to allowedUsers cannot clear it, and a retry is refused '
@@ -302,7 +302,7 @@ const TRUNCATED_WINDOW_GUIDANCE = 'this run collected more triggers than the ser
  * The service's own message is carried **verbatim** (it names every denied login
  * and its attribution basis, FR-077), and the guidance names the **field** that
  * restricts the binding rather than any login: the permitted set is
- * configuration and never reaches the panel (002 NFR-113, 005 FR-091).
+ * configuration and never reaches the panel.
  *
  * **The guidance branches on the refusal's `referenceWindow` word, never on the
  * message.** The service is the only thing that knows which list its decision
@@ -343,8 +343,8 @@ export function actorGateFailure(refusal: {
  * A refusal — stale lease, already reserved, already dispatched, invalid
  * transition — is surfaced on the note line and ends the attempt, which is what
  * keeps the host call out of reach after any refusal. The **one** refusal
- * that additionally owes a `blocked:` report is the actor-policy gate's
- * (FR-078), and it arrives as `failure` for {@link refuseWithBlocked} to post.
+ * that additionally owes a `blocked:` report is the actor-policy gate's,
+ * and it arrives as `failure` for {@link refuseWithBlocked} to post.
  *
  * @param rt - Panel runtime.
  * @param run - The offered run.
@@ -371,12 +371,12 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
             + `${answer.code === null ? '' : ` (${answer.code})`}.`);
 
         // The actor-policy gate's refusal is the one this panel *reports* rather
-        // than merely notes (003 FR-078). The service's answer is the authority,
+        // than merely notes. The service's answer is the authority,
         // and the block report is this panel's account of it — through the
         // operation every other guard already uses, with no new route and no
         // second membership comparison of its own. The window rides with
         // the code for the same reason: the guidance may only be honest about a
-        // truncated list if the decision that saw it says so (003 T-038).
+        // truncated list if the decision that saw it says so.
         const gate = actorGateFailure({
             code: answer.code,
             message: answer.message,

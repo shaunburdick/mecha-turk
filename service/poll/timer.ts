@@ -34,7 +34,7 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
     let inFlight = false;
     // Epoch stamp of the armed timer, published read-only through `state()`
     // so the status projection reports the scheduler's own schedule instead of
-    // a second one it could drift from (005 FR-031).
+    // a second one it could drift from.
     let nextAtMs: number | null = null;
 
     const cycle = async (): Promise<void> => {

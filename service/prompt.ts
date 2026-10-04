@@ -71,7 +71,7 @@ export const PROMPT_FINGERPRINT_PREFIX = 'mtp-';
 const FINGERPRINT_HEX_CHARS = 32;
 
 /**
- * The remediation for a value that is present but is not text (004 FR-017).
+ * The remediation for a value that is present but is not text.
  *
  * Naming the two clearing spellings is deliberate: the operator is told how to
  * express "unset" rather than being left to guess what the field wants.
@@ -79,20 +79,20 @@ const FINGERPRINT_HEX_CHARS = 32;
 const REMEDIATION_TYPE =
     'startingPrompt must be text; send it absent or null to leave the starting prompt unset';
 
-/** The remediation for a value over the cap (004 FR-020); never quotes the text. */
+/** The remediation for a value over the cap; never quotes the text. */
 const REMEDIATION_CAP = `startingPrompt must be at most ${STARTING_PROMPT_MAX_CODE_POINTS}`
     + ' characters (Unicode code points) after trimming';
 
-/** The remediation for a control character (004 FR-026). */
+/** The remediation for a control character. */
 const REMEDIATION_CONTROL =
     'startingPrompt must not contain null or control characters other than newline and tab';
 
-/** The remediation for a reserved marker line (004 FR-025); names the family, never the line. */
+/** The remediation for a reserved marker line; names the family, never the line. */
 const REMEDIATION_MARKER = 'startingPrompt must not contain a line beginning with'
     + ' "--- BEGIN " or "--- END " (reserved composition markers)';
 
 /**
- * The remediation for credential-shaped material (004 FR-024).
+ * The remediation for credential-shaped material.
  *
  * @param label - The shipped detector's stable label, never the matched text.
  * @returns The remediation naming the shape and not the value.
@@ -132,15 +132,15 @@ function refuse(remediation: string): PromptValidation {
  * The order is normative and is the order the specification fixes:
  *
  * 1. **Type** — absent or explicit `null` is unset; text continues; anything
- *    else is refused, never coerced, cast, or dropped (004 FR-017, FR-028).
- * 2. **Trim** the two ends only (004 FR-022).
+ *    else is refused, never coerced, cast, or dropped.
+ * 2. **Trim** the two ends only.
  * 3. **Empty after trim** resolves to unset — "an empty instruction" is not a
- *    state the product has (004 FR-022).
- * 4. **Normalise** line endings (004 FR-023), *before* the control-character
+ *    state the product has.
+ * 4. **Normalise** line endings, *before* the control-character
  *    test so a CRLF paste is a line ending and not a refusal.
- * 5. **Cap** at {@link STARTING_PROMPT_MAX_CODE_POINTS} code points (004 FR-020).
- * 6. **Well-formedness** — no control character but tab and newline (004 FR-026).
- * 7. **Reserved markers** — no line beginning with a reserved prefix (004 FR-025).
+ * 5. **Cap** at {@link STARTING_PROMPT_MAX_CODE_POINTS} code points.
+ * 6. **Well-formedness** — no control character but tab and newline.
+ * 7. **Reserved markers** — no line beginning with a reserved prefix.
  * 8. **Credential shape** — the shipped detector's own labels (004 FR-024).
  *
  * @param raw - The candidate value as it arrived, or `undefined` when absent.
@@ -187,7 +187,7 @@ export function validateStartingPrompt(raw: unknown): PromptValidation {
  * `mtp-` + the first 32 hex characters of `sha256(utf8(text))`: fixed length,
  * `[0-9a-f]` only, URL-safe, and a pure function of the bytes — no salt, no
  * configuration, no clock, no binding id — so the same text fingerprints
- * identically across restarts, builds, and machines (004 NFR-126, AC-140).
+ * identically across restarts, builds, and machines.
  * Because a credential-shaped prompt is refused before it is ever stored, a
  * fingerprint can never be a hash of a secret (004 FR-024's closing clause).
  *
@@ -226,11 +226,11 @@ export interface TierPrompt {
 export interface PromptSnapshot {
     /** Set tiers joined by exactly one blank line, global → account → binding. */
     readonly text: string;
-    /** `mtp-<sha256 hex[0:32]>`, derived from `text` — one hash over the body (FR-086). */
+    /** `mtp-<sha256 hex[0:32]>`, derived from `text` — one hash over the body. */
     readonly fingerprint: string;
     /** `[...text].length` in Unicode code points — the body the fence wraps. */
     readonly length: number;
-    /** Contributing tiers: ordered, duplicate-free, never empty (FR-087). */
+    /** Contributing tiers: ordered, duplicate-free, never empty. */
     readonly sources: readonly PromptSource[];
 }
 
@@ -274,7 +274,7 @@ export function promptTierOf(record: {
 const TIER_GAP = '\n\n';
 
 /**
- * Stack the set tiers into one block body (004 FR-080, FR-084).
+ * Stack the set tiers into one block body.
  *
  * Exactly one blank line between **consecutive set** tiers, in the fixed
  * order global → account → binding; a tier that is `null` contributes
@@ -308,13 +308,13 @@ export function composePromptBody(tiers: {
     return set.join(TIER_GAP);
 }
 
-/** What one tier resolved to: set with text, unset, or refused (FR-071, FR-028). */
+/** What one tier resolved to: set with text, unset, or refused. */
 type ResolvedTier =
-    /** Absent or empty: contributes nothing to the composition (FR-071). */
+    /** Absent or empty: contributes nothing to the composition. */
     | { readonly state: 'unset' }
     /** Validated, normalised text ready to stack. */
     | { readonly state: 'set'; readonly text: string }
-    /** A set tier the validator refused: no snapshot composes at all (FR-028). */
+    /** A set tier the validator refused: no snapshot composes at all. */
     | { readonly state: 'refused' };
 
 /**
@@ -358,7 +358,7 @@ function resolveTier(record: unknown): ResolvedTier {
  * account the scan already read, the binding being scanned — so resolution
  * and project resolution are one moment rather than a timing assumption.
  * Each tier validates on its own through {@link validateStartingPrompt} —
- * never coerced, never substituted — the set tiers stack in FR-080's order
+ * never coerced, never substituted — the set tiers stack order
  * ({@link composePromptBody}), one fingerprint is derived over the body,
  * and `sources` follows the set tiers **by construction**: a
  * filter of {@link PROMPT_SOURCE_ORDER}, so ordered and duplicate-free

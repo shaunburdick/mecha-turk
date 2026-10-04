@@ -131,7 +131,7 @@ export interface PollLoop {
      * Read the scheduler's own state; never mutates it.
      *
      * The status projection reads the loop through this reader rather than
-     * keeping a second copy of the schedule it could drift from (005 FR-031).
+     * keeping a second copy of the schedule it could drift from.
      */
     state(): PollLoopState;
 }
@@ -343,7 +343,7 @@ async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promi
 /**
  * Read this cycle's configuration and narrow the dependencies around it.
  *
- * One read, once per cycle (006 FR-055, FR-057–FR-059): the window, the page
+ * One read, once per cycle: the window, the page
  * size, and the retry ladder all take their values from this one document and
  * keep them for the whole cycle, so a single save changes all of them at the
  * same boundary and no consumer sees a half-updated configuration.

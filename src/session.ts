@@ -185,7 +185,7 @@ export interface BoundedContextInput {
     readonly maxChars?: number;
     /**
      * Characters already spoken for by the operator's prompt block and its
-     * blank line, reserved **before** the excerpt budget is sized (004 FR-035)
+     * blank line, reserved **before** the excerpt budget is sized
      * — so the excerpt is what shortens, never the prompt. See
      * {@link promptBlockChars} in `prompt.ts`.
      */
@@ -218,7 +218,7 @@ export function buildBoundedContext(input: BoundedContextInput): string {
     // delimiter, and the delimiter itself are counted before any source is
     // rendered, so the rendered block can never overrun `maxChars` by exactly
     // the separator that was forgotten. The prompt's reservation is subtracted
-    // here too: it is part of the same budget, and it is spent first (004 FR-035).
+    // here too: it is part of the same budget, and it is spent first.
     const available = Math.max(
         maxChars - reservedChars - frame.length - NEWLINE.length * 2 - END_UNTRUSTED.length,
         0,
@@ -247,7 +247,7 @@ function worktreeValue(selection: WorktreeSelection): GuestSessionWorktree | und
     return { kind: 'new', name: selection.name };
 }
 
-/** The reference a request carries when no prompt was set (004 FR-032, FR-087). */
+/** The reference a request carries when no prompt was set. */
 const NO_PROMPT: PromptReference = {
     promptPresent: false,
     promptFingerprint: null,
@@ -280,7 +280,7 @@ export function buildStartSessionRequest(input: {
     /** Bounded first-message context. */
     readonly context: string;
     /**
-     * The prompt reference for the machine-readable `data` (004 FR-037, FR-087).
+     * The prompt reference for the machine-readable `data`.
      *
      * Omitted by the non-run path, which has no run and therefore no prompt;
      * the unset quartet is written either way, so the member set is constant
@@ -307,9 +307,9 @@ export function buildStartSessionRequest(input: {
             issueId: input.evidence.issueId,
             detectedAt: input.evidence.detectedAt,
             panelGeneration: input.evidence.panelGeneration,
-            // The reference, never a second copy of the instruction (004 FR-037);
-            // the source list rides beside it, additive within `extension-spike-1`
-            // (004 FR-087, plan D9). Spread onto a fresh mutable array because the
+            // The reference, never a second copy of the instruction;
+            // the source list rides beside it, additive within `extension-spike-1`.
+            // Spread onto a fresh mutable array because the
             // host envelope is `JsonValue`, which cannot hold a `readonly` list.
             promptPresent: prompt.promptPresent,
             promptFingerprint: prompt.promptFingerprint,

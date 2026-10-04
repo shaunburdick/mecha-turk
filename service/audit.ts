@@ -35,7 +35,7 @@ import type { ServiceStore } from './store/index.ts';
 export const AUDIT_FILE = 'audit.ndjson';
 
 /**
- * Entity id every configuration-wide audit row names (006 FR-070, FR-073).
+ * Entity id every configuration-wide audit row names.
  *
  * The two rows 006 fills — `config.changed` and `audit.trimmed` — both carry
  * `entity: { kind: 'service', id: <this> }`, so a reader can group them under
@@ -73,7 +73,7 @@ export interface AuditEntry {
     readonly seq: number;
     /** RFC 3339 timestamp of the write. */
     readonly timestamp: string;
-    /** Correlation id tying this entry to the rest of the chain (NFR-007). */
+    /** Correlation id tying this entry to the rest of the chain. */
     readonly correlationId: string;
     /** Event vocabulary name, e.g. `account.verified` or `binding.disabled`. */
     readonly eventType: string;
@@ -389,7 +389,7 @@ function inWriteChain<T>(cache: AuditCache, task: () => Promise<T>): Promise<T> 
 }
 
 /**
- * Run one audit-side task after every append queued before it (006 FR-055).
+ * Run one audit-side task after every append queued before it.
  *
  * The retention passes join the **same** chain `appendAudit` writes on, which
  * is what makes "a pass can never remove a row appended while it was computing"
@@ -413,7 +413,7 @@ export function serializeAudit<T>(store: ServiceStore, task: () => Promise<T>): 
 
 /**
  * Compose an entry exactly the way {@link appendAudit} builds one, **without
- * writing it** (006 T-011).
+ * writing it**.
  *
  * Redaction, `seq`, `timestamp`, and the generated correlation id all come from
  * the one implementation the writer uses, so a row a pass embeds in its own

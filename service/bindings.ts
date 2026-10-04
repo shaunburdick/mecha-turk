@@ -69,12 +69,12 @@ export interface BindingRecord {
      * `null` — so "unset" is a complete state that needs no sentinel (004
      * FR-022, FR-071). It is validated on every read and every write of the
      * file by {@link validateStartingPrompt}, which is what makes a hand-edited
-     * file and a panel save answer the same rules (004 FR-019, plan D2).
+     * file and a panel save answer the same rules.
      */
     readonly startingPrompt?: string;
     /**
-     * The GitHub logins allowed to trigger dispatches from this repository
-     * (002 FR-047). **Absent means any human actor may trigger**: the key is
+     * The GitHub logins allowed to trigger dispatches from this repository.
+     * **Absent means any human actor may trigger**: the key is
      * omitted, never `[]`/`null`/`''`, and `[]` is a refusal, not a
      * state. The stored spelling is preserved; only the comparison folds case
      * (plan D5), and {@link bindingAllowedUsersOf} validates it on every read
@@ -368,7 +368,7 @@ function bindingModeOf(raw: Record<string, unknown>): {
 }
 
 /**
- * Read the optional starting prompt through the one prompt validator (004 FR-013).
+ * Read the optional starting prompt through the one prompt validator.
  *
  * The same function runs on the write path and the read path, so a submitted
  * value and a hand-edited file are judged by exactly one refusal set.
@@ -390,7 +390,7 @@ function bindingPromptOf(raw: Record<string, unknown>): {
  *
  * The short-circuit here is **not** the reporting order: {@link parseBinding}
  * reports every problem the record has. It exists so the assembly reads top to
- * bottom and each part narrows without a redundant guard (004 FR-013).
+ * bottom and each part narrows without a redundant guard.
  *
  * @param raw - Candidate record.
  * @param accountExists - `true` when the account custody holds the id.

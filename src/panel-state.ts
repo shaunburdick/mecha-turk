@@ -51,7 +51,7 @@ import { initialDispatchFilters, initialDispatchListPage } from './dispatch-page
 import type { DispatchFilters, DispatchListPage } from './dispatch-page.ts';
 
 /**
- * The six top-level surfaces, in strip order (005 FR-010).
+ * The six top-level surfaces, in strip order.
  *
  * A closed union: the shell constructs every value that reaches it, so an
  * unknown id can never arrive and there is no passthrough branch.
@@ -125,7 +125,7 @@ export interface PanelState {
      *
      * The card declares zero settings, so the snapshot is a "the host is
      * ready" marker rather than a configuration source; prerequisites reads
-     * it for exactly that (005 FR-037).
+     * it for exactly that.
      */
     settings: Readonly<Record<string, string>> | null;
     /**
@@ -139,7 +139,7 @@ export interface PanelState {
      * Project id chosen by the panel picker, restored from extension storage.
      *
      * `null` means "no panel selection": no project is configured, and the
-     * panel says so rather than inventing one (002 FR-004, FR-041).
+     * panel says so rather than inventing one.
      */
     projectSelection: string | null;
     /** Project list backing the picker. */
@@ -154,9 +154,9 @@ export interface PanelState {
     handoff: HandoffState;
     /** Repository bindings as the Bindings tab reads and edits them (M3). */
     bindings: BindingsTabState;
-    /** Which row the Accounts tab has open, armed, or drafting (FR-060). */
+    /** Which row the Accounts tab has open, armed, or drafting. */
     accounts: AccountsTabState;
-    /** Dispatches list, selection, and M9 notice, as its own tab slice (FR-012). */
+    /** Dispatches list, selection, and M9 notice, as its own tab slice. */
     dispatches: DispatchesState;
     /** The Status tab's projection, read state, and staleness (FR-019, FR-030). */
     statusTab: StatusTabState;
@@ -209,7 +209,7 @@ export interface PanelRuntime {
     /** Mounted handoff group, when this surface shows one. */
     handoffView: HandoffView | null;
     /**
-     * The six-tab shell the panel root owns (005 FR-010).
+     * The six-tab shell the panel root owns.
      *
      * `null` before `mountTabShell` runs and after teardown, so a headless
      * runtime (orchestration tests) never has to know about tabs.
@@ -242,7 +242,7 @@ export interface PanelRuntime {
     activeTab: TabId;
     /** Tabs whose bodies have mounted; each mounts once, on first activation. */
     tabMounted: Set<TabId>;
-    /** When each tab last landed a read; `null` until one does (FR-014). */
+    /** When each tab last landed a read; `null` until one does. */
     tabLastRead: Map<TabId, string | null>;
     /** Registered unload listener, so teardown can remove exactly what it added. */
     pagehideListener: (() => void) | null;
@@ -309,7 +309,7 @@ export interface DispatchesState {
      */
     agentNotice: PanelStatus | null;
     /**
-     * The control the operator armed for its confirm step (003 T-025), or
+     * The control the operator armed for its confirm step, or
      * `null` when nothing is armed.
      *
      * The panel has no dialog primitive, so a destructive or state-changing
@@ -319,21 +319,21 @@ export interface DispatchesState {
      * history does not already explain, and the service answers it either way.
      */
     pendingAction: RunPendingAction | null;
-    /** Session id typed for the "a session was created" resolution (FR-027). */
+    /** Session id typed for the "a session was created" resolution. */
     sessionInput: string;
     /** Single in-flight gate for the run operations; one flag, never several. */
     busy: boolean;
     /** The selected run's audit trail, read on demand (003 T-026). */
     audit: AuditViewState;
-    /** Server-side filters the list applies; both off means the whole set (FR-043). */
+    /** Server-side filters the list applies; both off means the whole set. */
     filters: DispatchFilters;
-    /** Paging position inside the set the filters describe (FR-042). */
+    /** Paging position inside the set the filters describe. */
     page: DispatchListPage;
     /** Whether the selected row's source-reference reveal is open (FR-048). */
     referencesOpen: boolean;
 }
 
-/** The run controls that ask for a confirmation step before they act (T-025). */
+/** The run controls that ask for a confirmation step before they act. */
 export type RunPendingAction = 'requeue' | 'resolve-session' | 'resolve-no-session';
 
 /**

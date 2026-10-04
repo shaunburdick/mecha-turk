@@ -82,7 +82,7 @@ export type ItemCandidateKind = 'assignment' | 'review';
  *
  * `''` for both fields when GitHub sent none — the same convention
  * `poller-entries.ts` uses for every list feed's author, so one authorship rule
- * covers the list feeds and the event feed alike (002 FR-045).
+ * covers the list feeds and the event feed alike.
  */
 export interface ItemEventActor {
     /** The account's login, `''` when absent or unreadable. */
@@ -122,7 +122,7 @@ export interface PollItemEvent {
     readonly createdAt: string;
 }
 
-/** Credential, repository, item, and window one events call takes (FR-049, FR-051). */
+/** Credential, repository, item, and window one events call takes. */
 export interface ItemEventsQuery {
     /** Account credential presented to GitHub. */
     readonly token: string;
@@ -134,7 +134,7 @@ export interface ItemEventsQuery {
     readonly issueNumber: number;
     /** Window start, or `null` for a replay scan; compared on `created_at`. */
     readonly windowStart: string | null;
-    /** Page size and retry ladder this call runs under (006 FR-058, FR-059). */
+    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
 

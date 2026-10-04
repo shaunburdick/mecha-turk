@@ -163,7 +163,7 @@ function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
 }
 
 /**
- * The six tab bodies, in FR-010's order.
+ * The six tab bodies order.
  *
  * @param rt - Panel runtime the bodies read and repaint.
  * @param handlers - The picker's callbacks, which live on the Bindings body.

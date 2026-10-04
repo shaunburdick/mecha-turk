@@ -22,13 +22,13 @@ import { accountFieldView } from './accounts-rows.ts';
 import type { AccountMember, AccountsHandlers } from './accounts-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** Idle label of the two-step Rotate-token control (FR-064). */
+/** Idle label of the two-step Rotate-token control. */
 export const ROTATE_IDLE_LABEL = 'Rotate token';
 
 /** Label after the first click, while the retention statement shows. */
 export const ROTATE_ARMED_LABEL = 'Cancel rotate';
 
-/** Idle label of the two-step Remove-account control (FR-055). */
+/** Idle label of the two-step Remove-account control. */
 export const REMOVE_IDLE_LABEL = 'Remove account';
 
 /** Confirm-step label after the first click (no `confirm()` in the frame). */
@@ -62,11 +62,11 @@ export interface DetailControls {
      * (FR-066, 004 FR-082; owner ruling, PR #12).
      */
     readonly saveProfile: ButtonHandle;
-    /** Two-step Rotate-token control (FR-064). */
+    /** Two-step Rotate-token control. */
     readonly rotateToken: ButtonHandle;
-    /** Two-step Remove-account control (FR-055, FR-065). */
+    /** Two-step Remove-account control. */
     readonly removeAccount: ButtonHandle;
-    /** Release every handle this region mounted (FR-017). */
+    /** Release every handle this region mounted. */
     readonly dispose: () => void;
 }
 
@@ -74,7 +74,7 @@ export interface DetailControls {
  * Mount one profile member's field (FR-066, 004 FR-089).
  *
  * Both members mount the same way — the draft/label flow the display name
- * shipped with — because they are one flow behind one route (004 FR-082),
+ * shipped with — because they are one flow behind one route,
  * and a second shape would be a second place it could be got wrong. The
  * field renders the words `accountFieldView` derives, so mount and repaint
  * can never disagree (FR-063's guidance, FR-064's not-set state).
@@ -129,11 +129,11 @@ function mountRowControls(input: {
     /** Callbacks the controls invoke. */
     readonly handlers: AccountsHandlers;
 }): {
-    /** Two-step rotation control (FR-064). */
+    /** Two-step rotation control. */
     readonly rotateToken: ButtonHandle;
-    /** Two-step removal control (FR-055, FR-065). */
+    /** Two-step removal control. */
     readonly removeAccount: ButtonHandle;
-    /** Release both handles (FR-017). */
+    /** Release both handles. */
     readonly dispose: () => void;
 } {
     const rotateToken = mountButton(input.pane, {

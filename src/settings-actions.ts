@@ -209,7 +209,7 @@ function recordAcceptedWrite(input: {
 
 /**
  * Apply one write's answer to the state: the document it returned, the
- * refusal it issued, or the cause it failed with (FR-044, FR-061 – FR-064).
+ * refusal it issued, or the cause it failed with.
  *
  * Split out of {@link performWrite} so each answer path stays small enough to
  * read on its own — the three are genuinely different kinds of fact, and

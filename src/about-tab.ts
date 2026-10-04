@@ -51,7 +51,7 @@ import type { PanelRuntime } from './panel-state.ts';
 /** The product name the manifest declares. */
 const PRODUCT_NAME = 'Mecha Turk';
 
-/** What About shows for a version it could not read (FR-074, AC-134). */
+/** What About shows for a version it could not read. */
 const VERSION_UNREACHABLE = 'unknown (service unreachable)';
 
 /** What About shows before the first health answer lands (contract §2). */
@@ -60,7 +60,7 @@ const VERSION_UNREAD = 'Version: not yet read';
 /** Heading above the identity block. */
 const ABOUT_HEADING = 'About';
 
-/** Heading above the read-only record (FR-075). */
+/** Heading above the read-only record. */
 const DIAGNOSTICS_HEADING = 'Diagnostics (read-only)';
 
 /** The disclosure control while the record is closed. */
@@ -123,9 +123,9 @@ export function initialAboutTab(): AboutTabState {
 export interface AboutTabUi {
     /** Body root this view mounted into. */
     readonly pane: HTMLElement;
-    /** The product name (FR-075). */
+    /** The product name. */
     readonly identity: TextHandle;
-    /** The single version line (FR-074). */
+    /** The single version line. */
     readonly version: TextHandle;
     /** The one-line description of the tool. */
     readonly description: TextHandle;
@@ -139,19 +139,19 @@ export interface AboutTabUi {
     readonly readLine: TextHandle;
     /** Wrapper around the failure notice, hidden while nothing failed. */
     readonly failureBox: HTMLElement;
-    /** Failure notice naming what could not be read and from where (FR-078). */
+    /** Failure notice naming what could not be read and from where. */
     readonly failure: BannerHandle;
     /** The disclosure control that reveals Diagnostics (2026-10-01 scrub). */
     readonly diagnosticsToggle: ButtonHandle;
     /** Wrapper around the Diagnostics block, hidden until the control opens it. */
     readonly diagnosticsBox: HTMLElement;
-    /** The two schema versions this build ships (FR-075). */
+    /** The two schema versions this build ships. */
     readonly schemas: TextHandle;
-    /** The phase record, read-only (FR-075). */
+    /** The phase record, read-only. */
     readonly phaseRecord: TextHandle;
-    /** The ledger, newest first, as text (FR-075). */
+    /** The ledger, newest first, as text. */
     readonly ledger: TextHandle;
-    /** Remove every node and handle this view mounted (FR-017). */
+    /** Remove every node and handle this view mounted. */
     readonly dispose: () => void;
 }
 

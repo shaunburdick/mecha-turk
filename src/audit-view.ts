@@ -105,7 +105,7 @@ const UNREADABLE_NOTE =
     'The service answered an audit history the panel could not read — press Audit history to retry.';
 
 /**
- * Build the empty audit-history state (003 T-026).
+ * Build the empty audit-history state.
  *
  * @returns The state before the first read.
  */

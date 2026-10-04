@@ -69,7 +69,7 @@ export const VERIFICATION_PATH = `${RUN_SCOPE_PREFIX}/verification`;
 /** The two explicit resolutions; anything else is refused as unknown. */
 const RESOLVE_DECISIONS: ReadonlySet<string> = new Set<ResolveDecision>(['session-created', 'no-session']);
 
-/** The decision whose proof is a session the operator names (FR-027). */
+/** The decision whose proof is a session the operator names. */
 const SESSION_CREATED = 'session-created';
 
 /**

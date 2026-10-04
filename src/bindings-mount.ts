@@ -69,14 +69,14 @@ import {
 } from './dispatches.ts';
 
 /**
- * The prompt field's callback, and the row click that opens the editor
- * (005 FR-051, FR-052, FR-090).
+ * The prompt field's callback, and the row click that opens the editor.
+ *
  *
  * Split out so the handler table below stays a table. Selecting a row both
  * selects it and loads it into the editor — the row *is* the Edit affordance
  * since the 2026-10-01 review — so the field opens on what the service holds
  * for that row, never on a fingerprint and never on whichever row was
- * selected before (005 FR-051).
+ * selected before.
  *
  * @param rt - Panel runtime the actions read and repaint.
  * @returns The handlers the fields invoke.
@@ -108,8 +108,8 @@ function promptHandlers(rt: PanelRuntime): Pick<
             // paint once, and SC-105 counts the paints that carry the prompt.
             bindings.selectedBinding = id;
             // The editor fields open on what the service holds for this row
-            // (004 FR-012, 002 FR-012) — never on a fingerprint, and never on
-            // whichever row was selected before (005 FR-051).
+            // — never on a fingerprint, and never on
+            // whichever row was selected before.
             bindings.startingPromptInput = storedPromptFor(bindings, id);
             bindings.startingPromptDirty = false;
             bindings.startingPromptError = null;
@@ -164,7 +164,7 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
         refresh: () => void loadBindings(rt),
         // One primary control, two shapes: the same button adds a row in add
         // mode and saves the loaded one in edit mode, so there is never a
-        // second write path beside the whole-file grant (005 FR-050).
+        // second write path beside the whole-file grant.
         submit: (): void => {
             if (rt.state.bindings.editing) {
                 void saveEditedBinding(rt);

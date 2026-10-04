@@ -99,7 +99,7 @@ export interface ServiceHandle {
      *
      * Exposed so an operator tool — and the status tests — can stop the
      * scheduler without closing the listener, which is the only way to read a
-     * genuinely *stopped* loop off `GET /v1/status` (005 AC-103).
+     * genuinely *stopped* loop off `GET /v1/status`.
      */
     readonly poll: PollLoop | null;
     /** Drain in-flight requests and close the listener; safe to call twice. */
@@ -273,7 +273,7 @@ interface ShutdownInput {
  * cannot race one of its writes against the drain's persistence window. The
  * scheduler view is marked *stopping* before the loop is cancelled, so a status
  * document answered during the drain names the shutdown instead of guessing at
- * one of the other paused reasons (005 FR-031).
+ * one of the other paused reasons.
  *
  * @param input - The listener, the drain counter, the poll loop, and the sweep.
  */
@@ -391,7 +391,7 @@ function startBootSweep(input: {
  *
  * The poll loop starts first and is observed into the status route's view
  * before the listener can serve a request, so no read of `GET /v1/status`
- * can find a scheduler it cannot see (005 FR-031).
+ * can find a scheduler it cannot see.
  *
  * @param input - Store, logger, GitHub issue poller, and the view to observe.
  * @returns The two handles; each is `null` when there was no store to run one.

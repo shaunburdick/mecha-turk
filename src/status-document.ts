@@ -25,7 +25,7 @@ import { parseJsonObject } from './json.ts';
 import { readRequiredActorPolicy } from './run-actor.ts';
 import type { ActorPolicy } from './run-actor.ts';
 
-/** One account row as the Status tab renders it (005 FR-030, FR-034). */
+/** One account row as the Status tab renders it. */
 export interface StatusAccountView {
     /** GitHub numeric user id. */
     readonly numericUserId: string;
@@ -33,11 +33,11 @@ export interface StatusAccountView {
     readonly login: string;
     /** Connection state, rendered verbatim — including values this build does not know. */
     readonly connectionState: string;
-    /** Rate budget; `null` members are *not measured yet*, never zero (FR-034). */
+    /** Rate budget; `null` members are *not measured yet*, never zero. */
     readonly rate: StatusRateView;
 }
 
-/** The honest pre-poll rate baseline (005 FR-034, AC-107). */
+/** The honest pre-poll rate baseline. */
 export interface StatusRateView {
     /** Requests left in the window; `null` before the first measurement. */
     readonly remaining: number | null;
@@ -49,7 +49,7 @@ export interface StatusRateView {
     readonly usedLastHour: number;
 }
 
-/** One binding row, keyed by the member the wire keeps (005 FR-032). */
+/** One binding row, keyed by the member the wire keeps. */
 export interface StatusBindingView {
     /** Binding this row describes. */
     readonly bindingId: string;
@@ -67,11 +67,11 @@ export interface StatusBindingView {
     readonly lastError: string | null;
     /** Events pending or in flight for this binding. */
     readonly pendingCount: number;
-    /** `false` marks every scan-derived member unreadable (AC-105). */
+    /** `false` marks every scan-derived member unreadable. */
     readonly readable: boolean;
     /**
-     * The **shape** of this binding's actor allow-list, never its contents
-     * (005 FR-093; 003 NFR-113).
+     * The **shape** of this binding's actor allow-list, never its contents.
+     *
      *
      * **Required, and fail-closed on both counts.** A row whose value is
      * outside the closed union, and a row that carries no value at all, each
@@ -83,7 +83,7 @@ export interface StatusBindingView {
     readonly actorPolicy: ActorPolicy;
 }
 
-/** Process health, location, and store state (005 FR-030). */
+/** Process health, location, and store state. */
 export interface StatusServiceView {
     /** `degraded` when the data directory is unusable. */
     readonly status: 'ok' | 'degraded';
@@ -93,11 +93,11 @@ export interface StatusServiceView {
     readonly dataDir: string;
     /** Store schema version, or `null` while the store is unavailable. */
     readonly schemaVersion: number | null;
-    /** Whether the data directory can serve writes right now (FR-035). */
+    /** Whether the data directory can serve writes right now. */
     readonly writable: boolean;
 }
 
-/** The polling block, computed by the service from its live scheduler (FR-031). */
+/** The polling block, computed by the service from its live scheduler. */
 export interface StatusPollingView {
     /** Effective interval the scheduler is running with. */
     readonly intervalMs: number;
@@ -128,7 +128,7 @@ export type StatusVerificationView =
     /** Nothing has ever been verified. */
     | { readonly kind: 'none' };
 
-/** What Status knows about the Default Agent pin (005 FR-033, AC-106). */
+/** What Status knows about the Default Agent pin. */
 export interface StatusAgentPinView {
     /** The service's own expected-agent member; `null` when it holds none. */
     readonly expectedAgent: string | null;
@@ -142,13 +142,13 @@ export interface StatusView {
     readonly service: StatusServiceView;
     /** One row per registered account; `[]` is an honest empty. */
     readonly accounts: readonly StatusAccountView[];
-    /** One row per stored binding; never omissions (FR-032). */
+    /** One row per stored binding; never omissions. */
     readonly bindings: readonly StatusBindingView[];
     /** The computed polling block. */
     readonly polling: StatusPollingView;
     /** The agent pin. */
     readonly agentPin: StatusAgentPinView;
-    /** Whether this host surface can run a service at all (FR-036). */
+    /** Whether this host surface can run a service at all. */
     readonly supported: boolean;
 }
 

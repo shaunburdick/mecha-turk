@@ -54,7 +54,7 @@ export interface ClaimedLease {
     readonly expiresAt: string;
 }
 
-/** One retained source reference as the claim answer carries it (FR-013, FR-014). */
+/** One retained source reference as the claim answer carries it. */
 export interface ClaimedReference {
     /** The joining delivery's unchanged id (FR-012). */
     readonly deliveryId: string;
@@ -74,7 +74,7 @@ export interface ClaimedReference {
 
 /** One run the service offered in the claimed state (contract `claim-lease.md`). */
 export interface ClaimedRun {
-    /** Run identity on the wire; every later call is addressed by it (FR-050). */
+    /** Run identity on the wire; every later call is addressed by it. */
     readonly correlationId: string;
     /** FR-010's human-readable tuple, shown beside the correlation id. */
     readonly runKey: string;
@@ -82,9 +82,9 @@ export interface ClaimedRun {
     readonly ordinal: number;
     /** Attempt this lease is issued under. */
     readonly attempt: number;
-    /** The claim itself; its absence refuses the run (FR-035). */
+    /** The claim itself; its absence refuses the run. */
     readonly lease: ClaimedLease;
-    /** The state the run was **offered** in — always `pending` (FR-037). */
+    /** The state the run was **offered** in — always `pending`. */
     readonly state: 'pending';
     /** Why the run was waiting, rendered as the row's reason line (FR-074). */
     readonly stateReason: string;
@@ -102,7 +102,7 @@ export interface ClaimedRun {
     readonly subjectType: SubjectType;
     /** Issue or pull request number. */
     readonly issueNumber: number;
-    /** Issue title; untrusted source text, copied verbatim (NFR-109). */
+    /** Issue title; untrusted source text, copied verbatim. */
     readonly issueTitle: string;
     /** Canonical issue URL; may be empty when the delivery row is gone. */
     readonly issueUrl: string;
@@ -110,13 +110,13 @@ export interface ClaimedRun {
     readonly headSha: string | null;
     /** Base ref of that pull request; `null` on every other kind. */
     readonly baseRef: string | null;
-    /** `= correlationId`; what `startSession().id` is built from (FR-029). */
+    /** `= correlationId`; what `startSession().id` is built from. */
     readonly attachmentId: string;
     /** Every retained reference, in join order, with FR-013's full detail. */
     readonly sourceReferences: readonly ClaimedReference[];
     /** How many triggers joined the run, retained or not. */
     readonly referenceCount: number;
-    /** How many joining triggers the cap kept off the list (T-038). */
+    /** How many joining triggers the cap kept off the list. */
     readonly referencesNotRetained: number;
     /** Whether the reference list was cut at the cap. */
     readonly referencesTruncated: boolean;
@@ -124,15 +124,15 @@ export interface ClaimedRun {
     readonly issueBodyExcerpt: string;
     /** Earliest source reference's detection stamp (row age). */
     readonly detectedAt: string;
-    /** Whether the run queued with a starting prompt (004 FR-015). */
+    /** Whether the run queued with a starting prompt. */
     readonly promptPresent: boolean;
-    /** Its `mtp-…` fingerprint, or `null` when none (004 FR-037). */
+    /** Its `mtp-…` fingerprint, or `null` when none. */
     readonly promptFingerprint: string | null;
     /** Code points of the normalised text, or `null` when none. */
     readonly promptLength: number | null;
     /**
-     * Tiers that produced the block, most general first, or `null` when none
-     * (004 FR-087): a duplicate-free subsequence of `global, account, binding`.
+     * Tiers that produced the block, most general first, or `null` when none:
+     * a duplicate-free subsequence of `global, account, binding`.
      *
      * Read by the same closed reader as the other three members, so a list the
      * build cannot stand behind refuses the run — never a defaulted source.
@@ -143,7 +143,7 @@ export interface ClaimedRun {
      *
      * Carried exactly like `sourceReferences[].excerpt`: so the panel can
      * build the message, never so a surface can display it. The panel never
-     * writes it anywhere (004 FR-053, AC-144).
+     * writes it anywhere.
      */
     readonly promptText: string | null;
 }
@@ -161,11 +161,11 @@ export interface ClaimAnswer {
 
 /** What one reserve answered with (contract `dispatch-authorization.md` §1). */
 export interface ReserveAnswer {
-    /** Echo of the run the path named (FR-051). */
+    /** Echo of the run the path named. */
     readonly correlationId: string;
     /** Attempt the reservation was made under. */
     readonly attempt: number;
-    /** The single-use authorization the result report presents (FR-020). */
+    /** The single-use authorization the result report presents. */
     readonly dispatchToken: string;
     /** RFC 3339 stamp of the lease the reservation was made under. */
     readonly tokenExpiresAt: string | null;

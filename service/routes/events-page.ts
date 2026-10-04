@@ -26,7 +26,7 @@ export const DEFAULT_PAGE_SIZE = 25;
 /** Middle page size `GET /v1/events` accepts (contract §1). */
 const MID_PAGE_SIZE = 50;
 
-/** Largest page `GET /v1/events` accepts; the shipped cap became it (FR-042). */
+/** Largest page `GET /v1/events` accepts; the shipped cap became it. */
 export const MAX_PAGE_SIZE = 100;
 
 /** Page sizes the route accepts, smallest first (contract §1). */

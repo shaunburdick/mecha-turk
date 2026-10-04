@@ -78,7 +78,7 @@ export interface ControlRegion {
     readonly armBox: HTMLElement;
     /** What the armed write will do — the contract's content items, as text. */
     readonly armText: TextHandle;
-    /** The control that disarms the confirmation and returns the fields (FR-054). */
+    /** The control that disarms the confirmation and returns the fields. */
     readonly cancel: ButtonHandle;
     /** Wrapper around the named reason a save is not offered. */
     readonly blockedBox: HTMLElement;
@@ -149,7 +149,7 @@ export function mountRowRegion(pane: HTMLElement): RowRegion {
 function mountArmBox(input: {
     /** Pane the box mounts into. */
     readonly pane: HTMLElement;
-    /** What Cancel does: disarm and return the fields (FR-054). */
+    /** What Cancel does: disarm and return the fields. */
     readonly onCancel: () => void;
 }): Pick<ControlRegion, 'armBox' | 'armText' | 'cancel'> {
     const armBox = input.pane.ownerDocument.createElement('div');
@@ -180,13 +180,13 @@ function mountArmBox(input: {
 export function mountControlRegion(input: {
     /** Pane the four regions mount into. */
     readonly pane: HTMLElement;
-    /** What Save does: arm, or one whole-document write (FR-040, FR-051). */
+    /** What Save does: arm, or one whole-document write. */
     readonly onSave: () => void;
-    /** What Discard does: restore the last-read draft (FR-015). */
+    /** What Discard does: restore the last-read draft. */
     readonly onDiscard: () => void;
-    /** What Restore defaults does: stage the defaults under a confirmation (FR-016). */
+    /** What Restore defaults does: stage the defaults under a confirmation. */
     readonly onRestore: () => void;
-    /** What Cancel does: disarm and return the fields to the last-read values (FR-054). */
+    /** What Cancel does: disarm and return the fields to the last-read values. */
     readonly onCancel: () => void;
 }): ControlRegion {
     // The save bar, the confirmation, the "no save" reason, and the issues
@@ -262,7 +262,7 @@ export function mountReadControls(input: {
 }
 
 /**
- * Dispose every region the body mounted (005 FR-017, NFR-108).
+ * Dispose every region the body mounted.
  *
  * @param input - Everything {@link buildTabUi} was handed, minus the pane it
  *   can read off the regions themselves.
@@ -311,7 +311,7 @@ function disposeRegions(input: {
 }
 
 /**
- * Assemble the mounted view and its single dispose path (005 FR-017).
+ * Assemble the mounted view and its single dispose path.
  *
  * Every handle the body mounts is disposed here, so "nothing survives
  * teardown" is one function rather than a promise spread across the mount

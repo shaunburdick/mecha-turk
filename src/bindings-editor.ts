@@ -42,7 +42,7 @@ import { STATE_OFF, STATE_ON } from './bindings-chips.ts';
 /** Label of the primary control while the form is adding a binding. */
 export const ADD_BINDING_LABEL = 'Add binding';
 
-/** Label of that same control once the editor holds a loaded row (FR-050). */
+/** Label of that same control once the editor holds a loaded row. */
 export const SAVE_CHANGES_LABEL = 'Save changes';
 
 /** Label of the list control that opens the editor on an empty draft. */
@@ -53,13 +53,13 @@ export const CANCEL_EDIT_LABEL = 'Cancel edit';
 
 /** Callbacks the editor's action row invokes. */
 export interface BindingActionHandlers {
-    /** The primary control: add in add mode, save in edit mode (FR-050). */
+    /** The primary control: add in add mode, save in edit mode. */
     readonly submit: () => void;
     /** Open the editor on an empty draft — the list's *New binding* control. */
     readonly newBinding: () => void;
     /** Leave the open editor without writing it. */
     readonly cancelEdit: () => void;
-    /** Enable or disable the selected row (FR-054). */
+    /** Enable or disable the selected row. */
     readonly toggle: () => void;
     /** Remove the selected row from the granted list. */
     readonly removeBinding: () => void;
@@ -196,9 +196,9 @@ export interface AccountFieldView {
     readonly disabled: boolean;
 }
 
-/** The mention-token line as the editor renders it (FR-057). */
+/** The mention-token line as the editor renders it. */
 export interface MentionTokenView {
-    /** The rendered line; text only, never markup (FR-080). */
+    /** The rendered line; text only, never markup. */
     readonly line: string;
     /** Whether the line marks the token as differing from the account's own. */
     readonly override: boolean;

@@ -61,8 +61,8 @@ export const EVENTS_PENDING_PATH = '/v1/events/pending';
 export const CONFIG_PATH = '/v1/config';
 
 /**
- * Path of the readiness probe, which is also the About tab's version source
- * (005 FR-074).
+ * Path of the readiness probe, which is also the About tab's version source.
+ *
  *
  * The route the service actually registers — and the path 002's
  * `panel-service.md` §2.1, 005 FR-074, and 005's own
@@ -102,7 +102,7 @@ const ACCOUNT_TOKEN_PATTERN = '/v1/accounts/:numericUserId/token';
 
 /**
  * Query flag the hardened delete needs before it disables an account's
- * bindings instead of refusing (005 FR-065).
+ * bindings instead of refusing.
  *
  * The panel only ever sends it **after** the arm step has named the cascade,
  * which is what makes the flag the confirmation rather than a bypass: the
@@ -141,7 +141,7 @@ export async function serviceGet(input: {
  * The error-aware shape (same as {@link servicePost}) costs nothing for a
  * caller that only checks `ok`, and it lets the bindings grant put the
  * service's own field-level remediation next to the field it belongs to
- * (005 FR-052) instead of behind a generic "the service refused".
+ * instead of behind a generic "the service refused".
  *
  * @param input - The host surface, path, and the JSON body text.
  * @returns The wrapper's result, carrying the envelope when it sent one.
@@ -265,7 +265,7 @@ export function accountDeletePath(numericUserId: string): string {
 }
 
 /**
- * Build the account profile path for one account (005 FR-066, 004 FR-082).
+ * Build the account profile path for one account.
  *
  * The **one** operator write for this record: it carries `{ displayName }`,
  * `{ startingPrompt }`, or both, and an absent member means unchanged — so
@@ -282,7 +282,7 @@ export function accountProfilePath(numericUserId: string): string {
 
 /**
  * Build the delete path for one account **with** the cascade the arm step
- * already stated (005 FR-055, FR-065).
+ * already stated.
  *
  * @param numericUserId - GitHub numeric user id of the account to delete.
  * @returns The path segment that disables the account's bindings, then it.
@@ -292,7 +292,7 @@ export function accountRemovePath(numericUserId: string): string {
 }
 
 /**
- * Build the token-replacement path for one account (002 FR-012, FR-064).
+ * Build the token-replacement path for one account.
  *
  * @param numericUserId - GitHub numeric user id of the account being rotated.
  * @returns The path segment that replaces the stored credential.

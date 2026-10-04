@@ -247,7 +247,7 @@ export function mountColumnHead(parent: HTMLElement, input: ColumnHeadInput): HT
  * The heading is a **real heading element**, and its text is still handed to
  * `mountText` rather than written with `textContent`: an outline the
  * accessibility pass can walk, over copy that keeps travelling the one path
- * every other string in the panel takes (003 NFR-109, 005 FR-080).
+ * every other string in the panel takes.
  *
  * @param parent - Element to append the block into.
  * @param input - The heading and the optional surface extras.
