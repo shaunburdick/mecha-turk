@@ -1,6 +1,6 @@
 /**
- * The run-history projection behind `GET /v1/events` (003 T-016;
- * [contracts/run-history-audit.md](../../specs/003-dispatch-integrity/contracts/run-history-audit.md) §1).
+ * The run-history projection behind `GET /v1/events`
+ * ([contracts/run-history-audit.md](../../specs/003-dispatch-integrity/contracts/run-history-audit.md)).
  *
  * The shipped route projected **delivery** rows: three queue states, no lease,
  * no attempt, no session. The contract's widened row projects **runs**, and it
@@ -15,22 +15,22 @@
  * it can be tested without a socket, and [`routes/events.ts`](../routes/events.ts)
  * stays a route rather than growing a second wire shape of its own.
  *
- * Three properties it owes, worst-first:
+ * Four properties it owes, worst-first:
  *
  * - **Credential-free by construction.** No dispatch token (the row says *that*
  *   an authorization exists and when it dies, never *what* it is), no account
  *   login, no numeric account id — only the run's own identity, which an
- *   operator already sees everywhere else (NFR-106, AC-120).
+ *   operator already sees everywhere else.
  * - **Hostile source text is copied, never interpreted.** The issue title,
  *   repository, and state reason are untrusted text; the panel renders them
  *   through its non-HTML path, so this module's whole job is to hand them back
- *   byte-identical (NFR-109).
+ *   byte-identical.
  * - **Degradation is explicit, never silent.** The delivery row a title or PR
  *   coordinate came from can be evicted with its terminal run, so each of those
  *   falls back to a value derived from the run itself rather than to an empty
  *   string the panel's parser reads as an unusable record.
- * - **The permitted set is structurally unreachable from here** (003 NFR-113).
- *   The row carries each reference's own `actorLogin`/`actorAttribution` — the
+ * - **The permitted set is structurally unreachable from here.** The row carries
+ *   each reference's own `actorLogin`/`actorAttribution` — the
  *   facts about who was attributed to this run, which every joining delivery
  *   records and the gate judges — beside the two-word `actorPolicy` shape. What
  *   it never carries is the *list*: this projection is a pure function of stored
@@ -49,19 +49,18 @@ const WAITING_REASON = 'waiting for a panel';
  * A source reference as the run history carries it.
  *
  * Exactly the stored shape: the excerpt a dispatch context is built from is
- * **not** stored on the run (data-model §2.3 — it lives on the delivery, which
- * the run points at), so there is nothing here that could be omitted by
- * accident. The three counting members below the list are what keep a row from
+ * **not** stored on the run — it lives on the delivery, which the run points at
+ * — so there is nothing here that could be omitted by accident. The three
+ * counting members below the list are what keep a row from
  * being silently lossy at the 200-reference cap.
  *
- * Each entry also carries the two **actor members** exactly as stored (002
- * FR-043, FR-044) — absentable on a reference written before attribution
- * existed, because a run is history and refusing one would quarantine the whole
- * document for it.
+ * Each entry also carries the two **actor members** exactly as stored —
+ * absentable on a reference written before attribution existed, because a run is
+ * history and refusing one would quarantine the whole document for it.
  */
 export type HistoryReference = SourceReference;
 
-/** The session pointer as the run history carries it (FR-028's proof). */
+/** The session pointer as the run history carries it. */
 export interface HistorySession {
     /** Host-owned session id. */
     readonly sessionId: string;
@@ -89,15 +88,15 @@ export interface RunHistoryRow {
     readonly id: string;
     /** One of the eight dispatch states; `blocked:<reason>` carries a non-empty suffix. */
     readonly state: Run['state'];
-    /** Why the run sits there; rendered as the row's reason line (FR-074, NFR-108). */
+    /** Why the run sits there; rendered as the row's reason line. */
     readonly stateReason: string;
-    /** FR-010's human-readable tuple, shown beside the correlation id. */
+    /** The human-readable tuple, shown beside the correlation id. */
     readonly runKey: string;
     /** 0-based ordinal of this run for its subject. */
     readonly ordinal: number;
     /** Current attempt count. */
     readonly attempt: number;
-    /** Same value as {@link RunHistoryRow.id}; the panel's copy affordance reads it (FR-053). */
+    /** Same value as {@link RunHistoryRow.id}; the panel's copy affordance reads it. */
     readonly correlationId: string;
     /** `= correlationId`; displayed so an operator can find the session. */
     readonly attachmentId: string;
@@ -121,7 +120,7 @@ export interface RunHistoryRow {
     readonly resultDeadlineAt: string | null;
     /** Every retained reference, in join order; excerpts never projected. */
     readonly sourceReferences: readonly HistoryReference[];
-    /** How many triggers have joined, retained or not (T-038's total). */
+    /** How many triggers have joined, retained or not. */
     readonly referenceCount: number;
     /** Whether the reference list was cut at the cap. */
     readonly referencesTruncated: boolean;
@@ -167,13 +166,12 @@ export interface RunHistoryRow {
      * that run rather than a hole in the record.
      */
     readonly promptPresent: boolean;
-    /** The prompt's `mtp-…` fingerprint, or `null` when none (004 FR-052). */
+    /** The prompt's `mtp-…` fingerprint, or `null` when none. */
     readonly promptFingerprint: string | null;
     /** Code points of the normalised prompt, or `null` when none. */
     readonly promptLength: number | null;
     /**
      * The ordered tiers that contributed, or `null` when no tier was set.
-     *
      *
      * It rides beside the fingerprint — never the text — so the row itself
      * answers *which tiers produced this run* under any retention, while the
@@ -207,9 +205,6 @@ export interface RunHistoryRow {
  * An absent member stays absent rather than becoming an empty string the panel
  * cannot tell apart from a real value — the shipped row answered `null` there,
  * and `null` and absent read the same through the panel's DTO.
- *
- * @param delivery - The delivery that opened the run, when the queue holds it.
- * @returns The members this delivery actually has.
  */
 function reviewCoordinates(delivery: QueuedEvent | undefined): { headSha?: string; baseRef?: string } {
     const head = delivery?.headSha ?? null;
@@ -222,12 +217,11 @@ function reviewCoordinates(delivery: QueuedEvent | undefined): { headSha?: strin
  * The cause a `failed` run carries in its `dispatchResult`.
  *
  * The attempt history is the recorded cause (the panel's own report is what
- * wrote it); a run adopted from a pre-003 `dispatched`-with-problem row has no
+ * wrote it); a run adopted from an older `dispatched`-with-problem row has no
  * attempt record for its failure, so its stored state reason is the same fact
  * in the same place. Anything else reports `null`: a run that is waiting,
  * blocked, or wedged has no *result*, and saying otherwise would invent one.
  *
- * @param run - The run whose result line is being projected.
  * @returns The recorded cause, or `null`.
  */
 function recordedCause(run: Run): string | null {
@@ -244,7 +238,6 @@ function recordedCause(run: Run): string | null {
 /**
  * The session id or failure text the shipped `dispatchResult` member carried.
  *
- * @param run - The run being projected.
  * @returns The session id when one exists, else the recorded cause, else `null`.
  */
 function dispatchResultOf(run: Run): string | null {
@@ -260,11 +253,8 @@ function dispatchResultOf(run: Run): string | null {
  *
  * Each degrades to a value the run itself can supply, because a delivery row is
  * evicted with its terminal run while the run's row must keep parsing
- * for as long as the run is retained (FR-005: rows written before this feature
- * continue to project).
- *
- * @param input - The run, its earliest reference, and the delivery that opened it.
- * @returns The delivery-derived members of the history row.
+ * for as long as the run is retained — a row written before this feature still
+ * has to project.
  */
 function deliveryView(input: {
     /** The run being projected. */
@@ -294,9 +284,6 @@ function deliveryView(input: {
 /**
  * Attach the review-origin coordinates, keeping an absent member absent.
  *
- * @param row - The projected row.
- * @param delivery - The delivery behind the run's earliest reference, when the
- *   queue still holds it.
  * @returns The row, carrying `headSha`/`baseRef` only when that delivery does.
  */
 function withReviewCoordinates(row: RunHistoryRow, delivery: QueuedEvent | undefined): RunHistoryRow {
@@ -314,10 +301,9 @@ function withReviewCoordinates(row: RunHistoryRow, delivery: QueuedEvent | undef
  * A consumed reservation's deadline has stopped meaning anything — the outcome
  * it was guarding is recorded — so reporting it beside `dispatched` or `failed`
  * would invite exactly the confusion the reserve answer's own `resultDeadlineAt`
- * member exists to prevent (T-043d). The member answers one question: *by when
+ * member exists to prevent. The member answers one question: *by when
  * must this run report, or wedge into `unconfirmed`?*
  *
- * @param run - The run being projected.
  * @returns The deadline while the reservation is live, else `null`.
  */
 function liveResultDeadlineOf(run: Run): string | null {
@@ -332,7 +318,6 @@ function liveResultDeadlineOf(run: Run): string | null {
  * The lease members of the history row: expiry, and the one claim stamp the
  * stored record can state.
  *
- * @param run - The run being projected.
  * @returns The live lease's issue and expiry stamps, both `null` when no lease
  *   is held (the run model keeps no claim history — see {@link RunHistoryRow}).
  */
@@ -347,7 +332,6 @@ function leaseViewOf(run: Run): { readonly leaseExpiresAt: string | null; readon
 /**
  * The session pointer, reduced to the three members the contract names.
  *
- * @param run - The run being projected.
  * @returns The pointer, or `null` when the run never produced a session.
  */
 function sessionViewOf(run: Run): HistorySession | null {
@@ -365,7 +349,6 @@ function sessionViewOf(run: Run): HistorySession | null {
 /**
  * The recorded agent read-back, reduced to the four members the contract names.
  *
- * @param run - The run being projected.
  * @returns The read-back, or `null` when none was filed.
  */
 function verificationViewOf(run: Run): HistoryVerification | null {
@@ -385,7 +368,6 @@ function verificationViewOf(run: Run): HistoryVerification | null {
  * The prompt reference the run history carries — presence, fingerprint,
  * length, sources, and never the text.
  *
- * @param run - The run being projected.
  * @returns The four reference members; `promptSources` is the snapshot's own
  *   list when one exists and `null` when no tier was set — there is nothing to
  *   default from, because the absence case is a statement about the run rather
@@ -418,13 +400,7 @@ function promptViewOf(run: Run): {
     };
 }
 
-/**
- * Project one stored run into its history row.
- *
- * @param input - The run, the delivery rows keyed by id, and the reference that
- *   opened the run (its earliest) for the identity members the run does not store.
- * @returns The credential-free row.
- */
+/** Project one stored run into its history row. */
 function historyRowOf(input: {
     /** The run being projected. */
     readonly run: Run;
@@ -475,7 +451,6 @@ function historyRowOf(input: {
 /**
  * Project the runs history: newest detected first, capped, never claiming.
  *
- * @param input - Every retained run, the delivery rows, and the row cap.
  * @returns At most `cap` rows, freshest detection first; oldest runs dropped first.
  */
 export function projectRunHistory(input: {

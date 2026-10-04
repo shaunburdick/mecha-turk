@@ -1,5 +1,5 @@
 /**
- * The type vocabulary of the run document (003 data-model §2.2–§2.6).
+ * The type vocabulary of the run document.
  *
  * Every shape `runs.json` holds is declared here and nowhere else: the run
  * row, the document, and the sub-objects a run carries (source reference,
@@ -29,12 +29,12 @@ export type RunState =
     | 'dead-lettered'
     | `blocked:${string}`;
 
-/** A reference's origin: where the delivery matched (FR-013). */
+/** A reference's origin: where the delivery matched. */
 export type ReferenceOrigin = 'assignment' | 'body' | 'review' | `comment:${number}`;
 
-/** One delivery's membership in a run (FR-013). */
+/** One delivery's membership in a run. */
 export interface SourceReference {
-    /** The joining delivery's unchanged id (FR-012). */
+    /** The joining delivery's unchanged id. */
     readonly deliveryId: string;
     /** Trigger kind the delivery was detected under. */
     readonly kind: EventKind;
@@ -54,8 +54,8 @@ export interface SourceReference {
      * attribution existed carries neither actor member and still parses: it is
      * history, and refusing it would quarantine the whole document. Absence
      * means *no attribution was recorded*, which is a third thing — not an empty
-     * actor and not a guessed one — and it is exactly what makes 003 FR-080
-     * reachable: the authorization gate refuses such a run rather than admitting
+     * actor and not a guessed one — and it is exactly what makes the gate's own
+     * refusal reachable: it refuses such a run rather than admitting
      * it on the strength of the binding's list.
      */
     readonly actorLogin?: string;
@@ -74,7 +74,6 @@ export interface SourceReference {
 /**
  * The **shape** of the binding's allow-list at the moment of authorization.
  *
- *
  * Two words, never the logins: an audit trail or a run record listing who may
  * trigger a repository is a second copy of the access policy in a file retained
  * for months, and the permitted set's home is `bindings.json`. `'restricted'`
@@ -84,7 +83,7 @@ export interface SourceReference {
 export type ActorPolicy = 'open' | 'restricted';
 
 /**
- * The gate's extra `dispatch.refused` details (003 FR-077, NFR-113).
+ * The gate's extra `dispatch.refused` details.
  *
  * A refusal a reader cannot attribute is not an explainable refusal, so the row
  * names **every denied login and each one's basis** — including where that basis
@@ -230,8 +229,7 @@ export interface RunVerification {
 }
 
 /**
- * Where a verification report's comparison baseline came from (002 FR-029
- * case (ii); 003 v1.7.0).
+ * Where a verification report's comparison baseline came from.
  *
  * Only the panel can know this — it is the party that read `GET /v1/config` —
  * so it travels on the report and lands on the `agent.uncompared` row beside
@@ -267,8 +265,7 @@ export interface Run {
     /** Worktree option snapshotted at enqueue. */
     readonly worktreeOption: string;
     /**
-     * The binding's starting prompt as it stood when this run was enqueued
-     * (004 FR-015; data-model §3).
+     * The binding's starting prompt as it stood when this run was enqueued.
      *
      * `null` for a run queued with no prompt — which includes every run
      * written before this field existed, so absence keeps its plain reading.
@@ -300,7 +297,7 @@ export interface Run {
     /**
      * One entry per joining delivery, capped at {@link MAX_SOURCE_REFERENCES}.
      *
-     * Every retained entry carries FR-013's full detail; the cap is the only
+     * Every retained entry carries the reference's full detail; the cap is the only
      * thing that ever removes one, and what it removed is counted rather than
      * hidden.
      */
@@ -360,14 +357,14 @@ export type RunAuditIntent =
     }
     | {
         /**
-         * A sweep recovery needs its lifecycle row (T-040b).
+         * A sweep recovery needs its lifecycle row.
          *
          * The sweep has no caller to answer, so its trail is the only record an
          * operator has of an automatic recovery; the intent is what makes a
          * failed append recoverable rather than lost.
          */
         readonly eventType: 'dispatch.lease-expired' | 'run.dead_lettered' | 'dispatch.unconfirmed';
-        /** The run's identity (FR-062: never a fresh identifier). */
+        /** The run's identity, never a fresh identifier. */
         readonly correlationId: string;
         /** The decision the row records. */
         readonly decision: string;
