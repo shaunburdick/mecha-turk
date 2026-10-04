@@ -11,7 +11,7 @@
 > **The live handoff is everything above that heading**: the per-repository actor allow-list,
 > specified in phases 1–3 and planned in phases 4–5 on **2026-10-03**, ready for the phase gate.
 > Two other files are superseded by this one and are **left intact**: `003-dispatch-integrity/pm-handoff.md`
-> (the 003 cycle's dispatch record) and `orchestration.md` (the 003 wave state).
+> (the 003 cycle's dispatch record).
 
 ---
 
@@ -227,7 +227,6 @@ decision, the same posture 003 v1.7.0 recorded for the `agent.mismatch` rows it 
 - **Tasks**: specs/002-agent-event-extension/tasks.md (35 tasks, 11 waves, 2 gates — APPROVED)
 - **Constitution**: .specify/memory/constitution.md (v1.3.0, APPROVED)
 - **Branch**: `001-agent-event-orchestrator` (local-only, no remote)
-- **Orchestration state**: specs/002-agent-event-extension/orchestration.md
 
 ### Current State
 - **Phase**: Phase 6 (implementation), Waves 0+1 dispatched

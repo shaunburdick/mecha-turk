@@ -40,7 +40,7 @@ walkthrough is `specs/002-agent-event-extension/quickstart.md`.
 npm ci            # toolchain install (Node >= 20.19; bun for the bundler)
 npm run verify    # build -> lint -> typecheck -> test — THE gate, run before every commit
 npm run build     # bundles panel/main.js (IIFE) + service/main.js (ESM)
-npm test          # vitest, offline (691 tests)
+npm test          # vitest, offline (1302 tests)
 npm run format    # eslint --fix
 npm run shot      # screenshot all six panel tabs at 720px and 560px into screenshots/
 ```
@@ -125,118 +125,24 @@ network — those checks are operator-gated and recorded in the spec (see
 `specs/002-agent-event-extension/contracts/` and are read by tests
 (`tests/disclaimer.test.ts`) — don't delete them.
 
-## Module map (panel, `src/`)
+## Where things live
 
-| Module | Responsibility |
-| --- | --- |
-| `config.ts` | Parse and validate operator settings (fail closed); also the repository label vocabulary both directions — `repositoryLabel` and its inverse `repositoryRefOf`, beside it so the two cannot drift |
-| `github.ts` | The normalised `GitHubIssue` shape the message composer and the relay read (the REST fetchers and the `/user` diagnostic went with the install-time card) |
-| `prompt.ts` / `prompt-wire.ts` | The operator fence, the reserved marker prefixes, trim/normalise/code-point rules, the closed tier vocabulary (`PromptSource`, `PROMPT_SOURCE_ORDER`, the two `promptSources` predicates), and `composeFirstMessage`; the wire readers for the prompt's reference members (fail closed: `promptText` non-null iff `promptPresent`, `promptSources` a non-empty duplicate-free subsequence of the tier order) |
-| `context-blocks.ts` | The bounded excerpt renderer: untrusted delimiters, defusing, the per-source budget, and the roll-up line |
-| `evidence.ts` | Normalized, redacted evidence record |
-| `ids.ts` | Correlation identifier and RFC 3339 clock helpers (fail closed when the secure-context UUID source is missing) |
-| `ledger.ts` / `ledger-repair.ts` | Redacted `host.storage` ledger, phases, gap analysis, bounded-write repair |
-| `session.ts` / `host-verify.ts` | `startSession()` framing (attachment id = the run's correlation id, multi-reference bounded excerpt) + host-owned project/worktree/session read-back |
-| `lifecycle.ts` | Lifecycle experiment plan and mount bookkeeping |
-| `panel-state.ts` / `panel-ui.ts` | Shared runtime state; rendering with `@openchamber/sdk/ui` |
-| `style.ts` | The shared visual vocabulary: block surfaces, definition rows, cells, cards, and the lossless label/value split — structure only, never copy (2026-09-30 redesign) |
-| `panel-actions.ts` | The durable ledger write: append, guarded persist, repair-on-refusal (the poll loop, card diagnostic, and spike dispatch path were deleted 2026-09-30) |
-| `project-picker.ts` / `project-actions.ts` | Pure picker state; `listProjects()` + stored selection |
-| `app.ts` | Wiring: mount, subscribe, teardown |
-| `tabs.ts` | The six-tab shell: strip, body registry, first-activation mount, tab↔body association, one dispose path |
-| `tab-bodies.ts` | The six tab bodies in FR-010's order: what each container mounts on first activation |
-| `dispatch-page.ts` | The Dispatches list's paging state: cursor stack, page size, filters, and the reset rule |
-| `redaction.ts` / `json.ts` | Secret-shape detection; typed bridge to the host's `JsonValue` |
-| `service-calls.ts` | Shared `host.serviceRequest()` GET/PUT/POST/DELETE wrappers (including `servicePutConfig`, the configuration write) + the run-scoped paths (reserve, result, abandon, blocked, retry, requeue, resolve, verification, audit read) |
-| `service-envelope.ts` | The one place an answer is classified: status → problem/code/message/issues, with the resource each refusal names (006 FR-043) |
-| `bindings-mode.ts` | Bindings-authoritative mode: first enabled binding is dispatch context |
-| `bindings-body.ts` | Mounts and disposes the Bindings tab body: the list block with its toolbar, and the editor block that opens on a row click or **New binding** and states the loaded binding's state (2026-10-01 review) |
-| `bindings-rows.ts` | The Bindings tab's rows: state, account, project, the prompt's presence-and-length, the allow-list's state-aware policy clause (a count, or the derived absent-policy warning — 005 FR-091, FR-092, NFR-114), and the scan line |
-| `bindings*.ts` / `dispatches*.ts` | The Bindings tab (binding rows, the editor, the add form) plus the Dispatches list's rows, paging, and controls |
-| `bindings-grant.ts` | The whole-file `PUT /v1/bindings` write: prompt-key stripping (004 FR-014), the **allow-list stated on every row** with the opposite default — omission means *unset*, so a cleared field takes the binding back to open (002 FR-047, contract §2) — the "nothing changed" refusal note, and the relay arming that follows a confirmed list |
-| `bindings-actors.ts` | The binding editor's **actor allow-list** field (005 FR-090 – FR-092, FR-095, FR-096): one free-text field, guidance stating all three of 002 FR-047's states (an empty list is *refused*, not "nobody"; disabling the binding stops every trigger), the row's **state-aware** policy clause — FR-092's closed eight-row table over `state` × list × trigger switches — with FR-096's derivation of who may trigger from the switches that are actually on, the derived unset placeholder, and the field-level refusal slot. **The only element that ever holds a permitted login** (005 FR-091, NFR-113). The policy copy is a **function, never a constant**: a constant cannot know whether the binding it describes can trigger anything (005 NFR-114) |
-| `bindings-draft.ts` | The Bindings tab's draft: `PreparedBinding`, `DraftEditTarget`, the refusal notes, and `readDraft` — what the form holds, read into the row the grant writes; the stored allow-list travels through an edit so changing another field cannot open a restricted binding |
-| `bindings-state.ts` | The Bindings tab's working state and its empty state (moved out of `panel-state.ts` for the file-length gate; `BindingsStatus` and `BindingsTabState` stay importable from there) |
-| `bindings-service.ts` / `accounts-service.ts` | The bindings DTO (`PanelBinding` incl. `allowedUsers`, refused when it is not a list of logins) with the per-binding status rows; the accounts DTO and its fail-closed reader (moved out of `bindings-service.ts` for the file-length gate, still importable from there) |
-| `bindings-prompt.ts` | The binding editor's starting-prompt field — the binding tier's one rendering (005 FR-051 as amended: one rendering per tier value), carrying FR-063's five-fact guidance beside it and FR-064's honest `not set` in the value slot (004 FR-089); its row summary shows presence and length only, never the text |
-| `bindings-editor.ts` | The editor's derived field views: the mention token in force and its override mark (005 FR-057, no store in this build), the bound-account scope for edit vs add, and the worktree option declaration |
-| `dispatches-controls.ts` | Paging, filter, and row-detail controls: range line, active-filter line, Previous/Next, page size, the source-reference reveal, and the correlation-id copy |
-| `dispatches-service.ts` / `dispatches-rows.ts` | Run DTO parsed fail-closed across the eight dispatch states; each state's label, tone, and retry validity |
-| `dispatches-detail.ts` | The run row's structured members — source references (with their actor and basis), the session pointer, the read-back — their fail-closed readers, and the source-reference reveal's own lines (each reference naming **its own** actor, and its basis where the attribution's provenance needs one — 005 FR-094 as re-cut at v1.13.0) |
-| `run-actor.ts` | The two closed actor vocabularies a run row adds: `actorAttribution` (`direct` \| `subject-author`) and the value-free `actorPolicy` shape, both absentable on read and validated when present; the stricter reader Status's required member uses; and `actorPhrase` — the **one** rendering of an actor and its basis (005 FR-094 as re-cut at v1.13.0: a `direct` row renders **no** basis clause at all, because there is nothing to qualify, and a legacy `subject-author` row renders `SUBJECT_AUTHOR_BASIS`, which states the **rule in force when the row was written** and asserts nothing about what GitHub records — it does) |
-| `run-state.ts` | The eight-state dispatch vocabulary, its `blocked:<reason>` family, and the narrowers that refuse an unknown word |
-| `relay.ts` | Relay tick: claim → handled key → guards → attempt; one handoff per `correlationId#attempt` per mount |
-| `relay-gates.ts` / `relay-attempt.ts` | Binding/project guards, the `blocked` report, and the reserve step; then compose → the budget floor (a first message over `CONTEXT_MAX_CHARS` refused before `host.startSession()` is called — no session started, 004 FR-085) → host call → record → report → acknowledge → read-back. The actor-gate block report's **guidance branches on the refusal's value-free `referenceWindow` word**, never on the message's prose: on a `truncated` run no allow-list edit can ever clear it, so advising one is advising an operator to do something useless (003 T-038) |
-| `dispatch-record.ts` | `mecha-turk:dispatches`: the durable attempt record, written between the host call and its report and acknowledged on its own 2xx |
-| `claim-service.ts` | Claim and run-history body parsers (strict: an unknown state refuses the body) |
-| `reconcile.ts` | Mount-time re-report of every unacknowledged attempt, before the first claim (bounded, warns visibly) |
-| `prerequisites.ts` / `prerequisite-records.ts` | The five first-run prerequisites: the mounted section (block, cards, state chips, FR-073 notice) and the pure derivation that answers each one `met` / `not-met` / `not-checkable` with its detail and remediation line |
-| `status-document.ts` / `status-lines.ts` / `status-tab.ts` | The `GET /v1/status` document parsed fail closed and the read state that holds it; the Status tab's operator-facing copy as pure functions; and the tab's mount, repaint, and single read |
-| `settings-rows.ts` | The Settings tab's row builder: one row per projected descriptor plus one per undocumented member — name, unit-or-*none*, bounds-or-format, value, and class words, every one of them from the wire (005's bounds stand-in retired by 006 T-018); the global prompt tier rides that same list as the twelfth field, `startingPrompt` — its `format` guidance rendered as text and FR-064's *not set* in the value slot (004 T-030; FR-064, FR-089) |
-| `settings-schema.ts` | Fail-closed reader for `GET /v1/config`'s envelope: the closed descriptor union, plus the `unreadable` and `undisplayed` flags (006 T-017; FR-021, FR-027, FR-028) |
-| `settings-confirm.ts` | The destructive-confirmation copy builder, pure: the retention arm's what/when/survivors block, the restore arm's current → default list, and the raise-deletes-nothing and irreversibility lines (006 T-022; FR-016, FR-051–FR-054) |
-| `settings-edit.ts` | The Settings draft/save state machine, pure: baseline ∪ projection defaults ∪ edits, the no-baseline and busy gates, and the pending markers only a read retires (006 T-019; FR-038, FR-041, FR-046) |
-| `settings-state.ts` | The Settings read state in FR-019's three shapes, plus the tab's copy — the banner that states last-writer-wins, the per-source sentence, the save-state words, and the four write-failure causes with their classifier and read-side notices (006 T-020, T-023) |
-| `settings-actions.ts` | The Settings effects: the read, the whole-document write (arm first when it deletes), discard, cancel, and staged defaults — each taking the repaint it triggers so the two modules never import each other (006 T-019, T-020, T-022) |
-| `settings-mount.ts` | The Settings regions outside the rows: the read row, the failure notice, the source/rows region, the save bar with its armed-confirmation box and its two hidden-until-needed boxes, and the view's single dispose path (006 T-020, T-022; 005 FR-017) |
-| `settings-tab.ts` | The Settings body: the one `GET /v1/config` read, the save flow, the failure and audit-warning rendering, and the projection-driven rows (005 FR-078, FR-039; 006 FR-010–FR-015, T-018, T-020, T-023, T-024) |
-| `about-tab.ts` | The About body: name, the one-line description, the single version read from the service health answer (no panel-side literal), the repository link through `host.openUrl`, and the Diagnostics disclosure (005 FR-074–FR-077; 2026-10-01 scrub) |
-| `about-diagnostics.ts` | The read-only Diagnostics record that disclosure reveals: schema versions, the phase line, and the ledger tail as `#seq · kind · time` text (005 FR-075, FR-076) |
-| `audit-view.ts` | One run's audit history under its correlation id, rendered as text (never markup) |
-| `agent-verify.ts` | Post-dispatch `openSession()` agent read-back, reported to the service (warn-only) |
-| `agent-verify-copy.ts` | The read-back's words: the runs-area banner and the service's `note`, pure functions of one outcome |
-| `handoff*.ts` / `account*.ts` | One-shot token handoff (paste → connect; no consent step since 002 v1.9.0), the always-visible Accounts disclaimer (`accounts-disclaimer.ts`), silent adoption, and the credential-free account mirror |
-| `accounts-rows.ts` / `accounts-tab.ts` / `accounts-detail.ts` | The Accounts tab: every FR-062 row word (lifecycle, connection, scope matrix, remediation, binding count) as pure functions; the body's mounts, repaint, and single read; and the selected row's controls (two profile fields, the one shared `Save changes`, the two-step rotate/remove pair with their labels) |
-| `accounts-actions.ts` | The tab's writes: two-step removal with the `force=1` cascade the arm stated, the rotation arm the handoff routes on, and the one account profile write (`PUT /v1/accounts/:numericUserId`, **both members in one body**, absent = unchanged) behind both member fields — display name and account-tier starting prompt — whose refusal is split back into the per-member slots by field name and never applies a value the service did not confirm |
-| `storage-write.ts` | Guarded storage writes |
+Each module's own header comment says what it is for; read that before
+changing it. The shape:
 
-## Module map (service, `service/`)
-
-| Module | Responsibility |
-| --- | --- |
-| `main.ts` / `server.ts` / `http.ts` | Entry, loopback HTTP server, routing, body/size caps |
-| `auth.ts` | Extension grant + the bearer gate on every call |
-| `accounts/` | Durable account model, credential files, startup reconcile |
-| `account-prompt-audit.ts` | The account tier's observer lane: one `account.prompt-updated` row per change — profile write or hand edit — on a per-store chain with a trail-seeded baseline; never the prompt's text, and a `displayName`-only change is not a tier change (004 FR-088) |
-| `bindings.ts` / `bindings-read.ts` | Whole-file bindings store (validated, capped) + the read path: quarantine-reason capture and the prompt-change observation funnel |
-| `bindings-allow-list.ts` | The `allowedUsers` field's rule set and its three refusals, plus `isActorAllowed` — the **one** membership comparison in the product (002 FR-047, NFR-113; plan D9) |
-| `prompt.ts` / `prompt-audit.ts` | The starting-prompt domain (four refusals, `mtp-` fingerprint, run snapshot) — including the three-tier resolver and stack vocabulary (`TierPrompt`, `promptTierOf`, `composePromptBody`, `resolvePromptSnapshot`, the stack bound, the stored-snapshot reader) — and the per-store chain that writes exactly one `binding.prompt-updated` row per change |
-| `poll/` | Per-binding scan loop, trigger detection over the rate budget, durable event queue (deterministic ids, claim, terminal dispatch) |
-| `poll/attribution.ts` | Attribution, both sides: `isBotAuthor` / `isAttributableAuthor` / the one author-login bound at detection, and the stored row's `actorLogin` + `actorAttribution` vocabulary and readers (002 FR-043 – FR-045, re-cut at v1.12.0: `direct` is the only basis **written**, `subject-author` stays **readable** and unproduced, since rows the shipped build wrote carry it) |
-| `poll/poller-transport.ts` | The poller's shared transport: one page request, classified (002 FR-007, FR-022; 006 FR-058/FR-059). Split out of `poller-github.ts` so that module stays an endpoint catalogue while this one owns the request path, the retry ladder, the wait reports, and the four failure classes every call answers with (002 FR-049 added the fourth caller) |
-| `poll/poller-github.ts` | The poller's **endpoint catalogue** — issues, issue comments, pulls, and the per-item `issues/{number}/events` read — what query each sends, and what each returns |
-| `poll/poller-events.ts` | The **per-item actor read** (002 FR-049 – FR-052): the normalized `issue-event` row (with **no `actor` member** — `assigner`/`review_requester` are the actors), the closed subject-vs-actor correlation, maximum-`created_at` selection, the client-side window, the bounded page walk, and `resolveCandidateActor`'s three no-event answers plus its one failure escape |
-| `poll/trigger-scan.ts` | What every trigger branch of one binding's scan is handed (`TriggerScanInput`), what it answers (`TriggerEvents`), and the one excerpt bound they share — the contract the three sibling trigger modules take, kept here so none imports another |
-| `poll/triggers.ts` | The scan's coordinator: lists the feeds the binding's switches ask for, runs the three branches in order, and owns the two mention detectors (comment and issue body) — which need no feed of their own |
-| `poll/triggers-assignment.ts` | The assignment trigger: the list feed's candidate gate, then the item's own events read for the actor (002 FR-049 – FR-052) |
-| `poll/triggers-review.ts` | The review-request trigger: the pulls list's subject gate, then the same per-item read for `review_requester` (002 FR-050) |
-| `poll/run-key.ts` | Run key, correlation id, dispatch token, and token-fingerprint derivation |
-| `poll/runs*.ts` | `runs.json` document: fail-closed parser, join/create, one-shot adoption of pre-003 rows, lifecycle audit rows and the durable audit outbox |
-| `poll/claim*.ts` | Lease-issuing claim: eligibility, projection, and the answer's run/byte bounds |
-| `poll/sweep.ts` / `poll/sweep-loop.ts` | Lease-expiry and result-deadline sweep: boot pass before the listener binds, unref'd timer, requeue budget |
-| `poll/dispatch*.ts` | Reserve / result / abandon / block family: single-use tokens, the staleness matrix, refusal rows |
-| `poll/dispatch-actor-gate.ts` | **The actor allow-list gate** — the one membership comparison in the product (003 FR-076). Reads the binding's live `allowedUsers` inside the reserve's chain task, after `judgeReserve` and before any token is derived, and refuses `actor-not-allowed` with the denied logins and their attribution basis. Detection decides nothing; the panel pre-checks nothing. A **truncated** reference list is refused and **said out loud twice**: as the message's clause, and as the value-free `referenceWindow` word on the envelope — the panel's only structured route to the fact, since it cannot see this chain task's read |
-| `poll/run-chain.ts` / `poll/run-operate.ts` / `poll/run-verify.ts` / `poll/run-refusal.ts` | The shared run write chain, retry/requeue/resolve, the verification report, the refusal vocabulary |
-| `poll/run-corroborate.ts` / `poll/row-text.ts` | Which blocked causes the service can re-check itself (`binding-missing`, `actor-not-allowed`) and how; the 500-character bound and truncation marker every lifecycle row's free text passes through |
-| `poll/run-history-project.ts` | The capped, credential-free run-history projection |
-| `poll/backoff.ts` | The poll-*request* ladder — pure delay arithmetic plus the injected-sleep driver; requests/attempts, never 003's requeue (006 FR-058) |
-| `poll/window.ts` | The scan window: `lastScanAt − overlapMs`, the replay case, and the closure of 002 FR-019's conformance gap (006 FR-059(a)); plus `stampInWindow`, the **one** comparison every detector matches its own freshness stamp against — a listing's `updated_at` or an `issue-event`'s `created_at` (002 FR-051) |
-| `poll/cycle-config.ts` | The cycle's one configuration read, with the global-tier prompt observation in the same chain task — the snapshot the diff judges is the snapshot the cycle runs on; a document that cannot be read degrades to the documented defaults with one warn (006 FR-055; 004 FR-088) |
-| `poll/excerpt-trim.ts` | The excerpt retention pass: text-only clearing on terminal rows past `excerptRetentionDays`, the `excerptTrimmedAt` marker, and one `audit.trimmed` row after the rewrite (006 FR-057) |
-| `routes/` | `/v1/status`, `/health`, `/v1/bindings`, `/v1/accounts`, `/v1/events*`, credential verify. `PUT /v1/bindings` writes inside `inQueueChain`, which is what serializes an operator's allow-list edit against the authorization gate's read-and-mint (003 FR-076, constitution II) — never move it onto a different chain |
-| `routes/account-profile.ts` | The account profile write `PUT /v1/accounts/:numericUserId`: the closed two-member body (`displayName`, `startingPrompt` — absent = unchanged, neither = no-op `422`, any other key refused by name with no echo), all-or-nothing, with an account-tier prompt change appended through the observer chain (004 FR-082, FR-088; 005 FR-066) |
-| `routes/dispatch.ts` / `routes/run-ops.ts` | Reserve, result, abandon, blocked; retry, requeue, resolve, verification |
-| `routes/audit.ts` | `GET /v1/audit`, filtered by correlation identifier |
-| `routes/run-scope.ts` / `routes/run-fields.ts` / `routes/run-answer.ts` | Shared run-scoped path/body readers and the `200` / refusal envelopes |
-| `audit.ts` / `log.ts` | `audit.ndjson` rows + structured, secret-free logs |
-| `audit-trim.ts` | The audit retention pass: FR-056's protected set computed by rule, oldest-first removal under the day window and the entry cap, survivors plus their `audit.trimmed` row in one atomic rewrite |
-| `config-audit.ts` | The `config.changed` row: `configChanges` (which doubles as the no-op detector), the `applied` shape with `from`/`to`/`takesEffect`, and the value-free `refused` shape (006 FR-070–FR-072) |
-| `config-prompt-observe.ts` | The global tier's observer: one `config.changed` row (actor `service`) for a `startingPrompt` change the cycle sees in the stored document, on a trail-seeded baseline and serialised with the `PUT` path's own row so a change is never recorded twice — and never the text (004 FR-088; 006 FR-070, FR-071) |
-| `retention.ts` | Both retention passes wired at their two boundaries — store open and the cycle boundary — each guarded so one failure still runs the other (006 FR-055, FR-057, FR-047) |
-| `store/` | 0700/0600 store, JSON/NDJSON IO, quarantine-and-repair reads |
-| `config.ts` / `env.ts` / `throttle.ts` | Operator-tunable polling/retry/retention, env, rate budgets |
-| `config-schema.ts` | That declaration projected onto the wire: the exhaustive `TAKE_EFFECT` table, the closed `FieldDescriptor` union, `configSchema()` (006 FR-020–FR-022) |
-| `config-prompt.ts` | The global tier's rule at the configuration save boundary — a call into the one `validateStartingPrompt` (one validator, three call sites), with `PUT /v1/config`'s own voice: an absent or non-string member is a refusal, not *unset*, and no issue quotes the submission (004 FR-081, FR-083; 006 FR-041) |
+- `src/` — panel modules, one responsibility each. `app.ts` wires mount,
+  subscribe and teardown; `tabs.ts` and `tab-bodies.ts` own the six-tab
+  shell; `relay*.ts` claim a run and hand off one `host.startSession()`;
+  `*-service.ts` files are the fail-closed readers of a service answer, and
+  `*-rows.ts` / `*-detail.ts` files are pure rendering.
+- `service/` — the stdlib-only local service. `server.ts` / `http.ts` /
+  `routes/` are the loopback HTTP surface, `poll/` is the scan loop, event
+  queue and run lifecycle, `store/` is the 0700/0600 durable store, and
+  `accounts/` holds the credential files.
+- `specs/` — dated records of the phase that produced them.
+  `specs/002-agent-event-extension/` is the production spec and the anchor
+  for invariants 4 and 10; later directories amend it. Each spec's
+  `changelog.md` says why a requirement changed.
 
 ## Spec workflow
 

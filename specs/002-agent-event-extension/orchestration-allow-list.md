@@ -1,7 +1,7 @@
 # Orchestration State: issue #9 — user allow-list on bindings
 
 **Durable state file — a fresh coordinator must be able to resume from this file alone.**
-Namespaced beside `orchestration.md` (which records the delivered 002 MVP and is NOT superseded).
+Part of the delivered 002 MVP; NOT superseded.
 
 > ## ⚠️ CORRECTION NOTICE (2026-10-03, spec 002 v1.12.0) — read before resuming
 >

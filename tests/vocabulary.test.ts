@@ -169,81 +169,6 @@ function unresolvedImports(modules: readonly ScannedModule[]): readonly BrokenIm
     return broken;
 }
 
-/**
- * Read `AGENTS.md`'s panel module map (the section between its two headings).
- *
- * @returns The section's text, or an empty string when the heading is gone.
- */
-function panelModuleMapSection(): string {
-    const text = readFileSync(resolve(ROOT, 'AGENTS.md'), UTF8);
-    const start = text.indexOf('## Module map (panel');
-    if (start < 0) {
-        return '';
-    }
-
-    const rest = text.slice(start);
-    const end = rest.indexOf('\n## ', 1);
-
-    return end < 0 ? rest : rest.slice(0, end);
-}
-
-/**
- * Read every backticked entry of the panel module map's first column.
- *
- * @returns One glob-ish pattern per entry (`handoff*.ts` stays a wildcard).
- */
-function panelModuleMapEntries(): readonly string[] {
-    const entries: string[] = [];
-    for (const line of panelModuleMapSection().split('\n')) {
-        if (!line.startsWith('|')) {
-            continue;
-        }
-
-        const firstCell = line.split('|')[1] ?? '';
-        for (const match of firstCell.matchAll(/`([^`]+)`/g)) {
-            const entry = match[1];
-            if (entry !== undefined) {
-                entries.push(entry);
-            }
-        }
-    }
-
-    return entries;
-}
-
-/**
- * Match a module-map entry against a file name (`*` is the only wildcard).
- *
- * @param entry - The map entry, e.g. `handoff*.ts`.
- * @param name - The bare file name being looked for.
- * @returns `true` when the entry covers the file.
- */
-function mapEntryCovers(entry: string, name: string): boolean {
-    const parts = entry.split('*');
-    if (parts.length === 1) {
-        return entry === name;
-    }
-
-    const first = parts[0] ?? '';
-    if (!name.startsWith(first)) {
-        return false;
-    }
-
-    const last = parts[parts.length - 1] ?? '';
-    let cursor = first.length;
-    for (let index = 1; index < parts.length - 1; index += 1) {
-        const part = parts[index] ?? '';
-        const at = name.indexOf(part, cursor);
-        if (at < 0) {
-            return false;
-        }
-
-        cursor = at + part.length;
-    }
-
-    return name.endsWith(last) && name.length - last.length >= cursor;
-}
-
 describe('L2 module vocabulary: the renamed files are the only ones that exist (005 T-003)', () => {
     it('reads a real panel source tree rather than an empty directory', () => {
         {
@@ -316,26 +241,6 @@ describe('the L4 domain vocabulary FR-022 retains is still present (005 T-003)',
             expect(modules.some((module) => module.path.startsWith('src/'))).toBe(true);
             expect(modules.some((module) => module.path.startsWith('service/'))).toBe(true);
             expect(modules.some((module) => module.path.startsWith('tests/'))).toBe(true);
-        }
-    });
-});
-
-describe("AGENTS.md's panel module map lists every file src/ contains (005 T-003)", () => {
-    it('reads the map section rather than an empty one', () => {
-        {
-            expect(panelModuleMapEntries().length).toBeGreaterThan(20);
-        }
-        {
-            const entries = panelModuleMapEntries();
-            const missing = panelModules().filter((name) => !entries.some((entry) => mapEntryCovers(entry, name)));
-
-            expect(missing).toEqual([]);
-        }
-        {
-            expect(mapEntryCovers('handoff*.ts', 'handoff-status.ts')).toBe(true);
-            expect(mapEntryCovers('handoff*.ts', 'session.ts')).toBe(false);
-            expect(mapEntryCovers('json.ts', 'json.ts')).toBe(true);
-            expect(mapEntryCovers('json.ts', 'jsonx.ts')).toBe(false);
         }
     });
 });
