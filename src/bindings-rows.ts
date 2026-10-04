@@ -77,7 +77,6 @@ export interface BindingView {
 /**
  * Narrow one stored binding to what a row may show.
  *
- * @param binding - The binding as the service projected it.
  * @returns The view, with the prompt reduced to its length and the allow-list
  *   reduced to one clause.
  */
@@ -102,7 +101,6 @@ function toView(binding: PanelBinding): BindingView {
  * to disagree — so the summary says only *whether* one exists and *how long*
  * it is, counted the way 004 caps it (code points, not UTF-16 units).
  *
- * @param binding - The binding being rendered.
  * @returns `prompt set · N chars`, or `prompt not set`.
  */
 export function promptSummary(binding: BindingView): string {
@@ -116,8 +114,6 @@ export function promptSummary(binding: BindingView): string {
 /**
  * Find the status row for one binding.
  *
- * @param bindings - Bindings state.
- * @param bindingId - Row key.
  * @returns The row, or `null` before the first poll.
  */
 function statusRowOf(bindings: BindingsTabState, bindingId: string): StatusRowView | null {
@@ -162,7 +158,6 @@ export function elapsedSince(iso: string): string {
  * a binding no scan has ever reached reads *not scanned yet* rather than a
  * bare `never`, which reads like a verdict instead of an absence.
  *
- * @param row - The status row.
  * @returns `scan: <when> · <reason|ok>`, or `not scanned yet` before the
  *   first completed scan with no recorded reason.
  */
@@ -188,8 +183,6 @@ function scanPhrase(row: StatusRowView): string {
  * never loaded is not evidence of a removal, and saying "account removed"
  * because a read failed would be exactly the invented value FR-003 forbids.
  *
- * @param bindings - Bindings state.
- * @param binding - The binding being judged.
  * @returns The reason, or `null` when the binding is enabled or the panel
  *   cannot tell.
  */
@@ -212,8 +205,6 @@ export function disabledReason(bindings: BindingsTabState, binding: BindingView)
  * *is it on*, and *if not, why* — read as one sentence instead of as
  * punctuation (FR-083: state carried by text).
  *
- * @param state - The binding's own state.
- * @param reason - The reason {@link disabledReason} proved, if any.
  * @returns `null` while the binding is enabled, else the words to render.
  */
 function statePhrase(state: BindingView['state'], reason: string | null): string | null {
@@ -233,8 +224,6 @@ function statePhrase(state: BindingView['state'], reason: string | null): string
  * a completed accounts read for the same reason {@link disabledReason} is:
  * a list the panel never loaded is not evidence that an account is unusable.
  *
- * @param bindings - Bindings state.
- * @param binding - The binding being judged.
  * @returns The consequence phrase, or `null` when the account can poll or the
  *   panel cannot tell.
  */
@@ -264,7 +253,6 @@ export function accountConsequencePhrase(
 /**
  * Compose one binding row.
  *
- * @param bindings - Bindings state.
  * @param binding - The binding to render.
  * @returns The list row.
  */
@@ -297,7 +285,6 @@ export function bindingRow(bindings: BindingsTabState, binding: BindingView): Li
 /**
  * Build the bindings list rows from state.
  *
- * @param bindings - The Bindings tab's state.
  * @returns The list rows, in stored order.
  */
 export function bindingRows(bindings: BindingsTabState): ListItem[] {
@@ -313,7 +300,6 @@ export function bindingRows(bindings: BindingsTabState): ListItem[] {
  * reads `not scanned yet` with a pending count of zero — never a blank, and
  * never an invented "it is fine".
  *
- * @param bindings - The Bindings tab's state.
  * @returns The detail line, or `null` when no binding is selected.
  */
 export function selectedBindingDetail(bindings: BindingsTabState): string | null {

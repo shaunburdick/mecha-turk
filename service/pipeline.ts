@@ -111,8 +111,6 @@ type PatternMatch = Readonly<Record<string, string>> | null;
  * the caller validates what it captures rather than decoding it here, so no
  * `%2e%2e` can be reinterpreted after the fact.
  *
- * @param routePath - Route path, exact or `:name`-parameterised.
- * @param pathname - Request pathname.
  * @returns The captured parameters, or `null` when the path does not match.
  */
 function matchPathPattern(routePath: string, pathname: string): PatternMatch {
@@ -123,8 +121,7 @@ function matchPathPattern(routePath: string, pathname: string): PatternMatch {
     }
 
     const params: Record<string, string> = {};
-    for (let index = 0; index < pattern.length; index += 1) {
-        const expected = pattern[index];
+    for (const [index, expected] of pattern.entries()) {
         const actual = segments[index];
         if (expected === undefined || actual === undefined) {
             return null;
@@ -157,7 +154,6 @@ function isPatternPath(routePath: string): boolean {
  * truncated. The connection is closed when the pipeline answered without
  * reading the body.
  *
- * @param call - The exchange to answer.
  * @param response - Status, body, and optional extra headers.
  */
 function writeResponse(call: ServiceCall, response: HttpResponse): void {
@@ -179,7 +175,8 @@ function writeResponse(call: ServiceCall, response: HttpResponse): void {
         [CONTENT_TYPE_HEADER]: JSON_CONTENT_TYPE,
         [CONTENT_LENGTH_HEADER]: String(Buffer.byteLength(text)),
     };
-    for (const [name, value] of Object.entries(response.headers ?? {})) {
+    const extra = response.headers ?? {};
+    for (const [name, value] of Object.entries(extra)) {
         headers[name] = value;
     }
 
@@ -198,8 +195,6 @@ function writeResponse(call: ServiceCall, response: HttpResponse): void {
  * prerequisite; anything else becomes a `500 internal` with a correlation id
  * that is logged here and returned to the caller (contract §4).
  *
- * @param error - The thrown value.
- * @param call - The exchange being answered, for logging.
  * @returns The response to write.
  */
 function describeFailure(error: unknown, call: ServiceCall): HttpResponse {
@@ -220,8 +215,6 @@ function describeFailure(error: unknown, call: ServiceCall): HttpResponse {
 /**
  * Collect the parameterised routes whose pattern captures this pathname.
  *
- * @param routes - Full route table.
- * @param pathname - Request pathname.
  * @returns The pattern routes that match, in declaration order.
  */
 function patternRoutes(routes: readonly Route[], pathname: string): readonly Route[] {
@@ -242,8 +235,6 @@ function patternRoutes(routes: readonly Route[], pathname: string): readonly Rou
  * list of a `405` covers every method declared for the target, by either
  * route kind (contract §4).
  *
- * @param call - The exchange to match.
- * @param url - The parsed, loopback-confined target.
  * @returns The matched route and its captures, or why the target was refused.
  */
 function matchRoute(call: ServiceCall, url: URL): RouteMatch {
@@ -268,7 +259,6 @@ function matchRoute(call: ServiceCall, url: URL): RouteMatch {
 /**
  * Build the response for a path that exists but was refused.
  *
- * @param match - The non-matching result from {@link matchRoute}.
  * @returns A `404` or `405` response (the latter advertising `Allow`).
  */
 function refusalResponse(match: RouteRefusal): HttpResponse {
@@ -289,7 +279,6 @@ function refusalResponse(match: RouteRefusal): HttpResponse {
 /**
  * Read the request body, answering `413`/`400` when it cannot be used.
  *
- * @param call - The exchange whose body should be read.
  * @returns The parsed value (`undefined` when the request carried no body),
  *   or `null` when a refusal has already been written.
  */
@@ -323,7 +312,6 @@ async function readBody(call: ServiceCall): Promise<unknown | null> {
 /**
  * Authenticate, confine, and match the request.
  *
- * @param call - The exchange to prepare.
  * @returns The parsed target and route, or `null` when a refusal (401, 400,
  *   404, or 405) has already been written.
  */
@@ -360,8 +348,6 @@ function matchRequest(call: ServiceCall): MatchedRequest | null {
 
 /**
  * Run one request from socket arrival to response.
- *
- * @param call - The exchange to serve.
  */
 async function runPipeline(call: ServiceCall): Promise<void> {
     const matched = matchRequest(call);
@@ -398,8 +384,6 @@ async function runPipeline(call: ServiceCall): Promise<void> {
  * counter is decremented exactly once and the access line is written exactly
  * once (only the path is logged — never the query string, which is where a
  * credential would travel if a client ever put one there).
- *
- * @param call - The exchange to observe.
  */
 function attachCompletion(call: ServiceCall): void {
     const startedAt = Date.now();
@@ -427,7 +411,6 @@ function attachCompletion(call: ServiceCall): void {
 /**
  * Build the `requestListener` the HTTP server is created with.
  *
- * @param deps - Fixed pipeline dependencies from server start.
  * @returns A listener that serves one exchange per request event.
  */
 export function createRequestHandler(deps: PipelineDeps): RequestListener {

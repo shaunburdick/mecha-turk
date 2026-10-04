@@ -4128,8 +4128,7 @@ function matchPathPattern(routePath, pathname) {
     return null;
   }
   const params = {};
-  for (let index = 0;index < pattern.length; index += 1) {
-    const expected = pattern[index];
+  for (const [index, expected] of pattern.entries()) {
     const actual = segments[index];
     if (expected === undefined || actual === undefined) {
       return null;
@@ -4163,7 +4162,8 @@ function writeResponse(call, response) {
     [CONTENT_TYPE_HEADER]: JSON_CONTENT_TYPE,
     [CONTENT_LENGTH_HEADER]: String(Buffer.byteLength(text))
   };
-  for (const [name, value] of Object.entries(response.headers ?? {})) {
+  const extra = response.headers ?? {};
+  for (const [name, value] of Object.entries(extra)) {
     headers[name] = value;
   }
   if (!call.bodyRead) {
