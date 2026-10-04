@@ -31,7 +31,6 @@ import type { RunRow } from './dispatches-service.ts';
 /**
  * Whether the mount still runs; a function call the analyzer never narrows.
  *
- * @param rt - Panel runtime.
  * @returns `true` while the panel is alive.
  */
 function stillMounted(rt: PanelRuntime): boolean {
@@ -47,8 +46,6 @@ function stillMounted(rt: PanelRuntime): boolean {
  * the answer sits in the set, and drops a selection whose row is gone. The
  * page position itself is the caller's to keep or roll back: this function
  * only ever annotates it with what the answer actually said.
- *
- * @param rt - Panel runtime.
  */
 export async function loadDispatches(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;
@@ -107,9 +104,6 @@ export async function loadDispatches(rt: PanelRuntime): Promise<void> {
  * Unknown ids are ignored rather than stored: the list only offers ids that
  * came from the service, and a stale selection must not silently target some
  * later row.
- *
- * @param rt - Panel runtime.
- * @param id - Row id the list reported.
  */
 export function selectDispatch(rt: PanelRuntime, id: string): void {
     const { dispatches: runs } = rt.state;
@@ -137,8 +131,6 @@ export function selectDispatch(rt: PanelRuntime, id: string): void {
  * A host refusal lands on the runs note like every other action's failure —
  * an explicit outcome rather than a silently swallowed one — and the row
  * keeps its URL visible in the issue itself either way.
- *
- * @param rt - Panel runtime.
  */
 export async function openDispatch(rt: PanelRuntime): Promise<void> {
     const row = selectedRun(rt.state.dispatches);
@@ -175,7 +167,6 @@ interface CauseMembers {
 /**
  * The operator's own reference to one run: `#<issue number>`.
  *
- * @param row - Run to name.
  * @returns The reference every confirmation and outcome note leads with.
  */
 function issueRef(row: RunRow): string {
@@ -185,7 +176,6 @@ function issueRef(row: RunRow): string {
 /**
  * The coordinates FR-027 requires both confirmations to show.
  *
- * @param row - The run being resolved.
  * @returns `project …, worktree …, attachment …` — what the operator matches
  *   against OpenChamber's own session list.
  */
@@ -196,7 +186,6 @@ function guidanceFor(row: RunRow): string {
 /**
  * The return-to-waiting confirmation: what resets, and what is kept.
  *
- * @param row - The parked run.
  * @returns The copy the control shows before it acts.
  */
 function requeueConfirmCopy(row: RunRow): string {
@@ -208,7 +197,6 @@ function requeueConfirmCopy(row: RunRow): string {
  * A resolve confirmation: what the operator is asked to verify, and the
  * warning FR-027 requires before either answer.
  *
- * @param row - The `unconfirmed` run.
  * @param decision - Which of the two resolutions this confirmation leads to.
  * @returns The copy the control shows before it acts.
  */
@@ -230,7 +218,6 @@ function resolveConfirmCopy(row: RunRow, decision: ResolveDecision): string {
  * distinctly (contract §6) — so the panel reports it rather than paraphrasing
  * it into something the operator has to translate back into the run's state.
  *
- * @param result - The refused answer.
  * @returns The redacted note.
  */
 function verdictNote(result: Extract<ServiceErrorResult, { readonly ok: false }>): string {
@@ -250,8 +237,6 @@ function verdictNote(result: Extract<ServiceErrorResult, { readonly ok: false }>
  * host no longer resolves (the service cannot call host APIs), and any other
  * cause is the operator's assertion on this mount — which is what gets audited.
  *
- * @param rt - Panel runtime, for the one host call this can make.
- * @param row - The run being retried.
  * @returns The members to add to the retry body.
  */
 async function causeMembers(rt: PanelRuntime, row: RunRow): Promise<CauseMembers> {
@@ -284,7 +269,6 @@ async function causeMembers(rt: PanelRuntime, row: RunRow): Promise<CauseMembers
  * section's note and leaves the row alone — nothing is posted until the
  * operator clicks the same control again.
  *
- * @param input - Runtime, the control being armed, and its confirmation copy.
  * @returns `true` when the control was already armed and may act now.
  */
 function armControl(input: {
@@ -315,7 +299,7 @@ function armControl(input: {
  * what the service answers: the list is re-read after the call and the note is
  * written afterwards, so a refresh can never clobber the explanation.
  *
- * @param input - Runtime, path, body, and the copy for an accepted answer.
+ * @returns The outcome the tab renders once the answer is accepted.
  */
 async function postRunOperation(input: {
     /** Panel runtime. */
@@ -367,8 +351,6 @@ async function postRunOperation(input: {
  * refused locally with the same words the table gives it — and a blocked run
  * goes with the evidence {@link causeMembers} could gather, so the audit row
  * says what was actually checked rather than that something was.
- *
- * @param rt - Panel runtime.
  */
 export async function retryRun(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;
@@ -399,11 +381,7 @@ export async function retryRun(rt: PanelRuntime): Promise<void> {
     });
 }
 
-/**
- * Return the selected parked run to waiting, two clicks apart.
- *
- * @param rt - Panel runtime.
- */
+/** Return the selected parked run to waiting, two clicks apart. */
 export async function requeueRun(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;
     const row = selectedRun(runs);
@@ -438,7 +416,6 @@ export async function requeueRun(rt: PanelRuntime): Promise<void> {
  * of the fail-closed wedge, so they are reachable from that state and from
  * nowhere else, and the second click — never the first — is what posts.
  *
- * @param rt - Panel runtime.
  * @param decision - Which resolution the operator confirmed.
  */
 async function resolveRun(rt: PanelRuntime, decision: ResolveDecision): Promise<void> {
@@ -484,20 +461,12 @@ async function resolveRun(rt: PanelRuntime, decision: ResolveDecision): Promise<
     });
 }
 
-/**
- * Confirm FR-027's first resolution: the dispatch did create a session.
- *
- * @param rt - Panel runtime.
- */
+/** Confirm the first resolution: the dispatch did create a session. */
 export async function resolveSessionCreated(rt: PanelRuntime): Promise<void> {
     await resolveRun(rt, SESSION_CREATED);
 }
 
-/**
- * Confirm FR-027's second resolution: the dispatch created no session.
- *
- * @param rt - Panel runtime.
- */
+/** Confirm the second resolution: the dispatch created no session. */
 export async function resolveNoSession(rt: PanelRuntime): Promise<void> {
     await resolveRun(rt, 'no-session');
 }
@@ -505,7 +474,6 @@ export async function resolveNoSession(rt: PanelRuntime): Promise<void> {
 /**
  * Record the session id the operator types for the first resolution.
  *
- * @param rt - Panel runtime.
  * @param value - What the field holds now.
  */
 export function setSessionInput(rt: PanelRuntime, value: string): void {
@@ -523,8 +491,6 @@ export function setSessionInput(rt: PanelRuntime, value: string): void {
  * costs no budget. Selecting a different row closes it (see
  * {@link selectDispatch}), so the reveal can never show one dispatch's
  * references under another dispatch's selection.
- *
- * @param rt - Panel runtime.
  */
 export function toggleReferences(rt: PanelRuntime): void {
     const { dispatches: runs } = rt.state;
@@ -543,8 +509,6 @@ export function toggleReferences(rt: PanelRuntime): void {
  * selection says there is nothing to copy, and a clipboard the frame refuses
  * says so with the cause — an unavailable copy is always a reason, never a
  * silent nothing.
- *
- * @param rt - Panel runtime.
  */
 export async function copyCorrelationId(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;

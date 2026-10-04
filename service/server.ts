@@ -126,7 +126,6 @@ interface HandleParts {
 /**
  * Open the durable store, degrading instead of failing the process.
  *
- * @param options - Start options carrying the data directory and logger.
  * @returns The open store, or `null` when the directory is unusable (the
  *   reason is logged; store-backed routes then answer `503`).
  */
@@ -145,16 +144,13 @@ async function openStoreSafe(options: StartServiceOptions): Promise<ServiceStore
 }
 
 /**
- * Adopt the stored `logLevel` once the store is open (006 FR-033, D12).
+ * Adopt the stored `logLevel` once the store is open.
  *
  * The threshold moves *before* the listener binds, so boot-time lines after
  * this point — the sweep, the poll loop, every route — are judged at the
  * operator's configured level with no restart. A store that could not be
  * opened, or a configuration that could not be read, keeps the construction
  * level: a level change is never a reason to fail a start.
- *
- * @param store - Open store, or `null` when the directory was unusable.
- * @param log - Logger whose threshold is moved.
  */
 async function adoptStoredLogLevel(store: ServiceStore | null, log: ServiceLogger): Promise<void> {
     if (store === null) {
@@ -174,8 +170,6 @@ async function adoptStoredLogLevel(store: ServiceStore | null, log: ServiceLogge
 /**
  * Bind the listener to `127.0.0.1`.
  *
- * @param server - Server to start listening.
- * @param port - Port from the host environment (`0` = OS-assigned).
  * @returns Resolves once the listener is accepting connections.
  * @throws When the port cannot be bound (already taken, or not permitted).
  */
@@ -195,7 +189,6 @@ function listen(server: Server, port: number): Promise<void> {
 /**
  * Read the bound port from a listening server.
  *
- * @param server - Server that has finished listening.
  * @returns The TCP port number.
  * @throws {Error} When the server is listening on something other than TCP.
  */
@@ -208,24 +201,14 @@ function boundPort(server: Server): number {
     return address.port;
 }
 
-/**
- * Wait for a fixed interval.
- *
- * @param milliseconds - Delay before resolving.
- * @returns A promise that resolves after the delay.
- */
+/** Wait for a fixed interval. */
 function sleep(milliseconds: number): Promise<void> {
     return new Promise((resolve) => {
         setTimeout(resolve, milliseconds);
     });
 }
 
-/**
- * Wait until no request is in flight, or the deadline passes.
- *
- * @param state - Pipeline counter to watch.
- * @param timeoutMs - Maximum time to wait.
- */
+/** Wait until no request is in flight, or the deadline passes. */
 async function waitForDrain(state: PipelineState, timeoutMs: number): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     while (state.inFlight > 0 && Date.now() < deadline) {
@@ -236,8 +219,8 @@ async function waitForDrain(state: PipelineState, timeoutMs: number): Promise<vo
 /**
  * Await a promise but give up after a deadline.
  *
- * @param promise - Promise that may hang (the listener's close callback).
- * @param timeoutMs - Maximum time to wait for it.
+ * The hang this exists for is the listener's close callback, which never fires
+ * while a connection the client is holding open stays open.
  */
 async function withTimeout(promise: Promise<void>, timeoutMs: number): Promise<void> {
     let timer: NodeJS.Timeout | undefined;
@@ -274,8 +257,6 @@ interface ShutdownInput {
  * scheduler view is marked *stopping* before the loop is cancelled, so a status
  * document answered during the drain names the shutdown instead of guessing at
  * one of the other paused reasons.
- *
- * @param input - The listener, the drain counter, the poll loop, and the sweep.
  */
 async function performShutdown(input: ShutdownInput): Promise<void> {
     const { server, state, poll, sweep, polling } = input;
@@ -297,7 +278,6 @@ async function performShutdown(input: ShutdownInput): Promise<void> {
 /**
  * Build the handle callers use to stop this instance.
  *
- * @param parts - Server, counters, and metadata for the handle.
  * @returns The handle; `shutdown()` is idempotent across concurrent calls.
  */
 function createHandle(parts: HandleParts): ServiceHandle {
@@ -331,11 +311,6 @@ function createHandle(parts: HandleParts): ServiceHandle {
  * It never rejects: a reconciliation failure is logged as an error *kind*
  * (never upstream text) and reported as a zeroed summary, so the panel can
  * still learn from the running service.
- *
- * @param store - Open store, or `null` when the directory is unusable.
- * @param github - Verifier used for the re-verification step.
- * @param log - Structured logger.
- * @returns The pass's completion promise.
  */
 function startReconciliation(input: {
     /** Open store, or `null` when the directory is unusable. */
@@ -364,10 +339,6 @@ function startReconciliation(input: {
  * A failure is logged and answered with an empty summary rather than thrown —
  * an unreadable store is a degraded start (the routes answer `503`), not a
  * process that refuses to boot.
- *
- * @param input - Open store, or `null` when the directory is unusable.
- * @param log - Structured logger.
- * @returns The pass's completion promise.
  */
 function startBootSweep(input: {
     /** Open store, or `null` when the directory is unusable. */
@@ -393,7 +364,6 @@ function startBootSweep(input: {
  * before the listener can serve a request, so no read of `GET /v1/status`
  * can find a scheduler it cannot see.
  *
- * @param input - Store, logger, GitHub issue poller, and the view to observe.
  * @returns The two handles; each is `null` when there was no store to run one.
  */
 function startSchedulers(input: {
@@ -419,12 +389,7 @@ function startSchedulers(input: {
     return { poll, sweep };
 }
 
-/**
- * Build the route context every handler is handed.
- *
- * @param input - Start options plus the store, verifier, and scheduler view.
- * @returns The context bound to this instance.
- */
+/** Build the route context every handler is handed. */
 function buildContext(input: {
     /** Start options carrying the data directory and logger. */
     readonly options: StartServiceOptions;
@@ -450,18 +415,17 @@ function buildContext(input: {
 /**
  * Start the loopback service.
  *
- * @param options - Environment, data directory, and logger.
  * @returns A handle to the listening instance.
  * @throws When the port cannot be bound; store failures do *not* throw — the
  *   instance starts degraded so the panel can report them.
  */
 export async function startService(options: StartServiceOptions): Promise<ServiceHandle> {
     const store = await openStoreSafe(options);
-    // FR-033/FR-037 (006): the stored level is in force from here on, so the
+    // The stored level is in force from here on, so the
     // first line this instance writes after the store opens is judged at the
     // configured threshold — the whole `immediate` promise, before `listen`.
     await adoptStoredLogLevel(store, options.log);
-    // 006 FR-055(a)/FR-057: both retention passes run once here, still before
+    // Both retention passes run once here, still before
     // the listener accepts, so a saved limit is in force from the first start
     // after it was acknowledged. A configuration write runs neither.
     await runRetentionAtOpen({ store, log: options.log });
@@ -474,7 +438,7 @@ export async function startService(options: StartServiceOptions): Promise<Servic
     const context = buildContext({ options, store, github, polling });
     const deps: PipelineDeps = { env: options.env, context, routes: ROUTES, log: options.log, state };
     const server = createServer(createRequestHandler(deps));
-    // FR-032: the sweep runs at service start, before the server accepts a
+    // The sweep runs at service start, before the server accepts a
     // claim, so a restart recovers stranded claims with no operator action.
     const swept = await startBootSweep({ store, log: options.log });
     await listen(server, options.env.port);
