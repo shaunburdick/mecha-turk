@@ -52,7 +52,6 @@ export type { DraftEditTarget, PreparedBinding } from './bindings-draft.ts';
 /**
  * Record one draft-field change the add form just made.
  *
- * @param rt - Panel runtime.
  * @param patch - The fields to update.
  */
 export function editBindings(rt: PanelRuntime, patch: Partial<BindingsTabState>): void {
@@ -70,8 +69,6 @@ export function editBindings(rt: PanelRuntime, patch: Partial<BindingsTabState>)
  * Exported for [`bindings-edit.ts`](./bindings-edit.ts), which clears the
  * same draft when an edit is saved or cancelled: two resets of one draft are
  * two places the defaults could drift, so there is one.
- *
- * @param bindings - The Bindings tab's state.
  */
 export function resetDraft(bindings: BindingsTabState): void {
     bindings.repoInput = '';
@@ -107,7 +104,6 @@ function clearDraftIfCovered(bindings: BindingsTabState, stored: readonly PanelB
  * survives an `await` — while the runtime genuinely can be torn down between
  * two awaits. A call is the honest way to ask again.
  *
- * @param rt - Panel runtime.
  * @returns `true` while the panel is alive.
  */
 export function stillMounted(rt: PanelRuntime): boolean {
@@ -117,7 +113,6 @@ export function stillMounted(rt: PanelRuntime): boolean {
 /**
  * Fetch the stored bindings and their scan status from the service.
  *
- * @param rt - Panel runtime.
  * @returns Both lists, or `null` when the service refused or was unreachable.
  */
 async function fetchBindings(rt: PanelRuntime): Promise<BindingsSnapshot | null> {
@@ -145,7 +140,6 @@ async function fetchBindings(rt: PanelRuntime): Promise<BindingsSnapshot | null>
 /**
  * Fetch the credential-free accounts the picker offers.
  *
- * @param rt - Panel runtime.
  * @returns The account list, `null` when the read failed.
  */
 async function fetchAccounts(rt: PanelRuntime): Promise<readonly PanelAccount[] | null> {
@@ -170,8 +164,6 @@ async function fetchAccounts(rt: PanelRuntime): Promise<readonly PanelAccount[] 
  * binding: this is the read the manual **Refresh** runs, and the one that
  * answers after a mount-time 503, so it is where a panel that started empty
  * (or against a service that was still spawning) finally joins the loop.
- *
- * @param rt - Panel runtime.
  */
 export async function loadBindings(rt: PanelRuntime): Promise<void> {
     if (rt.disposed || rt.state.bindings.status === 'loading') {
@@ -217,8 +209,6 @@ export async function loadBindings(rt: PanelRuntime): Promise<void> {
  * Refresh. The read is dropped when the mount is gone, and a refused read
  * lands on the tab's own note line rather than anywhere the handoff copy is
  * rendered.
- *
- * @param rt - Panel runtime.
  */
 export function reloadBindingsAfterConnect(rt: PanelRuntime): void {
     if (!stillMounted(rt)) {
@@ -243,8 +233,6 @@ export function reloadBindingsAfterConnect(rt: PanelRuntime): void {
  * is preserved by the same omission — while a touched one travels with it,
  * an explicit empty value included. A refusal the prompt caused lands on the
  * field it belongs to rather than being left to the tab's note.
- *
- * @param rt - Panel runtime.
  */
 export async function bindRepository(rt: PanelRuntime): Promise<void> {
     const { bindings } = rt.state;
@@ -290,11 +278,7 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
     refresh(rt);
 }
 
-/**
- * Toggle the selected binding between enabled and disabled.
- *
- * @param rt - Panel runtime.
- */
+/** Toggle the selected binding between enabled and disabled. */
 export async function toggleBinding(rt: PanelRuntime): Promise<void> {
     const { bindings } = rt.state;
     const binding = bindings.bindings.find((candidate) => candidate.bindingId === bindings.selectedBinding) ?? null;
@@ -325,8 +309,6 @@ export async function toggleBinding(rt: PanelRuntime): Promise<void> {
  * wholesale), so the deleted row is simply absent from the granted list and
  * the service holds one less binding afterwards. Referenced accounts are
  * untouched: a binding removal deletes nothing but the binding.
- *
- * @param rt - Panel runtime.
  */
 export async function removeBinding(rt: PanelRuntime): Promise<void> {
     const { bindings } = rt.state;
