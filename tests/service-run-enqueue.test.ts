@@ -163,10 +163,9 @@ describe('T-006 run-aware enqueue', () => {
             ]);
             expect(audits.every((entry) => entry.correlationId === document.runs[0]?.correlationId)).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('joins a later-scan comment to the existing non-terminal run', async () => {
         {
             await enqueue([assignment(14)]);
             await enqueue([commentMention(14, 42)]);
@@ -181,10 +180,9 @@ describe('T-006 run-aware enqueue', () => {
                 document.runs[0]?.correlationId,
             ]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('opens the next ordinal after the prior run has a recorded session', async () => {
         {
             const [delivery] = await enqueue([assignment(16)]);
             const first = await readRunsDocument({ store, log: LOGGER });
@@ -239,10 +237,9 @@ describe('T-006 run-aware enqueue', () => {
             expect(second[0]?.runCorrelationId).not.toBe(delivery?.runCorrelationId);
             expect(document.runs.map((run) => run.ordinal)).toEqual([0, 1]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('heals a crash after runs.json by joining the redetected delivery once', async () => {
         {
             let failQueueWrite = true;
             const interruptedStore: ServiceStore = {
@@ -274,10 +271,9 @@ describe('T-006 run-aware enqueue', () => {
                 DELIVERY_DETECTED,
             ]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('serializes concurrent trigger deliveries on the shared queue/run chain', async () => {
         {
             const scans = Array.from({ length: 10 }, (_unused, index) => enqueue([commentMention(20, index + 1)]));
             const concurrentClaim = claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
@@ -295,10 +291,9 @@ describe('T-006 run-aware enqueue', () => {
             const again = await claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
             expect(again.runs).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('retains every reference up to the cap, then counts the overflow visibly', async () => {
         {
             // One assignment opens the run; 199 comment mentions fill it exactly.
             await enqueue([assignment(SUBJECT_ISSUE), ...Array.from(
@@ -354,6 +349,7 @@ describe('T-006 run-aware enqueue', () => {
             );
         }
     });
+
 
     it('refuses to read a run whose stored count cannot be reconciled (T-038)', async () => {
         await enqueue([assignment(23), commentMention(23, 9)]);
@@ -445,10 +441,9 @@ describe('T-003 run transition invariants', () => {
             expect(final.runs[0]?.attempts[0]?.outcome).toBe('dispatched');
             expect(final.runs[0]?.attempts[0]?.dispatchToken).toMatch(/^dtk-[0-9a-f]{32}$/);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never reuses an ordinal after terminal-run retention evicts old rows', async () => {
         {
             let document = emptyRunsDocument();
             for (let ordinal = 0; ordinal < 501; ordinal += 1) {
@@ -480,6 +475,7 @@ describe('T-003 run transition invariants', () => {
             expect(next.created[0]?.ordinal).toBe(501);
         }
     });
+
 });
 
 describe('T-037 durable run creation audit intent', () => {
@@ -515,10 +511,9 @@ describe('T-037 durable run creation audit intent', () => {
             expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)[0]?.correlationId)
                 .toBe(recovered.runs[0]?.correlationId);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('does not duplicate a creation audit when interrupted before retiring its intent', async () => {
         {
             let runWrites = 0;
             const interruptedStore: ServiceStore = {
@@ -550,10 +545,9 @@ describe('T-037 durable run creation audit intent', () => {
             expect(recovered.auditIntents).toEqual([]);
             expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a pending run if attempt history already records a session', async () => {
         {
             const run = runFixture();
             const dispatchedRun: Run = {
@@ -603,6 +597,7 @@ describe('T-037 durable run creation audit intent', () => {
             expect(writes).toBe(0);
         }
     });
+
 });
 
 describe('T-037 bounded run-linked delivery retention', () => {

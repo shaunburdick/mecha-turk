@@ -113,23 +113,26 @@ describe('T-001 the shared text rules (FR-022, FR-023, FR-025, FR-026)', () => {
         {
             expect(normaliseLineEndings('a\r\nb\rc\n')).toBe('a\nb\nc\n');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('keeps internal newlines and tabs exactly as written', async () => {
         {
             const text = 'goal one\n\tconstraint: no API change\n\nlast line';
             expect(trimPrompt(text)).toBe(text);
             expect(normaliseLineEndings(text)).toBe(text);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('counts surrogate pairs as one code point each', async () => {
         {
             // Six UTF-16 units, four code points: two emoji plus two letters.
             expect(countCodePoints('ab👍🏽')).toBe(4);
             expect(countCodePoints('👍🏽')).toBe(2);
             expect('👍🏽'.length).toBe(4);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a reserved prefix at a line start but not similar prose', async () => {
         {
             expect(hasReservedMarkerLine(`intro\n${OPERATOR_PROMPT_FENCE_BEGIN}\noutro`)).toBe(true);
             expect(hasReservedMarkerLine(`${OPERATOR_PROMPT_FENCE_END}`)).toBe(true);
@@ -137,8 +140,9 @@ describe('T-001 the shared text rules (FR-022, FR-023, FR-025, FR-026)', () => {
             expect(hasReservedMarkerLine('prefix --- BEGIN tail')).toBe(false);
             expect(RESERVED_MARKER_PREFIXES).toEqual(['--- BEGIN ', '--- END ']);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a control character other than newline and tab', async () => {
         {
             expect(hasIllegalControlChar('line one\n\tindented')).toBe(false);
             expect(hasIllegalControlChar(`nul${NUL}here`)).toBe(true);
@@ -148,14 +152,16 @@ describe('T-001 the shared text rules (FR-022, FR-023, FR-025, FR-026)', () => {
             expect(hasIllegalControlChar(`c1${C1_CONTROL}`)).toBe(true);
             expect(hasIllegalControlChar('a bare carriage return is normalised first')).toBe(false);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('matches the specification composition block byte for byte', async () => {
         {
             const section = await compositionSection();
             expect(section).toContain(OPERATOR_PROMPT_FENCE_BEGIN);
             expect(section).toContain(OPERATOR_PROMPT_FENCE_END);
         }
     });
+
 });
 
 describe('T-017 the shared source vocabulary (FR-072, FR-087)', () => {
@@ -195,27 +201,31 @@ describe('T-002 validateStartingPrompt: acceptance (FR-017, FR-020, FR-022, FR-0
             const absent: { readonly startingPrompt?: string } = {};
             expect(validateStartingPrompt(absent.startingPrompt)).toEqual({ ok: true, prompt: null });
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('reads an empty or whitespace-only value as unset, never as a refusal', async () => {
         {
             for (const empty of ['', ' ', '\n\t\n', ' \r\n ']) {
                 expect(validateStartingPrompt(empty), JSON.stringify(empty)).toEqual({ ok: true, prompt: null });
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('normalises line endings and trims the ends on save', async () => {
         {
             expect(validateStartingPrompt('  first\r\nsecond\rthird  '))
                 .toEqual({ ok: true, prompt: 'first\nsecond\nthird' });
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('keeps internal newlines, tabs, and literal placeholder syntax', async () => {
         {
             const text = 'Reproduce first.\n\tThen patch {number} $var 100%';
             expect(validateStartingPrompt(text)).toEqual({ ok: true, prompt: text });
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('accepts exactly the cap and refuses one code point over it', async () => {
         {
             const atCap = 'x'.repeat(CAP);
             expect(validateStartingPrompt(atCap)).toEqual({ ok: true, prompt: atCap });
@@ -226,8 +236,9 @@ describe('T-002 validateStartingPrompt: acceptance (FR-017, FR-020, FR-022, FR-0
             expect(issue.remediation).toContain(String(CAP));
             expect(issue.remediation).not.toContain(SENTINEL);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('measures the cap in code points, not UTF-16 units', async () => {
         {
             // 1,001 emoji are 2,002 UTF-16 units — over the cap in UTF-16 — but
             // only 1,001 code points, which is what the specification counts.
@@ -238,6 +249,7 @@ describe('T-002 validateStartingPrompt: acceptance (FR-017, FR-020, FR-022, FR-0
             expect(validateStartingPrompt('👍'.repeat(CAP + 1)).ok).toBe(false);
         }
     });
+
 });
 
 describe('T-002 validateStartingPrompt: the refusal matrix (FR-017, FR-020, FR-024–FR-026)', () => {
@@ -249,8 +261,9 @@ describe('T-002 validateStartingPrompt: the refusal matrix (FR-017, FR-020, FR-0
                 expect(issue.remediation).not.toContain(SENTINEL);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a null character and the control characters around it', async () => {
         {
             for (const control of [NUL, BELL, ESCAPE, DELETE, C1_CONTROL]) {
                 const issue = refusalOf(`${SENTINEL}${control}${SENTINEL}`);
@@ -258,13 +271,15 @@ describe('T-002 validateStartingPrompt: the refusal matrix (FR-017, FR-020, FR-0
                 expect(issue.remediation).not.toContain(SENTINEL);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('accepts tab and newline, which are the two a real instruction uses', async () => {
         {
             expect(validateStartingPrompt('do this\n\tthen that').ok).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses each reserved marker prefix, naming the family and not the line', async () => {
         {
             for (const prefix of RESERVED_MARKER_PREFIXES) {
                 const issue = refusalOf(`${SENTINEL}\n${prefix}SOMETHING ELSE ---`);
@@ -273,14 +288,16 @@ describe('T-002 validateStartingPrompt: the refusal matrix (FR-017, FR-020, FR-0
                 expect(issue.remediation).not.toContain('SOMETHING');
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('accepts prose that merely resembles a marker', async () => {
         {
             expect(validateStartingPrompt('--- BEGINNING OF PLAN ---').ok).toBe(true);
             expect(validateStartingPrompt('see --- END notes').ok).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses each shipped credential shape, naming the label and not the value', async () => {
         {
             const shaped: readonly (readonly [string, string])[] = [
                 ['github-token-classic', `ghp_${'a'.repeat(30)}`],
@@ -300,6 +317,7 @@ describe('T-002 validateStartingPrompt: the refusal matrix (FR-017, FR-020, FR-0
         }
     });
 
+
     it('never lets a refused credential reach the fingerprint (FR-016 closing clause)', async () => {
         {
             const secret = `ghp_${'d'.repeat(30)}`;
@@ -310,8 +328,9 @@ describe('T-002 validateStartingPrompt: the refusal matrix (FR-017, FR-020, FR-0
             expect(promptTierOf({ startingPrompt: `prefix ${secret}` })).toBeNull();
             expect(promptTierOf({ startingPrompt: `${SENTINEL}` })).not.toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('applies no content rule beyond the four refusals', async () => {
         {
             // Naming an agent, claiming write access, imitating the frame, and
             // ordinary opinions are all delivered verbatim per FR-040/AC-135.
@@ -325,8 +344,9 @@ describe('T-002 validateStartingPrompt: the refusal matrix (FR-017, FR-020, FR-0
                 expect(validateStartingPrompt(text), text).toEqual({ ok: true, prompt: text });
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses exactly the shapes the shipped detector recognises — and no others', async () => {
         {
             // The refusal set is the four shipped shapes and nothing else: a fifth
             // pattern behind the spec's back would be a content rule the
@@ -354,6 +374,7 @@ describe('T-002 validateStartingPrompt: the refusal matrix (FR-017, FR-020, FR-0
             }
         }
     });
+
 });
 
 describe('T-002 promptFingerprint (FR-016, AC-140)', () => {
@@ -363,23 +384,26 @@ describe('T-002 promptFingerprint (FR-016, AC-140)', () => {
             expect(fingerprint).toMatch(PROMPT_FINGERPRINT_PATTERN);
             expect(fingerprint).toHaveLength(36);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('differs for a one-character edit', async () => {
         {
             expect(promptFingerprint('Reproduce first, then patch.')).not.toBe(
                 promptFingerprint('Reproduce first, then patch!'),
             );
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('is identical across a fresh module instance', async () => {
         {
             const before = promptFingerprint('same text on both sides');
             vi.resetModules();
             const reloaded = await import('../service/prompt.ts');
             expect(reloaded.promptFingerprint('same text on both sides')).toBe(before);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('is identical for the same text stored in two different temp stores', async () => {
         {
             const text = 'the same operator instruction in both places';
             const fingerprints: string[] = [];
@@ -403,8 +427,9 @@ describe('T-002 promptFingerprint (FR-016, AC-140)', () => {
             expect(fingerprints[0]).toBe(fingerprints[1]);
             expect(fingerprints[0]).toMatch(PROMPT_FINGERPRINT_PATTERN);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('fingerprints the normalised text, so CRLF and LF pastes agree', async () => {
         {
             const crlf = validateStartingPrompt('line one\r\nline two');
             const lf = validateStartingPrompt('line one\nline two');
@@ -414,6 +439,7 @@ describe('T-002 promptFingerprint (FR-016, AC-140)', () => {
             }
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *

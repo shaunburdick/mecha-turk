@@ -240,10 +240,9 @@ describe('runs.json first-read adoption', () => {
             const entries = await readdir(dataDir);
             expect(entries.filter((name) => name.includes('.corrupt-'))).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('is idempotent across a second store handle and never repeats migration audit rows', async () => {
         {
             await seedLegacyQueue();
             await ensureRunsAdopted({ store, log: LOGGER });
@@ -256,10 +255,9 @@ describe('runs.json first-read adoption', () => {
             const document = await secondStore.readJson(RUNS_FILE, (value) => value);
             expect(document.status).toBe('ok');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('recovers a migration audit missed after the adopted run document was written', async () => {
         {
             await seedLegacyQueue();
             const interruptedStore: ServiceStore = {
@@ -290,10 +288,9 @@ describe('runs.json first-read adoption', () => {
                 recovered.runs.map((run) => run.correlationId),
             );
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses to re-adopt state-free run-linked rows when runs.json was lost', async () => {
         {
             const event = createEvent(snapshot(77));
             const [linked] = await enqueueEvents({ store, log: LOGGER, incoming: [event] });
@@ -362,6 +359,7 @@ describe('runs.json first-read adoption', () => {
             expect(await restartedStore.readJson(EVENTS_FILE, (value) => value)).toMatchObject({ status: 'ok' });
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *

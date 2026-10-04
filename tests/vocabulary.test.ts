@@ -513,6 +513,9 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
                 expect(strings).toContain(label);
             }
         }
+    });
+
+    it('renders no retired noun in any of the six tabs', async () => {
         {
             const rendered = await renderedSixTabs();
 
@@ -522,11 +525,17 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
             // every string the six tabs hand the SDK is scanned now.
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], rendered.join('\n'))).toEqual([]);
         }
+    });
+
+    it('renders no retired noun in the row-level labels the tabs export', async () => {
         {
             const labels = [RETRY_LABEL, RESOLVE_LABEL, RETURN_LABEL, AUDIT_BUTTON_LABEL].join('\n');
 
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], labels)).toEqual([]);
         }
+    });
+
+    it('bites on every retired shape, so the scan cannot pass vacuously', async () => {
         {
             const sample = 'the Runs list — the Repositories tab — Run shows a reason';
 
@@ -537,6 +546,9 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'Run OpenChamber on web')).toEqual([]);
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'runs.json runKey mt-run-1')).toEqual([]);
         }
+    });
+
+    it('README.md names neither retired noun anywhere in it', async () => {
         {
             // Read whole: the mapping table that used to be the one exempt
             // section left the readme with the product owner's 2026-10-01
@@ -547,6 +559,7 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
             // Not vacuous: the imperative use of the word still reads as English.
         }
     });
+
 });
 
 describe('FR-028: a test is named for the layer its subject is in', () => {

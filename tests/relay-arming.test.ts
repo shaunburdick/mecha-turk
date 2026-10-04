@@ -167,6 +167,9 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
                 expect(service.requests).toContain(`GET ${EVENTS_PENDING_PATH}`);
             });
         }
+    });
+
+    it('arms on a later read after the mount-time bindings read failed', async () => {
         {
             // First-run shape: the service is still spawning, so the mount-time
             // GET answers 503. A Refresh that later succeeds must join the loop.
@@ -189,6 +192,9 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
                 expect(rt.relayArmed).toBe(true);
             });
         }
+    });
+
+    it('stays unarmed when a later read still answers no bindings', async () => {
         {
             // The read succeeds, so the failure branch is ruled out: only an
             // empty list keeps the relay out of the loop.
@@ -205,6 +211,9 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
                 expect(service.requests).not.toContain(`GET ${EVENTS_PENDING_PATH}`);
             });
         }
+    });
+
+    it('arms exactly once across a grant and a subsequent read', async () => {
         {
             // `startRelayPolling` is idempotent: the second arming site must not
             // stack a second interval on the same runtime.
@@ -227,4 +236,5 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
             });
         }
     });
+
 });

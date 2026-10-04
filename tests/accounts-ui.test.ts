@@ -684,6 +684,9 @@ describe('T-026 the display name is written by the service, never by the panel (
             expect(rt.state.accounts.displayNameError).toBeNull();
             expect(rt.state.accounts.startingPromptError).toBeNull();
         }
+    });
+
+    it('renders the refusal at the field and keeps the stored label', async () => {
         {
             const refusal = JSON.stringify({
                 error: {
@@ -715,6 +718,9 @@ describe('T-026 the display name is written by the service, never by the panel (
             // the draft keeps what was typed so the operator can correct it.
             expect(rt.state.accounts.displayNameDraft).toBe(submitted);
         }
+    });
+
+    it('keeps the display name when the login is renamed upstream', async () => {
         {
             const renamed = accountFixture({ login: RENAMED_LOGIN, displayName: 'Ops label' });
             const [row] = accountRows(accountsState({ accounts: [renamed] }));
@@ -724,6 +730,9 @@ describe('T-026 the display name is written by the service, never by the panel (
             expect(row?.subtitle).toContain('@octocat-renamed');
             expect(accountTitle(accountFixture({ login: RENAMED_LOGIN }))).toBe(RENAMED_LOGIN);
         }
+    });
+
+    it('states what a rotation keeps, before anything is pasted', async () => {
         {
             const statement = rotationStatement(CONNECTED_LOGIN);
 
@@ -731,6 +740,7 @@ describe('T-026 the display name is written by the service, never by the panel (
             expect(statement).toContain('above');
         }
     });
+
 });
 
 /**
@@ -748,7 +758,7 @@ function readAccounts(members: Record<string, unknown>): PanelAccount[] | null {
 }
 
 describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', () => {
-    it('writes both members in one save and shows an honest not set', async () => {
+    it('writes both members in one body and brings the value back on a reload', async () => {
         {
             const { rt, requests } = await displayRuntime({
                 answer: { status: 200, body: JSON.stringify({ account: {} }) },
@@ -775,6 +785,9 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
             expect(rt.state.accounts.startingPromptDraft).toBe(ACCOUNT_PROMPT);
             expect(rt.state.accounts.startingPromptError).toBeNull();
         }
+    });
+
+    it('an unset tier reads "not set" where the text would be', async () => {
         {
             const { rt, dispose, strings } = mountAccountsTab((runtime): void => {
                 runtime.state.bindings = accountsState({ accounts: [accountFixture()] });
@@ -803,7 +816,8 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
         }
     });
 
-    it('keeps a refusal at its field and the value out of every summary', async () => {
+
+    it('a refusal renders its remediation and changes nothing', async () => {
         {
             const refusal = JSON.stringify({
                 error: {
@@ -838,6 +852,9 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
             expect(rt.state.accounts.startingPromptDraft).toBe(submitted);
             expect(rt.state.bindings.accounts[0]?.startingPrompt).toBe(ACCOUNT_PROMPT);
         }
+    });
+
+    it('the row summary carries presence and length only (005 FR-051)', async () => {
         {
             const set = accountFixture({ startingPrompt: ACCOUNT_PROMPT });
             const unset = accountFixture({});
@@ -852,6 +869,9 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
             expect(accountDetail(accountsState({ accounts: [set] }), set)).toContain('prompt set');
             expect(accountDetail(accountsState({ accounts: [set] }), set)).not.toContain(ACCOUNT_PROMPT);
         }
+    });
+
+    it('host.storage receives no copy of the tier', async () => {
         {
             const host = await scriptedRuntime((request) => {
                 if (request.method === 'PUT') {
@@ -910,6 +930,7 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
             expect(stored).not.toContain('startingPrompt');
         }
     });
+
 
     it('refuses a non-text tier instead of reading it as unset (FR-082)', () => {
         // Fail closed: a value that is neither text nor `null` refuses the

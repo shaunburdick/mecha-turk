@@ -682,10 +682,9 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
             // The token rides on the lease it was authorized under (contract §1).
             expect(outcome.tokenExpiresAt).toBe(stored.lease?.expiresAt);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('derives the token from the run key and attempt, byte-for-byte', async () => {
         {
             const claimed = await seedAndClaim(2);
             const outcome = await reserve(claimed);
@@ -697,10 +696,9 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
             expect(outcome.dispatchToken).toBe(buildDispatchToken(stored.runKey, stored.attempt));
             expect(outcome.dispatchToken).toMatch(/^dtk-[0-9a-f]{32}$/);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('writes a dispatch.reserved row naming the lease, attempt, and attachment', async () => {
         {
             const claimed = await seedAndClaim(3);
 
@@ -709,10 +707,9 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
             const [row] = await rowsOf(RESERVED_ROW);
             expect(row).toMatchObject({ leaseId: claimed.leaseId, attempt: 1, attachmentId: claimed.correlationId });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('arms the result deadline from the configured window', async () => {
         {
             const claimed = await seedAndClaim(4);
 
@@ -721,10 +718,9 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
             const stored = await readRun(claimed.correlationId);
             expect(Date.parse(stored.reservation?.resultDeadlineAt ?? '') - Date.parse(STAMP)).toBe(LEASE_MS);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('answers 404 for a run this service does not have', async () => {
         {
             const outcome = await reserve({
                 correlationId: 'mt-run-000000000000000000000000',
@@ -734,6 +730,7 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
             expect(outcome.status).toBe('not-found');
         }
     });
+
 });
 
 describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
@@ -751,10 +748,9 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
             expect(stored.reservation).toBeNull();
             expect(await rowsOf(RESERVED_ROW)).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a lease belonging to another attempt', async () => {
         {
             const claimed = await seedAndClaim(6);
 
@@ -764,10 +760,9 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
             const refusal = outcome.status === REFUSED ? outcome.refusal : null;
             expect(refusal?.code).toBe(STALE_LEASE);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a lease this run never held', async () => {
         {
             const claimed = await seedAndClaim(7);
 
@@ -777,10 +772,9 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
             const refusal = outcome.status === REFUSED ? outcome.refusal : null;
             expect(refusal?.code).toBe(STALE_LEASE);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a second reserve as already-reserved, naming attempt and deadline', async () => {
         {
             const claimed = await seedAndClaim(8);
             await reserve(claimed);
@@ -799,10 +793,9 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
             const afterDuplicate = await readRun(claimed.correlationId);
             expect(afterDuplicate.reservation?.dispatchToken).toBe(authorized.reservation?.dispatchToken);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a leaseless dispatched run by naming the session, not the absent lease', async () => {
         {
             // AC-112 on the natural path: a dispatched run holds **no lease** — an
             // applied result clears it — so the session check has to be asked before
@@ -823,10 +816,9 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
             const refusals = await rowsOf(REFUSED_ROW);
             expect(refusals.some((row) => row.code === ALREADY_DISPATCHED)).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a live-lease run that is not claimed as invalid-transition, naming the state', async () => {
         {
             // Contract §1's verdict order is session → lease → reservation → state
             // (T-042e), so `invalid-transition` is reachable only for a run whose
@@ -847,6 +839,7 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         }
     });
 
+
     it('refuses a leaseless run as stale, because the session check finds no session first', async () => {
         {
             // The other half of the ordering, and the honest answer: a run in
@@ -866,10 +859,9 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
                 expect(stored.state).toBe(state);
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('writes exactly one dispatch.refused row per refusal, naming the operation', async () => {
         {
             const claimed = await seedAndClaim(10);
             await reserve({ ...claimed, now: AFTER_LEASE });
@@ -891,6 +883,7 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
             expect(refusedRows.map((entry) => entry.details.priorState)).toEqual(['claimed', STARTING]);
         }
     });
+
 });
 
 describe('T-012 result settles the reservation in one write (FR-040, constraint)', () => {
@@ -918,10 +911,9 @@ describe('T-012 result settles the reservation in one write (FR-040, constraint)
             expect(stored.lease).toBeNull();
             expect(stored.attempts.at(-1)).toMatchObject({ outcome: 'dispatched', sessionId: 'ses_created' });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('records a problem as failed and never as dispatched', async () => {
         {
             const claimed = await seedAndClaim(12);
             const authorized = await reserve(claimed);
@@ -943,10 +935,9 @@ describe('T-012 result settles the reservation in one write (FR-040, constraint)
             expect(stored.stateReason).toBe(BOOTSTRAP_FAILED);
             expect(stored.reservation?.consumed).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('writes a dispatch.result row whose decision is failed for a problem', async () => {
         {
             const claimed = await seedAndClaim(13);
             const authorized = await reserve(claimed);
@@ -966,10 +957,9 @@ describe('T-012 result settles the reservation in one write (FR-040, constraint)
             const resultRow = entries.find((entry) => entry.eventType === RESULT_ROW);
             expect(resultRow?.decision).toBe(FAILED);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('leaves the run retryable after a problem, not wedged', async () => {
         {
             const claimed = await seedAndClaim(14);
             const authorized = await reserve(claimed);
@@ -989,6 +979,7 @@ describe('T-012 result settles the reservation in one write (FR-040, constraint)
             expect(stored.state).not.toBe(UNCONFIRMED);
         }
     });
+
 });
 
 describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', () => {
@@ -1019,10 +1010,9 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             expect(rows.filter((entry) => entry.eventType === RESULT_ROW)).toHaveLength(1);
             expect(rows.filter((entry) => entry.eventType === DUPLICATE_ROW)).toHaveLength(9);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a token this run never recorded, as stale', async () => {
         {
             const claimed = await seedAndClaim(16);
             const authorized = await reserve(claimed);
@@ -1041,10 +1031,9 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             expect(refusal?.code).toBe(STALE_LEASE);
             expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe(STARTING);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a report carrying a superseded attempt', async () => {
         {
             const claimed = await seedAndClaim(17);
             const authorized = await reserve(claimed);
@@ -1063,10 +1052,9 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             const refusal = outcome.status === REFUSED ? outcome.refusal : null;
             expect(refusal?.code).toBe(STALE_LEASE);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a conflicting repeat rather than overwriting a recorded session', async () => {
         {
             const claimed = await seedAndClaim(18);
             const authorized = await reserve(claimed);
@@ -1086,10 +1074,9 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             const stored = await readRun(claimed.correlationId);
             expect(stored.session?.sessionId).toBe('ses_first');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a repeated problem carrying a different cause', async () => {
         {
             const claimed = await seedAndClaim(19);
             const authorized = await reserve(claimed);
@@ -1104,10 +1091,9 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             expect(outcome.status).toBe(REFUSED);
             expect(await readRun(claimed.correlationId).then((found) => found.stateReason)).toBe(BOOTSTRAP_FAILED);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('applies an unconsumed report from starting even after the lease expired', async () => {
         {
             const claimed = await seedAndClaim(25);
             const authorized = await reserve(claimed);
@@ -1128,6 +1114,7 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe('dispatched');
         }
     });
+
 
     it('applies an unconsumed report from unconfirmed, reconciling the run', async () => {
         {
@@ -1152,10 +1139,9 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             expect(stored.state).toBe('dispatched');
             expect(stored.session?.sessionId).toBe('ses_reconciled');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a second reservation token over a newer one', async () => {
         {
             const claimed = await seedAndClaim(27);
             const authorized = await reserve(claimed);
@@ -1178,6 +1164,7 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             expect(await readRun(claimed.correlationId).then((found) => found.session)).toBeNull();
         }
     });
+
 });
 
 describe('T-012 abandon is honest and retryable (FR-026)', () => {
@@ -1204,10 +1191,9 @@ describe('T-012 abandon is honest and retryable (FR-026)', () => {
             expect(stored.reservation?.consumed).toBe(true);
             expect(stored.attempts.at(-1)).toMatchObject({ outcome: 'abandoned', reason: ABANDON_REASON });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('writes a dispatch.abandoned row with the no-session decision', async () => {
         {
             const claimed = await seedAndClaim(31);
             const authorized = await reserve(claimed);
@@ -1228,10 +1214,9 @@ describe('T-012 abandon is honest and retryable (FR-026)', () => {
             const abandonedEntry = entries.find((entry) => entry.eventType === ABANDONED_ROW);
             expect(abandonedEntry?.decision).toBe('no-session');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('is idempotent: a repeated abandon is a duplicate, not a second failure', async () => {
         {
             const claimed = await seedAndClaim(32);
             const authorized = await reserve(claimed);
@@ -1253,6 +1238,7 @@ describe('T-012 abandon is honest and retryable (FR-026)', () => {
             expect(await rowsOf(DUPLICATE_ROW)).toHaveLength(1);
         }
     });
+
 });
 
 describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)', () => {
@@ -1275,10 +1261,9 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
             expect(stored.requeuesUsed).toBe(0);
             expect(stored.reservation).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('writes a run.blocked row naming the cause, prior state, and guidance', async () => {
         {
             const claimed = await seedAndClaim(41);
 
@@ -1299,10 +1284,9 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
             const blockedEntry = entries.find((entry) => entry.eventType === BLOCKED_ROW);
             expect(blockedEntry?.actorSource).toBe('panel');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('leaves a blocked run untouched by ten sweep ticks', async () => {
         {
             const claimed = await seedAndClaim(42);
             await block({ claim: claimed, blockedReason: 'policy', detail: 'no policy profile matched' });
@@ -1317,10 +1301,9 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
             expect(stored.attempt).toBe(1);
             expect(stored.requeuesUsed).toBe(0);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never records a blocked run as dispatched, even with a session-shaped id present', async () => {
         {
             const claimed = await seedAndClaim(43);
 
@@ -1330,10 +1313,9 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
             expect(stored.state).not.toBe('dispatched');
             expect(stored.session).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a block under an expired lease, as stale', async () => {
         {
             const claimed = await seedAndClaim(44);
 
@@ -1354,10 +1336,9 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
             expect(refusal?.code).toBe(STALE_LEASE);
             expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe('claimed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a live-lease run that is not claimed as invalid-transition, naming the state', async () => {
         {
             // Same shape as the reserve's: the lease is valid and current, so the
             // refusal is about the state rather than the authorization. A guard that
@@ -1383,6 +1364,7 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe(FAILED);
         }
     });
+
 
     it('writes exactly one run.blocked row for a guard refusal, carrying the run id', async () => {
         const claimed = await seedAndClaim(46);
@@ -1437,10 +1419,9 @@ describe('T-011..T-013 no audit row ever carries a dispatch token value (FR-061)
                     .not.toMatch(/dtk-[0-9a-f]{8,}/);
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('names each authorization by a distinct fingerprint', async () => {
         {
             const first = await seedAndClaim(54);
             const firstToken = await reserve(first);
@@ -1463,6 +1444,7 @@ describe('T-011..T-013 no audit row ever carries a dispatch token value (FR-061)
             expect(new Set(fingerprints).size).toBe(2);
         }
     });
+
 });
 
 
@@ -1489,10 +1471,9 @@ describe('T-011..T-013 every route answers the documented validation failures (c
             // SEC-11: the received value is never echoed back.
             expect(JSON.stringify(failure)).not.toContain('mt-run-111111111111111111111111');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a result carrying both a session and a problem', async () => {
         {
             const service = await startTestService();
 
@@ -1514,10 +1495,9 @@ describe('T-011..T-013 every route answers the documented validation failures (c
             expect(response.status).toBe(422);
             expect(((await response.json()) as { error: { code: string } }).error.code).toBe('validation');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a result carrying neither a session nor a problem', async () => {
         {
             const service = await startTestService();
 
@@ -1529,10 +1509,9 @@ describe('T-011..T-013 every route answers the documented validation failures (c
 
             expect(response.status).toBe(422);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses an abandon with no reason, since the row would be unreadable', async () => {
         {
             const service = await startTestService();
 
@@ -1544,10 +1523,9 @@ describe('T-011..T-013 every route answers the documented validation failures (c
 
             expect(response.status).toBe(422);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a blocked reason outside the four declared causes', async () => {
         {
             const service = await startTestService();
 
@@ -1568,10 +1546,9 @@ describe('T-011..T-013 every route answers the documented validation failures (c
             expect(response.status).toBe(422);
             expect(((await response.json()) as { error: { code: string } }).error.code).toBe('validation');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('accepts each of the five declared blocked reasons', async () => {
         {
             const service = await startTestService();
 
@@ -1598,6 +1575,7 @@ describe('T-011..T-013 every route answers the documented validation failures (c
             }
         }
     });
+
 
     it('refuses a body that is not a JSON object', async () => {
         const service = await startTestService();
@@ -1647,10 +1625,9 @@ describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC
             expect(outcome.auditWritten).toBe(false);
             expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe(STARTING);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('logs the failure naming the run, so the degradation is diagnosable', async () => {
         {
             const claimed = await seedAndClaim(81);
             LOG_LINES.length = 0;
@@ -1678,10 +1655,9 @@ describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC
             expect(warning).toContain(claimed.correlationId);
             expect(warning).toContain(RESERVED_ROW);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('reports auditWritten false for a refusal whose own row failed', async () => {
         {
             const claimed = await seedAndClaim(82);
 
@@ -1709,6 +1685,7 @@ describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC
             expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe('claimed');
         }
     });
+
 });
 
 describe('T-012 one live authorization survives concurrent reserves (AC-109, AC-112)', () => {
@@ -1746,10 +1723,9 @@ describe('T-012 one live authorization survives concurrent reserves (AC-109, AC-
             // Exactly one reservation and one `dispatch.reserved` row survive.
             expect(await rowsOf(RESERVED_ROW)).toHaveLength(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('lets exactly one of two concurrent identical results through', async () => {
         {
             const claimed = await seedAndClaim(84);
             const authorized = await reserve(claimed);
@@ -1774,6 +1750,7 @@ describe('T-012 one live authorization survives concurrent reserves (AC-109, AC-
             expect(raced.attempts.filter((entry) => entry.sessionId !== null)).toHaveLength(1);
         }
     });
+
 });
 
 describe('T-011..T-013 every refusing operation owes exactly one refusal row (FR-003)', () => {

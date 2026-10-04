@@ -529,10 +529,9 @@ describe('mention detection (M6)', () => {
             expect(events[0]?.triggerNote).toContain(HUMAN_AUTHOR_LOGIN);
             expect(events[0]?.issueBodyExcerpt).toBe('cc @OCTOCAT-MT — drift again');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('skips bot authors, lookalike handles, and bodies that never mention the account', async () => {
         {
             const recorded = recordingPoller({
                 issues: [fixtureIssue()],
@@ -567,10 +566,9 @@ describe('mention detection (M6)', () => {
             expect(events).toHaveLength(1);
             expect(events[0]?.id).toBe(`evt-acme~widget~7~${ACCOUNT_ID}~mention~605`);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never lists comments when the mention switch is off', async () => {
         {
             const recorded = recordingPoller({ issues: [], comments: [] });
 
@@ -583,6 +581,7 @@ describe('mention detection (M6)', () => {
             expect(events).toEqual([]);
         }
     });
+
 });
 
 describe('issue-body mention detection (M6, operator product decision 2026-09-28)', () => {
@@ -617,10 +616,9 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             expect(events[0]?.issueBodyExcerpt).toHaveLength(600);
             expect(events[0]?.issueBodyExcerpt.endsWith('…')).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('queues nothing for lookalikes, bots, unreadable authors, or an empty body', async () => {
         {
             const recorded = recordingPoller({
                 issues: [
@@ -655,10 +653,9 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
 
             expect(events).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never reads an issue body when the mention switch is off', async () => {
         {
             const recorded = recordingPoller({ issues: [fixtureIssue({ body: `please look ${MENTION_TOKEN}` })] });
 
@@ -671,10 +668,9 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             expect(recorded.calls).toEqual(['issues']);
             expect(events).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('keeps an assignment and a body mention on one issue as two distinct, deduplicable events', async () => {
         {
             const recorded = recordingPoller({
                 issues: [fixtureIssue({ body: `Hey ${MENTION_TOKEN}, please triage`, assignees: [ACCOUNT_LOGIN] })],
@@ -701,10 +697,9 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             expect(replayed.enqueued).toBe(0);
             expect(await readEvents({ store, log })).toHaveLength(2);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('coalesces a pull-request assignment and review request under the PR subject', async () => {
         {
             const pullRequest = fixtureIssue({
                 issueNumber: 31,
@@ -735,10 +730,9 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
                 events[0]?.runCorrelationId,
             ]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('keeps a comment mention and a body mention on one issue as two distinct events', async () => {
         {
             const recorded = recordingPoller({
                 issues: [fixtureIssue({ body: `details in the body, ${MENTION_TOKEN}` })],
@@ -759,6 +753,7 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             expect(events[1]?.issueBodyExcerpt).toBe(`cc ${MENTION_TOKEN} — see above`);
         }
     });
+
 
     it('ignores an issue body the scan window has already passed', async () => {
         // The first cycle stamps the window at "now", which every fixture
@@ -789,10 +784,9 @@ describe('mention and review detectors (unit)', () => {
             expect(mentionsLogin('x@octocat-mt', ACCOUNT_LOGIN)).toBe(false);
             expect(mentionsLogin(MENTION_TOKEN, '')).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('reads a bot comment as a bot whatever the author field says', async () => {
         {
             expect(isMentionComment(fixtureComment({
                 commentId: 701,
@@ -807,10 +801,9 @@ describe('mention and review detectors (unit)', () => {
             }), ACCOUNT_LOGIN)).toBe(false);
             expect(isMentionComment(fixtureComment({ commentId: 703, body: MENTION_TOKEN }), ACCOUNT_LOGIN)).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('reads an issue-body mention the same way — author first, bounded token second', async () => {
         {
             expect(isIssueBodyMention(fixtureIssue({ body: `hey ${MENTION_TOKEN}` }), ACCOUNT_LOGIN)).toBe(true);
             expect(isIssueBodyMention(fixtureIssue({ body: 'no handle here' }), ACCOUNT_LOGIN)).toBe(false);
@@ -825,10 +818,9 @@ describe('mention and review detectors (unit)', () => {
             expect(isIssueBodyMention(fixtureIssue({ body: null }), ACCOUNT_LOGIN)).toBe(false);
             expect(isIssueBodyMention(fixtureIssue({ body: MENTION_TOKEN }), '')).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('matches a requested reviewer case-insensitively, and nobody else', async () => {
         {
             expect(isReviewRequestPull(fixturePull({ pullNumber: 1, requestedReviewers: [
                 'OCTOCAT-MT'] }), ACCOUNT_LOGIN))
@@ -840,6 +832,7 @@ describe('mention and review detectors (unit)', () => {
             ] }), ACCOUNT_LOGIN)).toBe(false);
         }
     });
+
 });
 
 describe('review-request detection (M7)', () => {
@@ -872,10 +865,9 @@ describe('review-request detection (M7)', () => {
             // The id carries the PR number, the account, and the kind.
             expect(events[0]?.id).toBe(`evt-acme~widget~3~${ACCOUNT_ID}~review`);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('queues nothing for a pull request that does not ask this account', async () => {
         {
             const recorded = recordingPoller({
                 pulls: [fixturePull({ pullNumber: 9, requestedReviewers: ['someone-else'] })],
@@ -889,6 +881,7 @@ describe('review-request detection (M7)', () => {
             expect(events).toEqual([]);
         }
     });
+
 });
 
 describe('event kind round-trip (nullable Slice-2 fields)', () => {
@@ -921,10 +914,9 @@ describe('event kind round-trip (nullable Slice-2 fields)', () => {
             expect(event.headSha).toBe(HEAD_SHA);
             expect(event.baseRef).toBe(BASE_REF);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('reads a row written before M7 — no headSha/baseRef at all — as null', async () => {
         {
             const stored: Record<string, unknown> = {
                 ...createEvent({
@@ -957,10 +949,9 @@ describe('event kind round-trip (nullable Slice-2 fields)', () => {
             expect(parsed?.baseRef).toBeNull();
             expect(parsed?.kind).toBe('assignment');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('still refuses a row whose Slice-2 fields are not text', async () => {
         {
             const event = createEvent({
                 bindingId: REVIEW_BINDING,
@@ -988,6 +979,7 @@ describe('event kind round-trip (nullable Slice-2 fields)', () => {
             expect(parseStoredEvent({ ...event, baseRef: ['main'] })).toBeNull();
         }
     });
+
 });
 
 /** Login an assignment fixture's issue is authored by, distinct from any reviewer. */

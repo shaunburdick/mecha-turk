@@ -219,10 +219,9 @@ describe('the ladder arithmetic (006 FR-058)', () => {
             // The bottom of the jitter range halves it, and never goes below.
             expect(backoffDelayMs({ policy, attempt: 2, random: FLOOR_JITTER })).toBe(2_500);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('keeps every delay of a capped ladder inside [retryMaxMs / 2, retryMaxMs]', async () => {
         {
             for (const random of [() => 0, () => 0.5, () => 1]) {
                 for (let attempt = 2; attempt <= 4; attempt += 1) {
@@ -233,10 +232,9 @@ describe('the ladder arithmetic (006 FR-058)', () => {
                 }
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never lets a computed delay exceed the ceiling, whatever the jitter source answers', async () => {
         {
             const policy: RetryPolicy = { maxAttempts: 10, baseMs: 1_000, maxMs: 8_000 };
 
@@ -248,10 +246,9 @@ describe('the ladder arithmetic (006 FR-058)', () => {
                 }
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('lets rate-limit guidance win even above the ceiling, and says so in the source', async () => {
         {
             const record = nextWait({
                 policy: CAPPED_LADDER,
@@ -268,10 +265,9 @@ describe('the ladder arithmetic (006 FR-058)', () => {
             expect(shorter.source).toBe('backoff');
             expect(shorter.delayMs).toBe(CAP);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('reports the wait before sleeping it, and sleeps exactly what it reported', async () => {
         {
             const { sleep, sleeps } = recordingSleep();
             const seen: WaitRecord[] = [];
@@ -290,6 +286,7 @@ describe('the ladder arithmetic (006 FR-058)', () => {
             expect(record.delayMs).toBe(CAP);
         }
     });
+
 });
 
 /**
@@ -347,10 +344,9 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
                 expect(waited.delayMs).toBeLessThanOrEqual(CAP);
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('stops after one attempt when the credential is refused (auth-failed is never retried)', async () => {
         {
             const { poller, sleeps } = scriptedPoller([() => new Response('', { status: 401 })]);
 
@@ -365,10 +361,9 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
             expect(result).toEqual({ kind: 'auth-failed' });
             expect(sleeps).toHaveLength(0);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('honours a retry-after longer than the ceiling on the real request path', async () => {
         {
             const { poller, sleeps } = scriptedPoller([
                 () => new Response('', { status: 429, headers: new Headers([['retry-after', '120']]) }),
@@ -387,10 +382,9 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
             expect(sleeps).toEqual([{ delayMs: 120_000 }]);
             expect(sleeps[0]?.delayMs).toBeGreaterThan(CAP);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('logs every wait with its length and source, and no credential', async () => {
         {
             const { poller, lines } = scriptedPoller([() => new Response('', { status: 500 })]);
 
@@ -414,6 +408,7 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
             expect(lines.join('\n')).not.toContain(FIXTURE_TOKEN);
         }
     });
+
 });
 
 /**
@@ -465,10 +460,9 @@ describe('a skipped scan keeps its checkpoint (006 FR-058, 002 FR-018)', () => {
             // cleared to a full replay: the stamp the cycle started with survives.
             expect(outcome.lastScanAt).toBe(RECORDED_SCAN_AT);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('retains it after an auth refusal too, with no wait at all', async () => {
         {
             const outcome = await cycleOver([() => new Response('', { status: 401 })]);
 
@@ -477,6 +471,7 @@ describe('a skipped scan keeps its checkpoint (006 FR-058, 002 FR-018)', () => {
             expect(outcome.lastScanAt).toBe(RECORDED_SCAN_AT);
         }
     });
+
 });
 
 describe('the wait delays the schedule instead of being caught up (002 FR-022)', () => {

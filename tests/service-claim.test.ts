@@ -193,10 +193,9 @@ describe('T-007 claim eligibility (FR-037)', () => {
             const stored = await readRunsDocument({ store, log: LOGGER });
             expect(stored.runs.every((run) => run.state === 'claimed')).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('answers nothing for any state other than pending', async () => {
         {
             const states: readonly Run['state'][] = [
                 'claimed',
@@ -213,10 +212,9 @@ describe('T-007 claim eligibility (FR-037)', () => {
 
             expect(await claim()).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never offers a pending run whose history already records a session', async () => {
         {
             const run = await seedRunInState({ issueNumber: 30, state: 'pending' });
             await writeRunsDocument({
@@ -244,10 +242,9 @@ describe('T-007 claim eligibility (FR-037)', () => {
             // the claim surfaces the refusal rather than offering the run.
             await expect(claim()).rejects.toThrow('run document is unreadable');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('leaves a delivered run alone: nothing is claimed, nothing is requeued', async () => {
         {
             await seedRunInState({ issueNumber: 31, state: 'dispatched', sessionId: 'ses_done' });
 
@@ -258,6 +255,7 @@ describe('T-007 claim eligibility (FR-037)', () => {
             expect(stored.runs[0]?.lease).toBeNull();
         }
     });
+
 });
 
 describe('T-007 lease coordinates (FR-030, FR-031)', () => {
@@ -277,10 +275,9 @@ describe('T-007 lease coordinates (FR-030, FR-031)', () => {
             });
             expect(claimed?.attempt).toBe(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('mints a fresh lease per claim and never re-derives one', async () => {
         {
             await seed(assignment(4));
             await setLeaseMs(LEASE_MS);
@@ -292,10 +289,9 @@ describe('T-007 lease coordinates (FR-030, FR-031)', () => {
             expect(leaseId).toBe(buildLeaseId({
                 correlationId: first?.correlationId ?? '', attempt: 1, issuedAt: STAMP }));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('records the panel opaque holder, and never treats it as authorization', async () => {
         {
             await seed(assignment(5));
             const [claimed] = await claim('panel.mount_1~x');
@@ -307,10 +303,9 @@ describe('T-007 lease coordinates (FR-030, FR-031)', () => {
             expect(holderOf('x'.repeat(65))).toBe(UNKNOWN_HOLDER);
             expect(holderOf('a'.repeat(64))).toBe('a'.repeat(64));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('opens the attempt but consumes nothing by being offered', async () => {
         {
             await seed(assignment(6));
             await claim();
@@ -330,6 +325,7 @@ describe('T-007 lease coordinates (FR-030, FR-031)', () => {
             }]);
         }
     });
+
 });
 
 describe('T-007 batch atomicity', () => {
@@ -392,10 +388,9 @@ describe('T-007 the claim answer', () => {
                 presentAtAuthorization: true,
             }]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('carries no credential-shaped string and no unlisted member', async () => {
         {
             await seed(assignment(12));
             const [claimed] = await claim();
@@ -434,10 +429,9 @@ describe('T-007 the claim answer', () => {
                 'worktreeOption',
             ]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('writes one dispatch.claimed row per claimed run, correlated to the run', async () => {
         {
             await seed(assignment(13), assignment(14));
             await setLeaseMs(LEASE_MS);
@@ -458,10 +452,9 @@ describe('T-007 the claim answer', () => {
                 holder: HOLDER,
             })));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('writes no claim row for a claim that leased nothing', async () => {
         {
             await seedRunInState({ issueNumber: 15, state: 'unconfirmed' });
 
@@ -471,6 +464,7 @@ describe('T-007 the claim answer', () => {
             expect(audits.filter((entry) => entry.eventType === CLAIMED_EVENT)).toEqual([]);
         }
     });
+
 });
 
 /** The harness service's open store; a claim test cannot run without one. */
@@ -676,7 +670,7 @@ describe('T-040h a quarantined run document answers the documented 503', () => {
 });
 
 describe('T-024 the claim answer names the prompt sources (FR-087)', () => {
-    it('answers the prompt sources on every claim row', async () => {
+    it('an unset run answers five explicit nulls — presence, text, fingerprint, length, sources', async () => {
         {
             await seed(assignment(60));
             const [claimed] = await claim();
@@ -687,8 +681,9 @@ describe('T-024 the claim answer names the prompt sources (FR-087)', () => {
             expect(claimed?.promptLength).toBeNull();
             expect(claimed?.promptSources).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('a set run answers its contributing tiers as an ordered list', async () => {
         {
             const bindingOnly = resolvePromptSnapshot({
                 global: null,
@@ -717,8 +712,9 @@ describe('T-024 the claim answer names the prompt sources (FR-087)', () => {
                 && run.promptText !== null
                 && run.promptFingerprint !== null)).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('the maximal batch paginates against a ≤6,004-char promptText, never truncating one', async () => {
         {
             const tier = 'x'.repeat(STARTING_PROMPT_MAX_CODE_POINTS);
             const maximal = resolvePromptSnapshot({
@@ -788,4 +784,5 @@ describe('T-024 the claim answer names the prompt sources (FR-087)', () => {
             expect(seen.size).toBe(totalRuns);
         }
     });
+
 });

@@ -190,16 +190,18 @@ describe('service environment', () => {
             expect(env.port).toBe(8123);
             expect(env.token).toBe(VALID_TOKEN);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses to start without a token of the documented length', async () => {
         {
             expect(() => readServiceEnv({ [PORT_KEY]: '8123' })).toThrow(ServiceEnvError);
             expect(() => readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: 'short' })).toThrow(
                 new RegExp(`${TOKEN_KEY} must be at least`),
             );
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('enforces the 32-character floor without echoing the value (SEC-02a)', async () => {
         {
             const belowFloor = 'b'.repeat(TOKEN_FLOOR - 1);
             const atFloor = 'c'.repeat(TOKEN_FLOOR);
@@ -214,13 +216,15 @@ describe('service environment', () => {
 
             expect(readServiceEnv({ [PORT_KEY]: '8123', [TOKEN_KEY]: atFloor }).token).toBe(atFloor);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a port that is not an in-range integer', async () => {
         {
             expect(() => readServiceEnv({ [PORT_KEY]: 'http', [TOKEN_KEY]: VALID_TOKEN })).toThrow(ServiceEnvError);
             expect(() => readServiceEnv({ [PORT_KEY]: '70000', [TOKEN_KEY]: VALID_TOKEN })).toThrow(ServiceEnvError);
         }
     });
+
 });
 
 describe('bearer authentication', () => {
@@ -233,8 +237,9 @@ describe('bearer authentication', () => {
             expect(response.status).toBe(401);
             expect(await errorOf(response)).toEqual({ code: 'unauthorized', message: 'service authentication failed' });
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a wrong token', async () => {
         {
             const service = await startServiceForTest();
 
@@ -244,8 +249,9 @@ describe('bearer authentication', () => {
 
             expect(response.status).toBe(401);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses non-bearer schemes and bare prefixes', async () => {
         {
             const service = await startServiceForTest();
             const candidates = ['Basic dXNlcjpwYXNz', `${BEARER_PREFIX}`, `${BEARER_PREFIX} `];
@@ -255,8 +261,9 @@ describe('bearer authentication', () => {
                 expect(response.status).toBe(401);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('answers every authentication failure with byte-identical content', async () => {
         {
             const service = await startServiceForTest();
             const responses = await Promise.all([
@@ -273,8 +280,9 @@ describe('bearer authentication', () => {
             const contentTypes = responses.map((response) => response.headers.get('content-type'));
             expect(contentTypes.every((type) => type?.startsWith('application/json') === true)).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('accepts the token the service was started with', async () => {
         {
             const service = await startServiceForTest();
 
@@ -283,6 +291,7 @@ describe('bearer authentication', () => {
             expect(response.status).not.toBe(401);
         }
     });
+
 });
 
 describe('bearer authentication on every wave-1 route', () => {
@@ -326,14 +335,16 @@ describe('GET /health', () => {
                 schemaVersion: SERVICE_SCHEMA_VERSION,
             });
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('reports the version the extension package declares', async () => {
         {
             const manifest = JSON.parse(readFileSync(PACKAGE_PATH, 'utf8')) as { version?: string };
 
             expect(SERVICE_VERSION).toBe(manifest.version);
         }
     });
+
 });
 
 describe('method and path validation', () => {
@@ -348,8 +359,9 @@ describe('method and path validation', () => {
             expect(response.headers.get('allow')).toBe(GET_METHOD);
             expect(failure.code).toBe('method-not-allowed');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses an unknown path with not-found', async () => {
         {
             const service = await startServiceForTest();
 
@@ -359,8 +371,9 @@ describe('method and path validation', () => {
             expect(response.status).toBe(404);
             expect(failure.code).toBe('not-found');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses absolute-form and protocol-relative targets', async () => {
         {
             const service = await startServiceForTest();
             const targets = [`http://evil.example${HEALTH_PATH}`, `//evil.example${HEALTH_PATH}`];
@@ -375,8 +388,9 @@ describe('method and path validation', () => {
                 expect(reply).toContain('bad-path');
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a request target longer than the documented cap', async () => {
         {
             const service = await startServiceForTest();
             const target = `/${'a'.repeat(2_001)}`;
@@ -390,6 +404,7 @@ describe('method and path validation', () => {
             expect(reply).toContain('bad-path');
         }
     });
+
 });
 
 describe('request body limits', () => {
@@ -406,8 +421,9 @@ describe('request body limits', () => {
             expect(reply).toContain('413');
             expect(reply).toContain('payload-too-large');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a body that is not valid JSON', async () => {
         {
             const service = await startServiceForTest();
 
@@ -424,6 +440,7 @@ describe('request body limits', () => {
             expect(reply).toContain('invalid-json');
         }
     });
+
 });
 
 describe('request logging', () => {
@@ -440,8 +457,9 @@ describe('request logging', () => {
             expect(logged).not.toContain('access_token');
             expect(logged).not.toContain(service.token);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('redacts secret-shaped values before they reach the sink', async () => {
         {
             const captured: string[] = [];
             const log = createLogger({
@@ -458,6 +476,7 @@ describe('request logging', () => {
             expect(logged).not.toContain(TOKEN_SHAPED_VALUE);
         }
     });
+
 });
 
 describe('loopback binding', () => {
@@ -521,8 +540,9 @@ describe('graceful shutdown', () => {
             await shutdown;
             await expect(fetch(service.baseUrl)).rejects.toThrow();
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('treats repeated shutdown calls as one close', async () => {
         {
             const service = await startServiceForTest();
 
@@ -532,4 +552,5 @@ describe('graceful shutdown', () => {
             await expect(fetch(service.baseUrl)).rejects.toThrow();
         }
     });
+
 });

@@ -307,6 +307,9 @@ describe('loadDispatches records where the answer sits (FR-042)', () => {
             expect(page.total).toBe(137);
             expect(page.snapshotAt).toBe(FIXTURE_TIMESTAMP);
         }
+    });
+
+    it('leaves the position untouched when the answer is refused', async () => {
         {
             const { rt } = doubleRuntime({ [PAGE_ONE]: { status: 503, body: '{}' } });
             const before = { ...rt.state.dispatches.page };
@@ -317,6 +320,7 @@ describe('loadDispatches records where the answer sits (FR-042)', () => {
             expect(rt.state.dispatches.page).toEqual(before);
         }
     });
+
 });
 
 describe('stepping through the set (FR-042)', () => {
@@ -346,6 +350,9 @@ describe('stepping through the set (FR-042)', () => {
             expect(rt.state.dispatches.page.pageIndex).toBe(1);
             expect(calls.at(-1)).toBe(`GET /v1/events?limit=25&cursor=${CURSOR_ONE}`);
         }
+    });
+
+    it('rolls the position back when the next page is refused', async () => {
         {
             const { rt } = doubleRuntime({
                 [PAGE_ONE]: {
@@ -362,6 +369,9 @@ describe('stepping through the set (FR-042)', () => {
             expect(rt.state.dispatches.status).toBe('error');
             expect(rt.state.dispatches.page).toEqual(before);
         }
+    });
+
+    it('steps nowhere when the answer reported no further page', async () => {
         {
             const { rt, calls } = doubleRuntime({
                 [PAGE_ONE]: { status: 200, body: answerBody([], pageMember()) },
@@ -373,6 +383,7 @@ describe('stepping through the set (FR-042)', () => {
             expect(calls).toHaveLength(1);
         }
     });
+
 });
 
 describe('changing the size and the filters (FR-042, FR-043)', () => {
@@ -389,6 +400,9 @@ describe('changing the size and the filters (FR-042, FR-043)', () => {
             expect(rt.state.dispatches.page.limit).toBe(50);
             expect(rt.state.dispatches.page.pageIndex).toBe(0);
         }
+    });
+
+    it('resets to page one and asks the service for the filtered set', async () => {
         {
             const { rt, calls } = doubleRuntime({
                 [PAGE_ONE_FILTERED]: {
@@ -403,6 +417,9 @@ describe('changing the size and the filters (FR-042, FR-043)', () => {
             expect(calls[0]).toBe(PAGE_ONE_FILTERED);
             expect(rt.state.dispatches.filters.bindingId).toBe('bnd_one');
         }
+    });
+
+    it('clears both filters and returns to the unfiltered first page', async () => {
         {
             const { rt, calls } = doubleRuntime({
                 [PAGE_ONE]: { status: 200, body: answerBody([], pageMember()) },
@@ -416,6 +433,7 @@ describe('changing the size and the filters (FR-042, FR-043)', () => {
             expect(rt.state.dispatches.filters).toEqual({ bindingId: null, state: null });
         }
     });
+
 });
 
 /** One binding the filter line and its options can name. */
@@ -604,11 +622,17 @@ describe('AC-122 a filter that matched nothing says so and offers the way out (F
                 'Filters: binding acme/one · all states',
             );
         }
+    });
+
+    it('keeps both filters visible even when neither is on', async () => {
         {
             const unfiltered = section();
 
             expect(hasActiveFilters(unfiltered)).toBe(false);
         }
+    });
+
+    it('applies a state filter server-side and resets to its first page', async () => {
         {
             const { rt, calls } = doubleRuntime({
                 [PAGE_ONE_STATE_FILTERED]: {
@@ -623,6 +647,9 @@ describe('AC-122 a filter that matched nothing says so and offers the way out (F
             expect(calls[0]).toBe(PAGE_ONE_STATE_FILTERED);
             expect(rt.state.dispatches.page.pageIndex).toBe(0);
         }
+    });
+
+    it('offers an explicit "all" alongside every binding and state token', async () => {
         {
             expect(bindingFilterOptions([FILTER_BINDING]).map((option) => option.id)).toEqual(['all', 'bnd_one']);
             const states = stateFilterOptions().map((option) => option.id);
@@ -635,6 +662,7 @@ describe('AC-122 a filter that matched nothing says so and offers the way out (F
             );
         }
     });
+
 });
 
 describe('AC-115 the resolve detail names what the operator has to check (FR-044)', () => {

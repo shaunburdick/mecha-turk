@@ -94,15 +94,15 @@ describe('data directory resolution', () => {
         {
             expect(resolveDataDir(homeEnv('/home/operator'))).toBe(resolve('/home/operator', STORE_RELATIVE_PATH));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('fails closed when the service environment has no HOME', async () => {
         {
             expect(() => resolveDataDir({})).toThrow(StorageUnavailableError);
             expect(() => resolveDataDir(homeEnv(''))).toThrow(StorageUnavailableError);
         }
     });
+
 });
 
 describe('store open', () => {
@@ -113,10 +113,9 @@ describe('store open', () => {
 
             expect(await modeOf(freshDir)).toBe(DATA_DIR_MODE);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('records the schema version in state.json', async () => {
         {
             const store = await openStore({ dataDir });
             const state = JSON.parse(await readFile(join(dataDir, STATE_FILE), 'utf8')) as Record<string, unknown>;
@@ -126,10 +125,9 @@ describe('store open', () => {
             expect(typeof state.initializedAt).toBe('string');
             expect(await modeOf(join(dataDir, STATE_FILE))).toBe(DATA_FILE_MODE);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('replaces an unreadable state.json instead of failing stuck', async () => {
         {
             await openStore({ dataDir });
             await writeFile(join(dataDir, STATE_FILE), '{"schemaVersion": 1', 'utf8');
@@ -142,6 +140,7 @@ describe('store open', () => {
             expect(files).toContain(STATE_FILE);
         }
     });
+
 });
 
 describe('atomic json writes', () => {
@@ -154,10 +153,9 @@ describe('atomic json writes', () => {
             const files = await readdir(dataDir);
             expect(files.filter((name) => isTempDebris(name))).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('replaces an existing document in one rename', async () => {
         {
             const target = join(dataDir, CONFIG_FILE);
             await writeJsonAtomic(target, { revision: 1 });
@@ -168,19 +166,17 @@ describe('atomic json writes', () => {
             const files = await readdir(dataDir);
             expect(files.filter((name) => isTempDebris(name))).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('reports a missing document as absent', async () => {
         {
             const result = await readJsonFile(join(dataDir, CONFIG_FILE), () => null);
 
             expect(result).toEqual({ status: 'absent' });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('quarantines a torn document and keeps serving', async () => {
         {
             const target = join(dataDir, CONFIG_FILE);
             await writeFile(target, '{"intervalMs": 60_00', 'utf8');
@@ -206,10 +202,9 @@ describe('atomic json writes', () => {
             const repaired = await readJsonFile(target, numericInterval);
             expect(repaired.status).toBe('ok');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('quarantines a document its validator rejects', async () => {
         {
             const target = join(dataDir, CONFIG_FILE);
             await writeFile(target, '{"intervalMs":"soon"}', 'utf8');
@@ -218,10 +213,9 @@ describe('atomic json writes', () => {
 
             expect(result.status).toBe('quarantined');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('reports the quarantine when another reader set the file aside first', async () => {
         {
             const target = join(dataDir, CONFIG_FILE);
             await writeFile(target, '{"intervalMs": 60_00', 'utf8');
@@ -245,6 +239,7 @@ describe('atomic json writes', () => {
         }
     });
 
+
     it('ignores a leftover temporary file when reading', async () => {
         {
             await writeFile(join(dataDir, `${CONFIG_FILE}.tmp.deadbeef`), 'not json', 'utf8');
@@ -253,10 +248,9 @@ describe('atomic json writes', () => {
 
             expect(result).toEqual({ status: 'absent' });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses paths that escape the data directory', async () => {
         {
             const store = await openStore({ dataDir });
 
@@ -264,6 +258,7 @@ describe('atomic json writes', () => {
             await expect(store.readJson('/etc/passwd', () => null)).rejects.toThrow(/relative path/);
         }
     });
+
 });
 
 describe('ndjson audit lines', () => {
@@ -279,10 +274,9 @@ describe('ndjson audit lines', () => {
             expect(result.entries.map((entry) => entry.seq)).toEqual([1, 2]);
             expect(await modeOf(join(dataDir, AUDIT_FILE))).toBe(DATA_FILE_MODE);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('skips a torn trailing line instead of throwing', async () => {
         {
             const target = join(dataDir, AUDIT_FILE);
             await appendJsonLine(target, { seq: 1 });
@@ -293,16 +287,16 @@ describe('ndjson audit lines', () => {
             expect(result.entries.map((entry) => entry.seq)).toEqual([1]);
             expect(result.malformed).toBe(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('treats a missing log as empty', async () => {
         {
             const result = await readJsonLines(join(dataDir, AUDIT_FILE), () => null);
 
             expect(result).toEqual({ entries: [], malformed: 0 });
         }
     });
+
 });
 
 describe('atomic line-file rewrites (006 T-011)', () => {
@@ -323,10 +317,9 @@ describe('atomic line-file rewrites (006 T-011)', () => {
             const files = await readdir(dataDir);
             expect(files.filter((name) => isTempDebris(name))).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('keeps the previous bytes when the rename fails, and leaves no debris', async () => {
         {
             const store = await openStore({ dataDir });
             await store.writeLines(AUDIT_FILE, [{ seq: 1 }, { seq: 2 }]);
@@ -345,10 +338,9 @@ describe('atomic line-file rewrites (006 T-011)', () => {
             const files = await readdir(dataDir);
             expect(files.filter((name) => isTempDebris(name))).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('creates a missing trail outright', async () => {
         {
             const store = await openStore({ dataDir });
 
@@ -359,6 +351,7 @@ describe('atomic line-file rewrites (006 T-011)', () => {
             expect(await modeOf(join(dataDir, AUDIT_FILE))).toBe(DATA_FILE_MODE);
         }
     });
+
 });
 
 describe('unwritable data directory', () => {
@@ -385,10 +378,9 @@ describe('SEC-13 atomic credential window', () => {
             expect(await modeOf(tempPath)).toBe(DATA_FILE_MODE);
             expect(dirname(tempPath)).toBe(join(dataDir, 'accounts'));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('ignores the umask when creating that temporary file', async () => {
         {
             const previousUmask = process.umask(0o000);
             try {
@@ -402,10 +394,9 @@ describe('SEC-13 atomic credential window', () => {
                 process.umask(previousUmask);
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('leaves no temporary debris behind a completed write', async () => {
         {
             const store = await openStore({ dataDir });
 
@@ -415,10 +406,9 @@ describe('SEC-13 atomic credential window', () => {
 
             expect(debris).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('sweeps orphaned temporary files at startup without touching real ones', async () => {
         {
             await mkdir(join(dataDir, 'accounts'), { recursive: true });
             const orphanTop = join(dataDir, 'state.json.tmpdeadbeef-0000-4000-8000-000000000002');
@@ -434,10 +424,9 @@ describe('SEC-13 atomic credential window', () => {
             await expect(stat(orphanNested)).rejects.toThrow();
             expect(await readFile(join(dataDir, 'keepme.json'), 'utf8')).toBe('{"keep":true}');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('corrects a permissive store directory back to owner-only at startup', async () => {
         {
             await openStore({ dataDir });
             await chmod(dataDir, 0o755);
@@ -447,10 +436,9 @@ describe('SEC-13 atomic credential window', () => {
 
             expect(await modeOf(dataDir)).toBe(DATA_DIR_MODE);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('reasserts owner-only modes on directories a write creates', async () => {
         {
             await openStore({ dataDir });
             const previousUmask = process.umask(0o000);
@@ -464,4 +452,5 @@ describe('SEC-13 atomic credential window', () => {
             expect(await modeOf(join(dataDir, 'accounts'))).toBe(DATA_DIR_MODE);
         }
     });
+
 });

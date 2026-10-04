@@ -925,6 +925,9 @@ describe('loadDispatches (read the history without lying about failures)', () =>
             expect(rt.state.dispatches.rows).toHaveLength(1);
             expect(rt.state.dispatches.note).toBe('');
         }
+    });
+
+    it('keeps the rows it holds and explains a refused refresh', async () => {
         {
             const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) } });
             const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
@@ -940,6 +943,9 @@ describe('loadDispatches (read the history without lying about failures)', () =>
             // The rows the operator was reading survive a failed refresh.
             expect(rt.state.dispatches.rows).toHaveLength(1);
         }
+    });
+
+    it('reports an unreadable body as unreadable instead of half-trusting it', async () => {
         {
             const service = serviceDouble({
                 [RUNS_GET]: { status: 200, body: JSON.stringify({ events: [{ id: 'half' }], page: pageMember(1) }) },
@@ -951,6 +957,9 @@ describe('loadDispatches (read the history without lying about failures)', () =>
             expect(rt.state.dispatches.status).toBe('error');
             expect(rt.state.dispatches.rows).toEqual([]);
         }
+    });
+
+    it('shows the empty state when the service has no events at all', async () => {
         {
             const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([]) } });
             const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
@@ -962,6 +971,9 @@ describe('loadDispatches (read the history without lying about failures)', () =>
             expect(dispatchesStatusText(rt.state.dispatches)).toBe(DISPATCHES_EMPTY_STATUS);
             expect(dispatchRows(rt.state.dispatches)).toEqual([]);
         }
+    });
+
+    it('drops a selection whose row disappeared', async () => {
         {
             const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([]) } });
             const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
@@ -972,6 +984,7 @@ describe('loadDispatches (read the history without lying about failures)', () =>
             expect(rt.state.dispatches.selectedRun).toBeNull();
         }
     });
+
 });
 
 describe('retryRun (POST, refresh, honest copy)', () => {
@@ -991,6 +1004,9 @@ describe('retryRun (POST, refresh, honest copy)', () => {
             expect(rt.state.dispatches.note).toContain('Requeued #7');
             expect(rt.state.dispatches.rows[0]?.state).toBe('pending');
         }
+    });
+
+    it('explains a 409 invalid-transition from the service envelope', async () => {
         {
             // The panel's row is stale (it still looks retryable, so the POST is
             // genuinely sent); the service knows better and answers 409.
@@ -1012,6 +1028,9 @@ describe('retryRun (POST, refresh, honest copy)', () => {
             // The refresh after the refusal shows the state the service actually holds.
             expect(rt.state.dispatches.rows[0]?.state).toBe('dispatched');
         }
+    });
+
+    it('refuses locally — without a POST — when the selected run already dispatched', async () => {
         {
             const dispatched = runFixture({ state: 'dispatched', dispatchResult: SESSION_RESULT });
             const { rt, service } = retryRuntime(dispatched, {
@@ -1022,6 +1041,9 @@ describe('retryRun (POST, refresh, honest copy)', () => {
 
             expect(service.calls).toEqual([]);
         }
+    });
+
+    it('does nothing when nothing is selected', async () => {
         {
             const service = serviceDouble({});
             const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
@@ -1033,6 +1055,7 @@ describe('retryRun (POST, refresh, honest copy)', () => {
             expect(rt.state.dispatches.note).toBe('');
         }
     });
+
 });
 
 describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
@@ -1073,6 +1096,9 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
             expect(JSON.parse(String(service.bodies[0]))).toEqual({ correlationId: RUN_ID, confirm: true });
             expect(rt.state.dispatches.pendingAction).toBeNull();
         }
+    });
+
+    it('reaches the two resolutions only from unconfirmed', async () => {
         {
             const waiting = runFixture({ state: 'pending' });
             const { rt, service } = retryRuntime(waiting, acceptedRoutes());
@@ -1084,6 +1110,9 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
             expect(rt.state.dispatches.pendingAction).toBeNull();
             expect(rt.state.dispatches.note).toContain(WAITING_REASON);
         }
+    });
+
+    it('states what to verify, warns, and shows the coordinates before resolving', async () => {
         {
             const wedge = runFixture({ state: UNCONFIRMED_STATE });
             const { rt, service } = retryRuntime(wedge, acceptedRoutes());
@@ -1111,6 +1140,9 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
                 sessionId: 'ses_operator_found',
             });
         }
+    });
+
+    it('sends no-session with no session id and the guidance it showed', async () => {
         {
             const wedge = runFixture({ state: UNCONFIRMED_STATE });
             const { rt, service } = retryRuntime(wedge, acceptedRoutes());
@@ -1124,6 +1156,9 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
             expect(body.decision).toBe('no-session');
             expect('sessionId' in body).toBe(false);
         }
+    });
+
+    it('echoes the run identity and the cause report a retry carries (contract §6)', async () => {
         {
             const failed = runFixture({ state: FAILED_STATE });
             const { rt, service } = retryRuntime(failed, acceptedRoutes());
@@ -1155,6 +1190,9 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
                 causeReport: expect.stringContaining('operator confirmed'),
             });
         }
+    });
+
+    it('renders the service verdict verbatim when an operation is refused', async () => {
         {
             const parked = runFixture({ state: DEAD_LETTERED_STATE });
             const verdict = 'this run is not dead-lettered; it is already waiting';
@@ -1173,6 +1211,7 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
             expect(rt.state.dispatches.note).toBe(verdict);
         }
     });
+
 
     it('gates every run operation behind one busy flag (T-025)', async () => {
         // The double holds every answer until the test releases it, so the
@@ -1282,6 +1321,9 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
                 meta: '2026-09-28 09:00',
             });
         }
+    });
+
+    it('starts idle, says so, and resets with the selection', async () => {
         {
             expect(auditStatusText(initialAuditHistory())).toBe(AUDIT_IDLE_STATUS);
             // The control is disabled while nothing is selected, so the idle line
@@ -1306,6 +1348,9 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             expect(rt.state.dispatches.audit.status).toBe('idle');
             expect(rt.state.dispatches.audit.rows).toEqual([]);
         }
+    });
+
+    it('refuses an unreadable body instead of half-showing it (fail closed)', async () => {
         {
             const service = serviceDouble({
                 [AUDIT_GET]: { status: 200, body: '{"entries":[{"seq":"one"}]}' },
@@ -1320,6 +1365,9 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             expect(parseAuditBody('{"entries":[]}')).toEqual([]);
             expect(parseAuditBody('{"nope":[]}')).toBeNull();
         }
+    });
+
+    it('renders hostile reason and details as inert text', async () => {
         {
             const hostile = auditEntry({
                 reason: '<img src=x onerror="steal()">',
@@ -1331,6 +1379,9 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             const items = auditItems(auditState({ status: 'ready', correlationId: RUN_ID, rows: rows ?? [] }));
             expect(items[0]?.subtitle).toBe('<img src=x onerror="steal()"> · {"note":"<script>alert(1)</script>"}');
         }
+    });
+
+    it('bounds the list and marks every cut', async () => {
         {
             const many = Array.from({ length: AUDIT_ROW_LIMIT + 50 }, (_value, index) => auditEntry({
                 seq: index + 1 }));
@@ -1346,6 +1397,9 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             expect(subtitle.endsWith('…')).toBe(true);
             expect(subtitle.length).toBeLessThanOrEqual(161);
         }
+    });
+
+    it('warns when the service cannot be reached, and keeps nothing', async () => {
         {
             const rt = createTestRuntime(fakeHost({
                 serviceRequest: async () => {
@@ -1361,6 +1415,7 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             expect(rt.state.dispatches.audit.note).toContain('unreachable');
         }
     });
+
 });
 
 describe('selection, open, and the pane handler table', () => {
@@ -1376,6 +1431,9 @@ describe('selection, open, and the pane handler table', () => {
             expect(rt.state.dispatches.selectedRun).toBe(RUN_ID);
             expect(selectedRun(rt.state.dispatches)?.issueUrl).toBe(ISSUE_URL);
         }
+    });
+
+    it('opens the selected run’s issue through the documented host call', async () => {
         {
             const opened: string[] = [];
             const host = fakeHost({
@@ -1391,6 +1449,9 @@ describe('selection, open, and the pane handler table', () => {
             expect(opened).toEqual([ISSUE_URL]);
             expect(rt.state.dispatches.note).toBe('');
         }
+    });
+
+    it('lands an openUrl failure on the note instead of throwing', async () => {
         {
             const host = fakeHost({ openUrl: () => Promise.reject(new Error('HOST_REJECTED')) });
             const rt = createTestRuntime(host);
@@ -1400,6 +1461,9 @@ describe('selection, open, and the pane handler table', () => {
 
             expect(rt.state.dispatches.note).toContain('HOST_REJECTED');
         }
+    });
+
+    it('wires Refresh dispatches through the pane handler table to a real read', async () => {
         {
             const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) } });
             const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
@@ -1412,6 +1476,7 @@ describe('selection, open, and the pane handler table', () => {
             expect(rt.state.dispatches.rows).toHaveLength(1);
         }
     });
+
 });
 
 /* -------------------------------------------------------------------- *

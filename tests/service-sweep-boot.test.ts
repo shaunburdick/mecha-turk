@@ -240,8 +240,9 @@ describe('T-010 boot sweep ordering', () => {
             expect(rows).toHaveLength(1);
             expect((rows[0] as { details: { migrationRecovery: boolean } }).details.migrationRecovery).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('leaves a live lease alone across a restart, and recovers the same run once', async () => {
         {
             const dataDir = await seedStrandedClaim();
             const first = await startTestService({ dataDir });
@@ -286,6 +287,7 @@ describe('T-010 boot sweep ordering', () => {
                 .toEqual(firstClaim.map((run) => run.correlationId));
         }
     });
+
 });
 
 describe('T-045 the pass adopts under the stamp it judges with', () => {
@@ -339,8 +341,9 @@ describe('T-010 the periodic sweep', () => {
             expect(recoveries[0]).not.toContain('octocat');
             expect(recoveries[0]).not.toMatch(/gh[pousr]_[A-Za-z0-9]{16,}/);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('stops on shutdown, leaving the timer to the process exit', async () => {
         {
             const root = await mkdtemp(join(tmpdir(), 'mecha-turk-sweep-timer-'));
             scratch = root;
@@ -357,6 +360,7 @@ describe('T-010 the periodic sweep', () => {
             expect(lines).toEqual([]);
         }
     });
+
 });
 
 describe('T-010 a degraded start', () => {

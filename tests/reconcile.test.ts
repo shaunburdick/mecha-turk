@@ -286,6 +286,9 @@ describe('reconciliation is never silent (FR-025)', () => {
                 stopRelayPolling(relay.rt);
             }
         }
+    });
+
+    it('puts the service\'s own refusal copy on the panel note (contract §2)', async () => {
         {
             const relay = harness({
                 ...okRoutes(),
@@ -305,6 +308,9 @@ describe('reconciliation is never silent (FR-025)', () => {
             expect(relay.rt.state.bindings.note).toContain(RUN_A);
             expect(relay.rt.state.status.body).toContain(RUN_A);
         }
+    });
+
+    it('stops at the budget and names the run it never reached', async () => {
         {
             const relay = harness();
             await record(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A, attempt: 1, outcome: {
@@ -332,6 +338,9 @@ describe('reconciliation is never silent (FR-025)', () => {
             expect(relay.rt.state.status.body).toContain(RUN_B);
             expect(relay.rt.state.status.body).not.toContain(RUN_A);
         }
+    });
+
+    it('warns when the record itself is unreadable, and reports nothing', async () => {
         {
             const relay = harness();
             await relay.rt.host.storage.set(DISPATCH_STORAGE_KEY, {
@@ -346,6 +355,7 @@ describe('reconciliation is never silent (FR-025)', () => {
             expect(relay.rt.state.status.tone).toBe('warning');
         }
     });
+
 });
 
 describe('reconciliation of nothing (FR-025 wipe permutation)', () => {

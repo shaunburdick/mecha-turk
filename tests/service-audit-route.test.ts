@@ -295,10 +295,9 @@ describe('T-017 the correlation filter is a byte-exact string equality', () => {
             expect(nonRun?.entity.kind).toBe('account');
             expect(nonRun?.details.deliveryIds).toEqual(['evt-acme~audit-route~9~77331']);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('answers an unknown id with 200 and zero entries, and never widens a near-miss', async () => {
         {
             const service = await startServiceForTest();
             await seedRows({ correlationId: SEEDED_RUN_ID, count: 3 });
@@ -328,6 +327,7 @@ describe('T-017 the correlation filter is a byte-exact string equality', () => {
             expect(padded.json.entries).toEqual([]);
         }
     });
+
 });
 
 describe('T-017 pagination chains with no duplicate and no gap', () => {
@@ -389,10 +389,9 @@ describe('T-017 limit is clamped, never refused', () => {
             expect(nonsense.status).toBe(200);
             expect(nonsense.json.count).toBe(100);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a cursor that is no sequence number, naming the field and not its value', async () => {
         {
             const service = await startServiceForTest();
             await seedRows({ correlationId: SEEDED_RUN_ID, count: 3 });
@@ -410,6 +409,7 @@ describe('T-017 limit is clamped, never refused', () => {
             expect(refused.text).not.toContain('not-a-seq');
         }
     });
+
 });
 
 describe('T-017 the transport rules hold on the audit path', () => {
@@ -434,10 +434,9 @@ describe('T-017 the transport rules hold on the audit path', () => {
             expect(small.status).toBe(200);
             expect(small.json.count).toBe(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('requires the bearer token before routing, with no route oracle', async () => {
         {
             const service = await startServiceForTest();
 
@@ -454,10 +453,9 @@ describe('T-017 the transport rules hold on the audit path', () => {
             expect(await wrong.text()).toBe(missingText);
             expect(await invented.text()).toBe(missingText);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('answers a wrong verb with 405 and an Allow header naming GET', async () => {
         {
             const service = await startServiceForTest();
 
@@ -468,10 +466,9 @@ describe('T-017 the transport rules hold on the audit path', () => {
             const body = (await response.json()) as { error?: { code?: string } };
             expect(body.error?.code).toBe('method-not-allowed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('answers an unreadable trail with 503 storage-unavailable, not a 500', async () => {
         {
             const service = await startServiceForTest({ unreadableTrail: true });
 
@@ -482,6 +479,7 @@ describe('T-017 the transport rules hold on the audit path', () => {
             expect(body.error?.code).toBe('storage-unavailable');
         }
     });
+
 });
 
 describe('T-017 entries come back as stored, projected by nothing', () => {
@@ -517,10 +515,9 @@ describe('T-017 entries come back as stored, projected by nothing', () => {
             expect(answer.json.entries[0]?.redaction).toEqual({ redacted: false, fields: [] });
             expect(answer.json.entries[0]?.details.fixture).toBe(0);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('sees a row appended after the last answer, with no repair step in between', async () => {
         {
             // The trail this route reads is the same file the writer appends to —
             // no second copy, no derived index — so a row appended after the last
@@ -537,4 +534,5 @@ describe('T-017 entries come back as stored, projected by nothing', () => {
             expect(after.json.entries[0]?.seq).toBe(before.json.entries[0]?.seq);
         }
     });
+
 });

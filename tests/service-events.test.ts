@@ -1082,12 +1082,9 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             const answer = (await untouched.json()) as HistoryBody;
             expect(answer.events).toHaveLength(6);
         }
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a cursor this service did not issue instead of restarting at page one', async () => {
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1098,12 +1095,9 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             expect(body.error.code).toBe('validation');
             expect(body.error.issues[0]?.field).toBe('cursor');
         }
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a state outside the dispatch vocabulary', async () => {
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1116,12 +1110,9 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             expect(body.error.issues[0]?.remediation).toContain('blocked');
             expect(body.error.issues[0]?.remediation).not.toContain('bogus');
         }
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('returns both blocked-family rows for state=blocked and only failed for state=failed', async () => {
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1138,12 +1129,9 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             expect(failed.events).toHaveLength(1);
             expect(failed.events[0]?.state).toBe('failed');
         }
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('composes a binding filter with every page and reports one total', async () => {
         {
             const seeds = Array.from({ length: 12 }, (_, index) => ({
                 issueNumber: index + 1,
@@ -1175,12 +1163,9 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             expect(seen).toHaveLength(6);
             expect(new Set(seen).size).toBe(6);
         }
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('answers an unknown binding id with an empty set rather than a 404', async () => {
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1193,6 +1178,7 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             expect(answer.page.filter.bindingId).toBe('bnd-nothing');
         }
     });
+
 
     it('keeps the order stable when rows share a detection stamp', async () => {
         {
@@ -1210,12 +1196,9 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             // The tiebreak is the row key descending, so the boundary is exact.
             expect(String(first.events[0]?.correlationId) > String(first.events[1]?.correlationId)).toBe(true);
         }
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never reports the page size as the total', async () => {
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1236,6 +1219,7 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             }).total).toBeNull();
         }
     });
+
 });
 
 /**

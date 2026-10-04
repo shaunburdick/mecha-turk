@@ -143,10 +143,9 @@ describe('audit sequence and chain (M6, W2-2)', () => {
             // Exactly the seed: three appends, one file read.
             expect(reads.count()).toBe(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('continues a trail that existed before the store opened', async () => {
         {
             await plantTrail();
             const store = await openStore({ dataDir });
@@ -164,10 +163,9 @@ describe('audit sequence and chain (M6, W2-2)', () => {
             await appendAudit(store, sampleRow(STARTED_EVENT));
             expect(reads.count()).toBe(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('serializes concurrent appends so seq stays unique and file-ordered', async () => {
         {
             const store = await openStore({ dataDir });
 
@@ -182,6 +180,7 @@ describe('audit sequence and chain (M6, W2-2)', () => {
             expect(stored.map((entry) => entry.seq)).toEqual([1, 2, 3]);
         }
     });
+
 });
 
 /** Let every pending microtask plus one macrotask turn run; never sleeps. */
@@ -244,10 +243,9 @@ describe('chain join and entry composer (006 T-011)', () => {
             expect(await Promise.all([first, second])).toEqual(['first', 'second']);
             expect(order).toEqual([FIRST_START, FIRST_END, SECOND_RUN]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('composes the entry appendAudit would write, without writing a line', async () => {
         {
             const composing = await openStore({ dataDir });
             const appending = await openStore({ dataDir: join(tempRoot, 'appended-store') });
@@ -264,10 +262,9 @@ describe('chain join and entry composer (006 T-011)', () => {
             const next = await appendAudit(composing, input);
             expect(next.seq).toBe(2);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('runs the writer’s redaction pass over a composed entry', async () => {
         {
             const store = await openStore({ dataDir });
             const input: AuditInput = {
@@ -283,4 +280,5 @@ describe('chain join and entry composer (006 T-011)', () => {
             expect(JSON.stringify(composed)).toContain('[redacted:github-token-classic]');
         }
     });
+
 });

@@ -60,6 +60,9 @@ describe('no consent step remains between the paste and the request (002 v1.9.0)
             expect(Object.hasOwn(body, 'consentVersion')).toBe(false);
             expectNoCredential(host);
         }
+    });
+
+    it('holds no consent state or consent storage of its own', async () => {
         {
             const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
 
@@ -71,6 +74,7 @@ describe('no consent step remains between the paste and the request (002 v1.9.0)
             expect([...host.storage.values.keys()]).not.toContain('consent');
         }
     });
+
 });
 
 describe('successful handoff (contract §2 steps ⑧⑨)', () => {
@@ -92,6 +96,9 @@ describe('successful handoff (contract §2 steps ⑧⑨)', () => {
             ]);
             expectNoCredential(host);
         }
+    });
+
+    it('leaves the input re-enabled for the next handoff after a success', async () => {
         {
             const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
 
@@ -100,6 +107,7 @@ describe('successful handoff (contract §2 steps ⑧⑨)', () => {
             expect(handoffInputEnabled(host.rt.state.handoff)).toBe(true);
         }
     });
+
 });
 
 describe('post-connect Bindings reload (MVP fix 3, accounts dropdown)', () => {
@@ -176,6 +184,9 @@ describe('host transport failures (F1–F4, F16, panel-service §1)', () => {
                 expectNoCredential(host);
             }
         }
+    });
+
+    it('re-reads /v1/status after a timeout and adopts the account that appeared (F4)', async () => {
         {
             const appeared = JSON.stringify({
                 service: { storage: { writable: true } },
@@ -204,6 +215,7 @@ describe('host transport failures (F1–F4, F16, panel-service §1)', () => {
             expectNoCredential(host);
         }
     });
+
 });
 
 describe('service refusal copy (F5–F15, contract §4)', () => {
@@ -230,6 +242,9 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
                 expectNoCredential(host);
             }
         }
+    });
+
+    it('renders reason-specific copy for a credential rejection', async () => {
         {
             const envelope = JSON.stringify({
                 error: { code: CREDENTIAL_REJECTED, message: 'fixed', reasonClass: 'sso-required' },
@@ -241,6 +256,9 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
             expect(host.record.note).toContain('SSO');
             expectNoCredential(host);
         }
+    });
+
+    it('renders §4\'s reason-class wording verbatim for auth-failed and scope-missing (W2-4)', async () => {
         {
             const catalog: readonly (readonly [string, string])[] = [
                 ['auth-failed', 'create a fresh PAT and paste it again'],
@@ -260,6 +278,7 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
             }
         }
     });
+
 
 });
 
@@ -306,6 +325,9 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
             ]);
             expectNoCredential(host);
         }
+    });
+
+    it('keeps the duplicate-refusal copy when the adoption read still fails', async () => {
         {
             // The default scripted double answers every non-status path (the
             // adoption's GET /v1/accounts included) with the 409 envelope, so the
@@ -318,6 +340,9 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
             expect(host.record.pasteVisible).toBe(true);
             expectNoCredential(host);
         }
+    });
+
+    it('re-reads the Bindings tab lists so the dropdown offers the adopted account', async () => {
         {
             const host = await scriptedRuntime((request) => {
                 if (request.path === STATUS_PATH) {
@@ -350,6 +375,7 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
             expectNoCredential(host);
         }
     });
+
 });
 
 describe('storage pre-flight (F10/F14, SEC-08)', () => {
@@ -366,6 +392,9 @@ describe('storage pre-flight (F10/F14, SEC-08)', () => {
             expect(host.record.tokenEnabled).toBe(false);
             expectNoCredential(host);
         }
+    });
+
+    it('marks storage unwritable when a submission hits 503 (F14)', async () => {
         {
             const envelope = JSON.stringify({ error: { code: 'storage-unavailable', message: 'fixed' } });
             const host = await scriptedRuntime(serviceScript({ status: 503, body: envelope }));
@@ -375,6 +404,9 @@ describe('storage pre-flight (F10/F14, SEC-08)', () => {
             expect(host.rt.state.handoff.storageWritable).toBe(false);
             expectNoCredential(host);
         }
+    });
+
+    it('records the pre-flight baseline the F4 re-read compares against', async () => {
         {
             const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
 
@@ -385,5 +417,6 @@ describe('storage pre-flight (F10/F14, SEC-08)', () => {
             expect(host.requests.map((request) => request.path)).toEqual([STATUS_PATH]);
         }
     });
+
 });
 

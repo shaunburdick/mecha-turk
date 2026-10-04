@@ -209,6 +209,9 @@ describe('the configuration is editable in exactly one tab (006 AC-141, SC-113, 
             // as surely as at two (a second rendering appeared).
             expect(configurationLabels(settings as TabRender)).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
         }
+    });
+
+    it('AC-141: the poll interval is rendered on Settings, and on no other tab but Status', async () => {
         {
             const renders = await renderAllTabs(runtime());
 
@@ -225,6 +228,7 @@ describe('the configuration is editable in exactly one tab (006 AC-141, SC-113, 
             }
         }
     });
+
 });
 
 describe('the other tabs grow no configuration or credential control (006 AC-142, FR-082)', () => {
@@ -238,6 +242,9 @@ describe('the other tabs grow no configuration or credential control (006 AC-142
                 expect(configurationLabels(render as TabRender)).toEqual([]);
             }
         }
+    });
+
+    it('mounts no password field anywhere, and no credential word on Settings', async () => {
         {
             const renders = await renderAllTabs(runtime());
 
@@ -254,6 +261,7 @@ describe('the other tabs grow no configuration or credential control (006 AC-142
             expect(labelled).toEqual([]);
         }
     });
+
 });
 
 describe('every configuration control is operable and named (006 FR-018, FR-039, NFR-107)', () => {
@@ -279,6 +287,9 @@ describe('every configuration control is operable and named (006 FR-018, FR-039,
                 expect(typeof props.onChange).toBe('function');
             }
         }
+    });
+
+    it('offers exactly one save, discard, and restore control', async () => {
         {
             const renders = await renderAllTabs(runtime());
             const settings = renders.find((render) => render.id === 'settings');
@@ -295,4 +306,5 @@ describe('every configuration control is operable and named (006 FR-018, FR-039,
             }
         }
     });
+
 });

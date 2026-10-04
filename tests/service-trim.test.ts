@@ -369,10 +369,9 @@ describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', (
             expect(trimmed?.entity).toEqual({ kind: 'service', id: 'configuration' });
             expect(trimmed?.reason).toContain(DAY_WINDOW);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('keeps a chronologically ordered run\'s final-state row and creation row', async () => {
         {
             // The order a dispatched run really writes in: detection opens the
             // chain, the run is created, the panel claims and reserves, the result
@@ -422,10 +421,9 @@ describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', (
                 malformedLinesDropped: 0,
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('protects account and binding rows only while their subject still exists', async () => {
         {
             await plantSubjects();
             await plantTrail([
@@ -487,10 +485,9 @@ describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', (
                 trail.filter((entry) => entry.entity.kind === 'account' || entry.entity.kind === 'binding'),
             ).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('writes nothing when both limits are satisfied', async () => {
         {
             const rows = [
                 trailRow({ seq: 1, eventType: SERVICE_STARTED, correlationId: 'chain-fresh', timestamp: RECENT }),
@@ -511,6 +508,7 @@ describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', (
             expect(await trimRows()).toEqual([]);
         }
     });
+
 });
 
 describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
@@ -541,10 +539,9 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
             const afterCapPass = await trimRows();
             expect(afterCapPass.map((entry) => entry.seq)).toEqual([11]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('stays at the cap on a second pass instead of oscillating one row per cycle', async () => {
         {
             await plantTrail(
                 Array.from({ length: 10 }, (_, index) =>
@@ -567,10 +564,9 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
             expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(afterFirst);
             expect(await trimRows()).toHaveLength(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never removes a protected row to satisfy a cap, and records the excess', async () => {
         {
             const protectedRows = Array.from({ length: 8 }, (_, index) =>
                 trailRow({
@@ -607,10 +603,9 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
             expect(trimmed?.details.minimalReferencesPreserved).toBe(8);
             expect(trimmed?.details.limitReached).toBe('entry-cap');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('does not oscillate when the protected set sits exactly at the cap', async () => {
         {
             // Six protected rows for a cap of six: after the first pass the trail
             // is those six plus the record of the removal, so the previous
@@ -651,10 +646,9 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
             expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(afterFirst);
             expect(await trimRows()).toHaveLength(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('ages a previous trim row out under the day window while the cap leaves it alone', async () => {
         {
             const protectedRows = Array.from({ length: 4 }, (_, index) =>
                 trailRow({
@@ -684,10 +678,9 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
             expect(rows.map((entry) => entry.seq)).toEqual([6]);
             expect(rows[0]?.details).toMatchObject({ entriesRemoved: 1, limitReached: DAY_WINDOW });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('writes nothing at all when every row is protected, however far over the cap', async () => {
         {
             const rows = Array.from({ length: 6 }, (_, index) =>
                 trailRow({
@@ -714,6 +707,7 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
             expect(await trimRows()).toEqual([]);
         }
     });
+
 });
 
 describe('audit trim: durability (006 T-012, FR-053, FR-055)', () => {
@@ -736,10 +730,9 @@ describe('audit trim: durability (006 T-012, FR-053, FR-055)', () => {
             expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).toBe(before);
             expect(await trimRows()).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never renumbers seq across two consecutive passes', async () => {
         {
             await plantTrail(
                 Array.from({ length: 12 }, (_, index) =>
@@ -768,10 +761,9 @@ describe('audit trim: durability (006 T-012, FR-053, FR-055)', () => {
             // A later append still continues the trail's own sequence.
             expect(Math.max(...afterSecond)).toBe(13);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('serializes with an append so a row written meanwhile survives the rewrite', async () => {
         {
             await plantTrail(
                 Array.from({ length: 6 }, (_, index) =>
@@ -803,10 +795,9 @@ describe('audit trim: durability (006 T-012, FR-053, FR-055)', () => {
             const seqs = trail.map((entry) => entry.seq);
             expect(new Set(seqs).size).toBe(seqs.length);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('records unreadable lines it erases, and leaves them alone when it does not trim', async () => {
         {
             const rows = [
                 trailRow({ seq: 1, eventType: SERVICE_STARTED, correlationId: 'chain-torn-a', timestamp: LONG_AGO }),
@@ -845,4 +836,5 @@ describe('audit trim: durability (006 T-012, FR-053, FR-055)', () => {
             expect(await readFile(join(dataDir, AUDIT_FILE), 'utf8')).not.toContain(torn);
         }
     });
+
 });

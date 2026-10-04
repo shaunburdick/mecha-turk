@@ -247,8 +247,9 @@ describe('GET /v1/status polling is computed, never literal (005 FR-031, SC-101)
             expect(body.polling.nextPollAt).not.toBeNull();
             expect(Date.parse(body.polling.nextPollAt ?? '')).toBeGreaterThan(Date.now());
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('reports a stopped loop with no active binding as no-active-bindings', async () => {
         {
             const service = await start();
             service.handle.poll?.stop();
@@ -259,8 +260,9 @@ describe('GET /v1/status polling is computed, never literal (005 FR-031, SC-101)
             expect(body.polling.nextPollAt).toBeNull();
             expect(body.polling.pausedReason).toBe('no-active-bindings');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('answers an unusable data directory with store-unavailable', async () => {
         {
             const service = await start({ dataDir: await blockedDataDir() });
 
@@ -271,8 +273,9 @@ describe('GET /v1/status polling is computed, never literal (005 FR-031, SC-101)
             expect(body.polling.nextPollAt).toBeNull();
             expect(body.polling.pausedReason).toBe('store-unavailable');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('names shutdown as stopping rather than guessing another reason', async () => {
         {
             const slot = createPollingView();
             slot.beginShutdown();
@@ -285,8 +288,9 @@ describe('GET /v1/status polling is computed, never literal (005 FR-031, SC-101)
                 activeBindings: 3,
             })).toBe('stopping');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('keeps the vocabulary closed and emits only its members', async () => {
         {
             expect([...PAUSED_REASONS]).toEqual([
                 'config-incomplete',
@@ -301,8 +305,9 @@ describe('GET /v1/status polling is computed, never literal (005 FR-031, SC-101)
                 expect(isPausedReason(reason)).toBe(true);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('reports config-incomplete only when the loop is stopped behind an active binding', async () => {
         {
             expect(pausedReasonOf({
                 storeUsable: true,
@@ -318,6 +323,7 @@ describe('GET /v1/status polling is computed, never literal (005 FR-031, SC-101)
             })).toBe('');
         }
     });
+
 });
 
 describe('the scheduler view reads the loop rather than copying it (005 FR-031)', () => {
@@ -328,8 +334,9 @@ describe('the scheduler view reads the loop rather than copying it (005 FR-031)'
             expect(slot.view.isRunning()).toBe(false);
             expect(nextPollAtOf(slot.view, DEFAULT_CONFIG.intervalMs)).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('reports the armed stamp exactly while the loop runs', async () => {
         {
             const slot = createPollingView();
             const at = Date.now() + 5_000;
@@ -338,8 +345,9 @@ describe('the scheduler view reads the loop rather than copying it (005 FR-031)'
             expect(slot.view.isRunning()).toBe(true);
             expect(nextPollAtOf(slot.view, DEFAULT_CONFIG.intervalMs)).toBe(new Date(at).toISOString());
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('falls back to the earliest possible stamp while the first cycle runs', async () => {
         {
             const slot = createPollingView();
             slot.observe(scriptedLoop({ stopped: false, nextPollAtMs: null }));
@@ -348,8 +356,9 @@ describe('the scheduler view reads the loop rather than copying it (005 FR-031)'
             expect(parsed).toBeGreaterThan(Date.now());
             expect(parsed).toBeLessThanOrEqual(Date.now() + DEFAULT_CONFIG.intervalMs);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('forgets the schedule the moment the loop is stopped', async () => {
         {
             const slot = createPollingView();
             const at = Date.now() + 1_000;
@@ -359,10 +368,11 @@ describe('the scheduler view reads the loop rather than copying it (005 FR-031)'
             expect(nextPollAtOf(slot.view, DEFAULT_CONFIG.intervalMs)).toBeNull();
         }
     });
+
 });
 
 describe('GET /v1/status repositories — one row per stored binding (005 FR-032, SC-102)', () => {
-    it('keeps the member named repositories (FR-026)', async () => {
+    it('keeps the member named repositories', async () => {
         {
             const service = await start();
 
@@ -371,8 +381,9 @@ describe('GET /v1/status repositories — one row per stored binding (005 FR-032
             expect(Object.keys(body)).toContain('repositories');
             expect(Array.isArray(body.repositories)).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('answers a store with no bindings as an honest empty (AC-104, zero bindings)', async () => {
         {
             const service = await start();
 
@@ -380,8 +391,9 @@ describe('GET /v1/status repositories — one row per stored binding (005 FR-032
 
             expect(body.repositories).toEqual([]);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('rows one binding with every member AC-104 names', async () => {
         {
             const service = await start();
             await plantBindings(service, [bindingRow('one')]);
@@ -401,8 +413,9 @@ describe('GET /v1/status repositories — one row per stored binding (005 FR-032
             expect(row?.pendingCount).toBe(0);
             expect(row?.readable).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('rows the allow-list\'s shape, never a login (005 FR-093, NFR-113)', async () => {
         {
             const service = await start();
             await plantBindings(service, [
@@ -422,8 +435,9 @@ describe('GET /v1/status repositories — one row per stored binding (005 FR-032
             // The permitted set never leaves `bindings.json`.
             expect(JSON.stringify(body)).not.toContain('alice');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('rows five bindings, each with its own stamp, reason, and count', async () => {
         {
             const service = await start();
             const rows = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].map((suffix) => bindingRow(suffix));
@@ -450,8 +464,9 @@ describe('GET /v1/status repositories — one row per stored binding (005 FR-032
             expect(beta?.lastScanAt).toBe(LATER_STAMP);
             expect(beta?.lastError).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('marks a binding disabled by its operator as not active', async () => {
         {
             const service = await start();
             await plantBindings(service, [bindingRow('off', 'disabled')]);
@@ -460,8 +475,9 @@ describe('GET /v1/status repositories — one row per stored binding (005 FR-032
 
             expect(body.repositories[0]?.active).toBe(false);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('rows an unreadable projection with readable false instead of omitting it', async () => {
         {
             const service = await start();
             await plantBindings(service, [bindingRow('unreadable')]);
@@ -480,6 +496,7 @@ describe('GET /v1/status repositories — one row per stored binding (005 FR-032
             expect(body.agentPin.lastVerification).toEqual({ available: false, reason: 'no-service-mirror' });
         }
     });
+
 
     it('refuses rather than inventing rows when the bindings themselves cannot be read', async () => {
         const service = await start();
@@ -501,8 +518,9 @@ describe('GET /v1/status agentPin.lastVerification is widened (005 FR-033, AC-10
             expect(body.agentPin.lastVerification).toBeNull();
             expect(body.agentPin.expectedAgent).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('reports the explicit not-available marker when the runs cannot be read', async () => {
         {
             const service = await start();
             await writeFile(join(service.dataDir, RUNS_FILE), 'not json at all', 'utf8');
@@ -511,8 +529,9 @@ describe('GET /v1/status agentPin.lastVerification is widened (005 FR-033, AC-10
 
             expect(body.agentPin.lastVerification).toEqual({ available: false, reason: 'no-service-mirror' });
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('projects the freshest read-back the service holds', async () => {
         {
             const older: RunVerification = {
                 observedAgent: OTHER_AGENT,
@@ -544,6 +563,7 @@ describe('GET /v1/status agentPin.lastVerification is widened (005 FR-033, AC-10
             expect(mostRecentVerification([{ verification: null }])).toBeNull();
         }
     });
+
 });
 
 describe('GET /v1/status rate honesty (005 FR-034, AC-107)', () => {

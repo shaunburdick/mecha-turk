@@ -258,6 +258,9 @@ describe('the group carries a submit control and no consent dialog (002 v1.9.0)'
             // attribute the button keeps only its transparent base border.
             expect(mounted.submit.attribute(VARIANT_ATTRIBUTE)).toBe('default');
         }
+    });
+
+    it('mounts neither an Accept nor a Decline decision anywhere in the group', async () => {
         {
             const mounted = await mountHandoff({
                 name: 'the missing consent dialog',
@@ -274,6 +277,7 @@ describe('the group carries a submit control and no consent dialog (002 v1.9.0)'
             expect(mounted.created.some((node) => node.className === 'mt-toolbar')).toBe(false);
         }
     });
+
 });
 
 describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
@@ -289,6 +293,9 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(mounted.input.attribute('type')).toBe('password');
             expect(mounted.expected.attribute('type')).toBe('text');
         }
+    });
+
+    it('sends no expectedLogin member when the field is left empty', async () => {
         {
             const mounted = await mountHandoff({
                 name: 'an empty expected login',
@@ -307,6 +314,9 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(mounted.input.value).toBe('');
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
         }
+    });
+
+    it('sends the expected login the operator typed, trimmed', async () => {
         {
             const mounted = await mountHandoff({
                 name: 'a typed expected login',
@@ -321,6 +331,9 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(verifyBody(mounted)?.expectedLogin).toBe('OctoCat-MT');
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
         }
+    });
+
+    it('renders the mismatch refusal with its own copy and never the token (002 FR-009)', async () => {
         {
             const refusal = JSON.stringify({
                 error: { code: 'account-rejected', message: 'contract-fixed' },
@@ -340,6 +353,9 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
             expect(currentHandoffToken()).toBeUndefined();
         }
+    });
+
+    it('routes the same paste to the token-replacement path once a row arms it', async () => {
         {
             const rotated = JSON.stringify({
                 numericUserId: CONNECTED_ID,
@@ -381,4 +397,5 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
         }
     });
+
 });

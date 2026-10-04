@@ -297,10 +297,9 @@ describe('an accepted write records exactly one applied row (006 T-015, AC-135, 
             // Its own identifier: a configuration change belongs to no run.
             expect(row?.correlationId).not.toMatch(RUN_ID_PATTERN);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('records nothing for a write that changed nothing (006 T-015, AC-127, FR-048)', async () => {
         {
             const service = await startService();
             const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000 };
@@ -317,6 +316,7 @@ describe('an accepted write records exactly one applied row (006 T-015, AC-135, 
             expect(configRows(await trailOf(service))).toHaveLength(1);
         }
     });
+
 });
 
 describe('a refused write records one value-free row (006 T-015, AC-136, AC-113, FR-072)', () => {

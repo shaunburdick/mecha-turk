@@ -841,7 +841,7 @@ describe('AC-142 the allow-list is one field whose guidance states all three sta
  * -------------------------------------------------------------------- */
 
 describe('AC-143 twelve permitted logins render exactly once, and the row reads a count', () => {
-    it('counts one carrier per login across all six tabs', async () => {
+    it('the twelve strings appear exactly once panel-wide, and the rows count', async () => {
         {
             freshJournal();
             const rt = createTestRuntime(fakeHost());
@@ -886,6 +886,9 @@ describe('AC-143 twelve permitted logins render exactly once, and the row reads 
             rt.shell?.dispose();
         }
 
+    });
+
+    it('the counter itself answers 0 and 2 alike — it is not shaped to answer 1', async () => {
         {
             // Nothing carries this: a vanished field would read this way rather
             // than the count agreeing with itself.
@@ -898,6 +901,7 @@ describe('AC-143 twelve permitted logins render exactly once, and the row reads 
             release(mounted);
         }
     });
+
 });
 
 /* -------------------------------------------------------------------- *
@@ -964,7 +968,7 @@ describe('AC-144 a binding with no list is warned about, in words and not as an 
  * -------------------------------------------------------------------- */
 
 describe('the whole-file write states the allow-list on every row (contract §2)', () => {
-    it('carries the operator array, omits the key when cleared, and never sends []', async () => {
+    it('every row carries the member, and an untouched row keeps its own', async () => {
         {
             const mounted = editor({
                 rows: [
@@ -986,6 +990,9 @@ describe('the whole-file write states the allow-list on every row (contract §2)
             release(mounted);
         }
 
+    });
+
+    it('the edited row carries the operator\'s array', async () => {
         {
             const mounted = editor({
                 rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, allowedUsers: ['alice'] })],
@@ -1000,6 +1007,9 @@ describe('the whole-file write states the allow-list on every row (contract §2)
             release(mounted);
         }
 
+    });
+
+    it('a cleared field omits the key — the binding goes back to open', async () => {
         {
             const mounted = editor({
                 rows: [bindingRow({
@@ -1021,6 +1031,9 @@ describe('the whole-file write states the allow-list on every row (contract §2)
             release(mounted);
         }
 
+    });
+
+    it('an edit of another field never erases the list', async () => {
         {
             const mounted = editor({
                 rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, allowedUsers: TWELVE_LOGINS })],
@@ -1038,6 +1051,7 @@ describe('the whole-file write states the allow-list on every row (contract §2)
             release(mounted);
         }
     });
+
 });
 
 /* -------------------------------------------------------------------- *
@@ -1045,7 +1059,7 @@ describe('the whole-file write states the allow-list on every row (contract §2)
  * -------------------------------------------------------------------- */
 
 describe('FR-095 a refused allow-list takes the field, changes nothing, and echoes nothing', () => {
-    it('renders the service remediation and keeps every binding byte-identical', async () => {
+    it('the refusal renders at the field, and the stored list stands', async () => {
         {
             const service = refusingService();
             const mounted = editor({
@@ -1078,6 +1092,9 @@ describe('FR-095 a refused allow-list takes the field, changes nothing, and echo
             release(mounted);
         }
 
+    });
+
+    it('a refusal about another field never lands on this one', async () => {
         {
             const other = {
                 ok: false as const,
@@ -1097,6 +1114,9 @@ describe('FR-095 a refused allow-list takes the field, changes nothing, and echo
             expect(actorsRefusal({ ok: true, body: '{}' })).toBeNull();
         }
 
+    });
+
+    it('the field\'s own rules never reach the panel\'s own validation', async () => {
         {
             // `allowedUsersPatch` is the only place a save turns the field into a
             // wire value, and it splits without judging: no case folding, no
@@ -1110,6 +1130,7 @@ describe('FR-095 a refused allow-list takes the field, changes nothing, and echo
             expect(allowedUsersPatch(listDraft({ text: 'alice', dirty: false }), 'bnd-1')).toBeUndefined();
         }
     });
+
 });
 
 /* -------------------------------------------------------------------- *

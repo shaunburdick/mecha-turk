@@ -355,10 +355,9 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
             });
             expect(lines.some((line) => line.includes('stored payload excerpts trimmed'))).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('keeps the marker across a store round trip on a reopened handle', async () => {
         {
             await plantQueue([
                 queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
@@ -376,10 +375,9 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
             // not a sentinel string living in the excerpt field.
             expect(Number.isNaN(Date.parse(queue[0]?.excerptTrimmedAt ?? ''))).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('appends nothing when a pass clears nothing', async () => {
         {
             await plantQueue([
                 queuedRow({ id: FRESH_DISPATCHED, detectedAt: FRESH_DETECTED, state: 'dispatched' }),
@@ -398,10 +396,9 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
             expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(before);
             expect(await readAuditEntries(store)).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('is idempotent: a second pass clears nothing and records nothing', async () => {
         {
             await plantQueue([
                 queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
@@ -418,10 +415,9 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
             const trail = await readAuditEntries(store);
             expect(trail).toHaveLength(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('leaves the queue byte-identical and records nothing when the rewrite fails', async () => {
         {
             await plantQueue([
                 queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
@@ -439,10 +435,9 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
             expect(await readFile(join(dataDir, EVENTS_FILE), 'utf8')).toBe(before);
             expect(await readAuditEntries(store)).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('honours the configured window rather than a hard-coded one', async () => {
         {
             await plantQueue([
                 queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
@@ -458,6 +453,7 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
             expect(await readAuditEntries(store)).toEqual([]);
         }
     });
+
 });
 
 describe('excerpt trim: the run-layer eligibility (006 T-032, FR-057, FR-052, FR-084)', () => {
@@ -534,10 +530,9 @@ describe('excerpt trim: the run-layer eligibility (006 T-032, FR-057, FR-052, FR
             });
             expect(lines.some((line) => line.includes('stored payload excerpts trimmed'))).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('keeps a run-linked row\'s marker across a store round trip', async () => {
         {
             await plantLinkedQueue([{ issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' }]);
 
@@ -551,10 +546,9 @@ describe('excerpt trim: the run-layer eligibility (006 T-032, FR-057, FR-052, FR
             expect(queue[0]?.excerptTrimmedAt).toBe(CLEARED_AT);
             expect(Number.isNaN(Date.parse(queue[0]?.excerptTrimmedAt ?? ''))).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('leaves every post-003 row alone while the run document is unreadable', async () => {
         {
             await plantLinkedQueue([{ issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' }]);
             // Fail closed: a run document the store cannot parse answers "unknown",
@@ -571,4 +565,5 @@ describe('excerpt trim: the run-layer eligibility (006 T-032, FR-057, FR-052, FR
             expect(lines.some((line) => line.includes('post-003 excerpts stay put'))).toBe(true);
         }
     });
+
 });

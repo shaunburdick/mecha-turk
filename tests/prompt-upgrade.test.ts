@@ -388,10 +388,9 @@ describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
             expect(await auditRowsOf(handle)).toBeGreaterThanOrEqual(seed.auditRows);
             expect(service.logLines.some((line) => line.includes('.corrupt-'))).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('composes the seeded prompt-less run byte-identically to the shipped frame', async () => {
         {
             const seed = await seedPre004Store();
             const service = await bootPre004Store();
@@ -403,10 +402,9 @@ describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
             expect(composed).not.toContain(PROMPT_FENCE_MARKER);
             expect(composed.startsWith('Mecha Turk dispatch (automated')).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('keeps a queued run on its snapshot after the binding’s prompt is edited', async () => {
         {
             await seedPre004Store(QUEUED_PROMPT);
             const service = await bootPre004Store();
@@ -436,6 +434,7 @@ describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
             expect(await composedMessageFor(service)).not.toContain(LATE_PROMPT);
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *

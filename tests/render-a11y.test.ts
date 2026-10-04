@@ -340,6 +340,9 @@ describe('FR-080 / NFR-101 the six tabs render through the text path only', () =
                 }
             }
         }
+    });
+
+    it('hands a hostile title, login, and reason to the SDK as text', async () => {
         {
             const rendered = await renderSixTabs();
             const text = rendered.strings.join('\n');
@@ -353,6 +356,7 @@ describe('FR-080 / NFR-101 the six tabs render through the text path only', () =
             }
         }
     });
+
 });
 
 describe('FR-081 every control and row action has an accessible name', () => {
@@ -373,6 +377,9 @@ describe('FR-081 every control and row action has an accessible name', () => {
                 expect(String(name).trim(), `${entry.key} mounted an empty name`).not.toBe('');
             }
         }
+    });
+
+    it('names every tab in the strip and every row in a list', async () => {
         {
             const rendered = await renderSixTabs();
             const strip = rendered.log.find((entry) => entry.key === 'mountTabs');
@@ -391,6 +398,9 @@ describe('FR-081 every control and row action has an accessible name', () => {
                 }
             }
         }
+    });
+
+    it('names a row-level action with the row it acts on', async () => {
         {
             const row: RunRow = { ...hostileRun(), issueNumber: 412, repository: 'owner/name' };
 
@@ -399,6 +409,7 @@ describe('FR-081 every control and row action has an accessible name', () => {
             expect(sourceRevealLabel(true, row)).toContain('#412 in owner/name');
         }
     });
+
 });
 
 /** One file the SDK ships, read as the offline check of its own behavior. */
@@ -465,6 +476,9 @@ describe('FR-083 state is carried by text as well as colour', () => {
                 }
             }
         }
+    });
+
+    it('says the state in words the operator can read', async () => {
         {
             const rendered = await renderSixTabs();
             const text = rendered.strings.join('\n');
@@ -474,6 +488,7 @@ describe('FR-083 state is carried by text as well as colour', () => {
             expect(text).toMatch(/could not be read|not checkable|unreadable|not met|waiting/);
         }
     });
+
 });
 
 describe('FR-084 irreversible actions arm first, and confirm() does not exist', () => {
@@ -523,6 +538,9 @@ describe('FR-084 irreversible actions arm first, and confirm() does not exist', 
             expect(requests.map((request) => request.method)).toContain('DELETE');
             rt.shell?.dispose();
         }
+    });
+
+    it('states the cascade in words on the row itself', async () => {
         {
             const rendered = await renderSixTabs({
                 setup: (rt) => {
@@ -536,6 +554,7 @@ describe('FR-084 irreversible actions arm first, and confirm() does not exist', 
             expect(text).toContain(REMOVE_ARMED_LABEL);
         }
     });
+
 });
 
 describe('FR-085 a refusal names its cause and never echoes the value', () => {
@@ -567,6 +586,9 @@ describe('FR-085 a refusal names its cause and never echoes the value', () => {
             expect(rt.state.accounts.displayNameError).not.toContain(token);
             expect(rendered.strings.join('\n')).not.toContain(token);
         }
+    });
+
+    it('blocks a ledger write whose content is secret-shaped, instead of logging past it', async () => {
         {
             const storage = createStorageDouble();
             const token = `ghp_${'ledgerxx'.repeat(3)}`;
@@ -591,4 +613,5 @@ describe('FR-085 a refusal names its cause and never echoes the value', () => {
             expect(rt.state.status.body).not.toContain(token);
         }
     });
+
 });

@@ -153,19 +153,17 @@ describe('parseStoredScanState (never-scanned slot, MVP fix 1)', () => {
             expect(parsed).toEqual(stored);
             expect(parsed?.bindings[BINDING_ID]).toEqual({ lastScanAt: null, lastError: SKIP_REASON });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('round-trips a completed scan stamp alongside its reason', async () => {
         {
             const stored = { bindings: { [BINDING_ID]: { lastScanAt: SCANNED_AT, lastError: null } } };
 
             expect(parseStoredScanState(stored)).toEqual(stored);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('still refuses a genuinely malformed slot so the store quarantines it', async () => {
         {
             const malformed: readonly unknown[] = [
                 { bindings: { [BINDING_ID]: { lastScanAt: 1_758_950_400, lastError: null } } },
@@ -180,6 +178,7 @@ describe('parseStoredScanState (never-scanned slot, MVP fix 1)', () => {
             }
         }
     });
+
 });
 
 describe('readScanState (real store, no more per-minute quarantine files)', () => {
@@ -194,10 +193,9 @@ describe('readScanState (real store, no more per-minute quarantine files)', () =
             expect(await quarantined()).toEqual([]);
             expect(lines.filter((line) => line.includes('quarantine'))).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('quarantines a malformed file and answers an empty state instead', async () => {
         {
             await plantScanState({ bindings: { [BINDING_ID]: { lastScanAt: 42 } } });
             const { log, lines } = capturingLogger();
@@ -209,6 +207,7 @@ describe('readScanState (real store, no more per-minute quarantine files)', () =
             expect(lines.some((line) => line.includes('unusable'))).toBe(true);
         }
     });
+
 });
 
 describe('windowFor (never-scanned opens a replay, scanned opens widened)', () => {
@@ -221,10 +220,9 @@ describe('windowFor (never-scanned opens a replay, scanned opens widened)', () =
 
             expect(windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS })).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('opens at the recorded stamp minus the configured overlap (006 FR-059(a))', async () => {
         {
             const scanned = stateWith({ lastScanAt: SCANNED_AT, lastError: null });
 
@@ -232,14 +230,14 @@ describe('windowFor (never-scanned opens a replay, scanned opens widened)', () =
             expect(widened).toBe(WIDENED_AT);
             expect(Date.parse(WIDENED_AT)).toBeLessThan(Date.parse(SCANNED_AT));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('opens with no window for a binding the state file never mentions', async () => {
         {
             const scanned = stateWith(null);
 
             expect(windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS })).toBeNull();
         }
     });
+
 });

@@ -120,6 +120,9 @@ describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
                 expect(unacknowledgedAttempts(read.document)).toEqual([]);
             }
         }
+    });
+
+    it('refuses a present document this build must not half-apply', async () => {
         {
             const { rt } = runtimeWith({
                 [DISPATCH_STORAGE_KEY]: { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts: [{ attempt: 1 }] },
@@ -127,9 +130,15 @@ describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
 
             expect(await loadDispatchRecord(rt)).toEqual({ ok: false });
         }
+    });
+
+    it('refuses an unknown schema version rather than guessing at it', async () => {
         {
             expect(readDispatchRecord({ schemaVersion: 'dispatch-attempts-99', attempts: [] })).toBeNull();
         }
+    });
+
+    it('reports a storage failure as unreadable rather than as "nothing to reconcile"', async () => {
         {
             const rt = createTestRuntime(
                 fakeHost({
@@ -143,6 +152,7 @@ describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
             expect(await loadDispatchRecord(rt)).toEqual({ ok: false });
         }
     });
+
 });
 
 describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
@@ -174,6 +184,9 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 });
             }
         }
+    });
+
+    it('stores a failure reason with no session id', async () => {
         {
             const { rt } = runtimeWith();
 
@@ -195,6 +208,9 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 });
             }
         }
+    });
+
+    it('refuses to persist a record its own parser would reject', async () => {
         {
             const { rt, storage } = runtimeWith();
 
@@ -209,6 +225,9 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
             expect(written).toBe(false);
             expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
         }
+    });
+
+    it('appends newest last so a remount replays attempts in order', async () => {
         {
             const { rt } = runtimeWith();
             const record = async (attemptNumber: number): Promise<boolean> =>
@@ -230,6 +249,7 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
             }
         }
     });
+
 });
 
 describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
@@ -251,6 +271,9 @@ describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
                 expect(read.document.attempts.map((entry) => entry.acknowledged)).toEqual([true, false, false]);
             }
         }
+    });
+
+    it('changes nothing — and writes nothing — for an attempt it never recorded', async () => {
         {
             const { rt, storage } = runtimeWith({
                 [DISPATCH_STORAGE_KEY]: stored(document([attempt({ attempt: 3, acknowledged: false })])),
@@ -260,6 +283,7 @@ describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
             expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
         }
     });
+
 });
 
 describe('cap and eviction (NFR-107, FR-024 durability)', () => {
@@ -314,11 +338,17 @@ describe('redaction posture (T-019, research §R3)', () => {
             expect(() => assertRedacted(DISPATCH_STORAGE_KEY, json)).not.toThrow();
             expect(json).toContain(TOKEN);
         }
+    });
+
+    it('still refuses a credential-shaped value sitting beside the token', async () => {
         {
             const json = JSON.stringify(document([attempt({ reason: PAT })]));
 
             expect(() => assertRedacted(DISPATCH_STORAGE_KEY, json)).toThrow(RedactionError);
         }
+    });
+
+    it('refuses to write a document the guard rejects', async () => {
         {
             const { rt, storage } = runtimeWith({
                 // Hand-edited storage carrying a credential: the record still parses
@@ -338,6 +368,7 @@ describe('redaction posture (T-019, research §R3)', () => {
             expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
         }
     });
+
 });
 
 describe('acknowledgeAttempt (pure flip)', () => {

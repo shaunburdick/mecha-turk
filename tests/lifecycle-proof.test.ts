@@ -177,6 +177,9 @@ describe('AC-137 a teardown returns the panel to its pre-mount counts', () => {
             expect(rt.accountsUi).toBeNull();
             expect(rt.dispatchesUi).toBeNull();
         }
+    });
+
+    it('disposes no handle twice, and a second teardown disposes nothing new', async () => {
         {
             const run = await visitAllTabs();
             run.rt.shell?.dispose();
@@ -189,6 +192,7 @@ describe('AC-137 a teardown returns the panel to its pre-mount counts', () => {
             expect(mounts.disposed).toHaveLength(first);
         }
     });
+
 });
 
 describe('FR-014 activating the shown tab reads nothing and changes nothing (NFR-104)', () => {
@@ -205,6 +209,9 @@ describe('FR-014 activating the shown tab reads nothing and changes nothing (NFR
             expect(run.requests).toHaveLength(before);
             expect(JSON.stringify(run.rt.state)).toBe(state);
         }
+    });
+
+    it('changes nothing but the activation field when a new tab opens', async () => {
         {
             const run = await visitAllTabs();
             const { rt } = run;
@@ -217,6 +224,7 @@ describe('FR-014 activating the shown tab reads nothing and changes nothing (NFR
             expect(JSON.stringify(rt.state)).toBe(state);
         }
     });
+
 });
 
 describe('AC-136 / SC-108 one loop and one session across a mid-flight switch', () => {
@@ -288,6 +296,9 @@ describe('FR-019 / NFR-111 a failed read keeps what it had, marked stale', () =>
             expect(rt.state.settingsTab.stale).toBe(true);
             expect(rt.state.settingsTab.doc).not.toBeNull();
         }
+    });
+
+    it('keeps the About version and marks it stale on a failed re-read', async () => {
         {
             const run = await visitAllTabs();
             const { rt } = run;
@@ -300,6 +311,9 @@ describe('FR-019 / NFR-111 a failed read keeps what it had, marked stale', () =>
             expect(rt.state.aboutTab.version).not.toBeNull();
             expect(rt.state.aboutTab.problem).not.toBeNull();
         }
+    });
+
+    it('says plainly that there is nothing to keep when nothing ever landed', async () => {
         {
             const rt = createTestRuntime(fakeHost({
                 serviceRequest: async () => {
@@ -315,4 +329,5 @@ describe('FR-019 / NFR-111 a failed read keeps what it had, marked stale', () =>
             expect(rt.state.aboutTab.version).toBeNull();
         }
     });
+
 });

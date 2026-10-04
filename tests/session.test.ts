@@ -193,6 +193,9 @@ describe('resolveProject', () => {
                 expect(result.project.directory).toBe(PROJECT_DIR);
             }
         }
+    });
+
+    it('blocks when the project is not registered', async () => {
         {
             const result = await resolveProject(fakeHost(), 'missing-project');
 
@@ -202,6 +205,9 @@ describe('resolveProject', () => {
                 expect(result.available).toEqual([PROJECT_ID]);
             }
         }
+    });
+
+    it('blocks when listProjects fails', async () => {
         {
             const host = fakeHost({ listProjects: offlineProjects });
             const result = await resolveProject(host, PROJECT_ID);
@@ -212,6 +218,7 @@ describe('resolveProject', () => {
             }
         }
     });
+
 });
 
 describe('buildBoundedContext', () => {
@@ -561,6 +568,9 @@ describe('verifyHostState', () => {
             expect(teardowns).toHaveLength(4);
             expect(teardowns).toContain('projects');
         }
+    });
+
+    it('records a problem when a list call fails', async () => {
         {
             const host = fakeHost({ listWorktrees: timedOutWorktrees });
 
@@ -569,6 +579,9 @@ describe('verifyHostState', () => {
             expect(verification.problems.join(' ')).toContain('listWorktrees');
             expect(verification.projectFound).toBe(true);
         }
+    });
+
+    it('records a problem when a subscription cannot register', async () => {
         {
             const host = fakeHost({ onSessions: deniedSessions });
 
@@ -579,6 +592,9 @@ describe('verifyHostState', () => {
             expect(probe?.error).toContain('NOT_GRANTED');
             expect(verification.problems.join(' ')).toContain('sessions');
         }
+    });
+
+    it('flattens to scalar ledger detail', async () => {
         {
             const host = recordingHost([]);
             const verification = await verifyHostState({ host, projectId: PROJECT_ID, waitMs: PROBE_WAIT_MS });
@@ -591,6 +607,9 @@ describe('verifyHostState', () => {
             expect(typeof detail.worktreeBranches).toBe('string');
             expect(detail.problems).toBe('');
         }
+    });
+
+    it('treats a silent session-lifecycle stream on a fresh host as registration', async () => {
         {
             const host = freshHost();
 
@@ -607,4 +626,5 @@ describe('verifyHostState', () => {
             expect(summarizeHostVerification(verification).failedProbeSurfaces).toBe('');
         }
     });
+
 });

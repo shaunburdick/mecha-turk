@@ -99,6 +99,9 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
             expect(bindings.triggerReviewRequest).toBe(false);
             expect(bindings.worktreeSelection).toBe('generated');
         }
+    });
+
+    it('loads a clicked row into the editor, which the click opens (2026-10-01 review)', async () => {
         {
             const rt = createTestRuntime(fakeHost());
             rt.state.bindings.status = 'ready';
@@ -127,6 +130,9 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
             expect(bindings.repoInput).toBe(REPOSITORY);
             expect(bindings.repoProjectSelection).toBe('prj_42');
         }
+    });
+
+    it('wires submit to bindRepository, which refuses an incomplete draft on the note', async () => {
         {
             const rt = createTestRuntime(fakeHost());
             const handlers = createBindingsHandlers(rt);
@@ -137,6 +143,9 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
 
             expect(rt.state.bindings.note).toBe('repository must be `owner/name`');
         }
+    });
+
+    it('wires refresh to loadBindings, which answers a failed read on the note', async () => {
         {
             const rt = createTestRuntime(fakeHost());
             const handlers = createBindingsHandlers(rt);
@@ -148,6 +157,9 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
             // 404, so the reads fail closed and the note says so.
             expect(rt.state.bindings.status).toBe('error');
         }
+    });
+
+    it('wires refresh to loadBindings, which loads the accounts the picker offers', async () => {
         {
             // MVP blocker fix regression guard: the GET /v1/accounts read must
             // land in state, or the "Poll as account" select renders zero options
@@ -197,6 +209,7 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
             ]);
         }
     });
+
 });
 
 describe('refresh (the repaint path a mounted Bindings body takes)', () => {

@@ -207,10 +207,9 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
             const unset: { readonly startingPrompt?: string } = {};
             expect(resolvePromptSnapshot({ global: null, account: null, binding: unset })).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('keeps a queued run on the text it was queued with after an edit', async () => {
         {
             const first = await enqueueInto({
                 store,
@@ -246,10 +245,9 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
                 sources: ['binding'],
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never lets a coalescing delivery replace the run’s own snapshot', async () => {
         {
             await enqueueInto({ store, snapshots: [assignment(12)], prompt: bindingSnapshot(PROMPT_A) });
             const afterJoin = await enqueueInto({
@@ -275,10 +273,9 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
             });
             expect(runs[0]?.referenceCount).toBe(2);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('adds no field to the delivery rows: the bytes are the pre-004 bytes', async () => {
         {
             const withPrompt = await mkdtemp(join(tmpdir(), 'prompt-events-with-'));
             const withoutPrompt = await mkdtemp(join(tmpdir(), 'prompt-events-without-'));
@@ -307,6 +304,7 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
             }
         }
     });
+
 });
 
 describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)', () => {
@@ -317,18 +315,16 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
             expect(document?.runs[0]?.prompt).toBeNull();
             expect(document?.schemaVersion).toBe(RUNS_SCHEMA_VERSION);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('parses an explicit null as unset', async () => {
         {
             const document = parseRunsDocument(storedDocumentWith(null, true));
             expect(document?.runs[0]?.prompt).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('parses a well-formed snapshot, and a stacked body up to its own bound', async () => {
         {
             const document = parseRunsDocument(storedDocumentWith({
                 text: PROMPT_A,
@@ -359,19 +355,17 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
                 sources: ['global', 'account', 'binding'],
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses the whole document for a present value that is not a snapshot', async () => {
         {
             for (const unusable of [42, true, 'text', [], { text: PROMPT_A }]) {
                 expect(parseRunsDocument(storedDocumentWith(unusable, true)), JSON.stringify(unusable)).toBeNull();
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a malformed fingerprint, an over-cap text, a wrong length, and a credential', async () => {
         {
             // Every case carries a valid `sources` list so the refusal comes
             // from the rule it names, never from the missing-member rule.
@@ -413,10 +407,9 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
                 expect(parseRunsDocument(storedDocumentWith(snapshot, true)), JSON.stringify(snapshot)).toBeNull();
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses `sources` that are absent, empty, unknown, out of order, or over the bound', async () => {
         {
             const base = {
                 text: PROMPT_A,
@@ -448,10 +441,9 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
                 expect(parseRunsDocument(storedDocumentWith(snapshot, true)), JSON.stringify(snapshot)).toBeNull();
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('quarantines the stored document through the store’s own funnel', async () => {
         {
             await store.writeJson(RUNS_FILE, storedDocumentWith({ text: PROMPT_A }, true));
             const read = await store.readJson(RUNS_FILE, parseRunsDocument);
@@ -462,6 +454,7 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
             }
         }
     });
+
 });
 
 describe('T-018 the resolver stacks the set tiers once (FR-080, FR-086, FR-087)', () => {

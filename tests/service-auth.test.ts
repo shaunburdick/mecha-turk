@@ -80,8 +80,9 @@ describe('invariant 1 — byte-identical refusals (SEC-09)', () => {
             expect(body).not.toContain(sameLength);
             expect(body).not.toContain(service.token);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses wrong values of every other length the same way', async () => {
         {
             const service = await startServiceForTest();
             const reference = await fetch(`${service.baseUrl}${HEALTH_PATH}`);
@@ -96,6 +97,7 @@ describe('invariant 1 — byte-identical refusals (SEC-09)', () => {
             }
         }
     });
+
 });
 
 describe('invariant 1 — authentication before routing (SEC-02c)', () => {

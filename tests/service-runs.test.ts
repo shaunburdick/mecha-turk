@@ -403,8 +403,9 @@ describe('GET /v1/events (runs history)', () => {
             expect(stored.every((run) => run.state === 'pending')).toBe(true);
             expect(stored.every((run) => run.lease === null)).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('pages the history: 25 by default, 100 at most, and the oldest still reachable', async () => {
         {
             const rows: QueuedEvent[] = [];
             for (let issueNumber = 1; issueNumber <= 105; issueNumber += 1) {
@@ -454,8 +455,9 @@ describe('GET /v1/events (runs history)', () => {
             ]);
             expect(seen.size).toBe(105);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('keeps the claim route reachable beside the new literal route', async () => {
         {
             // A legacy row has to be in the store *before* the service adopts it,
             // because adoption is one-shot per store handle by design (FR-005), so
@@ -476,8 +478,9 @@ describe('GET /v1/events (runs history)', () => {
             expect(body.events[0]?.issueNumber).toBe(8);
             expect(body.events[0]?.lease).toMatchObject({ holder: 'unknown' });
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('keeps the registered credential and the account login out of the answer', async () => {
         {
             const service = await startWithAccount();
             // A run of this suite's own making, so the answer is non-empty and the
@@ -506,6 +509,7 @@ describe('GET /v1/events (runs history)', () => {
             expect(text).not.toMatch(/dtk-[0-9a-f]{8,}/);
         }
     });
+
 });
 
 describe('POST /v1/events/:correlationId/retry (wire delta from 003)', () => {

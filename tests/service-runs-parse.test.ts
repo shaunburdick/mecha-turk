@@ -309,10 +309,9 @@ describe('writer → reader round-trip (real bytes)', () => {
             expect(result.status).toBe('ok');
             expect(result.status === 'ok' ? result.value : null).toEqual(document);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('reads back a stacked three-tier snapshot at its own stack bound', async () => {
         {
             const body = 'x'.repeat(6_004);
             const snapshot = {
@@ -328,10 +327,9 @@ describe('writer → reader round-trip (real bytes)', () => {
             expect(result.status).toBe('ok');
             expect(result.status === 'ok' ? result.value.runs[0]?.prompt : null).toEqual(snapshot);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('keeps all eight dispatch states readable, blocked family included', async () => {
         {
             const states = [
                 'pending',
@@ -354,16 +352,16 @@ describe('writer → reader round-trip (real bytes)', () => {
             expect(result.status).toBe('ok');
             expect(result.status === 'ok' ? result.value.runs.map((run) => run.state) : []).toEqual([...states]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses the file rather than half-reading it when one row is wrong', async () => {
         {
             const result = await readBack(fixtureDocument([fixtureRun(), fixtureRun({ attempt: 0 })]));
 
             expect(result.status).toBe('quarantined');
         }
     });
+
 });
 
 describe('fail-closed document and row validation', () => {
@@ -478,10 +476,9 @@ describe('fail-closed document and row validation', () => {
                 expect(parseRunsDocument(document), `must refuse: ${name}`).toBeNull();
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a row whose lease, reservation, session, or verification is malformed', async () => {
         {
             const patches: readonly (readonly [string, unknown])[] = [
                 ['lease', { leaseId: '', holder: 'panel', issuedAt: STAMP, expiresAt: STAMP, attempt: 1 }],
@@ -512,10 +509,9 @@ describe('fail-closed document and row validation', () => {
                 expect(parseRun(poisoned(field, value))).toBeNull();
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('accepts every nullable sub-object written as null, and as absent', async () => {
         {
             expect(parseRun(fixtureRun())).not.toBeNull();
             expect(parseRun(without('lease', 'reservation', 'session', 'verification'))).not.toBeNull();
@@ -527,10 +523,9 @@ describe('fail-closed document and row validation', () => {
             });
             expect(parseRun(blankBaseline)).not.toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses contradictory attempt history that records a session on a non-dispatched run', async () => {
         {
             const createdSessionAttempt = {
                 ...attemptRecord(),
@@ -545,10 +540,9 @@ describe('fail-closed document and row validation', () => {
             expect(parseRun(pending)).toBeNull();
             expect(runHistoryIndicatesSession(pending)).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses an attempt session id that conflicts with the run session pointer', async () => {
         {
             const session = {
                 sessionId: 'ses_pointer',
@@ -572,10 +566,9 @@ describe('fail-closed document and row validation', () => {
 
             expect(parseRun(run)).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('accepts a blocked state whose reason the panel has never produced', async () => {
         {
             const run = parseRun(fixtureRun({
                 state: 'blocked:policy', stateReason: 'no policy allowed this dispatch' }));
@@ -584,6 +577,7 @@ describe('fail-closed document and row validation', () => {
         }
     });
 
+
     it('accepts a reference that records a comment id as its origin', async () => {
         {
             const reference = { ...fixtureReference(), kind: 'mention' as const, origin: 'comment:4242' as const };
@@ -591,10 +585,9 @@ describe('fail-closed document and row validation', () => {
 
             expect(run?.sourceReferences).toEqual([reference]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('reads a capped run whose overflow is counted rather than hidden', async () => {
         {
             const capped = withReferences(MAX_SOURCE_REFERENCES + 7);
             const run = parseRun(capped);
@@ -605,6 +598,7 @@ describe('fail-closed document and row validation', () => {
             expect(run?.referencesTruncated).toBe(true);
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *
@@ -629,7 +623,7 @@ function attributedReference(overrides: Partial<SourceReference> = {}): SourceRe
 }
 
 describe('the run model gains the actor and the policy shape (003 FR-079, FR-080)', () => {
-    it('round-trips both members on real bytes', async () => {
+    it('round-trips an attributed reference and both policy words', async () => {
         {
             const reference = attributedReference({ actorAttribution: 'subject-author' });
             const document = fixtureDocument([
@@ -645,10 +639,9 @@ describe('the run model gains the actor and the policy shape (003 FR-079, FR-080
             expect(runs.map((run) => run.actorPolicy)).toEqual(['restricted', 'open', null]);
             expect(runs[0]?.sourceReferences).toEqual([reference]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('reads a run stored before either member existed (003 FR-080\'s reach)', async () => {
         {
             const row = without('actorPolicy');
             row.sourceReferences = [{ ...fixtureReference() }];
@@ -662,10 +655,9 @@ describe('the run model gains the actor and the policy shape (003 FR-079, FR-080
             expect(run?.sourceReferences[0]).not.toHaveProperty('actorLogin');
             expect(run?.sourceReferences[0]).not.toHaveProperty('actorAttribution');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses an unknown basis and an unusable login on a stored reference', async () => {
         {
             const bases: readonly unknown[] = ['subject_author', 'none', '', 7, null];
             for (const actorAttribution of bases) {
@@ -685,10 +677,9 @@ describe('the run model gains the actor and the policy shape (003 FR-079, FR-080
                 ).toBeNull();
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses an `actorPolicy` outside the closed two-word union', async () => {
         {
             const stored: readonly unknown[] = ['Open', 'everyone', '', 1, {}, []];
             for (const actorPolicy of stored) {
@@ -699,4 +690,5 @@ describe('the run model gains the actor and the policy shape (003 FR-079, FR-080
             expect(parseRun(poisoned('actorPolicy', null))?.actorPolicy).toBeNull();
         }
     });
+
 });

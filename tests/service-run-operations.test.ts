@@ -544,10 +544,9 @@ describe('T-014 retry (FR-041) — attempt discipline', () => {
             expect(stored.lease).toBeNull();
             expect(stored.reservation).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('preserves the source references and every prior attempt record', async () => {
         {
             const run = await seedRun({ issueNumber: 2, state: 'failed', attempt: 3 });
 
@@ -569,10 +568,9 @@ describe('T-014 retry (FR-041) — attempt discipline', () => {
             expect(stored.sourceReferences).toEqual(run.sourceReferences);
             expect(stored.attempts).toEqual(run.attempts);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('does not touch the automatic requeue budget', async () => {
         {
             const run = await seedRun({ issueNumber: 3, state: 'failed', requeuesUsed: 2 });
 
@@ -591,10 +589,9 @@ describe('T-014 retry (FR-041) — attempt discipline', () => {
             const stored = await readRun(run.correlationId);
             expect(stored.requeuesUsed).toBe(2);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('writes one dispatch.retry row naming the prior state and both attempts', async () => {
         {
             const run = await seedRun({ issueNumber: 4, state: 'failed' });
 
@@ -614,6 +611,7 @@ describe('T-014 retry (FR-041) — attempt discipline', () => {
             expect(rows.filter((entry) => entry.eventType === RETRY_ROW)).toHaveLength(1);
         }
     });
+
 });
 
 describe('T-014 retry refusals are distinct (FR-041, AC-113)', () => {
@@ -651,10 +649,9 @@ describe('T-014 retry refusals are distinct (FR-041, AC-113)', () => {
                 expect(refusal?.message).toContain(entry.fragment);
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('moves nothing and writes exactly one refusal row per refused retry', async () => {
         {
             const run = await seedRun({ issueNumber: 16, state: 'pending' });
             const before = await trail();
@@ -684,10 +681,9 @@ describe('T-014 retry refusals are distinct (FR-041, AC-113)', () => {
             });
             expect(added[0]?.correlationId).toBe(run.correlationId);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a retry whose attempt does not match the run it names', async () => {
         {
             const run = await seedRun({ issueNumber: 17, state: 'failed', attempt: 4 });
             const before = await trail();
@@ -720,6 +716,7 @@ describe('T-014 retry refusals are distinct (FR-041, AC-113)', () => {
             expect(after.slice(before.length).map((entry) => entry.eventType)).toEqual([REFUSED_ROW]);
         }
     });
+
 });
 
 describe('T-014 retry corroborates a blocked cause only where it can (FR-042, contract §6)', () => {
@@ -743,10 +740,9 @@ describe('T-014 retry corroborates a blocked cause only where it can (FR-042, co
             expect(refusal?.code).toBe(CAUSE_NOT_CLEARED);
             expect(refusal?.message).toContain(BINDING_ID);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('accepts a binding-missing retry once the binding is back, as corroborated', async () => {
         {
             const run = await seedRun({ issueNumber: 21, state: 'blocked:binding-missing' });
             await storeBindings(BINDING_ID);
@@ -766,10 +762,9 @@ describe('T-014 retry corroborates a blocked cause only where it can (FR-042, co
             // `corroborated` is the honest word: the service re-read the table.
             expect(row?.causeClearedSource).toBe(CORROBORATED);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('records a project-missing retry as reported, never corroborated', async () => {
         {
             const run = await seedRun({ issueNumber: 22, state: 'blocked:project-missing' });
             await storeBindings(BINDING_ID);
@@ -791,10 +786,9 @@ describe('T-014 retry corroborates a blocked cause only where it can (FR-042, co
             expect(row?.causeClearedSource).toBe(REPORTED);
             expect(row?.causeReportedCleared).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a blocked retry whose cause the operator has not reported cleared', async () => {
         {
             const run = await seedRun({ issueNumber: 23, state: 'blocked:project-missing' });
             await storeBindings(BINDING_ID);
@@ -813,6 +807,7 @@ describe('T-014 retry corroborates a blocked cause only where it can (FR-042, co
             expect(outcome.status === 'refused' ? outcome.refusal.code : '').toBe(CAUSE_NOT_CLEARED);
         }
     });
+
 });
 
 describe('T-014 return-to-waiting resets both counters (FR-033)', () => {
@@ -828,10 +823,9 @@ describe('T-014 return-to-waiting resets both counters (FR-033)', () => {
             expect(stored.attempt).toBe(1);
             expect(stored.requeuesUsed).toBe(0);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('keeps the source references and attempt history across the reset', async () => {
         {
             const run = await seedRun({ issueNumber: 31, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
 
@@ -841,10 +835,9 @@ describe('T-014 return-to-waiting resets both counters (FR-033)', () => {
             expect(stored.attempts).toEqual(run.attempts);
             expect(stored.sourceReferences).toEqual(run.sourceReferences);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('names the reset in its dispatch.retry row', async () => {
         {
             const run = await seedRun({ issueNumber: 32, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
 
@@ -854,10 +847,9 @@ describe('T-014 return-to-waiting resets both counters (FR-033)', () => {
             expect(row).toMatchObject({
                 priorState: DEAD_LETTERED, attemptBefore: 4, attemptAfter: 1, attemptReset: true });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses every state that is not dead-lettered', async () => {
         {
             for (const [index, state] of (['pending', 'claimed', 'unconfirmed'] as const).entries()) {
                 const run = await seedRun({ issueNumber: 33 + index, state });
@@ -876,6 +868,7 @@ describe('T-014 return-to-waiting resets both counters (FR-033)', () => {
             }
         }
     });
+
 });
 
 describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
@@ -904,10 +897,9 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
             // document would not parse back.
             expect(stored.attempts.at(-1)).toMatchObject({ outcome: DISPATCHED, sessionId: 'ses_found' });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('returns to pending with the attempt incremented for no-session', async () => {
         {
             const run = await seedRun({ issueNumber: 41, state: 'unconfirmed', attempt: 2 });
 
@@ -934,10 +926,9 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
             // still name an attempt that no longer exists.
             expect(stored.reservation).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('re-dispatches a resolved no-session run through a brand-new token', async () => {
         {
             const run = await seedRun({ issueNumber: 47, state: 'unconfirmed', attempt: 2 });
             await resolveDispatch({
@@ -957,10 +948,9 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
             expect(reclaimed?.attempt).toBe(3);
             expect(reclaimed?.state).toBe('pending');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('writes a dispatch.resolved row naming the decision, prior state, and guidance', async () => {
         {
             const run = await seedRun({ issueNumber: 42, state: 'unconfirmed' });
 
@@ -985,10 +975,9 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
             const resolved = entries.find((entry) => entry.eventType === RESOLVED_ROW);
             expect(resolved?.decision).toBe(DISPATCHED);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses every state that is not unconfirmed', async () => {
         {
             for (const [index, state] of (['pending', 'claimed', DEAD_LETTERED] as const).entries()) {
                 const run = await seedRun({ issueNumber: 43 + index, state });
@@ -1009,10 +998,9 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
                 expect(stored.state).toBe(state);
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never lets a resolution re-dispatch a run that already has a session', async () => {
         {
             const run = await seedRun({ issueNumber: 46, state: DISPATCHED, sessionId: 'ses_existing' });
 
@@ -1033,6 +1021,7 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
             expect(stored.session?.sessionId).toBe('ses_existing');
         }
     });
+
 });
 
 describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)', () => {
@@ -1066,10 +1055,9 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
                 expectedAgent: EXPECTED_AGENT,
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('records a mismatch visibly and leaves the run untouched', async () => {
         {
             const run = await seedRun({ issueNumber: 51, state: DISPATCHED, sessionId: 'ses_v2' });
             const before = await readRun(run.correlationId);
@@ -1113,10 +1101,9 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
             const [warned] = entries.filter((entry) => entry.eventType === MISMATCH_ROW);
             expect(warned?.decision).toBe('warn');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('records an unreadable read-back as a mismatch, not a success', async () => {
         {
             const run = await seedRun({ issueNumber: 52, state: DISPATCHED, sessionId: 'ses_v3' });
 
@@ -1138,10 +1125,9 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
             expect(unreadable).toMatchObject({ observedAgent: null, note: 'the read-back timed out' });
             expect(await rowsOf(VERIFIED_ROW)).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a read-back for a session this run does not record', async () => {
         {
             const run = await seedRun({ issueNumber: 53, state: DISPATCHED, sessionId: 'ses_v4' });
 
@@ -1163,10 +1149,9 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
             const stored = await readRun(run.correlationId);
             expect(stored.verification).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a read-back for a run with no session at all', async () => {
         {
             const run = await seedRun({ issueNumber: 54, state: 'failed' });
 
@@ -1187,10 +1172,9 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
             expect(outcome.status).toBe('refused');
             expect(await rowsOf(VERIFIED_ROW)).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('records a blank baseline as `agent.uncompared`, never as a mismatch', async () => {
         {
             // `expectedAgent: ''` is 002 FR-029's *no baseline configured*: the
             // read-back still files — the observation is evidence — but nothing
@@ -1244,6 +1228,7 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
             expect(await rowsOf(VERIFIED_ROW)).toEqual([]);
         }
     });
+
 });
 
 describe('T-014 the token chain across a dead-letter reset (plan D6, research §R3)', () => {
@@ -1263,10 +1248,9 @@ describe('T-014 the token chain across a dead-letter reset (plan D6, research §
             expect(stored.attempt).toBe(1);
             expect(stored.state).toBe('pending');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('leaves the reset run claimable, so a new token chain can start', async () => {
         {
             const run = await seedRun({ issueNumber: 61, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
             await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
@@ -1275,10 +1259,9 @@ describe('T-014 the token chain across a dead-letter reset (plan D6, research §
 
             expect(claimed.runs.map((candidate) => candidate.correlationId)).toEqual([run.correlationId]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never offers a reset-path run that already recorded a session', async () => {
         {
             const run = await seedRun({ issueNumber: 62, state: DISPATCHED, sessionId: 'ses_reset' });
 
@@ -1288,10 +1271,9 @@ describe('T-014 the token chain across a dead-letter reset (plan D6, research §
             // the plan D6 tension created.
             expect(claimed.runs.some((candidate) => candidate.correlationId === run.correlationId)).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('reserves a fresh token after the reset and refuses the earlier chain\'s token', async () => {
         {
             // plan D6's two halves, asserted together: the reset must make a reserve
             // possible again (otherwise a dead-lettered run is unrecoverable), and it
@@ -1365,6 +1347,7 @@ describe('T-014 the token chain across a dead-letter reset (plan D6, research §
             expect(stored.reservation?.dispatchToken).toBe(reserved.dispatchToken);
         }
     });
+
 });
 
 describe('T-042 a token the attempt history closed never authorizes a report (FR-020, FR-028, AC-110)', () => {
@@ -1381,10 +1364,9 @@ describe('T-042 a token the attempt history closed never authorizes a report (FR
             expect(permutation.chainTwoToken).toBe(permutation.chainOneToken);
             expect(permutation.chainOneToken).toBe(buildDispatchToken(permutation.runKey, 1));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses the audit\u2019s crash permutation, from the first reserve to the replayed report', async () => {
         {
             const permutation = await crashPermutation(81);
             const before = await readRun(permutation.correlationId);
@@ -1416,10 +1398,9 @@ describe('T-042 a token the attempt history closed never authorizes a report (FR
             expect(refusals).toHaveLength(1);
             expect(refusals[0]).toMatchObject({ operation: 'result', code: STALE_LEASE, attempt: 1 });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never applies a report whose token an earlier attempt record already closed', async () => {
         {
             // The standing assertion the auditor asked for, stated generally: walk
             // every record *outside the live reservation's own* that the history
@@ -1463,10 +1444,9 @@ describe('T-042 a token the attempt history closed never authorizes a report (FR
             expect(after.session).toBeNull();
             expect(after.state).toBe(STARTING);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('still authorizes a reserve after the reset, so the dead-letter path cannot dead-end', async () => {
         {
             // The other half of the ruling: the spend check reads history only where
             // a *report* is being judged. Reserve consults no history, so an operator
@@ -1484,6 +1464,7 @@ describe('T-042 a token the attempt history closed never authorizes a report (FR
             expect(reserved.status).toBe('applied');
         }
     });
+
 });
 
 describe('T-014 no audit row carries a dispatch token value (FR-061)', () => {

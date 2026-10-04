@@ -281,10 +281,9 @@ describe('T-009 lease expiry (FR-032)', () => {
             });
             expect(rows[0]?.entity).toEqual({ kind: 'run', id: run.correlationId });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('leaves a live lease exactly where it is', async () => {
         {
             const run = await seedRun(102);
             await claimSeeded(run, LIVE_LEASE);
@@ -295,10 +294,9 @@ describe('T-009 lease expiry (FR-032)', () => {
             expect(outcome.recoveries).toEqual([]);
             expect(stillClaimed.state).toBe('claimed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('parks the run once the requeue budget is spent', async () => {
         {
             const run = await seedRun(103);
             await claimSeeded(run, LAPSED_LEASE);
@@ -333,6 +331,7 @@ describe('T-009 lease expiry (FR-032)', () => {
             expect(reclaim.runs).toEqual([]);
         }
     });
+
 });
 
 describe('T-009 late dispatch result (FR-023)', () => {
@@ -364,10 +363,9 @@ describe('T-009 late dispatch result (FR-023)', () => {
             });
             expect(JSON.stringify(rows[0])).not.toContain(DISPATCH_TOKEN);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('leaves a reserved run alone before its deadline', async () => {
         {
             const run = await seedRun(112);
             await claimSeeded(run, LIVE_LEASE);
@@ -379,10 +377,9 @@ describe('T-009 late dispatch result (FR-023)', () => {
             expect(outcome.recoveries).toEqual([]);
             expect(reserved.state).toBe('starting');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('leaves an unconfirmed wedge untouched through ten more passes', async () => {
         {
             const run = await seedRun(113);
             await claimSeeded(run, LIVE_LEASE);
@@ -399,6 +396,7 @@ describe('T-009 late dispatch result (FR-023)', () => {
             expect(await rowsOf(UNCONFIRMED)).toHaveLength(1);
         }
     });
+
 });
 
 describe('T-009 what the sweep must not touch (FR-036, FR-028)', () => {
@@ -417,10 +415,9 @@ describe('T-009 what the sweep must not touch (FR-036, FR-028)', () => {
             expect(waiting.requeuesUsed).toBe(0);
             expect(await rowsOf(LEASE_EXPIRED)).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never requeues a claimed run whose history already records a session', async () => {
         {
             const run = await seedRun(122);
             await claimSeeded(run, LAPSED_LEASE);
@@ -457,6 +454,7 @@ describe('T-009 what the sweep must not touch (FR-036, FR-028)', () => {
             );
         }
     });
+
 });
 
 describe('T-009 migration recovery (data-model §1)', () => {
@@ -481,7 +479,7 @@ describe('T-009 migration recovery (data-model §1)', () => {
 });
 
 describe('T-009 the sweep pass itself', () => {
-    it('halves the shorter of leaseMs and resultDeadlineMs, and writes no row when a pass finds nothing', async () => {
+    it('writes no row and no log line for a pass with nothing to do', async () => {
         {
             await seedRun(141);
 
@@ -492,10 +490,9 @@ describe('T-009 the sweep pass itself', () => {
             expect(await rowsOf(UNCONFIRMED)).toEqual([]);
             expect(LOG_LINES.filter((line) => line.includes('dispatch sweep recovered a run'))).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('names each recovery in the service log without any secret', async () => {
         {
             const run = await seedRun(142);
             await claimSeeded(run, LAPSED_LEASE);
@@ -509,10 +506,9 @@ describe('T-009 the sweep pass itself', () => {
             expect(lines[0]).not.toContain('octocat');
             expect(lines[0]).not.toMatch(/gh[pousr]_[A-Za-z0-9]{16,}/);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('recovers several stranded runs in one pass', async () => {
         {
             const first = await seedRun(151);
             const second = await seedRun(152);
@@ -525,10 +521,9 @@ describe('T-009 the sweep pass itself', () => {
                 .toEqual([first.correlationId, second.correlationId].sort());
             expect(await rowsOf(LEASE_EXPIRED)).toHaveLength(2);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('halves the shorter of the two durations for its cadence', async () => {
         {
             expect(sweepIntervalMs({ leaseMs: 120_000, resultDeadlineMs: 120_000 })).toBe(60_000);
             expect(sweepIntervalMs({ leaseMs: 600_000, resultDeadlineMs: 30_000 })).toBe(15_000);
@@ -536,6 +531,7 @@ describe('T-009 the sweep pass itself', () => {
             expect(sweepIntervalMs(DEFAULT_CONFIG)).toBe(60_000);
         }
     });
+
 });
 
 describe('T-009 the enqueued path still joins an in-flight run', () => {
@@ -560,10 +556,9 @@ describe('T-009 the enqueued path still joins an in-flight run', () => {
             // A delivery that arrives after authorization is marked as such (FR-015).
             expect(joined.sourceReferences.at(-1)?.presentAtAuthorization).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('marks a delivery that arrives after the reservation as post-authorization', async () => {
         {
             const run = await seedRun(162);
             await claimSeeded(run, LIVE_LEASE);
@@ -580,4 +575,5 @@ describe('T-009 the enqueued path still joins an in-flight run', () => {
             expect(joined.sourceReferences.at(-1)?.presentAtAuthorization).toBe(false);
         }
     });
+
 });

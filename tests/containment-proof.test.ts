@@ -406,6 +406,9 @@ describe('NFR-102 / AC-129 no surface carries the credential in the store', () =
                 await loop.shutdown();
             }
         }
+    });
+
+    it('renders the starting prompt in exactly one place', async () => {
         {
             const { loop, rt } = await bootUpgradedPanel();
             try {
@@ -431,6 +434,7 @@ describe('NFR-102 / AC-129 no surface carries the credential in the store', () =
             }
         }
     });
+
 });
 
 describe('FR-002 / FR-089 the panel never writes to GitHub and never mutates the host', () => {
@@ -475,6 +479,9 @@ describe('FR-025 / FR-026 no storage key is added, and the wire keeps its member
             expect([...keys].filter((key) => key.includes('tab'))).toEqual([]);
             expect(keys.size).toBeLessThanOrEqual(STORAGE_KEYS.length + 1);
         }
+    });
+
+    it('keeps the `repositories` member the status document answers with', async () => {
         {
             const loop = await startDispatchLoop();
             try {
@@ -489,6 +496,7 @@ describe('FR-025 / FR-026 no storage key is added, and the wire keeps its member
             }
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *

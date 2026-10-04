@@ -287,10 +287,9 @@ describe('T-032 one run reconstructs from its correlation identifier alone', () 
             expect(result?.decision).toBe('dispatched');
             expect(result?.details).toMatchObject({ sessionId: SESSION_ID });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('excludes rows that are not about a run while keeping their own identifiers', async () => {
         {
             await appendAudit(loop.store, {
                 eventType: 'consent',
@@ -323,6 +322,7 @@ describe('T-032 one run reconstructs from its correlation identifier alone', () 
             }
         }
     });
+
 });
 
 describe('T-032 an unwritable trail never rolls back a state change (AC-119, FR-063)', () => {

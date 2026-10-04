@@ -269,8 +269,9 @@ describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037
             expect(row?.promptSources).toBeNull();
             expect(row?.promptText).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('carries the text for transport only, with the reference beside it', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(2)] });
@@ -288,8 +289,9 @@ describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037
             // The reference is an identity, never a credential.
             expect(findSecretLeak(text)).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('keeps a maximal batch inside the transport response cap', async () => {
         {
             const service = await startService();
             const issues = Array.from({ length: 50 }, (_unused, index) => assignment(index + 1));
@@ -304,8 +306,9 @@ describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037
             expect(body.events.every((row) => row.promptPresent === true)).toBe(true);
             expect(findSecretLeak(text)).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('leaves eligibility, the lease, and the claim row to 003 unchanged', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(3)] });
@@ -318,6 +321,7 @@ describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037
             expect(Object.keys(claimed[0]?.details as Record<string, unknown>)).not.toContain('promptFingerprint');
         }
     });
+
 });
 
 describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-052, AC-139)', () => {
@@ -347,8 +351,9 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
             expect(trailText).not.toContain(PROMPT);
             expect(trailText).not.toContain('promptText');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('surfaces those rows from a correlation-filtered audit read', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(5)] });
@@ -370,8 +375,9 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
             // The answer to "which prompt produced this run" never needs the text.
             expect(text).not.toContain(PROMPT);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('projects presence, fingerprint, and length — and no text — on the run row', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(6)] });
@@ -389,8 +395,9 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
             expect(text).not.toContain(PROMPT);
             expect(findSecretLeak(text)).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('projects a run queued with no prompt as false / null / null / null', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: null, snapshots: [assignment(7)] });
@@ -405,4 +412,5 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
             expect(row?.promptSources).toBeNull();
         }
     });
+
 });

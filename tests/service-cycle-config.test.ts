@@ -368,10 +368,9 @@ describe('one configuration read per cycle (006 T-007, FR-055)', () => {
                 maxMs: DEFAULT_CONFIG.retryMaxMs,
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('degrades an unreadable document to the documented defaults, with one warn line', async () => {
         {
             await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
             await writeAccount(store, fixtureAccount());
@@ -387,6 +386,7 @@ describe('one configuration read per cycle (006 T-007, FR-055)', () => {
             expect(calls[0]?.pace.perPage).toBe(DEFAULT_CONFIG.perPage);
         }
     });
+
 });
 
 describe('the window is widened by the saved overlap (006 T-008, FR-059(a), AC-149)', () => {
@@ -483,10 +483,9 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
                 expect(Number(url.searchParams.get('per_page'))).toBeLessThanOrEqual(NUMERIC_BOUNDS.perPage.max);
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('stops after the first page when it does not fill the cap', async () => {
         {
             const { poller, requested } = realPoller(issuePage(SAVED_PER_PAGE - 1, UPDATED_IN_WINDOW));
 
@@ -501,10 +500,9 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
             expect(requested).toHaveLength(1);
             expect(requested[0]?.searchParams.get('per_page')).toBe(String(SAVED_PER_PAGE));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('never asks for more than the field maximum, even at the ceiling', async () => {
         {
             const { poller, requested } = realPoller(issuePage(1, UPDATED_IN_WINDOW));
 
@@ -520,6 +518,7 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
             expect(requested[0]?.searchParams.get('per_page')).toBe('30');
         }
     });
+
 });
 
 /** The vocabulary name 002 reserved for a configuration change (006 FR-070). */

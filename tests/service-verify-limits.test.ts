@@ -69,6 +69,9 @@ describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {
             expect(error.code).toBe('account-rejected');
             expect(await accountFileExists(service)).toBe(false);
         }
+    });
+
+    it('answers 409 duplicate-account when the numeric id is already registered', async () => {
         {
             const { service } = await startWithGitHub({ user: USER_OK });
             await postVerify(service, verifyBody(REGISTERED_TOKEN));
@@ -79,6 +82,9 @@ describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {
             expect(response.status).toBe(409);
             expect(error.code).toBe('duplicate-account');
         }
+    });
+
+    it('refuses a malformed token before any network call', async () => {
         {
             const { service, github } = await startWithGitHub({ user: USER_OK });
             const malformed = [{ token: '' }, { token: 'has whitespace' }, { token: OVERSIZED_TOKEN }, { token: 42 }];
@@ -95,6 +101,9 @@ describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {
 
             expect(github.calls).toHaveLength(0);
         }
+    });
+
+    it('never echoes a received value in a validation message', async () => {
         {
             const { service } = await startWithGitHub({ user: USER_OK });
 
@@ -111,6 +120,7 @@ describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {
             expect(JSON.stringify(error)).not.toContain(REGISTERED_TOKEN);
         }
     });
+
 });
 
 describe('POST /v1/accounts/verify — throttles (SEC-04, invariant 9)', () => {
@@ -143,6 +153,9 @@ describe('POST /v1/accounts/verify — throttles (SEC-04, invariant 9)', () => {
             expect(completed.status).toBe(201);
             expect(scripted.tokens).toHaveLength(1);
         }
+    });
+
+    it('answers 429 rate-limited with retry-after after 10 attempts in the window', async () => {
         {
             const { service, github } = await startWithGitHub({ user: { status: 401 } });
 
@@ -161,6 +174,7 @@ describe('POST /v1/accounts/verify — throttles (SEC-04, invariant 9)', () => {
             expect(github.calls).toHaveLength(10);
         }
     });
+
 });
 
 describe('POST /v1/accounts/:id/token — the same throttle rules as verify (M5b)', () => {
@@ -196,6 +210,9 @@ describe('POST /v1/accounts/:id/token — the same throttle rules as verify (M5b
             const completed = await rotation;
             expect(completed.status).toBe(200);
         }
+    });
+
+    it('shares the rolling attempt window with verify rather than opening a second one (M5b)', async () => {
         {
             const { service } = await startWithGitHub({ user: USER_OK });
             const registered = await postVerify(service, verifyBody(REGISTERED_TOKEN));
@@ -215,6 +232,7 @@ describe('POST /v1/accounts/:id/token — the same throttle rules as verify (M5b
             expect(rotation.headers.get(RETRY_AFTER)).not.toBeNull();
         }
     });
+
 });
 
 describe('secret containment (NFR-004, contract §3 assertion)', () => {
@@ -239,6 +257,9 @@ describe('secret containment (NFR-004, contract §3 assertion)', () => {
 
             expectNoSecret('responses/logs/audit', [...responses, await secretSurfaces(service)].join('\n'));
         }
+    });
+
+    it('keeps the token out of the log when a verify is forced to fail with 500', async () => {
         {
             const thrower = scriptedVerifier((token) => {
                 throw new Error(`upstream exploded while holding ${token}`);
@@ -256,6 +277,9 @@ describe('secret containment (NFR-004, contract §3 assertion)', () => {
             expectNoSecret('forced-500 log', log);
             expectNoSecret('forced-500 audit', await secretSurfaces(service));
         }
+    });
+
+    it('keeps both credentials out of the rotation and delete responses (M5c)', async () => {
         {
             const { service } = await startWithGitHub({ user: USER_OK });
             const registered = await postVerify(service, verifyBody(REGISTERED_TOKEN));
@@ -275,5 +299,6 @@ describe('secret containment (NFR-004, contract §3 assertion)', () => {
             expect(removalText).not.toContain('"credential"');
         }
     });
+
 });
 

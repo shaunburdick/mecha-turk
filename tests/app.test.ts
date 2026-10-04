@@ -230,6 +230,9 @@ describe('the install-time GitHub card is retired, not dormant (owner order 2026
         {
             expect(retiredSpikeCallers()).toEqual([]);
         }
+    });
+
+    it('arms the relay from the bindings read, which needs no connection event', async () => {
         {
             const runtime = createTestRuntime(fakeHost());
             runtime.state.bindings.bindings = [activeBinding()];
@@ -242,6 +245,7 @@ describe('the install-time GitHub card is retired, not dormant (owner order 2026
             expect(runtime.state.relay.timer).not.toBeNull();
         }
     });
+
 });
 
 describe('loadLedger on remount', () => {
@@ -259,6 +263,9 @@ describe('loadLedger on remount', () => {
             expect(runtime.state.ledger.entries.at(-1)?.phase).toBe('mounted');
             expect(storage.values.has(LEDGER_STORAGE_KEY)).toBe(true);
         }
+    });
+
+    it('refuses a stored evidence record that does not match the contract', async () => {
         {
             const broken: JsonValue = { schemaVersion: 'extension-spike-1', repository: 42 };
             const storage = createStorageDouble({ [EVIDENCE_STORAGE_KEY]: broken });
@@ -270,6 +277,7 @@ describe('loadLedger on remount', () => {
             expect(runtime.state.ledger.entries.at(-1)?.phase).toBe('mounted');
         }
     });
+
 });
 
 /** Two registered projects, so a pick has somewhere else to go. */
@@ -306,6 +314,9 @@ describe('project selection', () => {
             // 002 FR-041: settings resolve nothing, so no config appears from one.
             expect(runtime.state.config).toBeNull();
         }
+    });
+
+    it('adopts a pick and stores it', async () => {
         {
             const storage = createStorageDouble();
             const runtime = createTestRuntime(
@@ -318,6 +329,9 @@ describe('project selection', () => {
             expect(runtime.state.projectSelection).toBe(OTHER_ID);
             expect(storage.values.get(PROJECT_STORAGE_KEY)).toBe(OTHER_ID);
         }
+    });
+
+    it('refuses a pick from outside the loaded list and stores nothing', async () => {
         {
             const storage = createStorageDouble();
             const runtime = createTestRuntime(
@@ -331,6 +345,9 @@ describe('project selection', () => {
             expect(storage.values.has(PROJECT_STORAGE_KEY)).toBe(false);
             expect(runtime.state.projects.note).toContain('prj_invented');
         }
+    });
+
+    it('keeps the pick in memory when the storage write is refused', async () => {
         {
             const storage = createStorageDouble();
             const runtime = createTestRuntime(
@@ -351,5 +368,6 @@ describe('project selection', () => {
             expect(runtime.state.projectSelection).toBe(OTHER_ID);
         }
     });
+
 });
 

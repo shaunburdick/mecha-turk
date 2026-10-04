@@ -304,8 +304,9 @@ describe('T-015 every wave-3 route is registered and answers its method', () => 
                     .toBe('method-not-allowed');
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('runs every handler, not just the path guard', async () => {
         {
             const service = await startServiceForTest();
 
@@ -329,8 +330,9 @@ describe('T-015 every wave-3 route is registered and answers its method', () => 
                 expect(body.error?.issues?.map((issue) => issue.field)).toContain('correlationId');
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('still serves the read-only event routes after the wave-3 registrations', async () => {
         {
             const service = await startServiceForTest();
 
@@ -340,8 +342,9 @@ describe('T-015 every wave-3 route is registered and answers its method', () => 
                 expect(response.status, `${route.name} must still answer`).toBe(200);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('keeps a wrong method on a literal route answered by its own methods', async () => {
         {
             const service = await startServiceForTest();
 
@@ -350,8 +353,9 @@ describe('T-015 every wave-3 route is registered and answers its method', () => 
             expect(response.status).toBe(405);
             expect(response.headers.get('allow')).toBe('GET');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('prefers a literal route over a parameterised sibling', async () => {
         {
             const service = await startServiceForTest();
 
@@ -363,6 +367,7 @@ describe('T-015 every wave-3 route is registered and answers its method', () => 
             expect(response.status).toBe(200);
         }
     });
+
 });
 
 describe('T-015 unknown paths and unrecognised run ids are distinct', () => {
@@ -375,8 +380,9 @@ describe('T-015 unknown paths and unrecognised run ids are distinct', () => {
             expect(response.status).toBe(404);
             expect(await codeOf(response)).toBe(NOT_FOUND);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('answers an unknown verb under the run prefix with 404, not 405', async () => {
         {
             const service = await startServiceForTest();
 
@@ -387,8 +393,9 @@ describe('T-015 unknown paths and unrecognised run ids are distinct', () => {
             expect(response.status).toBe(404);
             expect(await codeOf(response)).toBe(NOT_FOUND);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('answers a well-formed but unseeded run id with unknown-run, naming the distinction', async () => {
         {
             const service = await startServiceForTest();
 
@@ -404,8 +411,9 @@ describe('T-015 unknown paths and unrecognised run ids are distinct', () => {
             // its run never existed when it was evicted.
             expect(await codeOf(response)).toBe(UNKNOWN_RUN);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('answers a delivery id on a run-scoped path with unknown-run', async () => {
         {
             const service = await startServiceForTest();
 
@@ -419,6 +427,7 @@ describe('T-015 unknown paths and unrecognised run ids are distinct', () => {
             expect(await codeOf(response)).toBe(UNKNOWN_RUN);
         }
     });
+
 });
 
 describe('T-015 authentication runs before routing, unchanged', () => {
@@ -448,8 +457,9 @@ describe('T-015 authentication runs before routing, unchanged', () => {
                 expect(await wrong.text(), `${probe.name} refusal body must match`).toBe(await missing.text());
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('answers an invented path with the same 401 a real one gets', async () => {
         {
             const service = await startServiceForTest();
             const invented = await fetch(`${service.baseUrl}/v1/events/not-a-route`, { method: 'POST' });
@@ -459,6 +469,7 @@ describe('T-015 authentication runs before routing, unchanged', () => {
             expect(await invented.text()).toBe(await real.text());
         }
     });
+
 });
 
 describe('T-015 an unreadable run document surfaces as storage-unavailable', () => {

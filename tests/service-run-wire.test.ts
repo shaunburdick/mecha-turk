@@ -541,10 +541,9 @@ describe('T-042d a resolve may not name a session and ask for none', () => {
             expect(stored.session).toBeNull();
             expect(stored.reservation?.consumed).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('still accepts the same body without sessionId, which is the documented shape', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(2, 'unconfirmed');
@@ -559,6 +558,7 @@ describe('T-042d a resolve may not name a session and ask for none', () => {
             expect(await readRun(run.correlationId).then((found) => found.attempt)).toBe(2);
         }
     });
+
 });
 
 describe('T-043a the reserve 200 carries every member the panel acts on', () => {
@@ -608,10 +608,9 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
             expect(errorOf(result.json).code).toBe(STALE_LEASE);
             expect(errorOf(result.json).message).toContain('lease');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('answers already-reserved for a second authorization on one live run', async () => {
         {
             const service = await startSeededService();
             const { run, leaseId } = await driveAndClaim(12);
@@ -629,10 +628,9 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
             expect(errorOf(second.json).message).toContain('attempt 1');
             expect(errorOf(second.json).message).toContain(String(first.json.resultDeadlineAt));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('answers already-dispatched naming the session a leaseless run recorded', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(13, 'dispatched');
@@ -647,10 +645,9 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
             expect(errorOf(result.json).code).toBe(ALREADY_DISPATCHED);
             expect(errorOf(result.json).message).toContain(SEEDED_SESSION);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('answers invalid-transition naming the state for a retry that cannot run', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(14, 'pending');
@@ -663,10 +660,9 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
             expect(result.status).toBe(409);
             expect(errorOf(result.json).code).toBe(INVALID_TRANSITION);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('answers cause-not-cleared when only the panel can check the cause', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(15, 'blocked:project-missing');
@@ -681,6 +677,7 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe('blocked:project-missing');
         }
     });
+
 });
 
 describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
@@ -711,10 +708,9 @@ describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
             expect(warnings.join('\n')).toContain(run.correlationId);
             expect(warnings.join('\n')).toContain('reserve');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('says nothing when the refusal row did land', async () => {
         {
             const run = await detachedRun(91);
             const lines: string[] = [];
@@ -736,6 +732,7 @@ describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
             expect(lines.filter((line) => line.includes('could not record its row'))).toHaveLength(0);
         }
     });
+
 });
 
 describe('T-043c a 422 about a run that exists writes its refusal row', () => {
@@ -762,10 +759,9 @@ describe('T-043c a 422 about a run that exists writes its refusal row', () => {
                 attempt: 1,
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('keeps 404 unknown-run row-free, because there is no run to name', async () => {
         {
             const service = await startSeededService();
 
@@ -779,6 +775,7 @@ describe('T-043c a 422 about a run that exists writes its refusal row', () => {
             expect(await rowsOf(REFUSED_ROW)).toHaveLength(0);
         }
     });
+
 });
 
 describe('T-043h §7 and §8 never require attempt', () => {
@@ -822,10 +819,9 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             // nothing moved, and the panel is told which member was too long.
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe('failed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses an over-long note on a resolve, naming the field', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(41, 'unconfirmed');
@@ -839,10 +835,9 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             expect(errorOf(result.json).message).toContain('note');
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe('unconfirmed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses over-long guidance on a block report, naming the field', async () => {
         {
             const service = await startSeededService();
             const { run, leaseId } = await driveAndClaim(42);
@@ -863,10 +858,9 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             expect(errorOf(result.json).message).toContain('guidance');
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe('claimed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses an over-long observedAgent on a verification, naming the field', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(43, 'dispatched');
@@ -886,10 +880,9 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             expect(result.status).toBe(422);
             expect(errorOf(result.json).message).toContain('observedAgent');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('accepts a blank baseline, and still refuses an absent one (002 FR-029 as amended)', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(48, 'dispatched');
@@ -928,8 +921,9 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             expect(missing.status).toBe(422);
             expect(errorOf(missing.json).message).toContain('expectedAgent');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a baseline provenance that is missing or contradicts its own baseline', async () => {
         {
             // The provenance is the reason an `agent.uncompared` row can say
             // *why* nothing was compared (002 FR-029 case (ii); contract §5 as
@@ -966,6 +960,7 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             expect(await readRun(run.correlationId).then((found) => found.verification)).toBeNull();
         }
     });
+
 });
 
 describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
@@ -991,10 +986,9 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe('claimed');
             expect(await readRun(run.correlationId).then((found) => found.session)).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a resolve naming a session the host would never mint', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(45, 'unconfirmed');
@@ -1008,10 +1002,9 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
             expect(errorOf(result.json).message).toContain('sessionId');
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe('unconfirmed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('refuses a verification whose sessionId is well-formed but unbounded', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(46, 'dispatched');
@@ -1029,10 +1022,9 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
             expect(result.status).toBe(422);
             expect(errorOf(result.json).message).toContain('sessionId');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('accepts the host-shaped id the read-back actually carries', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(47, 'dispatched');
@@ -1055,6 +1047,7 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
             expect(result.json.state).toBe('dispatched');
         }
     });
+
 });
 
 describe('T-043g the only authorization path left is the routed one', () => {
@@ -1070,14 +1063,14 @@ describe('T-043g the only authorization path left is the routed one', () => {
             );
             expect(source).not.toMatch(/from '\.\/run-key\.ts'/);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('retires the legacy queue mutations the run routes replaced', async () => {
         {
             const source = await readFile(new URL('../service/poll/events.ts', import.meta.url), 'utf8');
 
             expect(source).not.toMatch(/export async function (markEventDispatched|retryEvent)\b/);
         }
     });
+
 });

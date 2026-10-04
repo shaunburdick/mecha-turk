@@ -556,6 +556,9 @@ describe('T-022 a displayed bound account and a saved one can never disagree (PM
                 { id: binding.accountNumericUserId, label: binding.accountLogin },
             ]);
         }
+    });
+
+    it('lists the accounts available to bind in add mode, and never an unusable one', async () => {
         {
             const state: BindingsTabState = {
                 ...initialBindings(),
@@ -572,6 +575,9 @@ describe('T-022 a displayed bound account and a saved one can never disagree (PM
             expect(field.disabled).toBe(false);
             expect(field.options).toEqual([{ id: '77331', label: LOGIN }]);
         }
+    });
+
+    it('shows the account fixed on screen and saves exactly that account (ruling 5)', async () => {
         {
             const binding = bindingFixture();
             const requests: GuestRequest[] = [];
@@ -617,6 +623,7 @@ describe('T-022 a displayed bound account and a saved one can never disagree (PM
             expect(savedRow?.accountLogin).toBe(LOGIN);
         }
     });
+
 });
 
 /**

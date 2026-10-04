@@ -330,6 +330,9 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
             expect(view.rt.state.settingsTab.edit.saveState).toBe('editing');
             view.dispose();
         }
+    });
+
+    it('AC-117: the copy names the field, both limits, the governs, the removal, and the survivors', async () => {
         {
             const view = await saveOnce({ field: 'auditRetentionDays', value: '30' });
             const copy = view.rt.state.settingsTab.edit.confirm?.copy ?? '';
@@ -340,6 +343,9 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
             expect(copy).toContain('entries older than 30 days will be deleted at the next trim pass');
             view.dispose();
         }
+    });
+
+    it('SC-108: each knob arms on a lowering and states its own removal', async () => {
         {
             for (const knot of RETENTION_KNOTS) {
                 const view = await saveOnce({ field: knot.field, value: knot.lower });
@@ -352,6 +358,9 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
                 view.dispose();
             }
         }
+    });
+
+    it('SC-108: the entry cap additionally promises that nothing protected is ever removed for it', async () => {
         {
             const view = await saveOnce({ field: 'auditMaxEntries', value: '5000' });
             const copy = view.rt.state.settingsTab.edit.confirm?.copy ?? '';
@@ -359,6 +368,9 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
             expect(copy).toContain('the oldest unprotected entries beyond 5000 entries will be removed');
             view.dispose();
         }
+    });
+
+    it('SC-108: the excerpt knob says what its window governs and what is cleared', async () => {
         {
             const view = await saveOnce({ field: 'excerptRetentionDays', value: '7' });
             const copy = view.rt.state.settingsTab.edit.confirm?.copy ?? '';
@@ -367,6 +379,7 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
             view.dispose();
         }
     });
+
 });
 
 describe('the armed control completes the write (006 T-022, AC-118, AC-119, AC-120)', () => {
@@ -384,6 +397,9 @@ describe('the armed control completes the write (006 T-022, AC-118, AC-119, AC-1
             expect(view.rt.state.settingsTab.edit.draft.auditRetentionDays).toBe('30');
             view.dispose();
         }
+    });
+
+    it('AC-119: raising any retention knob writes in one activation and arms nothing', async () => {
         {
             for (const knot of RETENTION_KNOTS) {
                 const view = await saveOnce({ field: knot.field, value: knot.raise });
@@ -395,6 +411,9 @@ describe('the armed control completes the write (006 T-022, AC-118, AC-119, AC-1
                 mounts.log.length = 0;
             }
         }
+    });
+
+    it('AC-120: a non-retention change writes in one activation and arms nothing', async () => {
         {
             const view = await saveOnce({ field: 'intervalMs', value: '120000' });
 
@@ -402,6 +421,9 @@ describe('the armed control completes the write (006 T-022, AC-118, AC-119, AC-1
             expect(view.rt.state.settingsTab.edit.confirm).toBeNull();
             view.dispose();
         }
+    });
+
+    it('an edit after arming retires the confirmation rather than re-pointing it', async () => {
         {
             const view = await saveOnce({ field: 'auditRetentionDays', value: '30' });
 
@@ -412,6 +434,7 @@ describe('the armed control completes the write (006 T-022, AC-118, AC-119, AC-1
             view.dispose();
         }
     });
+
 });
 
 describe('cancel writes nothing and returns the fields (006 T-022, AC-121)', () => {
@@ -427,6 +450,9 @@ describe('cancel writes nothing and returns the fields (006 T-022, AC-121)', () 
             expect(view.rt.state.settingsTab.edit.dirty).toEqual([]);
             view.dispose();
         }
+    });
+
+    it('the armed copy is on screen while armed, and Cancel takes it down', async () => {
         {
             const view = await saveOnce({ field: 'auditRetentionDays', value: '30' });
             expect(recordedStrings().join('\n')).toContain(DELETES_HISTORY);
@@ -439,6 +465,7 @@ describe('cancel writes nothing and returns the fields (006 T-022, AC-121)', () 
             view.dispose();
         }
     });
+
 });
 
 /**
@@ -469,6 +496,9 @@ describe('restore defaults is a two-step whole-document write (006 T-022, FR-016
             expect(view.rt.state.settingsTab.edit.draft.intervalMs).toBe('60000');
             view.dispose();
         }
+    });
+
+    it('the second activation on Restore defaults writes the whole document', async () => {
         {
             const view = await restoreMount();
 
@@ -482,6 +512,9 @@ describe('restore defaults is a two-step whole-document write (006 T-022, FR-016
             expect(view.rt.state.settingsTab.edit.confirm).toBeNull();
             view.dispose();
         }
+    });
+
+    it('AC-121: cancelling a staged restore returns every field to the last-read values', async () => {
         {
             const view = await restoreMount();
 
@@ -494,6 +527,7 @@ describe('restore defaults is a two-step whole-document write (006 T-022, FR-016
             view.dispose();
         }
     });
+
 });
 
 describe('the confirmation copy obeys its contract (006 T-022, contract §2 and §4)', () => {

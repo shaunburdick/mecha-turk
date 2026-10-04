@@ -344,10 +344,9 @@ describe('a configuration write runs no trim (006 T-014, FR-047, AC-128)', () =>
             expect(afterCycle.some((entry) => entry.seq === MIDDLE_SEQ)).toBe(false);
             expect(afterCycle.some((entry) => entry.seq === FRESH_SEQ)).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('degrades an unreadable configuration at the boundary to the documented defaults', async () => {
         {
             const seed = await openStore({ dataDir });
             await plantMixedTrail(seed);
@@ -365,4 +364,5 @@ describe('a configuration write runs no trim (006 T-014, FR-047, AC-128)', () =>
             expect(trail.some((entry) => entry.seq === MIDDLE_SEQ)).toBe(true);
         }
     });
+
 });

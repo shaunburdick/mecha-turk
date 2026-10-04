@@ -503,6 +503,9 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
 
             expect(offending.map((source) => source.name)).toEqual([]);
         }
+    });
+
+    it('carries the single documented default exception, pinned to the service default', async () => {
         {
             const sources = await panelSources();
             const occurrences = sources.flatMap((source) =>
@@ -522,12 +525,18 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
             expect(occurrences[0]?.value).toBe(DEFAULT_CONFIG.expectedAgent);
             expect(DEFAULT_EXPECTED_AGENT).toBe(DEFAULT_CONFIG.expectedAgent);
         }
+    });
+
+    it('never attaches a take-effect class to a field', async () => {
         {
             const sources = await panelSources();
             const offending = sources.filter((source) => configurationLiteralsIn(source).attachedClasses.length > 0);
 
             expect(offending.map((source) => source.name)).toEqual([]);
         }
+    });
+
+    it('never claims a value changes nothing in this build', async () => {
         {
             const sources = await panelSources();
             const forbidden = /changes nothing in this build|no effect in this build/i;
@@ -539,6 +548,9 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
             // truth can be mistaken for the projection.
             expect(sources.filter((source) => source.text.includes('SETTINGS_FIELDS'))).toEqual([]);
         }
+    });
+
+    it('bites: every rule flags a pasted stand-in', async () => {
         {
             const found = configurationLiteralsIn(standInSnippet());
 
@@ -554,6 +566,7 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
             expect(found.attachedClasses.length).toBeGreaterThan(0);
         }
     });
+
 });
 
 describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () => {
@@ -731,6 +744,9 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             )).toEqual([...LOG_LEVEL_VALUES]);
             view.dispose();
         }
+    });
+
+    it('the string field\'s empty box reads *not set*, with the declared guidance under it (004 T-030)', async () => {
         {
             const descriptor = descriptorOf('startingPrompt', combinedEnvelope());
             if (descriptor.kind !== 'string') {
@@ -774,6 +790,9 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect(typeof props.onChange).toBe('function');
             view.dispose();
         }
+    });
+
+    it('a set tier puts the value in that same slot (004 T-030, 006 FR-081)', async () => {
         {
             const prompt = 'Review every change against the ticket before approving.';
             const view = await mountSettings({
@@ -790,6 +809,9 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect(props.value).toBe(prompt);
             view.dispose();
         }
+    });
+
+    it('`multiline` rides the descriptor, so the other string field stays single-line', async () => {
         {
             const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
             const control = mounts.log.find(
@@ -807,6 +829,9 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect(props.rows).toBeUndefined();
             view.dispose();
         }
+    });
+
+    it('gives an undocumented member a line, and no affordance at all', async () => {
         {
             const view = await mountSettings({
                 answer: configAnswer(envelopeBody({ config: { ...DEFAULT_CONFIG, surprise: 1 } })),
@@ -821,6 +846,9 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             ))).toBe(true);
             view.dispose();
         }
+    });
+
+    it('says what a save will do while one is possible', async () => {
         {
             const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
 
@@ -831,6 +859,9 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect(view.requests.map((request) => `${request.method} ${request.path}`)).toEqual(['GET /v1/config']);
             view.dispose();
         }
+    });
+
+    it('AC-132: with the service unreachable, keeps static content and names the cause', async () => {
         {
             const view = await mountSettings({
                 answer: () => {
@@ -844,6 +875,9 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect(renderedRows(view.strings)).toEqual([]);
             view.dispose();
         }
+    });
+
+    it('reads twice and never writes: the re-read is a read', async () => {
         {
             const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
             expect(view.requests).toHaveLength(1);
@@ -860,6 +894,9 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect(view.requests.every((request) => request.method === 'GET')).toBe(true);
             view.dispose();
         }
+    });
+
+    it('keeps the configured value for itself: the Status slice stays untouched', async () => {
         {
             const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
 
@@ -870,6 +907,7 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             view.dispose();
         }
     });
+
 
     it('releases every handle it mounted, and leaves no slot behind (FR-017)', async () => {
         const view = await mountSettings({ answer: configAnswer(envelopeBody()) });

@@ -302,8 +302,9 @@ describe('GET /v1/accounts — credential-free DTOs (contract §2.2)', () => {
             const credentialFree: NeverWhenCredentialed = true;
             expect(credentialFree).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('keeps the credential out of the serialized responses, logs, and audit', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -319,6 +320,7 @@ describe('GET /v1/accounts — credential-free DTOs (contract §2.2)', () => {
             expect(listText).not.toContain('credential');
         }
     });
+
 });
 
 describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
@@ -350,8 +352,9 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
             expect(auditAfter.startsWith(auditBefore)).toBe(true);
             expect(auditAfter).toContain('account.rotated');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('stores the rotated credential owner-only', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -362,8 +365,9 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
             const info = await stat(file);
             expect(info.mode % PERMISSION_BASE).toBe(0o600);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a token whose numeric id differs, leaving the store byte-identical', async () => {
         {
             const github = fakeGitHub({ user: USER_OK });
             const service = await startWithVerifier(github.verifier);
@@ -379,8 +383,9 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
             expect(error.error?.code).toBe('account-rejected');
             expect(await readFile(accountFile, 'utf8')).toBe(before);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('answers 404 for an account that does not exist', async () => {
         {
             const service = await startService({ user: USER_OK });
 
@@ -390,8 +395,9 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
             expect(response.status).toBe(404);
             expect(error.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('restores an errored account to active after a successful rotation', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -408,6 +414,7 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
             expect(after.errorReason).toBeNull();
         }
     });
+
 });
 
 describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7)', () => {
@@ -427,8 +434,9 @@ describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7
             await expect(stat(join(service.dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`))).rejects.toThrow();
             expect(audit).toContain(ACCOUNT_DELETED_EVENT);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses while a binding references the account, unless force=1', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -453,8 +461,9 @@ describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7
             expect(audit).toContain('binding.disabled');
             expect(audit).toContain(ACCOUNT_DELETED_EVENT);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('answers 404 for an unknown or non-numeric id', async () => {
         {
             const service = await startService({ user: USER_OK });
 
@@ -466,6 +475,7 @@ describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7
             }
         }
     });
+
 });
 
 describe('GET /v1/status — handoff pre-flight (contract §2.1, SEC-08)', () => {
@@ -508,8 +518,9 @@ describe('F13 — startup reconciliation of interrupted handoffs', () => {
             expect(audit).toContain('"eventType":"account.error"');
             expect(account.state).not.toBe('verifying');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('re-verifies a stranded account back to active when GitHub still knows it', async () => {
         {
             const dataDir = await plantTransientAccount('pending_handoff');
             const service = await startService({ user: USER_RENAMED }, dataDir);
@@ -527,6 +538,7 @@ describe('F13 — startup reconciliation of interrupted handoffs', () => {
             expect(audit).toContain('"eventType":"account.error"');
         }
     });
+
 });
 
 /** The label member's field name, so a display-name refusal renders in place (005 §2). */
@@ -744,7 +756,7 @@ function testModuleTexts(): readonly string[] {
 }
 
 describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-066, 004 FR-082)', () => {
-    it('writes the label, and refuses anything that is not one of the two members', async () => {
+    it('stores a label, trims it, and changes nothing but the label and its stamp', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -764,8 +776,9 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             expect(changed).toContain(LABEL_FIELD);
             expect(changed.filter((key) => key !== LABEL_FIELD && key !== 'updatedAt')).toEqual([]);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a body carrying neither member rather than no-oping (invariant 4)', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -793,8 +806,9 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
 
             expect(await accountPromptRows(service)).toHaveLength(0);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a credential-shaped value by field, never echoing what was sent', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -814,8 +828,9 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             // The previous label stays in force, byte for byte.
             expect(await readFile(file, 'utf8')).toBe(before);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('clears on null and on empty-after-trim, and refuses anything that is not text', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -835,8 +850,9 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             const issue = await issueOf(refused);
             expect(issue.field).toBe(LABEL_FIELD);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('caps the label at 80 code points and refuses control characters', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -856,8 +872,9 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             expect(controlIssue.field).toBe(LABEL_FIELD);
             expect(controlIssue.remediation).not.toContain('bad');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('reads as null for a store that predates the field, rewriting nothing', async () => {
         {
             const dataDir = await sharedDataDir();
             const service = await startService({ user: USER_OK }, dataDir);
@@ -876,7 +893,8 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
         }
     });
 
-    it('leaves both operator members byte-identical through a rotation and a rename', async () => {
+
+    it('AC-128 plus FR-082 — rotation and login rename touch neither member', async () => {
         {
             const github = fakeGitHub({ user: USER_OK });
             const service = await startWithVerifier(github.verifier);
@@ -906,8 +924,9 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             expect(body.accounts[0]?.displayName).toBe(SEEDED_LABEL);
             expect(body.accounts[0]?.startingPrompt).toBe(SEEDED_PROMPT);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('answers a populated label with no credential-shaped text', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -921,8 +940,9 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             expect(text).not.toMatch(/\bgh[pousr]_[A-Za-z0-9]{20,}/);
             expect(text).not.toMatch(/\bgithub_pat_[A-Za-z0-9_]{20,}/);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('answers 404 for an id no account holds', async () => {
         {
             const service = await startService({ user: USER_OK });
 
@@ -934,6 +954,7 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             expect(envelope.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
         }
     });
+
 });
 
 describe('the account tier on the record — member, DTO, quarantine (004 FR-082, FR-083)', () => {
@@ -1065,7 +1086,7 @@ describe('the account tier on the record — member, DTO, quarantine (004 FR-082
 });
 
 describe('PUT /v1/accounts/:numericUserId — invariant 5: exactly the supplied members', () => {
-    it('changes only the member each body named, plus updatedAt', async () => {
+    it('a one-member body changes that member only; the other is byte-identical', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1093,8 +1114,9 @@ describe('PUT /v1/accounts/:numericUserId — invariant 5: exactly the supplied 
             expect(labelChanged).toContain(LABEL_FIELD);
             expect(labelChanged.filter((key) => key !== LABEL_FIELD && key !== 'updatedAt')).toEqual([]);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('a two-member body changes both, and null/"" clear only what they name', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1137,10 +1159,11 @@ describe('PUT /v1/accounts/:numericUserId — invariant 5: exactly the supplied 
             expect(labelCleared[PROMPT_FIELD]).toBeNull();
         }
     });
+
 });
 
 describe('PUT /v1/accounts/:numericUserId — invariant 6: the eleven custody keys refused', () => {
-    it('names each key, echoes no value of it, and writes nothing', async () => {
+    it('every custody and identity key answers 422 by name with no echo', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1172,8 +1195,9 @@ describe('PUT /v1/accounts/:numericUserId — invariant 6: the eleven custody ke
             expect(service.logLines.join('\n')).not.toContain(CUSTODY_SENTINEL);
             expect(await accountPromptRows(service)).toHaveLength(rowsBefore.length);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('one complete list of issues, and nothing at all is written', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1193,6 +1217,7 @@ describe('PUT /v1/accounts/:numericUserId — invariant 6: the eleven custody ke
             expect(await accountPromptRows(service)).toHaveLength(0);
         }
     });
+
 
     it('withholds a member name that is not an identifier, and bounds one that is', async () => {
         const service = await startService({ user: USER_OK });
@@ -1372,7 +1397,7 @@ describe('account.prompt-updated — one row per tier change, never the text (00
         expect(serialized).not.toContain(PROMPT_HEAD);
     });
 
-    it('writes nothing for a label-only write or for a refusal', async () => {
+    it('a displayName-only write appends no row — a label is not a tier', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1385,8 +1410,9 @@ describe('account.prompt-updated — one row per tier change, never the text (00
             expect(await putStatus(service, JSON.stringify({ displayName: null }))).toBe(200);
             expect(await accountPromptRows(service)).toHaveLength(1);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('a refused write leaves both stored members byte-identical and writes no row', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1408,7 +1434,8 @@ describe('account.prompt-updated — one row per tier change, never the text (00
         }
     });
 
-    it('observes a hand edit exactly once as service, and nothing on restart', async () => {
+
+    it('a hand-edited account file is observed once with actor `service`', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1433,8 +1460,9 @@ describe('account.prompt-updated — one row per tier change, never the text (00
             expect(rows).toHaveLength(1);
             expect(service.logLines.join('\n')).not.toContain(PROMPT_HEAD);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('a restart over unchanged files writes zero rows', async () => {
         {
             const dataDir = await sharedDataDir();
             const first = await startService({ user: USER_OK }, dataDir);
@@ -1454,6 +1482,7 @@ describe('account.prompt-updated — one row per tier change, never the text (00
             expect(await readFile(join(dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`), 'utf8')).toContain(PROMPT);
         }
     });
+
 
     it('removes record and tier together and re-adds the account unset (AC-149)', async () => {
         const service = await startService({ user: USER_OK });

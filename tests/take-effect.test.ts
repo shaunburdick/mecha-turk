@@ -188,12 +188,12 @@ const OBSERVATIONS: Readonly<Record<string, Observation>> = {
     leaseMs: {
         declared: NEXT_CYCLE,
         suite: 'tests/service-sweep.test.ts',
-        marker: 'halves the shorter of leaseMs and resultDeadlineMs',
+        marker: 'halves the shorter of the two durations for its cadence',
     },
     resultDeadlineMs: {
         declared: NEXT_CYCLE,
         suite: 'tests/service-sweep.test.ts',
-        marker: 'halves the shorter of leaseMs and resultDeadlineMs',
+        marker: 'halves the shorter of the two durations for its cadence',
     },
 };
 
@@ -436,6 +436,9 @@ describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verific
             expect(entry?.detail.baselineProvenance).toBe(CONFIGURED);
             expect(entry?.detail.agentVerified).toBe(true);
         }
+    });
+
+    it('a verification already in flight keeps the baseline it started with', async () => {
         {
             const run = verificationRun(FIRST_AGENT);
             run.setConfig(configBody(FIRST_AGENT));
@@ -458,6 +461,9 @@ describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verific
             // start, and neither borrowed the other's.
             expect(run.reads()).toBe(2);
         }
+    });
+
+    it('records a defaulted blank baseline and compares nothing when the field is absent', async () => {
         {
             const run = verificationRun(REPORTED_AGENT);
             run.setConfig(configBody());
@@ -480,6 +486,9 @@ describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verific
             expect(entry?.detail.verification).toBe('uncompared');
             expect(run.rt.state.dispatches.agentNotice?.tone).toBe('info');
         }
+    });
+
+    it('answers the same blank baseline when the read itself fails', async () => {
         {
             const run = verificationRun(REPORTED_AGENT);
             run.setConfig(null);
@@ -489,6 +498,9 @@ describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verific
             expect(reportOf(run)).toMatchObject({ expectedAgent: '', ok: false });
             expect(run.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe(DEFAULTED);
         }
+    });
+
+    it('reads an explicitly blank baseline as `unset` — the operator\'s own answer', async () => {
         {
             const run = verificationRun(REPORTED_AGENT);
             run.setConfig(configBody(''));
@@ -502,6 +514,9 @@ describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verific
             expect(entry?.detail.verification).toBe('uncompared');
             expect(run.rt.state.dispatches.agentNotice?.tone).toBe('info');
         }
+    });
+
+    it('warns — and does not block — when the observed agent differs from a configured baseline', async () => {
         {
             const run = verificationRun('executor');
             run.setConfig(configBody(SAVED_AGENT));
@@ -517,4 +532,5 @@ describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verific
             expect(reportOf(run)).toMatchObject({ ok: false, expectedAgent: SAVED_AGENT });
         }
     });
+
 });

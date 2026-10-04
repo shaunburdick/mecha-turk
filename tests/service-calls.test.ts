@@ -164,6 +164,9 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             );
             expect(refusal.problem).not.toContain('bindings');
         }
+    });
+
+    it('drops an issue the envelope did not pair, rather than half-reading one', async () => {
         {
             const { serviceRequest } = scriptedRequester({
                 status: 422,
@@ -180,6 +183,9 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
 
             expect(refusalOf(result).issues).toEqual([{ field: 'perPage', remediation: 'set perPage' }]);
         }
+    });
+
+    it('keeps a store failure and an authorisation failure distinct from a refusal', async () => {
         {
             const unavailable = scriptedRequester({
                 status: 503,
@@ -204,6 +210,9 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             expect(refused.problem).not.toContain('refused');
             expect(denied.problem).not.toContain('refused');
         }
+    });
+
+    it('describes a transport failure without quoting anything', async () => {
         {
             const { serviceRequest } = scriptedRequester({ status: 200, body: '{}' });
 
@@ -219,6 +228,9 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             });
             expect(landed).toEqual({ ok: true, body: '{}' });
         }
+    });
+
+    it('keeps the envelope correlation id an unexpected failure carried (006 FR-064)', async () => {
         {
             const body = JSON.stringify({
                 error: { code: 'internal', message: 'route failed', correlationId: 'mt-cfg-1' },
@@ -236,6 +248,9 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             expect(failed.correlationId).toBe('mt-cfg-1');
             expect(failed.problem).not.toContain('mt-cfg-1');
         }
+    });
+
+    it('still says *bindings list* on the bindings path (nothing regresses)', async () => {
         {
             const { serviceRequest } = scriptedRequester({ status: 422, body: VALIDATION_BODY });
 
@@ -249,4 +264,5 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             expect(result.message).toContain('retryMaxMs');
         }
     });
+
 });

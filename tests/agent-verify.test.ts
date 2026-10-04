@@ -151,6 +151,9 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
             expect(result.status).toBe('match');
             expect(double.unsubscribes()).toBe(1);
         }
+    });
+
+    it('reports a match when the session agent equals the expected one', async () => {
         {
             const double = verifyHost({ onOpen: snapshot(EXPECTED_AGENT) });
 
@@ -162,6 +165,9 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
 
             expect(result).toEqual({ status: 'match', agent: EXPECTED_AGENT, expected: EXPECTED_AGENT });
         }
+    });
+
+    it('reports a mismatch when the session runs another agent', async () => {
         {
             const double = verifyHost({ onOpen: snapshot('executor') });
 
@@ -174,6 +180,9 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
             expect(result).toEqual({ status: 'mismatch', agent: 'executor', expected: EXPECTED_AGENT });
             expect(double.unsubscribes()).toBe(1);
         }
+    });
+
+    it('reports a mismatch when the snapshot carries no agent at all', async () => {
         {
             const double = verifyHost({ onOpen: snapshot() });
 
@@ -185,6 +194,9 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
 
             expect(result).toEqual({ status: 'mismatch', agent: null, expected: EXPECTED_AGENT });
         }
+    });
+
+    it('ignores snapshots for other sessions and times out on its own budget', async () => {
         {
             const otherSession: SessionSnapshot = { id: 'ses_other', title: 'elsewhere', busy: false, agent: 'nobody' };
             const double = verifyHost({ onOpen: otherSession });
@@ -199,6 +211,9 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
             expect(result).toEqual({ status: 'timeout', expected: EXPECTED_AGENT, timeoutMs: TEST_TIMEOUT_MS });
             expect(double.unsubscribes()).toBe(1);
         }
+    });
+
+    it('reports the session as unavailable when openSession refuses', async () => {
         {
             const double = verifyHost({ openError: new Error('HOST_REJECTED') });
 
@@ -219,10 +234,14 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
         }
     });
 
+
     it('defaults its budget to the documented 15 seconds', async () => {
         {
             expect(AGENT_VERIFY_TIMEOUT_MS).toBe(15_000);
         }
+    });
+
+    it('bounds a host whose openSession never answers with the same budget', async () => {
         {
             // The read-back shares the relay's dispatch slot: an unanswered
             // context switch must cost the budget, not the whole loop.
@@ -239,6 +258,7 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
             expect(double.unsubscribes()).toBe(1);
         }
     });
+
 });
 
 describe('verificationNotice (warn-only copy)', () => {
@@ -413,6 +433,9 @@ describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
             expect(entry?.detail.baselineProvenance).toBe('configured');
             expect(rt.state.dispatches.agentNotice?.tone).toBe('success');
         }
+    });
+
+    it('records a failed verification and warns without blocking on a mismatch', async () => {
         {
             const rt = await recordedVerification('executor', baselineBody(EXPECTED_AGENT));
             const entry = rt.state.ledger.entries.at(-1);
@@ -424,6 +447,9 @@ describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
             expect(rt.state.dispatches.agentNotice?.body).toContain("session agent was 'executor'");
             // M9 is warn-only: the copy must say the session keeps running.
         }
+    });
+
+    it('records the observation and *not* a verdict when no baseline is configured', async () => {
         {
             // 002 FR-029 as amended: a blank or unreadable baseline means there
             // is nothing to compare against, so the read-back still reports the
@@ -443,6 +469,7 @@ describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
             expect(rt.state.dispatches.agentNotice?.body).not.toContain('mismatch');
         }
     });
+
 });
 
 /** One runs-history row as the service would project the fixture event. */
@@ -655,6 +682,9 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             });
             expect(report.rt.state.dispatches.agentNotice?.tone).toBe('success');
         }
+    });
+
+    it('posts a mismatch as warn-only evidence and changes no run state', async () => {
         {
             const report = await reported('executor', baselineBody(EXPECTED_AGENT));
             const body = reportBody(report);
@@ -667,12 +697,18 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(report.rt.state.dispatches.pendingAction).toBeNull();
             expect(report.rt.state.dispatches.busy).toBe(false);
         }
+    });
+
+    it('posts an unreadable agent as no observation, with the note that says so', async () => {
         {
             const body = reportBody(await reported(undefined, baselineBody(EXPECTED_AGENT)));
 
             expect(body.ok).toBe(false);
             expect(body.observedAgent).toBeNull();
         }
+    });
+
+    it('reads a configured baseline from GET /v1/config and records it as configured', async () => {
         {
             const report = await reported('planner', JSON.stringify({ config: { expectedAgent: '  planner  ' } }));
 
@@ -687,6 +723,9 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(entry?.detail.baselineProvenance).toBe('configured');
             expect(entry?.detail.agentVerified).toBe(true);
         }
+    });
+
+    it('posts a blank baseline as *no comparison*, with `unset` provenance', async () => {
         {
             // The document was read and the value is blank: the operator's own
             // statement that no baseline is configured (006 FR-100(b) as
@@ -709,6 +748,9 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(entry?.detail.verification).toBe('uncompared');
             expect(report.rt.state.dispatches.agentNotice?.tone).toBe('info');
         }
+    });
+
+    it('answers a defaulted (blank) baseline when the config read does not', async () => {
         {
             // 002 FR-029 case (ii): the field is absent, the document is
             // unreadable, or the service is unreachable — all three answer the
@@ -727,6 +769,9 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(entry?.detail.baselineProvenance).toBe('defaulted');
             expect(entry?.detail.verification).toBe('uncompared');
         }
+    });
+
+    it('reads no usable baseline from a document that carries no usable value', async () => {
         {
             const unusable = [
                 '{"config":{}}',
@@ -751,6 +796,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
         }
     });
 
+
     it('never blocks, and never claims a mismatch, for the baseline\'s own absence', async () => {
         {
             // AC-023 / 002 FR-029 as amended: a missing baseline alone must not
@@ -769,6 +815,9 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(report.rt.state.dispatches.rows).toEqual([]);
             expect(report.rt.state.dispatches.pendingAction).toBeNull();
         }
+    });
+
+    it('still warns when the observed agent differs from a configured baseline', async () => {
         {
             const report = await reported('executor', baselineBody(EXPECTED_AGENT));
 
@@ -776,6 +825,9 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(report.rt.state.dispatches.agentNotice?.tone).toBe('warning');
             expect(report.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe('configured');
         }
+    });
+
+    it('never holds the relay tick while the read-back waits', async () => {
         {
             // The host answers every service call but never delivers a session
             // snapshot: an awaited read-back would sit on its 15 s budget here.
@@ -868,4 +920,5 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(rt.state.dispatches.agentNotice?.tone).toBe('warning');
         }
     });
+
 });

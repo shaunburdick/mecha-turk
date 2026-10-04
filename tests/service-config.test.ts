@@ -227,8 +227,9 @@ describe('ServiceConfig validation', () => {
 
             expect(result).toEqual({ ok: true, config: DEFAULT_CONFIG });
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('rejects every out-of-bounds value with a named remediation', async () => {
         {
             for (const { field, value } of OUT_OF_BOUNDS) {
                 const result = validateConfig({ ...DEFAULT_CONFIG, [field]: value });
@@ -240,8 +241,9 @@ describe('ServiceConfig validation', () => {
                 }
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('reports every missing field in one pass', async () => {
         {
             const result = validateConfig({ [INTERVAL_FIELD]: 60_000 });
 
@@ -253,8 +255,9 @@ describe('ServiceConfig validation', () => {
                 expect(fields).not.toContain(INTERVAL_FIELD);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('rejects a document that is not an object', async () => {
         {
             const result = validateConfig('not a configuration');
 
@@ -263,15 +266,17 @@ describe('ServiceConfig validation', () => {
                 expect(result.issues[0]?.field).toBe('body');
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('rejects an unknown field with a removal instruction', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, [INVENTED_FIELD]: 60_000 });
 
             expect(result.ok).toBe(false);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('withholds a secret-shaped field name instead of echoing it', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, [TOKEN_FIELD]: 1 });
 
@@ -284,6 +289,7 @@ describe('ServiceConfig validation', () => {
         }
     });
 
+
     it('rejects a retry ceiling below the retry base', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, retryBaseMs: 60_000, retryMaxMs: 5_000 });
@@ -293,8 +299,9 @@ describe('ServiceConfig validation', () => {
                 expect(result.issues.map((issue) => issue.field)).toContain('retryMaxMs');
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('never echoes the submitted value in a remediation', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, intervalMs: ABSURD_INTERVAL });
 
@@ -305,15 +312,17 @@ describe('ServiceConfig validation', () => {
                 }
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('defaults the lease and result-deadline knobs to the documented bounds', async () => {
         {
             expect(DEFAULT_CONFIG.leaseMs).toBe(120_000);
             expect(DEFAULT_CONFIG.resultDeadlineMs).toBe(120_000);
             expect(validateConfig(DEFAULT_CONFIG)).toEqual({ ok: true, config: DEFAULT_CONFIG });
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('never offers a requeue-budget field (003 v1.3.0 / 006 Deferred)', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, requeueBudget: 3 });
 
@@ -322,8 +331,9 @@ describe('ServiceConfig validation', () => {
                 expect(result.issues.map((issue) => issue.field)).toContain('requeueBudget');
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('reads a configuration document written before the lease fields existed', async () => {
         {
             const result = parseStoredConfig(PRE_RUN_LAYER_CONFIG);
 
@@ -345,14 +355,16 @@ describe('ServiceConfig validation', () => {
                 defaultsApplied: [STARTING_PROMPT_FIELD, 'leaseMs', 'resultDeadlineMs', AGENT_FIELD],
             });
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('still quarantines a stored document whose own values are unusable', async () => {
         {
             expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, leaseMs: 1 })).toBeNull();
             expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, requeueBudget: 3 })).toBeNull();
             expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, logLevel: 'verbose' })).toBeNull();
         }
     });
+
 });
 
 describe('GET and PUT /v1/config', () => {
@@ -366,8 +378,9 @@ describe('GET and PUT /v1/config', () => {
             expect(response.status).toBe(200);
             expect(body.config).toEqual(DEFAULT_CONFIG);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('persists a replacement and reads it back', async () => {
         {
             const service = await startServiceForTest();
             const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000, logLevel: 'debug' as const };
@@ -381,8 +394,9 @@ describe('GET and PUT /v1/config', () => {
             expect(stored).toEqual(replacement);
             expect(body.config).toEqual(replacement);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('rejects a partial document with one remediation per missing field', async () => {
         {
             const service = await startServiceForTest();
 
@@ -400,8 +414,9 @@ describe('GET and PUT /v1/config', () => {
             const stored = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8').catch(() => null);
             expect(stored).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('rejects an unknown field rather than silently ignoring it', async () => {
         {
             const service = await startServiceForTest();
 
@@ -414,8 +429,9 @@ describe('GET and PUT /v1/config', () => {
             expect(response.status).toBe(422);
             expect(failure.error.issues.map((issue) => issue.field)).toContain(INVENTED_FIELD);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a body that is not valid JSON', async () => {
         {
             const service = await startServiceForTest();
 
@@ -423,8 +439,9 @@ describe('GET and PUT /v1/config', () => {
 
             expect(response.status).toBe(400);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('reads a pre-existing configuration document without quarantining it', async () => {
         {
             const service = await startServiceForTest();
             await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_RUN_LAYER_CONFIG), 'utf8');
@@ -446,6 +463,7 @@ describe('GET and PUT /v1/config', () => {
         }
     });
 
+
     it('round-trips a retuned lease and result deadline', async () => {
         {
             const service = await startServiceForTest();
@@ -458,8 +476,9 @@ describe('GET and PUT /v1/config', () => {
             expect(put.status).toBe(200);
             expect(body.config).toEqual(replacement);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('answers 503 for both routes when the data directory is unusable', async () => {
         {
             const service = await startServiceForTest({ dataDir: await unwritableDataDir() });
 
@@ -476,6 +495,7 @@ describe('GET and PUT /v1/config', () => {
             expect(health.status).toBe(200);
         }
     });
+
 });
 
 describe('GET /v1/status', () => {
@@ -502,8 +522,9 @@ describe('GET /v1/status', () => {
             expect(Date.parse(body.polling.nextPollAt ?? '')).toBeGreaterThan(Date.now());
             expect(body.surface.supported).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('reflects a persisted interval in the polling state', async () => {
         {
             const service = await startServiceForTest();
             const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000 };
@@ -514,8 +535,9 @@ describe('GET /v1/status', () => {
 
             expect(body.polling.intervalMs).toBe(30_000);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('reports degraded and schema-less when the store is unavailable', async () => {
         {
             const service = await startServiceForTest({ dataDir: await unwritableDataDir() });
 
@@ -528,6 +550,7 @@ describe('GET /v1/status', () => {
             expect(body.surface.supported).toBe(true);
         }
     });
+
 });
 
 /** The widened `GET /v1/config` envelope (006 contract §1). */
@@ -589,8 +612,9 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
                 }
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('stores the trimmed value so a save/load round trip is stable', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: PADDED_AGENT });
 
@@ -599,8 +623,9 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
                 expect(result.config[AGENT_FIELD]).toBe(ACCEPTED_AGENT);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('accepts a blank baseline (006 FR-100(c) as amended) and still', async () => {
         // refuses an absent or non-string member (FR-100(b), whole-document)
         {
             for (const blank of ['', '   ', '\t']) {
@@ -633,8 +658,9 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
                 expect(result.issues.map((issue) => issue.field)).toContain(AGENT_FIELD);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('an explicitly blank baseline round-trips, and the read-side', async () => {
         // backfill never resurrects a name over it (absent vs present-but-empty)
         {
             const service = await startServiceForTest();
@@ -665,8 +691,9 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
             expect(backfilled.defaultsApplied).toEqual([AGENT_FIELD]);
             expect(backfilled.config[AGENT_FIELD]).toBe('');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a PUT that omits the field while the read fills it (FR-100(b), data-model §2)', async () => {
         {
             const service = await startServiceForTest();
             await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_AGENT_CONFIG), 'utf8');
@@ -690,8 +717,9 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
             expect(failure.error.issues.map((issue) => issue.field)).toContain(AGENT_FIELD);
             expect(await readFile(join(service.dataDir, CONFIG_FILE), 'utf8')).toBe(JSON.stringify(PRE_AGENT_CONFIG));
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('leaves the stored value in force when a credential-shaped save is refused', async () => {
         {
             const service = await startServiceForTest();
             const accepted = { ...DEFAULT_CONFIG, [AGENT_FIELD]: ACCEPTED_AGENT };
@@ -711,6 +739,7 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
             expect(after).toBe(before);
         }
     });
+
 });
 
 describe('startingPrompt — the global tier (004 FR-081, FR-083; 006 FR-041)', () => {
@@ -909,8 +938,9 @@ describe('GET /v1/config widens without changing what it already said (006 FR-02
             const entries = await readdir(service.dataDir);
             expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toHaveLength(1);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('carries one descriptor per documented field, in the validator\'s own order', async () => {
         {
             const service = await startServiceForTest();
             const response = await service.call(CONFIG_PATH);
@@ -923,6 +953,7 @@ describe('GET /v1/config widens without changing what it already said (006 FR-02
             }
         }
     });
+
 });
 
 describe('a lost quarantine rename still answers quarantined (006 contract §3 rule 9)', () => {
@@ -1022,8 +1053,9 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
             expect(descriptorOf('intervalMs')).toMatchObject({ min: 15_000 });
             expect(validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 }).ok).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('emits descriptors in exactly the order a full refusal reports issues', async () => {
         {
             const candidate: Record<string, unknown> = {};
             for (const descriptor of configSchema()) {
@@ -1038,8 +1070,9 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
                 expect(result.issues.map((issue) => issue.field)).toEqual(reportedOrder);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('declares ten next-cycle, one immediate, and one next-dispatch over 006\'s twelve', async () => {
         {
             const declared = configSchema()
                 .filter((descriptor) => SPEC_FIELDS.includes(descriptor.name))
@@ -1056,8 +1089,9 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
             expect(declared.filter((takeEffect) => takeEffect === 'next-dispatch')).toHaveLength(1);
             expect(declared.filter((takeEffect) => takeEffect === 'restart' || takeEffect === 'none')).toHaveLength(0);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('gives the string field no unit and no numeric bound, and the enum field the four levels', async () => {
         {
             const agent = descriptorOf(AGENT_FIELD);
             expect(agent).toMatchObject({
@@ -1080,6 +1114,7 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
             });
         }
     });
+
 
     it('round-trips the twelfth descriptor through the panel\'s closed parser', () => {
         const parsed = parseConfigEnvelope(

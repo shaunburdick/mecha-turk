@@ -221,6 +221,9 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
             armAccountRemoval(rt, ACCOUNT_ID);
             expect(rt.state.accounts.removeArmed).toBe(ACCOUNT_ID);
         }
+    });
+
+    it('deletes on the confirmation and renders its bindings disabled', async () => {
         {
             const storage = createStorageDouble({ [ACCOUNTS_STORAGE_KEY]: [MIRROR_ENTRY] });
             const { rt, requests } = await removalRuntime(storage);
@@ -246,6 +249,9 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
             // The binding is present, disabled, and says why — never deleted.
             expect(rt.state.bindings.bindings).toHaveLength(1);
         }
+    });
+
+    it('clears the account mirror from host.storage after the delete', async () => {
         {
             const storage = createStorageDouble({ [ACCOUNTS_STORAGE_KEY]: [MIRROR_ENTRY] });
             const { rt } = await removalRuntime(storage);
@@ -255,6 +261,9 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
             const mirrored = storage.values.get(ACCOUNTS_STORAGE_KEY);
             expect(mirrored).toEqual([]);
         }
+    });
+
+    it('shows the bindings refusal and keeps the account when the service refuses', async () => {
         {
             /** The service's delete refusal exactly as the route answers it. */
             const refusalBody = JSON.stringify({
@@ -281,10 +290,14 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
                 { numericUserId: ACCOUNT_ID, login: LOGIN, displayName: null, usable: true },
             ]);
         }
+    });
+
+    it('builds the forced delete path from the numeric id', async () => {
         {
             expect(accountRemovePath(ACCOUNT_ID)).toBe(`/v1/accounts/${ACCOUNT_ID}?force=1`);
         }
     });
+
 });
 
 /** The service's refusal body for an invalid whole-file submission. */
@@ -368,6 +381,9 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             expect(rt.state.bindings.bindings.map((binding) => binding.repository)).toEqual([WIDGET_REPO, 'acme/new']);
             expect(rt.state.bindings.note).toContain('Bound acme/new');
         }
+    });
+
+    it('keeps the stored state when the service refuses a toggle', async () => {
         {
             const { host, requests } = recordingService((request) => {
                 if (request.method === 'PUT' && request.path === BINDINGS_PATH) {
@@ -387,6 +403,9 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             expect(requests.some((request) => request.method === 'PUT')).toBe(true);
             expect(JSON.stringify(rt.state.bindings.bindings)).toBe(before);
         }
+    });
+
+    it('leaves every other binding byte-identical when the submission is refused', async () => {
         {
             const kept = bindingFixture({ bindingId: 'bnd-keep', repository: WIDGET_REPO });
             const other = bindingFixture({ bindingId: 'bnd-other', repository: OTHER_REPO });
@@ -413,6 +432,9 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             // The refusal names the field, never the value the operator typed.
             expect(rt.state.bindings.note).not.toContain('acme/new');
         }
+    });
+
+    it('never issues a per-binding PATCH anywhere in the panel source', async () => {
         {
             const root = resolve(import.meta.dirname, '..', 'src');
             const method = /\bPATCH\b/;
@@ -431,6 +453,7 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             expect(offenders).toEqual([]);
         }
     });
+
 });
 
 describe('a binding disabled because its account was removed (FR-054)', () => {

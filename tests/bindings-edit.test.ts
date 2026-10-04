@@ -244,8 +244,9 @@ describe('loading the selected binding into the editor (FR-053)', () => {
             });
             expect(draft?.triggers).toEqual({ assignment: true, mention: false, reviewRequest: true });
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('demands a selection instead of inventing a row to edit', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -256,8 +257,9 @@ describe('loading the selected binding into the editor (FR-053)', () => {
 
             expect(rt.state.bindings.editing).toBe(false);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('refuses a row whose worktree option the editor cannot render', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, { ...panelRow(), worktreeOption: 'new:feature' });
@@ -272,6 +274,7 @@ describe('loading the selected binding into the editor (FR-053)', () => {
             expect(rt.state.bindings.repoInput).toBe('');
         }
     });
+
 });
 
 describe('saving an edited binding through the whole-file grant (FR-050)', () => {
@@ -314,8 +317,9 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
             expect(rt.state.bindings.editing).toBe(false);
             expect(rt.state.bindings.note).toBe(`Saved ${NEXT_REPOSITORY}.`);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('keeps the row byte-identical and renders the remediation when the service refuses', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -348,8 +352,9 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
             expect(rt.state.bindings.note).not.toContain('Saved');
             expect(rt.state.bindings.note).not.toContain(REFUSED_PROMPT);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('leaves the list untouched when the draft no longer reads (repository shape)', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -367,6 +372,7 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
             expect(rt.state.bindings.editing).toBe(true);
         }
     });
+
 });
 
 /** A recording service double for the handler-wiring assertions. */
@@ -430,8 +436,9 @@ describe('the row click is the Edit affordance (FR-050, FR-081)', () => {
             expect(rt.state.bindings.editorOpen).toBe(false);
             expect(rt.state.bindings.repoInput).toBe('');
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('routes the primary control to the save once the row is loaded', async () => {
         {
             const { host, puts } = recordingHost();
             const rt = createTestRuntime(host);
@@ -456,6 +463,7 @@ describe('the row click is the Edit affordance (FR-050, FR-081)', () => {
             stopRelayPolling(rt);
         }
     });
+
 });
 
 describe('New binding opens the editor on an empty draft (2026-10-01 review)', () => {
@@ -480,8 +488,9 @@ describe('New binding opens the editor on an empty draft (2026-10-01 review)', (
             expect(bindings.startingPromptInput).toBe('');
             expect(bindings.startingPromptDirty).toBe(false);
         }
-        await afterEachWork1();
-        await afterEachWork1();
+    });
+
+    it('closes again on cancel, with nothing written', async () => {
         {
             const rt = createTestRuntime(recordingHost().host);
             rt.state.bindings.status = 'ready';
@@ -496,4 +505,5 @@ describe('New binding opens the editor on an empty draft (2026-10-01 review)', (
             expect(rt.state.bindings.note).toBe('');
         }
     });
+
 });

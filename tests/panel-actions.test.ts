@@ -79,6 +79,9 @@ describe('appendEntryAndPersist', () => {
             expect(stored?.entries.at(-1)?.kind).toBe('lifecycle');
             expect(stored?.entries.at(-1)?.detail.phase).toBe('mounted');
         }
+    });
+
+    it('never throws when the host refuses the write; it says so instead', async () => {
         {
             const storage = createStorageDouble();
             const runtime = createTestRuntime(
@@ -106,4 +109,5 @@ describe('appendEntryAndPersist', () => {
             expect(['Ledger write failed', 'Ledger repaired']).toContain(runtime.state.status.title);
         }
     });
+
 });

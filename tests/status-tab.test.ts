@@ -700,6 +700,9 @@ describe('loadStatus', () => {
             expect(shell.calls).toEqual(['noteRead:status']);
             expect(rt.tabLastRead.get('status')).toBe(slice.at);
         }
+    });
+
+    it('keeps reading the tab honest when the status read fails', async () => {
         {
             const rt = refusingRuntime(503, PROBLEM_503);
 
@@ -711,6 +714,9 @@ describe('loadStatus', () => {
             expect(slice.stale).toBe(false);
             expect(slice.problem).toContain('503');
         }
+    });
+
+    it('keeps the last document and marks it stale when a re-read fails', async () => {
         {
             const rt = flakyStatusRuntime();
 
@@ -724,6 +730,9 @@ describe('loadStatus', () => {
             expect(slice.at, 'the retained stamp stays on screen').not.toBeNull();
             expect(readStateLine(slice)).toContain(slice.at ?? '');
         }
+    });
+
+    it('fails the read when the document will not parse, and keeps the previous one', async () => {
         {
             const rt = malformedAfterFirstRuntime();
 
@@ -734,6 +743,9 @@ describe('loadStatus', () => {
             expect(slice.phase).toBe(PHASE_FAILED);
             expect(slice.stale).toBe(true);
         }
+    });
+
+    it('reads the configured interval as not read when that half fails', async () => {
         {
             const rt = createTestRuntime(fakeHost({
                 serviceRequest: async (request) => {
@@ -750,6 +762,9 @@ describe('loadStatus', () => {
             expect(rt.state.statusTab.phase).toBe(PHASE_LOADED);
             expect(rt.state.statusTab.configuredIntervalMs).toBeNull();
         }
+    });
+
+    it('refuses a second read while one is in flight', async () => {
         {
             const gate = new Promise<void>((resolve) => {
                 holder.release = resolve;
@@ -778,6 +793,7 @@ describe('loadStatus', () => {
             expect(rt.state.statusTab.phase).toBe(PHASE_LOADED);
         }
     });
+
 });
 
 describe('hostile strings stay text (FR-080)', () => {

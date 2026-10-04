@@ -308,6 +308,9 @@ describe('every tab is a stack of blocks with a real heading', () => {
             expect(levels.every((level) => level === 2 || level === 3)).toBe(true);
             expect(levels).not.toContain(1);
         }
+    });
+
+    it('hands each section heading to the SDK text path, so the scans still see it', async () => {
         {
             const { log } = await renderSixTabs();
             const strings = stringsIn(log);
@@ -316,12 +319,16 @@ describe('every tab is a stack of blocks with a real heading', () => {
                 expect(strings, `${heading} never reached the SDK`).toContain(heading);
             }
         }
+    });
+
+    it('keeps the strip contract the A3 pass pinned', async () => {
         {
             expect(PANEL_HTML).toMatch(/#root > \* \{\s*flex-shrink: 0;\s*\}/);
             expect(PANEL_HTML).toMatch(/#root \{[^}]*display: flex;/);
             expect(PANEL_HTML).toMatch(/#root \{[^}]*flex-direction: column;/);
         }
     });
+
 });
 
 describe('the list surfaces carry the header rows their columns hang from', () => {
@@ -437,6 +444,9 @@ describe('the Status tab renders structure instead of loose lines', () => {
             expect(rows.length).toBeGreaterThanOrEqual(14);
             expect(cards).toHaveLength(5);
         }
+    });
+
+    it('paints the three prerequisite states as toned chips carrying the state', async () => {
         {
             const { log } = await renderSixTabs();
             const badges = log.filter((entry) => entry.key === 'mountBadge').map(
@@ -450,6 +460,7 @@ describe('the Status tab renders structure instead of loose lines', () => {
 
         }
     });
+
 });
 
 /**

@@ -374,10 +374,9 @@ describe('FR-049 one action dispatch path and one correlation id per row', () =>
             expect(onlyRow(rt).state).toBe('pending');
             expect(rt.state.dispatches.busy).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('copies the correlation id from the selected row', async () => {
         {
             await loop.enqueue({ issueNumber: FAILED_ISSUE });
             const rt = loop.mount();
@@ -391,10 +390,9 @@ describe('FR-049 one action dispatch path and one correlation id per row', () =>
 
             expect(rt.state.dispatches.note).toBe(`Correlation id ${row.correlationId} copied.`);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
+    });
+
+    it('says why the correlation id could not be copied', async () => {
         {
             const clipboard = createTestRuntime(
                 fakeHost({ writeClipboard: () => Promise.reject(new Error(CLIPBOARD_FAILURE)) }),
@@ -410,4 +408,5 @@ describe('FR-049 one action dispatch path and one correlation id per row', () =>
             expect(clipboard.state.dispatches.note).toContain(CLIPBOARD_FAILURE);
         }
     });
+
 });

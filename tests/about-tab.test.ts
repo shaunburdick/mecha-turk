@@ -274,6 +274,9 @@ describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
             expect(HEALTH_PATH).toBe(healthRoute.path);
             expect(HEALTH_PATH).toBe('/health');
         }
+    });
+
+    it('has the prose naming that same route in every document that claims it', async () => {
         {
             const claimed: readonly string[] = [
                 'specs/005-panel-ia/spec.md',
@@ -287,6 +290,9 @@ describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
                 expect(text, `${doc} does not name the registered route`).toContain('/health');
             }
         }
+    });
+
+    it('shows exactly the version the service answered', async () => {
         {
             const view = await mountAbout({ answer: healthyService });
             const manifestPath = resolve(import.meta.dirname, '../package.json');
@@ -297,6 +303,9 @@ describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
             expect(view.rt.state.aboutTab.version).toBe(SERVICE_VERSION);
             view.dispose();
         }
+    });
+
+    it('declares no version-shaped literal anywhere in the panel source', async () => {
         {
             const files = readdirSync(resolve(import.meta.dirname, '../src'), { recursive: true })
                 .map((entry) => `src/${String(entry)}`)
@@ -321,6 +330,7 @@ describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
         }
     });
 
+
 });
 
 describe('an unreachable service keeps the static content (AC-132, AC-134, FR-078)', () => {
@@ -340,6 +350,9 @@ describe('an unreachable service keeps the static content (AC-132, AC-134, FR-07
             expect(view.strings.join('\n')).not.toMatch(VERSION_SHAPED);
             view.dispose();
         }
+    });
+
+    it('keeps the identity content and names what could not be read', async () => {
         {
             const view = await mountAbout({
                 answer: () => {
@@ -360,6 +373,7 @@ describe('an unreachable service keeps the static content (AC-132, AC-134, FR-07
             view.dispose();
         }
     });
+
 });
 
 describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)', () => {
@@ -382,6 +396,9 @@ describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)'
             expect(text).not.toContain(CORRELATION);
             view.dispose();
         }
+    });
+
+    it('offers no list, no select, and no input — only the two controls', async () => {
         {
             const view = await mountAbout({ answer: healthyService });
             const keys = mounts.log.map((entry) => entry.key);
@@ -395,6 +412,9 @@ describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)'
             expect(view.created.map((element) => element.tagName)).not.toContain('input');
             view.dispose();
         }
+    });
+
+    it('shows both schema versions and the phase record', async () => {
         {
             const view = await mountAbout({
                 answer: healthyService,
@@ -408,6 +428,9 @@ describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)'
             expect(text).toContain(`Phase record: mounted at ${STAMP} — read-only; this tab writes nothing.`);
             view.dispose();
         }
+    });
+
+    it('carries no credential-shaped value into the rendered strings', async () => {
         {
             const token = `ghp_${'abouttab'.repeat(4)}`;
             const view = await mountAbout({
@@ -426,6 +449,7 @@ describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)'
             view.dispose();
         }
     });
+
 });
 
 /** The repository address the About tab links to (2026-10-01 scrub). */
@@ -450,6 +474,9 @@ describe('the repository link opens through the host (2026-10-01 scrub)', () => 
             expect(typeof link?.onOpenUrl).toBe('function');
             view.dispose();
         }
+    });
+
+    it('hands the URL to host.openUrl and keeps the page where it is', async () => {
         {
             const view = await mountAbout({ answer: healthyService });
 
@@ -459,6 +486,9 @@ describe('the repository link opens through the host (2026-10-01 scrub)', () => 
             expect(view.opened).toEqual([REPOSITORY_URL]);
             expect(view.rt.state.aboutTab.repoProblem).toBeNull();
         }
+    });
+
+    it('lands a host refusal on the link line instead of swallowing it', async () => {
         {
             const view = await mountAbout({
                 answer: healthyService,
@@ -472,6 +502,7 @@ describe('the repository link opens through the host (2026-10-01 scrub)', () => 
             expect(note).toContain('HOST_REJECTED');
         }
     });
+
 });
 
 describe('Diagnostics sits behind a disclosure (2026-10-01 scrub)', () => {
@@ -495,6 +526,9 @@ describe('Diagnostics sits behind a disclosure (2026-10-01 scrub)', () => {
             expect(controlLabel()).toBe(SHOW_LABEL);
             view.dispose();
         }
+    });
+
+    it('mounts the record either way, so closing it hides nothing the page owes', async () => {
         {
             const view = await mountAbout({
                 answer: healthyService,
@@ -507,4 +541,5 @@ describe('Diagnostics sits behind a disclosure (2026-10-01 scrub)', () => {
             expect(view.strings.some((line) => line.startsWith('#2 · '))).toBe(true);
         }
     });
+
 });
