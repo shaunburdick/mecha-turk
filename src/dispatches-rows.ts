@@ -158,8 +158,6 @@ const BLOCKED_CAUSE_REASONS: Readonly<Record<string, string>> = {
  * allow-list. An operator reading "a guard refused the dispatch" learns nothing;
  * reading "nobody who triggered this run is on this binding's allow-list" knows
  * exactly which row to open.
- *
- * @returns The reason line for that cause.
  */
 function blockedReasonText(cause: string): string {
     return BLOCKED_CAUSE_REASONS[cause]
@@ -186,9 +184,6 @@ function isBlockedState(state: string): state is `blocked:${string}` {
  * The fallback is deliberate: a state this build does not know about must still
  * be *shown* rather than hidden behind a label the panel invented, and inventing
  * one would be exactly the guess the fail-closed parser refuses on the way in.
- *
- * @param state - One of the eight dispatch states, or a value from a future build.
- * @returns The badge label.
  */
 export function stateLabel(state: string): string {
     if (isBlockedState(state)) {
@@ -202,11 +197,7 @@ export function stateLabel(state: string): string {
     return label ?? `unknown state: ${state}`;
 }
 
-/**
- * Badge tone for any run state, including the `blocked:<reason>` family.
- *
- * @returns The badge tone for that state.
- */
+/** Badge tone for any run state, including the `blocked:<reason>` family. */
 function stateTone(state: RunState): Tone {
     if (isBlockedState(state)) {
         return 'warning';
@@ -226,8 +217,6 @@ function stateTone(state: RunState): Tone {
  * A read-back against **no configured baseline** (`expectedAgent === ''`)
  * changes nothing: there was no expectation to miss, so the run keeps the tone
  * its own state earns.
- *
- * @returns The tone the badge renders with.
  */
 function badgeTone(row: RunRow): Tone {
     const base = stateTone(row.state);
@@ -312,8 +301,8 @@ export function runAffordance(row: { readonly state: string }): RunAffordance {
     }
 
     if (isBlockedState(state)) {
-        // Retry validity follows 003 FR-041 exactly as every other cleared
-        // cause's does — the service re-checks the live state and refuses with
+        // Retry validity follows the cleared-cause rule exactly as every other
+        // cleared cause's does — the service re-checks the live state and refuses with
         // its own distinct reason if it has not cleared — so the affordance is
         // the same control with a more specific reason line.
         return {
@@ -359,8 +348,6 @@ function resultPhrase(row: RunRow): string {
 /**
  * One reference's line: kind, detection time, origin when it adds something,
  * its actor and basis, and the mark on a reason the agent may never have seen.
- *
- * @returns The reference's label.
  */
 function referenceLabel(reference: RunReference): string {
     const origin = reference.origin === reference.kind ? '' : ` via ${reference.origin}`;
@@ -386,7 +373,7 @@ function referencePhrase(row: RunRow): string | null {
         return null;
     }
 
-    const listed = row.sourceReferences.map(referenceLabel).join(', ');
+    const listed = row.sourceReferences.map((reference) => referenceLabel(reference)).join(', ');
     const overflow = row.referencesNotRetained > 0
         ? ` +${row.referencesNotRetained} more reason${row.referencesNotRetained === 1 ? '' : 's'} not listed`
         : '';
@@ -447,19 +434,15 @@ function verificationPhrase(verification: RunVerification): string {
  */
 function promptPhrase(row: RunRow): string {
     const { promptFingerprint, promptLength, promptSources } = row;
-    if (!row.promptPresent || promptFingerprint === null || promptLength === null
-        || promptSources === null || promptSources.length === 0) {
+    if (promptFingerprint === null || promptLength === null
+        || promptSources === null || promptSources.length === 0 || !row.promptPresent) {
         return 'prompt not set';
     }
 
     return `prompt set · ${promptSources.join('+')} · ${promptFingerprint} · ${promptLength} chars`;
 }
 
-/**
- * Compose one runs-list row.
- *
- * @returns The list row.
- */
+/** Compose one runs-list row. */
 export function dispatchRow(row: RunRow): ListItem {
     const reason = row.stateReason;
     const result = resultPhrase(row);
@@ -478,8 +461,8 @@ export function dispatchRow(row: RunRow): ListItem {
         leading: KIND_LABELS[row.kind],
         title: `#${row.issueNumber} ${row.issueTitle}`,
         // One redaction pass over every free-text field the row can carry:
-        // title and state reason are upstream-adjacent text (NFR-109 renders
-        // them as text either way; redaction keeps a secret-shaped string from
+        // title and state reason are upstream-adjacent text (rendered as text
+        // either way; redaction keeps a secret-shaped string from
         // ever reaching the DOM).
         subtitle: redact(parts.join(' · ')),
         meta: elapsedSince(row.detectedAt),
@@ -502,8 +485,6 @@ export function dispatchRows(runs: DispatchesState): ListItem[] {
  * Each lifecycle state answers in its own voice — an idle list says how to
  * load it, a failed one points at the note below — so the operator never has
  * to infer *why* the area is blank.
- *
- * @returns The status text.
  */
 export function dispatchesStatusText(runs: DispatchesState): string {
     if (runs.status === 'idle') {

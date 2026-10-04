@@ -50,7 +50,7 @@
  *   it (constitution IV).
  * - **Placement is load-bearing: after `judgeReserve` has answered `null` and
  *   before any token is derived.** A policy check placed first would pre-empt
- *   `already-dispatched` — which names the session FR-022 and AC-112 require — and
+ *   `already-dispatched` — which names the session — and
  *   `stale-lease`, making both unreachable on the paths they exist for.
  *
  * Contract: §1 of
@@ -96,8 +96,8 @@ const UNRECORDED_BASIS = 'unrecorded';
  *
  * A **closed union rather than a nullable triple**: `login` exists exactly when
  * the reference names a readable actor, so no call site can read a login off an
- * unreadable entry without narrowing — which is precisely the confusion FR-080
- * exists to prevent.
+ * unreadable entry without narrowing — which is precisely the confusion a closed
+ * union exists to prevent.
  */
 type ClassifiedActor =
     /** No readable actor: absent, empty, or bot-shaped. */
@@ -116,11 +116,11 @@ type ClassifiedActor =
 export interface ActorPolicyRefusal {
     /** The wire code and the secret-free cause the response carries. */
     readonly refusal: RunRefusal;
-    /** The details FR-077 adds to the `dispatch.refused` row. */
+    /** The details the `dispatch.refused` row adds. */
     readonly actor: ActorGateRefusal;
 }
 
-/** What the gate decided about one run's actor policy (003 FR-077). */
+/** What the gate decided about one run's actor policy. */
 export type ActorPolicyVerdict =
     /** At least one reference names an allowed, readable actor. */
     | { readonly admitted: true; readonly policy: ActorPolicy }
@@ -131,11 +131,9 @@ export type ActorPolicyVerdict =
  * Classify one reference's actor, without consulting any list.
  *
  * **An absent, empty, or bot-shaped actor is unreadable, whatever the policy
- * is.** That is FR-080's whole rule and the reason the gate never asks the
+ * is.** That is the whole rule, and the reason the gate never asks the
  * list: a login GitHub marked as a bot is never attributed onto an event at all,
  * so one here can only come from a hand-edited document.
- *
- * @returns The reference's classification.
  */
 function classifyActor(reference: Run['sourceReferences'][number]): ClassifiedActor {
     const login = reference.actorLogin;
@@ -160,7 +158,7 @@ interface ClassifiedRun {
  * @returns The readable actors and the unreadable count.
  */
 function classifyRun(run: Run): ClassifiedRun {
-    const classified = run.sourceReferences.map(classifyActor);
+    const classified = run.sourceReferences.map((reference) => classifyActor(reference));
 
     return {
         readable: classified.filter((actor) => actor.readable),
@@ -231,9 +229,8 @@ function refusalDetails(input: {
  * match the message's prose, and both are a second opinion about a decision
  * this service made (constitution IV).
  *
- * Names no login — NFR-113's rule is absolute, and this word is about a list.
- *
- * @returns The window, complete or truncated.
+ * Names no login — the permitted set's rule is absolute, and this word is about
+ * a list.
  */
 function judgedWindowWord(run: Run): ReferenceWindow {
     return judgedWindow(run).truncated ? 'truncated' : 'complete';
@@ -249,8 +246,6 @@ function judgedWindowWord(run: Run): ReferenceWindow {
  * The sentence and {@link judgedWindowWord} are that one fact in two forms,
  * built from the same boolean on purpose, so neither derives the other by
  * parsing.
- *
- * Names no login: this clause is about a list, not about whose login it is.
  *
  * @returns The clause, or the empty string when the list is complete.
  */

@@ -6618,7 +6618,7 @@ function classifyActor(reference) {
   return { readable: true, login, attribution: reference.actorAttribution ?? null };
 }
 function classifyRun(run) {
-  const classified = run.sourceReferences.map(classifyActor);
+  const classified = run.sourceReferences.map((reference) => classifyActor(reference));
   return {
     readable: classified.filter((actor) => actor.readable),
     unreadableReferences: classified.filter((actor) => !actor.readable).length
