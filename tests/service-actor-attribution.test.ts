@@ -1024,7 +1024,7 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
             const outcome = actorOfNamingEvent({ kind: 'assignment', event: row });
 
             expect(outcome.usable, label).toBe(false);
-            expect(outcome.usable === false && outcome.reason, label).toMatch(/actor/);
+            expect(!outcome.usable && outcome.reason, label).toMatch(/actor/);
         }
         // And a readable, non-bot actor is admitted.
         expect(actorOfNamingEvent({ kind: 'assignment', event: assignedBy(ASSIGNER) }))

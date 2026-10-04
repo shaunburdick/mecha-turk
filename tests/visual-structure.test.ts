@@ -196,7 +196,7 @@ const NO_MEDIA: ReadonlySet<string> = new Set<string>();
  * @returns The rules that are left, in their original order.
  */
 function withoutHidingRules(source: readonly StyleRule[], selectors: readonly string[]): readonly StyleRule[] {
-    return source.filter((rule) => !rule.selectors.some((selector) => selectors.includes(selector)));
+    return source.filter((rule) => rule.selectors.every((selector) => !selectors.includes(selector)));
 }
 
 /** The Settings header's modifier, which the narrow default and the wide return share. */

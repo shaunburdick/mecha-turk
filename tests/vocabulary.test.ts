@@ -101,7 +101,7 @@ interface BrokenImport {
  */
 function panelModules(): readonly string[] {
     return readdirSync(resolve(ROOT, SRC_DIR))
-        .map((entry) => String(entry))
+        .map(String)
         .filter((entry) => entry.endsWith('.ts'))
         .toSorted(byText);
 }
@@ -116,7 +116,7 @@ function scanModules(dirs: readonly string[]): readonly ScannedModule[] {
     const modules: ScannedModule[] = [];
 
     for (const dir of dirs) {
-        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map((entry) => String(entry));
+        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map(String);
         for (const entry of entries) {
             if (!entry.endsWith('.ts')) {
                 continue;
@@ -471,7 +471,7 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
 describe('FR-028: a test is named for the layer its subject is in', () => {
     it('has no test file named after a retired panel module', () => {
         const retired = readdirSync(resolve(ROOT, 'tests'), { recursive: true })
-            .map((entry) => String(entry))
+            .map(String)
             .filter((entry) => entry.endsWith('.ts'))
             .filter((entry) => /(^|[\\/])(runs|repos)[-.]/.test(entry));
 

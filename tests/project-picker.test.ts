@@ -449,7 +449,7 @@ interface ScannedFile {
 function scanProjectCreationSurface(): readonly ScannedFile[] {
     const files: ScannedFile[] = [];
     for (const dir of SCANNED_DIRS) {
-        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map((entry) => String(entry));
+        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map(String);
         for (const entry of entries) {
             if (!entry.endsWith('.ts') && !entry.endsWith('.js')) {
                 continue;

@@ -242,7 +242,7 @@ async function handleRequeue(context: RouteContext, request: RouteRequest): Prom
         return await refuseRunRequest({ context, operation: 'requeue', correlationId, response: body });
     }
 
-    if (flagMember(body.fields.confirm, false) !== true) {
+    if (!flagMember(body.fields.confirm, false)) {
         return await refuseRunRequest({
             context,
             operation: 'requeue',

@@ -113,7 +113,7 @@ describe('manifest identity', () => {
             // key is prefixed with it, so renaming either one is a user-visible
             // storage reset. Asserted here, where the identity is declared.
             const prefixed = readdirSync(resolve(ROOT, 'src'), { recursive: true })
-                .map((entry) => String(entry))
+                .map(String)
                 .filter((entry) => entry.endsWith('.ts'))
                 .filter((entry) => readFileSync(resolve(ROOT, 'src', entry), 'utf8').includes(`${panelId}:`));
 

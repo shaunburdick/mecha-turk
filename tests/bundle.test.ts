@@ -370,7 +370,7 @@ interface ScannedFile {
 function scanSources(): readonly ScannedFile[] {
     const files: ScannedFile[] = [];
     for (const dir of SOURCE_DIRS) {
-        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map((entry) => String(entry));
+        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map(String);
         for (const entry of entries) {
             if (!entry.endsWith('.ts')) {
                 continue;
@@ -1091,7 +1091,7 @@ const CREDENTIAL_ENV = /\bprocess\.env\.[A-Z_]*(TOKEN|PAT|SECRET|PASSWORD|API_KE
  */
 function testModules(): readonly ScannedFile[] {
     const entries = readdirSync(resolve(ROOT, 'tests'), { recursive: true })
-        .map((entry) => String(entry))
+        .map(String)
         .filter((entry) => entry.endsWith('.ts'))
         .toSorted(byText);
 

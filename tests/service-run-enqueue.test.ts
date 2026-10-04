@@ -328,7 +328,7 @@ describe('T-006 run-aware enqueue', () => {
             const document = await readRunsDocument({ store, log: LOGGER });
             const capped = document.runs[0];
             const audits = await readAuditEntries(store);
-            const coalesced = audits.filter((entry) => entry.eventType === 'run.coalesced').at(-1);
+            const coalesced = audits.findLast((entry) => entry.eventType === 'run.coalesced');
 
             expect(overflow).toHaveLength(1);
             expect(overflow[0]?.runCorrelationId).toBe(capped?.correlationId);
@@ -414,7 +414,7 @@ describe('T-003 run transition invariants', () => {
             const reservations = await Promise.all([reserveOnce(), reserveOnce()]);
             expect(reservations.filter((result) => result.status === 'applied')).toHaveLength(1);
             expect(reservations.filter((result) => result.status === 'refused')).toHaveLength(1);
-            const [authorized] = reservations.filter((result) => result.status === 'applied');
+            const authorized = reservations.find((result) => result.status === 'applied');
             if (authorized === undefined) {
                 throw new Error('exactly one concurrent reserve must apply');
             }
@@ -508,7 +508,7 @@ describe('T-037 durable run creation audit intent', () => {
 
             expect(recovered.auditIntents).toEqual([]);
             expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
-            expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)[0]?.correlationId)
+            expect(audits.find((entry) => entry.eventType === RUN_CREATED_EVENT)?.correlationId)
                 .toBe(recovered.runs[0]?.correlationId);
         }
     });

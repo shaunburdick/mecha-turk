@@ -254,7 +254,7 @@ describe('bearer authentication', () => {
     it('refuses non-bearer schemes and bare prefixes', async () => {
         {
             const service = await startServiceForTest();
-            const candidates = ['Basic dXNlcjpwYXNz', `${BEARER_PREFIX}`, `${BEARER_PREFIX} `];
+            const candidates = ['Basic dXNlcjpwYXNz', BEARER_PREFIX, `${BEARER_PREFIX} `];
 
             for (const authorization of candidates) {
                 const response = await fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization } });
@@ -271,7 +271,7 @@ describe('bearer authentication', () => {
                 fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: {
                     authorization: `${BEARER_PREFIX}nope-nope-nope` } }),
                 fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization: 'Basic abc123' } }),
-                fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization: `${BEARER_PREFIX}` } }),
+                fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization: BEARER_PREFIX } }),
             ]);
             const bodies = await Promise.all(responses.map(async (response) => await response.text()));
 

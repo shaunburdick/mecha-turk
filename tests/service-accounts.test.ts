@@ -737,7 +737,7 @@ function serviceModuleTexts(): readonly string[] {
     const root = resolve(import.meta.dirname, '..', 'service');
 
     return readdirSync(root, { recursive: true })
-        .map((entry) => String(entry))
+        .map(String)
         .filter((entry) => entry.endsWith('.ts'))
         .map((entry) => readFileSync(resolve(root, entry), 'utf8'));
 }
@@ -751,7 +751,7 @@ function testModuleTexts(): readonly string[] {
     const root = import.meta.dirname;
 
     return readdirSync(root, { recursive: true })
-        .map((entry) => String(entry))
+        .map(String)
         .filter((entry) => entry.endsWith('.ts'))
         .map((entry) => readFileSync(resolve(root, entry), 'utf8'));
 }

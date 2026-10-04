@@ -124,7 +124,7 @@ function parseAccountsBody(text: string): readonly ServiceAccount[] | null {
  * @returns `true` while the panel is alive.
  */
 function stillMounted(rt: PanelRuntime): boolean {
-    return rt.disposed === false;
+    return !rt.disposed;
 }
 
 /**

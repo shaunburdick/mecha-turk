@@ -112,7 +112,7 @@ export type GuardVerdict =
  * @returns `true` while the panel is alive.
  */
 export function stillRunning(rt: PanelRuntime): boolean {
-    return rt.disposed === false;
+    return !rt.disposed;
 }
 
 /**

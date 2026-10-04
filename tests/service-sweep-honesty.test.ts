@@ -222,7 +222,7 @@ async function lapseLeaseOf(correlationId: string): Promise<Run> {
 /** Claim the run waiting for one issue, as the panel would. */
 async function claimRun(issueNumber: number): Promise<string> {
     const result = await claim();
-    const [claimed] = result.runs.filter((run) => run.issueNumber === issueNumber);
+    const claimed = result.runs.find((run) => run.issueNumber === issueNumber);
     if (claimed === undefined) {
         throw new Error(`the run for issue ${issueNumber} was not claimed`);
     }

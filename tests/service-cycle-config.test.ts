@@ -605,7 +605,7 @@ describe('the cycle observes the global tier (004 FR-088, 006 FR-070, plan N7)',
         expect(row?.actorSource).toBe('service');
         expect(row?.decision).toBe('applied');
         expect(row?.entity).toEqual({ kind: 'service', id: 'configuration' });
-        const [change] = changesOf(row).filter((entry) => entry.field === PROMPT_FIELD);
+        const change = changesOf(row).find((entry) => entry.field === PROMPT_FIELD);
         expect(change?.from).toBeNull();
         expect(String(change?.from)).toMatch(FINGERPRINT_PAIR);
         expect(String(change?.to)).toMatch(FINGERPRINT);

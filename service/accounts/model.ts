@@ -415,11 +415,11 @@ const DISPLAY_NAME_CAP = `displayName must be at most ${DISPLAY_NAME_MAX_CODE_PO
 const DISPLAY_NAME_CONTROL = 'displayName must not contain control characters';
 
 /** Last C0 control character (inclusive). */
-const LAST_C0 = 0X1F;
+const LAST_C0 = 0x1F;
 
 /** C1 control range, inclusive on both ends. */
-const FIRST_C1 = 0X7F;
-const LAST_C1 = 0X9F;
+const FIRST_C1 = 0x7F;
+const LAST_C1 = 0x9F;
 
 /**
  * Whether a string carries a C0 or C1 control character.

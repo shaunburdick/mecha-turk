@@ -262,7 +262,7 @@ function stringsOf(log: readonly { readonly key: string; readonly props: unknown
 function sources(): readonly { readonly path: string; readonly text: string }[] {
     const files: { path: string; text: string }[] = [];
     for (const dir of ['src', 'service']) {
-        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map((entry) => String(entry));
+        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map(String);
         for (const entry of entries) {
             if (entry.endsWith('.ts')) {
                 files.push({

@@ -329,7 +329,7 @@ describe('FR-080 / NFR-101 the six tabs render through the text path only', () =
     it('has no HTML sink in any module the tabs render from', async () => {
         {
             const modules = readdirSync(resolve(import.meta.dirname, `../${SRC_DIR}`), { recursive: true })
-                .map((entry) => String(entry))
+                .map(String)
                 .filter((entry) => entry.endsWith('.ts'));
 
             expect(modules.length).toBeGreaterThan(40);

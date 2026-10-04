@@ -343,7 +343,7 @@ describe('an unreachable service keeps the static content (AC-132, AC-134, FR-07
             });
             // The last paint is the one on screen; the first is the mount's own
             // "not yet read" placeholder (FR-013: a body paints what state it has).
-            const version = view.strings.filter((text) => text.startsWith('Version: ')).at(-1);
+            const version = view.strings.findLast((text) => text.startsWith('Version: '));
 
             expect(version).toBe(UNREACHABLE);
             expect(version).not.toMatch(/\d/);

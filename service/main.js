@@ -6829,7 +6829,8 @@ function judgeReserve(input) {
   }
   const { reservation } = run;
   if (reservation !== null) {
-    return refuse3("already-reserved", `this run is already authorized: attempt ${reservation.attempt} must report by ` + `${reservation.resultDeadlineAt}`);
+    const { attempt, resultDeadlineAt } = reservation;
+    return refuse3("already-reserved", `this run is already authorized: attempt ${attempt} must report by ${resultDeadlineAt}`);
   }
   return run.state === "claimed" ? null : refuse3(INVALID_TRANSITION, `this run is ${run.state}; only a claimed run can be authorized`);
 }
@@ -8024,7 +8025,7 @@ async function handleRequeue(context, request) {
   if (isRefusal(body)) {
     return await refuseRunRequest({ context, operation: "requeue", correlationId, response: body });
   }
-  if (flagMember(body.fields.confirm, false) !== true) {
+  if (!flagMember(body.fields.confirm, false)) {
     return await refuseRunRequest({
       context,
       operation: "requeue",

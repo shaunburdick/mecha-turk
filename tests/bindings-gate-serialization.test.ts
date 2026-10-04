@@ -366,7 +366,7 @@ async function seedAndClaim(log: ServiceLogger): Promise<{
 }> {
     await enqueueEvents({ store, log, incoming: [createEvent(detection())] });
     const claimed = await claimPendingRuns({ store, log, holder: HOLDER, now: STAMP });
-    const [run] = claimed.runs.filter((candidate) => candidate.issueNumber === ISSUE);
+    const run = claimed.runs.find((candidate) => candidate.issueNumber === ISSUE);
     if (run?.lease === undefined) {
         throw new Error('the fixture run was not claimed');
     }

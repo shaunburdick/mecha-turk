@@ -455,7 +455,7 @@ describe("the global tier's row is fingerprints, never the text (004 FR-088, 006
         expect(row?.actorSource).toBe('operator');
         expect(row?.decision).toBe('applied');
         expect(row?.redaction.redacted).toBe(false);
-        const [change] = changesOf(row).filter((entry) => entry.field === 'startingPrompt');
+        const change = changesOf(row).find((entry) => entry.field === 'startingPrompt');
         // Unset before the write, set after it — and both sides only ever
         // `mtp-…` or `null` (004 FR-088's pair, 006 FR-071 as amended).
         expect(change?.from).toBeNull();

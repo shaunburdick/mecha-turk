@@ -212,7 +212,7 @@ function configurationLiteralsIn(source: PanelSource): {
             return [{ value, line: line.line }];
         });
     const attachedClasses = lines.flatMap((line, index) => {
-        if (!CLASS_TOKENS.some((token) => line.includes(`'${token}'`))) {
+        if (CLASS_TOKENS.every((token) => !line.includes(`'${token}'`))) {
             return [];
         }
 
@@ -630,7 +630,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
                     ` and ${NUMERIC_BOUNDS.intervalMs.max} ${NUMERIC_BOUNDS.intervalMs.unit}`,
             );
             // Never a default dressed as a configured value (FR-028, NFR-112).
-            expect(interval?.text).not.toContain(`${DEFAULT_CONFIG.intervalMs}`);
+            expect(interval?.text).not.toContain(DEFAULT_CONFIG.intervalMs);
             expect(interval?.text).not.toContain('default');
             // The field beside it still renders — one bad field hides nothing.
             expect(rows.find((row) => row.field === 'perPage')?.text).toContain('bounds 1–30');

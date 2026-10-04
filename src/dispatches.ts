@@ -35,7 +35,7 @@ import type { RunRow } from './dispatches-service.ts';
  * @returns `true` while the panel is alive.
  */
 function stillMounted(rt: PanelRuntime): boolean {
-    return rt.disposed === false;
+    return !rt.disposed;
 }
 
 /**
@@ -86,7 +86,7 @@ export async function loadDispatches(rt: PanelRuntime): Promise<void> {
 
     runs.rows = answer.rows;
     runs.page = recordDispatchPageMeta(runs.page, answer.page);
-    if (runs.selectedRun !== null && !answer.rows.some((row) => row.id === runs.selectedRun)) {
+    if (runs.selectedRun !== null && answer.rows.every((row) => row.id !== runs.selectedRun)) {
         runs.selectedRun = null;
         runs.referencesOpen = false;
         runs.audit = initialAuditHistory();

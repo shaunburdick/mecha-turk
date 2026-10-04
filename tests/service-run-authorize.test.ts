@@ -260,7 +260,7 @@ async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {
 /** Claim the run waiting for one issue, as the panel would. */
 async function claimRun(issueNumber: number): Promise<{ readonly correlationId: string; readonly leaseId: string }> {
     const claimed = await claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
-    const [run] = claimed.runs.filter((candidate) => candidate.issueNumber === issueNumber);
+    const run = claimed.runs.find((candidate) => candidate.issueNumber === issueNumber);
     if (run === undefined) {
         throw new Error(`the run for issue ${issueNumber} was not claimed`);
     }

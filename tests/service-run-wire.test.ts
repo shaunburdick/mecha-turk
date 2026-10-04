@@ -339,7 +339,7 @@ async function driveTo(issueNumber: number, target: Run['state']): Promise<Run> 
     const before = new Set(prior.runs.map((run) => run.correlationId));
     await enqueueEvents({ store, log: LOGGER, incoming: [createEvent(assignment(issueNumber))] });
     const seeded = await readRunsDocument({ store, log: LOGGER });
-    const [first] = seeded.runs.filter((run) => !before.has(run.correlationId));
+    const first = seeded.runs.find((run) => !before.has(run.correlationId));
     if (first === undefined) {
         throw new Error('the fixture run was not enqueued');
     }

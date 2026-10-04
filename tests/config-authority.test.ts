@@ -121,7 +121,7 @@ function trackedFiles(): readonly string[] {
  */
 function sourceModules(dir: string): readonly SourceModule[] {
     const entries = readdirSync(resolve(ROOT, dir), { recursive: true })
-        .map((entry) => String(entry))
+        .map(String)
         .filter((entry) => entry.endsWith('.ts'))
         .toSorted(byText);
 

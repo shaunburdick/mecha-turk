@@ -943,7 +943,7 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
             });
 
             const claimed = await claimPendingRuns({ store, log: LOGGER, holder: 'panel-after-resolve', now: NOW });
-            const [reclaimed] = claimed.runs.filter((candidate) => candidate.correlationId === run.correlationId);
+            const reclaimed = claimed.runs.find((candidate) => candidate.correlationId === run.correlationId);
 
             expect(reclaimed?.attempt).toBe(3);
             expect(reclaimed?.state).toBe('pending');
@@ -1098,7 +1098,7 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
             expect(Object.hasOwn(mismatch, 'baselineProvenance')).toBe(false);
             expect(await rowsOf(UNCOMPARED_ROW)).toEqual([]);
             const entries = await trail();
-            const [warned] = entries.filter((entry) => entry.eventType === MISMATCH_ROW);
+            const warned = entries.find((entry) => entry.eventType === MISMATCH_ROW);
             expect(warned?.decision).toBe('warn');
         }
     });
@@ -1209,7 +1209,7 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
                 note: 'no baseline is configured, so nothing was compared',
             });
             const entries = await trail();
-            const [row] = entries.filter((entry) => entry.eventType === UNCOMPARED_ROW);
+            const row = entries.find((entry) => entry.eventType === UNCOMPARED_ROW);
             if (row === undefined) {
                 throw new Error('the trail carries no agent.uncompared row for the blank baseline');
             }
@@ -1289,7 +1289,7 @@ describe('T-014 the token chain across a dead-letter reset (plan D6, research §
             await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
 
             const claimed = await claimPendingRuns({ store, log: LOGGER, holder: 'panel-token-chain', now: NOW });
-            const [reclaimed] = claimed.runs.filter((candidate) => candidate.correlationId === run.correlationId);
+            const reclaimed = claimed.runs.find((candidate) => candidate.correlationId === run.correlationId);
             if (reclaimed === undefined) {
                 throw new Error('the reset run was not claimable');
             }

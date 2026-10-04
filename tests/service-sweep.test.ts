@@ -164,7 +164,7 @@ async function patchRun(correlationId: string, patch: (run: Run) => Run): Promis
     const runs = document.runs.map((candidate) => (candidate.correlationId === correlationId
         ? patch(candidate)
         : candidate));
-    if (!runs.some((candidate) => candidate.correlationId === correlationId)) {
+    if (runs.every((candidate) => candidate.correlationId !== correlationId)) {
         throw new Error('patched run is no longer stored');
     }
 

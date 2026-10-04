@@ -135,7 +135,7 @@ describe('T-001 the shared text rules (FR-022, FR-023, FR-025, FR-026)', () => {
     it('refuses a reserved prefix at a line start but not similar prose', async () => {
         {
             expect(hasReservedMarkerLine(`intro\n${OPERATOR_PROMPT_FENCE_BEGIN}\noutro`)).toBe(true);
-            expect(hasReservedMarkerLine(`${OPERATOR_PROMPT_FENCE_END}`)).toBe(true);
+            expect(hasReservedMarkerLine(OPERATOR_PROMPT_FENCE_END)).toBe(true);
             expect(hasReservedMarkerLine('--- BEGINNING OF PLAN ---')).toBe(false);
             expect(hasReservedMarkerLine('prefix --- BEGIN tail')).toBe(false);
             expect(RESERVED_MARKER_PREFIXES).toEqual(['--- BEGIN ', '--- END ']);
@@ -326,7 +326,7 @@ describe('T-002 validateStartingPrompt: the refusal matrix (FR-017, FR-020, FR-0
             // fingerprint, and it validates before it derives — the
             // resolver that stacks run bodies takes the same road.
             expect(promptTierOf({ startingPrompt: `prefix ${secret}` })).toBeNull();
-            expect(promptTierOf({ startingPrompt: `${SENTINEL}` })).not.toBeNull();
+            expect(promptTierOf({ startingPrompt: SENTINEL })).not.toBeNull();
         }
     });
 

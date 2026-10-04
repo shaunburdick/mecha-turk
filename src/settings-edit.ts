@@ -409,7 +409,7 @@ export function recordSaved(input: {
             continue;
         }
 
-        if (!pending.some((entry) => entry.field === name)) {
+        if (pending.every((entry) => entry.field !== name)) {
             pending.push({ field: name, boundary: descriptor.takesEffect });
         }
     }

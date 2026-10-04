@@ -111,7 +111,7 @@ function clearDraftIfCovered(bindings: BindingsTabState, stored: readonly PanelB
  * @returns `true` while the panel is alive.
  */
 export function stillMounted(rt: PanelRuntime): boolean {
-    return rt.disposed === false;
+    return !rt.disposed;
 }
 
 /**

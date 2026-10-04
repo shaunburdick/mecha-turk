@@ -188,10 +188,10 @@ function judgeReserve(input: {
 
     const { reservation } = run;
     if (reservation !== null) {
+        const { attempt, resultDeadlineAt } = reservation;
         return refuse(
             'already-reserved',
-            `this run is already authorized: attempt ${reservation.attempt} must report by `
-            + `${reservation.resultDeadlineAt}`,
+            `this run is already authorized: attempt ${attempt} must report by ${resultDeadlineAt}`,
         );
     }
 
