@@ -216,7 +216,7 @@ function bindingRow(input: {
         state: 'active',
         createdAt: FIXTURE_TIMESTAMP,
         updatedAt: FIXTURE_TIMESTAMP,
-        ...(input.startingPrompt === undefined ? {} : { startingPrompt: input.startingPrompt }),
+        ...(input.startingPrompt !== undefined && { startingPrompt: input.startingPrompt }),
     };
 }
 

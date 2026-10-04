@@ -81,7 +81,7 @@ export function fixtureBindingRow(
         state: options.state ?? 'active',
         createdAt: FIXTURE_BINDING_STAMP,
         updatedAt: FIXTURE_BINDING_STAMP,
-        ...(allowedUsers === null ? {} : { allowedUsers: [...allowedUsers] }),
+        ...(allowedUsers !== null && { allowedUsers: [...allowedUsers] }),
     };
 }
 

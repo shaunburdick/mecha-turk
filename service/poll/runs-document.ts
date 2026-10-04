@@ -191,7 +191,7 @@ async function runAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
 
     const plan = await planAdoption({
         store: input.store,
-        ...(input.now === undefined ? {} : { now: input.now }),
+        ...(input.now !== undefined && { now: input.now }),
     });
     await input.store.writeJson(RUNS_FILE, plan.document);
 

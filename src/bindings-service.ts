@@ -358,8 +358,8 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
         state,
         createdAt: record.createdAt as string,
         updatedAt: record.updatedAt as string,
-        ...(optional.startingPrompt === undefined ? {} : { startingPrompt: optional.startingPrompt }),
-        ...(optional.allowedUsers === undefined ? {} : { allowedUsers: optional.allowedUsers }),
+        ...(optional.startingPrompt !== undefined && { startingPrompt: optional.startingPrompt }),
+        ...(optional.allowedUsers !== undefined && { allowedUsers: optional.allowedUsers }),
     };
 }
 

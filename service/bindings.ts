@@ -430,8 +430,8 @@ function assembleBinding(raw: Record<string, unknown>, accountExists: boolean): 
         accountLogin: login,
         ...target.binding,
         ...mode.binding,
-        ...(prompt.prompt === null ? {} : { startingPrompt: prompt.prompt }),
-        ...(allowedUsers.users === null ? {} : { allowedUsers: allowedUsers.users }),
+        ...(prompt.prompt !== null && { startingPrompt: prompt.prompt }),
+        ...(allowedUsers.users !== null && { allowedUsers: allowedUsers.users }),
         createdAt,
         updatedAt: stampOrKeep(raw.updatedAt, createdAt),
     };

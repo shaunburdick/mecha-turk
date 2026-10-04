@@ -278,7 +278,7 @@ function bindingRow(input: {
         state: input.state ?? 'active',
         createdAt: FIXTURE_TIMESTAMP,
         updatedAt: FIXTURE_TIMESTAMP,
-        ...(input.allowedUsers === undefined ? {} : { allowedUsers: input.allowedUsers }),
+        ...(input.allowedUsers !== undefined && { allowedUsers: input.allowedUsers }),
     };
 }
 

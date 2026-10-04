@@ -108,7 +108,7 @@ export async function readBindingsUnobserved(input: {
             // never echoes a value, so this line cannot leak one.
             log.warn('stored bindings were unusable and have been set aside', {
                 quarantinePath: result.quarantinePath,
-                ...(note.reason === null ? {} : { reason: note.reason }),
+                ...(note.reason !== null && { reason: note.reason }),
             });
         }
 
@@ -205,7 +205,7 @@ export async function readBindingsForAuthorization(input: {
             // never echoes a value, so this line cannot leak one.
             log.warn('stored bindings were unusable and have been set aside', {
                 quarantinePath: result.quarantinePath,
-                ...(note.reason === null ? {} : { reason: note.reason }),
+                ...(note.reason !== null && { reason: note.reason }),
             });
         }
 

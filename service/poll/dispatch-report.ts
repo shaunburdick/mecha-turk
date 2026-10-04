@@ -295,7 +295,7 @@ function reportedRun(input: {
         lease: null,
         reservation: { ...reservation, consumed: true },
         attempts: attemptHistory(run, closedAttempt({ attempt: currentAttempt(run), outcome, now })),
-        ...(sessionId === null ? {} : { session: sessionRefOf({ run, sessionId, now }) }),
+        ...(sessionId !== null && { session: sessionRefOf({ run, sessionId, now }) }),
         updatedAt: now,
     };
 }

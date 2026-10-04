@@ -383,7 +383,7 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
             referenceWindow: answer.referenceWindow,
         });
 
-        return { kind: 'refused', ...(gate === null ? {} : { failure: gate }) };
+        return { kind: 'refused', ...(gate !== null && { failure: gate }) };
     }
 
     const unreadable = `Run ${run.correlationId}: the service's authorization could not be read, so nothing`

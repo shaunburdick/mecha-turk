@@ -1354,7 +1354,7 @@ describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-
                 repository: { owner: 'acme', name: 'widget' },
                 issueNumber: 12,
                 accountNumericUserId: ACCOUNT_ID,
-                ...(discriminator === '' ? {} : { discriminator }),
+                ...(discriminator !== '' && { discriminator }),
             })),
         ];
 

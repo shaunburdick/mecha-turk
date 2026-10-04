@@ -430,7 +430,7 @@ export function lineRow(parent: HTMLElement, input: LineInput): DefRow {
     return definitionRow(parent, {
         key: split.key,
         value: split.value,
-        ...(input.keyClass === undefined ? {} : { keyClass: input.keyClass }),
-        ...(input.valueClass === undefined ? {} : { valueClass: input.valueClass }),
+        ...(input.keyClass !== undefined && { keyClass: input.keyClass }),
+        ...(input.valueClass !== undefined && { valueClass: input.valueClass }),
     });
 }

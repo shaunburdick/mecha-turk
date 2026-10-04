@@ -68,7 +68,7 @@ function snapshot(agent?: string): SessionSnapshot {
         id: SESSION,
         title: 'Fix the flaky test',
         busy: false,
-        ...(agent === undefined ? {} : { agent }),
+        ...(agent !== undefined && { agent }),
     };
 }
 

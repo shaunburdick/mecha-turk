@@ -159,7 +159,7 @@ async function seed(input: SeedInput): Promise<void> {
         store: storeOf(service),
         log: LOGGER,
         incoming: snapshots.map(createEvent),
-        ...(snapshot === null ? {} : { prompt: snapshot }),
+        ...(snapshot !== null && { prompt: snapshot }),
     });
 }
 

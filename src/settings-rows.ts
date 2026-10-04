@@ -401,12 +401,10 @@ function valueFieldProps(input: {
         disabled: context.disabled,
         onChange: (value: string): void => context.onChange(row.field, value),
         value: context.values[row.field] ?? '',
-        ...(descriptor.kind === 'string' ? { placeholder: NOT_SET_WORD } : {}),
-        ...(descriptor.kind === 'string' && descriptor.multiline === true
-            ? { multiline: true, rows: MULTILINE_ROWS }
-            : {}),
+        ...(descriptor.kind === 'string' && { placeholder: NOT_SET_WORD }),
+        ...(descriptor.kind === 'string' && descriptor.multiline === true && { multiline: true, rows: MULTILINE_ROWS }),
         helper,
-        ...(error === undefined ? {} : { error }),
+        ...(error !== undefined && { error }),
     };
 }
 
@@ -536,7 +534,7 @@ export function updateSettingsRows(ui: SettingsRowsUi, context: RowsContext): vo
             value: context.values[handle.field] ?? '',
             helper,
             disabled: context.disabled,
-            ...(error === undefined ? {} : { error }),
+            ...(error !== undefined && { error }),
         });
     }
 }

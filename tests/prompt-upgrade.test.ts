@@ -233,7 +233,7 @@ async function seedPre004Store(prompt: string | null = null): Promise<SeededByte
         store,
         log: LOGGER,
         incoming: [createEvent(detection())],
-        ...(snapshot === null ? {} : { prompt: snapshot }),
+        ...(snapshot !== null && { prompt: snapshot }),
     });
     await store.writeJson(BINDINGS_FILE, [pre004Binding()]);
     await store.writeJson(ACCOUNT_FILE, pre004Account());

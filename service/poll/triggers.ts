@@ -197,7 +197,7 @@ function mentionEvent(input: {
         // decides the run key's subject type. When it did not (a closed item,
         // a paged-out one) the row keeps no subject type and reads as an
         // issue, exactly as an adopted row does (data-model §2.1).
-        ...(issue === null ? {} : { subjectType: subjectShapeOf(issue.isPullRequest) }),
+        ...(issue !== null && { subjectType: subjectShapeOf(issue.isPullRequest) }),
     });
 }
 

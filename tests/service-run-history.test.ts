@@ -315,7 +315,7 @@ async function enqueueRun(snapshot: EventSnapshot, prompt?: PromptSnapshot): Pro
         store,
         log: LOGGER,
         incoming: [createEvent(snapshot)],
-        ...(prompt === undefined ? {} : { prompt }),
+        ...(prompt !== undefined && { prompt }),
     });
     const after = await readDocument();
     const created = after.find((run) => !known.has(run.correlationId));
@@ -452,8 +452,8 @@ async function report(input: {
             correlationId: input.run.correlationId,
             attempt: authorized.attempt,
             dispatchToken: tokenOf(authorized),
-            ...(sessionId === undefined ? {} : { sessionId }),
-            ...(problem === undefined ? {} : { problem }),
+            ...(sessionId !== undefined && { sessionId }),
+            ...(problem !== undefined && { problem }),
         },
     });
 }

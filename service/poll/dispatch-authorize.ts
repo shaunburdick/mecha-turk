@@ -294,7 +294,7 @@ async function refusedReserve(input: {
                 refusal,
                 attempt: call.attempt,
                 leaseId: call.leaseId,
-                ...(actor === undefined ? {} : { actor }),
+                ...(actor !== undefined && { actor }),
             },
         }),
     };

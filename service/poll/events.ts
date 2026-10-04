@@ -399,7 +399,7 @@ async function enqueueWithinChain(input: {
         document,
         deliveries: fresh,
         now: nowIso(),
-        ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+        ...(input.prompt !== undefined && { prompt: input.prompt }),
     });
     const appended = fresh.map((event) => {
         const runCorrelationId = outcome.links.get(event.id);

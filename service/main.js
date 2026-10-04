@@ -819,7 +819,7 @@ function reportQuarantine(input) {
     log.warn("stored record was unusable and has been set aside", {
       subject,
       quarantinePath: result.quarantinePath,
-      ...note.reason === null ? {} : { reason: note.reason }
+      ...note.reason !== null && { reason: note.reason }
     });
   }
 }
@@ -836,7 +836,7 @@ async function readAccount(input) {
     store: input.store,
     log: input.log,
     accounts: account === null ? [] : [account],
-    ...account === null ? { absent: [input.numericUserId] } : {},
+    ...account === null && { absent: [input.numericUserId] },
     actor: "service"
   });
   return account;
@@ -1084,9 +1084,9 @@ function errorBody(details) {
     error: {
       code: details.code,
       message: details.message,
-      ...details.correlationId === undefined ? {} : { correlationId: details.correlationId },
-      ...details.issues === undefined ? {} : { issues: details.issues },
-      ...details.reasonClass === undefined ? {} : { reasonClass: details.reasonClass }
+      ...details.correlationId !== undefined && { correlationId: details.correlationId },
+      ...details.issues !== undefined && { issues: details.issues },
+      ...details.reasonClass !== undefined && { reasonClass: details.reasonClass }
     }
   };
 }
@@ -1796,8 +1796,8 @@ function actorFieldsOf(record) {
   const actorLogin = readActorLoginField(record);
   const actorAttribution = readActorAttributionField(record);
   return {
-    ...actorLogin === undefined || actorLogin === null ? {} : { actorLogin },
-    ...actorAttribution === undefined || actorAttribution === null ? {} : { actorAttribution }
+    ...!(actorLogin === undefined || actorLogin === null) && { actorLogin },
+    ...!(actorAttribution === undefined || actorAttribution === null) && { actorAttribution }
   };
 }
 
@@ -1895,8 +1895,8 @@ function lifecycleOf(record, state) {
 function runLinkOf(record, subjectType) {
   const runCorrelationId = readRunLinkField(record);
   return {
-    ...runCorrelationId === undefined || runCorrelationId === null ? {} : { runCorrelationId },
-    ...subjectType === undefined ? {} : { subjectType }
+    ...!(runCorrelationId === undefined || runCorrelationId === null) && { runCorrelationId },
+    ...subjectType !== undefined && { subjectType }
   };
 }
 function trimMarkerOf(record) {
@@ -2001,13 +2001,13 @@ async function recordDetectedDeliveries(input) {
       eventType: "delivery.detected",
       actorSource: "service",
       entity: { kind: "delivery", id: event.id },
-      ...event.runCorrelationId === undefined ? {} : { correlationId: event.runCorrelationId },
+      ...event.runCorrelationId !== undefined && { correlationId: event.runCorrelationId },
       reason: `${event.kind} trigger matched a binding`,
       details: {
         bindingId: event.bindingId,
         repository: event.repository,
         kind: event.kind,
-        ...event.runCorrelationId === undefined ? {} : { runCorrelationId: event.runCorrelationId }
+        ...event.runCorrelationId !== undefined && { runCorrelationId: event.runCorrelationId }
       }
     });
   }
@@ -3167,7 +3167,7 @@ async function runAdoption(input) {
   }
   const plan = await planAdoption({
     store: input.store,
-    ...input.now === undefined ? {} : { now: input.now }
+    ...input.now !== undefined && { now: input.now }
   });
   await input.store.writeJson(RUNS_FILE, plan.document);
   return "adopted";
@@ -3678,7 +3678,7 @@ async function enqueueWithinChain(input) {
     document,
     deliveries: fresh,
     now: nowIso(),
-    ...input.prompt === undefined ? {} : { prompt: input.prompt }
+    ...input.prompt !== undefined && { prompt: input.prompt }
   });
   const appended = fresh.map((event) => {
     const runCorrelationId = outcome.links.get(event.id);
@@ -4525,7 +4525,7 @@ function rotatedAccount(input) {
     credential: { token, kind: outcome.credentialKind, verifiedAt },
     scopeCheck: outcome.scopeCheck,
     verifiedAt,
-    ...isRecovering ? { state: "active", connectionState: "connected", errorReason: null } : {}
+    ...isRecovering && { state: "active", connectionState: "connected", errorReason: null }
   };
 }
 async function recordRotationRejection(subject, reason) {
@@ -4777,8 +4777,8 @@ async function runProfileWrite(input) {
     await recordAccountPromptChanges({ store, log, accounts: [stored], actor: "service" });
     const updated = {
       ...stored,
-      ...parsed.body.displayName.present ? { displayName: parsed.body.displayName.value } : {},
-      ...parsed.body.startingPrompt.present ? { startingPrompt: parsed.body.startingPrompt.value } : {},
+      ...parsed.body.displayName.present && { displayName: parsed.body.displayName.value },
+      ...parsed.body.startingPrompt.present && { startingPrompt: parsed.body.startingPrompt.value },
       updatedAt: nowIso()
     };
     await writeAccount(store, updated);
@@ -5453,8 +5453,8 @@ function assembleBinding(raw, accountExists) {
     accountLogin: login,
     ...target.binding,
     ...mode.binding,
-    ...prompt.prompt === null ? {} : { startingPrompt: prompt.prompt },
-    ...allowedUsers.users === null ? {} : { allowedUsers: allowedUsers.users },
+    ...prompt.prompt !== null && { startingPrompt: prompt.prompt },
+    ...allowedUsers.users !== null && { allowedUsers: allowedUsers.users },
     createdAt,
     updatedAt: stampOrKeep(raw.updatedAt, createdAt)
   };
@@ -5680,7 +5680,7 @@ async function readBindingsUnobserved(input) {
     if (result.status === "quarantined") {
       log.warn("stored bindings were unusable and have been set aside", {
         quarantinePath: result.quarantinePath,
-        ...note.reason === null ? {} : { reason: note.reason }
+        ...note.reason !== null && { reason: note.reason }
       });
     }
     return [];
@@ -5710,7 +5710,7 @@ async function readBindingsForAuthorization(input) {
     if (result.status === "quarantined") {
       log.warn("stored bindings were unusable and have been set aside", {
         quarantinePath: result.quarantinePath,
-        ...note.reason === null ? {} : { reason: note.reason }
+        ...note.reason !== null && { reason: note.reason }
       });
     }
     return { readable: false };
@@ -5766,7 +5766,7 @@ import { createHash as createHash4 } from "node:crypto";
 function reviewCoordinates(delivery) {
   const head = delivery?.headSha ?? null;
   const base = delivery?.baseRef ?? null;
-  return { ...head === null ? {} : { headSha: head }, ...base === null ? {} : { baseRef: base } };
+  return { ...head !== null && { headSha: head }, ...base !== null && { baseRef: base } };
 }
 function deliveryView(input) {
   const { delivery, primary } = input;
@@ -6043,7 +6043,7 @@ var WAITING_REASON = "waiting for a panel";
 function reviewCoordinates2(delivery) {
   const head = delivery?.headSha ?? null;
   const base = delivery?.baseRef ?? null;
-  return { ...head === null ? {} : { headSha: head }, ...base === null ? {} : { baseRef: base } };
+  return { ...head !== null && { headSha: head }, ...base !== null && { baseRef: base } };
 }
 function recordedCause(run) {
   for (let index = run.attempts.length - 1;index !== -1; index -= 1) {
@@ -6570,7 +6570,7 @@ function verificationRow(input) {
       sessionId: input.run.session?.sessionId ?? "",
       observedAgent: verification.observedAgent,
       expectedAgent: verification.expectedAgent,
-      ...compared ? {} : { baselineProvenance: input.baselineProvenance },
+      ...!compared && { baselineProvenance: input.baselineProvenance },
       note: rowText(verification.note)
     }
   };
@@ -6579,8 +6579,8 @@ function actorDetails(actor) {
   return {
     bindingId: actor.bindingId,
     actorPolicy: actor.actorPolicy,
-    ...actor.deniedLogins === undefined ? {} : { deniedLogins: actor.deniedLogins.map(boundText) },
-    ...actor.deniedAttributions === undefined ? {} : { deniedAttributions: [...actor.deniedAttributions] },
+    ...actor.deniedLogins !== undefined && { deniedLogins: actor.deniedLogins.map(boundText) },
+    ...actor.deniedAttributions !== undefined && { deniedAttributions: [...actor.deniedAttributions] },
     unreadableReferences: actor.unreadableReferences,
     retainedReferences: actor.retainedReferences,
     referencesNotRetained: actor.referencesNotRetained,
@@ -6599,9 +6599,9 @@ function refusedRow(input) {
       code: input.code,
       priorState: input.run.state,
       attempt: input.attempt,
-      ...input.leaseId === undefined ? {} : { leaseId: input.leaseId },
-      ...input.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: input.dispatchTokenFingerprint },
-      ...input.actor === undefined ? {} : actorDetails(input.actor)
+      ...input.leaseId !== undefined && { leaseId: input.leaseId },
+      ...input.dispatchTokenFingerprint !== undefined && { dispatchTokenFingerprint: input.dispatchTokenFingerprint },
+      ...input.actor !== undefined && actorDetails(input.actor)
     }
   };
 }
@@ -6661,8 +6661,8 @@ function refusalDetails(input) {
   return {
     bindingId: input.run.bindingId,
     actorPolicy: input.policy,
-    ...input.deniedLogins === undefined ? {} : { deniedLogins: input.deniedLogins },
-    ...input.deniedAttributions === undefined ? {} : { deniedAttributions: input.deniedAttributions },
+    ...input.deniedLogins !== undefined && { deniedLogins: input.deniedLogins },
+    ...input.deniedAttributions !== undefined && { deniedAttributions: input.deniedAttributions },
     unreadableReferences: input.unreadableReferences,
     retainedReferences: window.retained,
     referencesNotRetained: window.notRetained,
@@ -6775,9 +6775,9 @@ async function appendRefusalRow(input) {
     code: refusal.refusal.code,
     reason: refusal.refusal.message,
     attempt: refusal.attempt,
-    ...refusal.leaseId === undefined ? {} : { leaseId: refusal.leaseId },
-    ...refusal.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint },
-    ...refusal.actor === undefined ? {} : { actor: refusal.actor }
+    ...refusal.leaseId !== undefined && { leaseId: refusal.leaseId },
+    ...refusal.dispatchTokenFingerprint !== undefined && { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint },
+    ...refusal.actor !== undefined && { actor: refusal.actor }
   });
   return await appendRunRow({
     store: input.store,
@@ -6869,7 +6869,7 @@ async function refusedReserve(input) {
         refusal,
         attempt: call.attempt,
         leaseId: call.leaseId,
-        ...actor === undefined ? {} : { actor }
+        ...actor !== undefined && { actor }
       }
     })
   };
@@ -7054,7 +7054,7 @@ function reportedRun(input) {
     lease: null,
     reservation: { ...reservation, consumed: true },
     attempts: attemptHistory(run, closedAttempt({ attempt: currentAttempt(run), outcome, now })),
-    ...sessionId === null ? {} : { session: sessionRefOf({ run, sessionId, now }) },
+    ...sessionId !== null && { session: sessionRefOf({ run, sessionId, now }) },
     updatedAt: now
   };
 }
@@ -7272,7 +7272,7 @@ function runOutcomeResponse(input) {
     return errorResponse(REFUSAL_STATUS.get(code) ?? STATUS.conflict, {
       code,
       message,
-      ...referenceWindow === undefined ? {} : { referenceWindow }
+      ...referenceWindow !== undefined && { referenceWindow }
     });
   }
   return { status: STATUS.ok, body: success(outcome.run, outcome.auditWritten) };
@@ -9199,7 +9199,7 @@ function mentionEvent(input) {
     actorAttribution: "direct",
     triggerNote: `Comment by ${commenter} on issue #${comment.issueNumber} mentioned the bound account`,
     detectedAt,
-    ...issue2 === null ? {} : { subjectType: subjectShapeOf2(issue2.isPullRequest) }
+    ...issue2 !== null && { subjectType: subjectShapeOf2(issue2.isPullRequest) }
   });
 }
 function mentionEvents(input) {

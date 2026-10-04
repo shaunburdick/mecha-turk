@@ -475,7 +475,7 @@ async function resolveRun(rt: PanelRuntime, decision: ResolveDecision): Promise<
         body: JSON.stringify({
             correlationId: row.correlationId,
             decision,
-            ...(decision === SESSION_CREATED ? { sessionId } : {}),
+            ...(decision === SESSION_CREATED && { sessionId }),
             guidance: guidanceFor(row),
         }),
         success: decision === SESSION_CREATED

@@ -219,7 +219,7 @@ export async function servicePost(input: {
         const answer = await input.serviceRequest({
             method: 'POST',
             path: input.path,
-            ...(input.body === undefined ? {} : { body: input.body }),
+            ...(input.body !== undefined && { body: input.body }),
         });
 
         return resultWithErrorOf(answer, LEGACY_RESOURCE);

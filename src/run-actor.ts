@@ -86,8 +86,8 @@ export function actorFieldsOf(record: Record<string, unknown>): ActorFields | nu
     }
 
     return {
-        ...(typeof actorLogin === 'string' ? { actorLogin } : {}),
-        ...(typeof actorAttribution === 'string' ? { actorAttribution: actorAttribution as ActorAttribution } : {}),
+        ...(typeof actorLogin === 'string' && { actorLogin }),
+        ...(typeof actorAttribution === 'string' && { actorAttribution: actorAttribution as ActorAttribution }),
     };
 }
 

@@ -71,13 +71,13 @@ async function recordDetectedDeliveries(input: EnqueueAuditInput): Promise<void>
             eventType: 'delivery.detected',
             actorSource: 'service',
             entity: { kind: 'delivery', id: event.id },
-            ...(event.runCorrelationId === undefined ? {} : { correlationId: event.runCorrelationId }),
+            ...(event.runCorrelationId !== undefined && { correlationId: event.runCorrelationId }),
             reason: `${event.kind} trigger matched a binding`,
             details: {
                 bindingId: event.bindingId,
                 repository: event.repository,
                 kind: event.kind,
-                ...(event.runCorrelationId === undefined ? {} : { runCorrelationId: event.runCorrelationId }),
+                ...(event.runCorrelationId !== undefined && { runCorrelationId: event.runCorrelationId }),
             },
         });
     }

@@ -402,8 +402,8 @@ function runLinkOf(record: Record<string, unknown>, subjectType: SubjectType | u
     const runCorrelationId = readRunLinkField(record);
 
     return {
-        ...(runCorrelationId === undefined || runCorrelationId === null ? {} : { runCorrelationId }),
-        ...(subjectType === undefined ? {} : { subjectType }),
+        ...(!(runCorrelationId === undefined || runCorrelationId === null) && { runCorrelationId }),
+        ...(subjectType !== undefined && { subjectType }),
     };
 }
 

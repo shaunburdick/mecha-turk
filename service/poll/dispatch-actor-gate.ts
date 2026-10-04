@@ -213,8 +213,8 @@ function refusalDetails(input: {
     return {
         bindingId: input.run.bindingId,
         actorPolicy: input.policy,
-        ...(input.deniedLogins === undefined ? {} : { deniedLogins: input.deniedLogins }),
-        ...(input.deniedAttributions === undefined ? {} : { deniedAttributions: input.deniedAttributions }),
+        ...(input.deniedLogins !== undefined && { deniedLogins: input.deniedLogins }),
+        ...(input.deniedAttributions !== undefined && { deniedAttributions: input.deniedAttributions }),
         unreadableReferences: input.unreadableReferences,
         retainedReferences: window.retained,
         referencesNotRetained: window.notRetained,

@@ -154,8 +154,8 @@ function queuedRow(seed: QueueSeed): Record<string, unknown> {
         actorAttribution: 'subject-author',
         triggerNote: 'Issue assigned to the bound account',
         detectedAt: seed.detectedAt,
-        ...(seed.state === undefined ? {} : { state: seed.state, claimedAt: null, dispatchedAt: seed.detectedAt }),
-        ...(seed.runCorrelationId === undefined ? {} : { runCorrelationId: seed.runCorrelationId }),
+        ...(seed.state !== undefined && { state: seed.state, claimedAt: null, dispatchedAt: seed.detectedAt }),
+        ...(seed.runCorrelationId !== undefined && { runCorrelationId: seed.runCorrelationId }),
     };
 }
 

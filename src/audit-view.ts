@@ -226,7 +226,7 @@ export function auditItem(row: AuditRow): ListItem {
         leading: String(row.seq),
         title: `${row.eventType} · ${row.actorSource}${decision}`,
         meta: utcStamp(row.timestamp),
-        ...(subtitle === '' ? {} : { subtitle }),
+        ...(subtitle !== '' && { subtitle }),
     };
 }
 

@@ -193,7 +193,7 @@ export function actorFieldsOf(record: Record<string, unknown>): ActorFields {
     const actorAttribution = readActorAttributionField(record);
 
     return {
-        ...(actorLogin === undefined || actorLogin === null ? {} : { actorLogin }),
-        ...(actorAttribution === undefined || actorAttribution === null ? {} : { actorAttribution }),
+        ...(!(actorLogin === undefined || actorLogin === null) && { actorLogin }),
+        ...(!(actorAttribution === undefined || actorAttribution === null) && { actorAttribution }),
     };
 }

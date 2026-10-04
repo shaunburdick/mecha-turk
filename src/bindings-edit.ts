@@ -259,8 +259,8 @@ export async function saveEditedBinding(rt: PanelRuntime): Promise<void> {
         rt,
         bindings: updated,
         note: `Saved ${draft.repository}.`,
-        ...(prompt === undefined ? {} : { prompt }),
-        ...(actors === undefined ? {} : { actors }),
+        ...(prompt !== undefined && { prompt }),
+        ...(actors !== undefined && { actors }),
     });
     if (rt.disposed) {
         return;

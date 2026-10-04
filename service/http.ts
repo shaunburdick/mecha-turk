@@ -149,9 +149,9 @@ export function errorBody(details: ErrorDetails): ErrorBody {
         error: {
             code: details.code,
             message: details.message,
-            ...(details.correlationId === undefined ? {} : { correlationId: details.correlationId }),
-            ...(details.issues === undefined ? {} : { issues: details.issues }),
-            ...(details.reasonClass === undefined ? {} : { reasonClass: details.reasonClass }),
+            ...(details.correlationId !== undefined && { correlationId: details.correlationId }),
+            ...(details.issues !== undefined && { issues: details.issues }),
+            ...(details.reasonClass !== undefined && { reasonClass: details.reasonClass }),
         },
     };
 }

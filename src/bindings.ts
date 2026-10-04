@@ -268,8 +268,8 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
         rt,
         bindings: [...bindings.bindings, draft],
         note: `Bound ${draft.repository} to ${draft.accountLogin}.`,
-        ...(prompt === undefined ? {} : { prompt }),
-        ...(actors === undefined ? {} : { actors }),
+        ...(prompt !== undefined && { prompt }),
+        ...(actors !== undefined && { actors }),
     });
     resetCoveredDraft(bindings, draft.repository);
     if (answer.ok) {

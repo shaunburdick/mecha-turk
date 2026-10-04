@@ -261,7 +261,7 @@ function stringDescriptor(record: Record<string, unknown>, head: DescriptorHead)
         maxLength,
         default: fallback,
         takesEffect: head.takesEffect,
-        ...(multiline === undefined ? {} : { multiline: true }),
+        ...(multiline !== undefined && { multiline: true }),
     };
 }
 

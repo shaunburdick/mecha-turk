@@ -720,9 +720,9 @@ function scanRoutes(input: {
         // The two list feeds first, because `EVENTS_PATH` is a **prefix** of
         // neither and the per-item path is a strict extension of it — the lookup
         // takes the first match, so the shorter, more general prefixes go first.
-        [ISSUES_PATH]: { body: input.issues ?? '[]', ...(status === undefined ? {} : { status }) },
-        [PULLS_PATH]: { body: input.pulls ?? '[]', ...(status === undefined ? {} : { status }) },
-        [EVENTS_PATH]: { body: input.events, ...(status === undefined ? {} : { status }) },
+        [ISSUES_PATH]: { body: input.issues ?? '[]', ...(status !== undefined && { status }) },
+        [PULLS_PATH]: { body: input.pulls ?? '[]', ...(status !== undefined && { status }) },
+        [EVENTS_PATH]: { body: input.events, ...(status !== undefined && { status }) },
     };
 }
 

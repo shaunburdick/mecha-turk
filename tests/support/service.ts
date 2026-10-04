@@ -114,7 +114,7 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
         dataDir,
         log,
         github: options.github ?? offlineVerifier(),
-        ...(options.poller === undefined ? {} : { poller: options.poller }),
+        ...(options.poller !== undefined && { poller: options.poller }),
     });
     const baseUrl = `http://${HOST}:${handle.port}`;
 

@@ -235,7 +235,7 @@ export function mountBindingsTabBody(input: {
         root: input.root,
         rt: input.rt,
         handlers: createBindingsHandlers(input.rt),
-        ...(input.mountFirst === undefined ? {} : { mountFirst: input.mountFirst }),
+        ...(input.mountFirst !== undefined && { mountFirst: input.mountFirst }),
     });
     // The bundle gate greps the built panel for this attribute: a string
     // literal that only ships when this pane is wired (identifier names are

@@ -81,7 +81,7 @@ function reportQuarantine(input: {
         log.warn('stored record was unusable and has been set aside', {
             subject,
             quarantinePath: result.quarantinePath,
-            ...(note.reason === null ? {} : { reason: note.reason }),
+            ...(note.reason !== null && { reason: note.reason }),
         });
     }
 }
@@ -124,7 +124,7 @@ export async function readAccount(input: ReadAccountInput): Promise<Account | nu
         store: input.store,
         log: input.log,
         accounts: account === null ? [] : [account],
-        ...(account === null ? { absent: [input.numericUserId] } : {}),
+        ...(account === null && { absent: [input.numericUserId] }),
         actor: 'service',
     });
 

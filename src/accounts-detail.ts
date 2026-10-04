@@ -102,7 +102,7 @@ function mountMemberControls(input: {
         label: view.label,
         value: view.value,
         placeholder: view.placeholder,
-        ...(view.multiline ? { multiline: true, rows: 4 } : {}),
+        ...(view.multiline && { multiline: true, rows: 4 }),
         disabled: view.disabled,
         helper: view.helper,
         onChange,

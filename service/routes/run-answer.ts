@@ -120,7 +120,7 @@ export function runOutcomeResponse(input: {
         return errorResponse(REFUSAL_STATUS.get(code) ?? STATUS.conflict, {
             code,
             message,
-            ...(referenceWindow === undefined ? {} : { referenceWindow }),
+            ...(referenceWindow !== undefined && { referenceWindow }),
         });
     }
 

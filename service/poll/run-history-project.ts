@@ -215,7 +215,7 @@ function reviewCoordinates(delivery: QueuedEvent | undefined): { headSha?: strin
     const head = delivery?.headSha ?? null;
     const base = delivery?.baseRef ?? null;
 
-    return { ...(head === null ? {} : { headSha: head }), ...(base === null ? {} : { baseRef: base }) };
+    return { ...(head !== null && { headSha: head }), ...(base !== null && { baseRef: base }) };
 }
 
 /**

@@ -630,7 +630,7 @@ describe('T-014 retry refusals are distinct (FR-041, AC-113)', () => {
                 const run = await seedRun({
                     issueNumber: entry.issue,
                     state: entry.state,
-                    ...(entry.state === DISPATCHED ? { sessionId: 'ses_done' } : {}),
+                    ...(entry.state === DISPATCHED && { sessionId: 'ses_done' }),
                 });
 
                 const outcome = await retryDispatch({

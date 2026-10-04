@@ -414,7 +414,7 @@ export function verificationRow(input: {
             expectedAgent: verification.expectedAgent,
             // Only the uncompared row records a provenance: a comparison
             // against a configured baseline already says which baseline it was.
-            ...(compared ? {} : { baselineProvenance: input.baselineProvenance }),
+            ...(!compared && { baselineProvenance: input.baselineProvenance }),
             note: rowText(verification.note),
         },
     };
@@ -444,10 +444,8 @@ function actorDetails(actor: ActorGateRefusal): Record<string, unknown> {
         actorPolicy: actor.actorPolicy,
         // Omitted rather than `[]` on the policy-read failure: nothing was
         // compared, and an empty array reads as *every actor was refused*.
-        ...(actor.deniedLogins === undefined ? {} : { deniedLogins: actor.deniedLogins.map(boundText) }),
-        ...(actor.deniedAttributions === undefined
-            ? {}
-            : { deniedAttributions: [...actor.deniedAttributions] }),
+        ...(actor.deniedLogins !== undefined && { deniedLogins: actor.deniedLogins.map(boundText) }),
+        ...(actor.deniedAttributions !== undefined && { deniedAttributions: [...actor.deniedAttributions] }),
         unreadableReferences: actor.unreadableReferences,
         retainedReferences: actor.retainedReferences,
         referencesNotRetained: actor.referencesNotRetained,
@@ -499,11 +497,10 @@ export function refusedRow(input: {
             code: input.code,
             priorState: input.run.state,
             attempt: input.attempt,
-            ...(input.leaseId === undefined ? {} : { leaseId: input.leaseId }),
-            ...(input.dispatchTokenFingerprint === undefined
-                ? {}
-                : { dispatchTokenFingerprint: input.dispatchTokenFingerprint }),
-            ...(input.actor === undefined ? {} : actorDetails(input.actor)),
+            ...(input.leaseId !== undefined && { leaseId: input.leaseId }),
+            ...(input.dispatchTokenFingerprint !== undefined
+                && { dispatchTokenFingerprint: input.dispatchTokenFingerprint }),
+            ...(input.actor !== undefined && actorDetails(input.actor)),
         },
     };
 }

@@ -279,10 +279,8 @@ async function runProfileWrite(input: {
         // cannot be overwritten from it — it is never read out of it.
         const updated: Account = {
             ...stored,
-            ...(parsed.body.displayName.present ? { displayName: parsed.body.displayName.value } : {}),
-            ...(parsed.body.startingPrompt.present
-                ? { startingPrompt: parsed.body.startingPrompt.value }
-                : {}),
+            ...(parsed.body.displayName.present && { displayName: parsed.body.displayName.value }),
+            ...(parsed.body.startingPrompt.present && { startingPrompt: parsed.body.startingPrompt.value }),
             updatedAt: nowIso(),
         };
         await writeAccount(store, updated);

@@ -180,8 +180,8 @@ function rowInput(group: StatusRowGroup, line: string): LineInput {
 
     return {
         line,
-        ...(isMachine ? { valueClass: 'mt-val--mono' } : {}),
-        ...(isSubject && group.keyClass !== null ? { keyClass: group.keyClass } : {}),
+        ...(isMachine && { valueClass: 'mt-val--mono' }),
+        ...(isSubject && group.keyClass !== null && { keyClass: group.keyClass }),
     };
 }
 

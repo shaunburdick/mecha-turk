@@ -138,7 +138,7 @@ function readPanelMembers(record: Record<string, unknown>): PanelMembers {
         ok: true,
         fields: {
             displayName: typeof displayName === 'string' ? displayName : null,
-            ...(typeof startingPrompt === 'string' ? { startingPrompt } : {}),
+            ...(typeof startingPrompt === 'string' && { startingPrompt }),
         },
     };
 }
@@ -270,7 +270,7 @@ export function parseAccountsBody(text: string): PanelAccount[] | null {
             ...members.fields,
             usable: detail.state === 'active',
             ...detail,
-            ...(scope === null ? {} : { scope }),
+            ...(scope !== null && { scope }),
         });
     }
 

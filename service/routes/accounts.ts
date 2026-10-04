@@ -173,7 +173,7 @@ function rotatedAccount(input: {
         credential: { token, kind: outcome.credentialKind, verifiedAt },
         scopeCheck: outcome.scopeCheck,
         verifiedAt,
-        ...(isRecovering ? { state: 'active' as const, connectionState: 'connected' as const, errorReason: null } : {}),
+        ...(isRecovering && { state: 'active' as const, connectionState: 'connected' as const, errorReason: null }),
     };
 }
 

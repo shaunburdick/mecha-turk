@@ -316,7 +316,7 @@ export function buildStartSessionRequest(input: {
             promptLength: prompt.promptLength,
             promptSources: prompt.promptSources === null ? null : [...prompt.promptSources],
         },
-        ...(worktree === undefined ? {} : { worktree }),
+        ...(worktree !== undefined && { worktree }),
     };
 }
 

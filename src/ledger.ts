@@ -269,7 +269,7 @@ function readEntry(value: JsonValue): LedgerEntry | null {
         return null;
     }
 
-    return { ...head, kind, detail, ...(phase === undefined ? {} : { phase }) };
+    return { ...head, kind, detail, ...(phase !== undefined && { phase }) };
 }
 
 /**
@@ -431,7 +431,7 @@ export function appendEntry(ledger: PanelLedger, input: LedgerEntryInput): Panel
         panelGeneration: input.panelGeneration ?? ledger.panelGeneration,
         kind: input.kind,
         detail: sanitizeDetail(input.detail),
-        ...(input.phase === undefined ? {} : { phase: input.phase }),
+        ...(input.phase !== undefined && { phase: input.phase }),
     };
 
     const entries = [...ledger.entries, entry];

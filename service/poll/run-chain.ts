@@ -139,11 +139,10 @@ export async function appendRefusalRow(input: {
         code: refusal.refusal.code,
         reason: refusal.refusal.message,
         attempt: refusal.attempt,
-        ...(refusal.leaseId === undefined ? {} : { leaseId: refusal.leaseId }),
-        ...(refusal.dispatchTokenFingerprint === undefined
-            ? {}
-            : { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint }),
-        ...(refusal.actor === undefined ? {} : { actor: refusal.actor }),
+        ...(refusal.leaseId !== undefined && { leaseId: refusal.leaseId }),
+        ...(refusal.dispatchTokenFingerprint !== undefined
+            && { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint }),
+        ...(refusal.actor !== undefined && { actor: refusal.actor }),
     });
 
     return await appendRunRow({
