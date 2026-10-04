@@ -1,31 +1,30 @@
 /**
- * The Settings draft/save state machine (006 T-019; FR-012, FR-013, FR-015,
- * FR-038, FR-041, FR-042, FR-046, FR-049; AC-105, AC-122 – AC-126, NFR-104).
+ * The Settings draft/save state machine.
  *
  * Pure by design: this module holds no host, no DOM, and no clock, so every
  * rule the edit surface has to obey is a function call a test can make
  * directly. What it encodes, in order of how easy each is to get wrong:
  *
  * - **The draft** is *last-read document ∪ projection defaults for keys it
- *   lacks ∪ edits* (FR-041). A save therefore sends the whole document the
+ *   lacks ∪ edits*. A save therefore sends the whole document the
  *   service reported, with the operator's changes applied — never a partial
  *   one, and never one assembled from values the panel never read.
- * - **No baseline, no save** (FR-042, AC-124): with no read, or with a member
+ * - **No baseline, no save**: with no read, or with a member
  *   this version cannot show, `blocked` names the reason and `beginSave`
  *   refuses *before* anything could be sent.
- * - **One save, one call** (FR-046, AC-126): a second activation while one is
+ * - **One save, one call**: a second activation while one is
  *   in flight is refused by the busy gate rather than queued, and nothing in
  *   this module flips a value optimistically — `saved` only ever arrives from
- *   the configuration the service returned (FR-044, AC-125).
- * - **Pending is a claim about the boundary, not about the save** (FR-038,
- *   AC-105): an accepted save marks each changed field whose class is not
+ *   the configuration the service returned.
+ * - **Pending is a claim about the boundary, not about the save**: an accepted
+ *   save marks each changed field whose class is not
  *   `immediate` as pending, naming the class that governs it, and the marker
  *   is retired only by a later *read* — never by the save that created it.
  *
  * Text is kept as text until the document is built: an input's contents become
  * an integer only when they parse as one, so a value the operator typed out of
  * range or out of shape reaches the service **and is refused there** — the
- * panel applies no gate of its own (FR-023, AC-110).
+ * panel applies no gate of its own.
  */
 
 import type { ConfigIssueView } from './service-envelope.ts';
@@ -51,7 +50,7 @@ export interface SettingsFailure {
     readonly cause: SettingsFailureCause;
     /** The wrapper's problem string, verbatim and value-free. */
     readonly problem: string;
-    /** The envelope's correlation identifier, when the service sent one (FR-064). */
+    /** The envelope's correlation identifier, when the service sent one. */
     readonly correlationId: string | null;
 }
 
@@ -82,15 +81,15 @@ export interface SettingsEdit {
     /** What the last discard reverted, so the tab can say it out loud. */
     readonly reverted: readonly string[];
     /**
-     * The confirmation this write is armed behind, or `null` (006 FR-051,
-     * FR-016). Set only by the arming actions; every path that moves the
+     * The confirmation this write is armed behind, or `null`.
+     * Set only by the arming actions; every path that moves the
      * baseline — a landed read, an edit, a discard, any answer — clears it,
      * because an arm describes **one** document and that document just moved.
      */
     readonly confirm: SettingsConfirmation | null;
     /**
-     * The failed write's cause, its problem, and its correlation id (FR-061 –
-     * FR-064), or `null` when the last write did not fail. `problem` stays on
+     * The failed write's cause, its problem, and its correlation id, or `null`
+     * when the last write did not fail. `problem` stays on
      * its own because that is the string the failure line has always named.
      */
     readonly failure: SettingsFailure | null;
@@ -112,7 +111,7 @@ export const NO_BASELINE_REASON =
 export const UNDISPLAYED_REASON =
     'the document carries a field this version does not show; sending it would drop that field';
 
-/** Why a save is not offered when the latest read failed (FR-042's third case). */
+/** Why a save is not offered when the latest read failed. */
 export const READ_FAILED_REASON =
     'the latest read did not land, so there is no current document to send';
 
@@ -144,8 +143,6 @@ export function emptyEdit(): SettingsEdit {
  * The baseline value of one field: the document's, else the descriptor's
  * default for a key the document lacked.
  *
- * @param envelope - The last read.
- * @param name - Field to look up.
  * @returns The baseline text, or `null` when neither carries it.
  */
 function baselineOf(envelope: ConfigEnvelope, name: string): string | null {
@@ -162,7 +159,6 @@ function baselineOf(envelope: ConfigEnvelope, name: string): string | null {
 /**
  * Build the initial draft from a read: every descriptor's baseline value.
  *
- * @param envelope - The last read.
  * @returns The draft the inputs start with.
  */
 function draftOf(envelope: ConfigEnvelope): Record<string, string> {
@@ -180,8 +176,6 @@ function draftOf(envelope: ConfigEnvelope): Record<string, string> {
 /**
  * The fields whose draft differs from the last-read document.
  *
- * @param draft - The current draft.
- * @param envelope - The baseline it was built from.
  * @returns The dirty field names, in descriptor order.
  */
 export function dirtyFields(
@@ -200,7 +194,6 @@ export function dirtyFields(
 /**
  * Why no save is offered right now, or `null` when one is.
  *
- * @param envelope - The last read, or `null` when there has been none.
  * @returns The reason, named for the operator; `null` when a save may run.
  */
 export function blockedReason(envelope: ConfigEnvelope | null): string | null {
@@ -214,8 +207,6 @@ export function blockedReason(envelope: ConfigEnvelope | null): string | null {
 /**
  * Adopt a read: it becomes the baseline, so nothing is dirty any more.
  *
- * @param edit - Current state.
- * @param envelope - The read that just landed, or `null` when it failed.
  * @returns The state after the read; a failed read keeps the previous draft
  *   and its dirty set, only re-evaluating the reason no save is offered.
  */
@@ -253,11 +244,9 @@ export function loadEdit(edit: SettingsEdit, envelope: ConfigEnvelope | null): S
 }
 
 /**
- * Apply one field edit (FR-012: the only writes are whole-document ones, so
- * this changes the draft and nothing else).
+ * Apply one field edit — the only writes are whole-document ones, so
+ * this changes the draft and nothing else.
  *
- * @param input - The state, the baseline the dirty set is measured against,
- *   and the field/text the operator entered.
  * @returns The state after the edit.
  */
 export function editField(input: {
@@ -267,7 +256,7 @@ export function editField(input: {
     readonly envelope: ConfigEnvelope;
     /** Field the operator touched. */
     readonly field: string;
-    /** The input's text, kept as text (FR-023). */
+    /** The input's text, kept as text. */
     readonly value: string;
 }): SettingsEdit {
     const { edit, envelope, field, value } = input;
@@ -294,8 +283,6 @@ export function editField(input: {
  * Discard the unsaved edits: the draft goes back to the baseline and the tab
  * says what reverted.
  *
- * @param edit - Current state.
- * @param envelope - The baseline to restore.
  * @returns The state after the discard.
  */
 export function discard(edit: SettingsEdit, envelope: ConfigEnvelope): SettingsEdit {
@@ -326,8 +313,6 @@ export type SaveAttempt =
 /**
  * Translate one draft value onto the wire, without guessing at its type.
  *
- * @param descriptor - The field's descriptor.
- * @param text - The input's text.
  * @returns The number when the text is an integer, otherwise the text itself.
  */
 function valueFor(descriptor: FieldDescriptor, text: string): ConfigValue {
@@ -346,8 +331,6 @@ function valueFor(descriptor: FieldDescriptor, text: string): ConfigValue {
  * out-of-range number or a stray word is sent as it stands, so the service
  * refuses it in its own words rather than the panel quietly reshaping it.
  *
- * @param envelope - The baseline document.
- * @param draft - The current draft.
  * @returns The complete document to PUT.
  */
 function documentFor(
@@ -365,8 +348,6 @@ function documentFor(
 /**
  * Try to begin a save: the busy gate, then the baseline gate.
  *
- * @param edit - Current state.
- * @param envelope - The baseline a save would be built from.
  * @returns The document to PUT, or the reason nothing was sent.
  */
 export function beginSave(edit: SettingsEdit, envelope: ConfigEnvelope | null): SaveAttempt {
@@ -386,8 +367,6 @@ export function beginSave(edit: SettingsEdit, envelope: ConfigEnvelope | null): 
  * Record an accepted write, from the configuration the **service** returned,
  * and mark what it changed as pending.
  *
- * @param input - The state, the returned configuration, the changed fields,
- *   and the audit outcome the answer reported.
  * @returns The state after the answer.
  */
 export function recordSaved(input: {
@@ -437,7 +416,6 @@ export function recordSaved(input: {
  * in force, not what was typed, so no optimistic local value survives the
  * answer.
  *
- * @param input - The state, the baseline to restore, and the issues.
  * @returns The state after the refusal.
  */
 export function recordRefused(input: {
@@ -473,8 +451,6 @@ export function recordRefused(input: {
  * correlation identifier when one came, which is the only identifier an
  * unexpected failure can be traced by.
  *
- * @param edit - Current state.
- * @param failure - The cause, the wrapper's problem, and the correlation id.
  * @returns The state after the failure.
  */
 export function recordFailed(edit: SettingsEdit, failure: SettingsFailure): SettingsEdit {
@@ -496,10 +472,8 @@ export function recordFailed(edit: SettingsEdit, failure: SettingsFailure): Sett
  * projection carries disappears once the two halves agree, and an entry for a
  * field the projection cannot speak about is retired by a later configuration
  * read — because the panel has no way to observe that boundary, and claiming
- * one would be exactly the optimism FR-038 forbids.
+ * one would be exactly the optimism the pending marker forbids.
  *
- * @param input - The markers, the freshly read document, and the effective
- *   values a status read reported (empty when none has landed).
  * @returns The markers still worth showing.
  */
 export function reconcilePending(input: {

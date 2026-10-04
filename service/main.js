@@ -672,7 +672,7 @@ function isScopeCheck(raw) {
   const { results } = raw;
   return ["metadata", "issues", "pull-requests", "contents"].every((capability) => {
     const value = results[capability];
-    return value === "ok" || value === "missing" || value === "unknown";
+    return typeof value === "string" && ["ok", "missing", "unknown"].includes(value);
   });
 }
 function isCredentialRecord(raw) {
@@ -686,7 +686,7 @@ function isOptionalNullableString(value) {
 }
 function readAccountStrings(raw) {
   const { login, expectedLogin, displayName, verifiedAt, errorReason, createdAt, updatedAt } = raw;
-  if (typeof login !== "string" || login === "" || !isNullableString(expectedLogin) || !isNullableString(errorReason) || !isOptionalNullableString(displayName) || typeof verifiedAt !== "string" || typeof createdAt !== "string" || typeof updatedAt !== "string") {
+  if (typeof login !== "string" || login === "" || typeof verifiedAt !== "string" || typeof createdAt !== "string" || typeof updatedAt !== "string" || !isNullableString(expectedLogin) || !isNullableString(errorReason) || !isOptionalNullableString(displayName)) {
     return null;
   }
   return {
