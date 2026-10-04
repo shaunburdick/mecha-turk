@@ -812,7 +812,7 @@ function storedAttempts(storage: StorageDouble): readonly Record<string, unknown
 
     const { attempts } = raw as { attempts?: unknown };
     if (!Array.isArray(attempts)) {
-        throw new Error('the dispatch record carries no attempts');
+        throw new TypeError('the dispatch record carries no attempts');
     }
 
     return attempts.map((entry) => {

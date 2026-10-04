@@ -884,7 +884,7 @@ async function disableBindings(store, bindings) {
 
 // service/accounts/reconcile.ts
 var INTERRUPTED_HANDOFF_REASON = "interrupted-handoff";
-var TRANSIENT_STATES = ["pending_handoff", "verifying"];
+var TRANSIENT_STATES = new Set(["pending_handoff", "verifying"]);
 async function markInterrupted(input) {
   const { store, account, correlationId } = input;
   const marked = {
@@ -970,7 +970,7 @@ async function reconcileInterruptedAccounts(deps) {
     return { examined: 0, marked: 0, restored: 0 };
   }
   const accounts = await listAccounts(deps.store, deps.log);
-  const stranded = accounts.filter((account) => TRANSIENT_STATES.includes(account.state));
+  const stranded = accounts.filter((account) => TRANSIENT_STATES.has(account.state));
   let marked = 0;
   let restored = 0;
   for (const account of stranded) {
@@ -1241,7 +1241,7 @@ function collectIssues(raw) {
 function readNumber(raw, field) {
   const value = raw[field];
   if (typeof value !== "number") {
-    throw new Error(`validated configuration is missing ${field}`);
+    throw new TypeError(`validated configuration is missing ${field}`);
   }
   return value;
 }
@@ -1255,7 +1255,7 @@ function readLogLevel(raw) {
 function readExpectedAgent(raw) {
   const value = raw.expectedAgent;
   if (typeof value !== "string") {
-    throw new Error("validated configuration is missing expectedAgent");
+    throw new TypeError("validated configuration is missing expectedAgent");
   }
   return value.trim();
 }
@@ -2884,7 +2884,7 @@ function classifyReserved(input) {
 function expiredAtMint(input) {
   const mint = Date.parse(input.now) - 1;
   if (!Number.isFinite(mint)) {
-    throw new Error("migration lease cannot be minted without a service-clock stamp");
+    throw new TypeError("migration lease cannot be minted without a service-clock stamp");
   }
   const issued = Date.parse(input.issuedAt);
   return new Date(Number.isFinite(issued) ? Math.min(issued, mint) : mint).toISOString();

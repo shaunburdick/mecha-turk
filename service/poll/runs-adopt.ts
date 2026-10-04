@@ -211,7 +211,7 @@ function classifyReserved(input: { readonly runKey: string; readonly now: string
 function expiredAtMint(input: { readonly issuedAt: string; readonly now: string }): string {
     const mint = Date.parse(input.now) - 1;
     if (!Number.isFinite(mint)) {
-        throw new Error('migration lease cannot be minted without a service-clock stamp');
+        throw new TypeError('migration lease cannot be minted without a service-clock stamp');
     }
 
     const issued = Date.parse(input.issuedAt);

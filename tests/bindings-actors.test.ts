@@ -504,7 +504,7 @@ function typeIntoListField(text: string): void {
     }
 
     if (typeof props.onChange !== 'function') {
-        throw new Error('the allow-list field wired no onChange');
+        throw new TypeError('the allow-list field wired no onChange');
     }
 
     (props.onChange as (value: string) => void)(text);

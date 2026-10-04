@@ -537,7 +537,7 @@ export async function offerFor(rt: PanelRuntime): Promise<readonly ClaimedRun[]>
 export function justPast(stamp: string): string {
     const parsed = Date.parse(stamp);
     if (Number.isNaN(parsed)) {
-        throw new Error(`not an RFC 3339 stamp: ${stamp}`);
+        throw new TypeError(`not an RFC 3339 stamp: ${stamp}`);
     }
 
     return new Date(parsed + 1).toISOString();

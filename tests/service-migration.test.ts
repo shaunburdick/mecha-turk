@@ -506,7 +506,7 @@ async function answer(input: {
 function rowsOf(body: Record<string, unknown>, member: string): readonly Record<string, unknown>[] {
     const rows = body[member];
     if (!Array.isArray(rows)) {
-        throw new Error(`the answer carried no ${member} member`);
+        throw new TypeError(`the answer carried no ${member} member`);
     }
 
     return rows.map((row) => {
@@ -529,7 +529,7 @@ function rowsOf(body: Record<string, unknown>, member: string): readonly Record<
 function textOf(row: Record<string, unknown>, key: string): string {
     const value = row[key];
     if (typeof value !== 'string') {
-        throw new Error(`the row carried no string member ${key}`);
+        throw new TypeError(`the row carried no string member ${key}`);
     }
 
     return value;

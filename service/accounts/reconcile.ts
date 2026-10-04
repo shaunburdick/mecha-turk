@@ -33,7 +33,7 @@ import { listAccounts, writeAccount } from './store.ts';
 export const INTERRUPTED_HANDOFF_REASON = 'interrupted-handoff';
 
 /** Lifecycle states a crash can strand an account in (data-model transitions). */
-const TRANSIENT_STATES: readonly Account['state'][] = ['pending_handoff', 'verifying'];
+const TRANSIENT_STATES: ReadonlySet<Account['state']> = new Set(['pending_handoff', 'verifying']);
 
 /** What startup reconciliation found and did. */
 export interface ReconcileSummary {
@@ -197,7 +197,7 @@ export async function reconcileInterruptedAccounts(deps: ReconcileDeps): Promise
     }
 
     const accounts = await listAccounts(deps.store, deps.log);
-    const stranded = accounts.filter((account) => TRANSIENT_STATES.includes(account.state));
+    const stranded = accounts.filter((account) => TRANSIENT_STATES.has(account.state));
     let marked = 0;
     let restored = 0;
     for (const account of stranded) {

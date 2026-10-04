@@ -164,7 +164,7 @@ function mountNotice(input: NoticeInput): StatusNotice {
  * service that reorders its block cannot quietly turn a path into
  * proportional text.
  */
-const MONO_VALUE_LABELS: readonly string[] = ['Data directory', 'Next poll'];
+const MONO_VALUE_LABELS: ReadonlySet<string> = new Set(['Data directory', 'Next poll']);
 
 /**
  * Build one row's inputs from the line the copy module produced.
@@ -175,7 +175,7 @@ const MONO_VALUE_LABELS: readonly string[] = ['Data directory', 'Next poll'];
  */
 function rowInput(group: StatusRowGroup, line: string): LineInput {
     const split = splitLine(line);
-    const isMachine = split !== null && MONO_VALUE_LABELS.includes(split.key);
+    const isMachine = split !== null && MONO_VALUE_LABELS.has(split.key);
     const isSubject = split !== null && split.separator === EM_DASH_SEPARATOR;
 
     return {

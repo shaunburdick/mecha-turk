@@ -151,7 +151,7 @@ async function reserveThenDie(rt: PanelRuntime, run: ClaimedRun): Promise<string
 
     const body = JSON.parse(answer.body) as Record<string, unknown>;
     if (typeof body.dispatchToken !== 'string') {
-        throw new Error('the reservation carried no token');
+        throw new TypeError('the reservation carried no token');
     }
 
     loop.unmount(rt);
@@ -182,7 +182,7 @@ async function claimAndReserve(issueNumber: number): Promise<{ readonly run: Cla
     expectStatus({ step: 'reserve', answer: reserved, status: 200 });
     const token = reserved.json.dispatchToken;
     if (typeof token !== 'string') {
-        throw new Error('the reservation carried no token');
+        throw new TypeError('the reservation carried no token');
     }
 
     return { run, token };
@@ -238,7 +238,7 @@ function storedAttempts(): readonly Record<string, unknown>[] {
 
     const { attempts } = raw as { attempts?: unknown };
     if (!Array.isArray(attempts)) {
-        throw new Error('the dispatch record carries no attempts');
+        throw new TypeError('the dispatch record carries no attempts');
     }
 
     return attempts.map((entry) => {

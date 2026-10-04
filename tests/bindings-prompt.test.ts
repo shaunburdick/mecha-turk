@@ -754,7 +754,7 @@ function typeIntoPromptField(text: string): void {
     }
 
     if (typeof props.onChange !== 'function') {
-        throw new Error('the starting-prompt field wired no onChange');
+        throw new TypeError('the starting-prompt field wired no onChange');
     }
 
     (props.onChange as (value: string) => void)(text);

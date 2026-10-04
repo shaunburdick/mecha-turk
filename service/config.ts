@@ -345,7 +345,7 @@ function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
 function readNumber(raw: Record<string, unknown>, field: NumericField): number {
     const value = raw[field];
     if (typeof value !== 'number') {
-        throw new Error(`validated configuration is missing ${field}`);
+        throw new TypeError(`validated configuration is missing ${field}`);
     }
 
     return value;
@@ -381,7 +381,7 @@ function readLogLevel(raw: Record<string, unknown>): LogLevel {
 function readExpectedAgent(raw: Record<string, unknown>): string {
     const value = raw.expectedAgent;
     if (typeof value !== 'string') {
-        throw new Error('validated configuration is missing expectedAgent');
+        throw new TypeError('validated configuration is missing expectedAgent');
     }
 
     return value.trim();

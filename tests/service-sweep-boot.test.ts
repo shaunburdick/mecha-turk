@@ -163,7 +163,7 @@ async function claim(service: TestService): Promise<readonly ClaimedRun[]> {
     const response = await service.call(CLAIM_PATH);
     const body: { events?: ClaimedRun[] } = await response.json();
     if (!Array.isArray(body.events)) {
-        throw new Error(`claim answered no run list (status ${response.status}): ${JSON.stringify(body)}`);
+        throw new TypeError(`claim answered no run list (status ${response.status}): ${JSON.stringify(body)}`);
     }
 
     return body.events;

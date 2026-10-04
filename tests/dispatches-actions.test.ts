@@ -180,7 +180,7 @@ async function claimAndReserve(issueNumber: number): Promise<{
 
     const parsed = JSON.parse(answer.body) as Record<string, unknown>;
     if (typeof parsed.dispatchToken !== 'string') {
-        throw new Error('the reservation carried no token');
+        throw new TypeError('the reservation carried no token');
     }
 
     return { run: claim, token: parsed.dispatchToken };

@@ -311,7 +311,7 @@ const DISPATCH_MODULES: readonly string[] = [
  * The walk is dynamic — every `.ts` under {@link SOURCE_DIRS} is read — so
  * this list is the assertion that the newest additions are inside it.
  */
-const PROMPT_MODULES: readonly string[] = [
+const PROMPT_MODULES: ReadonlySet<string> = new Set([
     'src/prompt.ts',
     'src/prompt-wire.ts',
     'src/context-blocks.ts',
@@ -352,7 +352,7 @@ const PROMPT_MODULES: readonly string[] = [
     'service/routes/config.ts',
     'service/routes/index.ts',
     'service/routes/verify.ts',
-];
+]);
 
 /** One file the static scans read. */
 interface ScannedFile {
@@ -790,7 +790,7 @@ describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
             // may reach for GitHub at all, let alone write to it (FR-002).
             const gateways = new Set(GITHUB_GATEWAYS);
             for (const file of scanSources()) {
-                if (PROMPT_MODULES.includes(file.path)) {
+                if (PROMPT_MODULES.has(file.path)) {
                     expect(gateways.has(file.path), `${file.path} reached GitHub`).toBe(false);
                 }
             }
@@ -812,8 +812,8 @@ describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
             expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('startingPrompt');
         }
         {
-            const sources = scanSources().filter((file) => PROMPT_MODULES.includes(file.path));
-            expect(sources).toHaveLength(PROMPT_MODULES.length);
+            const sources = scanSources().filter((file) => PROMPT_MODULES.has(file.path));
+            expect(sources).toHaveLength(PROMPT_MODULES.size);
             for (const file of sources) {
                 expect(file.text, `${file.path} suppresses a rule`)
                     .not.toMatch(/eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck/);

@@ -119,7 +119,7 @@ const LIFECYCLE_ORDER: readonly string[] = LIFECYCLE_CHAIN.map(([eventType]) => 
 const STATE_AFTER: Readonly<Record<string, string>> = Object.fromEntries(LIFECYCLE_CHAIN);
 
 /** Event types this suite treats as rows that are not about a work unit. */
-const NON_RUN_EVENTS: readonly string[] = ['consent', 'account.verified'];
+const NON_RUN_EVENTS: ReadonlySet<string> = new Set(['consent', 'account.verified']);
 
 /** The running loop every case drives. */
 let loop: DispatchLoop;
@@ -154,7 +154,7 @@ async function auditFor(correlationId: string): Promise<readonly AuditEntry[]> {
 
     const body = await response.json() as { entries?: unknown };
     if (!Array.isArray(body.entries)) {
-        throw new Error('the audit read carried no entries member');
+        throw new TypeError('the audit read carried no entries member');
     }
 
     return body.entries as AuditEntry[];
@@ -174,7 +174,7 @@ async function unfilteredAudit(): Promise<readonly AuditEntry[]> {
 
     const body = await response.json() as { entries?: unknown };
     if (!Array.isArray(body.entries)) {
-        throw new Error('the audit read carried no entries member');
+        throw new TypeError('the audit read carried no entries member');
     }
 
     return body.entries as AuditEntry[];
@@ -196,7 +196,7 @@ async function claimReserveAbandon(): Promise<string> {
     expectStatus({ step: 'reserve', answer: reserved, status: 200 });
     const token = reserved.json.dispatchToken;
     if (typeof token !== 'string') {
-        throw new Error('the reservation carried no token');
+        throw new TypeError('the reservation carried no token');
     }
 
     const abandoned = await post({
@@ -308,15 +308,15 @@ describe('T-032 one run reconstructs from its correlation identifier alone', () 
 
             const filtered = await auditFor(run.correlationId);
             const types = filtered.map((row) => row.eventType);
-            expect(types.filter((type) => NON_RUN_EVENTS.includes(type))).toEqual([]);
+            expect(types.filter((type) => NON_RUN_EVENTS.has(type))).toEqual([]);
             // Forward traceability still holds: the run's own detections match it
             // (FR-050's correlation table), so a scan observation is traceable
             // forwards into the run that absorbed it (AC-118).
             expect(types).toContain('delivery.detected');
 
             const all = await unfilteredAudit();
-            const foreign = all.filter((row) => NON_RUN_EVENTS.includes(row.eventType));
-            expect(foreign).toHaveLength(NON_RUN_EVENTS.length);
+            const foreign = all.filter((row) => NON_RUN_EVENTS.has(row.eventType));
+            expect(foreign).toHaveLength(NON_RUN_EVENTS.size);
             for (const row of foreign) {
                 expect(row.correlationId).not.toBe(run.correlationId);
                 expect(row.entity.kind).not.toBe('run');
