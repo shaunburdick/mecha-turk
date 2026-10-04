@@ -1,29 +1,28 @@
 /**
- * Report the outcome of an authorized attempt, or abandon it (003 FR-026,
- * FR-028, FR-040;
- * [contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md) §2–§3).
+ * Report the outcome of an authorized attempt, or abandon it
+ * ([contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md)).
  *
  * These two operations spend the authorization
  * [`dispatch-authorize.ts`](./dispatch-authorize.ts) minted, and they share the
  * one shape that makes spending safe: **a report is judged against the recorded
- * attempt history, not the state name.** "Identical repeat" (FR-025) and
- * "different outcome" (plan D7) can only be told apart by what the run already
+ * attempt history, not the state name.** "Identical repeat" and
+ * "different outcome" can only be told apart by what the run already
  * recorded, so the verdict reads the attempt record for the run's current attempt
  * *and* requires the run state to corroborate it. Anything that does not
  * corroborate is a **conflict** and is refused — a session id must never be
- * overwritable by a problem, nor swapped (contract §2).
+ * overwritable by a problem, nor swapped.
  *
  * The attempt history is also what makes the derivation safe *across* a
- * dead-letter reset. FR-020 pins the token to `sha256(runKey|attempt)`, and
- * FR-033's reset returns a run to attempt 1 — so chain 2 re-mints chain 1's
+ * dead-letter reset. The token is pinned to `sha256(runKey|attempt)`, and a
+ * reset returns a run to attempt 1 — so chain 2 re-mints chain 1's
  * **byte-identical** token, and the live reservation alone cannot tell the two
  * apart. {@link tokenSpent} is the difference: a token any *earlier* record
- * closed can never authorize a report again, whatever a later reservation says
- * (FR-020, FR-022, FR-025, FR-028, AC-110, NFR-102). The check reads history
+ * closed can never authorize a report again, whatever a later reservation says.
+ * The check reads history
  * and nothing else, so `reserve` — which consults no history — still authorizes
  * after a reset and the dead-letter path cannot dead-end.
  *
- * Abandon is a result report whose outcome is *no session* (FR-026), so it shares
+ * Abandon is a result report whose outcome is *no session*, so it shares
  * this operation and this matrix entirely; it is distinguished from Result's
  * `problem` shape by when it is true rather than by the state it ends in.
  *
@@ -31,8 +30,9 @@
  *
  * - **The outcome and the consumed reservation are one write.** A result that
  *   recorded an outcome but left the reservation unconsumed would leave a token
- *   that authorizes nothing yet looks live. 003 exists to make that impossible.
- * - **A `problem` never yields `dispatched`** (FR-040), anywhere in the answer,
+ *   that authorizes nothing yet looks live. This module exists to make that
+ *   impossible.
+ * - **A `problem` never yields `dispatched`**, anywhere in the answer,
  *   the stored run, or the audit row.
  *
  * The chain task and the refusal-row writer live in
@@ -134,7 +134,7 @@ function conflict(run: Run): RunRefusal {
  *
  * A record "spent" the token when it carries it **and** is closed: either the
  * stamp landed (`resultReportedAt`) or an outcome was recorded. The derivation
- * is a pure function of `(runKey, attempt)`, and FR-033's reset returns
+ * is a pure function of `(runKey, attempt)`, and a reset returns
  * the run to attempt 1, so a later chain re-mints the exact bytes an earlier one
  * consumed — which is why "does the live reservation hold this token" is the
  * wrong question to ask on its own. The history is durable, append-only, and
@@ -145,7 +145,7 @@ function conflict(run: Run): RunRefusal {
  * record `reserveDispatch` writes and `reservation.consumed` already governs —
  * and the sweep's `unconfirmed` wedge *closes* it (the result deadline passed)
  * while leaving the authorization deliberately live, because a late report must
- * still reconcile the run (FR-025, contract §2's `unconfirmed` row).
+ * still reconcile the run.
  * Excluding exactly that one record is what keeps the two requirements from
  * contradicting each other: every *other* record carrying a closed token is a
  * token from a chain the run has already left, and none of them may ever apply.
@@ -170,7 +170,7 @@ type ReportVerdict =
     | { readonly refusal: RunRefusal };
 
 /**
- * Judge a token-bearing report against the recorded attempt (contract §2).
+ * Judge a token-bearing report against the recorded attempt.
  *
  * The matrix, in the order a request can fail it: an unknown, mismatched, or
  * superseded token is stale; a consumed token is a duplicate **only** when the
@@ -178,10 +178,9 @@ type ReportVerdict =
  * corroborates it, and a conflict otherwise; a token the attempt history has
  * already closed is stale whatever the live reservation says (the cross-chain
  * replay a dead-letter reset makes possible); and an unconsumed token applies
- * from `starting` or from `unconfirmed` (FR-025's reconciliation), and from
+ * from `starting` or from `unconfirmed` (the reconciliation case), and from
  * nowhere else.
  *
- * @param input - The run, the token presented, the attempt, and the outcome.
  * @returns `apply`, `duplicate`, or the refusal.
  */
 function judgeReport(input: {
@@ -352,12 +351,10 @@ interface RefusedReport {
  * Answer a refused report with its one `dispatch.refused` row.
  *
  * The row names the token as a **fingerprint**: a staleness verdict is about
- * *which* authorization was presented, and contract §9 asks the row to record
- * that reference — while contract's fingerprint rule forbids recording the
+ * *which* authorization was presented, so the row records that reference —
+ * while the contract's fingerprint rule forbids recording the
  * capability itself.
  *
- * @param input - The report's target, the run, the operation, the verdict, and
- *   the token whose fingerprint the row carries.
  * @returns The refusal, carrying whether its row reached the trail.
  */
 async function refusedReport(input: RefusedReport): Promise<RunRefused> {
@@ -438,7 +435,7 @@ async function applyVerdict(input: {
 
     const settled = reportedRun({ run, outcome: report.outcome, now: report.now ?? run.updatedAt });
     await persist(settled);
-    const auditWritten = await appendRunRow({
+    const wasAppended = await appendRunRow({
         store: report.store,
         log: report.log,
         correlationId: settled.correlationId,
@@ -450,7 +447,7 @@ async function applyVerdict(input: {
         }),
     });
 
-    return { status: 'applied', run: settled, auditWritten };
+    return { status: 'applied', run: settled, auditWritten: wasAppended };
 }
 
 /**

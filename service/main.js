@@ -1637,7 +1637,8 @@ async function subjectSeqs(input) {
 }
 async function protectedSeqsOf(input) {
   const protectedSeqs = new Set(chainAndDecisionSeqs(input.entries));
-  for (const seq of await subjectSeqs(input)) {
+  const subjects = await subjectSeqs(input);
+  for (const seq of subjects) {
     protectedSeqs.add(seq);
   }
   return protectedSeqs;
@@ -7096,7 +7097,7 @@ async function applyVerdict(input) {
   }
   const settled2 = reportedRun({ run, outcome: report.outcome, now: report.now ?? run.updatedAt });
   await persist(settled2);
-  const auditWritten = await appendRunRow({
+  const wasAppended = await appendRunRow({
     store: report.store,
     log: report.log,
     correlationId: settled2.correlationId,
@@ -7107,7 +7108,7 @@ async function applyVerdict(input) {
       operation: report.operation
     })
   });
-  return { status: "applied", run: settled2, auditWritten };
+  return { status: "applied", run: settled2, auditWritten: wasAppended };
 }
 async function reportDispatch(input) {
   return await operateRun(input, async ({ run, now, persist }) => {

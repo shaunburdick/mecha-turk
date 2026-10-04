@@ -17,7 +17,7 @@
  *   `run.`/`dispatch.`/`agent.` event type — a category, never a transcription of
  *   the table. The chain half — openers, outcomes, the hop that recorded the
  *   run's final state, the creation row — lives in `audit-protect.ts`, where the
- *   run-scoped axis reads the same way but 003 data-model §4.3's transition table
+ *   run-scoped axis reads the same way but the transition table
  *   does not: that table is a **closed set of names**, so a later hop does *not*
  *   land in it by prefix. A new state-recording event type must join that set — a
  *   name outside it is unprotected, so a trim can take the row that left the run
@@ -97,7 +97,7 @@ export interface TrimAuditOutcome {
     readonly removed: number;
     /** Which limit tripped first, or `null` when nothing was removed. */
     readonly limitReached: AuditLimit | null;
-    /** Protected rows this pass deliberately kept (FR-056's floor). */
+    /** Protected rows this pass deliberately kept. */
     readonly minimalReferencesPreserved: number;
 }
 
@@ -163,7 +163,7 @@ function bindingIdsOf(probe: JsonReadResult<unknown>): ReadonlySet<string> | nul
 }
 
 /**
- * List the accounts FR-056(c) protects while they still exist.
+ * List the accounts the floor rule protects while they still exist.
  *
  * @param input - Open store and logger.
  * @returns Their numeric ids, or `null` when the custody directory cannot be
@@ -179,7 +179,7 @@ async function existingAccountIds(input: {
     try {
         // Unobserved on purpose: a retention pass is not a read surface, and
         // appending an observation row from inside the pass that rewrites the
-        // trail would be one writer too many (004 FR-088's lane belongs to the
+        // trail would be one writer too many (that lane belongs to the
         // read funnels, not to retention).
         const accounts = await listAccountsUnobserved(input.store, input.log);
 
@@ -194,7 +194,7 @@ async function existingAccountIds(input: {
 }
 
 /**
- * List the bindings FR-056(c) protects while they still exist.
+ * List the bindings the floor rule protects while they still exist.
  *
  * @param input - Open store and logger.
  * @returns Their ids, `[]` when there is no document, or `null` when the
@@ -221,7 +221,7 @@ async function existingBindingIds(input: {
 }
 
 /**
- * The `seq` numbers FR-056(c) protects: rows naming a subject that exists.
+ * The `seq` numbers the floor rule protects: rows naming a subject that exists.
  *
  * @param input - Trail rows, the store, and the logger.
  * @returns The protected `seq` numbers this half of the rule contributes.
@@ -252,7 +252,7 @@ async function subjectSeqs(input: {
 }
 
 /**
- * Compute FR-056's protected set — by rule, before anything is chosen.
+ * Compute the protected set — by rule, before anything is chosen.
  *
  * (a) the earliest row of every correlation chain that contains a run-scoped
  * row, (b) that chain's latest run-scoped row **plus** the latest state hop and
@@ -272,7 +272,8 @@ async function protectedSeqsOf(input: {
     readonly entries: readonly AuditEntry[];
 }): Promise<ReadonlySet<number>> {
     const protectedSeqs = new Set<number>(chainAndDecisionSeqs(input.entries));
-    for (const seq of await subjectSeqs(input)) {
+    const subjects = await subjectSeqs(input);
+    for (const seq of subjects) {
         protectedSeqs.add(seq);
     }
 
@@ -300,7 +301,7 @@ async function protectedSeqsOf(input: {
 function planRemoval(input: {
     /** Trail rows in `seq` order. */
     readonly ordered: readonly AuditEntry[];
-    /** `seq` numbers FR-056 protects. */
+    /** `seq` numbers the floor rule protects. */
     readonly protectedSeqs: ReadonlySet<number>;
     /** Epoch milliseconds at which a row leaves the day window. */
     readonly cutoff: number;
@@ -313,7 +314,7 @@ function planRemoval(input: {
     // and must not reserve a slot for one. That distinction is what keeps a
     // trail sitting exactly at the cap stable instead of deleting one row per
     // cycle to make room for the row that would record the deletion
-    // (FR-055's no-oscillation clause).
+    // (the no-oscillation clause).
     const isOverCap = ordered.length > maxEntries;
     const neededForCap = isOverCap ? ordered.length + 1 - maxEntries : 0;
     const survivors: AuditEntry[] = [];
@@ -357,7 +358,7 @@ async function composeTrimRow(input: {
     readonly plan: RemovalPlan;
     /** The limit that tripped first; the row names it. */
     readonly limitReached: AuditLimit;
-    /** Protected rows deliberately kept (FR-056's floor). */
+    /** Protected rows deliberately kept. */
     readonly minimalReferencesPreserved: number;
     /** Lines the reader could not use and this rewrite is therefore erasing. */
     readonly malformedLinesDropped: number;
