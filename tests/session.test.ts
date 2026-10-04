@@ -4,7 +4,7 @@ import type { GuestProjectsSnapshot, GuestWorktreesSnapshot, StartSessionResult 
 import type { GitHubIssue } from '../src/github.ts';
 import { summarizeHostVerification, verifyHostState } from '../src/host-verify.ts';
 import { appendEntry, createLedger } from '../src/ledger.ts';
-import type { SpikeLedger } from '../src/ledger.ts';
+import type { PanelLedger } from '../src/ledger.ts';
 import {
     CONTEXT_MAX_CHARS,
     SOURCE_EXCERPT_MAX_CHARS,
@@ -14,7 +14,7 @@ import {
     resolveProject,
     summarizeStartSessionResult,
 } from '../src/session.ts';
-import type { ContextSource, SpikeHost } from '../src/session.ts';
+import type { ContextSource, PanelHost } from '../src/session.ts';
 import {
     FIXTURE_CORRELATION,
     FIXTURE_TIMESTAMP,
@@ -131,7 +131,7 @@ function source(overrides: Partial<ContextSource> = {}): ContextSource {
  * @param teardowns - Collector the returned unsubscribe handles append to.
  * @returns A host that behaves like a live, subscribed panel.
  */
-function recordingHost(teardowns: string[]): SpikeHost {
+function recordingHost(teardowns: string[]): PanelHost {
     const stopProjects = (): number => teardowns.push('projects');
     const stopWorktrees = (): number => teardowns.push('worktrees');
     const stopSessions = (): number => teardowns.push('sessions');
@@ -166,7 +166,7 @@ function recordingHost(teardowns: string[]): SpikeHost {
  *
  * @returns A host double whose session-lifecycle listener never fires.
  */
-function freshHost(): SpikeHost {
+function freshHost(): PanelHost {
     return fakeHost({
         onProjects: async (listener) => {
             listener(PROJECTS);
@@ -497,7 +497,7 @@ describe('findDispatchForIssue', () => {
     it('detects an issue that was already dispatched (+2 cases)', () => {
         // case: detects an issue that was already dispatched
         {
-            let ledger: SpikeLedger = createLedger({
+            let ledger: PanelLedger = createLedger({
                 correlationId: 'corr',
                 panelGeneration: 1,
                 storagePresentBeforeMount: false,
@@ -525,7 +525,7 @@ describe('findDispatchForIssue', () => {
         }
         // case: ignores blocked and failed attempts recorded before a session existed
         {
-            let ledger: SpikeLedger = createLedger({
+            let ledger: PanelLedger = createLedger({
                 correlationId: 'corr',
                 panelGeneration: 1,
                 storagePresentBeforeMount: false,

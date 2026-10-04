@@ -43,7 +43,7 @@ export type WorktreeSelection =
  * `bindings-mode.ts`, which derives it from the first enabled binding; it is
  * no longer parsed out of `ctx.settings`.
  */
-export interface SpikeConfig {
+export interface BindingContext {
     /** Repository polled under this context. */
     readonly repository: RepositoryRef;
     /** Optional expected login; when set it must equal the PAT identity. */

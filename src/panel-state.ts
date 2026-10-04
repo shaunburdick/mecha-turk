@@ -7,14 +7,14 @@
  */
 
 import type { BannerTone } from '@openchamber/sdk/ui';
-import type { SpikeConfig } from './config.ts';
-import type { SpikeEvidence } from './evidence.ts';
+import type { BindingContext } from './config.ts';
+import type { PanelEvidence } from './evidence.ts';
 import type { AuditViewState } from './audit-view.ts';
 import { initialAuditHistory } from './audit-view.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { createLedger } from './ledger.ts';
 import { initialHandoffState } from './handoff.ts';
-import type { SpikeLedger } from './ledger.ts';
+import type { PanelLedger } from './ledger.ts';
 import type { HandoffState } from './handoff.ts';
 import type { HandoffView } from './accounts-ui.ts';
 import type { BindingsPane } from './bindings-ui.ts';
@@ -46,7 +46,7 @@ import type { PanelUi, ProjectPickerUi } from './panel-ui.ts';
 
 export type { PanelUi, ProjectPickerUi } from './panel-ui.ts';
 import type { RunRow } from './dispatches-service.ts';
-import type { SpikeHost } from './session.ts';
+import type { PanelHost } from './session.ts';
 import { initialDispatchFilters, initialDispatchListPage } from './dispatch-page.ts';
 import type { DispatchFilters, DispatchListPage } from './dispatch-page.ts';
 
@@ -112,14 +112,14 @@ export function initialRelay(): Relay {
 /** Mutable panel state. */
 export interface PanelState {
     /** Ledger being built for this mount. */
-    ledger: SpikeLedger;
+    ledger: PanelLedger;
     /**
      * Dispatch context derived from the first enabled binding, or `null`
      * while no binding supplies one. Since 002 FR-041 emptied the manifest
      * card, this is the **only** producer of the shape — nothing parses it
      * out of `ctx.settings` any more.
      */
-    config: SpikeConfig | null;
+    config: BindingContext | null;
     /**
      * Latest settings snapshot from the host, or `null` before the first one.
      *
@@ -145,7 +145,7 @@ export interface PanelState {
     /** Project list backing the picker. */
     projects: ProjectPickerState;
     /** Evidence record for the current match. */
-    evidence: SpikeEvidence | null;
+    evidence: PanelEvidence | null;
     /** Banner content. */
     status: PanelStatus;
     /** Whether an action is running; blocks concurrent dispatches. */
@@ -197,7 +197,7 @@ export interface Relay {
 /** Everything the panel's functions share. */
 export interface PanelRuntime {
     /** Documented host client. */
-    readonly host: SpikeHost;
+    readonly host: PanelHost;
     /** Frame window, used for the unload hook. */
     readonly panelWindow: Pick<Window, 'addEventListener' | 'removeEventListener'>;
     /** Mutable panel state. */
@@ -381,7 +381,7 @@ function initialState(createdAt: string): PanelState {
  * @returns The shared panel runtime.
  */
 export function createPanelRuntime(
-    host: SpikeHost,
+    host: PanelHost,
     panelWindow: Pick<Window, 'addEventListener' | 'removeEventListener'>,
 ): PanelRuntime {
     const createdAt = nowIso();

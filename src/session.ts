@@ -18,12 +18,12 @@ import type {
     StartSessionRequest,
     StartSessionResult,
 } from '@openchamber/sdk';
-import type { SpikeConfig, WorktreeSelection } from './config.ts';
+import type { BindingContext, WorktreeSelection } from './config.ts';
 import { BEGIN_UNTRUSTED, END_UNTRUSTED, defuseDelimiters, renderBlocks } from './context-blocks.ts';
 import type { ContextBlock } from './context-blocks.ts';
-import type { PromptReference } from './prompt.ts';import type { SpikeEvidence } from './evidence.ts';
+import type { PromptReference } from './prompt.ts';import type { PanelEvidence } from './evidence.ts';
 import type { GitHubIssue } from './github.ts';
-import type { LedgerDetail, SpikeLedger } from './ledger.ts';
+import type { LedgerDetail, PanelLedger } from './ledger.ts';
 
 /**
  * The host surface the spike uses.
@@ -31,7 +31,7 @@ import type { LedgerDetail, SpikeLedger } from './ledger.ts';
  * Building this from `Pick<HostClient, …>` keeps the spike on the documented
  * API surface: adding a method here is a deliberate, reviewable act.
  */
-export type SpikeHost = Pick<
+export type PanelHost = Pick<
     HostClient,
     | 'request'
     | 'serviceRequest'
@@ -113,7 +113,7 @@ export type ProjectResolution =
  * @returns The project, or the blocking problem plus the available ids.
  */
 export async function resolveProject(
-    host: Pick<SpikeHost, 'listProjects'>,
+    host: Pick<PanelHost, 'listProjects'>,
     configuredProjectId: string,
 ): Promise<ProjectResolution> {
     let snapshot: GuestProjectsSnapshot;
@@ -272,9 +272,9 @@ const NO_PROMPT: PromptReference = {
  */
 export function buildStartSessionRequest(input: {
     /** Validated spike configuration. */
-    readonly config: SpikeConfig;
+    readonly config: BindingContext;
     /** Evidence record for the matched issue. */
-    readonly evidence: SpikeEvidence;
+    readonly evidence: PanelEvidence;
     /** Matched issue. */
     readonly issue: GitHubIssue;
     /** Bounded first-message context. */
@@ -410,7 +410,7 @@ function hasCreatedSession(detail: LedgerDetail): boolean {
  * @param issueId - Issue number as a string.
  * @returns `true` when a `session` entry for that issue holds a created session id.
  */
-export function findDispatchForIssue(ledger: SpikeLedger, issueId: string): boolean {
+export function findDispatchForIssue(ledger: PanelLedger, issueId: string): boolean {
     return ledger.entries.some(
         (entry) => entry.kind === 'session' && entry.detail.issueId === issueId && hasCreatedSession(entry.detail),
     );

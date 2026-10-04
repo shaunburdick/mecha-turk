@@ -46,7 +46,7 @@ import { parsePendingBody } from '../src/claim-service.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
 import { BEGIN_UNTRUSTED, END_UNTRUSTED, EXCERPT_TRUNCATION_MARKER } from '../src/context-blocks.ts';
 import { CONTEXT_MAX_CHARS, SOURCE_EXCERPT_MAX_CHARS, buildBoundedContext } from '../src/session.ts';
-import type { ContextSource, SpikeHost } from '../src/session.ts';
+import type { ContextSource, PanelHost } from '../src/session.ts';
 import type { PromptSource } from '../src/prompt.ts';
 import { DISPATCH_STORAGE_KEY, MAX_RECORDED_ATTEMPTS } from '../src/dispatch-record.ts';
 import { MAX_ATTEMPT_RECORDS, MAX_SOURCE_REFERENCES, applyEnqueue } from '../service/poll/runs.ts';
@@ -289,7 +289,7 @@ function harness(
     let capturedRequest = '';
     const storage = createStorageDouble();
 
-    const host: SpikeHost = fakeHost({
+    const host: PanelHost = fakeHost({
         serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
             const key = `${request.method} ${request.path}`;
             timeline.push(key);

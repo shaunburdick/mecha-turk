@@ -30,7 +30,7 @@ import type { PanelRuntime } from './panel-state.ts';
 import { redact } from './redaction.ts';
 import { repaintStatusTab } from './status-tab.ts';
 import { describeError } from './session.ts';
-import type { SpikeHost } from './session.ts';
+import type { PanelHost } from './session.ts';
 
 /**
  * Storage key holding the panel's project selection.
@@ -67,7 +67,7 @@ export type StoredSelectionWrite =
  * @param host - Host client, restricted to the storage surface.
  * @returns The stored id, `null` when none is stored, or the read problem.
  */
-export async function readStoredSelection(host: Pick<SpikeHost, 'storage'>): Promise<StoredSelectionRead> {
+export async function readStoredSelection(host: Pick<PanelHost, 'storage'>): Promise<StoredSelectionRead> {
     try {
         const stored: JsonValue | undefined = await host.storage.get(PROJECT_STORAGE_KEY);
         if (typeof stored !== 'string') {
@@ -88,7 +88,7 @@ export async function readStoredSelection(host: Pick<SpikeHost, 'storage'>): Pro
  * @returns `{ ok: true }` when the value is durable, otherwise the problem.
  */
 export async function storeProjectSelection(
-    host: Pick<SpikeHost, 'storage'>,
+    host: Pick<PanelHost, 'storage'>,
     projectId: string,
 ): Promise<StoredSelectionWrite> {
     const valid = parseProjectId(projectId);

@@ -18,7 +18,7 @@
  */
 
 import { DEFAULT_POLL_INTERVAL_MS, parseRepository, parseWorktreeOption } from './config.ts';
-import type { SpikeConfig } from './config.ts';
+import type { BindingContext } from './config.ts';
 import { refresh } from './panel-ui.ts';
 import { setStatus } from './panel-state.ts';
 import type { PanelRuntime, PanelStatus } from './panel-state.ts';
@@ -52,7 +52,7 @@ export function firstEnabledBinding(bindings: readonly PanelBinding[]): PanelBin
  * @returns The configuration, or `null` when the binding row does not parse
  *   (the service validates these fields, so this is a defensive fallback).
  */
-export function bindingContext(binding: PanelBinding): SpikeConfig | null {
+export function bindingContext(binding: PanelBinding): BindingContext | null {
     const repository = parseRepository(binding.repository);
     if (repository === null) {
         return null;

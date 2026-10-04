@@ -76,7 +76,7 @@ export interface LedgerEntry {
 }
 
 /** The persisted spike ledger. */
-export interface SpikeLedger {
+export interface PanelLedger {
     /** Contract schema version. */
     readonly schemaVersion: typeof LEDGER_SCHEMA_VERSION;
     /** Correlation identifier for the whole experiment run. */
@@ -332,7 +332,7 @@ function readLedgerHeader(record: Record<string, JsonValue>): LedgerHeader | nul
  * @param value - Value read from storage, or `undefined`.
  * @returns The validated ledger, or `null` when unusable.
  */
-export function readLedger(value?: JsonValue): SpikeLedger | null {
+export function readLedger(value?: JsonValue): PanelLedger | null {
     const record = asJsonRecord(value);
     if (record?.schemaVersion !== LEDGER_SCHEMA_VERSION) {
         return null;
@@ -365,7 +365,7 @@ export interface CreateLedgerInput {
  * @param input - Correlation, generation, and storage-presence context.
  * @returns A new ledger ready for its first entry.
  */
-export function createLedger(input: CreateLedgerInput): SpikeLedger {
+export function createLedger(input: CreateLedgerInput): PanelLedger {
     return {
         schemaVersion: LEDGER_SCHEMA_VERSION,
         correlationId: input.correlationId,
@@ -422,7 +422,7 @@ export interface LedgerEntryInput {
  * @returns A new ledger containing the entry, with the oldest entry dropped
  * when {@link MAX_LEDGER_ENTRIES} would be exceeded.
  */
-export function appendEntry(ledger: SpikeLedger, input: LedgerEntryInput): SpikeLedger {
+export function appendEntry(ledger: PanelLedger, input: LedgerEntryInput): PanelLedger {
     const lastSeq = ledger.entries.at(-1)?.seq ?? 0;
     const entry: LedgerEntry = {
         seq: lastSeq + 1,
@@ -459,7 +459,7 @@ export interface PhaseInput {
  * @param input - Phase, timestamp, and optional note.
  * @returns A new ledger containing the phase entry.
  */
-export function recordPhase(ledger: SpikeLedger, input: PhaseInput): SpikeLedger {
+export function recordPhase(ledger: PanelLedger, input: PhaseInput): PanelLedger {
     return appendEntry(ledger, {
         at: input.at,
         kind: 'phase',
@@ -480,11 +480,11 @@ export function recordPhase(ledger: SpikeLedger, input: PhaseInput): SpikeLedger
  * @throws {RedactionError} When the ledger matches a secret shape.
  * @throws {Error} When the serialized ledger exceeds the host's 64 KiB value limit.
  */
-export function serializeLedger(ledger: SpikeLedger): string {
+export function serializeLedger(ledger: PanelLedger): string {
     const json = JSON.stringify(ledger);
-    assertRedacted('spike ledger', json);
+    assertRedacted('mecha-turk ledger', json);
     if (utf8ByteLength(json) > GUEST_STORAGE_VALUE_BYTES) {
-        throw new Error(`spike ledger exceeds the ${GUEST_STORAGE_VALUE_BYTES} byte host.storage value limit`);
+        throw new Error(`mecha-turk ledger exceeds the ${GUEST_STORAGE_VALUE_BYTES} byte host.storage value limit`);
     }
 
     return json;
@@ -496,7 +496,7 @@ export function serializeLedger(ledger: SpikeLedger): string {
  * @param ledger - Ledger about to be written.
  * @throws {RedactionError} When the serialized ledger matches a secret shape.
  */
-export function assertLedgerRedacted(ledger: SpikeLedger): void {
+export function assertLedgerRedacted(ledger: PanelLedger): void {
     serializeLedger(ledger);
 }
 
@@ -539,7 +539,7 @@ export interface GapAnalysis {
  * @param input - Ledger plus the closed/reopened interval to analyse.
  * @returns The verdict plus the number of poll entries inside the interval.
  */
-export function analyzePollingGap(input: { ledger: SpikeLedger; closedAt: string; reopenedAt: string }): GapAnalysis {
+export function analyzePollingGap(input: { ledger: PanelLedger; closedAt: string; reopenedAt: string }): GapAnalysis {
     const { ledger, closedAt, reopenedAt } = input;
     const closed = Date.parse(closedAt);
     const reopened = Date.parse(reopenedAt);
@@ -562,6 +562,6 @@ export function analyzePollingGap(input: { ledger: SpikeLedger; closedAt: string
  * @param count - Maximum number of entries to return.
  * @returns Up to `count` entries, newest first.
  */
-export function ledgerTail(ledger: SpikeLedger, count: number): readonly LedgerEntry[] {
+export function ledgerTail(ledger: PanelLedger, count: number): readonly LedgerEntry[] {
     return ledger.entries.slice(-count).reverse();
 }

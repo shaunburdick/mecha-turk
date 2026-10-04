@@ -29,7 +29,7 @@ import {
 import { verificationNotice } from '../src/agent-verify-copy.ts';
 import { dispatchClaimedRun } from '../src/relay.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
-import type { SpikeHost } from '../src/session.ts';
+import type { PanelHost } from '../src/session.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
 import type { RunRow } from '../src/dispatches-service.ts';
 import {
@@ -75,7 +75,7 @@ function snapshot(agent?: string): SessionSnapshot {
 /** Host double for the read-back: records call order and replays on demand. */
 interface VerifyHostDouble {
     /** The host surface the verification under test receives. */
-    readonly host: Pick<SpikeHost, 'onSession' | 'openSession'>;
+    readonly host: Pick<PanelHost, 'onSession' | 'openSession'>;
     /** Calls observed, in order, as `onSession` / `openSession:<id>`. */
     readonly calls: readonly string[];
     /** How often the panel released its subscription. */

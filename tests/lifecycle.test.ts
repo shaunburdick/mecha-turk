@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeLastCloseGap, buildMountContext } from '../src/lifecycle.ts';
 import { appendEntry, createLedger, recordPhase } from '../src/ledger.ts';
-import type { SpikeLedger } from '../src/ledger.ts';
+import type { PanelLedger } from '../src/ledger.ts';
 
 /** Correlation identifier of the fixture ledger. */
 const CORRELATION = '3d1b7a1c-0d1e-4f2a-8b3c-4d5e6f7a8b9c';
@@ -30,7 +30,7 @@ function at(seconds: number): string {
  *
  * @returns The fixture ledger.
  */
-function fixtureLedger(): SpikeLedger {
+function fixtureLedger(): PanelLedger {
     const ledger = createLedger({
         correlationId: CORRELATION,
         panelGeneration: 1,

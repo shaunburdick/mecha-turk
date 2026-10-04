@@ -53,7 +53,7 @@ import { redact } from './redaction.ts';
 import { CONFIG_PATH, serviceGet, servicePost, verificationPath } from './service-calls.ts';
 import type { ServiceRequester } from './service-calls.ts';
 import { describeError } from './session.ts';
-import type { SpikeHost } from './session.ts';
+import type { PanelHost } from './session.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
 /** How long one verification waits for the session snapshot, in milliseconds. */
@@ -178,7 +178,7 @@ export type AgentVerification =
 /** Inputs for {@link verifySessionAgent}. */
 export interface VerifyAgentInputs {
     /** Host surface the read-back goes through. */
-    readonly host: Pick<SpikeHost, 'onSession' | 'openSession'>;
+    readonly host: Pick<PanelHost, 'onSession' | 'openSession'>;
     /** Session the dispatch just created. */
     readonly sessionId: string;
     /** Agent the run is expected to report (002 FR-029's comparison baseline). */

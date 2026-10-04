@@ -29,7 +29,7 @@ import { parseWorktreeOption, repositoryLabel } from './config.ts';
 import type { WorktreeSelection } from './config.ts';
 import { acknowledgeDispatch, recordDispatchOutcome } from './dispatch-record.ts';
 import type { RecordedOutcome } from './dispatch-record.ts';
-import type { SpikeEvidence } from './evidence.ts';
+import type { PanelEvidence } from './evidence.ts';
 import type { GitHubIssue } from './github.ts';
 import { nowIso } from './ids.ts';
 import type { LedgerDetail } from './ledger.ts';
@@ -169,7 +169,7 @@ export function budgetFloorProblem(input: {
  * @param input - Runtime and the offered run.
  * @returns The evidence record the attachment reads its identity from.
  */
-function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRun }): SpikeEvidence {
+function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRun }): PanelEvidence {
     const { rt, run } = input;
 
     return {

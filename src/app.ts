@@ -49,12 +49,12 @@ import { loadStatus } from './status-tab.ts';
 import { mountTabShell } from './tabs.ts';
 import { tabSpecs } from './tab-bodies.ts';
 import { describeError } from './session.ts';
-import type { SpikeHost } from './session.ts';
+import type { PanelHost } from './session.ts';
 
-/** Options for {@link createSpikeApp}. */
-export interface SpikeAppOptions {
+/** Options for {@link createPanelApp}. */
+export interface PanelAppOptions {
     /** Documented host client. */
-    readonly host: SpikeHost;
+    readonly host: PanelHost;
     /** Panel root element from `panel/index.html`. */
     readonly root: HTMLElement;
     /** Frame window, used for the unload hook. */
@@ -62,7 +62,7 @@ export interface SpikeAppOptions {
 }
 
 /** Handle to the running panel app. */
-export interface SpikeApp {
+export interface PanelApp {
     /** Unsubscribe, stop timers, dispose UI, and release the host client. */
     dispose: () => void;
 }
@@ -86,7 +86,7 @@ export interface SpikeApp {
  *
  * Exported so the settings flow can be exercised directly by the
  * orchestration tests; the panel itself reaches this through the `onSettings`
- * subscription registered in {@link createSpikeApp}.
+ * subscription registered in {@link createPanelApp}.
  *
  * @param rt - Panel runtime.
  * @param settings - Values from `ctx.settings` (an empty record in practice).
@@ -202,7 +202,7 @@ export async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<v
  *
  * Exported for the orchestration tests, which assert that every subscription
  * collected on the runtime is released; the panel reaches it through the
- * `pagehide` hook and the `dispose()` handed back from {@link createSpikeApp}.
+ * `pagehide` hook and the `dispose()` handed back from {@link createPanelApp}.
  *
  * @param rt - Panel runtime to tear down.
  */
@@ -409,7 +409,7 @@ function registerHostListeners(rt: PanelRuntime, root: HTMLElement): void {
  * @param options - Host client, root element, and frame window.
  * @returns A handle that tears the panel down again.
  */
-export function createSpikeApp(options: SpikeAppOptions): SpikeApp {
+export function createPanelApp(options: PanelAppOptions): PanelApp {
     const { host, root, panelWindow } = options;
     const rt = createPanelRuntime(host, panelWindow);
     const handlers: PanelHandlers = {

@@ -11,7 +11,7 @@
  */
 
 import { connectHost } from '@openchamber/sdk';
-import { createSpikeApp } from '../src/app.ts';
+import { createPanelApp } from '../src/app.ts';
 
 const root = document.querySelector<HTMLElement>('#root');
 if (root === null) {
@@ -20,4 +20,4 @@ if (root === null) {
 
 const host = connectHost();
 
-createSpikeApp({ host, root, panelWindow: window });
+createPanelApp({ host, root, panelWindow: window });

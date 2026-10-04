@@ -364,10 +364,10 @@ describe('"Not listed?" guidance (FR-070, AC-121)', () => {
         // The Bindings pane's mount moved into `bindings-body.ts` with the
         // 2026-10-01 editor re-cut; the guidance still paints from there.
         const bindingPicker = readFileSync(resolve(ROOT, 'src/bindings-body.ts'), 'utf8');
-        const spikePicker = readFileSync(resolve(ROOT, 'src/panel-ui.ts'), 'utf8');
+        const panelUiSource = readFileSync(resolve(ROOT, 'src/panel-ui.ts'), 'utf8');
 
         expect(bindingPicker).toContain('notListedGuidance()');
-        expect(spikePicker).toContain('notListedGuidance()');
+        expect(panelUiSource).toContain('notListedGuidance()');
     });
 });
 
@@ -484,7 +484,7 @@ describe('no project-creation call exists anywhere (AC-121)', () => {
         // The Pick list itself, not every quoted word in the file's docs:
         // this is the surface a future module has to widen to reach a host
         // project-creation call, so it is the list that has to stay read-only.
-        const pick = session.match(/export type SpikeHost = Pick<\s*HostClient,\s*([\s\S]*?)\s*>/);
+        const pick = session.match(/export type PanelHost = Pick<\s*HostClient,\s*([\s\S]*?)\s*>/);
         expect(pick).not.toBeNull();
 
         const members = [...(pick?.[1] ?? '').matchAll(/'([^']+)'/g)].map((match) => match[1] ?? '');

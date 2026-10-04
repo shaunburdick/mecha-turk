@@ -10,7 +10,7 @@
 import type { GuestProjectsSnapshot, GuestSessionsSnapshot, GuestWorktreesSnapshot } from '@openchamber/sdk';
 import type { LedgerDetail } from './ledger.ts';
 import { describeError } from './session.ts';
-import type { SpikeHost } from './session.ts';
+import type { PanelHost } from './session.ts';
 
 /** Result of probing one host subscription. */
 export interface SubscriptionProbe {
@@ -44,7 +44,7 @@ const DEFAULT_PROBE_WAIT_MS = 75;
 /** Inputs for {@link verifyHostState}. */
 interface VerifyHostInput {
     /** Documented host client. */
-    readonly host: SpikeHost;
+    readonly host: PanelHost;
     /** Resolved project id. */
     readonly projectId: string;
     /** Optional probe window override. */
@@ -172,7 +172,7 @@ async function addProbe<T>(input: ProbeInput<T>, state: ProbeState): Promise<voi
  * @returns The teardown for the registered listener, or `null` on refusal.
  */
 function registerLifecycleListener(
-    host: Pick<SpikeHost, 'onSessionLifecycle'>,
+    host: Pick<PanelHost, 'onSessionLifecycle'>,
     state: ProbeState,
 ): (() => void) | null {
     try {
@@ -205,7 +205,7 @@ function registerLifecycleListener(
  */
 async function probeLifecycle(input: {
     /** Host client. */
-    readonly host: Pick<SpikeHost, 'onSessionLifecycle'>;
+    readonly host: Pick<PanelHost, 'onSessionLifecycle'>;
     /** Collector to update. */
     readonly state: ProbeState;
     /** How long to observe for a lifecycle event. */
@@ -234,7 +234,7 @@ async function probeLifecycle(input: {
  * @param input - Host client, project id, and listen window.
  * @returns Probes, teardowns, problems, and observed lifecycle phases.
  */
-async function probeSubscriptions(input: { host: SpikeHost; projectId: string; waitMs: number }): Promise<ProbeState> {
+async function probeSubscriptions(input: { host: PanelHost; projectId: string; waitMs: number }): Promise<ProbeState> {
     const state: ProbeState = { probes: [], teardowns: [], problems: [], lifecyclePhases: [] };
     const { host, projectId, waitMs } = input;
 
@@ -284,7 +284,7 @@ interface HostLists {
  * @param input - Host client and project id.
  * @returns List snapshots plus every problem encountered.
  */
-async function readLists(input: { host: SpikeHost; projectId: string }): Promise<HostLists> {
+async function readLists(input: { host: PanelHost; projectId: string }): Promise<HostLists> {
     const problems: string[] = [];
     let projectFound = false;
     let projectDirectory: string | null = null;

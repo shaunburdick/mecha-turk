@@ -17,11 +17,11 @@ import type {
     JsonValue,
     StartSessionResult,
 } from '@openchamber/sdk';
-import type { SpikeConfig } from '../../src/config.ts';
-import type { SpikeEvidence } from '../../src/evidence.ts';
+import type { BindingContext } from '../../src/config.ts';
+import type { PanelEvidence } from '../../src/evidence.ts';
 import { createPanelRuntime } from '../../src/panel-state.ts';
 import type { PanelRuntime } from '../../src/panel-state.ts';
-import type { SpikeHost } from '../../src/session.ts';
+import type { PanelHost } from '../../src/session.ts';
 
 /** Project id every panel test dispatches against. */
 export const PROJECT_ID = 'prj_42';
@@ -117,9 +117,9 @@ export const SESSIONS: GuestSessionsSnapshot = {
  * test only fails where it genuinely diverges from the documented behaviour.
  *
  * @param overrides - Members to replace with test behaviour.
- * @returns A complete {@link SpikeHost}.
+ * @returns A complete {@link PanelHost}.
  */
-export function fakeHost(overrides: Partial<SpikeHost> = {}): SpikeHost {
+export function fakeHost(overrides: Partial<PanelHost> = {}): PanelHost {
     return {
         request: async () => ({ status: DEFAULT_STATUS, body: DEFAULT_BODY }),
         serviceRequest: async () => ({ status: DEFAULT_STATUS, body: DEFAULT_BODY }),
@@ -188,7 +188,7 @@ export function fakeWindow(): WindowDouble {
  * @param overrides - Members to replace with test-specific values.
  * @returns A complete spike configuration.
  */
-export function testConfig(overrides: Partial<SpikeConfig> = {}): SpikeConfig {
+export function testConfig(overrides: Partial<BindingContext> = {}): BindingContext {
     return {
         repository: { owner: 'acme', name: 'widget' },
         expectedLogin: LOGIN,
@@ -205,7 +205,7 @@ export function testConfig(overrides: Partial<SpikeConfig> = {}): SpikeConfig {
  * @param overrides - Members to replace with test-specific values.
  * @returns A valid evidence record.
  */
-export function testEvidence(overrides: Partial<SpikeEvidence> = {}): SpikeEvidence {
+export function testEvidence(overrides: Partial<PanelEvidence> = {}): PanelEvidence {
     return {
         schemaVersion: 'extension-spike-1',
         repository: REPOSITORY,
@@ -232,7 +232,7 @@ export function testEvidence(overrides: Partial<SpikeEvidence> = {}): SpikeEvide
  * @param panelWindow - Frame window; defaults to {@link fakeWindow}.
  * @returns A runtime with the fixture dispatch context.
  */
-export function createTestRuntime(host: SpikeHost, panelWindow = fakeWindow().window): PanelRuntime {
+export function createTestRuntime(host: PanelHost, panelWindow = fakeWindow().window): PanelRuntime {
     const runtime = createPanelRuntime(host, panelWindow);
     runtime.state.config = testConfig();
 
@@ -242,7 +242,7 @@ export function createTestRuntime(host: SpikeHost, panelWindow = fakeWindow().wi
 /** Storage double that records what the panel reads and writes. */
 export interface StorageDouble {
     /** The documented storage surface handed to {@link fakeHost}. */
-    readonly storage: SpikeHost['storage'];
+    readonly storage: PanelHost['storage'];
     /** Last value written per key. */
     readonly values: Map<string, JsonValue>;
     /** Operations observed, in order, as `get:<key>` / `set:<key>`. */

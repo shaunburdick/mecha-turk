@@ -12,7 +12,7 @@
  * machinery this simple client replaces for the MVP cut.
  */
 
-import type { SpikeHost } from './session.ts';
+import type { PanelHost } from './session.ts';
 import type { ServiceConfigPutResult, ServiceErrorResult, ServiceResource, ServiceResult } from './service-envelope.ts';
 import {
     configResultOf,
@@ -40,7 +40,7 @@ export type {
 const LEGACY_RESOURCE: ServiceResource = 'bindings list';
 
 /** The one method the wrappers call, typed as the documented host surface. */
-export type ServiceRequester = Pick<SpikeHost, 'serviceRequest'>['serviceRequest'];
+export type ServiceRequester = Pick<PanelHost, 'serviceRequest'>['serviceRequest'];
 
 /** Path of the bindings collection. */
 export const BINDINGS_PATH = '/v1/bindings';

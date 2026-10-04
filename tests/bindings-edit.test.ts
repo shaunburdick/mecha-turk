@@ -25,7 +25,7 @@ import { parseBindingsBody } from '../src/bindings-service.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import { BINDINGS_PATH } from '../src/service-calls.ts';
 import type { PanelBinding, PanelTriggers } from '../src/bindings-service.ts';
-import type { SpikeHost } from '../src/session.ts';
+import type { PanelHost } from '../src/session.ts';
 import { VERIFY_PATH } from '../service/routes/verify.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
@@ -96,7 +96,7 @@ function jsonHeaders(): Record<string, string> {
  * @param service - Running harness instance.
  * @returns The host double the runtime runs against.
  */
-function panelHost(service: TestService): SpikeHost {
+function panelHost(service: TestService): PanelHost {
     return fakeHost({
         serviceRequest: async (request) => {
             const init: RequestInit = { method: request.method };
@@ -376,7 +376,7 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
 });
 
 /** A recording service double for the handler-wiring assertions. */
-function recordingHost(): { readonly host: SpikeHost; readonly puts: string[] } {
+function recordingHost(): { readonly host: PanelHost; readonly puts: string[] } {
     const puts: string[] = [];
 
     return {

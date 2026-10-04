@@ -14,7 +14,7 @@ import {
     MAX_LEDGER_ENTRIES,
     LEDGER_SCHEMA_VERSION,
 } from '../src/ledger.ts';
-import type { LifecyclePhase, SpikeLedger } from '../src/ledger.ts';
+import type { LifecyclePhase, PanelLedger } from '../src/ledger.ts';
 import { RedactionError } from '../src/redaction.ts';
 
 /** Start timestamp for every timeline in these tests. */
@@ -72,7 +72,7 @@ function parseJson(json: string): JsonValue {
  * @param ledger - Ledger to clone.
  * @returns The clone, shaped as JSON.
  */
-function cloneAsJson(ledger: SpikeLedger): Record<string, JsonValue> {
+function cloneAsJson(ledger: PanelLedger): Record<string, JsonValue> {
     const parsed = parseJson(serializeLedger(ledger));
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
         throw new Error('fixture ledger did not serialize to an object');
@@ -86,7 +86,7 @@ function cloneAsJson(ledger: SpikeLedger): Record<string, JsonValue> {
  *
  * @returns A ledger with one mounted phase entry.
  */
-function fixtureLedger(): SpikeLedger {
+function fixtureLedger(): PanelLedger {
     const ledger = createLedger({
         correlationId: CORRELATION,
         panelGeneration: 1,

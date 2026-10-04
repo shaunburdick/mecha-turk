@@ -3,7 +3,7 @@ import { GUEST_STORAGE_VALUE_BYTES } from '@openchamber/sdk';
 import { utf8ByteLength } from '../src/json.ts';
 import { fitLedgerToByteBudget, LEDGER_BYTE_BUDGET, repairLedger } from '../src/ledger-repair.ts';
 import { appendEntry, createLedger, MAX_LEDGER_ENTRIES, serializeLedger } from '../src/ledger.ts';
-import type { SpikeLedger } from '../src/ledger.ts';
+import type { PanelLedger } from '../src/ledger.ts';
 import { RedactionError } from '../src/redaction.ts';
 
 /** Correlation identifier used by the fixture ledger. */
@@ -26,7 +26,7 @@ const TOKEN_BODY = 40;
  *
  * @returns A ledger with no entries yet.
  */
-function emptyLedger(): SpikeLedger {
+function emptyLedger(): PanelLedger {
     return createLedger({
         correlationId: CORRELATION,
         panelGeneration: 1,
@@ -44,7 +44,7 @@ function emptyLedger(): SpikeLedger {
  *
  * @returns A ledger no larger than the entry cap allows.
  */
-function wideLedger(): SpikeLedger {
+function wideLedger(): PanelLedger {
     let ledger = emptyLedger();
     const detail = { note: WIDE_CHARACTER.repeat(WIDE_VALUE_LENGTH) };
     for (let index = 0; index < MAX_LEDGER_ENTRIES; index += 1) {
@@ -60,7 +60,7 @@ function wideLedger(): SpikeLedger {
  * @param ledger - Ledger that must not serialize.
  * @returns The thrown error.
  */
-function serializeFailure(ledger: SpikeLedger): Error {
+function serializeFailure(ledger: PanelLedger): Error {
     try {
         serializeLedger(ledger);
     } catch (cause) {

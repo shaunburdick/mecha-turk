@@ -9,7 +9,7 @@
  */
 
 import { analyzePollingGap } from './ledger.ts';
-import type { GapAnalysis, LifecyclePhase, SpikeLedger } from './ledger.ts';
+import type { GapAnalysis, LifecyclePhase, PanelLedger } from './ledger.ts';
 
 /** One step of the lifecycle experiment. */
 export interface LifecycleStep {
@@ -92,7 +92,7 @@ export interface MountContext {
  * @param existing - Ledger read from storage, or `null` when absent/unusable.
  * @returns Generation and storage-presence context for the new mount.
  */
-export function buildMountContext(existing: SpikeLedger | null): MountContext {
+export function buildMountContext(existing: PanelLedger | null): MountContext {
     if (existing === null) {
         return {
             panelGeneration: 1,
@@ -116,7 +116,7 @@ export function buildMountContext(existing: SpikeLedger | null): MountContext {
  * @param ledger - Prior ledger.
  * @returns The last `closed` phase time, else the last entry time, else `null`.
  */
-function findBaseline(ledger: SpikeLedger): string | null {
+function findBaseline(ledger: PanelLedger): string | null {
     let baseline: string | null = null;
     for (const entry of ledger.entries) {
         if (entry.kind === 'phase' && entry.phase === 'closed') {
@@ -140,7 +140,7 @@ function findBaseline(ledger: SpikeLedger): string | null {
  * @param input - Prior ledger and the current mount time.
  * @returns The gap verdict, or `null` when the ledger has no baseline yet.
  */
-export function analyzeLastCloseGap(input: { prior: SpikeLedger | null; mountedAt: string }): GapAnalysis | null {
+export function analyzeLastCloseGap(input: { prior: PanelLedger | null; mountedAt: string }): GapAnalysis | null {
     const { prior } = input;
     if (prior === null) {
         return null;

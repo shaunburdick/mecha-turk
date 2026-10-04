@@ -32,7 +32,7 @@ const ISSUE_URL_PATTERN = /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/\d+$/;
 const ISSUE_ID_PATTERN = /^\d+$/;
 
 /** Normalized evidence record produced by a configured match. */
-export interface SpikeEvidence {
+export interface PanelEvidence {
     /** Contract schema version. */
     readonly schemaVersion: typeof EVIDENCE_SCHEMA_VERSION;
     /** `owner/name` of the polled repository. */
@@ -95,7 +95,7 @@ export class EvidenceError extends Error {
  * @param evidence - Record to serialize.
  * @returns Compact JSON, asserted to be free of secret-shaped material.
  */
-export function serializeEvidence(evidence: SpikeEvidence): string {
+export function serializeEvidence(evidence: PanelEvidence): string {
     const json = JSON.stringify(evidence);
     assertRedacted('evidence record', json);
     return json;
@@ -107,7 +107,7 @@ export function serializeEvidence(evidence: SpikeEvidence): string {
  * @param evidence - Record about to be written to `host.storage`.
  * @throws {RedactionError} When the serialized record matches a secret shape.
  */
-export function assertEvidenceRedacted(evidence: SpikeEvidence): void {
+export function assertEvidenceRedacted(evidence: PanelEvidence): void {
     assertRedacted('evidence record', serializeEvidence(evidence));
 }
 
@@ -118,7 +118,7 @@ export function assertEvidenceRedacted(evidence: SpikeEvidence): void {
  * @returns The redacted evidence record.
  * @throws {EvidenceError} When an input is missing or malformed.
  */
-export function buildEvidence(input: EvidenceInput): SpikeEvidence {
+export function buildEvidence(input: EvidenceInput): PanelEvidence {
     if (!Number.isInteger(input.issueNumber) || input.issueNumber <= 0) {
         throw new EvidenceError('issue number must be a positive integer');
     }
@@ -143,7 +143,7 @@ export function buildEvidence(input: EvidenceInput): SpikeEvidence {
         throw new EvidenceError('panelGeneration must be a positive integer');
     }
 
-    const evidence: SpikeEvidence = {
+    const evidence: PanelEvidence = {
         schemaVersion: EVIDENCE_SCHEMA_VERSION,
         repository: input.repository,
         issueId: String(input.issueNumber),
@@ -260,7 +260,7 @@ function readEvidenceFields(record: Record<string, JsonValue>): EvidenceFields |
  * @param value - Value read from `host.storage`.
  * @returns The record, or `null` when the shape does not match the contract.
  */
-export function readEvidence(value?: JsonValue): SpikeEvidence | null {
+export function readEvidence(value?: JsonValue): PanelEvidence | null {
     const record = asRecord(value);
     if (record?.schemaVersion !== EVIDENCE_SCHEMA_VERSION) {
         return null;

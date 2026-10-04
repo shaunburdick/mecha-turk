@@ -40,7 +40,7 @@ import { sweepOnce } from '../../service/poll/sweep.ts';
 import type { ClaimedRun } from '../../src/claim-service.ts';
 import type { PanelRuntime } from '../../src/panel-state.ts';
 import type { PanelBinding } from '../../src/bindings-service.ts';
-import type { SpikeHost } from '../../src/session.ts';
+import type { PanelHost } from '../../src/session.ts';
 import type { GitHubIssuePoller } from '../../service/poll/poller-github.ts';
 import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceStore } from '../../service/store/index.ts';
@@ -259,10 +259,10 @@ function buildHost(input: {
     /** Timeline every call and storage flip is recorded on. */
     readonly timeline: string[];
     /** Shared storage every mount reads and writes. */
-    readonly storage: SpikeHost['storage'];
+    readonly storage: PanelHost['storage'];
     /** Whether this mount has already lost its report. */
     readonly lost: { value: boolean };
-}): SpikeHost {
+}): PanelHost {
     const { service, options, sessions, timeline, storage, lost } = input;
 
     return fakeHost({
@@ -364,7 +364,7 @@ function sharedStorageFor(input: {
     readonly storage: StorageDouble;
     /** Timeline every record/ack flip is appended to. */
     readonly timeline: string[];
-}): SpikeHost['storage'] {
+}): PanelHost['storage'] {
     return {
         ...input.storage.storage,
         set: async (key, value) => {
@@ -411,7 +411,7 @@ function mountPanel(input: {
     /** Timeline every call and storage flip is recorded on. */
     readonly timeline: string[];
     /** Shared storage the panel reads and writes. */
-    readonly storage: SpikeHost['storage'];
+    readonly storage: PanelHost['storage'];
     /** Mounts collected for teardown. */
     readonly mounts: PanelRuntime[];
 }): PanelRuntime {

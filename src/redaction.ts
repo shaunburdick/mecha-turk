@@ -15,7 +15,7 @@
 /** Scalar value kinds a redacted record may hold. */
 type Scalar = string | number | boolean | null;
 
-/** One secret-shaped value the spike must never persist. */
+/** One secret-shaped value the panel must never persist. */
 interface SecretPattern {
     /** Stable identifier reported in the error, never the matched text. */
     readonly label: string;
