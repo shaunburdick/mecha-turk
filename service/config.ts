@@ -73,7 +73,7 @@ export interface ServiceConfig {
     /** How long payload excerpts are kept, in days. */
     readonly excerptRetentionDays: number;
     /**
-     * How long a claim's lease is valid (FR-031, plan D9).
+     * How long a claim's lease is valid.
      *
      * The claim stamps `expiresAt = now + leaseMs` on the service clock, and
      * the sweep requeues a run whose lease expired with no reservation. Also
@@ -90,8 +90,8 @@ export interface ServiceConfig {
     /** Structured-log verbosity. */
     readonly logLevel: LogLevel;
     /**
-     * Comparison baseline 002 FR-029 evaluates the observed agent against
-     * after every dispatch.
+     * Comparison baseline the observed agent is evaluated against after every
+     * dispatch.
      *
      * The service only serves it — `GET /v1/config` hands the value to the
      * panel, which posts it with each verification read-back. The value is a
@@ -289,11 +289,10 @@ function isKnownField(key: string): boolean {
  * @returns All issues, in field order followed by unknown keys.
  */
 function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
-    const issues: ConfigIssue[] = [];
     // First, mirroring `DEFAULT_CONFIG`'s own key order, so this list stays
     // the order the schema projection pushes its descriptors in. No numeric
     // validator moved: the bounds loop below is untouched.
-    issues.push(...startingPromptIssue(raw.startingPrompt));
+    const issues: ConfigIssue[] = [...startingPromptIssue(raw.startingPrompt)];
     for (const field of NUMERIC_FIELDS) {
         issues.push(...numericIssue(raw, field));
     }
@@ -305,8 +304,7 @@ function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
         });
     }
 
-    issues.push(...expectedAgentIssue(raw.expectedAgent));
-    issues.push(...retryOrderIssue(raw));
+    issues.push(...expectedAgentIssue(raw.expectedAgent), ...retryOrderIssue(raw));
     for (const key of Object.keys(raw)) {
         if (!isKnownField(key)) {
             issues.push(unknownFieldIssue(key));
@@ -479,13 +477,15 @@ export function parseStoredConfig(raw: unknown): StoredConfigRead | null {
         return null;
     }
 
-    const filled: Record<string, unknown> = { ...raw };
+    const filled = { ...raw };
     const defaultsApplied: string[] = [];
     for (const field of Object.keys(DEFAULT_CONFIG) as readonly (keyof ServiceConfig)[]) {
-        if (!Object.hasOwn(filled, field)) {
-            filled[field] = DEFAULT_CONFIG[field];
-            defaultsApplied.push(field);
+        if (Object.hasOwn(filled, field)) {
+            continue;
         }
+
+        filled[field] = DEFAULT_CONFIG[field];
+        defaultsApplied.push(field);
     }
 
     const validation = validateConfig(filled);

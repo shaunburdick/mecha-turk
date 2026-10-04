@@ -1217,8 +1217,7 @@ function isKnownField(key) {
   return Object.hasOwn(DEFAULT_CONFIG, key);
 }
 function collectIssues(raw) {
-  const issues = [];
-  issues.push(...startingPromptIssue(raw.startingPrompt));
+  const issues = [...startingPromptIssue(raw.startingPrompt)];
   for (const field of NUMERIC_FIELDS) {
     issues.push(...numericIssue(raw, field));
   }
@@ -1228,8 +1227,7 @@ function collectIssues(raw) {
       remediation: "set logLevel to one of debug, info, warn, error"
     });
   }
-  issues.push(...expectedAgentIssue(raw.expectedAgent));
-  issues.push(...retryOrderIssue(raw));
+  issues.push(...expectedAgentIssue(raw.expectedAgent), ...retryOrderIssue(raw));
   for (const key of Object.keys(raw)) {
     if (!isKnownField(key)) {
       issues.push(unknownFieldIssue(key));
@@ -1303,10 +1301,11 @@ function parseStoredConfig(raw) {
   const filled = { ...raw };
   const defaultsApplied = [];
   for (const field of Object.keys(DEFAULT_CONFIG)) {
-    if (!Object.hasOwn(filled, field)) {
-      filled[field] = DEFAULT_CONFIG[field];
-      defaultsApplied.push(field);
+    if (Object.hasOwn(filled, field)) {
+      continue;
     }
+    filled[field] = DEFAULT_CONFIG[field];
+    defaultsApplied.push(field);
   }
   const validation = validateConfig(filled);
   return validation.ok ? { config: validation.config, defaultsApplied } : null;
