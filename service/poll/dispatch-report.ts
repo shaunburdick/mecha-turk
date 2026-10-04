@@ -145,7 +145,7 @@ function conflict(run: Run): RunRefusal {
  * record `reserveDispatch` writes and `reservation.consumed` already governs —
  * and the sweep's `unconfirmed` wedge *closes* it (the result deadline passed)
  * while leaving the authorization deliberately live, because a late report must
- * still reconcile the run (FR-025, contract §2's `unconfirmed` row, AC-111).
+ * still reconcile the run (FR-025, contract §2's `unconfirmed` row).
  * Excluding exactly that one record is what keeps the two requirements from
  * contradicting each other: every *other* record carrying a closed token is a
  * token from a chain the run has already left, and none of them may ever apply.

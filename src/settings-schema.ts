@@ -114,7 +114,7 @@ export interface StringDescriptor {
      * The reader accepts it in exactly the one shape the projection emits
      * (`true`) or not at all; every other value **refuses the envelope**
      * rather than being dropped, because a declaration this build half-reads
-     * is a row it would render wrong (invariant 8, 006 FR-021).
+     * is a row it would render wrong (invariant 8).
      */
     readonly multiline?: true;
 }
@@ -247,7 +247,7 @@ function stringDescriptor(record: Record<string, unknown>, head: DescriptorHead)
     // and anything else — a `false`, a string, a `null` — refuses the whole
     // envelope rather than being silently dropped, because a row that reads
     // its affordance from the wire must not invent the half it did not get
-    // (invariant 8, 006 FR-021).
+    // (invariant 8).
     const { multiline } = record;
     if (multiline !== undefined && multiline !== true) {
         return null;

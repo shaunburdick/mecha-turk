@@ -23,7 +23,7 @@
  * - **Attempt discipline is exact.** A retry and a resolve-to-*no-session* each
  *   increment the attempt exactly once; a verification report (in
  *   `run-verify.ts`) increments nothing and changes no state at all; the
- *   dead-letter return resets both counters (contract invariant 5, AC-106).
+ *   dead-letter return resets both counters (contract invariant 5).
  * - **The service corroborates what it can and records what it cannot.**
  *   `blocked:binding-missing` and `blocked:actor-not-allowed` are re-checked
  *   against the live store, because the service *can* check them;

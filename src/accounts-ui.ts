@@ -149,7 +149,7 @@ export interface HandoffSubmission {
  *
  * The credential input is cleared in `finally`, on **every** exit — success,
  * service refusal, host failure, timeout, or a thrown error — so a paste never
- * survives the handoff it belonged to (contract §2 step ⑧, FR-007). The mount
+ * survives the handoff it belonged to (contract §2 step ⑧). The mount
  * step already wrote the value through at capture time (it reads the input and
  * empties it before the request starts); this second clear is what removes a
  * value that reappeared while the request was in flight, and it is why
@@ -316,7 +316,7 @@ function mountCredentialField(doc: Document): CredentialField {
  *
  * The pasted credential is read and the input emptied in the **same tick**, so
  * the DOM holds the value only between the paste and the click — one shot, no
- * cache, no retry buffer (contract §2 steps ② and ⑧, FR-007). The expected
+ * cache, no retry buffer (contract §2 steps ② and ⑧). The expected
  * login is captured the same way and for the inverse reason: it is not a
  * secret, but an empty field has to *stay* empty, or a constraint typed for
  * one account would be submitted with the next one (FR-006: absent or empty

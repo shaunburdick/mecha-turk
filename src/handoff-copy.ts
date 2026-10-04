@@ -3,7 +3,7 @@
  *
  * Every string here is built from a **status code or reason class** and from
  * contract prose — never from a received value — so no failure surface can
- * echo a credential (token-handoff §4 rules 3–4, AC-003). The three tables are
+ * echo a credential (token-handoff §4 rules 3–4). The three tables are
  * `Map`s rather than object literals because the codes themselves are not
  * camelCase identifiers, and because one lookup per code keeps the routing
  * logic branch-free.

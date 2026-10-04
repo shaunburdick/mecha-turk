@@ -55,7 +55,7 @@ type ProfileMember<T> =
  */
 const SAFE_FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** The closed profile body once every issue has cleared (005 §2, 004 FR-082). */
+/** The closed profile body once every issue has cleared (005 §2). */
 interface ProfileBody {
     /** Validated label (`null` clears), or absent = unchanged. */
     readonly displayName: ProfileMember<string | null>;
@@ -104,7 +104,7 @@ function profileBodyRefusal(): FieldIssue {
  * whitelist: they are refused *explicitly* rather than merely unreachable.
  * Two kinds of key are reported under `body` instead, each for its own reason:
  * a key that is itself credential-shaped, because the secret rule outranks
- * naming (a member name is submitted input too — 004 FR-024, AC-130), and a
+ * naming (a member name is submitted input too — 004 FR-024), and a
  * key that is not an ordinary identifier at all, because a name the service
  * cannot vouch for must not be reflected back into the envelope that restates
  * every `field: remediation` pair. An identifier-shaped name is echoed through

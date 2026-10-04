@@ -66,7 +66,7 @@ const DIAGNOSTICS_HEADING = 'Diagnostics (read-only)';
 /** The disclosure control while the record is closed. */
 const DIAGNOSTICS_SHOW = 'Diagnostics';
 
-/** The disclosure control while the record is open (state as text, FR-083). */
+/** The disclosure control while the record is open (state as text). */
 const DIAGNOSTICS_HIDE = 'Hide diagnostics';
 
 /** Where this project's source lives — the one link the page carries. */

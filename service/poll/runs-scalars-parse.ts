@@ -165,7 +165,7 @@ function readStateLine(raw: Record<string, unknown>): StateLine | null {
  * about that run rather than a hole in the record. A **present** value outside
  * the closed two-word union refuses the row instead of defaulting to `'open'`,
  * because defaulting would silently upgrade an unreadable policy into
- * permission (constitution II, 002 FR-024).
+ * permission (constitution II).
  *
  * @param raw - Candidate row, already known to be a record.
  * @returns The policy, `null` for "none recorded", or `undefined` when a

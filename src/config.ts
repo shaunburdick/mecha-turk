@@ -11,7 +11,7 @@
  * the only configuration resolution mode (`bindings-mode.ts`), the project id
  * comes from the panel picker's `mecha-turk:project` selection alone
  * ({@link parseProjectId}), and the agent-verification baseline is read from
- * `GET /v1/config` per verification (`agent-verify.ts`, 002 FR-029).
+ * `GET /v1/config` per verification (`agent-verify.ts`).
  *
  * What survives are the value parsers: the service and the binding editor
  * still hand this module an `owner/name` string, a worktree option, and a

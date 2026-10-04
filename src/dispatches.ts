@@ -361,7 +361,7 @@ async function postRunOperation(input: {
 }
 
 /**
- * Retry the selected run under its own run key (M8, FR-041).
+ * Retry the selected run under its own run key (M8).
  *
  * Only a run the service accepts is sent — a dispatched or waiting row is
  * refused locally with the same words the table gives it — and a blocked run

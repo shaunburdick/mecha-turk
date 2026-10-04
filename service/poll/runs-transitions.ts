@@ -42,7 +42,7 @@ export interface LeaseCoordinates {
     readonly holder: string;
     /** Lease identifier minted for this claim. a fencing token, not a capability. */
     readonly leaseId: string;
-    /** RFC 3339 issue stamp (service clock, NFR-112). */
+    /** RFC 3339 issue stamp (service clock). */
     readonly issuedAt: string;
     /** RFC 3339 expiry stamp; the sweep compares it to the service clock. */
     readonly expiresAt: string;

@@ -415,7 +415,7 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
  * The only way to reach this is the mount closing between the reserve and the
  * start: every guard runs *before* the reserve, so there is no post-reserve
  * guard refusal to report. Reporting it keeps the run out of `unconfirmed`
- * (contract §3, FR-026).
+ * (contract §3).
  *
  * @param input - Runtime, the run, and the token the reservation holds.
  */

@@ -32,7 +32,7 @@
  * ever reported elsewhere (002 NFR-113). The rule set that decides the value
  * and the one comparison that uses it therefore belong together here, and
  * {@link isActorAllowed} is called by exactly one caller — the service's
- * authorization gate (plan D9, 003 FR-076).
+ * authorization gate (plan D9).
  */
 
 import type { BindingIssue } from './bindings.ts';
@@ -188,7 +188,7 @@ export function bindingAllowedUsersOf(raw: Record<string, unknown>): {
  * **An absent list is the open state**: no policy is configured, so any human
  * actor may trigger. An empty login is nobody, and the open policy does not
  * turn that into permission — the absence of a policy is not permission to
- * attribute work to no one (002 FR-045(b), 003 FR-080). A *bot*-shaped login
+ * attribute work to no one (002 FR-045(b)). A *bot*-shaped login
  * is a separate judgement this module deliberately does not make: it belongs to
  * the exported `isBotAuthor` beside the detection filters, which every trigger
  * kind already applies before an event is created at all (plan D3, D7).

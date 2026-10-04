@@ -38,7 +38,7 @@
  * Both writers swallow their own failure into `false` plus a structured warn:
  * the configuration write is the durable record, so a row that could not reach
  * disk is surfaced as `auditWritten: false` (accepted) or a warn line (refused)
- * rather than rolled back or swallowed (FR-070's edge case, 003 FR-063).
+ * rather than rolled back or swallowed (FR-070's edge case).
  *
  * The **observed** half of FR-088 — a change to this field noticed in the
  * stored document without a write — lives in

@@ -28,7 +28,7 @@ import type { PromptSource } from './prompt.ts';
 import type { BindingStatusRow, EventKind } from './bindings-service.ts';
 import { eventKindOf, readStatusRows } from './bindings-service.ts';
 
-/** Whether the subject is an issue or a pull request (run key component, FR-010). */
+/** Whether the subject is an issue or a pull request (run key component). */
 export type SubjectType = 'issue' | 'pull_request';
 
 /**
@@ -48,7 +48,7 @@ export interface ClaimedLease {
     readonly attempt: number;
     /** Opaque per-mount id of the panel holding it; informational only. */
     readonly holder: string;
-    /** RFC 3339 issue stamp (service clock, NFR-112). */
+    /** RFC 3339 issue stamp (service clock). */
     readonly issuedAt: string;
     /** RFC 3339 expiry stamp; the sweep reclaims exactly here. */
     readonly expiresAt: string;

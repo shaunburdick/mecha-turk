@@ -39,7 +39,7 @@ export interface ClaimedLease {
     readonly attempt: number;
     /** Opaque per-mount id of the panel holding it; informational only. */
     readonly holder: string;
-    /** RFC 3339 issue stamp (service clock, NFR-112). */
+    /** RFC 3339 issue stamp (service clock). */
     readonly issuedAt: string;
     /** RFC 3339 expiry stamp; the sweep reclaims exactly here. */
     readonly expiresAt: string;

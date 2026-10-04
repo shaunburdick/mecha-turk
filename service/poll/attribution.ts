@@ -76,7 +76,7 @@ export function isBotAuthor(authorLogin: string, authorType: string): boolean {
  * judgements this product already applied to mention authorship, applied
  * unchanged rather than reinvented. Bots are noise (they mention each other for
  * a living), and an author GitHub would not name (`authorLogin === ''`) is
- * ambiguous, so both fail closed (spec FR-016, FR-024).
+ * ambiguous, so both fail closed (spec FR-016).
  *
  * Exported because the assignment path in `loop.ts` needs the same judgement
  * for the same reason, and two spellings of one rule are two rules that drift.

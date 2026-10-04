@@ -77,7 +77,7 @@ export const STATUS = {
  * Fields of the error envelope every failure uses (contract §1).
  *
  * The optional members are the ratified supersets the §1 grammar names:
- * `issues` for `422 validation` (Wave 1, T-002) and `reasonClass` for
+ * `issues` for `422 validation` (Wave 1) and `reasonClass` for
  * `422 credential-rejected` (SEC-03, ratified by T-009m). Every builder in
  * this module goes through {@link errorBody}, so the wire shape and the type
  * cannot drift apart (review L13).

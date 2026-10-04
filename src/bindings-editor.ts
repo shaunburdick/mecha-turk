@@ -310,7 +310,7 @@ export function mentionTokenView(bindings: BindingsTabState): MentionTokenView {
 }
 
 /**
- * Scope the bound-account field to the editor's mode (ruling 5, FR-053).
+ * Scope the bound-account field to the editor's mode (ruling 5).
  *
  * Edit mode fixes the field to the selected binding's own account — one
  * option, that binding's own id and login, no free select — which is what
