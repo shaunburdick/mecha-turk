@@ -1,41 +1,35 @@
 /**
- * The Dispatches section's row copy (M8) — pure functions of panel state.
+ * The Dispatches section's row copy — pure functions of panel state.
  *
  * One run is what the operator needs to judge a dispatch at a glance: which
  * trigger fired, which issue it was, why it sits where it sits now, how long
- * ago it was detected, what the panel reported when it dispatched, which
- * agent the read-back observed, and which prompt tiers the run composed its
- * operator block from — presence, sources, fingerprint, and length, never the
- * text (004 FR-052, FR-087). Every string composed here reaches the DOM
- * through the SDK list primitives' `textContent` writes, and the whole
- * composed subtitle additionally passes through {@link redact} as defence in
- * depth — `stateReason`, the dispatch result, and the verification note are
- * all fields a failure or an upstream title can put free text into.
+ * ago it was detected, what the panel reported when it dispatched, which agent
+ * the read-back observed, and which prompt tiers the run composed its operator
+ * block from — presence, sources, fingerprint, and length, never the text.
  *
- * 003 (T-024, FR-040/FR-041/FR-043/FR-074) widens this module in three ways:
+ * Four decisions are not visible from the code:
  *
- * - **A label and a reason line for every state**, including `unconfirmed`,
- *   `dead-lettered`, and the open `blocked:<reason>` family, with a tone map
- *   in which a failure is never success-toned and an agent-verification
- *   mismatch reads as a warning rather than as a pass (AC-113, AC-125).
- * - **The source references on the row itself** — the primary label from the
- *   earliest reference, a count of how many fired, each reference's kind and
- *   detection time, and a mark on any reference that arrived after the
- *   dispatch authorization (FR-015; the reveal control that shows origin and
- *   link in full is 005's).
- * - **One state→affordance table** ({@link runAffordance}) instead of a
- *   boolean: *Retry* only where the service accepts it, *Resolve* for the
- *   fail-closed wedge, *Return to waiting* for a parked run, and — where no
- *   control applies — **no control at all, with the reason it is absent**,
- *   rather than a disabled one (FR-041, FR-074, AC-123).
+ * - **One redaction pass over the whole composed subtitle.** Every string here
+ *   reaches the DOM through the SDK list primitives' `textContent` writes, so
+ *   the composed line passes through {@link redact} as defence in depth —
+ *   `stateReason`, the dispatch result, and the verification note are all fields
+ *   a failure or an upstream title can put free text into. The individual
+ *   phrases are returned *unredacted*, so one secret can never be split across
+ *   two passes.
+ * - **Where no control applies, the control is absent, not disabled**, and
+ *   {@link runAffordance} says why. An affordance the operator can click and be
+ *   refused is honest; offering *Retry* on a waiting run is not.
+ * - **One reason per state** ({@link STATE_REASONS}) serves both halves of that
+ *   table — the reason a control *is* offered and the reason one is *absent* —
+ *   because they are the same fact about the state.
+ * - **An unrecognised state renders raw and offers nothing.** Inventing a label
+ *   would be the guess the fail-closed parser refuses on the way in.
+ *
+ * Actor wording is `run-actor.ts`'s {@link actorPhrase}, shared with the reveal
+ * in `dispatches-controls.ts`, which renders the same references and must not
+ * word them a second way.
  *
  * Nothing here performs IO, so the copy is testable without a live DOM.
- *
- * 005 v1.11.0 adds the **actor** to each source reference it lists, with the
- * basis spelled out where the attribution is a proxy (FR-094, 002
- * FR-044/NFR-011). The wording is `run-actor.ts`'s {@link actorPhrase}, shared
- * with the reveal in `dispatches-controls.ts`, which renders the same
- * references and must not word them a second way.
  */
 
 import type { ListItem, Tone } from '@openchamber/sdk/ui';
@@ -82,9 +76,9 @@ const ACTOR_BLOCKED = 'actor-not-allowed';
  * Operator-readable badge label per plain state.
  *
  * `failed` reads as **dispatch failed** rather than as `failed` alone because
- * FR-040 requires the label itself to distinguish "a session exists" from "the
- * dispatch made no session" — a failure must never be mistakable for a success
- * at a glance, before anyone reads the tone.
+ * the label itself has to distinguish "a session exists" from "the dispatch made
+ * no session" — a failure must never be mistakable for a success at a glance,
+ * before anyone reads the tone.
  *
  * Annotated as a wide record so the lookup can be **total** (a state from a
  * future build renders as itself) while `satisfies` keeps the seven plain
@@ -102,7 +96,7 @@ const PLAIN_STATE_LABELS: Readonly<Record<string, string>> = {
 } satisfies Record<PlainRunState, string>;
 
 /**
- * The reason line for every plain state (FR-074's per-state explanation).
+ * The reason line for every plain state.
  *
  * One table serves both halves of {@link runAffordance}: the reason a control
  * *is* offered (why a retry is the right verb for `failed`) and the reason one
@@ -159,13 +153,12 @@ const BLOCKED_CAUSE_REASONS: Readonly<Record<string, string>> = {
  * The **generic** clause serves every cause with no entry in
  * {@link BLOCKED_CAUSE_REASONS} — it says the true thing about all of them —
  * while a cause whose remedy is *specific* gets its own line.
- * `blocked:actor-not-allowed` is the only one so far, because it is
- * the only one whose fix is a **field the operator can find**: the binding's
+ * `blocked:actor-not-allowed` is the only entry so far, because it is the only
+ * cause whose fix is a **field the operator can find**: the binding's
  * allow-list. An operator reading "a guard refused the dispatch" learns nothing;
  * reading "nobody who triggered this run is on this binding's allow-list" knows
  * exactly which row to open.
  *
- * @param cause - The suffix after `blocked:`.
  * @returns The reason line for that cause.
  */
 function blockedReasonText(cause: string): string {
@@ -181,7 +174,6 @@ function blockedReasonText(cause: string): string {
  * `blocked:credential`/`blocked:policy`), so it is matched by prefix rather than
  * by an enum that would go stale.
  *
- * @param state - State of the run.
  * @returns `true` for the family, which a plain state can never be.
  */
 function isBlockedState(state: string): state is `blocked:${string}` {
@@ -191,10 +183,9 @@ function isBlockedState(state: string): state is `blocked:${string}` {
 /**
  * Operator-readable label for one state; an unrecognised state renders raw.
  *
- * The fallback is deliberate: a state this build does not know about
- * must still be *shown* rather than hidden behind a label the panel invented,
- * and inventing one would be exactly the guess the fail-closed parser refuses
- * on the way in.
+ * The fallback is deliberate: a state this build does not know about must still
+ * be *shown* rather than hidden behind a label the panel invented, and inventing
+ * one would be exactly the guess the fail-closed parser refuses on the way in.
  *
  * @param state - One of the eight dispatch states, or a value from a future build.
  * @returns The badge label.
@@ -214,7 +205,6 @@ export function stateLabel(state: string): string {
 /**
  * Badge tone for any run state, including the `blocked:<reason>` family.
  *
- * @param state - State of the run.
  * @returns The badge tone for that state.
  */
 function stateTone(state: RunState): Tone {
@@ -234,10 +224,9 @@ function stateTone(state: RunState): Tone {
  * softens the error tone of a parked run, and it can never produce a success.
  *
  * A read-back against **no configured baseline** (`expectedAgent === ''`)
- * changes nothing: there was no expectation to miss, so the run keeps the
- * tone its own state earns (002 FR-029 as amended).
+ * changes nothing: there was no expectation to miss, so the run keeps the tone
+ * its own state earns.
  *
- * @param row - Run to judge.
  * @returns The tone the badge renders with.
  */
 function badgeTone(row: RunRow): Tone {
@@ -252,14 +241,8 @@ function badgeTone(row: RunRow): Tone {
 /**
  * The action the panel offers for one run state — or no action, with a reason.
  *
- * This replaces the old `state !== 'dispatched'` boolean with the table 003
- * specifies. The distinction that matters is
- * between a control the service will actually accept and one it would refuse:
- * an affordance the operator can click and be refused is honest, but offering
- * *Retry* on a waiting run is not — the service has no transition to accept.
- * Where no control applies the control is **absent, not disabled**, and
- * `reason` says why, so the operator reads a fact instead of a greyed-out
- * promise.
+ * The distinction that matters is between a control the service will actually
+ * accept and one it would refuse.
  *
  * `cause-cleared` stays the service's judgement for `blocked:*`: the panel
  * cannot see whether the binding or project came back, so it offers Retry and
@@ -282,25 +265,25 @@ export interface RunAffordance {
 /** Button label for the retry control. */
 export const RETRY_LABEL = 'Retry dispatch';
 
-/** Button label for FR-027's resolution of an `unconfirmed` dispatch. */
+/** Button label for the resolution of an `unconfirmed` dispatch. */
 export const RESOLVE_LABEL = 'Resolve dispatch';
 
-/** Button label for FR-033's return of a parked run to waiting. */
+/** Button label for the return of a parked run to waiting. */
 export const RETURN_LABEL = 'Return to waiting';
 
 /** The same control once armed for its confirm step (the panel's two-step idiom). */
 export const CONFIRM_RETURN_LABEL = 'Confirm: return to waiting';
 
-/** Label of FR-027's first resolution, before the operator arms it. */
+/** Label of the first resolution, before the operator arms it. */
 export const SESSION_CREATED_LABEL = 'Session was created';
 
-/** Label of FR-027's first resolution, armed. */
+/** Label of the first resolution, armed. */
 export const CONFIRM_SESSION_CREATED_LABEL = 'Confirm: session was created';
 
-/** Label of FR-027's second resolution, before the operator arms it. */
+/** Label of the second resolution, before the operator arms it. */
 export const NO_SESSION_LABEL = 'No session was created';
 
-/** Label of FR-027's second resolution, armed. */
+/** Label of the second resolution, armed. */
 export const CONFIRM_NO_SESSION_LABEL = 'Confirm: no session was created';
 
 /**
@@ -310,7 +293,6 @@ export const CONFIRM_NO_SESSION_LABEL = 'Confirm: no session was created';
  * purpose: the parser refuses a state this build does not know, but the tables
  * still answer for one if it arrives — render the value raw, offer nothing.
  *
- * @param state - State of the run.
  * @returns `true` when the value is one of the seven plain states.
  */
 function isPlainState(state: string): state is PlainRunState {
@@ -318,9 +300,8 @@ function isPlainState(state: string): state is PlainRunState {
 }
 
 /**
- * Decide the one control a run's state offers (003's state→affordance table).
+ * Decide the one control a run's state offers.
  *
- * @param row - Run to judge.
  * @returns The control, its label, and the reason line; `action: 'none'` with
  *   `label: null` wherever the service would refuse the transition.
  */
@@ -363,10 +344,8 @@ export function runAffordance(row: { readonly state: string }): RunAffordance {
  * Describe one run's dispatch result (or the honest absence of one).
  *
  * Returned unredacted: {@link dispatchRow} redacts the whole composed subtitle
- * once, so every free-text field is scanned exactly once and one secret can
- * never be split across two redaction passes.
+ * once, so every free-text field is scanned exactly once.
  *
- * @param row - Run to describe.
  * @returns Result text, or a phrase naming why there is none.
  */
 function resultPhrase(row: RunRow): string {
@@ -381,7 +360,6 @@ function resultPhrase(row: RunRow): string {
  * One reference's line: kind, detection time, origin when it adds something,
  * its actor and basis, and the mark on a reason the agent may never have seen.
  *
- * @param reference - One retained source reference.
  * @returns The reference's label.
  */
 function referenceLabel(reference: RunReference): string {
@@ -397,11 +375,10 @@ function referenceLabel(reference: RunReference): string {
  * The primary label is the **earliest** reference — the reason the run exists
  * — followed by how many reasons fired in total, each listed with its kind and
  * detection time, and the count of triggers the reference cap kept off the
- * list, so overflow is stated rather than silently lossy. A run with
- * one reference shows just that reference: FR-015 forbids the "+N more"
- * affordance when there is nothing more.
+ * list, so overflow is stated rather than silently lossy. A run with one
+ * reference shows just that reference: the "+N more" affordance is for when
+ * there is something more.
  *
- * @param row - Run to describe.
  * @returns The line, or `null` when the run carries no reference at all.
  */
 function referencePhrase(row: RunRow): string | null {
@@ -423,9 +400,8 @@ function referencePhrase(row: RunRow): string | null {
  *
  * An empty `expectedAgent` is the documented *no baseline configured*, so the
  * line reports the observation and the absence together and never the word
- * *mismatch* — nothing was compared (002 FR-029 as amended).
+ * *mismatch* — nothing was compared.
  *
- * @param verification - The recorded read-back.
  * @returns The line, naming the observed agent, the expected one, the verdict,
  *   and the service's own note when there is one.
  */
@@ -451,23 +427,21 @@ function verificationPhrase(verification: RunVerification): string {
  * Compose the prompt line: presence, the contributing tiers, the fingerprint,
  * and the length — never the text.
  *
- * Three facts, one read (004 FR-052 as read through FR-072/FR-087): the
- * ordered tier list answers *which tiers produced this run* (`global`, then
- * `account`, then `binding`, joined with `+` in the stacking order FR-080
- * fixes), the fingerprint identifies *which concatenated text was used*,
- * and the length says how much of it there was. The fingerprint is
- * what lets an operator tell two dispatches apart and recognise a pre-upgrade
- * one; the text is the instruction, and it lives in the tiers and the
- * run's snapshot, not on a row that outlives them (004 FR-053) — so a source
- * name reaches this line only through the closed reader in `prompt-wire.ts`,
- * which has already refused any tier word this build does not know.
+ * Three facts, one read: the ordered tier list answers *which tiers produced
+ * this run* (`global`, then `account`, then `binding`, joined with `+`), the
+ * fingerprint identifies *which concatenated text was used* and is what lets an
+ * operator tell two dispatches apart and recognise a pre-upgrade one, and the
+ * length says how much of it there was. The text is the instruction, and it
+ * lives in the tiers and the run's snapshot, not on a row that outlives them —
+ * so a source name reaches this line only through the closed reader in
+ * `prompt-wire.ts`, which has already refused any tier word this build does not
+ * know.
  *
  * No tier set reads as `prompt not set`, and the same phrase answers a
  * reference whose members disagree — the state the fail-closed reader refuses
- * before a row can reach this function, so the line never has to guess
- * between "unset" and "unreadable" (FR-087's iff; AGENTS invariant 8).
+ * before a row can reach this function, so the line never has to guess between
+ * "unset" and "unreadable".
  *
- * @param row - Run to describe.
  * @returns `prompt set · global+account+binding · mtp-… · N chars`, or
  *   `prompt not set`.
  */
@@ -484,7 +458,6 @@ function promptPhrase(row: RunRow): string {
 /**
  * Compose one runs-list row.
  *
- * @param row - Run as the service projected it.
  * @returns The list row.
  */
 export function dispatchRow(row: RunRow): ListItem {
@@ -517,7 +490,6 @@ export function dispatchRow(row: RunRow): ListItem {
 /**
  * Build the runs list rows in the order the service sent them.
  *
- * @param runs - The Dispatches section's state.
  * @returns The rows, newest detected first (the service caps them at 100).
  */
 export function dispatchRows(runs: DispatchesState): ListItem[] {
@@ -531,7 +503,6 @@ export function dispatchRows(runs: DispatchesState): ListItem[] {
  * load it, a failed one points at the note below — so the operator never has
  * to infer *why* the area is blank.
  *
- * @param runs - The Dispatches section's state.
  * @returns The status text.
  */
 export function dispatchesStatusText(runs: DispatchesState): string {
@@ -551,18 +522,17 @@ export function dispatchesStatusText(runs: DispatchesState): string {
         return DISPATCHES_EMPTY_STATUS;
     }
 
-    // No count here: the range line immediately below carries it, and FR-042
-    // requires *that* line to state the set's total ("N dispatches in this
-    // set", or "total unavailable"). Printing the same figure twice was the
-    // duplication the 2026-10-01 review found, so the lede keeps the order
-    // and the selection hint and nothing the next line already says.
+    // No count here: the range line immediately below carries it, and *that*
+    // line is required to state the set's total ("N dispatches in this set", or
+    // "total unavailable"). Printing the same figure twice was the duplication
+    // the 2026-10-01 review found, so the lede keeps the order and the
+    // selection hint and nothing the next line already says.
     return `newest first · ${DISPATCHES_SELECT_HINT}`;
 }
 
 /**
  * Find the run a run row selection points at.
  *
- * @param runs - The Dispatches section's state.
  * @returns The selected run, or `null` when nothing valid is selected.
  */
 export function selectedRun(runs: DispatchesState): RunRow | null {
