@@ -1,5 +1,5 @@
 // service/main.ts
-import { resolve as resolve3 } from "node:path";
+import { resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // service/env.ts
@@ -3852,7 +3852,7 @@ async function readJsonBody(request) {
 
 // service/store/index.ts
 import { promises as fs5 } from "node:fs";
-import { isAbsolute, resolve as resolve2 } from "node:path";
+import path from "node:path";
 
 // service/store/dir.ts
 import { promises as fs } from "node:fs";
@@ -4060,7 +4060,7 @@ function parseServiceState(raw) {
   return { schemaVersion: version, initializedAt };
 }
 async function readOrCreateSchemaVersion(dataDir) {
-  const statePath = resolve2(dataDir, STATE_FILE);
+  const statePath = path.resolve(dataDir, STATE_FILE);
   const result = await readJsonFile(statePath, parseServiceState);
   if (result.status === "ok") {
     return result.value.schemaVersion;
@@ -4070,10 +4070,10 @@ async function readOrCreateSchemaVersion(dataDir) {
   return SERVICE_SCHEMA_VERSION;
 }
 function resolveStorePath(dataDir, relativePath) {
-  if (relativePath === "" || isAbsolute(relativePath) || relativePath.includes("..")) {
+  if (relativePath === "" || path.isAbsolute(relativePath) || relativePath.includes("..")) {
     throw new Error(`store path must be a relative path inside the data directory: ${relativePath}`);
   }
-  return resolve2(dataDir, relativePath);
+  return path.resolve(dataDir, relativePath);
 }
 async function listStoreDir(dataDir, relativePath) {
   const target = resolveStorePath(dataDir, relativePath);
@@ -9457,8 +9457,8 @@ var STATUS_FORBIDDEN2 = 403;
 var STATUS_TOO_MANY_REQUESTS2 = 429;
 var MAX_LIST_PAGES = 2;
 var systemSleep = async (milliseconds) => {
-  await new Promise((resolve3) => {
-    setTimeout(resolve3, milliseconds);
+  await new Promise((resolve2) => {
+    setTimeout(resolve2, milliseconds);
   });
 };
 function pollerRuntime(deps, fetchImpl) {
@@ -9922,14 +9922,14 @@ async function adoptStoredLogLevel(store, log) {
   }
 }
 function listen(server, port) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve2, reject) => {
     const onError = (error) => {
       reject(error);
     };
     server.once("error", onError);
     server.listen(port, LOOPBACK_HOST, () => {
       server.removeListener("error", onError);
-      resolve3();
+      resolve2();
     });
   });
 }
@@ -9941,8 +9941,8 @@ function boundPort(server) {
   return address.port;
 }
 function sleep(milliseconds) {
-  return new Promise((resolve3) => {
-    setTimeout(resolve3, milliseconds);
+  return new Promise((resolve2) => {
+    setTimeout(resolve2, milliseconds);
   });
 }
 async function waitForDrain(state, timeoutMs) {
@@ -9953,9 +9953,9 @@ async function waitForDrain(state, timeoutMs) {
 }
 async function withTimeout(promise, timeoutMs) {
   let timer;
-  const deadline = new Promise((resolve3) => {
+  const deadline = new Promise((resolve2) => {
     timer = setTimeout(() => {
-      resolve3();
+      resolve2();
     }, timeoutMs);
   });
   await Promise.race([promise, deadline]);
@@ -9968,9 +9968,9 @@ async function performShutdown(input) {
   polling.beginShutdown();
   poll?.stop();
   sweep?.stop();
-  const closed = new Promise((resolve3) => {
+  const closed = new Promise((resolve2) => {
     server.close(() => {
-      resolve3();
+      resolve2();
     });
   });
   await waitForDrain(state, DRAIN_TIMEOUT_MS);
@@ -10074,7 +10074,7 @@ async function startService(options) {
 var FORCE_EXIT_MS = 5000;
 function isEntryPoint() {
   const entry = process.argv[1];
-  return entry !== undefined && resolve3(entry) === fileURLToPath(import.meta.url);
+  return entry !== undefined && resolve2(entry) === fileURLToPath(import.meta.url);
 }
 function scheduleForceExit(log) {
   const watchdog = setTimeout(() => {
