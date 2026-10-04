@@ -137,8 +137,8 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, string | 
         // **read** side too.
         const recorded = entry.details.promptFingerprint;
         const fingerprint =
-            entry.details.promptPresent === true &&
             typeof recorded === 'string' &&
+            entry.details.promptPresent === true &&
             PROMPT_FINGERPRINT_PATTERN.test(recorded)
                 ? recorded
                 : null;
@@ -304,7 +304,8 @@ export async function recordAccountPromptChanges(input: AccountPromptObservation
         rows += await recordOneChange({ input, account, snapshot, current, previous });
     }
 
-    for (const numericUserId of input.absent ?? []) {
+    const absent = input.absent ?? [];
+    for (const numericUserId of absent) {
         state.baseline.delete(numericUserId);
     }
 

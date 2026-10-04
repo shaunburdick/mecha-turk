@@ -205,7 +205,7 @@ function readIdentity(text: string): GitHubIdentity | null {
     }
 
     const { id, login } = parsed.value;
-    if (typeof id !== 'number' || !Number.isSafeInteger(id) || typeof login !== 'string' || login === '') {
+    if (typeof login !== 'string' || typeof id !== 'number' || !Number.isSafeInteger(id) || login === '') {
         return null;
     }
 

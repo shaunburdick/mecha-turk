@@ -14,7 +14,7 @@
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import type { Dirent } from 'node:fs';
-import { dirname, join } from 'node:path';
+import path from 'node:path';
 import { parseJsonText } from '../json.ts';
 import { DATA_FILE_MODE, ensureDir } from './dir.ts';
 import { StorageUnavailableError } from './errors.ts';
@@ -63,9 +63,9 @@ interface QuarantinedOutcome {
  *   rename race and the evidence sits under that reader's name instead.
  */
 export type JsonReadResult<T> =
+    | QuarantinedOutcome
     | { readonly status: 'ok'; readonly value: T }
-    | { readonly status: 'absent' }
-    | QuarantinedOutcome;
+    | { readonly status: 'absent' };
 
 /**
  * Write text to a fresh file and flush it to disk before it is renamed.
@@ -142,7 +142,7 @@ export async function writeJsonAtomic(filePath: string, value: unknown): Promise
     const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID()}`;
     // `ensureDir` chmods after mkdir so `0700` survives a permissive umask,
     // the same guarantee the store directory itself gets at startup (SEC-13).
-    await ensureDir(dirname(filePath));
+    await ensureDir(path.dirname(filePath));
     try {
         await writeSyncedTempFile(tempPath, text);
         await fs.rename(tempPath, filePath);
@@ -179,7 +179,7 @@ export function isTempDebris(name: string): boolean {
  * @param depth - Remaining recursion depth.
  * @returns How many debris files were removed (removal is best-effort).
  */
-export async function sweepTempDebris(dirPath: string, depth = SWEEP_MAX_DEPTH): Promise<number> {
+export async function sweepTempDebris(dirPath: string, depth: number = SWEEP_MAX_DEPTH): Promise<number> {
     if (depth < 0) {
         return 0;
     }
@@ -195,7 +195,7 @@ export async function sweepTempDebris(dirPath: string, depth = SWEEP_MAX_DEPTH):
 
     let removed = 0;
     for (const entry of entries) {
-        const target = join(dirPath, entry.name);
+        const target = path.join(dirPath, entry.name);
         if (entry.isDirectory()) {
             removed += await sweepTempDebris(target, depth - 1);
         } else if (entry.isFile() && isTempDebris(entry.name)) {

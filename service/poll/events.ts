@@ -42,7 +42,7 @@
  * T-016 replaces that projection.
  */
 
-import { basename, join } from 'node:path';
+import path from 'node:path';
 import { newCorrelationId, nowIso } from '../../src/ids.ts';
 import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
@@ -160,11 +160,11 @@ const recoveredQuarantines = new WeakMap<ServiceStore, Set<string>>();
 function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boolean {
     const handled = recoveredQuarantines.get(store) ?? new Set<string>();
     recoveredQuarantines.set(store, handled);
-    if (handled.has(basename(quarantinePath))) {
+    if (handled.has(path.basename(quarantinePath))) {
         return false;
     }
 
-    handled.add(basename(quarantinePath));
+    handled.add(path.basename(quarantinePath));
 
     return true;
 }
@@ -299,7 +299,7 @@ async function recoverFromEvidence(input: {
     const entries = await input.store.listDir('.');
     for (const entry of entries) {
         if (entry.startsWith(QUARANTINE_EVIDENCE_PREFIX)) {
-            await recoverQuarantinedQueue({ ...input, quarantinePath: join(input.store.dataDir, entry) });
+            await recoverQuarantinedQueue({ ...input, quarantinePath: path.join(input.store.dataDir, entry) });
         }
     }
 }
@@ -406,9 +406,10 @@ async function enqueueWithinChain(input: {
         return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
     });
     const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
+    const persistedIds = new Set(persistedRuns.runs.map((run) => run.correlationId));
     await input.store.writeJson(
         EVENTS_FILE,
-        serializedQueue([...existing, ...appended], new Set(persistedRuns.runs.map((run) => run.correlationId))),
+        serializedQueue([...existing, ...appended], persistedIds),
     );
     // Creation audits are backed by intents in runs.json; draining after both
     // durable state writes closes the crash window without changing audit row

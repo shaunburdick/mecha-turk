@@ -58,13 +58,13 @@ export type { ListPace, PollFailure, PollerDeps };
 const NEWEST_UPDATED_FIRST = { sort: 'updated', direction: 'desc' } as const;
 
 /** Outcome of one issues-list call (classified at the boundary, like `verify`). */
-export type IssueListOutcome = { readonly kind: 'ok'; readonly issues: readonly PollIssue[] } | PollFailure;
+export type IssueListOutcome = PollFailure | { readonly kind: 'ok'; readonly issues: readonly PollIssue[] };
 
 /** Outcome of one issue-comments-list call. */
-export type CommentListOutcome = { readonly kind: 'ok'; readonly comments: readonly PollComment[] } | PollFailure;
+export type CommentListOutcome = PollFailure | { readonly kind: 'ok'; readonly comments: readonly PollComment[] };
 
 /** Outcome of one pulls-list call. */
-export type PullListOutcome = { readonly kind: 'ok'; readonly pulls: readonly PollPull[] } | PollFailure;
+export type PullListOutcome = PollFailure | { readonly kind: 'ok'; readonly pulls: readonly PollPull[] };
 
 /** Credential, repository, and the `since` window a windowed list takes. */
 interface WindowedListQuery {

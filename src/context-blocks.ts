@@ -70,7 +70,7 @@ export interface ContextBlock {
  * @returns The marker with its hyphens substituted, so it can no longer match.
  */
 function elideMarker(marker: string): string {
-    return marker.replaceAll('-', DEFUSED_HYPHEN);
+    return marker.replaceAll('-', () => DEFUSED_HYPHEN);
 }
 
 /**
@@ -88,8 +88,8 @@ function elideMarker(marker: string): string {
  */
 export function defuseDelimiters(text: string): string {
     return text
-        .replaceAll(BEGIN_UNTRUSTED, elideMarker(BEGIN_UNTRUSTED))
-        .replaceAll(END_UNTRUSTED, elideMarker(END_UNTRUSTED));
+        .replaceAll(BEGIN_UNTRUSTED, () => elideMarker(BEGIN_UNTRUSTED))
+        .replaceAll(END_UNTRUSTED, () => elideMarker(END_UNTRUSTED));
 }
 
 /**

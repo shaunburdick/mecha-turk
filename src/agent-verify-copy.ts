@@ -104,13 +104,14 @@ function observationFailureNotice(result: ObservationFailure): PanelStatus {
 export function verificationNotice(result: AgentVerification): PanelStatus {
     const expected = `expected '${result.expected}'`;
     switch (result.status) {
-        case 'match':
+        case 'match': {
             return {
                 tone: 'success',
                 title: 'Session agent verified',
                 body: `The dispatched session runs on '${result.agent}' (${expected}).`,
             };
-        case 'mismatch':
+        }
+        case 'mismatch': {
             return {
                 tone: 'warning',
                 title: 'Session agent mismatch',
@@ -118,11 +119,14 @@ export function verificationNotice(result: AgentVerification): PanelStatus {
                     ? `Dispatched, but the session reported no agent (${expected}). ${KEEP_RUNNING}`
                     : `Dispatched, but the session agent was '${result.agent}' (${expected}). ${KEEP_RUNNING}`,
             };
-        case 'uncompared':
+        }
+        case 'uncompared': {
             return uncomparedNotice(result);
+        }
         case 'timeout':
-        case 'unavailable':
+        case 'unavailable': {
             return observationFailureNotice(result);
+        }
     }
 }
 
@@ -134,24 +138,28 @@ export function verificationNotice(result: AgentVerification): PanelStatus {
  */
 export function readBackNote(result: AgentVerification): string | null {
     switch (result.status) {
-        case 'match':
+        case 'match': {
             return null;
-        case 'mismatch':
+        }
+        case 'mismatch': {
             return result.agent === null
                 ? 'the session reported no agent'
                 : `observed ${result.agent} differs from the baseline`;
-        case 'uncompared':
+        }
+        case 'uncompared': {
             // The absence is the evidence: the service stores this beside an
             // empty `expectedAgent`, so the row reads as *not compared*.
             return result.agent === null
                 ? 'the session reported no agent, and no baseline is configured'
                 : 'no baseline is configured, so nothing was compared';
+        }
         case 'timeout': {
             const seconds = Math.floor(result.timeoutMs / MS_PER_SECOND);
 
             return `the agent was not readable within ${seconds}s`;
         }
-        case 'unavailable':
+        case 'unavailable': {
             return `the session could not be opened: ${redact(result.problem)}`;
+        }
     }
 }

@@ -112,7 +112,9 @@ export function redact(text: string): string {
     for (const { label, pattern } of SECRET_PATTERNS) {
         // `replaceAll` requires a global pattern, so an accidental non-global
         // pattern fails loudly here instead of silently replacing one match.
-        result = result.replaceAll(pattern, `[redacted:${label}]`);
+        // The replacer is a function so a label holding `$&` would insert
+        // itself literally instead of re-reading the match it replaced.
+        result = result.replaceAll(pattern, () => `[redacted:${label}]`);
     }
 
     return result;

@@ -114,6 +114,18 @@ export default [
             // tests/bindings-gate-serialization.test.ts, which spells its latch
             // helper for exactly this reason.
             'unicorn/prefer-promise-with-resolvers': 'off',
+            // One finding, in `scheduleForceExit` in the service entrypoint:
+            // an unref'd watchdog that calls `process.exit(exitCode)` once a
+            // graceful shutdown has run long enough. The rule's premise is that
+            // this belongs in a CLI app and not a library, and `service/main.ts`
+            // is the app OpenChamber spawns, not a library anything imports.
+            // There is no local alternative that keeps the guarantee: the
+            // watchdog exists precisely because some handle is holding the
+            // event loop open, and the module does not know which one, so it
+            // cannot close it by name. Setting `exitCode` and returning is
+            // exactly what the graceful path already did, and the watchdog is
+            // scheduled because that path is not what happened.
+            'unicorn/no-process-exit': 'off',
         },
     },
 ];

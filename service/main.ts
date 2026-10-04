@@ -22,7 +22,7 @@
  * unref'd and both stop on shutdown.
  */
 
-import { resolve } from 'node:path';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readServiceEnv } from './env.ts';
 import { createLogger, describeError } from './log.ts';
@@ -43,7 +43,7 @@ const FORCE_EXIT_MS = 5_000;
 function isEntryPoint(): boolean {
     const entry = process.argv[1];
 
-    return entry !== undefined && resolve(entry) === fileURLToPath(import.meta.url);
+    return entry !== undefined && path.resolve(entry) === fileURLToPath(import.meta.url);
 }
 
 /**

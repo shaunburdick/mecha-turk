@@ -85,7 +85,7 @@ export type PollFailure =
  * What a paged read answers with before the public method renames its
  * payload: the normalized items, or the classified failure.
  */
-export type PagedList<T> = { readonly kind: 'ok'; readonly items: readonly T[] } | PollFailure;
+export type PagedList<T> = PollFailure | { readonly kind: 'ok'; readonly items: readonly T[] };
 
 /**
  * The poller's own injectables: where waits are reported, slept, and
@@ -303,7 +303,7 @@ async function requestPage(input: {
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
         let response: Response;
         try {
-            response = await input.runtime.fetchImpl(input.url.toString(), {
+            response = await input.runtime.fetchImpl(input.url.href, {
                 method: 'GET',
                 headers: requestHeaders(input.token),
                 signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),

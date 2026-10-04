@@ -1,5 +1,5 @@
 // service/main.ts
-import { resolve as resolve2 } from "node:path";
+import path6 from "node:path";
 import { fileURLToPath } from "node:url";
 
 // service/env.ts
@@ -49,7 +49,7 @@ function findSecretLeak(text) {
 function redact(text) {
   let result = text;
   for (const { label, pattern } of SECRET_PATTERNS) {
-    result = result.replaceAll(pattern, `[redacted:${label}]`);
+    result = result.replaceAll(pattern, () => `[redacted:${label}]`);
   }
   return result;
 }
@@ -539,7 +539,7 @@ async function seedBaseline(store, baseline) {
     }
     const { id: numericUserId } = entry.entity;
     const recorded = entry.details.promptFingerprint;
-    const fingerprint = entry.details.promptPresent === true && typeof recorded === "string" && PROMPT_FINGERPRINT_PATTERN.test(recorded) ? recorded : null;
+    const fingerprint = typeof recorded === "string" && entry.details.promptPresent === true && PROMPT_FINGERPRINT_PATTERN.test(recorded) ? recorded : null;
     const prior = highest.get(numericUserId);
     if (prior === undefined || entry.seq > prior.seq) {
       highest.set(numericUserId, { seq: entry.seq, fingerprint });
@@ -620,7 +620,8 @@ async function recordAccountPromptChanges(input) {
     }
     rows += await recordOneChange({ input, account, snapshot, current, previous });
   }
-  for (const numericUserId of input.absent ?? []) {
+  const absent = input.absent ?? [];
+  for (const numericUserId of absent) {
     state.baseline.delete(numericUserId);
   }
   if (input.complete === true) {
@@ -1368,7 +1369,7 @@ function readIdentity(text) {
     return null;
   }
   const { id, login } = parsed.value;
-  if (typeof id !== "number" || !Number.isSafeInteger(id) || typeof login !== "string" || login === "") {
+  if (typeof login !== "string" || typeof id !== "number" || !Number.isSafeInteger(id) || login === "") {
     return null;
   }
   return { numericUserId: String(id), login };
@@ -1745,7 +1746,7 @@ async function trimAudit(input) {
 }
 
 // service/poll/events.ts
-import { basename, join } from "node:path";
+import path from "node:path";
 
 // service/poll/attribution.ts
 var AUTHOR_LOGIN_MAX_CHARS = 60;
@@ -3555,10 +3556,10 @@ var recoveredQuarantines = new WeakMap;
 function claimQuarantinePass(store, quarantinePath) {
   const handled = recoveredQuarantines.get(store) ?? new Set;
   recoveredQuarantines.set(store, handled);
-  if (handled.has(basename(quarantinePath))) {
+  if (handled.has(path.basename(quarantinePath))) {
     return false;
   }
-  handled.add(basename(quarantinePath));
+  handled.add(path.basename(quarantinePath));
   return true;
 }
 async function resetScanWindows(input) {
@@ -3607,7 +3608,7 @@ async function recoverFromEvidence(input) {
   const entries = await input.store.listDir(".");
   for (const entry of entries) {
     if (entry.startsWith(QUARANTINE_EVIDENCE_PREFIX)) {
-      await recoverQuarantinedQueue({ ...input, quarantinePath: join(input.store.dataDir, entry) });
+      await recoverQuarantinedQueue({ ...input, quarantinePath: path.join(input.store.dataDir, entry) });
     }
   }
 }
@@ -3661,7 +3662,8 @@ async function enqueueWithinChain(input) {
     return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
   });
   const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
-  await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended], new Set(persistedRuns.runs.map((run) => run.correlationId))));
+  const persistedIds = new Set(persistedRuns.runs.map((run) => run.correlationId));
+  await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended], persistedIds));
   await readRunsDocument(input);
   await recordEnqueueAudits({ ...input, outcome, appended });
   return appended;
@@ -3850,11 +3852,11 @@ async function readJsonBody(request) {
 
 // service/store/index.ts
 import { promises as fs5 } from "node:fs";
-import path from "node:path";
+import path5 from "node:path";
 
 // service/store/dir.ts
 import { promises as fs } from "node:fs";
-import { resolve } from "node:path";
+import path2 from "node:path";
 var DATA_DIR_MODE = 448;
 var DATA_FILE_MODE = 384;
 var STORE_RELATIVE_PATH = ".config/openchamber/mecha-turk";
@@ -3863,7 +3865,7 @@ function resolveDataDir(env) {
   if (home === undefined || home === "") {
     throw new StorageUnavailableError("HOME is not set; the Mecha Turk data directory cannot be located");
   }
-  return resolve(home, STORE_RELATIVE_PATH);
+  return path2.resolve(home, STORE_RELATIVE_PATH);
 }
 async function ensureDir(dirPath) {
   try {
@@ -3877,7 +3879,7 @@ async function ensureDir(dirPath) {
 // service/store/json.ts
 import { randomUUID } from "node:crypto";
 import { promises as fs3 } from "node:fs";
-import { dirname, join as join2 } from "node:path";
+import path3 from "node:path";
 
 // service/store/files.ts
 import { promises as fs2 } from "node:fs";
@@ -3931,7 +3933,7 @@ async function writeJsonAtomic(filePath, value) {
   const text = `${JSON.stringify(value, null, JSON_INDENT)}
 `;
   const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID()}`;
-  await ensureDir(dirname(filePath));
+  await ensureDir(path3.dirname(filePath));
   try {
     await writeSyncedTempFile(tempPath, text);
     await fs3.rename(tempPath, filePath);
@@ -3957,7 +3959,7 @@ async function sweepTempDebris(dirPath, depth = SWEEP_MAX_DEPTH) {
   }
   let removed = 0;
   for (const entry of entries) {
-    const target = join2(dirPath, entry.name);
+    const target = path3.join(dirPath, entry.name);
     if (entry.isDirectory()) {
       removed += await sweepTempDebris(target, depth - 1);
     } else if (entry.isFile() && isTempDebris(entry.name)) {
@@ -3986,12 +3988,12 @@ async function readJsonFile(filePath, validate) {
 // service/store/ndjson.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
 import { promises as fs4 } from "node:fs";
-import { dirname as dirname2 } from "node:path";
+import path4 from "node:path";
 async function appendJsonLine(filePath, entry) {
   const line = `${JSON.stringify(entry)}
 `;
   try {
-    await fs4.mkdir(dirname2(filePath), { recursive: true, mode: DATA_DIR_MODE });
+    await fs4.mkdir(path4.dirname(filePath), { recursive: true, mode: DATA_DIR_MODE });
     const handle = await fs4.open(filePath, "a", DATA_FILE_MODE);
     try {
       await handle.writeFile(line, "utf8");
@@ -4010,7 +4012,7 @@ async function writeJsonLinesAtomic(filePath, entries) {
   const text = entries.map((entry) => `${JSON.stringify(entry)}
 `).join("");
   const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID2()}`;
-  await ensureDir(dirname2(filePath));
+  await ensureDir(path4.dirname(filePath));
   try {
     await writeSyncedTempFile(tempPath, text);
     await fs4.rename(tempPath, filePath);
@@ -4058,7 +4060,7 @@ function parseServiceState(raw) {
   return { schemaVersion: version, initializedAt };
 }
 async function readOrCreateSchemaVersion(dataDir) {
-  const statePath = path.resolve(dataDir, STATE_FILE);
+  const statePath = path5.resolve(dataDir, STATE_FILE);
   const result = await readJsonFile(statePath, parseServiceState);
   if (result.status === "ok") {
     return result.value.schemaVersion;
@@ -4068,10 +4070,10 @@ async function readOrCreateSchemaVersion(dataDir) {
   return SERVICE_SCHEMA_VERSION;
 }
 function resolveStorePath(dataDir, relativePath) {
-  if (relativePath === "" || path.isAbsolute(relativePath) || relativePath.includes("..")) {
+  if (relativePath === "" || path5.isAbsolute(relativePath) || relativePath.includes("..")) {
     throw new Error(`store path must be a relative path inside the data directory: ${relativePath}`);
   }
-  return path.resolve(dataDir, relativePath);
+  return path5.resolve(dataDir, relativePath);
 }
 async function listStoreDir(dataDir, relativePath) {
   const target = resolveStorePath(dataDir, relativePath);
@@ -9459,8 +9461,8 @@ var STATUS_FORBIDDEN2 = 403;
 var STATUS_TOO_MANY_REQUESTS2 = 429;
 var MAX_LIST_PAGES = 2;
 var systemSleep = async (milliseconds) => {
-  await new Promise((resolve2) => {
-    setTimeout(resolve2, milliseconds);
+  await new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
   });
 };
 function pollerRuntime(deps, fetchImpl) {
@@ -9526,7 +9528,7 @@ async function requestPage(input) {
   for (let attempt = 1;attempt <= attempts; attempt += 1) {
     let response;
     try {
-      response = await input.runtime.fetchImpl(input.url.toString(), {
+      response = await input.runtime.fetchImpl(input.url.href, {
         method: "GET",
         headers: requestHeaders(input.token),
         signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
@@ -9926,14 +9928,14 @@ async function adoptStoredLogLevel(store, log) {
   }
 }
 function listen(server, port) {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve, reject) => {
     const onError = (error) => {
       reject(error);
     };
     server.once("error", onError);
     server.listen(port, LOOPBACK_HOST, () => {
       server.removeListener("error", onError);
-      resolve2();
+      resolve();
     });
   });
 }
@@ -9945,8 +9947,8 @@ function boundPort(server) {
   return address.port;
 }
 function sleep(milliseconds) {
-  return new Promise((resolve2) => {
-    setTimeout(resolve2, milliseconds);
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
   });
 }
 async function waitForDrain(state, timeoutMs) {
@@ -9957,9 +9959,9 @@ async function waitForDrain(state, timeoutMs) {
 }
 async function withTimeout(promise, timeoutMs) {
   let timer;
-  const deadline = new Promise((resolve2) => {
+  const deadline = new Promise((resolve) => {
     timer = setTimeout(() => {
-      resolve2();
+      resolve();
     }, timeoutMs);
   });
   await Promise.race([promise, deadline]);
@@ -9972,9 +9974,9 @@ async function performShutdown(input) {
   polling.beginShutdown();
   poll?.stop();
   sweep?.stop();
-  const closed = new Promise((resolve2) => {
+  const closed = new Promise((resolve) => {
     server.close(() => {
-      resolve2();
+      resolve();
     });
   });
   await waitForDrain(state, DRAIN_TIMEOUT_MS);
@@ -10078,7 +10080,7 @@ async function startService(options) {
 var FORCE_EXIT_MS = 5000;
 function isEntryPoint() {
   const entry = process.argv[1];
-  return entry !== undefined && resolve2(entry) === fileURLToPath(import.meta.url);
+  return entry !== undefined && path6.resolve(entry) === fileURLToPath(import.meta.url);
 }
 function scheduleForceExit(log) {
   const watchdog = setTimeout(() => {

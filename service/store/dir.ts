@@ -15,7 +15,7 @@
  */
 
 import { promises as fs } from 'node:fs';
-import { resolve } from 'node:path';
+import path from 'node:path';
 import { StorageUnavailableError } from './errors.ts';
 
 /** Owner-only mode for the store directory. */
@@ -42,7 +42,7 @@ export function resolveDataDir(env: Readonly<Record<string, string | undefined>>
         throw new StorageUnavailableError('HOME is not set; the Mecha Turk data directory cannot be located');
     }
 
-    return resolve(home, STORE_RELATIVE_PATH);
+    return path.resolve(home, STORE_RELATIVE_PATH);
 }
 
 /**
