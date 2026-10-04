@@ -42,10 +42,10 @@ export const CONFIG_FILE = 'config.json';
  * {@link configSchema} projects it as an enum descriptor's `values`, so a
  * level added here changes the validator and the wire together.
  *
- * Exported for one reader besides the projection: 005's Settings-tab
- * cross-check (`tests/settings-rows.test.ts`) asserts the panel's row
- * declaration matches the service's own enum set, so a level added here fails
- * the build instead of printing a stale set to the operator (005 research Q1).
+ * Exported for one reader besides the projection: the Settings-tab cross-check
+ * (`tests/settings-rows.test.ts`) asserts the panel's row declaration matches
+ * the service's own enum set, so a level added here fails the build instead of
+ * printing a stale set to the operator.
  */
 export const LOG_LEVEL_VALUES = ['debug', 'info', 'warn', 'error'] as const satisfies readonly LogLevel[];
 
@@ -98,14 +98,12 @@ export interface ServiceConfig {
      * single token (never credential-shaped), trimmed on write, and **empty is
      * a first-class value**: it is the documented *no baseline configured*
      * state, in which verification records the observed agent and compares
-     * nothing (002 FR-029 as amended; 006 FR-100(b)(c) as amended
-     *). The documented default is the empty string, so a fresh store
+     * nothing. The documented default is the empty string, so a fresh store
      * starts with no baseline rather than presuming one.
      */
     readonly expectedAgent: string;
     /**
-     * The **global tier** of the layered starting prompt (004 FR-081; 006
-     * FR-010, FR-084 as amended which admits the field by name).
+     * The **global tier** of the layered starting prompt.
      *
      * The service serves it through the document `GET /v1/config` already
      * returns and refuses it through the single validator every tier shares:
@@ -113,15 +111,13 @@ export interface ServiceConfig {
      * {@link startingPromptIssue}, whose only rule is
      * {@link validateStartingPrompt}, so a whole-document `PUT` answers the
      * same additive `422` — `field: 'startingPrompt'`, a remediation, and
-     * **never a character of the submission** — as any other field (006
-     * FR-040, FR-041).
+     * **never a character of the submission** — as any other field.
      *
      * The **empty string is the documented default and means *unset***: an
      * operator who has not chosen a global instruction has none, and the
      * stored read fills a document predating the member with that blank
      * rather than quarantining it, reporting the fill in `defaultsApplied` as
-     * a default, never as a configured value (004 FR-081's no-migration
-     * posture; 006 FR-028).
+     * a default, never as a configured value.
      */
     readonly startingPrompt: string;
 }
@@ -149,10 +145,10 @@ export interface NumericBounds {
 /**
  * Bounds for every numeric field; the validation messages read from here.
  *
- * Exported for one reader only: 005's Settings-tab cross-check
+ * Exported for one reader only: the Settings-tab cross-check
  * (`tests/settings-rows.test.ts`) pins the panel's row declaration to these
  * bounds and units, so a bound changed here fails the build instead of
- * printing a stale number to the operator (005 research Q1).
+ * printing a stale number to the operator.
  */
 export const NUMERIC_BOUNDS = {
     intervalMs: { min: 15_000, max: 300_000, unit: 'milliseconds' },
@@ -176,14 +172,13 @@ const NUMERIC_FIELDS = Object.keys(NUMERIC_BOUNDS) as readonly NumericField[];
 
 /** The configuration a fresh store starts with. */
 export const DEFAULT_CONFIG: ServiceConfig = {
-    // First member: 004's global prompt tier, by product-owner ruling on PR
-    // #12 ("move it to the top of the list"). This key order *is* the
-    // declaration order — `parseStoredConfig` reports fills in it, and
-    // `configSchema()` and `collectIssues` both mirror it.
+    // First member: the global prompt tier, by product-owner ruling ("move it to
+    // the top of the list"). This key order *is* the declaration order —
+    // `parseStoredConfig` reports fills in it, and `configSchema()` and
+    // `collectIssues` both mirror it.
     // Blank, not a placeholder: empty **is** the documented *unset* state of
-    // the global prompt tier, and a document written before the
-    // field existed is filled with exactly this value (FR-018's no-migration
-    // rule), never with invented instruction text.
+    // the global prompt tier, and a document written before the field existed
+    // is filled with exactly this value, never with invented instruction text.
     startingPrompt: '',
     intervalMs: 60_000,
     overlapMs: 600_000,
@@ -198,15 +193,13 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     resultDeadlineMs: 120_000,
     logLevel: 'info',
     // Blank, not a name: the documented default is *no baseline configured*
-    // (006 FR-100(b) as amended — "not everyone is going to use
-    // project-manager").
+    // — "not everyone is going to use project-manager".
     expectedAgent: '',
 };
 
 /**
  * Narrow a value to a supported log level.
  *
- * @param value - Candidate value.
  * @returns `true` for `debug`, `info`, `warn`, or `error`.
  */
 function isLogLevel(value: unknown): value is LogLevel {
@@ -216,8 +209,6 @@ function isLogLevel(value: unknown): value is LogLevel {
 /**
  * Check one numeric field against its bounds.
  *
- * @param raw - Candidate document.
- * @param field - Field to check.
  * @returns Zero or one issue; an out-of-bounds, fractional, or missing value
  *   all produce the same actionable remediation.
  */
@@ -239,7 +230,6 @@ function numericIssue(raw: Record<string, unknown>, field: NumericField): readon
 /**
  * Check the one relationship that spans two fields.
  *
- * @param raw - Candidate document.
  * @returns An issue when the retry ceiling sits below the retry base.
  */
 function retryOrderIssue(raw: Record<string, unknown>): readonly ConfigIssue[] {
@@ -264,7 +254,6 @@ function retryOrderIssue(raw: Record<string, unknown>): readonly ConfigIssue[] {
  * secret-shaped key (a pasted token used as a field name, say) is replaced
  * with `<withheld>` so a 422 can never become a token-reflection oracle.
  *
- * @param key - Unknown key from the request body.
  * @returns The issue describing the removal.
  */
 function unknownFieldIssue(key: string): ConfigIssue {
@@ -285,10 +274,9 @@ function unknownFieldIssue(key: string): ConfigIssue {
  * Recognise a defined configuration field.
  *
  * The documented field set *is* the default document's key set, so a field
- * cannot be declared in one place and forgotten here (006 FR-020: one
- * declaration, read twice).
+ * cannot be declared in one place and forgotten here: one declaration, read
+ * twice.
  *
- * @param key - Key from the request body.
  * @returns `true` for any key {@link DEFAULT_CONFIG} carries.
  */
 function isKnownField(key: string): boolean {
@@ -298,15 +286,13 @@ function isKnownField(key: string): boolean {
 /**
  * Collect every problem with a candidate document in one pass.
  *
- * @param raw - Candidate document, already known to be an object.
  * @returns All issues, in field order followed by unknown keys.
  */
 function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
     const issues: ConfigIssue[] = [];
     // First, mirroring `DEFAULT_CONFIG`'s own key order, so this list stays
-    // the order the schema projection pushes its descriptors in (006 AC-107;
-    // product-owner ruling, PR #12, which moved the prompt row to the top).
-    // No numeric validator moved: the bounds loop below is untouched.
+    // the order the schema projection pushes its descriptors in. No numeric
+    // validator moved: the bounds loop below is untouched.
     issues.push(...startingPromptIssue(raw.startingPrompt));
     for (const field of NUMERIC_FIELDS) {
         issues.push(...numericIssue(raw, field));
@@ -333,10 +319,8 @@ function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
 /**
  * Read one validated numeric field.
  *
- * @param raw - Document that already passed {@link validateConfig}.
- * @param field - Field to read.
  * @returns The stored value.
- * @throws {Error} When the value is missing — unreachable: validation runs
+ * @throws {TypeError} When the value is missing — unreachable: validation runs
  *   first, and this guard exists so a future refactor cannot build a config
  *   from an unchecked document.
  */
@@ -352,7 +336,6 @@ function readNumber(raw: Record<string, unknown>, field: NumericField): number {
 /**
  * Read the validated log level.
  *
- * @param raw - Document that already passed {@link validateConfig}.
  * @returns The stored level.
  * @throws {Error} When the value is missing; see {@link readNumber}.
  */
@@ -369,10 +352,8 @@ function readLogLevel(raw: Record<string, unknown>): LogLevel {
  * Read the validated agent name.
  *
  * The stored value is the **trimmed** one, so a save/load round trip is
- * stable and the audit `from`/`to` pair records the value as it stands
- * (006 data-model §1.3).
+ * stable and the audit `from`/`to` pair records the value as it stands.
  *
- * @param raw - Document that already passed {@link validateConfig}.
  * @returns The stored baseline.
  * @throws {Error} When the value is missing; see {@link readNumber}.
  */
@@ -390,13 +371,12 @@ function readExpectedAgent(raw: Record<string, unknown>): string {
  *
  * The stored value is the **normalised** text the validator produced — outer
  * trim and line-ending normalisation applied — so a save/load round trip is
- * stable, exactly like `expectedAgent`'s trimmed value (006 data-model §1.3),
- * and *unset* is stored as the empty string the document declares as its
- * default. The validator is re-run rather than a second trimming
- * rule being written here: one rule set at three save boundaries
- * means the read cannot disagree with the write about what the text is.
+ * stable, exactly like `expectedAgent`'s trimmed value, and *unset* is stored as
+ * the empty string the document declares as its default. The validator is
+ * re-run rather than a second trimming rule being written here: one rule set at
+ * three save boundaries means the read cannot disagree with the write about
+ * what the text is.
  *
- * @param raw - Document that already passed {@link validateConfig}.
  * @returns The stored text, `''` when the tier is unset.
  * @throws {Error} When the value is unusable; see {@link readNumber}.
  */
@@ -412,7 +392,6 @@ function readStartingPrompt(raw: Record<string, unknown>): string {
 /**
  * Assemble the typed configuration once every field has been checked.
  *
- * @param raw - Document that produced no issues.
  * @returns The validated configuration.
  */
 function buildConfig(raw: Record<string, unknown>): ServiceConfig {
@@ -437,7 +416,6 @@ function buildConfig(raw: Record<string, unknown>): ServiceConfig {
 /**
  * Validate a candidate configuration document.
  *
- * @param raw - Parsed request body or stored document.
  * @returns The typed config, or every issue found (never just the first).
  */
 export function validateConfig(raw: unknown): ConfigValidation {
@@ -487,14 +465,12 @@ export interface ConfigRead {
  * build must not be treated that way: a missing **documented** key is filled
  * from {@link DEFAULT_CONFIG} and reported, so schema evolution never costs an
  * operator their other values — while an unknown key, a bad value, or a
- * non-object still quarantines exactly as before (006 FR-100(b), data-model §2;
- * 003 T-008's shared upgrade path).
+ * non-object still quarantines exactly as before.
  *
  * The write path is deliberately stricter: `PUT` stays a full replacement, so
  * a body missing a field is a refusal with a remediation, never a silent
  * default.
  *
- * @param raw - Parsed stored document.
  * @returns The typed config plus the keys this read filled, or `null` to
  *   trigger quarantine.
  */
@@ -522,10 +498,8 @@ export function parseStoredConfig(raw: unknown): StoredConfigRead | null {
  *
  * The three answers the contract's `source` member distinguishes come out of
  * the read itself, so the quarantine fact reaches the panel without a second
- * read (006 contract §3).
+ * read.
  *
- * @param result - Outcome of reading `config.json`.
- * @param log - Logger used when a stored document had to be set aside.
  * @returns The effective document, where it came from, and which documented
  *   keys this read filled (always `[]` unless `source` is `stored`).
  */
