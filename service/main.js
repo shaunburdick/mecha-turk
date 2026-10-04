@@ -857,7 +857,7 @@ async function listAccountsUnobserved(store, log) {
       accounts.push(account);
     }
   }
-  return accounts.sort((left, right) => left.numericUserId.localeCompare(right.numericUserId));
+  return accounts.toSorted((left, right) => left.numericUserId.localeCompare(right.numericUserId));
 }
 async function listAccounts(store, log) {
   const accounts = await listAccountsUnobserved(store, log);
@@ -1708,7 +1708,7 @@ async function composeTrimRow(input) {
 }
 async function readOrderedTrail(store) {
   const trail = await readAuditTrail(store);
-  return { entries: [...trail.entries].sort((left, right) => left.seq - right.seq), malformed: trail.malformed };
+  return { entries: [...trail.entries].toSorted((left, right) => left.seq - right.seq), malformed: trail.malformed };
 }
 async function readForPass(input) {
   const trail = await readOrderedTrail(input.store);
@@ -4959,7 +4959,7 @@ function recordedValue(field, value) {
   return configPromptFingerprint(typeof value === "string" ? value : null);
 }
 function configChanges(previous, next) {
-  const fields = Object.keys(DEFAULT_CONFIG).filter((field) => previous[field] !== next[field]).sort((left, right) => left.localeCompare(right));
+  const fields = Object.keys(DEFAULT_CONFIG).filter((field) => previous[field] !== next[field]).toSorted((left, right) => left.localeCompare(right));
   return fields.map((field) => ({
     field,
     from: recordedValue(field, previous[field]),
@@ -6166,7 +6166,7 @@ function historyRowOf(input) {
 }
 function projectRunHistory(input) {
   const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries }));
-  return rows.sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt)).slice(0, input.cap);
+  return rows.toSorted((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt)).slice(0, input.cap);
 }
 
 // service/routes/events-page.ts
@@ -6377,7 +6377,7 @@ async function projectHistory(context, store) {
     runs: document.runs,
     deliveries: new Map(queue.map((event) => [event.id, event])),
     cap: document.runs.length
-  }).sort(newestFirst);
+  }).toSorted(newestFirst);
 }
 async function handleEventHistory(context, request) {
   const { store } = context;

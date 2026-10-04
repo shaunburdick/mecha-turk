@@ -588,7 +588,7 @@ describe('T-030 the shipped store boots through the upgraded service (NFR-103, A
             await answer({ service, path: `${EVENTS_PENDING_PATH}?holder=panel-upgrade` }),
             'events',
         );
-        expect(claimed.map((row) => row.issueNumber).sort((left, right) => Number(left) - Number(right)))
+        expect(claimed.map((row) => row.issueNumber).toSorted((left, right) => Number(left) - Number(right)))
             .toEqual([1, 2]);
         const leased = rowFor(claimed, 1);
         expect(typeof leased.attachmentId).toBe('string');

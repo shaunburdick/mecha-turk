@@ -42,6 +42,7 @@ import type { EventSnapshot } from '../service/poll/events.ts';
 import type { DispatchAttempt, Run, RunsDocument } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import type { SweepOutcome } from '../service/poll/sweep.ts';
+import { byText } from './support/sort.ts';
 
 /** Detections use this stamp; the sweep uses whatever the test injects. */
 const DETECTED_AT = '2026-09-28T12:00:00.000Z';
@@ -517,8 +518,8 @@ describe('T-009 the sweep pass itself', () => {
 
             const outcome = await sweep(ONE_HOUR_LATER);
 
-            expect(outcome.recoveries.map((recovery) => recovery.run.correlationId).sort())
-                .toEqual([first.correlationId, second.correlationId].sort());
+            expect(outcome.recoveries.map((recovery) => recovery.run.correlationId).toSorted(byText))
+                .toEqual([first.correlationId, second.correlationId].toSorted(byText));
             expect(await rowsOf(LEASE_EXPIRED)).toHaveLength(2);
         }
     });

@@ -28,6 +28,7 @@ import { repaintSettingsTab } from '../src/settings-tab.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
+import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 import { DEFAULT_BODY, DEFAULT_STATUS, createTestRuntime, fakeHost, tick } from './support/panel.ts';
@@ -310,7 +311,7 @@ describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC
             expect(writes).toHaveLength(1);
             const sent = JSON.parse(writes[0]?.body ?? '{}') as Record<string, unknown>;
             // The whole document, not a patch: every documented key went.
-            expect(Object.keys(sent).sort()).toEqual(Object.keys(DEFAULT_CONFIG).sort());
+            expect(Object.keys(sent).toSorted(byText)).toEqual(Object.keys(DEFAULT_CONFIG).toSorted(byText));
             expect(sent.intervalMs).toBe(45_000);
             // The tab now shows what the *service* said, not what was sent (AC-125).
             expect(view.rt.state.settingsTab.edit.draft.intervalMs).toBe('46000');
@@ -371,7 +372,7 @@ describe('a refusal renders the service in the service\'s words (006 T-020, AC-1
                 expect(position).toBeGreaterThanOrEqual(0);
             }
             // In the service's order, none merged into another (AC-107).
-            expect([...positions].sort((left, right) => left - right)).toEqual(positions);
+            expect([...positions].toSorted((left, right) => left - right)).toEqual(positions);
             // The problem names the configuration and never the bindings list
             // (AC-112), and the tab reports the refusal rather than a success.
             expect(view.rt.state.settingsTab.edit.saveState).toBe('refused');

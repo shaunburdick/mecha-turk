@@ -489,6 +489,6 @@ export function projectRunHistory(input: {
     const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries }));
 
     return rows
-        .sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt))
+        .toSorted((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt))
         .slice(0, input.cap);
 }

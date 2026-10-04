@@ -64,6 +64,7 @@ import type { GitHubIssuePoller, PollIssue } from '../service/poll/poller-github
 import type { PollItemEvent } from '../service/poll/poller-events.ts';
 import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { byText, byTextLoose } from './support/sort.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { scopeResults } from './support/verify.ts';
@@ -1332,15 +1333,16 @@ describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-
         // Two kinds, two rows — and the same two rows whichever policy is in
         // force. An allow-list neither splits an observation nor resurrects a
         // deduplicated one, so the second observation enqueues nothing.
-        expect(restricted.map((event) => event.id).sort()).toEqual([
+        expect(restricted.map((event) => event.id).toSorted(byText)).toEqual([
             `evt-acme~widget~12~${ACCOUNT_ID}~mention~4242`,
             `evt-acme~widget~12~${ACCOUNT_ID}~review`,
         ]);
-        expect(open.map((event) => event.id).sort()).toEqual(restricted.map((event) => event.id).sort());
+        expect(open.map((event) => event.id).toSorted(byText))
+            .toEqual(restricted.map((event) => event.id).toSorted(byText));
         // Both kinds are `direct` now that each names its own actor, and the
         // body's mention needed the issue list the cycle listed for it.
-        expect(open.map((event) => event.actorAttribution).sort()).toEqual(['direct', 'direct']);
-        expect(open.map((event) => event.actorLogin).sort()).toEqual(['alice', 'alice']);
+        expect(open.map((event) => event.actorAttribution).toSorted(byTextLoose)).toEqual(['direct', 'direct']);
+        expect(open.map((event) => event.actorLogin).toSorted(byTextLoose)).toEqual(['alice', 'alice']);
     });
 
     it('asserts buildEventId\'s docblock promise against the shipped format (FR-046, AC-104)', () => {

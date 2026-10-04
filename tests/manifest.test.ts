@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { hostMeetsOpenChamberEngine, requestedGuestCapabilities } from '@openchamber/sdk';
 import { parseManifestJson } from '@openchamber/sdk/schemas';
+import { byText } from './support/sort.ts';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
@@ -204,7 +205,7 @@ describe('service contribution', () => {
                 // diagnostic went with the install-time credential), so the only
                 // implied capability left is the one `contributes.service`
                 // carries (AGENTS invariant 3).
-                expect([...requested].sort()).toEqual(['prompt', 'service', 'sessions']);
+                expect([...requested].toSorted(byText)).toEqual(['prompt', 'service', 'sessions']);
             }
         }
         {

@@ -29,6 +29,7 @@ import { DISPATCH_STORAGE_KEY } from '../src/dispatch-record.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { Run } from '../service/poll/runs-types.ts';
+import { byText } from './support/sort.ts';
 import { NO_SESSION, SESSION_ID } from './support/panel.ts';
 import { justPast, offerFor, sessionsPerRun, startDispatchLoop } from './support/dispatch-loop.ts';
 import {
@@ -733,7 +734,7 @@ describe('SC-101: two triggers, one run, one session (AC-101)', () => {
         expect(runs.filter((run) => run.referenceCount === 2)).toHaveLength(TRIALS);
 
         const kinds = new Set(runs.flatMap((run) => run.sourceReferences.map((reference) => reference.kind)));
-        expect([...kinds].sort()).toEqual(['assignment', 'mention']);
+        expect([...kinds].toSorted(byText)).toEqual(['assignment', 'mention']);
         expectAtMostOneSessionPerRun();
     }, TRIALS_BUDGET_MS);
 });

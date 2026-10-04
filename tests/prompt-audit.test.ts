@@ -211,7 +211,7 @@ describe('T-004 recordPromptChanges: one row per change, never the text (FR-051,
             ]);
             // `seq` is monotonic: three rows, three increasing numbers.
             const seqs = trail.map((row) => row.seq);
-            expect([...seqs].sort((left, right) => left - right)).toEqual(seqs);
+            expect([...seqs].toSorted((left, right) => left - right)).toEqual(seqs);
         }
     });
 

@@ -37,6 +37,7 @@ import type { ConfigEnvelope } from '../src/settings-schema.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
+import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import { DEFAULT_BODY, DEFAULT_STATUS, createTestRuntime, fakeHost, tick } from './support/panel.ts';
 
@@ -507,7 +508,7 @@ describe('restore defaults is a two-step whole-document write (006 T-022, FR-016
 
             expect(writes(view)).toHaveLength(1);
             const sent = JSON.parse(writes(view)[0]?.body ?? '{}') as Record<string, unknown>;
-            expect(Object.keys(sent).sort()).toEqual(Object.keys(DEFAULT_CONFIG).sort());
+            expect(Object.keys(sent).toSorted(byText)).toEqual(Object.keys(DEFAULT_CONFIG).toSorted(byText));
             expect(sent.intervalMs).toBe(DEFAULT_CONFIG.intervalMs);
             expect(view.rt.state.settingsTab.edit.confirm).toBeNull();
             view.dispose();

@@ -37,6 +37,7 @@ import { descriptorFor, parseConfigEnvelope } from '../src/settings-schema.ts';
 import type { ServiceConfig } from '../service/config.ts';
 import type { FieldDescriptor } from '../service/config-schema.ts';
 import type { ServiceStatusBody } from '../service/routes/status.ts';
+import { byText } from './support/sort.ts';
 import { offlineVerifier } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
@@ -507,7 +508,7 @@ describe('GET /v1/status', () => {
             const body: ServiceStatusBody = await response.json();
 
             expect(response.status).toBe(200);
-            const sections = Object.keys(body).sort();
+            const sections = Object.keys(body).toSorted(byText);
             expect(sections).toEqual(['accounts', 'agentPin', 'polling', 'repositories', 'service', 'surface']);
             expect(body.service.status).toBe('ok');
             expect(body.service.dataDir).toBe(service.dataDir);

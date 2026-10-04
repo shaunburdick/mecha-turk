@@ -23,6 +23,7 @@ import { CONFIG_PATH } from '../service/routes/config.ts';
 import { EVENTS_PATH } from '../service/routes/events.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { ServiceLogger } from '../service/log.ts';
+import { byText } from './support/sort.ts';
 import { readRuns } from './support/dispatch-corpus.ts';
 import { startDispatchLoop } from './support/dispatch-loop.ts';
 import { BINDING_ID, REPOSITORY } from './support/fixture-enqueue.ts';
@@ -910,11 +911,11 @@ describe('004 full-cycle containment (AC-133, AC-143, AC-151, FR-053, NFR-121)',
             const holdersOf = (seeded: string): readonly string[] => surfaces
                 .filter(([, text]) => text.includes(seeded))
                 .map(([name]) => name)
-                .sort();
+                .toSorted(byText);
 
-            expect(holdersOf(GLOBAL_TIER_PROMPT)).toEqual([CONFIG_FILE, RUNS_FILE].sort());
-            expect(holdersOf(ACCOUNT_TIER_PROMPT)).toEqual([CONTAINMENT_ACCOUNT_FILE, RUNS_FILE].sort());
-            expect(holdersOf(ACCEPTED_PROMPT)).toEqual([BINDINGS_FILE, RUNS_FILE].sort());
+            expect(holdersOf(GLOBAL_TIER_PROMPT)).toEqual([CONFIG_FILE, RUNS_FILE].toSorted(byText));
+            expect(holdersOf(ACCOUNT_TIER_PROMPT)).toEqual([CONTAINMENT_ACCOUNT_FILE, RUNS_FILE].toSorted(byText));
+            expect(holdersOf(ACCEPTED_PROMPT)).toEqual([BINDINGS_FILE, RUNS_FILE].toSorted(byText));
 
             // `audit.ndjson` scanned for the seeded tier text: 0 occurrences
             // of any tier, on any row (FR-053, FR-088, AC-148, AC-151).
@@ -1018,7 +1019,7 @@ describe('T-032 the three permitted tier sites are the only sites (005 FR-051, A
                 .filter((file) => file.path.startsWith('src/'))
                 .filter((file) => file.text.includes('Starting prompt for dispatches from'))
                 .map((file) => file.path)
-                .sort();
+                .toSorted(byText);
 
             expect(labelled).toEqual(['src/accounts-rows.ts', 'src/bindings-prompt.ts']);
             const account = scanSources().find((file) => file.path === 'src/accounts-rows.ts');
@@ -1092,7 +1093,7 @@ function testModules(): readonly ScannedFile[] {
     const entries = readdirSync(resolve(ROOT, 'tests'), { recursive: true })
         .map((entry) => String(entry))
         .filter((entry) => entry.endsWith('.ts'))
-        .sort();
+        .toSorted(byText);
 
     return entries.map((entry) => ({
         path: `tests/${entry}`,

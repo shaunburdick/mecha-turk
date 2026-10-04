@@ -157,7 +157,7 @@ export async function listAccountsUnobserved(store: ServiceStore, log: ServiceLo
         }
     }
 
-    return accounts.sort((left, right) => left.numericUserId.localeCompare(right.numericUserId));
+    return accounts.toSorted((left, right) => left.numericUserId.localeCompare(right.numericUserId));
 }
 
 /**

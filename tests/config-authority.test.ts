@@ -35,6 +35,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
 import { readServiceEnv } from '../service/env.ts';
+import { byText } from './support/sort.ts';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
@@ -122,7 +123,7 @@ function sourceModules(dir: string): readonly SourceModule[] {
     const entries = readdirSync(resolve(ROOT, dir), { recursive: true })
         .map((entry) => String(entry))
         .filter((entry) => entry.endsWith('.ts'))
-        .sort();
+        .toSorted(byText);
 
     return entries.map((entry) => ({ path: `${dir}/${entry}`, text: trackedText(`${dir}/${entry}`) }));
 }
@@ -300,7 +301,7 @@ describe('FR-090 / AC-152: the bootstrap pair is the only configuration environm
             const reads = sourceModules(SERVICE_DIR)
                 .map((module) => ({ path: module.path, tokens: envReadsIn(module.text) }))
                 .filter((entry) => entry.tokens.length > 0)
-                .sort((left, right) => left.path.localeCompare(right.path));
+                .toSorted((left, right) => left.path.localeCompare(right.path));
 
             // HOME locates the store directory and configures nothing (GUEST_SERVICES.md).
             expect(reads.map((entry) => entry.path)).toEqual([
@@ -378,7 +379,7 @@ describe('FR-092 / AC-153: exactly one operator input per field, the interval be
             const users = sourceModules('src')
                 .filter((module) => module.text.includes('DEFAULT_POLL_INTERVAL_MS'))
                 .map((module) => module.path)
-                .sort();
+                .toSorted(byText);
 
             expect(users).toEqual(['src/bindings-mode.ts', 'src/config.ts']);
             expect(trackedText('src/bindings-mode.ts')).toContain('pollIntervalMs: DEFAULT_POLL_INTERVAL_MS');

@@ -31,6 +31,7 @@ import { reservedRow, resultRow } from '../service/poll/dispatch-audit.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { PromptSnapshot } from '../service/prompt.ts';
 import type { Run } from '../service/poll/runs-types.ts';
+import { byText } from './support/sort.ts';
 import { EXPECTED_AGENT, shutdownDispatchCorpus } from './support/dispatch-corpus.ts';
 import { driveDispatchCorpus } from './support/dispatch-drive.ts';
 import type { DispatchCorpus } from './support/dispatch-corpus.ts';
@@ -369,8 +370,8 @@ describe('AC-115 every vocabulary entry is present with its required details', (
         {
             const { trail, refusals, adoptedRunId } = driven();
             expect(refusals).toHaveLength(REFUSING_OPERATIONS.length);
-            expect(refusals.map((observation) => observation.operation).sort())
-                .toEqual([...REFUSING_OPERATIONS].sort());
+            expect(refusals.map((observation) => observation.operation).toSorted(byText))
+                .toEqual([...REFUSING_OPERATIONS].toSorted(byText));
 
             const rows = rowsOf(trail, REFUSAL_ROW);
             const operations = new Set(rows.map((row) => row.details.operation));
@@ -478,7 +479,7 @@ describe('FR-062 every lifecycle row carries the run correlation id', () => {
             ].map((eventType) => firstSeqFor({ trail, eventType, correlationId: adoptedRunId }));
 
             expect(chain.every((seq) => !Number.isNaN(seq))).toBe(true);
-            expect([...chain].sort((left, right) => left - right)).toEqual(chain);
+            expect([...chain].toSorted((left, right) => left - right)).toEqual(chain);
             // Creation is the only row that belongs to the other run, and it is
             // written once — the vocabulary's first entry (AC-115's sample).
             expect(rowsOf(trail, CREATED_ROW)).toHaveLength(1);
@@ -553,7 +554,7 @@ function expectSourcesMatchPrompt(input: {
     const order: readonly string[] = PROMPT_SOURCE_ORDER;
     const positions = tiers.map((tier) => order.indexOf(tier));
     expect(positions.every((position) => position >= 0), `${eventType} tier vocabulary`).toBe(true);
-    expect([...positions].sort((left, right) => left - right), `${eventType} tier order`).toEqual(positions);
+    expect([...positions].toSorted((left, right) => left - right), `${eventType} tier order`).toEqual(positions);
     expect(new Set(tiers).size, `${eventType} tier duplicates`).toBe(tiers.length);
 }
 
@@ -579,7 +580,7 @@ describe('004 the two rows that record what was sent carry the prompt reference 
             // still there and `promptSources` is the only addition, so a
             // rename or a removal fails here (FR-050's "changes none of its
             // existing fields", FR-087).
-            expect(Object.keys(details).sort(), `${row.eventType} details keys`).toEqual(
+            expect(Object.keys(details).toSorted(byText), `${row.eventType} details keys`).toEqual(
                 row.eventType === RESERVED_ROW ? RESERVED_DETAIL_KEYS : RESULT_DETAIL_KEYS,
             );
             expectSourcesMatchPrompt({ eventType: row.eventType, details });

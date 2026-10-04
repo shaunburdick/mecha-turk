@@ -30,6 +30,7 @@ import { findSecretLeak } from '../src/redaction.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { AccountDto } from '../service/accounts/model.ts';
 import type { GitHubVerifier } from '../service/github.ts';
+import { byText } from './support/sort.ts';
 import { fakeGitHub, scriptedVerifier, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { EndpointResponse, GitHubScript } from './support/github.ts';
@@ -340,10 +341,10 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
             expect(body).toMatchObject({ numericUserId: String(ACCOUNT_ID), login: ROTATED_LOGIN });
             const after = await readStoredAccount(service.dataDir);
 
-            expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+            expect(Object.keys(after).toSorted(byText)).toEqual(Object.keys(before).toSorted(byText));
             const changed = Object.keys(after)
                 .filter((key) => JSON.stringify(after[key]) !== JSON.stringify(before[key]))
-                .sort();
+                .toSorted(byText);
             expect(changed).toEqual(['credential', 'login', 'scopeCheck', 'verifiedAt']);
             expect(after.numericUserId).toBe(String(ACCOUNT_ID));
 
@@ -771,7 +772,7 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             expect(body.account.startingPrompt).toBeNull();
 
             const after = await storedAccount(service);
-            expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+            expect(Object.keys(after).toSorted(byText)).toEqual(Object.keys(before).toSorted(byText));
             const changed = changedKeys(before, after);
             expect(changed).toContain(LABEL_FIELD);
             expect(changed.filter((key) => key !== LABEL_FIELD && key !== 'updatedAt')).toEqual([]);
@@ -1100,7 +1101,7 @@ describe('PUT /v1/accounts/:numericUserId — invariant 5: exactly the supplied 
                 startingPrompt: 'A different instruction entirely.',
             }))).toBe(200);
             const afterPrompt = await storedAccount(service);
-            expect(Object.keys(afterPrompt).sort()).toEqual(Object.keys(beforePrompt).sort());
+            expect(Object.keys(afterPrompt).toSorted(byText)).toEqual(Object.keys(beforePrompt).toSorted(byText));
             expect(afterPrompt[LABEL_FIELD]).toBe(beforePrompt[LABEL_FIELD]);
             const promptChanged = changedKeys(beforePrompt, afterPrompt);
             expect(promptChanged).toContain(PROMPT_FIELD);
@@ -1133,7 +1134,7 @@ describe('PUT /v1/accounts/:numericUserId — invariant 5: exactly the supplied 
                 startingPrompt: 'Second instruction.',
             }))).toBe(200);
             const afterBoth = await storedAccount(service);
-            expect(Object.keys(afterBoth).sort()).toEqual(Object.keys(before).sort());
+            expect(Object.keys(afterBoth).toSorted(byText)).toEqual(Object.keys(before).toSorted(byText));
             const both = changedKeys(before, afterBoth);
             expect(both).toContain(LABEL_FIELD);
             expect(both).toContain(PROMPT_FIELD);
@@ -1381,7 +1382,7 @@ describe('account.prompt-updated — one row per tier change, never the text (00
 
         for (const row of rows) {
             // Exactly the four scalars the contract fixes, nothing else.
-            expect(Object.keys(row.details).sort()).toEqual([
+            expect(Object.keys(row.details).toSorted(byText)).toEqual([
                 'previousFingerprint',
                 'promptFingerprint',
                 'promptLength',

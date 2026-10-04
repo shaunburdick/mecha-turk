@@ -28,6 +28,7 @@ import {
     storeProjectSelection,
 } from '../src/project-actions.ts';
 import { readDraft } from '../src/bindings.ts';
+import { byText } from './support/sort.ts';
 import {
     PROJECTS,
     PROJECT_ID,
@@ -488,7 +489,7 @@ describe('no project-creation call exists anywhere (AC-121)', () => {
         expect(pick).not.toBeNull();
 
         const members = [...(pick?.[1] ?? '').matchAll(/'([^']+)'/g)].map((match) => match[1] ?? '');
-        const projectMembers = members.filter((member) => member.includes('Project')).sort();
+        const projectMembers = members.filter((member) => member.includes('Project')).toSorted(byText);
 
         expect(projectMembers).toEqual(['listProjects', 'onProjects']);
     });

@@ -62,6 +62,7 @@ import type {
 } from '../service/poll/poller-github.ts';
 import type { PollItemEvent } from '../service/poll/poller-events.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { byText } from './support/sort.ts';
 import { scopeResults } from './support/verify.ts';
 
 /** Binding id the mention fixtures bind. */
@@ -1052,7 +1053,8 @@ describe('002 FR-043–FR-045 attribution at detection (AC-024, AC-025, A-5, A-6
         const { events, runs } = await scanAndRead(fixtureBinding(MENTION_BINDING, ALL_KINDS), recorded);
 
         // All four kinds, one event each, through the real loop and the real queue.
-        expect(events.map((event) => event.kind).sort()).toEqual(['assignment', 'mention', 'mention', 'review']);
+        expect(events.map((event) => event.kind).toSorted(byText))
+            .toEqual(['assignment', 'mention', 'mention', 'review']);
         const comment = events.find((event) => event.id.endsWith(`~mention~${FIRST_COMMENT_ID}`));
         const body = events.find((event) => event.id.endsWith('~mention~body'));
         const assignment = events.find((event) => event.kind === 'assignment');

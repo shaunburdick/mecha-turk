@@ -361,7 +361,7 @@ describe('T-017 pagination chains with no duplicate and no gap', () => {
         const paged = [...first.json.entries, ...second.json.entries, ...third.json.entries];
         const seqs = paged.map((entry) => entry.seq);
         expect(new Set(seqs).size).toBe(FILTERED_ROWS);
-        expect([...seqs].sort((left, right) => left - right)).toEqual(seqs);
+        expect([...seqs].toSorted((left, right) => left - right)).toEqual(seqs);
         expect(paged.map((entry) => entry.seq)).toEqual(seeded.map((entry) => entry.seq));
         expect(paged.every((entry) => entry.correlationId === SEEDED_RUN_ID)).toBe(true);
     });

@@ -6,6 +6,7 @@ import { AUDIT_BUTTON_LABEL } from '../src/audit-view.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import type { PanelHandlers } from '../src/panel-ui.ts';
+import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
 
@@ -102,7 +103,7 @@ function panelModules(): readonly string[] {
     return readdirSync(resolve(ROOT, SRC_DIR))
         .map((entry) => String(entry))
         .filter((entry) => entry.endsWith('.ts'))
-        .sort();
+        .toSorted(byText);
 }
 
 /**

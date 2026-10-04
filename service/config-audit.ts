@@ -162,7 +162,7 @@ function recordedValue(field: ServiceConfigField, value: number | string): Confi
 export function configChanges(previous: ServiceConfig, next: ServiceConfig): readonly ConfigChange[] {
     const fields = (Object.keys(DEFAULT_CONFIG) as readonly ServiceConfigField[])
         .filter((field) => previous[field] !== next[field])
-        .sort((left, right) => left.localeCompare(right));
+        .toSorted((left, right) => left.localeCompare(right));
 
     return fields.map((field) => ({
         field,

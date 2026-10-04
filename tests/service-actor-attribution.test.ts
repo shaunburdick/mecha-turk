@@ -618,7 +618,7 @@ function fakeGitHub(routes: Readonly<Record<string, RouteAnswer>>): FakeGitHub {
         // lookup would silently answer an events request from the list fixture.
         const answer = Object.entries(routes)
             .filter(([prefix]) => parsed.pathname.startsWith(prefix))
-            .sort(([left], [right]) => right.length - left.length)[0]?.[1];
+            .toSorted(([left], [right]) => right.length - left.length)[0]?.[1];
         if (answer === undefined) {
             throw new Error(`the fixture scripted no answer for ${parsed.pathname}`);
         }

@@ -294,7 +294,7 @@ async function projectHistory(
         deliveries: new Map(queue.map((event) => [event.id, event])),
         // The whole projection: the cap is a page size now, not a wall.
         cap: document.runs.length,
-    }).sort(newestFirst);
+    }).toSorted(newestFirst);
 }
 
 /**

@@ -52,6 +52,7 @@ import { MAX_SOURCE_REFERENCES, readRunsDocument } from '../service/poll/runs.ts
 import { openStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { byText } from './support/sort.ts';
 
 /** Stamp every fixture uses, so no test ever waits on a clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
@@ -286,8 +287,8 @@ describe('T-039 no lease is stranded behind an answer the transport refuses', ()
 
             // And no audit row claims a lease that was never taken.
             expect(claimRows).toHaveLength(MAX_CLAIMED_RUNS);
-            expect(claimRows.map((row) => row.correlationId).sort())
-                .toEqual([...offered].sort());
+            expect(claimRows.map((row) => row.correlationId).toSorted(byText))
+                .toEqual([...offered].toSorted(byText));
         }
         await afterEachWork2();
         await beforeEachWork1();

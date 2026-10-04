@@ -46,6 +46,7 @@ import { ABANDON_PATH, RESERVE_PATH } from '../service/routes/dispatch.ts';
 import { RETRY_PATH } from '../service/routes/run-ops.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { Run } from '../service/poll/runs-types.ts';
+import { byText } from './support/sort.ts';
 import { bound, expectStatus, post, readRun, readRuns } from './support/dispatch-corpus.ts';
 import { BINDING_ID } from './support/fixture-enqueue.ts';
 import { offerFor, startDispatchLoop } from './support/dispatch-loop.ts';
@@ -249,7 +250,7 @@ describe('T-032 one run reconstructs from its correlation identifier alone', () 
             // (SC-104's "reconstructable ... with prior state, new state, reason").
             const seqs = rows.map((row) => row.seq);
             expect(seqs.length).toBeGreaterThan(LIFECYCLE_ORDER.length);
-            expect(seqs).toEqual([...seqs].sort((left, right) => left - right));
+            expect(seqs).toEqual([...seqs].toSorted((left, right) => left - right));
             expect(new Set(seqs).size).toBe(seqs.length);
 
             // The correlation identifier is the run's, byte-identically, on every
@@ -406,8 +407,8 @@ describe('004 the dispatch rows name the prompt sources without its text (FR-050
         const rows = await auditFor(run.correlationId);
         const sent = rows.filter((row) =>
             row.eventType === RESERVED_EVENT || row.eventType === RESULT_EVENT);
-        expect(sent.map((row) => row.eventType).sort())
-            .toEqual([RESERVED_EVENT, RESULT_EVENT].sort());
+        expect(sent.map((row) => row.eventType).toSorted(byText))
+            .toEqual([RESERVED_EVENT, RESULT_EVENT].toSorted(byText));
 
         for (const row of sent) {
             expect(row.correlationId, `${row.eventType} correlation id`).toBe(run.correlationId);

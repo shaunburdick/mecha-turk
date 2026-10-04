@@ -47,6 +47,7 @@ import {
 import { parseConfigEnvelope } from '../src/settings-schema.ts';
 import type { ConfigEnvelope } from '../src/settings-schema.ts';
 import type { SettingsEdit } from '../src/settings-edit.ts';
+import { byText } from './support/sort.ts';
 
 /** The transport problem one failure fixture reports, named once for its three uses. */
 const TRANSPORT_PROBLEM = 'service unreachable: ECONNREFUSED';
@@ -173,7 +174,7 @@ describe('the draft is the read, edited (006 T-019, FR-041, AC-122)', () => {
             expect(reverted.draft.intervalMs).toBe(String(DEFAULT_CONFIG.intervalMs));
             expect(reverted.draft.logLevel).toBe(DEFAULT_CONFIG.logLevel);
             expect(reverted.dirty).toEqual([]);
-            expect([...reverted.reverted].sort()).toEqual(['intervalMs', 'logLevel']);
+            expect([...reverted.reverted].toSorted(byText)).toEqual(['intervalMs', 'logLevel']);
             expect(reverted.saveState).toBe('idle');
         }
     });
@@ -199,7 +200,8 @@ describe('one activation, one whole document, no panel-side gate (006 T-019, FR-
             expect(attempt.document.leaseMs).toBe(DEFAULT_CONFIG.leaseMs);
             // A key the document lacked is filled from the projection's default.
             expect(attempt.document.expectedAgent).toBe(DEFAULT_CONFIG.expectedAgent);
-            expect(Object.keys(attempt.document).sort()).toEqual(Object.keys(DEFAULT_CONFIG).sort());
+            expect(Object.keys(attempt.document).toSorted(byText))
+                .toEqual(Object.keys(DEFAULT_CONFIG).toSorted(byText));
         }
         {
             const envelope = baseline();

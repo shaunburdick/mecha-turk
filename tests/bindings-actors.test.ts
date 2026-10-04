@@ -73,6 +73,7 @@ import type { PanelBinding, PanelTriggers } from '../src/bindings-service.ts';
 import type { StatusView } from '../src/status-document.ts';
 import type { RunRow } from '../src/dispatches-service.ts';
 import { BINDINGS_PATH } from '../src/service-calls.ts';
+import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import { FIXTURE_TIMESTAMP, createTestRuntime, fakeHost, tick } from './support/panel.ts';
 
@@ -704,7 +705,7 @@ function wordsFound(source: string): readonly string[] {
     return POLICY_MATCHERS
         .filter(([, matcher]) => matcher.test(source))
         .map(([word]) => word)
-        .sort();
+        .toSorted(byText);
 }
 
 /**
@@ -1195,7 +1196,7 @@ describe('AC-146 no user-facing string implies a policy the service did not repo
             ];
             const dir = resolve(import.meta.dirname, '../src');
             const offenders: string[] = [];
-            for (const name of readdirSync(dir).filter((entry) => entry.endsWith('.ts')).sort()) {
+            for (const name of readdirSync(dir).filter((entry) => entry.endsWith('.ts')).toSorted(byText)) {
                 const hits = wordsFound(stringLiterals(readFileSync(resolve(dir, name), 'utf8')).join(' '));
                 if (hits.length > 0 && EXEMPT.some(([file]) => file === name) === false) {
                     offenders.push(`${name}: ${hits.join(', ')}`);
@@ -1309,7 +1310,7 @@ describe('AC-148 one derivation over all eight subsets of the three switches (00
             expect(clause).not.toBeNull();
             const at = PHRASES.map(([, phrase]) => (clause ?? '').indexOf(phrase));
             expect(at.every((index) => index >= 0)).toBe(true);
-            expect([...at].sort((left, right) => left - right)).toEqual(at);
+            expect([...at].toSorted((left, right) => left - right)).toEqual(at);
         }
 
         // renders that member, and an identity is not a permitted login anyway

@@ -44,6 +44,7 @@ import { CONFIG_PATH, verificationPath } from '../src/service-calls.ts';
 import { takeEffectWords } from '../src/settings-rows.ts';
 import type { TakeEffectClass } from '../src/settings-schema.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
+import { byText } from './support/sort.ts';
 import { SESSION_ID, createTestRuntime, fakeHost } from './support/panel.ts';
 
 /** Repository root, derived from this file's location. */
@@ -246,8 +247,8 @@ describe('SC-106: twelve fields, twelve consumers, zero inert rows', () => {
             // `TAKE_EFFECT` is exhaustive over the document by construction, so
             // this is the runtime half: a class declared for a key the document
             // does not carry, or a document key with no class, fails here too.
-            const declaredFor = Object.keys(TAKE_EFFECT).sort();
-            const documented = Object.keys(DEFAULT_CONFIG).sort();
+            const declaredFor = Object.keys(TAKE_EFFECT).toSorted(byText);
+            const documented = Object.keys(DEFAULT_CONFIG).toSorted(byText);
 
             expect(declaredFor).toEqual(documented);
             expect(TAKE_EFFECT.startingPrompt).toBe(NEXT_CYCLE);

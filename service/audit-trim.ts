@@ -399,7 +399,7 @@ async function composeTrimRow(input: {
 async function readOrderedTrail(store: ServiceStore): Promise<AuditTrailRead> {
     const trail = await readAuditTrail(store);
 
-    return { entries: [...trail.entries].sort((left, right) => left.seq - right.seq), malformed: trail.malformed };
+    return { entries: [...trail.entries].toSorted((left, right) => left.seq - right.seq), malformed: trail.malformed };
 }
 
 /**

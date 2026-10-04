@@ -35,6 +35,7 @@ import type { EventSnapshot } from '../service/poll/events.ts';
 import type { PromptSnapshot } from '../service/prompt.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
+import { byText, byTextLoose } from './support/sort.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 
@@ -188,7 +189,7 @@ describe('T-007 claim eligibility (FR-037)', () => {
             const first = await claim();
             const second = await claim();
 
-            expect(first.map((run) => run.issueNumber).sort()).toEqual([1, 2]);
+            expect(first.map((run) => run.issueNumber).toSorted((left, right) => left - right)).toEqual([1, 2]);
             expect(second).toEqual([]);
             const stored = await readRunsDocument({ store, log: LOGGER });
             expect(stored.runs.every((run) => run.state === 'claimed')).toBe(true);
@@ -345,8 +346,8 @@ describe('T-007 batch atomicity', () => {
         // leases agree with both answers.
         expect(first.every((run) => run.lease.holder === 'panel-a')).toBe(true);
         expect(second.every((run) => run.lease.holder === 'panel-b')).toBe(true);
-        expect(stored.runs.map((run) => run.lease?.leaseId).sort())
-            .toEqual([...first, ...second].map((run) => run.lease.leaseId).sort());
+        expect(stored.runs.map((run) => run.lease?.leaseId).toSorted(byTextLoose))
+            .toEqual([...first, ...second].map((run) => run.lease.leaseId).toSorted(byText));
     });
 });
 
@@ -398,7 +399,7 @@ describe('T-007 the claim answer', () => {
 
             expect(body).not.toMatch(/gh[pousr]_[A-Za-z0-9]{16,}/);
             expect(body).not.toContain('accountNumericUserId');
-            expect(Object.keys(claimed ?? {}).sort()).toEqual([
+            expect(Object.keys(claimed ?? {}).toSorted(byText)).toEqual([
                 'accountLogin',
                 'attachmentId',
                 'attempt',
@@ -442,7 +443,8 @@ describe('T-007 the claim answer', () => {
 
             expect(rows).toHaveLength(2);
             expect(rows.every((row) => row.actorSource === 'panel')).toBe(true);
-            expect(rows.map((row) => row.correlationId).sort()).toEqual(claimed.map((run) => run.correlationId).sort());
+            expect(rows.map((row) => row.correlationId).toSorted(byText))
+                .toEqual(claimed.map((run) => run.correlationId).toSorted(byText));
             expect(rows.every((row) => row.entity.kind === 'run')).toBe(true);
             expect(rows.map((row) => row.details)).toEqual(claimed.map((run) => ({
                 leaseId: run.lease.leaseId,

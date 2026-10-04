@@ -46,6 +46,7 @@ import type { SettingsTabState } from '../src/settings-tab.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { PanelHandlers } from '../src/panel-ui.ts';
+import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 import { DEFAULT_BODY, DEFAULT_STATUS, createTestRuntime, fakeHost, tick } from './support/panel.ts';
@@ -136,7 +137,7 @@ interface PanelSource {
  */
 async function panelSources(): Promise<readonly PanelSource[]> {
     const entries = await readdir(SRC_DIR);
-    const names = entries.filter((name) => name.endsWith('.ts')).sort();
+    const names = entries.filter((name) => name.endsWith('.ts')).toSorted(byText);
     const sources: PanelSource[] = [];
     for (const name of names) {
         sources.push({ name, text: await readFile(join(SRC_DIR, name), 'utf8') });
