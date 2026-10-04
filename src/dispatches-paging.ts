@@ -31,7 +31,6 @@ import type { PanelRuntime } from './panel-state.ts';
  * the operator exactly where the last successful read put them rather than
  * stranding them on a page the panel cannot show.
  *
- * @param rt - Panel runtime.
  */
 export async function nextPage(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;
@@ -42,16 +41,17 @@ export async function nextPage(rt: PanelRuntime): Promise<void> {
     const before = runs.page;
     runs.page = advanceDispatchPage(runs.page);
     await loadDispatches(rt);
-    if (runs.status === 'error') {
-        runs.page = before;
-        refresh(rt);
+    if (runs.status !== 'error') {
+        return;
     }
+
+    runs.page = before;
+    refresh(rt);
 }
 
 /**
  * Step one page back and read it.
  *
- * @param rt - Panel runtime.
  */
 export async function previousPage(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;
@@ -62,17 +62,17 @@ export async function previousPage(rt: PanelRuntime): Promise<void> {
     const before = runs.page;
     runs.page = retreatDispatchPage(runs.page);
     await loadDispatches(rt);
-    if (runs.status === 'error') {
-        runs.page = before;
-        refresh(rt);
+    if (runs.status !== 'error') {
+        return;
     }
+
+    runs.page = before;
+    refresh(rt);
 }
 
 /**
  * Change the page size, taking the operator to page one of the same set.
  *
- * @param rt - Panel runtime.
- * @param limit - The new page size.
  */
 export function setPageLimit(rt: PanelRuntime, limit: number): void {
     const { dispatches: runs } = rt.state;
@@ -83,8 +83,6 @@ export function setPageLimit(rt: PanelRuntime, limit: number): void {
 /**
  * Filter the set by binding, server-side.
  *
- * @param rt - Panel runtime.
- * @param bindingId - Binding to filter to, or `null` for every binding.
  */
 export function setBindingFilter(rt: PanelRuntime, bindingId: string | null): void {
     const { dispatches: runs } = rt.state;
@@ -96,8 +94,6 @@ export function setBindingFilter(rt: PanelRuntime, bindingId: string | null): vo
 /**
  * Filter the set by state, server-side.
  *
- * @param rt - Panel runtime.
- * @param state - State token (or the `blocked` family) to filter to, or `null`.
  */
 export function setStateFilter(rt: PanelRuntime, state: string | null): void {
     const { dispatches: runs } = rt.state;
@@ -109,7 +105,6 @@ export function setStateFilter(rt: PanelRuntime, state: string | null): void {
 /**
  * Clear both filters and return to the first page of the whole set.
  *
- * @param rt - Panel runtime.
  */
 export function clearFilters(rt: PanelRuntime): void {
     const { dispatches: runs } = rt.state;

@@ -89,7 +89,6 @@ export interface BindingActions {
  * and stay reachable while the editor is closed (2026-10-01 review: the
  * editor is no longer open by default).
  *
- * @param input - The editor body, the list's toolbar row, and the callbacks.
  * @returns The five handles the pane carries.
  */
 export function mountBindingActions(input: {
@@ -139,7 +138,6 @@ export function mountBindingActions(input: {
  * follow the selection and the read state, and **Cancel** exists only while
  * the editor is open.
  *
- * @param input - The tab's state and the mounted action rows.
  */
 export function repaintBindingActions(input: {
     /** State the rows repaint from. */
@@ -207,7 +205,6 @@ export interface MentionTokenView {
 /**
  * Read the binding the editor is open on.
  *
- * @param bindings - The Bindings tab's state.
  * @returns The selected binding, or `null` while the tab is in add mode.
  */
 function selectedBinding(bindings: BindingsTabState): PanelBinding | null {
@@ -230,7 +227,6 @@ function selectedBinding(bindings: BindingsTabState): PanelBinding | null {
  * yet, and the line says what a save will write instead of hiding the
  * question.
  *
- * @param bindings - The Bindings tab's state.
  * @returns The line the editor paints under its heading.
  */
 export function editorStateLine(bindings: BindingsTabState): string {
@@ -251,7 +247,6 @@ export function editorStateLine(bindings: BindingsTabState): string {
  * panel cannot establish one (no account selected, or the account is gone),
  * and a `null` current is what stops the override mark from firing.
  *
- * @param bindings - The Bindings tab's state.
  * @returns The token's login and the account's current one.
  */
 function mentionParties(bindings: BindingsTabState): {
@@ -289,7 +284,6 @@ function mentionParties(bindings: BindingsTabState): {
  * and claiming an override without a comparison would be exactly the invented
  * value FR-003 forbids.
  *
- * @param bindings - The Bindings tab's state.
  * @returns The line to render and whether it marks an override.
  */
 export function mentionTokenView(bindings: BindingsTabState): MentionTokenView {
@@ -318,7 +312,6 @@ export function mentionTokenView(bindings: BindingsTabState): MentionTokenView {
  * lists the accounts available to bind (`usable` only: an account that cannot
  * poll is not an account a binding should be created under).
  *
- * @param bindings - The Bindings tab's state.
  * @returns How the select must render.
  */
 export function accountFieldView(bindings: BindingsTabState): AccountFieldView {
@@ -360,8 +353,6 @@ const WORKTREE_OPTIONS = [
  * feature); the handler is narrowed to them so a future third option has to
  * widen this signature rather than slip through a string.
  *
- * @param bindings - The Bindings tab's state, which holds the draft choice.
- * @param setWorktree - Handler that records one of the two options.
  * @returns The props the SDK select takes.
  */
 export function worktreeFieldView(
@@ -384,7 +375,6 @@ export function worktreeFieldView(
 /**
  * Mount the mention-token line into the pane, right under the account field.
  *
- * @param input - Runtime whose state the line derives from, and the pane root.
  * @returns The handle the pane carries for repaint and disposal.
  */
 export function mountBindingMention(input: {
@@ -399,8 +389,6 @@ export function mountBindingMention(input: {
 /**
  * Repaint the mention-token line from state.
  *
- * @param rt - Panel runtime.
- * @param line - The mounted line.
  */
 export function repaintBindingMention(rt: PanelRuntime, line: TextHandle): void {
     line.update({ text: mentionTokenView(rt.state.bindings).line });

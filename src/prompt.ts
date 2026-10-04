@@ -88,7 +88,6 @@ export const PROMPT_SOURCE_ORDER = ['global', 'account', 'binding'] as const;
  * strings a second time, so the type, the order, and this predicate cannot
  * disagree: adding a tier would be an FR-070 scope change made in one tuple.
  *
- * @param value - Any value read from a wire document or a store record.
  * @returns `true` for exactly `'global'`, `'account'`, or `'binding'`.
  */
 export function isPromptSource(value: unknown): value is PromptSource {
@@ -120,7 +119,6 @@ export function isPromptSource(value: unknown): value is PromptSource {
  * whether a prompt exists, so this predicate checks order and membership
  * only and never guesses at presence (FR-087, AGENTS.md invariant 8).
  *
- * @param value - Any value read from a wire document or a store record.
  * @returns `true` when the list is all-known, in order, and duplicate-free.
  */
 export function isPromptSourceList(value: unknown): value is readonly PromptSource[] {
@@ -173,7 +171,6 @@ const FORBIDDEN_UPPER_END = 0x9F;
  * separate a goal from a constraint must survive byte for byte — so this is
  * outer trimming and nothing else.
  *
- * @param text - Candidate prompt text.
  * @returns The text without leading or trailing whitespace.
  */
 export function trimPrompt(text: string): string {
@@ -188,7 +185,6 @@ export function trimPrompt(text: string): string {
  * a lone `\r` becomes `\n`. Normalisation runs **before** the control-character
  * test, so a carriage return is read as a line ending rather than refused.
  *
- * @param text - Candidate prompt text, already trimmed at the ends.
  * @returns The text with every line ending spelled `\n`.
  */
 export function normaliseLineEndings(text: string): string {
@@ -215,7 +211,6 @@ export function normaliseLineEndings(text: string): string {
  * rare ideograph) counts as one — the unit the specification's 2,000-character
  * cap is written in.
  *
- * @param text - Candidate text.
  * @returns How many code points the text holds.
  */
 export function countCodePoints(text: string): number {
@@ -230,7 +225,6 @@ export function countCodePoints(text: string): number {
  * {@link normaliseLineEndings} — otherwise a CRLF file would hide the prefix
  * behind a trailing carriage return.
  *
- * @param text - Candidate prompt text, normalised.
  * @returns `true` when a line begins with a reserved marker prefix.
  */
 export function hasReservedMarkerLine(text: string): boolean {
@@ -248,7 +242,6 @@ export function hasReservedMarkerLine(text: string): boolean {
  * forbidden ranges are named constants a reader can check against the
  * specification's own `[\u0000-\u0008\u000B-\u001F\u007F-\u009F]`.
  *
- * @param codePoint - The code point under test.
  * @returns `true` for a forbidden control character.
  */
 function isForbiddenControl(codePoint: number): boolean {
@@ -274,7 +267,6 @@ function isForbiddenControl(codePoint: number): boolean {
  * inside the forbidden middle range, and normalisation is what makes it a line
  * ending instead.
  *
- * @param text - Candidate prompt text, normalised.
  * @returns `true` for a null character or any control character other than
  *   newline and tab.
  */
@@ -316,7 +308,6 @@ export interface PromptReference {
  * excerpt budget, which is what makes FR-035's rule mechanical: the excerpt
  * shortens first and the prompt never shortens at all.
  *
- * @param prompt - The normalised prompt text, or `null` when unset.
  * @returns The reserved character count; `0` for an unset prompt.
  */
 export function promptBlockChars(prompt: string | null): number {
@@ -340,7 +331,6 @@ export function promptBlockChars(prompt: string | null): number {
  * the absence. This is the one function that produces the
  * message; nothing else renders it.
  *
- * @param input - The prompt, and the frame the bounded context built.
  * @returns The complete first message.
  */
 export function composeFirstMessage(input: {
