@@ -185,7 +185,7 @@ No session, worktree, or project is ever created, mutated, or deleted outside `h
 | `seq` | number (monotonic) | assigned by the writer |
 | `timestamp` | string | RFC3339 |
 | `correlationId` | string | NFR-007 chain |
-| `eventType` | string enum | `account.added/verified/rejected/rotated/error/deleted`, `binding.*`, `poll.checkpoint/observation/duplicate`, `rate.*`, `policy.decision`, `run.created/relayed/dispatched/verified/blocked/retried/dead_lettered`, `service.started/stopped/failed`, `config.changed`, `audit.trimmed` *(the `consent` member this enum carried was **removed at v1.9.0**, 2026-10-01, with the consent dialog — a vocabulary removal recorded in `## Amendment History`; rows already on disk keep parsing, since the reader accepts any `eventType` string)* |
+| `eventType` | string enum | `account.added/verified/rejected/rotated/error/deleted`, `binding.*`, `poll.checkpoint/observation/duplicate`, `rate.*`, `policy.decision`, `run.created/relayed/dispatched/verified/blocked/retried/dead_lettered`, `service.started/stopped/failed`, `config.changed`, `audit.trimmed` *(the `consent` member this enum carried was **removed at v1.9.0**, 2026-10-01, with the consent dialog — a vocabulary removal recorded in changelog.md; rows already on disk keep parsing, since the reader accepts any `eventType` string)* |
 | `actorSource` | string | e.g. `panel`, `service`, `operator` |
 | `entity` | `{ kind: 'service' \| 'account' \| 'binding' \| 'run' \| 'delivery', id: string }` | `service` for entries that reference no account (identity-less credential rejections, configuration-wide rows) |
 | `decision`, `reason` | string \| null | |

@@ -23,7 +23,7 @@ Part of the delivered 002 MVP; NOT superseded.
 >   still parse and render; no new row may.
 > - **Do not implement the proxy.** The corrected requirements are 002 **FR-044** *(re-cut)*,
 >   **FR-045** *(re-cut)*, and **FR-049 – FR-052** *(new)*, with `research.md` §R8 rewritten and
->   `## Amendment History` → `### v1.12.0` in `spec.md`. `PollPull`'s `authorLogin` / `authorType`
+>   changelog.md → `### v1.12.0` in `spec.md`. `PollPull`'s `authorLogin` / `authorType`
 >   lose their only stated consumer and no requirement now asks for them.
 > - **The undelivered work in this file's wave list is unaffected in shape** but its `subject-author`
 >   halves are obsolete; the implementing task must read 002 v1.12.0, not the rows below.
@@ -315,7 +315,7 @@ clean.
 1. **003 NFR-114's letter is false of the shipped code.** The authorization path reads
    `config.json`, not `bindings.json`, so reading the live policy *is* an additional store
    read. **RESOLVED as a documentation correction, 2026-10-03** — 003 `spec.md`'s
-   `## Amendment History` → `### v1.8.0 — 2026-10-03` states what is actually claimed (no
+   changelog.md → `### v1.8.0 — 2026-10-03` states what is actually claimed (no
    extra **network** round trip, plus one local store read inside the chain task) and says
    why the original premise was false. No code change; the read stays.
 2. **The empty-list round trip** — resolved by the owner at the phase-5 gate (blank field =
