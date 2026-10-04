@@ -3,7 +3,7 @@
  *
  * OpenChamber loads `panel/index.html`, which loads this file as a classic
  * IIFE bundle. The entry does exactly two things: connect to the documented
- * host bridge and hand the root element to the spike application.
+ * host bridge and hand the root element to the panel application.
  *
  * `connectHost()` only works inside OpenChamber; opened as a plain file every
  * call rejects with `HOST_UNAVAILABLE`, which is the documented behaviour

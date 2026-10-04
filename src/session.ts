@@ -1,9 +1,9 @@
 /**
- * Host-side dispatch and verification for the spike.
+ * Host-side dispatch and verification for the panel.
  *
  * Everything here goes through the documented `@openchamber/sdk` surface:
  * `host.listProjects`, `host.listWorktrees`, `host.listSessions`, their
- * subscriptions, `host.onSessionLifecycle`, and `host.startSession`. The spike
+ * subscriptions, `host.onSessionLifecycle`, and `host.startSession`. The panel
  * never creates a worktree, a project, or a session on disk itself — it asks
  * OpenChamber and records what OpenChamber answers, including partial
  * bootstrap failures.
@@ -26,9 +26,9 @@ import type { GitHubIssue } from './github.ts';
 import type { LedgerDetail, PanelLedger } from './ledger.ts';
 
 /**
- * The host surface the spike uses.
+ * The host surface the panel uses.
  *
- * Building this from `Pick<HostClient, …>` keeps the spike on the documented
+ * Building this from `Pick<HostClient, …>` keeps the panel on the documented
  * API surface: adding a method here is a deliberate, reviewable act.
  */
 export type PanelHost = Pick<
@@ -105,7 +105,7 @@ export type ProjectResolution =
 /**
  * Resolve the configured project reference against `host.listProjects()`.
  *
- * The spike never creates a project implicitly: an absent or invalid reference
+ * The panel never creates a project implicitly: an absent or invalid reference
  * blocks the dispatch (FR-020).
  *
  * @param host - Host client.
@@ -232,7 +232,7 @@ export function buildBoundedContext(input: BoundedContextInput): string {
 /**
  * Map the configured worktree option onto the documented `startSession` value.
  *
- * @param selection - Worktree selection from the spike configuration.
+ * @param selection - Worktree selection from the binding context.
  * @returns The documented worktree value, or `undefined` for `none`.
  */
 function worktreeValue(selection: WorktreeSelection): GuestSessionWorktree | undefined {
@@ -271,7 +271,7 @@ const NO_PROMPT: PromptReference = {
  * @returns The request exactly as it will be sent to the host.
  */
 export function buildStartSessionRequest(input: {
-    /** Validated spike configuration. */
+    /** Validated binding context. */
     readonly config: BindingContext;
     /** Evidence record for the matched issue. */
     readonly evidence: PanelEvidence;
@@ -282,7 +282,7 @@ export function buildStartSessionRequest(input: {
     /**
      * The prompt reference for the machine-readable `data` (004 FR-037, FR-087).
      *
-     * Omitted by the spike path, which has no run and therefore no prompt;
+     * Omitted by the non-run path, which has no run and therefore no prompt;
      * the unset quartet is written either way, so the member set is constant
      * across every request this panel builds.
      */
@@ -348,7 +348,7 @@ function summarizeSuccess(result: StartSessionSuccess): LedgerDetail {
 /**
  * Summarize a partial bootstrap failure for the ledger.
  *
- * The worktree OpenChamber left behind is part of the record: the spike
+ * The worktree OpenChamber left behind is part of the record: the relay
  * inspects this before any retry.
  *
  * @param result - Result with a null session id and a failure reason.
@@ -400,7 +400,7 @@ function hasCreatedSession(detail: LedgerDetail): boolean {
 /**
  * Find whether the ledger already dispatched a given issue.
  *
- * Used to keep the spike idempotent: one issue produces at most one created
+ * Used to keep the relay idempotent: one issue produces at most one created
  * session, so a re-poll cannot create a second one. Only *successful*
  * dispatches count — a transient failure is evidence to retry from, not a
  * permanent block, otherwise one unresolved project would disable the panel

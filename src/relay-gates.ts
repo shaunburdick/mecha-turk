@@ -38,7 +38,7 @@ import type { PanelRuntime } from './panel-state.ts';
 /** How often the relay polls the service, in milliseconds. */
 export const RELAY_POLL_INTERVAL_MS = 10_000;
 
-/** Ledger kind the relay records its results under (same kind the spike uses). */
+/** Ledger kind the relay records its results under (same kind the ledger uses). */
 export const RELAY_LEDGER_KIND = 'session';
 
 /** Longest `problem`/`detail`/`guidance` the run-scoped routes accept (1,000). */

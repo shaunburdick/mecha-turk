@@ -1,5 +1,5 @@
 /**
- * Pure helpers behind the spike panel's project picker.
+ * Pure helpers behind the panel's project picker.
  *
  * The operator has no Settings surface that prints OpenChamber project ids,
  * so the panel lists what `host.listProjects()` reports and remembers the
@@ -198,7 +198,7 @@ export function pickerPlaceholder(picker: ProjectPickerState): string {
 /**
  * Explain why a selection outside the loaded list was refused.
  *
- * One wording for both pickers (the spike's dispatch target and the binding
+ * One wording for both pickers (the dispatch target and the binding
  * form's dispatch project), so an operator who sees the line once recognises
  * it the second time. Nothing changes when a selection is refused: without a
  * confirmed id the dispatch — and the binding draft — stay exactly as they

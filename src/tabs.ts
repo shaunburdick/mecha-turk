@@ -3,9 +3,8 @@
  *
  * The panel root owns exactly one navigation surface: the SDK's `mountTabs`
  * strip, six body containers beneath it, and the registry that says which
- * bodies have mounted. Everything the spike era implemented by writing `hidden`
- * onto two containers is deleted rather than reproduced here — this module
- * switches *tabs*, not surfaces that could drift apart (FR-011).
+ * bodies have mounted. This module switches *tabs*, not surfaces that could
+ * drift apart (FR-011).
  *
  * Three rules shape it:
  *

@@ -1,5 +1,5 @@
 /**
- * The spike's panel test ledger, persisted through the documented
+ * The panel's test ledger, persisted through the documented
  * `host.storage` API.
  *
  * The ledger is evidence, not a production queue: it records lifecycle phases,
@@ -75,7 +75,7 @@ export interface LedgerEntry {
     readonly phase?: LifecyclePhase;
 }
 
-/** The persisted spike ledger. */
+/** The persisted ledger. */
 export interface PanelLedger {
     /** Contract schema version. */
     readonly schemaVersion: typeof LEDGER_SCHEMA_VERSION;

@@ -25,7 +25,7 @@ const UTF8_ENCODER = new TextEncoder();
  * The host refuses a `host.storage.set` value whose UTF-8 encoding exceeds
  * `GUEST_STORAGE_VALUE_BYTES`, while `String.length` counts UTF-16 code units
  * — two units for a character the encoder writes as four bytes. Measuring in
- * bytes keeps the spike's own gate honest against the host's own limit.
+ * bytes keeps the panel's own gate honest against the host's own limit.
  *
  * @param text - Serialized text, typically `JSON.stringify` output.
  * @returns The length of the text in UTF-8 bytes.

@@ -2,12 +2,12 @@
  * The wiring that puts the Bindings tab on screen (MVP blocker, 2026-09-27).
  *
  * `bindings-ui.ts` exports {@link mountBindingsPane} and its painter, but
- * nothing called them: the panel mounted only the legacy spike UI, so the
+ * nothing called them: the panel mounted only the legacy UI, so the
  * operator could never reach the bindings form, could never add a binding,
  * and bindings mode could never activate. This module is that missing call
  * site. It mounts the pane first, so the shared tab strip is the panel's
  * first element and both tab bodies hang beneath it: the Bindings pane on
- * its tab, and the spike body (a plain container the legacy UI and the
+ * its tab, and the dispatch body (a plain container the legacy UI and the
  * handoff group mount into) on the other.
  *
  * Every pane callback maps onto an action that already exists: `editBindings`

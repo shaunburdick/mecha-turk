@@ -1,7 +1,7 @@
 /**
  * Correlation and clock helpers shared by the panel and its tests.
  *
- * Correlation identifiers are the spine of the spike's evidence: every ledger
+ * Correlation identifiers are the spine of the product's evidence: every ledger
  * entry and evidence record carries one so a poll, a dispatch, and a lifecycle
  * phase can be tied back to a single observation (NFR-007).
  */
@@ -10,7 +10,7 @@
  * Create a new correlation identifier.
  *
  * Uses `crypto.randomUUID()`, which the sandboxed iframe provides in secure
- * contexts (localhost or https). The spike fails closed when it is missing
+ * contexts (localhost or https). The panel fails closed when it is missing
  * rather than inventing an identifier from weaker entropy.
  *
  * @returns A RFC 4122 version 4 identifier.

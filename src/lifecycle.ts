@@ -3,7 +3,7 @@
  *
  * The documented host clears subscriptions on unmount, pause, removal, and
  * server switch, and a panel is not documented as a background worker. The
- * spike therefore does not assume either outcome: it records explicit phase
+ * panel therefore does not assume either outcome: it records explicit phase
  * markers plus poll activity, and the verdict comes from stored entries
  * (see {@link analyzeLastCloseGap}).
  */

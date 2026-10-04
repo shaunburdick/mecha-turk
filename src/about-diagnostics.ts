@@ -12,8 +12,7 @@
  * **Entry detail is deliberately not rendered**: ledger lines are
  * `#seq · kind · time` and nothing else, so an account identifier, a prompt,
  * a fingerprint, or a path has no way into this section (FR-076). Nothing
- * here writes — the spike-era phase writer left with the tab it lived on
- * (FR-011).
+ * here writes — the phase writer left with the tab it lived on.
  */
 
 import type { TextHandle } from '@openchamber/sdk/ui';

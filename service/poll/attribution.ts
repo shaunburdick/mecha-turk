@@ -1,57 +1,56 @@
 /**
- * Attribution: **who** a delivery is attributed to, and **on what basis**
- * (002 FR-043 – FR-045).
+ * Attribution: **who** a delivery is attributed to, and **on what basis.**
  *
- * One concept with two sides, and they belong together because either alone is
- * unreadable. The **detection side** decides whether an entry may be attributed
- * at all and bounds the login a row may carry; the **stored side** holds the
- * vocabulary the row is read back with. Split across two modules, a reader
- * would have to hold both in their head to answer "is this proxy or a fact?" —
- * which is precisely the question 002 NFR-011 exists to keep honest.
+ * One concept with two sides, kept together because either alone is unreadable.
+ * The **detection side** decides whether an entry may be attributed at all and
+ * bounds the login a row may carry; the **stored side** holds the vocabulary the
+ * row is read back with. Split across two modules, a reader would have to hold
+ * both in their head to answer *"is this proxy or a fact?"* — which is precisely
+ * the question 002 NFR-011 exists to keep honest.
  *
- * The decision that *follows* from an attribution is not here: whether an
- * attributed actor may start a session under a binding's allow-list belongs to
- * the service's authorization gate (003 v1.8.0 FR-076), the only caller of the
- * membership comparison in `service/bindings-allow-list.ts`.
+ * What *follows* from an attribution is not here: whether an attributed actor may
+ * start a session under a binding's allow-list belongs to the authorization gate
+ * in `dispatch-actor-gate.ts`, the only caller of the membership comparison in
+ * `service/bindings-allow-list.ts`.
  *
  * Four properties are load-bearing and are stated once, here:
  *
- * - **The basis is closed, and an unrecognized value refuses the row.** There
- *   is no third member and no default: defaulting would record an inference as
- *   a fact. `direct` means GitHub named the identity that **performed the act**,
- *   and at v1.12.0 that is the basis for **all four** trigger kinds: the author
- *   of the text for the two mention kinds, and — since the correction — the
- *   `assigner` of the naming `assigned` event and the `review_requester` of the
- *   naming `review_requested` event, both read from the item's own event list
- *   (`poller-events.ts`). `subject-author` is **readable and unproduced**: rows
- *   this product wrote before the correction carry it in `events.json`, and a
- *   vocabulary a stored file still holds cannot be deleted without invalidating
- *   that file. Nothing writes it now (002 FR-044, research §R8 as rewritten).
+ * - **The basis is closed, and an unrecognized value refuses the row.** There is
+ *   no third member and no default: defaulting would record an inference as a
+ *   fact. `direct` means GitHub named the identity that **performed the act**, and
+ *   that is the basis for **all four** trigger kinds — the author of the text for
+ *   the two mention kinds, and the `assigner` of the naming `assigned` event and
+ *   the `review_requester` of the naming `review_requested` event, both read from
+ *   the item's own event list (`poller-events.ts`). `subject-author` is
+ *   **readable and unproduced**: rows this product wrote before GitHub's actor
+ *   fields were read carry it in `events.json`, and a vocabulary a stored file
+ *   still holds cannot be deleted without invalidating that file. Nothing writes
+ *   it now.
  * - **Attribution is mandatory, and the exclusion is fail-closed.** A bot or an
  *   unreadable author is dropped as non-actionable at detection, never enqueued
- *   with an empty actor for a later gate to guess about (002 FR-045(a)/(b)). At
- *   v1.12.0 the same two judgements are applied to the actor the **event** names,
- *   which is what makes a `null` `assigner` a refusal rather than a prompt to
- *   reach for the row's `actor` member, the issue author, or the `assignee`
- *   (002 FR-052).
- * - **Both stored members are absentable, and validated when present.** The
- *   queue file outlives the build that wrote it, so a row enqueued before this
- *   feature carries neither and must still parse — requiring them would
- *   quarantine every pre-existing row, which is a migration by side effect and
- *   exactly what the product owner ruled out (plan D2). Absence reads as *no
- *   attribution was recorded*, which is a third thing and never silently
- *   becomes either member of the union. The fail-closed duty lands at the gate
- *   instead, which refuses a run whose references name no readable actor rather
- *   than reading absence as permission (003 FR-080).
- * - **One bound for the login, wherever it is used** (plan D8), so the actor and
- *   the trigger note can never disagree about how long it may be.
+ *   with an empty actor for a later gate to guess about. The same two judgements
+ *   apply to the actor the **event** names, which is what makes a `null`
+ *   `assigner` a refusal rather than a prompt to reach for the row's `actor`
+ *   member, the issue author, or the `assignee`.
+ * - **Both stored members are absentable, and validated when present.** The queue
+ *   file outlives the build that wrote it, so a row enqueued before this feature
+ *   carries neither and must still parse — requiring them would quarantine every
+ *   pre-existing row, which is a migration by side effect and exactly what the
+ *   product owner ruled out. Absence reads as *no attribution was recorded*, a
+ *   third thing that never silently becomes either member of the union. The
+ *   fail-closed duty lands at the gate instead, which refuses a run whose
+ *   references name no readable actor rather than reading absence as permission.
+ * - **One bound for the login, wherever it is used**, so the actor and the
+ *   trigger note can never disagree about how long it may be.
+ *
+ * Requirements: 002 FR-043 – FR-045, NFR-011, research §R8 as rewritten.
  */
 
 /**
  * Longest author login one event carries, whether as its attributed actor or
- * inside a trigger note (plan D8). Exported so the assignment path in `loop.ts`
- * bounds the same string with the same constant: a second bound for one field
- * in two modules would be two answers to one question.
+ * inside a trigger note. Exported so the assignment path in `loop.ts` bounds the
+ * same string with the same constant: a second bound for one field in two modules
+ * would be two answers to one question.
  */
 export const AUTHOR_LOGIN_MAX_CHARS = 60;
 

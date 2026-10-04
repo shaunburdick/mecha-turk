@@ -1,13 +1,10 @@
 /**
  * Durable ledger writes, shared by every surface that records one.
  *
- * What remains of the spike's action module is the ledger itself: the poll
- * loop (one repository window, its match-and-accept sweep, the cadence
- * timer), the integration card's `/user` identity diagnostic, and the
- * host-state verification action all went with the install-time GitHub
- * credential and the spike dispatch path (product-owner order, 2026-09-30).
- * The product's loops are the service's poll loop and the root-owned relay;
- * neither is armed, stopped, or fed from here.
+ * The product's only loops are the service's poll loop and the root-owned
+ * relay; neither is armed, stopped, or fed from here. The panel's own poll
+ * loop, its `/user` identity diagnostic, its host-state verification action,
+ * and its dispatch path all went with the install-time GitHub credential.
  *
  * Everything that still records a ledger entry — the relay, the mount-time
  * reconciliation, the agent read-back — lands through

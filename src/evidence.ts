@@ -22,7 +22,7 @@ export const EVIDENCE_SCHEMA_VERSION = 'extension-spike-1';
 /** Storage key for the most recent evidence record. */
 export const EVIDENCE_STORAGE_KEY = 'mecha-turk:evidence';
 
-/** How the spike selects issues; the only trigger this contract defines. */
+/** How an issue is selected; the only trigger this contract defines. */
 const TRIGGER = 'configured-match';
 
 /** Canonical GitHub issue URL shape; the same rule writes and reads records. */
@@ -41,7 +41,7 @@ export interface PanelEvidence {
     readonly issueId: string;
     /** Canonical issue URL. */
     readonly issueUrl: string;
-    /** How the issue was selected; always the configured rule for this spike. */
+    /** How the issue was selected; always the configured match rule. */
     readonly trigger: typeof TRIGGER;
     /** Login discovered from `GET /user` — the machine identity, never the token. */
     readonly authenticatedLogin: string;

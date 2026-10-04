@@ -3,8 +3,8 @@
  *
  * The shell ([`tabs.ts`](./tabs.ts)) owns *when* a body appears; this module
  * owns *what* appears in each one. Every mount is a mapping from an existing
- * surface onto a container — the spike era's two hidden bodies become six
- * bodies that each mount once and stay mounted (FR-013).
+ * surface onto a container — six bodies, each of which mounts once and stays
+ * mounted (FR-013).
  *
  * Each body owns its own read and its own disposer: Settings reads the
  * configuration document on first activation and releases it on teardown,

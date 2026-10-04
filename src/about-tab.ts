@@ -34,7 +34,7 @@
  * versions, and the phase record. It deliberately renders **no entry detail**,
  * so an account identifier, a prompt, a fingerprint, or a filesystem path has
  * no way into this section (FR-076), and it offers nothing that writes — the
- * spike-era phase writer left with the tab it lived on (FR-011).
+ * phase writer left with the tab it lived on.
  */
 
 import { mountBanner, mountButton } from '@openchamber/sdk/ui';

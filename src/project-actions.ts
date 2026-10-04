@@ -1,5 +1,5 @@
 /**
- * Host-facing actions behind the spike panel's project picker.
+ * Host-facing actions behind the panel's project picker.
  *
  * Two documented calls do the work: `host.listProjects()` (covered by the
  * declared `sessions` capability) renders the choices, and `host.storage`

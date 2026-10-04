@@ -1,5 +1,5 @@
 /**
- * Shared mutable state for the spike panel.
+ * Shared mutable state for the panel.
  *
  * One runtime object carries everything the panel's actions and rendering need:
  * the documented host client, the frame window, the ledger, and the small

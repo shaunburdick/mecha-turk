@@ -1,13 +1,10 @@
 /**
  * The normalised GitHub issue shape the panel composes messages from.
  *
- * This module once carried the spike's REST access: it built paths, called
- * the documented `host.request()` bridge, and parsed provider payloads. That
- * machinery went with the install-time GitHub credential — the panel has no
- * GitHub traffic of its own any more (002 FR-031: read-only, and every read
- * originates in the *service*), so the manifest card, the fetchers, and the
- * `/user` diagnostic that used them are all gone (product-owner order,
- * 2026-09-30).
+ * The panel makes no GitHub request of its own: every read originates in the
+ * *service* (002 FR-031). The REST access this module used to hold — path
+ * building, the `host.request()` bridge, the provider payloads, and the
+ * `/user` diagnostic — went with the install-time credential.
  *
  * What stays is the record they produced, because two live surfaces still
  * read it: the message composer (`session.ts`) takes one as its issue input,

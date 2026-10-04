@@ -125,7 +125,7 @@ function grantBody(overrides: GrantOverrides): string {
  * Arming used to happen in exactly two places — a *successful* mount-time
  * read with a binding in it (`bindings-mode.loadInitialBindings`) and an
  * integration-card connection while bindings were already active (the card
- * and its connection handler went with the 2026-09-30 de-spike sweep). Both
+ * and its connection handler went with the 2026-09-30 sweep). Both
  * were mount-time signals, so a panel whose
  * first binding landed in-session, or whose mount-time `GET /v1/bindings`
  * answered 503 (the service's spawn race on a first run), never armed:

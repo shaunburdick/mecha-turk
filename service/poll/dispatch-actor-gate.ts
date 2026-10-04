@@ -1,64 +1,60 @@
 /**
- * The actor allow-list gate (003 FR-076 – FR-080; plan D13 – D17;
- * [contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md) §1).
+ * The actor allow-list gate — **one membership comparison, in one place, that
+ * leaves a refusal behind.**
  *
- * Split out of [`dispatch-authorize.ts`](./dispatch-authorize.ts) for the file-length
- * gate, and it is the split this feature's whole shape wants: **one membership
- * comparison, in one place, that leaves a refusal behind.** The authorization
- * module owns the decide → apply → record chain and the token; this module owns
- * the answer to *"may this run start a session at all?"* — and answers it purely,
- * so the caller owns the store read and the write, and the retry path can
- * re-run the **same predicate** against its own live read (FR-078, plan D17).
+ * The authorization module owns the decide → apply → record chain and the token.
+ * This module owns the answer to *"may this run start a session at all?"* and
+ * answers it purely, so the caller owns the store read and the write and the
+ * retry path can re-run the **same predicate** against its own live read.
  *
- * Four rules are load-bearing and each is a decision rather than a default:
+ * Six rules are load-bearing, and each is a decision rather than a default:
  *
  * - **The gate is the authorization decision; detection-time filtering is
- *   forbidden** (FR-076). A poll-loop filter is cheaper and writes **no audit
- *   row**, so *"why was this not dispatched?"* would have no answer — the exact
- *   defect 003 exists to end, repeated in a new place. Detection records the
- *   actor (002 FR-043) and decides nothing.
- * - **At least one** reference naming an allowed actor admits the run (FR-077,
- *   AC-133). Both obvious alternatives wedge permanently, because a `blocked:*`
- *   run is non-terminal and new deliveries **join** it: refusing when *any*
- *   reference is disallowed lets one stranger's comment disable every dispatch
- *   on that issue forever, and judging only the **opening** reference lets a
- *   stranger open a run an allowed user's later mention can then never
- *   authorize. The rule is a set quantifier over the retained references, so it
- *   does not depend on join order.
- * - **A bot is never admitted, and this gate adds no second bot test**
- *   (FR-080). The single judgement lives in
- *   [`attribution.ts`](./attribution.ts) beside the detection filters that
+ *   forbidden.** A poll-loop filter is cheaper and writes **no audit row**, so
+ *   *"why was this not dispatched?"* would have no answer — the exact defect 003
+ *   exists to end, repeated in a new place. Detection records the actor and
+ *   decides nothing.
+ * - **At least one** reference naming an allowed actor admits the run. Both
+ *   obvious alternatives wedge permanently, because a `blocked:*` run is
+ *   non-terminal and new deliveries **join** it: refusing when *any* reference
+ *   is disallowed lets one stranger's comment disable every dispatch on that
+ *   issue forever, and judging only the **opening** reference lets a stranger
+ *   open a run an allowed user's later mention can then never authorize. The
+ *   rule is a set quantifier over the retained references, so it does not depend
+ *   on join order.
+ * - **A bot is never admitted, and this gate adds no second bot test.** The
+ *   single judgement lives in `attribution.ts` beside the detection filters that
  *   already apply it; here it only refuses. An absent, empty, or bot-shaped
  *   actor is refused **regardless of the policy** — an open policy is permission
  *   for a named human actor, not for nobody — because the fail-closed reading of
  *   an unreadable actor is *no actor*, never *the list says yes*.
- * - **The refusal names the denial; the record names the policy's shape only**
- *   (FR-077, FR-079, NFR-113). Every denied login and its attribution basis go
- *   on the `dispatch.refused` row, because a refusal a reader cannot attribute
- *   is not an explainable refusal, and a basis is stated as the provenance it is
- *   (002 NFR-011) — which, for the one legacy basis, means the rule that was in
- *   force when the row was written and nothing at all about GitHub's
- *   capabilities, because 002 v1.12.0 established that GitHub records both the
- *   assigner and the reviewer. No **permitted** login appears anywhere: an audit
- *   trail listing who may trigger a repository is a second copy of the access
- *   policy in a file retained for months.
- * - **A truncated reference list is said out loud, not admitted around** (T-038,
- *   NFR-107). The quantifier above runs over the *retained* references, and the
- *   run layer stops retaining at {@link MAX_SOURCE_REFERENCES}. A run that
- *   reached the cap can therefore be carrying an allowed actor among the dropped
- *   references — invisible to this gate under **every** policy, which is the
- *   permanent wedge the quantifier exists to prevent arriving by the other door.
- *   The gate **refuses** on the truncated list (admitting would be admitting an
- *   authorization nobody granted, constitution II) and the message, the
- *   `dispatch.refused` detail, and the retry's own refusal all say that the
- *   decision was made on an incomplete list and that widening `allowedUsers`
- *   cannot clear it (constitution IV).
+ * - **The refusal names the denial; the record names the policy's shape only.**
+ *   Every denied login and its attribution basis go on the `dispatch.refused`
+ *   row, because a refusal a reader cannot attribute is not an explainable
+ *   refusal. A basis is stated as the provenance it is: for the one legacy
+ *   basis, the rule that was in force when the row was written, and nothing at
+ *   all about GitHub's capabilities — GitHub records both the assigner and the
+ *   reviewer. No **permitted** login appears anywhere: an audit trail listing who
+ *   may trigger a repository is a second copy of the access policy in a file
+ *   retained for months.
+ * - **A truncated reference list is said out loud, not admitted around.** The
+ *   quantifier above runs over the *retained* references, and the run layer stops
+ *   retaining at {@link MAX_SOURCE_REFERENCES}. A run that reached the cap can
+ *   therefore be carrying an allowed actor among the dropped references —
+ *   invisible to this gate under **every** policy, which is the permanent wedge
+ *   the quantifier exists to prevent arriving by the other door. The gate
+ *   **refuses** on the truncated list, because admitting would be admitting an
+ *   authorization nobody granted (constitution II), and the message, the
+ *   `dispatch.refused` detail, and the retry's own refusal all say the decision
+ *   was made on an incomplete list and that widening `allowedUsers` cannot clear
+ *   it (constitution IV).
+ * - **Placement is load-bearing: after `judgeReserve` has answered `null` and
+ *   before any token is derived.** A policy check placed first would pre-empt
+ *   `already-dispatched` — which names the session FR-022 and AC-112 require — and
+ *   `stale-lease`, making both unreachable on the paths they exist for.
  *
- * Where it sits inside the reserve is equally load-bearing: **after**
- * `judgeReserve` has answered `null` and **before** any token is derived. A
- * policy check placed first would pre-empt `already-dispatched` — which names the
- * session FR-022 and AC-112 require — and `stale-lease`, making both unreachable
- * on the paths they exist for.
+ * Requirements: 003 FR-076 – FR-080, NFR-107, NFR-113; contract §1 in
+ * [`contracts/dispatch-authorization.md`](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md).
  */
 
 import { isActorAllowed } from '../bindings-allow-list.ts';

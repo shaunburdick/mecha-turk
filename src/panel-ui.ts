@@ -1,5 +1,5 @@
 /**
- * Panel rendering for the spike.
+ * Panel rendering.
  *
  * The UI is built once from `@openchamber/sdk/ui` controls and repainted from
  * state, so `onReady` refreshes never replace a control the user is

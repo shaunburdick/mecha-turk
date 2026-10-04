@@ -1,7 +1,7 @@
 /**
  * Host-owned project, worktree, and session verification (T007).
  *
- * The spike asks OpenChamber for its own state and records what comes back:
+ * The panel asks OpenChamber for its own state and records what comes back:
  * three documented list calls, four documented subscriptions, the session
  * lifecycle phases observed during the probe, and every partial failure as a
  * problem. Nothing here creates or mutates a project, worktree, or session.
@@ -53,7 +53,7 @@ interface VerifyHostInput {
 
 /** Evidence collected from the host about project, worktree, and session state. */
 export interface HostVerification {
-    /** Project id the spike asked about. */
+    /** Project id the panel asked about. */
     readonly projectId: string;
     /** Whether the configured project id exists in `listProjects()`. */
     readonly projectFound: boolean;
@@ -99,7 +99,7 @@ function noop(): void {
  *
  * The documented subscriptions replay their current state on registration, so
  * a short listen is enough to prove the subscription works without holding one
- * of the host's 32 per-frame slots for the rest of the spike.
+ * of the host's 32 per-frame slots for the rest of the panel's life.
  *
  * @param subscribe - Registration function from the host client.
  * @param waitMs - How long to listen for the replayed snapshot.
