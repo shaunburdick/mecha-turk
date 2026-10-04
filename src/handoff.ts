@@ -99,7 +99,6 @@ export function initialHandoffState(): HandoffState {
 /**
  * Apply the storage pre-flight before anything is sent.
  *
- * @param rt - Panel runtime.
  * @returns A refusal reason when the handoff must not be sent, otherwise `null`.
  */
 async function handoffGate(rt: PanelRuntime): Promise<string | null> {
@@ -129,7 +128,6 @@ function serviceErrorEnvelope(result: GuestRequestResult): { readonly code: stri
 /**
  * Parse a credential-route failure envelope into its copy.
  *
- * @param result - The non-2xx response from the service.
  * @returns Operator-facing copy built from the code alone (never a value).
  */
 function serviceFailureCopy(result: GuestRequestResult): string {
@@ -148,8 +146,6 @@ function serviceFailureCopy(result: GuestRequestResult): string {
  * {@link reloadBindingsAfterConnect}), so the accounts dropdown lists the
  * account the service just registered without a manual Refresh.
  *
- * @param rt - Panel runtime.
- * @param result - The service's success response.
  * @returns `true` when the body carried a usable identity.
  */
 async function completeHandoff(rt: PanelRuntime, result: GuestRequestResult): Promise<boolean> {
@@ -160,8 +156,7 @@ async function completeHandoff(rt: PanelRuntime, result: GuestRequestResult): Pr
         return false;
     }
 
-    const { numericUserId } = root;
-    const { login } = root;
+    const { numericUserId, login } = root;
     if (typeof numericUserId !== 'string' || typeof login !== 'string') {
         rt.state.handoff.note = UNKNOWN_FAILURE;
 
@@ -181,9 +176,6 @@ async function completeHandoff(rt: PanelRuntime, result: GuestRequestResult): Pr
 
 /**
  * Handle a failure thrown by `serviceRequest` (host transport codes, F1–F4).
- *
- * @param rt - Panel runtime.
- * @param error - The caught failure.
  */
 async function applyHostFailure(rt: PanelRuntime, error: unknown): Promise<void> {
     const code = hostErrorCode(error);
@@ -221,9 +213,6 @@ async function applyHostFailure(rt: PanelRuntime, error: unknown): Promise<void>
  * than an instruction to rotate a token that is actually fine. Adoption only
  * needs the service's own answer. A genuinely unreachable service (adoption
  * still fails) keeps the catalogue copy for the code on the note line.
- *
- * @param rt - Panel runtime.
- * @param result - The service's failure response.
  */
 async function applyServiceFailure(rt: PanelRuntime, result: GuestRequestResult): Promise<void> {
     if (isDuplicateRefusal(result)) {
@@ -254,16 +243,14 @@ async function applyServiceFailure(rt: PanelRuntime, result: GuestRequestResult)
  * rotation, because the route replaces a credential for an account that is
  * already identified (it accepts no constraint).
  *
- * @param rt - Panel runtime, whose armed row picks the route.
- * @param input - Credential and optional expected login.
  * @returns The service's answer.
  */
 async function requestVerification(rt: PanelRuntime, input: HandoffInput): Promise<GuestRequestResult> {
     const rotating = rt.state.accounts.rotateArmed;
-    const body: Record<string, unknown> = { token: input.token };
-    if (rotating === null && input.expectedLogin !== undefined) {
-        body.expectedLogin = input.expectedLogin;
-    }
+    const body = {
+        token: input.token,
+        ...(rotating === null && input.expectedLogin !== undefined && { expectedLogin: input.expectedLogin }),
+    };
 
     return await rt.host.serviceRequest({
         method: 'POST',
@@ -281,8 +268,7 @@ async function requestVerification(rt: PanelRuntime, input: HandoffInput): Promi
  * promised. The service's own record (and its audit row) is untouched by
  * this side of the wire.
  *
- * @param rt - Panel runtime.
- * @param numericUserId - Account whose token the service replaced.
+ * `numericUserId` is the account whose token the service replaced.
  */
 function finishRotation(rt: PanelRuntime, numericUserId: string): void {
     const account = rt.state.bindings.accounts.find(
@@ -300,9 +286,6 @@ function finishRotation(rt: PanelRuntime, numericUserId: string): void {
  * module binding, so there is nowhere for it to survive this call: clearing is
  * structural rather than a `finally` step, and the tests that prove it assert
  * the fake host's recorded input value instead of a module variable.
- *
- * @param rt - Panel runtime.
- * @param input - The pasted credential and optional expected login.
  */
 export async function runHandoff(rt: PanelRuntime, input: HandoffInput): Promise<void> {
     rt.state.handoff.busy = true;

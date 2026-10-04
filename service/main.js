@@ -2294,7 +2294,7 @@ function parseLease(raw) {
     readStamp(expiresAt)
   ];
   const source = provenance === "panel" || provenance === "migration" ? provenance : null;
-  if (values.includes(null) || source === null) {
+  if (source === null || values.includes(null)) {
     return null;
   }
   return {
@@ -2314,7 +2314,7 @@ function parseReservation(raw) {
   const deadline = raw.resultDeadlineAt;
   const values = [readText(dispatchToken), readPositiveInt(attempt), readStamp(reservedAt), readStamp(deadline)];
   const flag = readFlag(consumed);
-  if (values.includes(null) || flag === null) {
+  if (flag === null || values.includes(null)) {
     return null;
   }
   return {
