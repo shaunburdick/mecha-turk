@@ -137,7 +137,6 @@ export interface StatusTabUi {
  * that property across the first `await` and then reports a later direct
  * check as unreachable, while the frame really can go away between two awaits.
  *
- * @param rt - Panel runtime.
  * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
@@ -147,7 +146,6 @@ function tornDown(rt: PanelRuntime): boolean {
 /**
  * Create a notice banner inside a wrapper the tab can hide.
  *
- * @param input - Where it mounts, its tone and copy, and its initial state.
  * @returns The wrapped notice.
  */
 function mountNotice(input: NoticeInput): StatusNotice {
@@ -169,8 +167,6 @@ const MONO_VALUE_LABELS: ReadonlySet<string> = new Set(['Data directory', 'Next 
 /**
  * Build one row's inputs from the line the copy module produced.
  *
- * @param group - The group the row belongs to, for its label treatment.
- * @param line - One line of this group's copy.
  * @returns The line, plus the cell classes this row takes.
  */
 function rowInput(group: StatusRowGroup, line: string): LineInput {
@@ -192,8 +188,6 @@ function rowInput(group: StatusRowGroup, line: string): LineInput {
  * what gives each group a place in the tab's heading hierarchy and its own
  * surface to sit on.
  *
- * @param parent - Element to append into.
- * @param input - The section heading, and the label treatment its rows take.
  * @returns The group, with no rows yet.
  */
 function mountRowGroup(
@@ -218,8 +212,6 @@ function mountRowGroup(
  * label it no longer has. Rebuilding keeps exactly one row per line, and the
  * handles are released as they go.
  *
- * @param group - The group to repaint.
- * @param lines - The lines to show, one per row.
  */
 function paintRowGroup(group: StatusRowGroup, lines: readonly string[]): void {
     for (const row of group.rows) {
@@ -232,7 +224,6 @@ function paintRowGroup(group: StatusRowGroup, lines: readonly string[]): void {
 /**
  * Remove one group's nodes and handles.
  *
- * @param group - The group to dispose.
  */
 function disposeRowGroup(group: StatusRowGroup): void {
     for (const row of group.rows) {
@@ -248,7 +239,6 @@ function disposeRowGroup(group: StatusRowGroup): void {
  * `null` is load-bearing: the guidance line claims a project is *not
  * registered*, and it may only claim that from a list that actually arrived.
  *
- * @param rt - Panel runtime whose picker state the answer comes from.
  * @returns The registered ids, or `null` when they are not known yet.
  */
 function registeredProjects(rt: PanelRuntime): readonly string[] | null {
@@ -263,7 +253,6 @@ function registeredProjects(rt: PanelRuntime): readonly string[] | null {
  * Nothing runs when the tab has never been activated: the state still
  * updates, and the first activation repaints from it.
  *
- * @param rt - Panel runtime.
  */
 export function repaintStatusTab(rt: PanelRuntime): void {
     const ui = rt.statusUi;
@@ -273,9 +262,9 @@ export function repaintStatusTab(rt: PanelRuntime): void {
 
     const slice = rt.state.statusTab;
     const view = slice.doc;
-    const loading = slice.phase === 'loading';
+    const isLoading = slice.phase === 'loading';
 
-    ui.refreshButton.update({ disabled: loading, loading });
+    ui.refreshButton.update({ disabled: isLoading, loading: isLoading });
     ui.readLine.update(readStateLine(slice));
 
     // The two blocking notices are facts about the *last* document the panel
@@ -312,7 +301,6 @@ export function repaintStatusTab(rt: PanelRuntime): void {
 /**
  * Repaint the shared framing and then this tab, after one step of a read.
  *
- * @param rt - Panel runtime.
  */
 function repaintAfterRead(rt: PanelRuntime): void {
     refresh(rt);
@@ -327,7 +315,6 @@ function repaintAfterRead(rt: PanelRuntime): void {
  * supplementary — its failure renders as *not read* on one line rather than
  * failing a tab whose primary document arrived.
  *
- * @param rt - Panel runtime.
  */
 export async function loadStatus(rt: PanelRuntime): Promise<void> {
     const slice = rt.state.statusTab;
@@ -373,8 +360,6 @@ export async function loadStatus(rt: PanelRuntime): Promise<void> {
 /**
  * Mount the refresh control and the read-state line.
  *
- * @param rt - Panel runtime whose read state the line reports.
- * @param parent - Element to append into.
  * @returns The two handles.
  */
 function mountControls(rt: PanelRuntime, parent: HTMLElement): {
@@ -401,7 +386,6 @@ function mountControls(rt: PanelRuntime, parent: HTMLElement): {
 /**
  * Mount the Status body above the prerequisites section.
  *
- * @param input - Runtime and the Status body container the shell created.
  * @returns The handles a repaint updates.
  */
 export function mountStatusTab(input: {
@@ -452,7 +436,6 @@ export function mountStatusTab(input: {
 /**
  * Dispose the Status body's handles.
  *
- * @param rt - Panel runtime being torn down.
  */
 export function disposeStatusTab(rt: PanelRuntime): void {
     const ui = rt.statusUi;

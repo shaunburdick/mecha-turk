@@ -17,7 +17,7 @@ export default [
     ...shaunburdick.config.js,
     ...shaunburdick.config.ts,
     {
-        // Four overrides, down from twelve at 11.2.0. Eight of the nine that
+        // Five overrides, down from twelve at 11.2.0. Eight of the nine that
         // went away are now the shipped defaults: `consistent-boolean-name`
         // with `checkFunctions: 'never'`, `numeric-separators-style` at
         // `minimumDigits: 4`, `no-top-level-assignment-in-function` skipped in
@@ -25,6 +25,17 @@ export default [
         // / `no-redundant-logic` disabled outright. See the changelog in
         // eslint/CHANGELOG.md at 11.3.0 for each.
         rules: {
+            // All 8 findings repo-wide are the same line in the same file, and
+            // the rule is misreading the type. `Repaint` is declared
+            // `(rt: PanelRuntime) => void`, so `repaint(rt)` discards nothing.
+            // The rule fires on that call *inside an `async` function* and not
+            // on the identical call in a sync one — there are 15 call sites,
+            // all of the same expression, and precisely the 8 that sit in an
+            // async body are reported. `void repaint(rt)` would satisfy it and
+            // is what the rule's own message suggests, but it reads as a claim
+            // that the callback is asynchronous, which is the opposite of the
+            // truth; the honest fix is in the rule.
+            'llm-core/no-floating-promise': 'off',
             // It asks for an explicit length check before reading a first or
             // last element. This repo has `noUncheckedIndexedAccess` on, so an
             // unguarded read is already `T | undefined`, and the codebase
