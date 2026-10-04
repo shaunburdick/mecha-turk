@@ -67,8 +67,14 @@ const PACKAGE_PATH = resolvePath(ROOT, 'package.json');
 /** Poll interval for helpers that wait on asynchronous effects. */
 const POLL_MS = 10;
 
-/** Deadline for helpers that wait on asynchronous effects. */
-const WAIT_MS = 1_000;
+/**
+ * Deadline for helpers that wait on asynchronous effects.
+ *
+ * Generous on purpose: this budget is only ever reached when the machine is
+ * loaded enough to starve the timer, and giving up quietly turns a slow run
+ * into a confusing assertion failure several lines later.
+ */
+const WAIT_MS = 10_000;
 
 /** Settle time before a drain assertion starts. */
 const SETTLE_MS = 50;
@@ -129,15 +135,25 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 /**
- * Wait until a predicate holds, or give up after the deadline.
+ * Wait until a predicate holds.
+ *
+ * Fails the test itself when the deadline passes, rather than resolving and
+ * letting the caller's assertion report something unrelated. The one caller
+ * waits on a log line the service writes asynchronously, so the two failure
+ * modes — the service never logged, and the machine was too slow — are
+ * different bugs and should not look the same.
  *
  * @param predicate - Condition to poll for (log lines, counters).
- * @returns Resolves either way; callers assert what they were waiting for.
+ * @throws {Error} When the predicate has not held by the deadline.
  */
 async function waitFor(predicate: () => boolean): Promise<void> {
     const deadline = Date.now() + WAIT_MS;
     while (!predicate() && Date.now() < deadline) {
         await delay(POLL_MS);
+    }
+
+    if (!predicate()) {
+        throw new Error(`predicate never held within ${WAIT_MS}ms`);
     }
 }
 

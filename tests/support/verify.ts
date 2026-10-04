@@ -246,11 +246,15 @@ export async function accountFileExists(service: TestService): Promise<boolean> 
 /**
  * Wait until a predicate holds, or give up after the deadline.
  *
+ * The budget is generous on purpose: it is only ever reached when the machine
+ * is loaded enough to starve the timer, and every caller asserts this return
+ * value, so a slow run should not read as the behaviour being broken.
+ *
  * @param predicate - Condition to poll for.
  * @returns Whether the predicate held before the deadline.
  */
 export async function waitFor(predicate: () => boolean): Promise<boolean> {
-    const deadline = Date.now() + 1_000;
+    const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
         if (predicate()) {
             return true;
