@@ -2,26 +2,24 @@
  * Service configuration: the operator-tunable polling, retry, and retention
  * knobs, validated with field-level remediation.
  *
- * The bounds come from the spec and plan (FR-017 interval 15,000–300,000 ms
- * default 60,000; overlap 1–120 min default 10 min; FR-020 `per_page ≤ 30`;
- * retention defaults from the spec's Configuration Model; FR-031's lease and
- * result deadline 30,000–600,000 ms, default 120,000 — T-008). Validation is
- * deliberately *additive-reporting*: every bad field is collected in one pass
- * so `PUT /v1/config` can answer 422 with a complete list instead of failing
- * one field at a time, and remediation names the field and its accepted
- * range without ever echoing the submitted value (contract §2.1/FR-039 —
- * "list field + remediation, never values that could be secret").
+ * Four decisions are not visible from the code:
  *
- * `PUT` is a full replacement: the body must be a complete `ServiceConfig`
- * with no unknown keys, so a typo'd or hand-invented field is refused rather
- * than silently ignored. The *read* is deliberately more forgiving in exactly
- * one direction — a document written before a field existed takes that
- * field's default instead of being quarantined (T-008) — because a strict read
- * would set aside every configuration an operator already had.
- *
- * The automatic requeue budget is deliberately **not** a field here: 003
- * v1.3.0 and 006's `## Deferred` record that decision, and the bound lives in
- * the run store as a module constant.
+ * - **Validation is additive-reporting.** Every bad field is collected in one
+ *   pass so `PUT /v1/config` can answer 422 with a complete list instead of
+ *   failing one field at a time, and remediation names the field and its
+ *   accepted range without ever echoing the submitted value — "list field +
+ *   remediation, never values that could be secret".
+ * - **`PUT` is a full replacement**: the body must be a complete
+ *   `ServiceConfig` with no unknown keys, so a typo'd or hand-invented field is
+ *   refused rather than silently ignored.
+ * - **The read is more forgiving in exactly one direction.** A document
+ *   written before a field existed takes that field's default instead of being
+ *   quarantined, because a strict read would set aside every configuration an
+ *   operator already had. An unknown key, a bad value, or a non-object still
+ *   quarantines.
+ * - **The automatic requeue budget is deliberately not a field here.** That
+ *   decision is recorded in 006's `## Deferred`, and the bound lives in the run
+ *   store as a module constant.
  */
 
 import { findSecretLeak } from '../src/redaction.ts';
