@@ -204,7 +204,7 @@ export function parseRunScalars(raw: Record<string, unknown>): RunScalars | null
     const createdAt = readStamp(raw.createdAt);
     const updatedAt = readStamp(raw.updatedAt);
     const values = [ordinal, subjectNumber, attempt, requeuesUsed, referenceCount, notRetained, createdAt, updatedAt];
-    if (values.includes(null) || truncated === null) {
+    if (truncated === null || values.includes(null)) {
         return null;
     }
 

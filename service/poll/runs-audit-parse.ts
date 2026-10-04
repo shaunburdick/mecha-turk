@@ -98,9 +98,9 @@ function parseIntentBase(value: Record<string, unknown>): {
     const deliveryIds = parseTextList(value.deliveryIds);
     if (
         correlationId === null
-        || !/^mt-run-[0-9a-f]{24}$/.test(correlationId)
         || deliveryIds === null
         || deliveryIds.length === 0
+        || !/^mt-run-[0-9a-f]{24}$/.test(correlationId)
     ) {
         return null;
     }
@@ -169,9 +169,11 @@ function parseSweepDetails(raw: unknown): Record<string, string | number | boole
                 return null;
             }
             details[key] = value;
-        } else if (typeof value === 'number' && Number.isFinite(value)) {
-            details[key] = value;
-        } else if (typeof value === 'boolean' || value === null) {
+        } else if (
+            typeof value === 'boolean'
+            || value === null
+            || (typeof value === 'number' && Number.isFinite(value))
+        ) {
             details[key] = value;
         } else {
             return null;
@@ -198,11 +200,11 @@ function parseSweepIntent(value: Record<string, unknown>): RunAuditIntent | null
     const decision = readText(rawDecision);
     if (
         correlationId === null
-        || !/^mt-run-[0-9a-f]{24}$/.test(correlationId)
         || reason === null
         || sequence === null
         || details === null
         || decision !== SWEEP_DECISIONS.get(eventType)
+        || !/^mt-run-[0-9a-f]{24}$/.test(correlationId)
     ) {
         return null;
     }

@@ -50,7 +50,7 @@ function formatTime(iso: string): string {
  * @returns The last recorded phase, or that there is none yet.
  */
 export function phaseRecordLine(rt: PanelRuntime): string {
-    const phase = rt.state.ledger.entries.toReversed().find((entry) => entry.kind === 'phase');
+    const phase = rt.state.ledger.entries.findLast((entry) => entry.kind === 'phase');
     if (phase === undefined) {
         return 'Phase record: none recorded yet.';
     }

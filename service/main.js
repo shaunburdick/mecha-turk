@@ -1084,8 +1084,7 @@ function validationResponse(issues) {
 }
 var RETRY_AFTER_HEADER = "retry-after";
 function throttleResponse(options) {
-  const headers = {};
-  headers[RETRY_AFTER_HEADER] = String(options.retryAfterSeconds);
+  const headers = { [RETRY_AFTER_HEADER]: String(options.retryAfterSeconds) };
   return {
     status: options.status,
     body: errorBody({ code: options.code, message: options.message }),
@@ -1369,7 +1368,7 @@ function readIdentity(text) {
     return null;
   }
   const { id, login } = parsed.value;
-  if (typeof login !== "string" || typeof id !== "number" || !Number.isSafeInteger(id) || login === "") {
+  if (login === "" || typeof login !== "string" || typeof id !== "number" || !Number.isSafeInteger(id)) {
     return null;
   }
   return { numericUserId: String(id), login };
@@ -1807,7 +1806,7 @@ var RUN_CORRELATION_ID = /^mt-run-[0-9a-f]{24}$/;
 function isUsableTextFieldSet(record, fields) {
   return fields.every((field) => {
     const value = record[field];
-    return field in record && typeof value === "string" && value !== "";
+    return typeof value === "string" && value !== "";
   });
 }
 function isAbsentableTextFieldSet(record, fields) {
@@ -2112,7 +2111,7 @@ function isRunState(value) {
 function parseIntentBase(value) {
   const correlationId = readText(value.correlationId);
   const deliveryIds = parseTextList(value.deliveryIds);
-  if (correlationId === null || !/^mt-run-[0-9a-f]{24}$/.test(correlationId) || deliveryIds === null || deliveryIds.length === 0) {
+  if (correlationId === null || deliveryIds === null || deliveryIds.length === 0 || !/^mt-run-[0-9a-f]{24}$/.test(correlationId)) {
     return null;
   }
   return { correlationId, deliveryIds };
@@ -2155,9 +2154,7 @@ function parseSweepDetails(raw) {
         return null;
       }
       details[key] = value;
-    } else if (typeof value === "number" && Number.isFinite(value)) {
-      details[key] = value;
-    } else if (typeof value === "boolean" || value === null) {
+    } else if (typeof value === "boolean" || value === null || typeof value === "number" && Number.isFinite(value)) {
       details[key] = value;
     } else {
       return null;
@@ -2177,7 +2174,7 @@ function parseSweepIntent(value) {
   const sequence = readText(rawSequence);
   const details = parseSweepDetails(value.details);
   const decision = readText(rawDecision);
-  if (correlationId === null || !/^mt-run-[0-9a-f]{24}$/.test(correlationId) || reason === null || sequence === null || details === null || decision !== SWEEP_DECISIONS.get(eventType)) {
+  if (correlationId === null || reason === null || sequence === null || details === null || decision !== SWEEP_DECISIONS.get(eventType) || !/^mt-run-[0-9a-f]{24}$/.test(correlationId)) {
     return null;
   }
   return { eventType, correlationId, decision, reason, details, sequence };
@@ -2448,7 +2445,7 @@ function parseRunScalars(raw) {
   const createdAt = readStamp(raw.createdAt);
   const updatedAt = readStamp(raw.updatedAt);
   const values = [ordinal, subjectNumber, attempt, requeuesUsed, referenceCount, notRetained, createdAt, updatedAt];
-  if (values.includes(null) || truncated === null) {
+  if (truncated === null || values.includes(null)) {
     return null;
   }
   return {
@@ -2553,10 +2550,7 @@ function parseRunParts(raw) {
   const references = parseList(raw.sourceReferences, { parse: parseReference, cap: MAX_SOURCE_REFERENCES });
   const attempts = parseList(raw.attempts, { parse: parseAttempt, cap: MAX_ATTEMPT_RECORDS });
   const prompt = parseStoredPromptSnapshot(raw.prompt);
-  if (scalars === null || !runIdentityMatches(raw, scalars) || objects === null || references === null || attempts === null || prompt === null) {
-    return null;
-  }
-  if (!runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
+  if (scalars === null || objects === null || references === null || attempts === null || prompt === null || !runIdentityMatches(raw, scalars) || !runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
     return null;
   }
   return {
@@ -4130,7 +4124,7 @@ function matchPathPattern(routePath, pathname) {
   const params = {};
   for (const [index, expected] of pattern.entries()) {
     const actual = segments[index];
-    if (expected === undefined || actual === undefined) {
+    if (actual === undefined) {
       return null;
     }
     if (expected.startsWith(PARAM_PREFIX)) {
@@ -4879,17 +4873,18 @@ var TAKE_EFFECT = {
 var STARTING_PROMPT_FORMAT = "text sent to the agent verbatim, with no placeholders; " + `at most ${STARTING_PROMPT_MAX_CODE_POINTS} code points after trimming; ` + "credential-shaped, reserved-marker, and control characters refused rather than stored; " + "empty means the global prompt tier is unset; the session still runs the pinned Default Agent, " + "which this text cannot change";
 function configSchema() {
   const numericFields = Object.keys(NUMERIC_BOUNDS);
-  const descriptors = [];
-  descriptors.push({
-    name: "startingPrompt",
-    kind: "string",
-    unit: null,
-    format: STARTING_PROMPT_FORMAT,
-    maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
-    default: DEFAULT_CONFIG.startingPrompt,
-    takesEffect: TAKE_EFFECT.startingPrompt,
-    multiline: true
-  });
+  const descriptors = [
+    {
+      name: "startingPrompt",
+      kind: "string",
+      unit: null,
+      format: STARTING_PROMPT_FORMAT,
+      maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
+      default: DEFAULT_CONFIG.startingPrompt,
+      takesEffect: TAKE_EFFECT.startingPrompt,
+      multiline: true
+    }
+  ];
   for (const field of numericFields) {
     descriptors.push({
       name: field,
@@ -4908,8 +4903,7 @@ function configSchema() {
     values: LOG_LEVEL_VALUES,
     default: DEFAULT_CONFIG.logLevel,
     takesEffect: TAKE_EFFECT.logLevel
-  });
-  descriptors.push({
+  }, {
     name: "expectedAgent",
     kind: "string",
     unit: null,
@@ -5532,7 +5526,7 @@ async function seedBaseline2(store, baseline) {
       continue;
     }
     const recorded = entry.details.promptFingerprint;
-    const fingerprint = entry.details.promptPresent === true && typeof recorded === "string" && PROMPT_FINGERPRINT_PATTERN.test(recorded) ? recorded : null;
+    const fingerprint = typeof recorded === "string" && entry.details.promptPresent === true && PROMPT_FINGERPRINT_PATTERN.test(recorded) ? recorded : null;
     const prior = highest.get(bindingId);
     if (prior === undefined || entry.seq > prior.seq) {
       highest.set(bindingId, { seq: entry.seq, fingerprint });
@@ -8599,10 +8593,11 @@ function startSweep(input) {
   return {
     stop: () => {
       state.stopped = true;
-      if (state.timer !== null) {
-        clearTimeout(state.timer);
-        state.timer = null;
+      if (state.timer === null) {
+        return;
       }
+      clearTimeout(state.timer);
+      state.timer = null;
     }
   };
 }
@@ -9871,7 +9866,7 @@ function createVerifyThrottle(now = Date.now) {
         return { allowed: false, code: "verify-busy", retryAfterSeconds: 1 };
       }
       const oldest = stamps[0];
-      if (stamps.length >= VERIFY_MAX_ATTEMPTS && oldest !== undefined) {
+      if (oldest !== undefined && stamps.length >= VERIFY_MAX_ATTEMPTS) {
         const waitMs = VERIFY_WINDOW_MS - (at - oldest);
         return {
           allowed: false,

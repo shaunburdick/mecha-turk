@@ -31,6 +31,9 @@ export interface DetailChips {
     dispose(): void;
 }
 
+/** The connection phrases the panel reads as an amber warning rather than a pass. */
+const WARNING_PHRASES: ReadonlySet<string> = new Set(['auth-failed', 'rate-limited', 'offline']);
+
 /**
  * The tone for one reported connection.
  *
@@ -47,7 +50,7 @@ function connectionTone(phrase: string): Tone {
         return 'success';
     }
 
-    if (phrase === 'auth-failed' || phrase === 'rate-limited' || phrase === 'offline') {
+    if (WARNING_PHRASES.has(phrase)) {
         return 'warning';
     }
 

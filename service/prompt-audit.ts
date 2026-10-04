@@ -111,8 +111,8 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, string | 
         // FR-053's never-the-text rule in force on the **read** side too.
         const recorded = entry.details.promptFingerprint;
         const fingerprint =
-            entry.details.promptPresent === true &&
             typeof recorded === 'string' &&
+            entry.details.promptPresent === true &&
             PROMPT_FINGERPRINT_PATTERN.test(recorded)
                 ? recorded
                 : null;

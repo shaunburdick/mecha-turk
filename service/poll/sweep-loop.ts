@@ -190,10 +190,12 @@ export function startSweep(input: SweepLoopInput): SweepLoop {
     return {
         stop: (): void => {
             state.stopped = true;
-            if (state.timer !== null) {
-                clearTimeout(state.timer);
-                state.timer = null;
+            if (state.timer === null) {
+                return;
             }
+
+            clearTimeout(state.timer);
+            state.timer = null;
         },
     };
 }

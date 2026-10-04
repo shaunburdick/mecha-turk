@@ -140,7 +140,7 @@ const RESTORE_HEADLINE = 'Restore defaults writes the documented defaults for th
 function currentValueOf(envelope: ConfigEnvelope, descriptor: FieldDescriptor): string {
     const value = envelope.config[descriptor.name];
 
-    return value === undefined ? String(descriptor.default) : String(value);
+    return String(value ?? descriptor.default);
 }
 
 /**

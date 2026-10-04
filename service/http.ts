@@ -212,8 +212,7 @@ export interface ThrottleOptions {
  * @returns The response carrying the `retry-after` header.
  */
 export function throttleResponse(options: ThrottleOptions): HttpResponse {
-    const headers: Record<string, string> = {};
-    headers[RETRY_AFTER_HEADER] = String(options.retryAfterSeconds);
+    const headers: Record<string, string> = { [RETRY_AFTER_HEADER]: String(options.retryAfterSeconds) };
 
     return {
         status: options.status,

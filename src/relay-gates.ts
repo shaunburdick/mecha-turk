@@ -245,10 +245,10 @@ export async function refuseWithBlocked(input: {
         return;
     }
 
-    rt.state.bindings.note = answer.ok
-        ? redact(`Run ${run.correlationId} was not started: ${failure.detail}`)
-        : redact(`Run ${run.correlationId} was refused by a guard, and the service could not record it: `
-            + `${answer.problem}.`);
+    const because = answer.ok
+        ? `not started: ${failure.detail}`
+        : `refused by a guard, and the service could not record it: ${answer.problem}.`;
+    rt.state.bindings.note = redact(`Run ${run.correlationId} was ${because}`);
 }
 
 /**

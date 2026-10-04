@@ -195,22 +195,23 @@ const STARTING_PROMPT_FORMAT = 'text sent to the agent verbatim, with no placeho
  */
 export function configSchema(): readonly FieldDescriptor[] {
     const numericFields = Object.keys(NUMERIC_BOUNDS) as readonly (keyof typeof NUMERIC_BOUNDS)[];
-    const descriptors: FieldDescriptor[] = [];
-    // First field: 004's global prompt tier, ahead of every numeric one, so
-    // this order stays `Object.keys(DEFAULT_CONFIG)` and `collectIssues`
-    // order exactly (006 AC-107; product-owner ruling, PR #12). `multiline`
-    // is declared here and nowhere else: an agent name is one line, an
-    // instruction is a paragraph.
-    descriptors.push({
-        name: 'startingPrompt',
-        kind: 'string',
-        unit: null,
-        format: STARTING_PROMPT_FORMAT,
-        maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
-        default: DEFAULT_CONFIG.startingPrompt,
-        takesEffect: TAKE_EFFECT.startingPrompt,
-        multiline: true,
-    });
+    const descriptors: FieldDescriptor[] = [
+        {
+            // First field: 004's global prompt tier, ahead of every numeric one, so
+            // this order stays `Object.keys(DEFAULT_CONFIG)` and `collectIssues`
+            // order exactly (006 AC-107; product-owner ruling, PR #12). `multiline`
+            // is declared here and nowhere else: an agent name is one line, an
+            // instruction is a paragraph.
+            name: 'startingPrompt',
+            kind: 'string',
+            unit: null,
+            format: STARTING_PROMPT_FORMAT,
+            maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
+            default: DEFAULT_CONFIG.startingPrompt,
+            takesEffect: TAKE_EFFECT.startingPrompt,
+            multiline: true,
+        },
+    ];
 
     for (const field of numericFields) {
         descriptors.push({
@@ -231,8 +232,7 @@ export function configSchema(): readonly FieldDescriptor[] {
         values: LOG_LEVEL_VALUES,
         default: DEFAULT_CONFIG.logLevel,
         takesEffect: TAKE_EFFECT.logLevel,
-    });
-    descriptors.push({
+    }, {
         name: 'expectedAgent',
         kind: 'string',
         unit: null,

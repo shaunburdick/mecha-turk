@@ -70,7 +70,7 @@ export function createVerifyThrottle(now: () => number = Date.now): VerifyThrott
             }
 
             const oldest = stamps[0];
-            if (stamps.length >= VERIFY_MAX_ATTEMPTS && oldest !== undefined) {
+            if (oldest !== undefined && stamps.length >= VERIFY_MAX_ATTEMPTS) {
                 const waitMs = VERIFY_WINDOW_MS - (at - oldest);
 
                 return {

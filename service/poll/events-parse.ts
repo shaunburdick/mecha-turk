@@ -201,7 +201,7 @@ function isUsableTextFieldSet(record: Record<string, unknown>, fields: readonly 
     return fields.every((field) => {
         const value = record[field];
 
-        return field in record && typeof value === 'string' && value !== '';
+        return typeof value === 'string' && value !== '';
     });
 }
 

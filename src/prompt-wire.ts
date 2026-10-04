@@ -75,12 +75,12 @@ function presentReference(record: Record<string, unknown>): PromptReference | nu
     const { promptFingerprint, promptLength, promptSources } = record;
     if (
         typeof promptFingerprint !== 'string' ||
-        !PROMPT_FINGERPRINT_PATTERN.test(promptFingerprint) ||
         typeof promptLength !== 'number' ||
         !Number.isSafeInteger(promptLength) ||
         promptLength < 1 ||
         !isPromptSourceList(promptSources) ||
-        promptSources.length === 0
+        promptSources.length === 0 ||
+        !PROMPT_FINGERPRINT_PATTERN.test(promptFingerprint)
     ) {
         return null;
     }

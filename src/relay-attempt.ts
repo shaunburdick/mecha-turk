@@ -284,9 +284,9 @@ export async function startRunSession(input: {
             composed: request.text ?? '',
             sources: run.promptSources,
         });
-        summary = overBudget !== null
-            ? { sessionId: null, sent: 'skipped', failure: overBudget }
-            : summarizeStartSessionResult(await rt.host.startSession(request));
+        summary = overBudget === null
+            ? summarizeStartSessionResult(await rt.host.startSession(request))
+            : { sessionId: null, sent: 'skipped', failure: overBudget };
     } catch (cause) {
         summary = { sessionId: null, sent: 'skipped', failure: describeError(cause) };
     }

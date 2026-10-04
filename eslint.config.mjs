@@ -126,6 +126,28 @@ export default [
             // exactly what the graceful path already did, and the watchdog is
             // scheduled because that path is not what happened.
             'unicorn/no-process-exit': 'off',
+            // One finding, and the two rules that want the same line disagree.
+            // `PROJECT_ID_PATTERN` in the panel is `/^[\x20-\x7E]+$/` — printable
+            // ASCII with the space and the tilde as the ends. This rule wants
+            // the ES6 code-point form, `\u{20}`, which is only a valid escape
+            // under the `u` flag; adding that flag makes
+            // `security/detect-unsafe-regex` call the range a potential
+            // backtracking hazard, which a single character class under two
+            // anchors cannot be. So the fix this rule asks for trades a
+            // demonstrable false positive for a real finding, and the
+            // `\xNN` form trips nothing. Kept as written.
+            'unicorn/prefer-unicode-code-point-escapes': 'off',
+            // One finding, in `associate`, which looks a mounted tab back up with
+            // `[role="tab"][data-id="${spec.id}"]`. The rule's premise is that an
+            // interpolated value can carry a character that ends the attribute
+            // selector, and `TabId` is a closed union of six literals — status,
+            // dispatches, bindings, accounts, settings, about — all lowercase
+            // letters, and `CSS.escape` is the identity function on every one of
+            // them. The type has already excluded the value the rule is guarding
+            // against, so escaping it would be decoration. (`CSS` is also not a
+            // global the offline harness provides, so the call would have needed
+            // a shim there too.)
+            'unicorn/require-css-escape': 'off',
         },
     },
 ];

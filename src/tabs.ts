@@ -129,15 +129,15 @@ function associate(input: {
     const { root, specs, bodies } = input;
     for (const spec of specs) {
         const tab = root.querySelector(`[role="tab"][data-id="${spec.id}"]`);
-        if (tab !== null) {
-            tab.setAttribute('id', `oc-tab-${spec.id}`);
-        }
+        tab?.setAttribute('id', `oc-tab-${spec.id}`);
 
         const body = bodies.get(spec.id);
-        if (body !== undefined) {
-            body.setAttribute('role', 'tabpanel');
-            body.setAttribute('aria-labelledby', `oc-tab-${spec.id}`);
+        if (body === undefined) {
+            continue;
         }
+
+        body.setAttribute('role', 'tabpanel');
+        body.setAttribute('aria-labelledby', `oc-tab-${spec.id}`);
     }
 }
 

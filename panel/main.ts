@@ -20,4 +20,4 @@ if (root === null) {
 
 const host = connectHost();
 
-createPanelApp({ host, root, panelWindow: window });
+createPanelApp({ host, root, panelWindow: globalThis });

@@ -275,16 +275,13 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
     const prompt = parseStoredPromptSnapshot(raw.prompt);
     if (
         scalars === null
-        || !runIdentityMatches(raw, scalars)
         || objects === null
         || references === null
         || attempts === null
         || prompt === null
+        || !runIdentityMatches(raw, scalars)
+        || !runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })
     ) {
-        return null;
-    }
-
-    if (!runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
         return null;
     }
 

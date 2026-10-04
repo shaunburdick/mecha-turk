@@ -123,7 +123,7 @@ function matchPathPattern(routePath: string, pathname: string): PatternMatch {
     const params: Record<string, string> = {};
     for (const [index, expected] of pattern.entries()) {
         const actual = segments[index];
-        if (expected === undefined || actual === undefined) {
+        if (actual === undefined) {
             return null;
         }
 
