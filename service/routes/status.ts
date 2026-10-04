@@ -241,7 +241,7 @@ async function statusAccounts(context: RouteContext): Promise<readonly StatusAcc
     try {
         const accounts = await listAccounts(context.store, context.log);
 
-        return accounts.map(statusAccountRow);
+        return accounts.map((account) => statusAccountRow(account));
     } catch (error) {
         context.log.warn('accounts could not be listed for status', {
             errorKind: error instanceof Error ? error.name : typeof error,
@@ -383,7 +383,7 @@ async function runDerivedProjection(
         });
 
         return {
-            repositories: bindings.map(unreadableRepositoryRow),
+            repositories: bindings.map((binding) => unreadableRepositoryRow(binding)),
             verification: notAvailableVerification(),
         };
     }
@@ -415,28 +415,28 @@ async function readConfig(context: RouteContext): Promise<ServiceConfig> {
 async function buildStatusBody(context: RouteContext): Promise<ServiceStatusBody> {
     const config = await readConfig(context);
     const { store, polling } = context;
-    const storeUsable = store !== null;
+    const hasStore = store !== null;
     const accounts = await statusAccounts(context);
     const bindings = await storedBindings(context);
     const { repositories, verification } = await runDerivedProjection(context, bindings);
     // The scheduler's own answer: paused only when the loop is genuinely not
     // running, never a literal the running process would contradict.
-    const running = storeUsable && polling.isRunning();
+    const isRunning = hasStore && polling.isRunning();
     const activeBindings = bindings.filter((binding) => binding.state === 'active').length;
     const pausedReason = pausedReasonOf({
-        storeUsable,
-        running,
+        storeUsable: hasStore,
+        running: isRunning,
         stopping: polling.isStopping(),
         activeBindings,
     });
 
     return {
         service: {
-            status: storeUsable ? 'ok' : 'degraded',
+            status: hasStore ? 'ok' : 'degraded',
             uptimeMs: Date.now() - context.startedAt,
             dataDir: context.dataDir,
             schemaVersion: store?.schemaVersion ?? null,
-            storage: { writable: storeUsable },
+            storage: { writable: hasStore },
         },
         accounts,
         repositories,
@@ -444,7 +444,7 @@ async function buildStatusBody(context: RouteContext): Promise<ServiceStatusBody
         polling: {
             intervalMs: config.intervalMs,
             nextPollAt: nextPollAtOf(polling, config.intervalMs),
-            paused: !running,
+            paused: !isRunning,
             pausedReason,
         },
         surface: { supported: true },

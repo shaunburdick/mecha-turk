@@ -111,7 +111,6 @@ type ResolutionRead =
  */
 function readResolution(fields: Readonly<Record<string, unknown>>): ResolutionRead {
     const decision = textMember(fields.decision);
-    const sessionId = textMember(fields.sessionId);
     if (decision === null || !isResolveDecision(decision)) {
         return {
             ok: false,
@@ -122,6 +121,7 @@ function readResolution(fields: Readonly<Record<string, unknown>>): ResolutionRe
         };
     }
 
+    const sessionId = textMember(fields.sessionId);
     if (decision === SESSION_CREATED && sessionId === null) {
         return {
             ok: false,

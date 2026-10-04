@@ -4346,7 +4346,7 @@ function expectedLoginIssues(raw) {
     }
   ];
 }
-function parseCredentialBody(raw, allowExpectedLogin) {
+function parseCredentialBody(raw, canAcceptExpectedLogin) {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return {
       ok: false,
@@ -4355,7 +4355,7 @@ function parseCredentialBody(raw, allowExpectedLogin) {
   }
   const body = raw;
   const read = readToken2(body.token);
-  const issues = [...read.issues, ...allowExpectedLogin ? expectedLoginIssues(body.expectedLogin) : []];
+  const issues = [...read.issues, ...canAcceptExpectedLogin ? expectedLoginIssues(body.expectedLogin) : []];
   if (issues.length > 0 || read.token === undefined) {
     return { ok: false, response: validationResponse(issues) };
   }
@@ -4363,21 +4363,25 @@ function parseCredentialBody(raw, allowExpectedLogin) {
     ok: true,
     credential: {
       token: read.token,
-      expectedLogin: allowExpectedLogin && typeof body.expectedLogin === "string" ? body.expectedLogin : null
+      expectedLogin: canAcceptExpectedLogin && typeof body.expectedLogin === "string" ? body.expectedLogin : null
     }
   };
 }
 function capabilityLabel(reason) {
   const capability = reason.slice(SCOPE_MISSING_PREFIX.length);
   switch (capability) {
-    case "metadata":
+    case "metadata": {
       return "Metadata";
-    case "issues":
+    }
+    case "issues": {
       return "Issues";
-    case "pull-requests":
+    }
+    case "pull-requests": {
       return "Pull requests";
-    default:
+    }
+    default: {
       return "Contents";
+    }
   }
 }
 function reasonCopy(reason) {
@@ -4491,7 +4495,7 @@ async function handleListAccounts(context) {
     return storageUnavailableResponse();
   }
   const accounts = await listAccounts(store, context.log);
-  return { status: STATUS.ok, body: { accounts: accounts.map(toAccountDto) } };
+  return { status: STATUS.ok, body: { accounts: accounts.map((account) => toAccountDto(account)) } };
 }
 function rotatedAccount(input) {
   const { account, outcome, token } = input;
@@ -4572,7 +4576,7 @@ async function prepareRotation(input) {
     return { ok: false, response: parsed.response };
   }
   const account = input.pathId === null ? null : await readAccount({ store: input.store, numericUserId: input.pathId, log: input.log });
-  if (input.pathId === null || account === null) {
+  if (account === null) {
     return { ok: false, response: unknownAccountResponse() };
   }
   return { ok: true, account, credential: parsed.credential };
@@ -4646,12 +4650,12 @@ async function handleDeleteAccount(context, request) {
   }
   const pathId = pathAccountId(request);
   const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId, log: context.log });
-  if (pathId === null || account === null) {
+  if (account === null || pathId === null) {
     return unknownAccountResponse();
   }
   const bindings = await bindingsReferencing(store, pathId);
   const isForced = request.url.searchParams.get(FORCE_QUERY_FLAG) === FORCE_QUERY_VALUE;
-  if (bindings.length > 0 && !isForced) {
+  if (!isForced && bindings.length > 0) {
     return bindingsRefusalResponse(bindings.length);
   }
   if (bindings.length > 0) {
@@ -4671,7 +4675,7 @@ var rotateTokenRoute = {
   path: ACCOUNT_TOKEN_PATH,
   handler: guardCredentialRoute(handleRotateToken)
 };
-var deleteAccountRoute = {
+var accountRemovalRoute = {
   method: "DELETE",
   path: ACCOUNT_PATH,
   handler: guardCredentialRoute(handleDeleteAccount)
@@ -4843,7 +4847,7 @@ async function handleAuditRead(context, request) {
     status: STATUS.ok,
     body: {
       entries: page,
-      nextCursor: ahead.length > page.length && last !== undefined ? last.seq : null,
+      nextCursor: last !== undefined && ahead.length > page.length ? last.seq : null,
       count: page.length
     }
   };
@@ -5131,9 +5135,9 @@ async function runConfigWrite(input) {
     const changes = configChanges(previous.config, candidate);
     await store.writeJson(CONFIG_FILE, candidate);
     log.setLevel(candidate.logLevel);
-    const auditWritten = changes.length === 0 ? true : await appendConfigApplied({ store, log, changes });
+    const wasAppended = changes.length === 0 || await appendConfigApplied({ store, log, changes });
     await advanceConfigPromptBaseline({ store, log, config: candidate });
-    return auditWritten;
+    return wasAppended;
   });
 }
 async function handlePutConfig(context, request) {
@@ -5145,14 +5149,14 @@ async function handlePutConfig(context, request) {
   if (context.store === null) {
     return storageUnavailableResponse();
   }
-  const auditWritten = await runConfigWrite({
+  const wasAppended = await runConfigWrite({
     store: context.store,
     log: context.log,
     candidate: validation.config
   });
-  return { status: STATUS.ok, body: { config: validation.config, auditWritten } };
+  return { status: STATUS.ok, body: { config: validation.config, auditWritten: wasAppended } };
 }
-var getConfigRoute = {
+var configRoute = {
   method: "GET",
   path: CONFIG_PATH,
   handler: (context) => handleGetConfig(context)
@@ -6203,7 +6207,7 @@ function stateFilterOf(raw) {
   if (raw === null || raw === "") {
     return { ok: true, state: null };
   }
-  if (LISTABLE_STATES.includes(raw) || raw === "blocked") {
+  if (raw === "blocked" || LISTABLE_STATES.includes(raw)) {
     return { ok: true, state: raw };
   }
   const prefix = "blocked:";
@@ -7150,7 +7154,7 @@ function readMember(value, pattern) {
 }
 function requiredMember(input) {
   const value = readMember(input.record[input.name], input.pattern);
-  if (input.required && value === null) {
+  if (value === null && input.required) {
     input.issues.push({ field: input.name, remediation: input.remediation });
   }
   return value;
@@ -7308,16 +7312,14 @@ function baselineMember(value, bound = MAX_BODY_TEXT_CHARS) {
   return trimmed.length > bound ? null : trimmed;
 }
 var PROVENANCE_SHAPE_FIX = "send one of configured, defaulted, unset — where the comparison baseline came from";
+var BASELINE_PROVENANCES = ["configured", "defaulted", "unset"];
 function provenanceMember(value) {
-  if (value === "configured" || value === "defaulted" || value === "unset") {
-    return value;
-  }
-  return null;
+  return BASELINE_PROVENANCES.find((candidate) => candidate === value) ?? null;
 }
 function provenanceIssue(provenance, expectedAgent) {
-  const configured = provenance === "configured";
+  const isConfigured = provenance === "configured";
   const hasBaseline = expectedAgent !== "";
-  if (configured !== hasBaseline) {
+  if (isConfigured !== hasBaseline) {
     return {
       field: "baselineProvenance",
       remediation: "send 'configured' with a non-blank expectedAgent, " + "or 'defaulted' or 'unset' with an empty one"
@@ -7332,8 +7334,8 @@ function readProvenance(fields, expectedAgent) {
   }
   return provenanceIssue(provenance, expectedAgent) ?? provenance;
 }
-function flagMember(value, fallback) {
-  return typeof value === "boolean" ? value : fallback;
+function flagMember(value, isAbsent) {
+  return typeof value === "boolean" ? value : isAbsent;
 }
 function sessionIdIssue(value) {
   if (value === null) {
@@ -7393,7 +7395,9 @@ async function handleReserve(context, request) {
 function readResultOutcome(fields) {
   const sessionId = textMember(fields.sessionId);
   const problem = textMember(fields.problem);
-  if (sessionId === null === (problem === null)) {
+  const hasSession = sessionId !== null;
+  const hasProblem = problem !== null;
+  if (hasSession === hasProblem) {
     return {
       ok: false,
       response: errorResponse(STATUS.validation, {
@@ -7478,7 +7482,7 @@ function readBlockReport(fields) {
   const overlong = overLongTextResponse(fields, ["guidance"]);
   const blockedReason = textMember(fields.blockedReason);
   const detail = textMember(fields.detail);
-  if (blockedReason === null || !BLOCKED_REASONS.has(blockedReason) || detail === null) {
+  if (blockedReason === null || detail === null || !BLOCKED_REASONS.has(blockedReason)) {
     return {
       ok: false,
       response: errorResponse(STATUS.validation, {
@@ -7918,7 +7922,6 @@ function isResolveDecision(value) {
 }
 function readResolution(fields) {
   const decision = textMember(fields.decision);
-  const sessionId = textMember(fields.sessionId);
   if (decision === null || !isResolveDecision(decision)) {
     return {
       ok: false,
@@ -7928,6 +7931,7 @@ function readResolution(fields) {
       })
     };
   }
+  const sessionId = textMember(fields.sessionId);
   if (decision === SESSION_CREATED && sessionId === null) {
     return {
       ok: false,
@@ -8224,7 +8228,7 @@ async function statusAccounts(context) {
   }
   try {
     const accounts = await listAccounts(context.store, context.log);
-    return accounts.map(statusAccountRow);
+    return accounts.map((account) => statusAccountRow(account));
   } catch (error) {
     context.log.warn("accounts could not be listed for status", {
       errorKind: error instanceof Error ? error.name : typeof error
@@ -8300,7 +8304,7 @@ async function runDerivedProjection(context, bindings) {
       errorKind: error instanceof Error ? error.name : typeof error
     });
     return {
-      repositories: bindings.map(unreadableRepositoryRow),
+      repositories: bindings.map((binding) => unreadableRepositoryRow(binding)),
       verification: notAvailableVerification()
     };
   }
@@ -8315,25 +8319,25 @@ async function readConfig(context) {
 async function buildStatusBody(context) {
   const config = await readConfig(context);
   const { store, polling } = context;
-  const storeUsable = store !== null;
+  const hasStore = store !== null;
   const accounts = await statusAccounts(context);
   const bindings = await storedBindings(context);
   const { repositories, verification } = await runDerivedProjection(context, bindings);
-  const running = storeUsable && polling.isRunning();
+  const isRunning = hasStore && polling.isRunning();
   const activeBindings = bindings.filter((binding) => binding.state === "active").length;
   const pausedReason = pausedReasonOf({
-    storeUsable,
-    running,
+    storeUsable: hasStore,
+    running: isRunning,
     stopping: polling.isStopping(),
     activeBindings
   });
   return {
     service: {
-      status: storeUsable ? "ok" : "degraded",
+      status: hasStore ? "ok" : "degraded",
       uptimeMs: Date.now() - context.startedAt,
       dataDir: context.dataDir,
       schemaVersion: store?.schemaVersion ?? null,
-      storage: { writable: storeUsable }
+      storage: { writable: hasStore }
     },
     accounts,
     repositories,
@@ -8341,7 +8345,7 @@ async function buildStatusBody(context) {
     polling: {
       intervalMs: config.intervalMs,
       nextPollAt: nextPollAtOf(polling, config.intervalMs),
-      paused: !running,
+      paused: !isRunning,
       pausedReason
     },
     surface: { supported: true }
@@ -8513,7 +8517,7 @@ var verifyRoute = {
 // service/routes/index.ts
 var ROUTES = [
   healthRoute,
-  getConfigRoute,
+  configRoute,
   putConfigRoute,
   statusRoute,
   listAccountsRoute,
@@ -8525,7 +8529,7 @@ var ROUTES = [
   verifyRoute,
   rotateTokenRoute,
   putAccountProfileRoute,
-  deleteAccountRoute,
+  accountRemovalRoute,
   reserveRoute,
   dispatchedRoute,
   abandonRoute,

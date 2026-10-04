@@ -178,7 +178,7 @@ function requiredMember(input: {
     readonly issues: MemberIssue[];
 }): string | null {
     const value = readMember(input.record[input.name], input.pattern);
-    if (input.required && value === null) {
+    if (value === null && input.required) {
         input.issues.push({ field: input.name, remediation: input.remediation });
     }
 

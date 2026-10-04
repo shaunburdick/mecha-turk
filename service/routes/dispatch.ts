@@ -115,13 +115,16 @@ type ResultOutcome =
  * enters because it is echoed into the run's state reason, its attempt record,
  * and audit details (T-043f).
  *
- * @param fields - The body's members, after FR-051's echo already matched.
  * @returns The outcome, or the `422` naming what was wrong.
  */
 function readResultOutcome(fields: Readonly<Record<string, unknown>>): ResultOutcome {
     const sessionId = textMember(fields.sessionId);
     const problem = textMember(fields.problem);
-    if ((sessionId === null) === (problem === null)) {
+    const hasSession = sessionId !== null;
+    const hasProblem = problem !== null;
+    // Exactly one of the two is the contract, so "both" and "neither" are the
+    // same refusal — which is what one equality between the two flags states.
+    if (hasSession === hasProblem) {
         return {
             ok: false,
             response: errorResponse(STATUS.validation, {
@@ -271,7 +274,7 @@ function readBlockReport(fields: Readonly<Record<string, unknown>>): BlockReport
     const overlong = overLongTextResponse(fields, ['guidance']);
     const blockedReason = textMember(fields.blockedReason);
     const detail = textMember(fields.detail);
-    if (blockedReason === null || !BLOCKED_REASONS.has(blockedReason) || detail === null) {
+    if (blockedReason === null || detail === null || !BLOCKED_REASONS.has(blockedReason)) {
         return {
             ok: false,
             response: errorResponse(STATUS.validation, {

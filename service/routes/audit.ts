@@ -160,7 +160,7 @@ async function handleAuditRead(context: RouteContext, request: RouteRequest): Pr
         status: STATUS.ok,
         body: {
             entries: page,
-            nextCursor: ahead.length > page.length && last !== undefined ? last.seq : null,
+            nextCursor: last !== undefined && ahead.length > page.length ? last.seq : null,
             count: page.length,
         },
     };

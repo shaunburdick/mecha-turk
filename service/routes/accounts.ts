@@ -104,7 +104,6 @@ export function unknownAccountResponse(): HttpResponse {
 /**
  * Build the `409` refusal for a delete that bindings still reference.
  *
- * @param count - How many bindings reference the account.
  * @returns The response with operator remediation (contract §2.2).
  */
 function bindingsRefusalResponse(count: number): HttpResponse {
@@ -117,7 +116,6 @@ function bindingsRefusalResponse(count: number): HttpResponse {
 /**
  * Read the numeric account id out of the matched path.
  *
- * @param request - The routed request.
  * @returns The id, or `null` when the segment cannot name an account — which
  *   is answered as `404 unknown-account`, never as a storage path.
  */
@@ -130,7 +128,6 @@ export function pathAccountId(request: RouteRequest): string | null {
 /**
  * Answer `GET /v1/accounts` with the credential-free projections.
  *
- * @param context - Route context carrying the open store.
  * @returns `200 { accounts: [...] }`, or the documented 503.
  */
 async function handleListAccounts(context: RouteContext): Promise<HttpResponse> {
@@ -141,7 +138,7 @@ async function handleListAccounts(context: RouteContext): Promise<HttpResponse> 
 
     const accounts = await listAccounts(store, context.log);
 
-    return { status: STATUS.ok, body: { accounts: accounts.map(toAccountDto) } };
+    return { status: STATUS.ok, body: { accounts: accounts.map((account) => toAccountDto(account)) } };
 }
 
 /**
@@ -152,7 +149,6 @@ async function handleListAccounts(context: RouteContext): Promise<HttpResponse> 
  * document differs in **exactly** the credential, `login`, `scopeCheck`, and
  * `verifiedAt` fields for an account that was already `active`.
  *
- * @param input - Stored account, verified outcome, and the new token.
  * @returns The document to persist.
  */
 function rotatedAccount(input: {
@@ -190,8 +186,6 @@ interface RotationSubject {
 /**
  * Audit a rotation refusal with a reason class only (contract §3).
  *
- * @param subject - Store, account, and correlation id.
- * @param reason - Machine-readable reason class.
  */
 async function recordRotationRejection(subject: RotationSubject, reason: string): Promise<void> {
     await appendAudit(subject.store, {
@@ -208,8 +202,6 @@ async function recordRotationRejection(subject: RotationSubject, reason: string)
 /**
  * Classify a rotation's GitHub outcome into a response.
  *
- * @param subject - Store, account, and correlation id.
- * @param outcome - The GitHub outcome to translate.
  * @returns The response; a matching `ok` outcome returns `null` for the
  *   caller to persist, anything else is a documented refusal.
  */
@@ -247,7 +239,6 @@ async function rotationRefusal(subject: RotationSubject, outcome: VerifyOutcome)
 /**
  * Audit the completed rotation; the credential never reaches the writer.
  *
- * @param input - Store, logger, account, and correlation id.
  */
 async function recordRotation(input: {
     /** Open store. */
@@ -280,7 +271,6 @@ async function recordRotation(input: {
 /**
  * Persist the rotated account, audit it, and answer `200`.
  *
- * @param input - Store, logger, account, new token, outcome, correlation id.
  * @returns The documented success body (contract §2.2).
  */
 async function persistRotation(input: {
@@ -310,7 +300,6 @@ async function persistRotation(input: {
 /**
  * Resolve the routed path and body into a ready-to-rotate request.
  *
- * @param input - Open store, matched path segment, and the parsed body.
  * @returns The rotation inputs, or the refusal that beat them.
  */
 async function prepareRotation(input: {
@@ -337,7 +326,9 @@ async function prepareRotation(input: {
         input.pathId === null
             ? null
             : await readAccount({ store: input.store, numericUserId: input.pathId, log: input.log });
-    if (input.pathId === null || account === null) {
+    // `pathId === null` already produced a `null` account two lines up, so the
+    // one test covers both ways of not finding one.
+    if (account === null) {
         return { ok: false, response: unknownAccountResponse() };
     }
 
@@ -347,8 +338,6 @@ async function prepareRotation(input: {
 /**
  * Run `POST /v1/accounts/:numericUserId/token` from body to response.
  *
- * @param context - Route context carrying store, throttle, and GitHub client.
- * @param request - The routed rotation request.
  * @returns The documented response for this outcome.
  */
 async function handleRotateToken(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -402,8 +391,6 @@ async function handleRotateToken(context: RouteContext, request: RouteRequest): 
 /**
  * Audit every binding a isForced delete disabled (contract §2.2, §4 rule 7).
  *
- * @param store - Open store.
- * @param bindings - The bindings that were disabled, as they were read.
  */
 async function recordDisabledBindings(store: ServiceStore, bindings: readonly BindingRecord[]): Promise<void> {
     for (const binding of bindings) {
@@ -421,8 +408,6 @@ async function recordDisabledBindings(store: ServiceStore, bindings: readonly Bi
 /**
  * Audit the removal of an account (FR-035 terminal outcome).
  *
- * @param store - Open store.
- * @param numericUserId - Id of the account that was removed.
  */
 async function recordAccountDeleted(store: ServiceStore, numericUserId: string): Promise<void> {
     await appendAudit(store, {
@@ -438,8 +423,6 @@ async function recordAccountDeleted(store: ServiceStore, numericUserId: string):
 /**
  * Run `DELETE /v1/accounts/:numericUserId` from path to response.
  *
- * @param context - Route context carrying the open store.
- * @param request - The routed delete request.
  * @returns `200 { removed: true }`, or the documented refusal.
  */
 async function handleDeleteAccount(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -450,13 +433,13 @@ async function handleDeleteAccount(context: RouteContext, request: RouteRequest)
 
     const pathId = pathAccountId(request);
     const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId, log: context.log });
-    if (pathId === null || account === null) {
+    if (account === null || pathId === null) {
         return unknownAccountResponse();
     }
 
     const bindings = await bindingsReferencing(store, pathId);
     const isForced = request.url.searchParams.get(FORCE_QUERY_FLAG) === FORCE_QUERY_VALUE;
-    if (bindings.length > 0 && !isForced) {
+    if (!isForced && bindings.length > 0) {
         return bindingsRefusalResponse(bindings.length);
     }
 
@@ -485,7 +468,7 @@ export const rotateTokenRoute: Route = {
 };
 
 /** Remove one account once its bindings allow it (or are force-disabled). */
-export const deleteAccountRoute: Route = {
+export const accountRemovalRoute: Route = {
     method: 'DELETE',
     path: ACCOUNT_PATH,
     handler: guardCredentialRoute(handleDeleteAccount),

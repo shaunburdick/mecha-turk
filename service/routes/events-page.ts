@@ -194,7 +194,7 @@ export function stateFilterOf(
         return { ok: true, state: null };
     }
 
-    if ((LISTABLE_STATES as readonly string[]).includes(raw) || raw === 'blocked') {
+    if (raw === 'blocked' || (LISTABLE_STATES as readonly string[]).includes(raw)) {
         return { ok: true, state: raw };
     }
 

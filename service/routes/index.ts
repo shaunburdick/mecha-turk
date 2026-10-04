@@ -20,9 +20,9 @@
  */
 
 import { putAccountProfileRoute } from './account-profile.ts';
-import { deleteAccountRoute, listAccountsRoute, rotateTokenRoute } from './accounts.ts';
+import { accountRemovalRoute, listAccountsRoute, rotateTokenRoute } from './accounts.ts';
 import { auditRoute } from './audit.ts';
-import { getConfigRoute, putConfigRoute } from './config.ts';
+import { configRoute, putConfigRoute } from './config.ts';
 import { eventHistoryRoute, pendingEventsRoute } from './events.ts';
 import { abandonRoute, blockedRoute, dispatchedRoute, reserveRoute } from './dispatch.ts';
 import { bindingsRoute, putBindingsRoute } from './bindings.ts';
@@ -35,7 +35,7 @@ import type { Route } from './types.ts';
 /** Every route the service answers, in declaration order. */
 export const ROUTES: readonly Route[] = [
     healthRoute,
-    getConfigRoute,
+    configRoute,
     putConfigRoute,
     statusRoute,
     listAccountsRoute,
@@ -47,7 +47,7 @@ export const ROUTES: readonly Route[] = [
     verifyRoute,
     rotateTokenRoute,
     putAccountProfileRoute,
-    deleteAccountRoute,
+    accountRemovalRoute,
     reserveRoute,
     dispatchedRoute,
     abandonRoute,

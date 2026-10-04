@@ -106,19 +106,19 @@ async function runConfigWrite(input: {
         const changes = configChanges(previous.config, candidate);
 
         await store.writeJson(CONFIG_FILE, candidate);
-        // FR-033: an accepted write applies its level *before* the answer is
+        // An accepted write applies its level *before* the answer is
         // sent, so the first line after the acknowledgement is judged at the
         // new threshold. A refused write never reaches here, so it moves
         // nothing.
         log.setLevel(candidate.logLevel);
-        // FR-048/FR-071: a no-op appends nothing; a change appends exactly one
+        // A no-op appends nothing; a change appends exactly one
         // row, after the durable write, and reports a failed append as
         // `auditWritten: false` rather than undoing a write already on disk.
-        const auditWritten =
-            changes.length === 0 ? true : await appendConfigApplied({ store, log, changes });
+        const wasAppended =
+            changes.length === 0 || await appendConfigApplied({ store, log, changes });
         await advanceConfigPromptBaseline({ store, log, config: candidate });
 
-        return auditWritten;
+        return wasAppended;
     });
 }
 
@@ -155,17 +155,17 @@ async function handlePutConfig(context: RouteContext, request: RouteRequest): Pr
         return storageUnavailableResponse();
     }
 
-    const auditWritten = await runConfigWrite({
+    const wasAppended = await runConfigWrite({
         store: context.store,
         log: context.log,
         candidate: validation.config,
     });
 
-    return { status: STATUS.ok, body: { config: validation.config, auditWritten } };
+    return { status: STATUS.ok, body: { config: validation.config, auditWritten: wasAppended } };
 }
 
 /** Read the effective configuration. */
-export const getConfigRoute: Route = {
+export const configRoute: Route = {
     method: 'GET',
     path: CONFIG_PATH,
     handler: (context) => handleGetConfig(context),

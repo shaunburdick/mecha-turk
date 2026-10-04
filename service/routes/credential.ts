@@ -106,10 +106,10 @@ function expectedLoginIssues(raw: unknown): readonly FieldIssue[] {
  * reaches GitHub or the store.
  *
  * @param raw - Parsed request body (possibly `undefined`).
- * @param allowExpectedLogin - `true` for verify, `false` for rotation.
+ * @param canAcceptExpectedLogin - `true` for verify, `false` for rotation.
  * @returns The credential request, or the refusal to answer with.
  */
-export function parseCredentialBody(raw: unknown, allowExpectedLogin: boolean): CredentialBodyResult {
+export function parseCredentialBody(raw: unknown, canAcceptExpectedLogin: boolean): CredentialBodyResult {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
         return {
             ok: false,
@@ -119,7 +119,7 @@ export function parseCredentialBody(raw: unknown, allowExpectedLogin: boolean): 
 
     const body = raw as Record<string, unknown>;
     const read = readToken(body.token);
-    const issues = [...read.issues, ...(allowExpectedLogin ? expectedLoginIssues(body.expectedLogin) : [])];
+    const issues = [...read.issues, ...(canAcceptExpectedLogin ? expectedLoginIssues(body.expectedLogin) : [])];
     if (issues.length > 0 || read.token === undefined) {
         return { ok: false, response: validationResponse(issues) };
     }
@@ -128,7 +128,7 @@ export function parseCredentialBody(raw: unknown, allowExpectedLogin: boolean): 
         ok: true,
         credential: {
             token: read.token,
-            expectedLogin: allowExpectedLogin && typeof body.expectedLogin === 'string' ? body.expectedLogin : null,
+            expectedLogin: canAcceptExpectedLogin && typeof body.expectedLogin === 'string' ? body.expectedLogin : null,
         },
     };
 }
@@ -142,14 +142,21 @@ export function parseCredentialBody(raw: unknown, allowExpectedLogin: boolean): 
 function capabilityLabel(reason: `scope-missing:${ScopeCapability}`): string {
     const capability = reason.slice(SCOPE_MISSING_PREFIX.length);
     switch (capability) {
-        case 'metadata':
+        case 'metadata': {
             return 'Metadata';
-        case 'issues':
+        }
+
+        case 'issues': {
             return 'Issues';
-        case 'pull-requests':
+        }
+
+        case 'pull-requests': {
             return 'Pull requests';
-        default:
+        }
+
+        default: {
             return 'Contents';
+        }
     }
 }
 

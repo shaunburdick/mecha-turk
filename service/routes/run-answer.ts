@@ -87,7 +87,7 @@ export function runOutcomeResponse(input: {
     /** Whatever the operation returned. */
     readonly outcome: RunResult;
     /** Builds the `200` body from the run; a duplicate gets the same body. */
-    readonly success: (run: Run, auditWritten: boolean) => Record<string, unknown>;
+    readonly success: (run: Run, wasAppended: boolean) => Record<string, unknown>;
 }): HttpResponse {
     const { context, operation, outcome, success } = input;
     if (outcome.status === 'not-found') {

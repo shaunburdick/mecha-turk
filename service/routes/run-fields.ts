@@ -96,26 +96,22 @@ export function baselineMember(value: unknown, bound: number = MAX_BODY_TEXT_CHA
  */
 const PROVENANCE_SHAPE_FIX = 'send one of configured, defaulted, unset — where the comparison baseline came from';
 
+/** The closed provenance vocabulary, in the order the type declares it. */
+const BASELINE_PROVENANCES = ['configured', 'defaulted', 'unset'] as const;
+
 /**
- * Read a verification report's baseline provenance (002 FR-029 case (ii);
- * 003 v1.7.0, contract §5).
+ * Read a verification report's baseline provenance.
  *
  * Required and closed: `configured` (a real value was read), `defaulted` (the
  * document could not be read), or `unset` (read and found blank). Anything
  * else — absent, not a string, or outside the three — answers `null`, which
  * {@link readProvenance} turns into the `422` this member owes: without the
- * word, an `agent.uncompared` row could not say *why* no baseline was in force,
- * and 002 FR-029 case (ii) requires it to.
+ * word, an `agent.uncompared` row could not say *why* no baseline was in force.
  *
- * @param value - The member as received.
  * @returns The provenance, or `null` when it is absent or out of vocabulary.
  */
 function provenanceMember(value: unknown): BaselineProvenance | null {
-    if (value === 'configured' || value === 'defaulted' || value === 'unset') {
-        return value;
-    }
-
-    return null;
+    return BASELINE_PROVENANCES.find((candidate) => candidate === value) ?? null;
 }
 
 /**
@@ -129,14 +125,12 @@ function provenanceMember(value: unknown): BaselineProvenance | null {
  * closed: name the field and state the rule, never pick the half that seems
  * likelier (AGENTS invariant 8).
  *
- * @param provenance - The provenance the report claimed.
- * @param expectedAgent - The baseline the same report carried.
  * @returns The issue naming the rule, or `null` when the two agree.
  */
 function provenanceIssue(provenance: BaselineProvenance, expectedAgent: string): FieldIssue | null {
-    const configured = provenance === 'configured';
+    const isConfigured = provenance === 'configured';
     const hasBaseline = expectedAgent !== '';
-    if (configured !== hasBaseline) {
+    if (isConfigured !== hasBaseline) {
         return {
             field: 'baselineProvenance',
             remediation: "send 'configured' with a non-blank expectedAgent, "
@@ -174,12 +168,10 @@ export function readProvenance(
 /**
  * Read one boolean member, answering the fallback when it is absent.
  *
- * @param value - The member as received.
- * @param fallback - What an absent or non-boolean member means here.
  * @returns The boolean, or the fallback.
  */
-export function flagMember(value: unknown, fallback: boolean): boolean {
-    return typeof value === 'boolean' ? value : fallback;
+export function flagMember(value: unknown, isAbsent: boolean): boolean {
+    return typeof value === 'boolean' ? value : isAbsent;
 }
 
 /**

@@ -137,8 +137,6 @@ export interface DefInput {
 /**
  * Create the styled wrapper a text handle renders inside.
  *
- * @param parent - Element to append the wrapper into.
- * @param className - Class words for the wrapper.
  * @returns The wrapper element.
  */
 function styleWrapper(parent: HTMLElement, className: string): HTMLElement {
@@ -157,7 +155,6 @@ function styleWrapper(parent: HTMLElement, className: string): HTMLElement {
  * The props object is built rather than spread so `update({ text })` on a
  * repaint keeps working exactly as it did before links had anywhere to go.
  *
- * @param input - The cell's text and its optional link handler.
  * @returns The props `mountText` takes.
  */
 function withLinkHandler(input: CellInput): TextProps {
@@ -173,8 +170,6 @@ function withLinkHandler(input: CellInput): TextProps {
  * it owns and exposes no way to tag it, so the class lives on the parent and
  * the SDK's text node inherits the treatment.
  *
- * @param parent - Element to append the wrapper into.
- * @param input - Class words and the cell's text.
  * @returns The handle a repaint updates.
  */
 export function mountCell(parent: HTMLElement, input: CellInput): Cell {
@@ -198,8 +193,6 @@ export function mountCell(parent: HTMLElement, input: CellInput): Cell {
  * where a sentence sits, but it should not force every `.update({ text })`
  * call site to change shape with it.
  *
- * @param parent - Element to append the wrapper into.
- * @param input - Class words and the line's text.
  * @returns The SDK text handle a repaint updates.
  */
 export function mountStyledText(parent: HTMLElement, input: CellInput): TextHandle {
@@ -222,8 +215,6 @@ export interface ColumnHeadInput {
  * a grid, each label is exactly one cell wide, which is what lets the eye
  * line a column of values up under it.
  *
- * @param parent - Element to append the header into, directly above its grid.
- * @param input - The grid's modifier and its column labels.
  * @returns The header element (constant text, so it owns no handle).
  */
 export function mountColumnHead(parent: HTMLElement, input: ColumnHeadInput): HTMLElement {
@@ -249,8 +240,6 @@ export function mountColumnHead(parent: HTMLElement, input: ColumnHeadInput): HT
  * accessibility pass can walk, over copy that keeps travelling the one path
  * every other string in the panel takes.
  *
- * @param parent - Element to append the block into.
- * @param input - The heading and the optional surface extras.
  * @returns The block, whose `body` is where content goes.
  */
 export function createBlock(parent: HTMLElement, input: BlockInput): Block {
@@ -325,7 +314,6 @@ export function splitLine(line: string): SplitLine | null {
 /**
  * Assemble a row from its cells, with one disposal path for both shapes.
  *
- * @param input - The row element and the cells it holds.
  * @returns The row.
  */
 function makeRow(input: { readonly element: HTMLElement; readonly key: Cell | null; readonly value: Cell }): DefRow {
@@ -350,8 +338,6 @@ function makeRow(input: { readonly element: HTMLElement; readonly key: Cell | nu
  * punctuation used to, and the split's own `separator` is what the row tests
  * rejoin to prove no word moved.
  *
- * @param parent - The row list to append into.
- * @param input - The line's two halves and any cell class words.
  * @returns The row, with both cells.
  */
 export function definitionRow(parent: HTMLElement, input: DefInput): DefRow {
@@ -375,8 +361,6 @@ export function definitionRow(parent: HTMLElement, input: DefInput): DefRow {
 /**
  * Mount one row that has no label: its value spans the whole row.
  *
- * @param parent - The row list to append into.
- * @param text - The line to show.
  * @returns The row, whose `key` is `null`.
  */
 export function noteRow(parent: HTMLElement, text: string): DefRow {
@@ -391,7 +375,6 @@ export function noteRow(parent: HTMLElement, text: string): DefRow {
 /**
  * Mount a row list — the element every definition row of a section appends to.
  *
- * @param parent - Element to append the list into.
  * @returns The list element.
  */
 export function createRowList(parent: HTMLElement): HTMLElement {
@@ -417,8 +400,6 @@ export interface LineInput {
  * Mount a row from one line, splitting it into a label and a value when the
  * line carries a structural separator and rendering it whole when it is prose.
  *
- * @param parent - The row list to append into.
- * @param input - The line and the optional cell class words.
  * @returns The row, so a caller can dispose or restyle it.
  */
 export function lineRow(parent: HTMLElement, input: LineInput): DefRow {
