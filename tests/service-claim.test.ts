@@ -180,8 +180,7 @@ async function seedRunInState(input: {
 }
 
 describe('T-007 claim eligibility (FR-037)', () => {
-    it('offers every waiting run once and nothing the second… (+3 cases)', async () => {
-        // case: offers every waiting run once and nothing the second time
+    it('offers every waiting run once and nothing the second time', async () => {
         {
             await seed(assignment(1), assignment(2));
             await setLeaseMs(LEASE_MS);
@@ -198,7 +197,6 @@ describe('T-007 claim eligibility (FR-037)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: answers nothing for any state other than pending
         {
             const states: readonly Run['state'][] = [
                 'claimed',
@@ -219,7 +217,6 @@ describe('T-007 claim eligibility (FR-037)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never offers a pending run whose history already records a session
         {
             const run = await seedRunInState({ issueNumber: 30, state: 'pending' });
             await writeRunsDocument({
@@ -251,7 +248,6 @@ describe('T-007 claim eligibility (FR-037)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: leaves a delivered run alone: nothing is claimed, nothing is requeued
         {
             await seedRunInState({ issueNumber: 31, state: 'dispatched', sessionId: 'ses_done' });
 
@@ -265,8 +261,7 @@ describe('T-007 claim eligibility (FR-037)', () => {
 });
 
 describe('T-007 lease coordinates (FR-030, FR-031)', () => {
-    it('derives the expiry from the configured lease duratio… (+3 cases)', async () => {
-        // case: derives the expiry from the configured lease duration on the service clock
+    it('derives the expiry from the configured lease duration on the service clock', async () => {
         {
             await seed(assignment(3));
             await setLeaseMs(LEASE_MS);
@@ -286,7 +281,6 @@ describe('T-007 lease coordinates (FR-030, FR-031)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: mints a fresh lease per claim and never re-derives one
         {
             await seed(assignment(4));
             await setLeaseMs(LEASE_MS);
@@ -302,7 +296,6 @@ describe('T-007 lease coordinates (FR-030, FR-031)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: records the panel opaque holder, and never treats it as authorization
         {
             await seed(assignment(5));
             const [claimed] = await claim('panel.mount_1~x');
@@ -318,7 +311,6 @@ describe('T-007 lease coordinates (FR-030, FR-031)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: opens the attempt but consumes nothing by being offered (FR-036)
         {
             await seed(assignment(6));
             await claim();
@@ -363,8 +355,7 @@ describe('T-007 batch atomicity', () => {
 });
 
 describe('T-007 the claim answer', () => {
-    it('projects the run, its lease, and every retained sour… (+3 cases)', async () => {
-        // case: projects the run, its lease, and every retained source reference
+    it('projects the run, its lease, and every retained source reference', async () => {
         {
             await seed(assignment(11));
             const [claimed] = await claim();
@@ -405,7 +396,6 @@ describe('T-007 the claim answer', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: carries no credential-shaped string and no unlisted member (NFR-106)
         {
             await seed(assignment(12));
             const [claimed] = await claim();
@@ -448,7 +438,6 @@ describe('T-007 the claim answer', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: writes one dispatch.claimed row per claimed run, correlated to the run
         {
             await seed(assignment(13), assignment(14));
             await setLeaseMs(LEASE_MS);
@@ -473,7 +462,6 @@ describe('T-007 the claim answer', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: writes no claim row for a claim that leased nothing
         {
             await seedRunInState({ issueNumber: 15, state: 'unconfirmed' });
 
@@ -688,8 +676,7 @@ describe('T-040h a quarantined run document answers the documented 503', () => {
 });
 
 describe('T-024 the claim answer names the prompt sources (FR-087)', () => {
-    it('answers the prompt sources on every claim row (+2 cases)', async () => {
-        // case: an unset run answers five explicit nulls — presence, text, fingerprint, length, sources
+    it('answers the prompt sources on every claim row', async () => {
         {
             await seed(assignment(60));
             const [claimed] = await claim();
@@ -702,7 +689,6 @@ describe('T-024 the claim answer names the prompt sources (FR-087)', () => {
         }
         await afterEachWork2();
         await beforeEachWork1();
-        // case: a set run answers its contributing tiers as an ordered list
         {
             const bindingOnly = resolvePromptSnapshot({
                 global: null,
@@ -733,7 +719,6 @@ describe('T-024 the claim answer names the prompt sources (FR-087)', () => {
         }
         await afterEachWork2();
         await beforeEachWork1();
-        // case: the maximal batch paginates against a ≤6,004-char promptText, never truncating one
         {
             const tier = 'x'.repeat(STARTING_PROMPT_MAX_CODE_POINTS);
             const maximal = resolvePromptSnapshot({

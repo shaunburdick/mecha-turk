@@ -304,8 +304,7 @@ describe('retention runs at store open (006 T-014, FR-055(a))', () => {
 });
 
 describe('a configuration write runs no trim (006 T-014, FR-047, AC-128)', () => {
-    it('applies a lowered retention limit at the next cycle … (+1 cases)', async () => {
-        // case: applies a lowered retention limit at the next cycle boundary, not at the write
+    it('applies a lowered retention limit at the next cycle boundary, not at the write', async () => {
         {
             const seed = await openStore({ dataDir });
             await plantFreshWindowTrail(seed);
@@ -349,7 +348,6 @@ describe('a configuration write runs no trim (006 T-014, FR-047, AC-128)', () =>
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: degrades an unreadable configuration at the boundary to the documented defaults
         {
             const seed = await openStore({ dataDir });
             await plantMixedTrail(seed);

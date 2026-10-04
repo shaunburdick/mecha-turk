@@ -352,8 +352,7 @@ function goldenMessage(correlationId: string): string {
 }
 
 describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
-    it('boots the pre-004 store with no quarantine, no windo… (+2 cases)', async () => {
-        // case: boots the pre-004 store with no quarantine, no window reset, and no rewrite
+    it('boots the pre-004 store with no quarantine, no window reset, and no rewrite', async () => {
         {
             const seed = await seedPre004Store();
             const service = await bootPre004Store();
@@ -393,7 +392,6 @@ describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: composes the seeded prompt-less run byte-identically to the shipped frame (SC-121)
         {
             const seed = await seedPre004Store();
             const service = await bootPre004Store();
@@ -409,7 +407,6 @@ describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: keeps a queued run on its snapshot after the binding’s prompt is edited (AC-138)
         {
             await seedPre004Store(QUEUED_PROMPT);
             const service = await bootPre004Store();

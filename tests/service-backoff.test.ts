@@ -206,8 +206,7 @@ function recordingSleep(): {
 }
 
 describe('the ladder arithmetic (006 FR-058)', () => {
-    it('computes delay(n) = min(cap, base × 2^(n−2)) × jitte… (+4 cases)', async () => {
-        // case: computes delay(n) = min(cap, base × 2^(n−2)) × jitter
+    it('computes delay(n) = min(cap, base × 2^(n−2)) × jitter', async () => {
         {
             const policy: RetryPolicy = { maxAttempts: 5, baseMs: 5_000, maxMs: 60_000 };
 
@@ -224,7 +223,6 @@ describe('the ladder arithmetic (006 FR-058)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: keeps every delay of a capped ladder inside [retryMaxMs / 2, retryMaxMs] (AC-148)
         {
             for (const random of [() => 0, () => 0.5, () => 1]) {
                 for (let attempt = 2; attempt <= 4; attempt += 1) {
@@ -239,7 +237,6 @@ describe('the ladder arithmetic (006 FR-058)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never lets a computed delay exceed the ceiling, whatever the jitter source answers
         {
             const policy: RetryPolicy = { maxAttempts: 10, baseMs: 1_000, maxMs: 8_000 };
 
@@ -255,7 +252,6 @@ describe('the ladder arithmetic (006 FR-058)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: lets rate-limit guidance win even above the ceiling, and says so in the source
         {
             const record = nextWait({
                 policy: CAPPED_LADDER,
@@ -276,7 +272,6 @@ describe('the ladder arithmetic (006 FR-058)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: reports the wait before sleeping it, and sleeps exactly what it reported
         {
             const { sleep, sleeps } = recordingSleep();
             const seen: WaitRecord[] = [];
@@ -332,8 +327,7 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
         retry: CAPPED_LADDER,
     };
 
-    it('attempts a failing request up to retryMaxAttempts ti… (+3 cases)', async () => {
-        // case: attempts a failing request up to retryMaxAttempts times, sleeping inside the bounds
+    it('attempts a failing request up to retryMaxAttempts times, sleeping inside the bounds', async () => {
         {
             const { poller, sleeps } = scriptedPoller([() => new Response('', { status: 500 })]);
 
@@ -357,7 +351,6 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: stops after one attempt when the credential is refused (auth-failed is never retried)
         {
             const { poller, sleeps } = scriptedPoller([() => new Response('', { status: 401 })]);
 
@@ -376,7 +369,6 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: honours a retry-after longer than the ceiling on the real request path
         {
             const { poller, sleeps } = scriptedPoller([
                 () => new Response('', { status: 429, headers: new Headers([['retry-after', '120']]) }),
@@ -399,7 +391,6 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: logs every wait with its length and source, and no credential
         {
             const { poller, lines } = scriptedPoller([() => new Response('', { status: 500 })]);
 
@@ -460,8 +451,7 @@ async function cycleOver(answers: readonly (() => Response)[]): Promise<{
 }
 
 describe('a skipped scan keeps its checkpoint (006 FR-058, 002 FR-018)', () => {
-    it('retains the recorded lastScanAt after the ladder is … (+1 cases)', async () => {
-        // case: retains the recorded lastScanAt after the ladder is exhausted
+    it('retains the recorded lastScanAt after the ladder is exhausted', async () => {
         {
             const outcome = await cycleOver([() => new Response('', { status: 500 })]);
 
@@ -479,7 +469,6 @@ describe('a skipped scan keeps its checkpoint (006 FR-058, 002 FR-018)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: retains it after an auth refusal too, with no wait at all
         {
             const outcome = await cycleOver([() => new Response('', { status: 401 })]);
 

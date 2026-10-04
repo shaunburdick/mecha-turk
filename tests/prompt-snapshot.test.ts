@@ -193,8 +193,7 @@ function storedDocumentWith(prompt: unknown, present: boolean): unknown {
 }
 
 describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC-138)', () => {
-    it('snapshots the body, fingerprint, length, and sources… (+3 cases)', async () => {
-        // case: snapshots the body, fingerprint, length, and sources of the binding in hand
+    it('snapshots the body, fingerprint, length, and sources of the binding in hand', async () => {
         {
             const snapshot = bindingSnapshot(PROMPT_A);
             expect(snapshot).toEqual({
@@ -212,7 +211,6 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: keeps a queued run on the text it was queued with after an edit (AC-138)
         {
             const first = await enqueueInto({
                 store,
@@ -252,7 +250,6 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never lets a coalescing delivery replace the run’s own snapshot
         {
             await enqueueInto({ store, snapshots: [assignment(12)], prompt: bindingSnapshot(PROMPT_A) });
             const afterJoin = await enqueueInto({
@@ -282,7 +279,6 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: adds no field to the delivery rows: the bytes are the pre-004 bytes
         {
             const withPrompt = await mkdtemp(join(tmpdir(), 'prompt-events-with-'));
             const withoutPrompt = await mkdtemp(join(tmpdir(), 'prompt-events-without-'));
@@ -314,8 +310,7 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
 });
 
 describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)', () => {
-    it('parses a row written before this feature, with no pr… (+6 cases)', async () => {
-        // case: parses a row written before this feature, with no prompt member (AC-142)
+    it('parses a row written before this feature, with no prompt member', async () => {
         {
             const document = parseRunsDocument(storedDocumentWith(undefined, false));
             expect(document).not.toBeNull();
@@ -326,7 +321,6 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: parses an explicit null as unset
         {
             const document = parseRunsDocument(storedDocumentWith(null, true));
             expect(document?.runs[0]?.prompt).toBeNull();
@@ -335,7 +329,6 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: parses a well-formed snapshot, and a stacked body up to its own bound
         {
             const document = parseRunsDocument(storedDocumentWith({
                 text: PROMPT_A,
@@ -370,7 +363,6 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses the whole document for a present value that is not a snapshot
         {
             for (const unusable of [42, true, 'text', [], { text: PROMPT_A }]) {
                 expect(parseRunsDocument(storedDocumentWith(unusable, true)), JSON.stringify(unusable)).toBeNull();
@@ -380,7 +372,6 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a malformed fingerprint, an over-cap text, a wrong length, and a credential
         {
             // Every case carries a valid `sources` list so the refusal comes
             // from the rule it names, never from the missing-member rule.
@@ -426,7 +417,6 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses `sources` that are absent, empty, unknown, out of order, or over the bound
         {
             const base = {
                 text: PROMPT_A,
@@ -462,7 +452,6 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: quarantines the stored document through the store’s own funnel
         {
             await store.writeJson(RUNS_FILE, storedDocumentWith({ text: PROMPT_A }, true));
             const read = await store.readJson(RUNS_FILE, parseRunsDocument);
@@ -476,8 +465,7 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
 });
 
 describe('T-018 the resolver stacks the set tiers once (FR-080, FR-086, FR-087)', () => {
-    it('resolves the set tiers in order, or answers null (+5 cases)', () => {
-        // case: the resolution matrix — all three, global-only, account+binding, binding-only, none
+    it('resolves the set tiers in order, or answers null', () => {
         {
             const global = { startingPrompt: GLOBAL_TEXT };
             const account = { startingPrompt: ACCOUNT_TEXT };
@@ -500,7 +488,6 @@ describe('T-018 the resolver stacks the set tiers once (FR-080, FR-086, FR-087)'
             expect(resolvePromptSnapshot({ global: null, account: null, binding: null })).toBeNull();
             expect(resolvePromptSnapshot({ global: {}, account: {}, binding: {} })).toBeNull();
         }
-        // case: one fingerprint over the body; binding-only equals the shipped single-tier value
         {
             const body = `${GLOBAL_TEXT}\n\n${PROMPT_A}`;
             const stacked = resolvePromptSnapshot({
@@ -517,7 +504,6 @@ describe('T-018 the resolver stacks the set tiers once (FR-080, FR-086, FR-087)'
             expect(bindingOnly?.fingerprint).toBe(promptFingerprint(PROMPT_A));
             expect(bindingOnly?.fingerprint).toBe(promptTierOf(bindingWith(PROMPT_A))?.fingerprint);
         }
-        // case: sources follow the order by construction — ordered, duplicate-free, all known
         {
             const snapshot = resolvePromptSnapshot({
                 global: { startingPrompt: GLOBAL_TEXT },
@@ -527,20 +513,17 @@ describe('T-018 the resolver stacks the set tiers once (FR-080, FR-086, FR-087)'
             expect(snapshot?.sources).toEqual([...PROMPT_SOURCE_ORDER]);
             expect(snapshot === null ? null : isPromptSourceList(snapshot.sources)).toBe(true);
         }
-        // case: composePromptBody joins set tiers with exactly one blank line, or answers ''
         {
             expect(composePromptBody({ global: 'g', account: 'a', binding: 'b' })).toBe('g\n\na\n\nb');
             expect(composePromptBody({ global: null, account: null, binding: 'b' })).toBe('b');
             expect(composePromptBody({ global: 'g', account: null, binding: 'b' })).toBe('g\n\nb');
             expect(composePromptBody({ global: null, account: null, binding: null })).toBe('');
         }
-        // case: the stack bound is n × cap + 2 × (n − 1) — 6,004 for three tiers (FR-085, R-1)
         {
             expect(promptStackMaxCodePoints(1)).toBe(STARTING_PROMPT_MAX_CODE_POINTS);
             expect(promptStackMaxCodePoints(2)).toBe(2 * STARTING_PROMPT_MAX_CODE_POINTS + 2);
             expect(promptStackMaxCodePoints(3)).toBe(6_004);
         }
-        // case: a tier the validator refuses composes nothing at all — never a partial body (FR-028)
         {
             expect(resolvePromptSnapshot({
                 global: { startingPrompt: GLOBAL_TEXT },

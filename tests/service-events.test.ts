@@ -1061,8 +1061,7 @@ function filterSeeds(): readonly RunSeed[] {
 }
 
 describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-121)', () => {
-    it('refuses a page size outside the accepted set and cha… (+5 cases)', async () => {
-        // case: refuses a page size outside the accepted set and changes nothing
+    it('refuses a page size outside the accepted set and changes nothing', async () => {
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1089,7 +1088,6 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
         await afterEachWork3();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a cursor this service did not issue instead of restarting at page one
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1106,7 +1104,6 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
         await afterEachWork3();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a state outside the dispatch vocabulary
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1125,7 +1122,6 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
         await afterEachWork3();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: returns both blocked-family rows for state=blocked and only failed for state=failed
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1148,7 +1144,6 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
         await afterEachWork3();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: composes a binding filter with every page and reports one total
         {
             const seeds = Array.from({ length: 12 }, (_, index) => ({
                 issueNumber: index + 1,
@@ -1186,7 +1181,6 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
         await afterEachWork3();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: answers an unknown binding id with an empty set rather than a 404
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1200,8 +1194,7 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
         }
     });
 
-    it('keeps the order stable when rows share a detection s… (+1 cases)', async () => {
-        // case: keeps the order stable when rows share a detection stamp
+    it('keeps the order stable when rows share a detection stamp', async () => {
         {
             const at = '2026-09-27T00:30:00.000Z';
             const service = await startWithRuns([
@@ -1223,7 +1216,6 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
         await afterEachWork3();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never reports the page size as the total
         {
             const service = await startWithRuns(filterSeeds());
 

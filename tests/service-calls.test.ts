@@ -53,14 +53,12 @@ const RUN_OPERATIONS: readonly (readonly [(id: string) => string, string])[] = [
 ];
 
 describe('run-scoped path helpers (the correlation-id namespace)', () => {
-    it('addresses every operation by the run, under the one … (+3 cases)', () => {
-        // case: addresses every operation by the run, under the one shared prefix
+    it('addresses every operation by the run, under the one shared prefix', () => {
         {
             for (const [helper, verb] of RUN_OPERATIONS) {
                 expect(helper(CORRELATION)).toBe(`/v1/events/${CORRELATION}/${verb}`);
             }
         }
-        // case: substitutes the correlation id exactly once and leaves no pattern behind
         {
             for (const [helper] of RUN_OPERATIONS) {
                 const path = helper(CORRELATION);
@@ -69,12 +67,10 @@ describe('run-scoped path helpers (the correlation-id namespace)', () => {
                 expect(path.split(CORRELATION)).toHaveLength(2);
             }
         }
-        // case: keeps the two read paths the panel polls unchanged
         {
             expect(EVENTS_PENDING_PATH).toBe('/v1/events/pending');
             expect(EVENTS_PATH).toBe('/v1/events');
         }
-        // case: reads one run\'s audit rows through the correlation filter (FR-053)
         {
             expect(AUDIT_PATH).toBe('/v1/audit');
             expect(auditPath(CORRELATION)).toBe(`/v1/audit?correlationId=${CORRELATION}`);
@@ -147,8 +143,7 @@ function scriptedRequester(answer: {
 }
 
 describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-112)', () => {
-    it('names the configuration and carries every issue in t… (+5 cases)', async () => {
-        // case: names the configuration and carries every issue in the service\'s order
+    it('names the configuration and carries every issue in the service\'s order', async () => {
         {
             const { serviceRequest, seen } = scriptedRequester({ status: 422, body: VALIDATION_BODY });
 
@@ -169,7 +164,6 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             );
             expect(refusal.problem).not.toContain('bindings');
         }
-        // case: drops an issue the envelope did not pair, rather than half-reading one
         {
             const { serviceRequest } = scriptedRequester({
                 status: 422,
@@ -186,7 +180,6 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
 
             expect(refusalOf(result).issues).toEqual([{ field: 'perPage', remediation: 'set perPage' }]);
         }
-        // case: keeps a store failure and an authorisation failure distinct from a refusal
         {
             const unavailable = scriptedRequester({
                 status: 503,
@@ -211,7 +204,6 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             expect(refused.problem).not.toContain('refused');
             expect(denied.problem).not.toContain('refused');
         }
-        // case: describes a transport failure without quoting anything
         {
             const { serviceRequest } = scriptedRequester({ status: 200, body: '{}' });
 
@@ -227,7 +219,6 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             });
             expect(landed).toEqual({ ok: true, body: '{}' });
         }
-        // case: keeps the envelope correlation id an unexpected failure carried (006 FR-064)
         {
             const body = JSON.stringify({
                 error: { code: 'internal', message: 'route failed', correlationId: 'mt-cfg-1' },
@@ -245,7 +236,6 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             expect(failed.correlationId).toBe('mt-cfg-1');
             expect(failed.problem).not.toContain('mt-cfg-1');
         }
-        // case: still says *bindings list* on the bindings path (nothing regresses)
         {
             const { serviceRequest } = scriptedRequester({ status: 422, body: VALIDATION_BODY });
 

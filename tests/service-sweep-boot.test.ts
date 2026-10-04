@@ -218,8 +218,7 @@ function bootDiagnostics(input: {
 }
 
 describe('T-010 boot sweep ordering', () => {
-    it('recovers a stranded claim before the first claim ans… (+1 cases)', async () => {
-        // case: recovers a stranded claim before the first claim answer (FR-032)
+    it('recovers a stranded claim before the first claim answer', async () => {
         {
             const dataDir = await seedStrandedClaim();
             running = await startTestService({ dataDir });
@@ -243,7 +242,6 @@ describe('T-010 boot sweep ordering', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: leaves a live lease alone across a restart, and recovers the same run once
         {
             const dataDir = await seedStrandedClaim();
             const first = await startTestService({ dataDir });
@@ -328,8 +326,7 @@ describe('T-045 the pass adopts under the stamp it judges with', () => {
 });
 
 describe('T-010 the periodic sweep', () => {
-    it('names its recoveries in the service log without any … (+1 cases)', async () => {
-        // case: names its recoveries in the service log without any secret
+    it('names its recoveries in the service log without any secret', async () => {
         {
             const dataDir = await seedStrandedClaim();
             running = await startTestService({ dataDir });
@@ -344,7 +341,6 @@ describe('T-010 the periodic sweep', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: stops on shutdown, leaving the timer to the process exit
         {
             const root = await mkdtemp(join(tmpdir(), 'mecha-turk-sweep-timer-'));
             scratch = root;

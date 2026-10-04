@@ -98,8 +98,11 @@ const NEXT_CYCLE: TakeEffectClass = 'next-cycle';
 /** The suite the three retry fields' ladder observation lives in. */
 const BACKOFF_SUITE = 'tests/service-backoff.test.ts';
 
-/** The observation the three retry fields share: every delay inside its bounds. */
-const BACKOFF_MARKER = 'keeps every delay of a capped ladder inside [retryMaxMs / 2, retryMaxMs] (AC-148)';
+/** The ladder arithmetic the three retry-delay fields share. */
+const BACKOFF_LADDER = 'computes delay(n) = min(cap, base × 2^(n−2)) × jitter';
+
+/** The attempt count `retryMaxAttempts` caps, observed on the request path. */
+const BACKOFF_ATTEMPTS = 'attempts a failing request up to retryMaxAttempts times';
 
 /** One observation a field's consumer is proven by. */
 interface Observation {
@@ -138,17 +141,17 @@ const OBSERVATIONS: Readonly<Record<string, Observation>> = {
     retryMaxAttempts: {
         declared: NEXT_CYCLE,
         suite: BACKOFF_SUITE,
-        marker: BACKOFF_MARKER,
+        marker: BACKOFF_ATTEMPTS,
     },
     retryBaseMs: {
         declared: NEXT_CYCLE,
         suite: BACKOFF_SUITE,
-        marker: BACKOFF_MARKER,
+        marker: BACKOFF_LADDER,
     },
     retryMaxMs: {
         declared: NEXT_CYCLE,
         suite: BACKOFF_SUITE,
-        marker: BACKOFF_MARKER,
+        marker: BACKOFF_LADDER,
     },
     auditRetentionDays: {
         declared: NEXT_CYCLE,
@@ -185,12 +188,12 @@ const OBSERVATIONS: Readonly<Record<string, Observation>> = {
     leaseMs: {
         declared: NEXT_CYCLE,
         suite: 'tests/service-sweep.test.ts',
-        marker: 'halves the shorter of the two durations for its cadence',
+        marker: 'halves the shorter of leaseMs and resultDeadlineMs',
     },
     resultDeadlineMs: {
         declared: NEXT_CYCLE,
         suite: 'tests/service-sweep.test.ts',
-        marker: 'halves the shorter of the two durations for its cadence',
+        marker: 'halves the shorter of leaseMs and resultDeadlineMs',
     },
 };
 
@@ -215,8 +218,7 @@ function descriptorOf(name: string): ReturnType<typeof configSchema>[number] {
 }
 
 describe('SC-106: twelve fields, twelve consumers, zero inert rows', () => {
-    it('counts 006\\\'s own twelve as ten next-cycle, one imm… (+2 cases)', () => {
-        // case: counts 006\'s own twelve as ten next-cycle, one immediate, one next-dispatch
+    it('counts 006\'s own twelve as ten next-cycle, one immediate, one next-dispatch', () => {
         {
             const histogram = new Map<string, number>();
             for (const name of SPECS_006_FIELDS) {
@@ -230,7 +232,6 @@ describe('SC-106: twelve fields, twelve consumers, zero inert rows', () => {
             expect(histogram.get('restart')).toBeUndefined();
             expect(histogram.get('none')).toBeUndefined();
         }
-        // case: AC-104: every declared class is one this build delivers, in words that say so
         {
             for (const name of SPECS_006_FIELDS) {
                 const { takesEffect } = descriptorOf(name);
@@ -241,7 +242,6 @@ describe('SC-106: twelve fields, twelve consumers, zero inert rows', () => {
                 expect(words).not.toContain('changes nothing in this build');
             }
         }
-        // case: the class table is exhaustive, and startingPrompt reads next-cycle
         {
             // `TAKE_EFFECT` is exhaustive over the document by construction, so
             // this is the runtime half: a class declared for a key the document
@@ -258,14 +258,12 @@ describe('SC-106: twelve fields, twelve consumers, zero inert rows', () => {
 });
 
 describe('SC-107: a declared class with no backing observation fails', () => {
-    it('has an observation for every field the projection ca… (+2 cases)', () => {
-        // case: has an observation for every field the projection carries
+    it('has an observation for every field the projection carries', () => {
         {
             for (const descriptor of configSchema()) {
                 expect(OBSERVATIONS[descriptor.name], `${descriptor.name} has no observation`).toBeDefined();
             }
         }
-        // case: still finds the observation each field points at
         {
             for (const [name, observation] of Object.entries(OBSERVATIONS)) {
                 const path = resolve(ROOT, observation.suite);
@@ -276,7 +274,6 @@ describe('SC-107: a declared class with no backing observation fails', () => {
                 ).toContain(observation.marker);
             }
         }
-        // case: declares the class the projection declares — a moved class fails here
         {
             for (const [name, observation] of Object.entries(OBSERVATIONS)) {
                 expect(
@@ -414,8 +411,7 @@ function startVerification(run: VerificationRun, id: string): Promise<void> {
 }
 
 describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verification', () => {
-    it('compares against the saved value with no restart and… (+5 cases)', async () => {
-        // case: compares against the saved value with no restart and no cycle boundary between
+    it('compares against the saved value with no restart and no cycle boundary between', async () => {
         {
             const run = verificationRun(SAVED_AGENT);
             run.setConfig(configBody(SAVED_AGENT));
@@ -440,7 +436,6 @@ describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verific
             expect(entry?.detail.baselineProvenance).toBe(CONFIGURED);
             expect(entry?.detail.agentVerified).toBe(true);
         }
-        // case: a verification already in flight keeps the baseline it started with
         {
             const run = verificationRun(FIRST_AGENT);
             run.setConfig(configBody(FIRST_AGENT));
@@ -463,7 +458,6 @@ describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verific
             // start, and neither borrowed the other's.
             expect(run.reads()).toBe(2);
         }
-        // case: records a defaulted blank baseline and compares nothing when the field is absent
         {
             const run = verificationRun(REPORTED_AGENT);
             run.setConfig(configBody());
@@ -486,7 +480,6 @@ describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verific
             expect(entry?.detail.verification).toBe('uncompared');
             expect(run.rt.state.dispatches.agentNotice?.tone).toBe('info');
         }
-        // case: answers the same blank baseline when the read itself fails
         {
             const run = verificationRun(REPORTED_AGENT);
             run.setConfig(null);
@@ -496,7 +489,6 @@ describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verific
             expect(reportOf(run)).toMatchObject({ expectedAgent: '', ok: false });
             expect(run.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe(DEFAULTED);
         }
-        // case: reads an explicitly blank baseline as `unset` — the operator's own answer
         {
             const run = verificationRun(REPORTED_AGENT);
             run.setConfig(configBody(''));
@@ -510,7 +502,6 @@ describe('AC-155 / FR-100(e): next-dispatch reads the saved baseline per verific
             expect(entry?.detail.verification).toBe('uncompared');
             expect(run.rt.state.dispatches.agentNotice?.tone).toBe('info');
         }
-        // case: warns — and does not block — when the observed agent differs from a configured baseline
         {
             const run = verificationRun('executor');
             run.setConfig(configBody(SAVED_AGENT));

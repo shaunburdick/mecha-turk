@@ -255,8 +255,7 @@ async function rowsOf(eventType: string): Promise<readonly AuditEntry[]> {
 }
 
 describe('T-009 lease expiry (FR-032)', () => {
-    it('requeues an expired unreserved claim and records the… (+2 cases)', async () => {
-        // case: requeues an expired unreserved claim and records the attempt before and after
+    it('requeues an expired unreserved claim and records the attempt before and after', async () => {
         {
             const run = await seedRun(101);
             await claimSeeded(run, LAPSED_LEASE);
@@ -286,7 +285,6 @@ describe('T-009 lease expiry (FR-032)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: leaves a live lease exactly where it is
         {
             const run = await seedRun(102);
             await claimSeeded(run, LIVE_LEASE);
@@ -301,7 +299,6 @@ describe('T-009 lease expiry (FR-032)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: parks the run once the requeue budget is spent (FR-033, AC-106)
         {
             const run = await seedRun(103);
             await claimSeeded(run, LAPSED_LEASE);
@@ -339,8 +336,7 @@ describe('T-009 lease expiry (FR-032)', () => {
 });
 
 describe('T-009 late dispatch result (FR-023)', () => {
-    it('wedges a reserved run whose result never arrived (+2 cases)', async () => {
-        // case: wedges a reserved run whose result never arrived
+    it('wedges a reserved run whose result never arrived', async () => {
         {
             const run = await seedRun(111);
             await claimSeeded(run, LIVE_LEASE);
@@ -372,7 +368,6 @@ describe('T-009 late dispatch result (FR-023)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: leaves a reserved run alone before its deadline
         {
             const run = await seedRun(112);
             await claimSeeded(run, LIVE_LEASE);
@@ -388,7 +383,6 @@ describe('T-009 late dispatch result (FR-023)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: leaves an unconfirmed wedge untouched through ten more passes (AC-107)
         {
             const run = await seedRun(113);
             await claimSeeded(run, LIVE_LEASE);
@@ -408,8 +402,7 @@ describe('T-009 late dispatch result (FR-023)', () => {
 });
 
 describe('T-009 what the sweep must not touch (FR-036, FR-028)', () => {
-    it('burns nothing for a run that is merely waiting (+1 cases)', async () => {
-        // case: burns nothing for a run that is merely waiting
+    it('burns nothing for a run that is merely waiting', async () => {
         {
             const run = await seedRun(121);
 
@@ -428,7 +421,6 @@ describe('T-009 what the sweep must not touch (FR-036, FR-028)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never requeues a claimed run whose history already records a session
         {
             const run = await seedRun(122);
             await claimSeeded(run, LAPSED_LEASE);
@@ -489,8 +481,7 @@ describe('T-009 migration recovery (data-model §1)', () => {
 });
 
 describe('T-009 the sweep pass itself', () => {
-    it('writes no row and no log line for a pass with nothin… (+3 cases)', async () => {
-        // case: writes no row and no log line for a pass with nothing to do
+    it('halves the shorter of leaseMs and resultDeadlineMs, and writes no row when a pass finds nothing', async () => {
         {
             await seedRun(141);
 
@@ -505,7 +496,6 @@ describe('T-009 the sweep pass itself', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: names each recovery in the service log without any secret (SEC-11)
         {
             const run = await seedRun(142);
             await claimSeeded(run, LAPSED_LEASE);
@@ -523,7 +513,6 @@ describe('T-009 the sweep pass itself', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: recovers several stranded runs in one pass
         {
             const first = await seedRun(151);
             const second = await seedRun(152);
@@ -540,7 +529,6 @@ describe('T-009 the sweep pass itself', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: halves the shorter of the two durations for its cadence
         {
             expect(sweepIntervalMs({ leaseMs: 120_000, resultDeadlineMs: 120_000 })).toBe(60_000);
             expect(sweepIntervalMs({ leaseMs: 600_000, resultDeadlineMs: 30_000 })).toBe(15_000);
@@ -551,8 +539,7 @@ describe('T-009 the sweep pass itself', () => {
 });
 
 describe('T-009 the enqueued path still joins an in-flight run', () => {
-    it('keeps coalescing into a run the claim leased, withou… (+1 cases)', async () => {
-        // case: keeps coalescing into a run the claim leased, without un-claiming it
+    it('keeps coalescing into a run the claim leased, without un-claiming it', async () => {
         {
             const run = await seedRun(161);
             await claimSeeded(run, LIVE_LEASE);
@@ -577,7 +564,6 @@ describe('T-009 the enqueued path still joins an in-flight run', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: marks a delivery that arrives after the reservation as post-authorization
         {
             const run = await seedRun(162);
             await claimSeeded(run, LIVE_LEASE);

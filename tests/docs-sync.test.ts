@@ -84,14 +84,12 @@ function page(path: string): string {
 }
 
 describe('002 FR-042 / AC-022 the two operator documents describe the shipped panel', () => {
-    it('reads both documents rather than an empty pair (+5 cases)', () => {
-        // case: reads both documents rather than an empty pair
+    it('reads both documents rather than an empty pair', () => {
         {
             for (const doc of PAGES) {
                 expect(page(doc).length, `${doc} is suspiciously short`).toBeGreaterThan(1500);
             }
         }
-        // case: names all six tabs, in the vocabulary the product ships
         {
             for (const doc of PAGES) {
                 const text = page(doc);
@@ -102,7 +100,6 @@ describe('002 FR-042 / AC-022 the two operator documents describe the shipped pa
                 expect(text).toContain('Bindings');
             }
         }
-        // case: puts the prerequisites section on Status (005 FR-037)
         {
             const onStatus = /Status[^\n]*prerequisites|prerequisites[^\n]*Status/i;
 
@@ -112,7 +109,6 @@ describe('002 FR-042 / AC-022 the two operator documents describe the shipped pa
                 expect(text, `${doc} does not place them on Status`).toMatch(onStatus);
             }
         }
-        // case: describes Settings as the single configuration input for the whole service configuration
         {
             for (const doc of PAGES) {
                 // Prose asserts against whitespace-normalized text: both documents
@@ -140,14 +136,12 @@ describe('002 FR-042 / AC-022 the two operator documents describe the shipped pa
                 expect(prose, `${doc} does not say it is operator-backable`).toContain('operator-backable');
             }
         }
-        // case: names the Accounts add form as the expected-login supply surface (005 FR-006)
         {
             for (const doc of PAGES) {
                 expect(page(doc), `${doc} does not document the expected-login input`)
                     .toContain('expected GitHub login');
             }
         }
-        // case: carries no vocabulary-mapping table — the mapping is spec-only now
         {
             const text = page(README);
 
@@ -167,8 +161,7 @@ describe('002 FR-042 / AC-022 the two operator documents describe the shipped pa
 });
 
 describe('002 AC-022 the negative half: no dead instruction and no retired tab', () => {
-    it('instructs no environment or file-based configuration (+2 cases)', () => {
-        // case: instructs no environment or file-based configuration
+    it('instructs no environment or file-based configuration', () => {
         {
             for (const doc of PAGES) {
                 const text = page(doc);
@@ -176,14 +169,12 @@ describe('002 AC-022 the negative half: no dead instruction and no retired tab',
                 expect(text, `${doc} still points at a dotenv file`).not.toContain('.env');
             }
         }
-        // case: presents no dead specs/001 path
         {
             for (const doc of PAGES) {
                 expect(page(doc), `${doc} cites a retired spec path`)
                     .not.toContain('specs/001-agent-event-orchestrator/');
             }
         }
-        // case: names no retired tab, in either document, with no exempt section
         {
             for (const doc of PAGES) {
                 const text = page(doc);

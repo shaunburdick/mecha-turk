@@ -362,8 +362,7 @@ function malformedAfterFirstRuntime(): PanelRuntime {
 }
 
 describe('parseStatusView (fail closed, AGENTS invariant 8)', () => {
-    it('reads a complete document (+2 cases)', () => {
-        // case: reads a complete document
+    it('reads a complete document', () => {
         {
             const view = viewOf(statusFixture());
 
@@ -375,7 +374,6 @@ describe('parseStatusView (fail closed, AGENTS invariant 8)', () => {
             expect(view.agentPin.verification).toEqual({ kind: 'none' });
             expect(view.supported).toBe(true);
         }
-        // case: refuses every malformed document shape rather than defaulting any of it
         {
             expect(parseStatusView('not json'), 'a body that is not JSON').toBeNull();
 
@@ -410,7 +408,6 @@ describe('parseStatusView (fail closed, AGENTS invariant 8)', () => {
             const brokenPin = withMember('agentPin', agentPinFixture({ lastVerification: { somethingElse: true } }));
             expect(parseStatusView(bodyOf(brokenPin)), 'a verification member of an unknown shape').toBeNull();
         }
-        // case: reads the three verification shapes it does know
         {
             expect(viewOf(statusFixture()).agentPin.verification).toEqual({ kind: 'none' });
 
@@ -437,12 +434,10 @@ describe('parseStatusView (fail closed, AGENTS invariant 8)', () => {
 });
 
 describe('configuredIntervalFrom (FR-039)', () => {
-    it('reads the configured interval beside the effective o… (+1 cases)', () => {
-        // case: reads the configured interval beside the effective one
+    it('reads the configured interval beside the effective one', () => {
         {
             expect(configuredIntervalFrom('{"config":{"intervalMs":45000}}')).toBe(45_000);
         }
-        // case: reports an unreadable or absent value rather than a default
         {
             expect(configuredIntervalFrom(EMPTY_CONFIG)).toBeNull();
             expect(configuredIntervalFrom('{"other":1}')).toBeNull();
@@ -452,8 +447,7 @@ describe('configuredIntervalFrom (FR-039)', () => {
 });
 
 describe('the service block (FR-030)', () => {
-    it('reports health, uptime, location, schema, and storag… (+2 cases)', () => {
-        // case: reports health, uptime, location, schema, and storage
+    it('reports health, uptime, location, schema, and storage', () => {
         {
             const lines = serviceLines(viewOf(statusFixture()));
 
@@ -461,7 +455,6 @@ describe('the service block (FR-030)', () => {
             expect(lines[2]).toBe(`Data directory: ${DATA_DIR} — this is the directory to back up`);
             expect(lines[3]).toBe('Store schema version: 1');
         }
-        // case: says degraded, and says the schema is unavailable rather than inventing one
         {
             const service = serviceFixture({
                 status: 'degraded',
@@ -472,7 +465,6 @@ describe('the service block (FR-030)', () => {
 
             expect(lines[0]).toContain('degraded');
         }
-        // case: formats an uptime without a zero-sized segment
         {
             expect(formatUptime(0)).toBe('0s');
             expect(formatUptime(3_600_000)).toBe('1h 0m 0s');
@@ -481,8 +473,7 @@ describe('the service block (FR-030)', () => {
 });
 
 describe('the polling block (FR-031, FR-039)', () => {
-    it('reports the effective and the configured interval (+3 cases)', () => {
-        // case: reports the effective and the configured interval
+    it('reports the effective and the configured interval', () => {
         {
             const lines = pollingLinesFor({ intervalMs: 60_000 }, 60_000);
 
@@ -490,14 +481,12 @@ describe('the polling block (FR-031, FR-039)', () => {
             expect(lines).toContain('Configured interval: 60,000 ms');
             expect(lines.some((line) => line.includes('differ'))).toBe(false);
         }
-        // case: names the difference when the two intervals disagree
         {
             const lines = pollingLinesFor({ intervalMs: 60_000 }, 45_000);
 
             expect(lines.some((line) => line.includes('differ'))).toBe(true);
             expect(lines.some((line) => line.includes('45,000 ms'))).toBe(true);
         }
-        // case: shows a future stamp plainly and a past stamp as overdue
         {
             const lines = pollingLines({
                 view: viewOf(statusFixture()),
@@ -509,7 +498,6 @@ describe('the polling block (FR-031, FR-039)', () => {
             const overdue = pollingLinesFor({ nextPollAt: PAST_STAMP }, null);
             expect(overdue.some((line) => line.includes('(overdue)'))).toBe(true);
         }
-        // case: claims nothing while the surface cannot run a service
         {
             const view = viewOf(withMember('surface', { supported: false }));
             const lines = pollingLines({ view, configured: null, nowMs: Date.now() });
@@ -522,8 +510,7 @@ describe('the polling block (FR-031, FR-039)', () => {
 describe('rate honesty (FR-034, AC-107)', () => {
     const unmeasured: StatusRateView = { remaining: null, limit: null, resetAt: null, usedLastHour: 0 };
 
-    it('reports an unmeasured budget as not measured yet, ne… (+4 cases)', () => {
-        // case: reports an unmeasured budget as not measured yet, never as 0 of 0
+    it('reports an unmeasured budget as not measured yet, never as 0 of 0', () => {
         {
             const line = rateLine(unmeasured);
 
@@ -531,24 +518,20 @@ describe('rate honesty (FR-034, AC-107)', () => {
             expect(line).not.toContain('0 of 0');
             expect(line).toContain('0 used in the last hour');
         }
-        // case: keeps the real usage count even while the budget is unmeasured
         {
             expect(rateLine({ ...unmeasured, usedLastHour: 7 })).toContain('7 used in the last hour');
         }
-        // case: reports a measured budget against its limit
         {
             const line = rateLine({ remaining: 4_200, limit: 5_000, resetAt: PAST_STAMP, usedLastHour: 800 });
 
             expect(line).toContain('800 used in the last hour of 5,000');
             expect(line).toContain('4,200 left in this window');
         }
-        // case: renders one account row carrying its connection state and its rate
         {
             const rows = accountLines(viewOf(statusFixture()));
 
             expect(rows[0]).toBe(`${ACCOUNT} (77331) — connected · not measured yet (0 used in the last hour)`);
         }
-        // case: renders an honest empty when no account is connected
         {
             expect(accountLines(viewOf(withMember('accounts', [])))).toEqual(['No accounts connected yet.']);
         }
@@ -556,8 +539,7 @@ describe('rate honesty (FR-034, AC-107)', () => {
 });
 
 describe('binding rows (FR-032, AC-104, AC-105)', () => {
-    it('reports scan, pending count, and enabled state (+4 cases)', () => {
-        // case: reports scan, pending count, and enabled state
+    it('reports scan, pending count, and enabled state', () => {
         {
             const rows = bindingLines(viewOf(statusFixture()));
 
@@ -565,25 +547,21 @@ describe('binding rows (FR-032, AC-104, AC-105)', () => {
             expect(rows[0]).toContain(`last scan ${STAMP}`);
             expect(rows[0]).toContain('2 pending');
         }
-        // case: keeps an unreadable row on the page and marks it
         {
             const rows = bindingLines(viewOf(withMember('repositories', [bindingFixture({ readable: false })])));
 
             expect(rows).toHaveLength(1);
             expect(rows[0]).toContain('unreadable');
         }
-        // case: shows the scan failure reason on the row it belongs to
         {
             const row = bindingFixture({ lastError: 'rate-limited' });
             const rows = bindingLines(viewOf(withMember('repositories', [row])));
 
             expect(rows[0]).toContain('rate-limited');
         }
-        // case: renders an honest empty when the store holds no bindings
         {
             expect(bindingLines(viewOf(withMember('repositories', [])))).toEqual(['No bindings yet.']);
         }
-        // case: does not read an empty list as "you have none" when the store is degraded
         {
             const degraded = statusFixture({
                 service: serviceFixture({ status: 'degraded', storage: { writable: false } }),
@@ -602,14 +580,12 @@ describe('binding rows (FR-032, AC-104, AC-105)', () => {
 });
 
 describe('the agent pin (FR-033, AC-106)', () => {
-    it('reads not checkable before any dispatch, and names t… (+2 cases)', () => {
-        // case: reads not checkable before any dispatch, and names the first dispatch
+    it('reads not checkable before any dispatch, and names the first dispatch', () => {
         {
             const lines = agentPinLines(viewOf(statusFixture()));
 
             expect(lines.some((line) => line.includes('ok'))).toBe(false);
         }
-        // case: reports a mismatch as the outcome it is
         {
             const agentPin = agentPinFixture({
                 expectedAgent: 'planner',
@@ -624,7 +600,6 @@ describe('the agent pin (FR-033, AC-106)', () => {
 
             expect(lines[1]).toContain('executor');
         }
-        // case: names a blank baseline as unset and its read-back as not compared (002 FR-029)
         {
             // `ok: false` with an empty baseline is *no comparison*, and the
             // Status tab must not render it as a mismatch the panel never made.
@@ -648,16 +623,13 @@ describe('the agent pin (FR-033, AC-106)', () => {
 });
 
 describe('the two blocking notices (FR-035, FR-036, AC-108, AC-109)', () => {
-    it('raises nothing for a document that is healthy (+3 cases)', () => {
-        // case: raises nothing for a document that is healthy
+    it('raises nothing for a document that is healthy', () => {
         {
             expect(noticeStates(viewOf(statusFixture()))).toEqual({ unsupported: false, storageBlocked: false });
         }
-        // case: raises nothing before anything has been read
         {
             expect(noticeStates(null)).toEqual({ unsupported: false, storageBlocked: false });
         }
-        // case: raises the storage blocker when the data directory cannot serve writes
         {
             const service = serviceFixture({ storage: { writable: false } });
 
@@ -666,7 +638,6 @@ describe('the two blocking notices (FR-035, FR-036, AC-108, AC-109)', () => {
                 storageBlocked: true,
             });
         }
-        // case: raises the unsupported-surface notice on a surface that cannot run a service
         {
             expect(noticeStates(viewOf(withMember('surface', { supported: false })))).toEqual({
                 unsupported: true,
@@ -677,12 +648,10 @@ describe('the two blocking notices (FR-035, FR-036, AC-108, AC-109)', () => {
 });
 
 describe('the Status → picker link (FR-038)', () => {
-    it('claims nothing while the host project list has not l… (+2 cases)', () => {
-        // case: claims nothing while the host project list has not loaded
+    it('claims nothing while the host project list has not loaded', () => {
         {
             expect(projectGuidanceLines(guidanceInput(guidanceBindings(), null))).toEqual([]);
         }
-        // case: points at the picker when a binding targets an unregistered project
         {
             const lines = projectGuidanceLines(guidanceInput(guidanceBindings(), ['prj_other']));
 
@@ -691,7 +660,6 @@ describe('the Status → picker link (FR-038)', () => {
             expect(lines[0]).not.toContain('command palette');
             expect(lines[0]).not.toContain('sidebar');
         }
-        // case: says nothing when every binding has a registered project
         {
             expect(projectGuidanceLines(guidanceInput(guidanceBindings(), ['prj_42']))).toEqual([]);
         }
@@ -717,8 +685,7 @@ describe('loadStatus', () => {
     /** Where the in-flight gate's release lands, written from the executor. */
     const holder: { release: (() => void) | null } = { release: null };
 
-    it('lands the document and the configured interval, and … (+5 cases)', async () => {
-        // case: lands the document and the configured interval, and stamps the tab
+    it('lands the document and the configured interval, and stamps the tab', async () => {
         {
             const rt = runtimeAnswering(bodyOf(statusFixture()), '{"config":{"intervalMs":45000}}');
             const shell = stubShell(rt);
@@ -733,7 +700,6 @@ describe('loadStatus', () => {
             expect(shell.calls).toEqual(['noteRead:status']);
             expect(rt.tabLastRead.get('status')).toBe(slice.at);
         }
-        // case: keeps reading the tab honest when the status read fails
         {
             const rt = refusingRuntime(503, PROBLEM_503);
 
@@ -745,7 +711,6 @@ describe('loadStatus', () => {
             expect(slice.stale).toBe(false);
             expect(slice.problem).toContain('503');
         }
-        // case: keeps the last document and marks it stale when a re-read fails
         {
             const rt = flakyStatusRuntime();
 
@@ -759,7 +724,6 @@ describe('loadStatus', () => {
             expect(slice.at, 'the retained stamp stays on screen').not.toBeNull();
             expect(readStateLine(slice)).toContain(slice.at ?? '');
         }
-        // case: fails the read when the document will not parse, and keeps the previous one
         {
             const rt = malformedAfterFirstRuntime();
 
@@ -770,7 +734,6 @@ describe('loadStatus', () => {
             expect(slice.phase).toBe(PHASE_FAILED);
             expect(slice.stale).toBe(true);
         }
-        // case: reads the configured interval as not read when that half fails
         {
             const rt = createTestRuntime(fakeHost({
                 serviceRequest: async (request) => {
@@ -787,7 +750,6 @@ describe('loadStatus', () => {
             expect(rt.state.statusTab.phase).toBe(PHASE_LOADED);
             expect(rt.state.statusTab.configuredIntervalMs).toBeNull();
         }
-        // case: refuses a second read while one is in flight
         {
             const gate = new Promise<void>((resolve) => {
                 holder.release = resolve;
@@ -822,8 +784,7 @@ describe('hostile strings stay text (FR-080)', () => {
     /** Markup an operator or GitHub could have put in a field. */
     const HOSTILE = '<img src=x onerror="alert(1)">';
 
-    it('passes a hostile repository through the line as lite… (+1 cases)', () => {
-        // case: passes a hostile repository through the line as literal text
+    it('passes a hostile repository through the line as literal text', () => {
         {
             const repository = bindingFixture({ repository: HOSTILE });
             const rows = bindingLines(viewOf(withMember('repositories', [repository])));
@@ -831,7 +792,6 @@ describe('hostile strings stay text (FR-080)', () => {
             expect(rows[0]).toContain(HOSTILE);
             expect(rows[0]?.startsWith('acme/')).toBe(false);
         }
-        // case: passes a hostile connection state through the account line
         {
             const account = accountFixture({ connectionState: HOSTILE });
             const rows = accountLines(viewOf(withMember('accounts', [account])));
@@ -858,8 +818,7 @@ const OFF_REPOSITORY = 'acme/off';
 const EVERY_BINDING_RESTRICTS = 'every binding restricts';
 
 describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
-    it('counts the open ENABLED bindings, states the consequence, and never names one (+6 cases)', () => {
-        // case: one of three enabled bindings carries no list
+    it('counts the open ENABLED bindings, states the consequence, and never names one', () => {
         {
             const view = viewOf(withMember('repositories', [
                 bindingFixture({ bindingId: 'bnd_a', repository: 'acme/one', actorPolicy: 'restricted' }),
@@ -880,7 +839,6 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
             }
         }
 
-        // case: every enabled binding restricted is a positive statement, never
         // silence — and the statement is scoped to `enabled`, because the
         // unqualified form is false the moment a disabled binding is open.
         {
@@ -904,7 +862,6 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
             expect(line).not.toContain('3 of 2');
         }
 
-        // case: a service that could not be read reads *not available*
         {
             const [line] = actorPolicyLines(null);
 
@@ -917,7 +874,6 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
             expect(line).not.toContain('0 of 0');
         }
 
-        // case: no bindings at all says so, rather than claiming every one is safe
         {
             const [line] = actorPolicyLines(viewOf(withMember('repositories', [])));
 
@@ -925,7 +881,6 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
             expect(line).not.toContain(EVERY_BINDING_RESTRICTS);
         }
 
-        // case: an out-of-vocabulary policy refuses the document (AGENTS invariant 8)
         {
             for (const value of ['closed', 'OPEN', '', 1, null, undefined, ['open']]) {
                 expect(
@@ -942,7 +897,6 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
             }
         }
 
-        // case: the unreadable row still reports its policy, because it comes
         // from the binding rather than from the scan projection
         {
             const view = viewOf(withMember('repositories', [
@@ -970,8 +924,7 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
             bindingFixture({ bindingId: 'bnd_c', repository: OFF_REPOSITORY, active: false, actorPolicy: 'open' }),
         ];
 
-        it('excludes a disabled open binding from both halves of the count (+3 cases)', () => {
-            // case: the disabled-open fixture renders 0 of 2, not 1 of 3
+        it('excludes a disabled open binding from both halves of the count', () => {
             {
                 const [line] = actorPolicyLines(viewOf(withMember('repositories', DISABLED_OPEN)));
 
@@ -996,7 +949,6 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
                 expect(rows.filter((row) => !row.active && row.actorPolicy === 'open')).toHaveLength(1);
             }
 
-            // case: one of two enabled is open — the count, the trigger-neutral
             // consequence, and nothing that names a login, a repository, or an
             // act.
             {
@@ -1017,7 +969,6 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
                 }
             }
 
-            // case: bindings exist and none is enabled — its own honest sentence,
             // never `0 of 0` and never the vacuously-true positive statement.
             {
                 const [line] = actorPolicyLines(viewOf(withMember('repositories', [

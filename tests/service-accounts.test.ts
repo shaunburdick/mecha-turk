@@ -277,8 +277,7 @@ async function plantTransientAccount(state: string): Promise<string> {
 }
 
 describe('GET /v1/accounts — credential-free DTOs (contract §2.2)', () => {
-    it('returns the account without any credential member (+1 cases)', async () => {
-        // case: returns the account without any credential member
+    it('returns the account without any credential member', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -305,7 +304,6 @@ describe('GET /v1/accounts — credential-free DTOs (contract §2.2)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: keeps the credential out of the serialized responses, logs, and audit
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -324,8 +322,7 @@ describe('GET /v1/accounts — credential-free DTOs (contract §2.2)', () => {
 });
 
 describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
-    it('refreshes only credential, login, scopeCheck, and ve… (+4 cases)', async () => {
-        // case: refreshes only credential, login, scopeCheck, and verifiedAt
+    it('refreshes only credential, login, scopeCheck, and verifiedAt', async () => {
         {
             const github = fakeGitHub({ user: USER_OK });
             const service = await startWithVerifier(github.verifier);
@@ -355,7 +352,6 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: stores the rotated credential owner-only
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -368,7 +364,6 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses a token whose numeric id differs, leaving the store byte-identical
         {
             const github = fakeGitHub({ user: USER_OK });
             const service = await startWithVerifier(github.verifier);
@@ -386,7 +381,6 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: answers 404 for an account that does not exist
         {
             const service = await startService({ user: USER_OK });
 
@@ -398,7 +392,6 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: restores an errored account to active after a successful rotation
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -418,8 +411,7 @@ describe('POST /v1/accounts/:id/token — rotation (FR-012, SEC-06)', () => {
 });
 
 describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7)', () => {
-    it('removes the account when no binding references it (+2 cases)', async () => {
-        // case: removes the account when no binding references it
+    it('removes the account when no binding references it', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -437,7 +429,6 @@ describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses while a binding references the account, unless force=1
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -464,7 +455,6 @@ describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: answers 404 for an unknown or non-numeric id
         {
             const service = await startService({ user: USER_OK });
 
@@ -499,8 +489,7 @@ describe('GET /v1/status — handoff pre-flight (contract §2.1, SEC-08)', () =>
 });
 
 describe('F13 — startup reconciliation of interrupted handoffs', () => {
-    it('marks a stranded account error:interrupted-handoff w… (+1 cases)', async () => {
-        // case: marks a stranded account error:interrupted-handoff when re-verification fails
+    it('marks a stranded account error:interrupted-handoff when re-verification fails', async () => {
         {
             const dataDir = await plantTransientAccount('verifying');
             const rejecter = scriptedVerifier(() => ({ kind: 'rejected' as const, reason: 'auth-failed' as const }));
@@ -521,7 +510,6 @@ describe('F13 — startup reconciliation of interrupted handoffs', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: re-verifies a stranded account back to active when GitHub still knows it
         {
             const dataDir = await plantTransientAccount('pending_handoff');
             const service = await startService({ user: USER_RENAMED }, dataDir);
@@ -756,8 +744,7 @@ function testModuleTexts(): readonly string[] {
 }
 
 describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-066, 004 FR-082)', () => {
-    it('writes the label, and refuses anything that is not one of the two members (+6 cases)', async () => {
-        // case: stores a label, trims it, and changes nothing but the label and its stamp
+    it('writes the label, and refuses anything that is not one of the two members', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -779,7 +766,6 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses a body carrying neither member rather than no-oping (invariant 4)
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -809,7 +795,6 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses a credential-shaped value by field, never echoing what was sent (AC-130)
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -831,7 +816,6 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: clears on null and on empty-after-trim, and refuses anything that is not text
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -853,7 +837,6 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: caps the label at 80 code points and refuses control characters
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -875,7 +858,6 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: reads as null for a store that predates the field, rewriting nothing (FR-005)
         {
             const dataDir = await sharedDataDir();
             const service = await startService({ user: USER_OK }, dataDir);
@@ -894,8 +876,7 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
         }
     });
 
-    it('leaves both operator members byte-identical through a rotation and a rename (+2 cases)', async () => {
-        // case: AC-128 plus FR-082 — rotation and login rename touch neither member
+    it('leaves both operator members byte-identical through a rotation and a rename', async () => {
         {
             const github = fakeGitHub({ user: USER_OK });
             const service = await startWithVerifier(github.verifier);
@@ -927,7 +908,6 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: answers a populated label with no credential-shaped text (AC-129)
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -943,7 +923,6 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: answers 404 for an id no account holds
         {
             const service = await startService({ user: USER_OK });
 
@@ -1086,8 +1065,7 @@ describe('the account tier on the record — member, DTO, quarantine (004 FR-082
 });
 
 describe('PUT /v1/accounts/:numericUserId — invariant 5: exactly the supplied members', () => {
-    it('changes only the member each body named, plus updatedAt (+2 cases)', async () => {
-        // case: a one-member body changes that member only; the other is byte-identical
+    it('changes only the member each body named, plus updatedAt', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1117,7 +1095,6 @@ describe('PUT /v1/accounts/:numericUserId — invariant 5: exactly the supplied 
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: a two-member body changes both, and null/"" clear only what they name
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1163,8 +1140,7 @@ describe('PUT /v1/accounts/:numericUserId — invariant 5: exactly the supplied 
 });
 
 describe('PUT /v1/accounts/:numericUserId — invariant 6: the eleven custody keys refused', () => {
-    it('names each key, echoes no value of it, and writes nothing (+1 cases)', async () => {
-        // case: every custody and identity key answers 422 by name with no echo
+    it('names each key, echoes no value of it, and writes nothing', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1198,7 +1174,6 @@ describe('PUT /v1/accounts/:numericUserId — invariant 6: the eleven custody ke
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: one complete list of issues, and nothing at all is written
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1397,8 +1372,7 @@ describe('account.prompt-updated — one row per tier change, never the text (00
         expect(serialized).not.toContain(PROMPT_HEAD);
     });
 
-    it('writes nothing for a label-only write or for a refusal (+1 cases)', async () => {
-        // case: a displayName-only write appends no row — a label is not a tier
+    it('writes nothing for a label-only write or for a refusal', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1413,7 +1387,6 @@ describe('account.prompt-updated — one row per tier change, never the text (00
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: a refused write leaves both stored members byte-identical and writes no row
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1435,8 +1408,7 @@ describe('account.prompt-updated — one row per tier change, never the text (00
         }
     });
 
-    it('observes a hand edit exactly once as service, and nothing on restart (+1 cases)', async () => {
-        // case: a hand-edited account file is observed once with actor `service`
+    it('observes a hand edit exactly once as service, and nothing on restart', async () => {
         {
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
@@ -1463,7 +1435,6 @@ describe('account.prompt-updated — one row per tier change, never the text (00
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: a restart over unchanged files writes zero rows
         {
             const dataDir = await sharedDataDir();
             const first = await startService({ user: USER_OK }, dataDir);

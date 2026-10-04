@@ -99,8 +99,7 @@ function loaded(envelope: ConfigEnvelope): SettingsEdit {
 }
 
 describe('no baseline means no save, with a named reason (006 T-019, FR-042, AC-124)', () => {
-    it('refuses before anything could be sent, and says why (+2 cases)', () => {
-        // case: refuses before anything could be sent, and says why
+    it('refuses before anything could be sent, and says why', () => {
         {
             const edit = emptyEdit();
             expect(edit.blocked).toBe(NO_BASELINE_REASON);
@@ -114,7 +113,6 @@ describe('no baseline means no save, with a named reason (006 T-019, FR-042, AC-
             }
 
         }
-        // case: refuses while the document carries a member this version cannot show (AC-115)
         {
             const envelope = read(envelopeBody({ config: { surprise: 1 } }));
             const edit = loaded(envelope);
@@ -127,7 +125,6 @@ describe('no baseline means no save, with a named reason (006 T-019, FR-042, AC-
             }
 
         }
-        // case: offers a save once a clean document has been read
         {
             const envelope = baseline();
             const edit = loaded(envelope);
@@ -140,8 +137,7 @@ describe('no baseline means no save, with a named reason (006 T-019, FR-042, AC-
 });
 
 describe('the draft is the read, edited (006 T-019, FR-041, AC-122)', () => {
-    it('starts every field at the document value, or the def… (+2 cases)', () => {
-        // case: starts every field at the document value, or the default when it lacked one
+    it('starts every field at the document value, or the default when it lacked one', () => {
         {
             const envelope = read(
                 envelopeBody({ config: { expectedAgent: undefined }, defaultsApplied: ['expectedAgent'] }),
@@ -152,7 +148,6 @@ describe('the draft is the read, edited (006 T-019, FR-041, AC-122)', () => {
             expect(edit.draft.expectedAgent).toBe(DEFAULT_CONFIG.expectedAgent);
             expect(edit.dirty).toEqual([]);
         }
-        // case: tracks exactly the fields that moved, and forgets them when they move back
         {
             const envelope = baseline();
             let edit = loaded(envelope);
@@ -167,7 +162,6 @@ describe('the draft is the read, edited (006 T-019, FR-041, AC-122)', () => {
             expect(edit.dirty).toEqual([]);
             expect(edit.saveState).toBe('idle');
         }
-        // case: discards back to the last read and says what reverted (AC-122)
         {
             const envelope = baseline();
             let edit = loaded(envelope);
@@ -186,8 +180,7 @@ describe('the draft is the read, edited (006 T-019, FR-041, AC-122)', () => {
 });
 
 describe('one activation, one whole document, no panel-side gate (006 T-019, FR-040, AC-110, AC-126)', () => {
-    it('sends the baseline with the draft applied, and fills… (+2 cases)', () => {
-        // case: sends the baseline with the draft applied, and fills a key the document lacked
+    it('sends the baseline with the draft applied, and fills a key the document lacked', () => {
         {
             const envelope = read(envelopeBody({ config: { expectedAgent: undefined } }));
             let edit = loaded(envelope);
@@ -208,7 +201,6 @@ describe('one activation, one whole document, no panel-side gate (006 T-019, FR-
             expect(attempt.document.expectedAgent).toBe(DEFAULT_CONFIG.expectedAgent);
             expect(Object.keys(attempt.document).sort()).toEqual(Object.keys(DEFAULT_CONFIG).sort());
         }
-        // case: sends a value the service would refuse, rather than reshaping it (AC-110)
         {
             const envelope = baseline();
             let edit = loaded(envelope);
@@ -226,7 +218,6 @@ describe('one activation, one whole document, no panel-side gate (006 T-019, FR-
             expect(attempt.document.intervalMs).toBe(999_999_999);
             // Out of shape is still text — the service's type check is the gate.
         }
-        // case: refuses a second activation while one is in flight, instead of queueing it (AC-126)
         {
             const envelope = baseline();
             const edit = loaded(envelope);
@@ -246,8 +237,7 @@ describe('one activation, one whole document, no panel-side gate (006 T-019, FR-
 });
 
 describe('the answers arrive as facts, never as optimism (006 T-019, FR-025, FR-044, AC-107, AC-109, AC-125)', () => {
-    it('adopts the configuration the service returned, not t… (+3 cases)', () => {
-        // case: adopts the configuration the service returned, not the one that was sent
+    it('adopts the configuration the service returned, not the one that was sent', () => {
         {
             const envelope = baseline();
             const returned = read(envelopeBody({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000 } }));
@@ -260,7 +250,6 @@ describe('the answers arrive as facts, never as optimism (006 T-019, FR-025, FR-
             expect(saved.draft.intervalMs).toBe('45000');
             expect(saved.dirty).toEqual([]);
         }
-        // case: keeps the service issues in its order and puts the fields back (AC-107, AC-109)
         {
             const envelope = baseline();
             const issues = [
@@ -286,7 +275,6 @@ describe('the answers arrive as facts, never as optimism (006 T-019, FR-025, FR-
             expect(refused.draft.intervalMs).toBe(String(DEFAULT_CONFIG.intervalMs));
             expect(refused.dirty).toEqual([]);
         }
-        // case: keeps the cause of a failed write, and keeps the edit too (FR-063)
         {
             const envelope = baseline();
             let edit = loaded(envelope);
@@ -308,7 +296,6 @@ describe('the answers arrive as facts, never as optimism (006 T-019, FR-025, FR-
             expect(failed.draft.intervalMs).toBe('120000');
             expect(failed.dirty).toEqual(['intervalMs']);
         }
-        // case: reports a successful write whose audit row never landed (006 AC-139)
         {
             const envelope = baseline();
             const returned = read(envelopeBody({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000 } }));
@@ -324,8 +311,7 @@ describe('the answers arrive as facts, never as optimism (006 T-019, FR-025, FR-
 });
 
 describe('pending markers name the boundary and are retired by a read (006 T-019, FR-038, AC-105)', () => {
-    it('marks every changed field but `immediate`, with the … (+2 cases)', () => {
-        // case: marks every changed field but `immediate`, with the class that governs it
+    it('marks every changed field but `immediate`, with the class that governs it', () => {
         {
             const envelope = baseline();
             const returned = read(
@@ -340,7 +326,6 @@ describe('pending markers name the boundary and are retired by a read (006 T-019
             expect(saved.pending).toEqual([{ field: 'intervalMs', boundary: 'next-cycle' }]);
             expect(saved.pending.some((entry) => entry.field === 'logLevel')).toBe(false);
         }
-        // case: is not cleared by the save that created it, and not by a read that agrees either
         {
             const envelope = baseline();
             const returned = read(envelopeBody({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000 } }));
@@ -376,7 +361,6 @@ describe('pending markers name the boundary and are retired by a read (006 T-019
             });
             expect(behind).toHaveLength(1);
         }
-        // case: retires a marker the status projection cannot speak about only on a re-read
         {
             const pending = [{ field: 'auditRetentionDays', boundary: 'next-cycle' as const }];
 

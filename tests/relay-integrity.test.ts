@@ -380,8 +380,7 @@ function bodyOf(relay: Harness, key: string): string {
 }
 
 describe('relay dispatch order (FR-024, FR-028)', () => {
-    it('reserves, starts, records, reports, acknowledges, th… (+3 cases)', async () => {
-        // case: reserves, starts, records, reports, acknowledges, then reads the agent back
+    it('reserves, starts, records, reports, acknowledges, then reads the agent back', async () => {
         {
             const relay = harness();
 
@@ -401,7 +400,6 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
                 `POST ${RUN_PATH}/verification`,
             ]);
         }
-        // case: reports exactly one result carrying the token, the attempt, and the session
         {
             const relay = harness();
 
@@ -415,7 +413,6 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
                 sessionId: SESSION_ID,
             });
         }
-        // case: never reaches the host when the service refuses the reserve
         {
             const relay = harness({
                 ...OK_ROUTES,
@@ -427,7 +424,6 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
             expect(relay.timeline).toEqual([`POST ${RUN_PATH}/reserve`]);
             expect(relay.rt.state.bindings.note).toContain(STALE_LEASE_CODE);
         }
-        // case: never reaches the host when the service answers an unreadable authorization
         {
             const relay = harness({
                 ...OK_ROUTES,
@@ -443,8 +439,7 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
 });
 
 describe('guard refusals are reported, never dispatched (FR-042)', () => {
-    it('posts blocked with the lease and the declared reason… (+2 cases)', async () => {
-        // case: posts blocked with the lease and the declared reason, and no result
+    it('posts blocked with the lease and the declared reason, and no result', async () => {
         {
             const relay = harness();
             relay.rt.state.bindings.bindings = [];
@@ -462,7 +457,6 @@ describe('guard refusals are reported, never dispatched (FR-042)', () => {
                 guidance: 're-create the repository binding, then retry',
             });
         }
-        // case: reports a disabled binding rather than treating it as dispatchable
         {
             const relay = harness();
             relay.rt.state.bindings.bindings = [{ ...activeBinding(), state: 'disabled' }];
@@ -473,7 +467,6 @@ describe('guard refusals are reported, never dispatched (FR-042)', () => {
             const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/blocked`)) as Record<string, unknown>;
             expect(body.detail).toContain('disabled');
         }
-        // case: posts blocked for a project the host will not resolve
         {
             const relay = harness(OK_ROUTES, { projects: [] });
 
@@ -487,8 +480,7 @@ describe('guard refusals are reported, never dispatched (FR-042)', () => {
 });
 
 describe('the handled list is keyed correlationId#attempt (FR-034)', () => {
-    it('keys one attempt and never re-dispatches it within t… (+2 cases)', async () => {
-        // case: keys one attempt and never re-dispatches it within the mount
+    it('keys one attempt and never re-dispatches it within the mount', async () => {
         {
             const relay = harness();
             const run = claimedRun();
@@ -500,7 +492,6 @@ describe('the handled list is keyed correlationId#attempt (FR-034)', () => {
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
             expect(relay.rt.state.relay.handled).toEqual([`${CORRELATION}#1`]);
         }
-        // case: dispatches the same run again once the service hands it back on a new attempt
         {
             const relay = harness();
             await dispatchClaimedRun(relay.rt, claimedRun());
@@ -514,7 +505,6 @@ describe('the handled list is keyed correlationId#attempt (FR-034)', () => {
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(2);
             expect(relay.rt.state.relay.handled).toEqual([`${CORRELATION}#1`, `${CORRELATION}#2`]);
         }
-        // case: does not authorize a re-dispatch when the result report fails (FR-034)
         {
             const relay = harness({
                 ...OK_ROUTES,
@@ -533,8 +523,7 @@ describe('the handled list is keyed correlationId#attempt (FR-034)', () => {
 });
 
 describe('the relay dispatches only what it was offered, leased (FR-035)', () => {
-    it('dispatches nothing and says so when the offer carrie… (+4 cases)', async () => {
-        // case: dispatches nothing and says so when the offer carries no lease
+    it('dispatches nothing and says so when the offer carries no lease', async () => {
         {
             const offer = JSON.parse(JSON.stringify(claimedRun())) as Record<string, unknown>;
             delete offer.lease;
@@ -550,7 +539,6 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
             expect(relay.timeline.filter((entry) => entry === `POST ${RUN_PATH}/reserve`)).toHaveLength(0);
         }
-        // case: dispatches nothing when an offered run is not in the state it was offered in
         {
             const offer = JSON.parse(JSON.stringify(claimedRun())) as Record<string, unknown>;
             offer.state = 'claimed';
@@ -565,7 +553,6 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
 
             expect(relay.timeline).toEqual([PENDING_GET]);
         }
-        // case: dispatches an empty offer without touching the host
         {
             const relay = harness({ [PENDING_GET]: { status: 200, body: claimBody([]) } });
 
@@ -574,7 +561,6 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
             expect(relay.timeline).toEqual([PENDING_GET]);
             expect(relay.rt.state.relay.lastPollAt).not.toBeNull();
         }
-        // case: surfaces a degraded claim trail instead of implying one exists (FR-063)
         {
             const relay = harness({
                 ...OK_ROUTES,
@@ -585,7 +571,6 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
 
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
         }
-        // case: reads a well-formed offer end to end through the parser
         {
             const parsed = parsePendingBody(claimBody([claimedRun()]));
 
@@ -845,8 +830,7 @@ describe('detection-to-session round trips (NFR-101, AC-127, SC-110)', () => {
 });
 
 describe('003 v1.8.0 the panel reports the gate through the block report (FR-078)', () => {
-    it('posts blocked with the service own words, and calls no host method (+3 cases)', async () => {
-        // case: reserve → 409 → blocked, with **zero** `host.startSession()`
+    it('posts blocked with the service own words, and calls no host method', async () => {
         {
             const relay = harness(ACTOR_GATE_REFUSAL);
 
@@ -857,7 +841,6 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
             expect(relay.timeline).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`, `POST ${RUN_PATH}/blocked`]);
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
         }
-        // case: the report names the cause, the denied login, and the field to fix
         {
             const relay = harness(ACTOR_GATE_REFUSAL);
 
@@ -878,7 +861,6 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
             });
             expect(JSON.stringify(body)).not.toContain('permitted');
         }
-        // case: a `409` that is not the gate's stays a bare refusal, un-reported
         {
             // `stale-lease` and `already-reserved` are `409` too. Reporting one of
             // those as a policy denial would be this panel announcing a verdict
@@ -917,7 +899,6 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
     });
 
     it('tells the operator the truth about a cut reference list (003 T-038)', async () => {
-        // case: the service states the window it judged, as a value-free word
         //
         // Built by running the **real** gate over a saturated run rather than by
         // writing a literal here, so this doubles as the drift test between the
@@ -934,7 +915,6 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
             expect(refusal?.message).toContain('incomplete list');
             expect(refusal?.message).not.toContain(PERMITTED);
         }
-        // case: the truncated guidance is a different sentence, and names no login
         {
             const ordinary = await guidanceFor({ code: ACTOR_BLOCKED_CODE, message: GATE_REFUSAL_MESSAGE });
             const truncated = await guidanceFor({
@@ -959,7 +939,6 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
             expect(truncated).not.toContain(DENIED);
             expect(ordinary).not.toContain(PERMITTED);
         }
-        // case: neither branch reads the message — the word decides, alone
         {
             // A `complete` window with the truncated sentence attached still gets
             // the ordinary guidance: the panel does not match prose, so a
@@ -1026,8 +1005,7 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
 });
 
 describe('bounded growth is asserted, not assumed (AC-129, NFR-107)', () => {
-    it('holds 200 references inside the dispatch excerpt, wi… (+3 cases)', async () => {
-        // case: holds 200 references inside the dispatch excerpt, with a visible cut
+    it('holds 200 references inside the dispatch excerpt, with a visible cut', async () => {
         {
             const excerpt = 'r'.repeat(SOURCE_EXCERPT_MAX_CHARS);
             const sources: readonly ContextSource[] = Array.from({ length: MAX_SOURCE_REFERENCES }, (
@@ -1061,7 +1039,6 @@ describe('bounded growth is asserted, not assumed (AC-129, NFR-107)', () => {
             // marked rather than silent: a 200-reference run can never blow it.
             expect(context.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
         }
-        // case: keeps the attempt history at its cap however many attempts a run records
         {
             const [seed] = seededRuns(1).runs;
             if (seed === undefined) {
@@ -1086,7 +1063,6 @@ describe('bounded growth is asserted, not assumed (AC-129, NFR-107)', () => {
             expect(run.attempts.at(-1)?.attempt).toBe(MAX_ATTEMPT_RECORDS + 12);
             expect(run.attempts[0]?.attempt).toBe(13);
         }
-        // case: evicts the oldest acknowledged record once the panel holds its cap
         {
             const relay = harness();
             const total = MAX_RECORDED_ATTEMPTS + RECORDED_ATTEMPT_OVERFLOW;
@@ -1108,7 +1084,6 @@ describe('bounded growth is asserted, not assumed (AC-129, NFR-107)', () => {
             expect(attempts.at(-1)?.attempt).toBe(total);
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(total);
         }
-        // case: projects at most the run-history cap however many runs exist
         {
             const seeded = seededRuns(MAX_LISTED_EVENTS + RUN_HISTORY_OVERFLOW);
             expect(seeded.runs.length).toBeGreaterThan(MAX_LISTED_EVENTS);
@@ -1150,8 +1125,7 @@ function promptedRoutes(): RouteTable {
 }
 
 describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, FR-053)', () => {
-    it('adds no round trip: still claim, reserve, startSessi… (+2 cases)', async () => {
-        // case: adds no round trip: still claim, reserve, startSession (+0, NFR-120)
+    it('adds no round trip: still claim, reserve, startSession (+0, NFR-120)', async () => {
         {
             const relay = harness(promptedRoutes());
             await pollRelay(relay.rt);
@@ -1160,7 +1134,6 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
             expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
             expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
         }
-        // case: carries the text exactly once — inside the message — and nowhere else
         {
             const relay = harness(promptedRoutes());
             await pollRelay(relay.rt);
@@ -1190,7 +1163,6 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
             expect(JSON.stringify(relay.rt.state.ledger)).not.toContain(PROMPT_TEXT);
             expect(JSON.stringify(relay.rt.state.bindings)).not.toContain(PROMPT_TEXT);
         }
-        // case: composes a prompt-less dispatch byte-identically to the pre-004 frame (SC-121)
         {
             const relay = harness();
             await pollRelay(relay.rt);
@@ -1265,8 +1237,7 @@ function stringsIn(value: unknown): readonly string[] {
 }
 
 describe('T-027 the relay refuses a claim answer whose sources it cannot read (FR-087, AC-151)', () => {
-    it('refuses the whole answer: no reserve and no session (+1 cases)', async () => {
-        // case: one entry with a hostile source list refuses the answer the relay ticks on
+    it('refuses the whole answer: no reserve and no session', async () => {
         {
             // Built as a plain record because the tier is deliberately *not* one
             // `PromptSource` accepts — the wire is where it must be refused.
@@ -1296,8 +1267,7 @@ describe('T-027 the relay refuses a claim answer whose sources it cannot read (F
 });
 
 describe('T-027 the instruction reaches `text` and no copy (FR-053, AC-144)', () => {
-    it('appears once in the request and nowhere the panel wrote (+1 cases)', async () => {
-        // case: a real scan of every surface the panel owns finds no second copy
+    it('appears once in the request and nowhere the panel wrote', async () => {
         {
             const relay = harness(promptedRoutes());
             await pollRelay(relay.rt);
@@ -1392,8 +1362,7 @@ function reportedProblem(relay: Harness): string {
 }
 
 describe('T-029 the budget floor refuses before the host (FR-085, AC-147, SC-132)', () => {
-    it('composes, refuses, and issues zero host calls… (+2 cases)', async () => {
-        // case: composes, refuses, and issues zero host calls
+    it('composes, refuses, and issues zero host calls', async () => {
         {
             const relay = harness(promptRoutes(OVER_BUDGET_PROMPT));
             await pollRelay(relay.rt);
@@ -1424,7 +1393,6 @@ describe('T-029 the budget floor refuses before the host (FR-085, AC-147, SC-132
             expect(problem).toContain('global, account, binding');
             expect(problem).not.toContain(OVER_BUDGET_MARKER);
         }
-        // case: names only the tiers the run actually carried
         {
             const relay = harness(promptRoutes(OVER_BUDGET_PROMPT, ['binding']));
             await pollRelay(relay.rt);
@@ -1435,7 +1403,6 @@ describe('T-029 the budget floor refuses before the host (FR-085, AC-147, SC-132
             expect(problem).not.toContain('global');
             expect(problem).not.toContain('account');
         }
-        // case: a maximal legal three-tier composition passes the floor untouched
         {
             const relay = harness(promptRoutes(MAXIMAL_THREE_TIERS));
             await pollRelay(relay.rt);
@@ -1487,8 +1454,7 @@ function maximalRoutes(): RouteTable {
 }
 
 describe('T-034 the budget suite end-to-end (FR-085, AC-147, AC-145, SC-132, NFR-120)', () => {
-    it('refuses the over-budget attempt before the host, adds no round trip (+2 cases)', async () => {
-        // case: the seeded over-budget attempt refuses before host.startSession(), starting no session
+    it('refuses the over-budget attempt before the host, adds no round trip', async () => {
         {
             // A store hand-edited past the save-time cap: the claim reader
             // takes the body as it stands (shape, never a length), so the
@@ -1528,7 +1494,6 @@ describe('T-034 the budget suite end-to-end (FR-085, AC-147, AC-145, SC-132, NFR
             const composedChars = Number(/composed first message is (\d+) characters/.exec(problem)?.[1] ?? '0');
             expect(composedChars).toBeGreaterThan(CONTEXT_MAX_CHARS);
         }
-        // case: the maximal composition dispatches with no round trip added (NFR-120, AC-147)
         {
             // The full worst case on the wire: three maximal (2,000-code-point)
             // tiers plus a 1,200-code-point excerpt, composed through the

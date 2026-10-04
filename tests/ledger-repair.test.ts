@@ -73,8 +73,7 @@ function serializeFailure(ledger: PanelLedger): Error {
 }
 
 describe('serializeLedger size gate', () => {
-    it('measures the ledger in UTF-8 bytes the way the host … (+1 cases)', () => {
-        // case: measures the ledger in UTF-8 bytes the way the host does
+    it('measures the ledger in UTF-8 bytes the way the host does', () => {
         {
             const ledger = wideLedger();
             const json = JSON.stringify(ledger);
@@ -83,7 +82,6 @@ describe('serializeLedger size gate', () => {
             expect(utf8ByteLength(json)).toBeGreaterThan(GUEST_STORAGE_VALUE_BYTES);
             expect(() => serializeLedger(ledger)).toThrow('byte host.storage value limit');
         }
-        // case: leaves a ledger that already fits untouched
         {
             const repair = fitLedgerToByteBudget(emptyLedger());
 
@@ -95,8 +93,7 @@ describe('serializeLedger size gate', () => {
 });
 
 describe('repairLedger', () => {
-    it('drops the oldest entries until the ledger fits the b… (+2 cases)', () => {
-        // case: drops the oldest entries until the ledger fits the byte budget
+    it('drops the oldest entries until the ledger fits the byte budget', () => {
         {
             const ledger = wideLedger();
             const repair = repairLedger({ ledger, cause: serializeFailure(ledger) });
@@ -110,7 +107,6 @@ describe('repairLedger', () => {
             expect(() => serializeLedger(repair?.ledger ?? ledger)).not.toThrow();
             expect(utf8ByteLength(JSON.stringify(repair?.ledger ?? ledger))).toBeLessThanOrEqual(LEDGER_BYTE_BUDGET);
         }
-        // case: quarantines only the entry that trips the redaction gate
         {
             const token = `ghp_${'a'.repeat(TOKEN_BODY)}`;
             let ledger = emptyLedger();
@@ -129,7 +125,6 @@ describe('repairLedger', () => {
             expect(repair?.ledger.entries.at(-2)?.detail.inspected).toBe(3);
             expect(() => serializeLedger(repair?.ledger ?? ledger)).not.toThrow();
         }
-        // case: reports no repair when the failure is one it cannot fix
         {
             const repair = repairLedger({ ledger: emptyLedger(), cause: new Error('host refused the write') });
 

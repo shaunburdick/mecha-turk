@@ -39,8 +39,7 @@ import {
 afterEach(stopAllServices);
 
 describe('POST /v1/accounts/verify — happy path', () => {
-    it('verifies, persists, and answers with the identity co… (+5 cases)', async () => {
-        // case: verifies, persists, and answers with the identity contract §2.2 pins
+    it('verifies, persists, and answers with the identity contract §2.2 pins', async () => {
         {
             const { service, github } = await startWithGitHub({ user: USER_OK });
 
@@ -59,7 +58,6 @@ describe('POST /v1/accounts/verify — happy path', () => {
             const first = github.calls[0];
             expect(first?.authorization).toBe(`Bearer ${REGISTERED_TOKEN}`);
         }
-        // case: stores the credential file owner-only and key it by numeric id
         {
             const { service } = await startWithGitHub({ user: USER_OK });
 
@@ -71,7 +69,6 @@ describe('POST /v1/accounts/verify — happy path', () => {
             const dirStat = await stat(join(service.dataDir, ACCOUNTS_DIR));
             expect(dirStat.mode % PERMISSION_BASE).toBe(0o700);
         }
-        // case: records exactly one account.verified row per accepted handoff
         {
             const { service } = await startWithGitHub({ user: USER_OK });
 
@@ -81,7 +78,6 @@ describe('POST /v1/accounts/verify — happy path', () => {
             expect(rows.map((row) => row.eventType)).toEqual(['account.verified']);
             expect(rows[0]?.details.login).toBe(ACCOUNT_LOGIN);
         }
-        // case: keeps sequence numbers unique when two verifies race (W2-2)
         {
             const { service } = await startWithGitHub({ user: USER_OK });
 
@@ -98,7 +94,6 @@ describe('POST /v1/accounts/verify — happy path', () => {
             // whichever order they arrive in, only one account is ever created.
             expect([first.status, second.status].filter((status) => status === 201)).toHaveLength(1);
         }
-        // case: applies expectedLogin case-insensitively when it matches
         {
             const { service } = await startWithGitHub({ user: USER_OK });
 
@@ -106,7 +101,6 @@ describe('POST /v1/accounts/verify — happy path', () => {
 
             expect(response.status).toBe(201);
         }
-        // case: stores expectedLogin as null when the add form carried no constraint (005 AC-141)
         {
             const { service } = await startWithGitHub({ user: USER_OK });
 
@@ -124,8 +118,7 @@ describe('POST /v1/accounts/verify — happy path', () => {
 });
 
 describe('POST /v1/accounts/verify — no consent gate (002 v1.9.0, owner order 2026-10-01)', () => {
-    it('verifies a body carrying no consentVersion at all (+1 cases)', async () => {
-        // case: verifies a body carrying no consentVersion at all
+    it('verifies a body carrying no consentVersion at all', async () => {
         {
             const { service, github } = await startWithGitHub({ user: USER_OK });
 
@@ -134,7 +127,6 @@ describe('POST /v1/accounts/verify — no consent gate (002 v1.9.0, owner order 
             expect(response.status).toBe(201);
             expect(github.calls.map((call) => call.path)).toEqual(['/user', '/rate_limit']);
         }
-        // case: ignores the stale consentVersion an older panel build still sends
         {
             const { service } = await startWithGitHub({ user: USER_OK });
 
@@ -153,8 +145,7 @@ describe('POST /v1/accounts/verify — no consent gate (002 v1.9.0, owner order 
 });
 
 describe('POST /v1/accounts/verify — GitHub classification (T-007 matrix)', () => {
-    it('maps a GitHub 401 to 422 credential-rejected / auth-… (+5 cases)', async () => {
-        // case: maps a GitHub 401 to 422 credential-rejected / auth-failed
+    it('maps a GitHub 401 to 422 credential-rejected / auth-failed', async () => {
         {
             const { service } = await startWithGitHub({ user: { status: 401 } });
 
@@ -166,7 +157,6 @@ describe('POST /v1/accounts/verify — GitHub classification (T-007 matrix)', ()
             expect(error.reasonClass).toBe('auth-failed');
             expect(await accountFileExists(service)).toBe(false);
         }
-        // case: maps a GitHub 403 SSO refusal to sso-required
         {
             const { service } = await startWithGitHub({
                 user: { status: 403, headers: headerMap([['x-github-sso', 'required; url=https://example.test/sso']]) },
@@ -178,7 +168,6 @@ describe('POST /v1/accounts/verify — GitHub classification (T-007 matrix)', ()
             expect(response.status).toBe(422);
             expect(error.reasonClass).toBe('sso-required');
         }
-        // case: maps a GitHub 403 without scopes to the first missing capability
         {
             const { service } = await startWithGitHub({
                 user: { status: 403, headers: headerMap([[OAUTH_SCOPES_HEADER, READ_ONLY_SCOPES]]) },
@@ -190,7 +179,6 @@ describe('POST /v1/accounts/verify — GitHub classification (T-007 matrix)', ()
             expect(response.status).toBe(422);
             expect(error.reasonClass).toBe('scope-missing:metadata');
         }
-        // case: records missing scopes when GitHub 200s with a read-only classic token
         {
             const { service } = await startWithGitHub({
                 user: { ...USER_NO_SCOPES, headers: headerMap([[OAUTH_SCOPES_HEADER, READ_ONLY_SCOPES]]) },
@@ -202,7 +190,6 @@ describe('POST /v1/accounts/verify — GitHub classification (T-007 matrix)', ()
             expect(response.status).toBe(201);
             expect(body.scopeCheck.results).toEqual(scopeResults('missing'));
         }
-        // case: reports unknown scopes for a fine-grained token with no scope header
         {
             const { service } = await startWithGitHub({ user: USER_NO_SCOPES });
 
@@ -212,7 +199,6 @@ describe('POST /v1/accounts/verify — GitHub classification (T-007 matrix)', ()
             expect(response.status).toBe(201);
             expect(body.scopeCheck.results).toEqual(scopeResults('unknown'));
         }
-        // case: maps a GitHub 429 to 429 rate-limited with retry-after and persists nothing
         {
             const { service } = await startWithGitHub({
                 user: { status: 429, headers: headerMap([[RETRY_AFTER, '120']]) },
@@ -228,8 +214,7 @@ describe('POST /v1/accounts/verify — GitHub classification (T-007 matrix)', ()
         }
     });
 
-    it('maps a transport failure to 502 upstream-unavailable… (+1 cases)', async () => {
-        // case: maps a transport failure to 502 upstream-unavailable (F9 network)
+    it('maps a transport failure to 502 upstream-unavailable (F9 network)', async () => {
         {
             const { service } = await startWithGitHub({ user: { failWith: 'ECONNREFUSED' } });
 
@@ -241,7 +226,6 @@ describe('POST /v1/accounts/verify — GitHub classification (T-007 matrix)', ()
             expect(error.message).not.toContain('ECONNREFUSED');
             expect(await accountFileExists(service)).toBe(false);
         }
-        // case: classifies the 15-second abort as a timeout, not a network failure (W2-7)
         {
             const { service } = await startWithGitHub({ user: { failWithName: TIMEOUT_ERROR_NAME } });
 

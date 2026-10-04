@@ -515,8 +515,7 @@ async function detachedRun(issueNumber: number): Promise<Run> {
 }
 
 describe('T-042d a resolve may not name a session and ask for none', () => {
-    it('refuses 422 naming sessionId instead of re-dispatchi… (+1 cases)', async () => {
-        // case: refuses 422 naming sessionId instead of re-dispatching a run it just reported
+    it('refuses 422 naming sessionId instead of re-dispatching a run it just reported', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(1, 'unconfirmed');
@@ -546,7 +545,6 @@ describe('T-042d a resolve may not name a session and ask for none', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: still accepts the same body without sessionId, which is the documented shape
         {
             const service = await startSeededService();
             const run = await driveTo(2, 'unconfirmed');
@@ -596,8 +594,7 @@ describe('T-043a the reserve 200 carries every member the panel acts on', () => 
 });
 
 describe('T-043a every refusal code reaches the transport as 409', () => {
-    it('answers stale-lease for a lease the run never held (+4 cases)', async () => {
-        // case: answers stale-lease for a lease the run never held
+    it('answers stale-lease for a lease the run never held', async () => {
         {
             const service = await startSeededService();
             const { run } = await driveAndClaim(11);
@@ -615,7 +612,6 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: answers already-reserved for a second authorization on one live run
         {
             const service = await startSeededService();
             const { run, leaseId } = await driveAndClaim(12);
@@ -637,7 +633,6 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: answers already-dispatched naming the session a leaseless run recorded (AC-112)
         {
             const service = await startSeededService();
             const run = await driveTo(13, 'dispatched');
@@ -656,7 +651,6 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: answers invalid-transition naming the state for a retry that cannot run
         {
             const service = await startSeededService();
             const run = await driveTo(14, 'pending');
@@ -673,7 +667,6 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: answers cause-not-cleared when only the panel can check the cause
         {
             const service = await startSeededService();
             const run = await driveTo(15, 'blocked:project-missing');
@@ -691,8 +684,7 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
 });
 
 describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
-    it('names the run and the operation when the refusal row… (+1 cases)', async () => {
-        // case: names the run and the operation when the refusal row failed to append
+    it('names the run and the operation when the refusal row failed to append', async () => {
         {
             const run = await detachedRun(90);
             const lines: string[] = [];
@@ -723,7 +715,6 @@ describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: says nothing when the refusal row did land
         {
             const run = await detachedRun(91);
             const lines: string[] = [];
@@ -748,8 +739,7 @@ describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
 });
 
 describe('T-043c a 422 about a run that exists writes its refusal row', () => {
-    it('records the operation, code, prior state, and attemp… (+1 cases)', async () => {
-        // case: records the operation, code, prior state, and attempt for a malformed body
+    it('records the operation, code, prior state, and attempt for a malformed body', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(30, 'pending');
@@ -776,7 +766,6 @@ describe('T-043c a 422 about a run that exists writes its refusal row', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: keeps 404 unknown-run row-free, because there is no run to name
         {
             const service = await startSeededService();
 
@@ -817,8 +806,7 @@ describe('T-043h §7 and §8 never require attempt', () => {
 });
 
 describe('T-043e an over-long optional free-text member is refused, not dropped', () => {
-    it('refuses an over-long causeReport on a retry, naming … (+5 cases)', async () => {
-        // case: refuses an over-long causeReport on a retry, naming the field
+    it('refuses an over-long causeReport on a retry, naming the field', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(40, 'failed');
@@ -838,7 +826,6 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses an over-long note on a resolve, naming the field
         {
             const service = await startSeededService();
             const run = await driveTo(41, 'unconfirmed');
@@ -856,7 +843,6 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses over-long guidance on a block report, naming the field
         {
             const service = await startSeededService();
             const { run, leaseId } = await driveAndClaim(42);
@@ -881,7 +867,6 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses an over-long observedAgent on a verification, naming the field
         {
             const service = await startSeededService();
             const run = await driveTo(43, 'dispatched');
@@ -905,7 +890,6 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: accepts a blank baseline, and still refuses an absent one (002 FR-029 as amended)
         {
             const service = await startSeededService();
             const run = await driveTo(48, 'dispatched');
@@ -946,7 +930,6 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
         }
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a baseline provenance that is missing or contradicts its own baseline
         {
             // The provenance is the reason an `agent.uncompared` row can say
             // *why* nothing was compared (002 FR-029 case (ii); contract §5 as
@@ -986,8 +969,7 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
 });
 
 describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
-    it('refuses a result whose sessionId is not a host id (+3 cases)', async () => {
-        // case: refuses a result whose sessionId is not a host id
+    it('refuses a result whose sessionId is not a host id', async () => {
         {
             const service = await startSeededService();
             const { run } = await driveAndClaim(44);
@@ -1013,7 +995,6 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a resolve naming a session the host would never mint
         {
             const service = await startSeededService();
             const run = await driveTo(45, 'unconfirmed');
@@ -1031,7 +1012,6 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a verification whose sessionId is well-formed but unbounded
         {
             const service = await startSeededService();
             const run = await driveTo(46, 'dispatched');
@@ -1053,7 +1033,6 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: accepts the host-shaped id the read-back actually carries
         {
             const service = await startSeededService();
             const run = await driveTo(47, 'dispatched');
@@ -1079,8 +1058,7 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
 });
 
 describe('T-043g the only authorization path left is the routed one', () => {
-    it('keeps the run store free of token minting and termin… (+1 cases)', async () => {
-        // case: keeps the run store free of token minting and terminal transitions
+    it('keeps the run store free of token minting and terminal transitions', async () => {
         {
             const source = await readFile(new URL('../service/poll/runs.ts', import.meta.url), 'utf8');
 
@@ -1096,7 +1074,6 @@ describe('T-043g the only authorization path left is the routed one', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: retires the legacy queue mutations the run routes replaced
         {
             const source = await readFile(new URL('../service/poll/events.ts', import.meta.url), 'utf8');
 

@@ -523,8 +523,7 @@ async function rowsOf(eventType: string): Promise<readonly Record<string, unknow
 }
 
 describe('T-014 retry (FR-041) — attempt discipline', () => {
-    it('returns a failed run to waiting with the attempt inc… (+3 cases)', async () => {
-        // case: returns a failed run to waiting with the attempt incremented exactly once
+    it('returns a failed run to waiting with the attempt incremented exactly once', async () => {
         {
             const run = await seedRun({ issueNumber: 1, state: 'failed' });
 
@@ -549,7 +548,6 @@ describe('T-014 retry (FR-041) — attempt discipline', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: preserves the source references and every prior attempt record
         {
             const run = await seedRun({ issueNumber: 2, state: 'failed', attempt: 3 });
 
@@ -575,7 +573,6 @@ describe('T-014 retry (FR-041) — attempt discipline', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: does not touch the automatic requeue budget
         {
             const run = await seedRun({ issueNumber: 3, state: 'failed', requeuesUsed: 2 });
 
@@ -598,7 +595,6 @@ describe('T-014 retry (FR-041) — attempt discipline', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: writes one dispatch.retry row naming the prior state and both attempts
         {
             const run = await seedRun({ issueNumber: 4, state: 'failed' });
 
@@ -621,8 +617,7 @@ describe('T-014 retry (FR-041) — attempt discipline', () => {
 });
 
 describe('T-014 retry refusals are distinct (FR-041, AC-113)', () => {
-    it('names each refusing state in its own words (+2 cases)', async () => {
-        // case: names each refusing state in its own words
+    it('names each refusing state in its own words', async () => {
         {
             const cases: readonly { readonly state: RunState; readonly issue: number; readonly fragment: string }[] = [
                 { state: 'pending', issue: 10, fragment: 'already waiting' },
@@ -660,7 +655,6 @@ describe('T-014 retry refusals are distinct (FR-041, AC-113)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: moves nothing and writes exactly one refusal row per refused retry
         {
             const run = await seedRun({ issueNumber: 16, state: 'pending' });
             const before = await trail();
@@ -694,7 +688,6 @@ describe('T-014 retry refusals are distinct (FR-041, AC-113)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a retry whose attempt does not match the run it names
         {
             const run = await seedRun({ issueNumber: 17, state: 'failed', attempt: 4 });
             const before = await trail();
@@ -730,8 +723,7 @@ describe('T-014 retry refusals are distinct (FR-041, AC-113)', () => {
 });
 
 describe('T-014 retry corroborates a blocked cause only where it can (FR-042, contract §6)', () => {
-    it('refuses a binding-missing retry while the binding is… (+3 cases)', async () => {
-        // case: refuses a binding-missing retry while the binding is still absent
+    it('refuses a binding-missing retry while the binding is still absent', async () => {
         {
             const run = await seedRun({ issueNumber: 20, state: 'blocked:binding-missing' });
             await storeBindings();
@@ -755,7 +747,6 @@ describe('T-014 retry corroborates a blocked cause only where it can (FR-042, co
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: accepts a binding-missing retry once the binding is back, as corroborated
         {
             const run = await seedRun({ issueNumber: 21, state: 'blocked:binding-missing' });
             await storeBindings(BINDING_ID);
@@ -779,7 +770,6 @@ describe('T-014 retry corroborates a blocked cause only where it can (FR-042, co
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: records a project-missing retry as reported, never corroborated
         {
             const run = await seedRun({ issueNumber: 22, state: 'blocked:project-missing' });
             await storeBindings(BINDING_ID);
@@ -805,7 +795,6 @@ describe('T-014 retry corroborates a blocked cause only where it can (FR-042, co
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a blocked retry whose cause the operator has not reported cleared
         {
             const run = await seedRun({ issueNumber: 23, state: 'blocked:project-missing' });
             await storeBindings(BINDING_ID);
@@ -827,8 +816,7 @@ describe('T-014 retry corroborates a blocked cause only where it can (FR-042, co
 });
 
 describe('T-014 return-to-waiting resets both counters (FR-033)', () => {
-    it('returns a dead-lettered run to pending with attempt … (+3 cases)', async () => {
-        // case: returns a dead-lettered run to pending with attempt and budget reset
+    it('returns a dead-lettered run to pending with attempt and budget reset', async () => {
         {
             const run = await seedRun({ issueNumber: 30, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
 
@@ -844,7 +832,6 @@ describe('T-014 return-to-waiting resets both counters (FR-033)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: keeps the source references and attempt history across the reset
         {
             const run = await seedRun({ issueNumber: 31, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
 
@@ -858,7 +845,6 @@ describe('T-014 return-to-waiting resets both counters (FR-033)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: names the reset in its dispatch.retry row
         {
             const run = await seedRun({ issueNumber: 32, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
 
@@ -872,7 +858,6 @@ describe('T-014 return-to-waiting resets both counters (FR-033)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses every state that is not dead-lettered
         {
             for (const [index, state] of (['pending', 'claimed', 'unconfirmed'] as const).entries()) {
                 const run = await seedRun({ issueNumber: 33 + index, state });
@@ -894,8 +879,7 @@ describe('T-014 return-to-waiting resets both counters (FR-033)', () => {
 });
 
 describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
-    it('records the session the operator named, terminally, … (+5 cases)', async () => {
-        // case: records the session the operator named, terminally, in one write
+    it('records the session the operator named, terminally, in one write', async () => {
         {
             const run = await seedRun({ issueNumber: 40, state: 'unconfirmed' });
 
@@ -924,7 +908,6 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: returns to pending with the attempt incremented for no-session
         {
             const run = await seedRun({ issueNumber: 41, state: 'unconfirmed', attempt: 2 });
 
@@ -955,7 +938,6 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: re-dispatches a resolved no-session run through a brand-new token
         {
             const run = await seedRun({ issueNumber: 47, state: 'unconfirmed', attempt: 2 });
             await resolveDispatch({
@@ -979,7 +961,6 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: writes a dispatch.resolved row naming the decision, prior state, and guidance
         {
             const run = await seedRun({ issueNumber: 42, state: 'unconfirmed' });
 
@@ -1008,7 +989,6 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses every state that is not unconfirmed
         {
             for (const [index, state] of (['pending', 'claimed', DEAD_LETTERED] as const).entries()) {
                 const run = await seedRun({ issueNumber: 43 + index, state });
@@ -1033,7 +1013,6 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never lets a resolution re-dispatch a run that already has a session
         {
             const run = await seedRun({ issueNumber: 46, state: DISPATCHED, sessionId: 'ses_existing' });
 
@@ -1057,8 +1036,7 @@ describe('T-014 resolve is the only path out of unconfirmed (FR-027)', () => {
 });
 
 describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)', () => {
-    it('records a matching read-back without moving the run (+5 cases)', async () => {
-        // case: records a matching read-back without moving the run
+    it('records a matching read-back without moving the run', async () => {
         {
             const run = await seedRun({ issueNumber: 50, state: DISPATCHED, sessionId: 'ses_v1' });
 
@@ -1092,7 +1070,6 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: records a mismatch visibly and leaves the run untouched
         {
             const run = await seedRun({ issueNumber: 51, state: DISPATCHED, sessionId: 'ses_v2' });
             const before = await readRun(run.correlationId);
@@ -1140,7 +1117,6 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: records an unreadable read-back as a mismatch, not a success
         {
             const run = await seedRun({ issueNumber: 52, state: DISPATCHED, sessionId: 'ses_v3' });
 
@@ -1166,7 +1142,6 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a read-back for a session this run does not record
         {
             const run = await seedRun({ issueNumber: 53, state: DISPATCHED, sessionId: 'ses_v4' });
 
@@ -1192,7 +1167,6 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a read-back for a run with no session at all
         {
             const run = await seedRun({ issueNumber: 54, state: 'failed' });
 
@@ -1217,7 +1191,6 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: records a blank baseline as `agent.uncompared`, never as a mismatch
         {
             // `expectedAgent: ''` is 002 FR-029's *no baseline configured*: the
             // read-back still files — the observation is evidence — but nothing
@@ -1274,8 +1247,7 @@ describe('T-014 verification is warn-only and changes no state (FR-043, AC-125)'
 });
 
 describe('T-014 the token chain across a dead-letter reset (plan D6, research §R3)', () => {
-    it('returns the run to waiting on attempt 1, which is a … (+3 cases)', async () => {
-        // case: returns the run to waiting on attempt 1, which is a fresh token chain
+    it('returns the run to waiting on attempt 1, which is a fresh token chain', async () => {
         {
             // The tension plan D6 resolves: `token = f(runKey, attempt)` plus
             // "reset the attempt count" would re-derive a token an earlier report had
@@ -1295,7 +1267,6 @@ describe('T-014 the token chain across a dead-letter reset (plan D6, research §
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: leaves the reset run claimable, so a new token chain can start
         {
             const run = await seedRun({ issueNumber: 61, state: DEAD_LETTERED, attempt: 4, requeuesUsed: 3 });
             await requeueDispatch({ store, log: LOGGER, correlationId: run.correlationId, now: NOW });
@@ -1308,7 +1279,6 @@ describe('T-014 the token chain across a dead-letter reset (plan D6, research §
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never offers a reset-path run that already recorded a session
         {
             const run = await seedRun({ issueNumber: 62, state: DISPATCHED, sessionId: 'ses_reset' });
 
@@ -1322,7 +1292,6 @@ describe('T-014 the token chain across a dead-letter reset (plan D6, research §
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: reserves a fresh token after the reset and refuses the earlier chain\'s token
         {
             // plan D6's two halves, asserted together: the reset must make a reserve
             // possible again (otherwise a dead-lettered run is unrecoverable), and it
@@ -1399,8 +1368,7 @@ describe('T-014 the token chain across a dead-letter reset (plan D6, research §
 });
 
 describe('T-042 a token the attempt history closed never authorizes a report (FR-020, FR-028, AC-110)', () => {
-    it('re-mints byte-identical bytes across a dead-letter r… (+3 cases)', async () => {
-        // case: re-mints byte-identical bytes across a dead-letter reset, so history is the only guard
+    it('re-mints byte-identical bytes across a dead-letter reset, so history is the only guard', async () => {
         {
             // The reproduction the audit ran, asserted as a fact about the
             // derivation rather than as a bug report: FR-020 pins the token to
@@ -1417,7 +1385,6 @@ describe('T-042 a token the attempt history closed never authorizes a report (FR
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses the audit\u2019s crash permutation, from the first reserve to the replayed report
         {
             const permutation = await crashPermutation(81);
             const before = await readRun(permutation.correlationId);
@@ -1453,7 +1420,6 @@ describe('T-042 a token the attempt history closed never authorizes a report (FR
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never applies a report whose token an earlier attempt record already closed
         {
             // The standing assertion the auditor asked for, stated generally: walk
             // every record *outside the live reservation's own* that the history
@@ -1501,7 +1467,6 @@ describe('T-042 a token the attempt history closed never authorizes a report (FR
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: still authorizes a reserve after the reset, so the dead-letter path cannot dead-end
         {
             // The other half of the ruling: the spend check reads history only where
             // a *report* is being judged. Reserve consults no history, so an operator
@@ -1569,7 +1534,6 @@ describe('T-014 no audit row carries a dispatch token value (FR-061)', () => {
 
 describe('FR-078 a blocked actor-not-allowed run burns nothing', () => {
     it('re-checks the live policy, and a refused retry consumes nothing (AC-131)', async () => {
-        // case: refuses a retry while the live policy still admits nobody
         {
             const run = await seedRun({ issueNumber: 40, state: ACTOR_BLOCKED_STATE });
             // A populated list naming a **different** login: the gate would refuse
@@ -1597,7 +1561,6 @@ describe('FR-078 a blocked actor-not-allowed run burns nothing', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: a refused retry consumes neither an attempt nor requeue budget
         {
             const run = await seedRun({ issueNumber: 41, state: ACTOR_BLOCKED_STATE, requeuesUsed: 2 });
             await storeBindings([BINDING_ID, UNRELATED_LOGIN_LIST]);
@@ -1622,7 +1585,6 @@ describe('FR-078 a blocked actor-not-allowed run burns nothing', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: widens the list, and the same retry succeeds as **corroborated**
         {
             const run = await seedRun({ issueNumber: 42, state: ACTOR_BLOCKED_STATE, requeuesUsed: 1 });
             await storeBindings([BINDING_ID, PERMITTED_LOGIN_LIST]);

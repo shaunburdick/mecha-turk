@@ -38,8 +38,7 @@ import {
 const CREDENTIAL_REJECTED = 'credential-rejected';
 
 describe('no consent step remains between the paste and the request (002 v1.9.0)', () => {
-    it('sends the credential straight through the pre-flight… (+1 cases)', async () => {
-        // case: sends the credential straight through the pre-flight, once
+    it('sends the credential straight through the pre-flight, once', async () => {
         {
             const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
 
@@ -61,7 +60,6 @@ describe('no consent step remains between the paste and the request (002 v1.9.0)
             expect(Object.hasOwn(body, 'consentVersion')).toBe(false);
             expectNoCredential(host);
         }
-        // case: holds no consent state or consent storage of its own
         {
             const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
 
@@ -76,8 +74,7 @@ describe('no consent step remains between the paste and the request (002 v1.9.0)
 });
 
 describe('successful handoff (contract §2 steps ⑧⑨)', () => {
-    it('renders the connected line, mirrors the account, and… (+1 cases)', async () => {
-        // case: renders the connected line, mirrors the account, and clears the credential
+    it('renders the connected line, mirrors the account, and clears the credential', async () => {
         {
             const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
 
@@ -95,7 +92,6 @@ describe('successful handoff (contract §2 steps ⑧⑨)', () => {
             ]);
             expectNoCredential(host);
         }
-        // case: leaves the input re-enabled for the next handoff after a success
         {
             const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
 
@@ -169,8 +165,7 @@ describe('host transport failures (F1–F4, F16, panel-service §1)', () => {
         ['BAD_PATH', 'Malformed request path'],
     ];
 
-    it('clears the credential and surfaces copy for every ho… (+1 cases)', async () => {
-        // case: clears the credential and surfaces copy for every host transport failure
+    it('clears the credential and surfaces copy for every host transport failure', async () => {
         {
             for (const [code, phrase] of HOST_FAILURES) {
                 const host = await scriptedRuntime(serviceScript({ throws: code }));
@@ -181,7 +176,6 @@ describe('host transport failures (F1–F4, F16, panel-service §1)', () => {
                 expectNoCredential(host);
             }
         }
-        // case: re-reads /v1/status after a timeout and adopts the account that appeared (F4)
         {
             const appeared = JSON.stringify({
                 service: { storage: { writable: true } },
@@ -224,8 +218,7 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
         [502, 'upstream-unavailable', 'could not be reached'],
     ];
 
-    it('clears the credential and surfaces copy for every se… (+2 cases)', async () => {
-        // case: clears the credential and surfaces copy for every service refusal
+    it('clears the credential and surfaces copy for every service refusal', async () => {
         {
             for (const [status, code, phrase] of SERVICE_FAILURES) {
                 const envelope = JSON.stringify({ error: { code, message: 'contract-fixed' } });
@@ -237,7 +230,6 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
                 expectNoCredential(host);
             }
         }
-        // case: renders reason-specific copy for a credential rejection (AC-003)
         {
             const envelope = JSON.stringify({
                 error: { code: CREDENTIAL_REJECTED, message: 'fixed', reasonClass: 'sso-required' },
@@ -249,7 +241,6 @@ describe('service refusal copy (F5–F15, contract §4)', () => {
             expect(host.record.note).toContain('SSO');
             expectNoCredential(host);
         }
-        // case: renders §4's reason-class wording verbatim for auth-failed and scope-missing (W2-4)
         {
             const catalog: readonly (readonly [string, string])[] = [
                 ['auth-failed', 'create a fresh PAT and paste it again'],
@@ -281,8 +272,7 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
         accounts: [{ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, state: 'active' }],
     });
 
-    it('adopts the registered account instead of offering an… (+2 cases)', async () => {
-        // case: adopts the registered account instead of offering another paste that 409s
+    it('adopts the registered account instead of offering another paste that 409s', async () => {
         {
             const host = await scriptedRuntime((request) => {
                 if (request.path === STATUS_PATH) {
@@ -316,7 +306,6 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
             ]);
             expectNoCredential(host);
         }
-        // case: keeps the duplicate-refusal copy when the adoption read still fails
         {
             // The default scripted double answers every non-status path (the
             // adoption's GET /v1/accounts included) with the 409 envelope, so the
@@ -329,7 +318,6 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
             expect(host.record.pasteVisible).toBe(true);
             expectNoCredential(host);
         }
-        // case: re-reads the Bindings tab lists so the dropdown offers the adopted account
         {
             const host = await scriptedRuntime((request) => {
                 if (request.path === STATUS_PATH) {
@@ -365,8 +353,7 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
 });
 
 describe('storage pre-flight (F10/F14, SEC-08)', () => {
-    it('keeps the input disabled and sends nothing while sto… (+2 cases)', async () => {
-        // case: keeps the input disabled and sends nothing while storage is unwritable
+    it('keeps the input disabled and sends nothing while storage is unwritable', async () => {
         {
             const unwritable = JSON.stringify({ service: { storage: { writable: false } }, accounts: [] });
             const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }, unwritable));
@@ -379,7 +366,6 @@ describe('storage pre-flight (F10/F14, SEC-08)', () => {
             expect(host.record.tokenEnabled).toBe(false);
             expectNoCredential(host);
         }
-        // case: marks storage unwritable when a submission hits 503 (F14)
         {
             const envelope = JSON.stringify({ error: { code: 'storage-unavailable', message: 'fixed' } });
             const host = await scriptedRuntime(serviceScript({ status: 503, body: envelope }));
@@ -389,7 +375,6 @@ describe('storage pre-flight (F10/F14, SEC-08)', () => {
             expect(host.rt.state.handoff.storageWritable).toBe(false);
             expectNoCredential(host);
         }
-        // case: records the pre-flight baseline the F4 re-read compares against
         {
             const host = await scriptedRuntime(serviceScript({ status: 201, body: VERIFY_BODY }));
 

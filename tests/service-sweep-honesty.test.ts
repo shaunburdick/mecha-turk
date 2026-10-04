@@ -268,8 +268,7 @@ async function reserveAndAbandon(issueNumber: number): Promise<Run> {
 }
 
 describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
-    it('counts only waiting runs, never claimed or dispatche… (+2 cases)', async () => {
-        // case: counts only waiting runs, never claimed or dispatched ones
+    it('counts only waiting runs, never claimed or dispatched ones', async () => {
         {
             // The longest documented lease, so a claim at DETECTED_AT stays live
             // until 12:10:00 and the sweep can requeue exactly the lease this test
@@ -350,7 +349,6 @@ describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: keys the count per binding, so one binding work is not another
         {
             await storeBindings(BINDING_ID, OTHER_BINDING_ID);
             await seed(assignment(1, BINDING_ID), assignment(2, BINDING_ID), assignment(3, OTHER_BINDING_ID));
@@ -367,7 +365,6 @@ describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: reports zero for a binding with no runs at all
         {
             await storeBindings(BINDING_ID);
             const rows = await readStatusRows({ store, log: LOGGER, bindings: await readBindings({
@@ -379,8 +376,7 @@ describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
 });
 
 describe('T-040b the sweep owes a durable, recoverable audit trail (FR-063)', () => {
-    it('reports auditWritten true when every row landed (+3 cases)', async () => {
-        // case: reports auditWritten true when every row landed
+    it('reports auditWritten true when every row landed', async () => {
         {
             await strandClaim(31);
 
@@ -393,7 +389,6 @@ describe('T-040b the sweep owes a durable, recoverable audit trail (FR-063)', ()
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: backs each owed row with an intent the next read drains
         {
             const run = await strandClaim(32);
             await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
@@ -412,7 +407,6 @@ describe('T-040b the sweep owes a durable, recoverable audit trail (FR-063)', ()
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: retires the intent once the row is durable, writing no second row
         {
             await strandClaim(33);
             const first = await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
@@ -434,7 +428,6 @@ describe('T-040b the sweep owes a durable, recoverable audit trail (FR-063)', ()
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: distinguishes a second recovery of the same run from the first
         {
             const first = await strandClaim(34);
             await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
@@ -458,8 +451,7 @@ describe('T-040b the sweep owes a durable, recoverable audit trail (FR-063)', ()
 });
 
 describe('T-040c no audit row ever carries a dispatch token value (FR-061)', () => {
-    it('names the outstanding token by fingerprint only (+3 cases)', async () => {
-        // case: names the outstanding token by fingerprint only
+    it('names the outstanding token by fingerprint only', async () => {
         {
             const reserved = await reserveAndAbandon(41);
             const token = reserved.reservation?.dispatchToken ?? '';
@@ -481,7 +473,6 @@ describe('T-040c no audit row ever carries a dispatch token value (FR-061)', () 
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: produces a different fingerprint for each outstanding authorization
         {
             const first = await reserveAndAbandon(42);
             await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
@@ -502,7 +493,6 @@ describe('T-040c no audit row ever carries a dispatch token value (FR-061)', () 
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: scans every audit row the service wrote for a token-shaped value
         {
             // The strongest form of the assertion: drive the paths that write
             // lifecycle rows, then scan the entire trail — not one row, not one
@@ -526,7 +516,6 @@ describe('T-040c no audit row ever carries a dispatch token value (FR-061)', () 
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: leaves the project secret guard alone: a token is not a credential shape
         {
             // `SECRET_PATTERNS` deliberately does NOT include `dtk-`: 003 T-019
             // legitimately stores tokens in panel storage, so a guard that refused
@@ -571,8 +560,7 @@ describe('T-040d the claim reads outside the chain and writes only when needed',
 });
 
 describe('T-040e lease provenance is typed, and the parser refuses anything else', () => {
-    it('records adoption provenance as a member, not an id p… (+3 cases)', async () => {
-        // case: records adoption provenance as a member, not an id prefix alone
+    it('records adoption provenance as a member, not an id prefix alone', async () => {
         {
             const run = await strandClaim(61);
 
@@ -586,7 +574,6 @@ describe('T-040e lease provenance is typed, and the parser refuses anything else
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a lease whose id is neither of the two shapes this build mints
         {
             const run = await strandClaim(62);
             const document = await readRunsDocument({ store, log: LOGGER });
@@ -605,7 +592,6 @@ describe('T-040e lease provenance is typed, and the parser refuses anything else
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a lease with no provenance member at all
         {
             const run = await strandClaim(63);
             const document = await readRunsDocument({ store, log: LOGGER });
@@ -629,7 +615,6 @@ describe('T-040e lease provenance is typed, and the parser refuses anything else
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: accepts both legal shapes, so adoption recovery still works
         {
             const run = await strandClaim(64);
             const document = await readRunsDocument({ store, log: LOGGER });
@@ -659,8 +644,7 @@ describe('T-040e lease provenance is typed, and the parser refuses anything else
 });
 
 describe('T-040f the first sweep tick is armed from the stored durations', () => {
-    it('reads the operator minimum rather than the default w… (+1 cases)', async () => {
-        // case: reads the operator minimum rather than the default when arming
+    it('reads the operator minimum rather than the default when arming', async () => {
         {
             await store.writeJson('config.json', {
                 ...DEFAULT_CONFIG,
@@ -680,7 +664,6 @@ describe('T-040f the first sweep tick is armed from the stored durations', () =>
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: answers the defaults when the configuration cannot be read
         {
             const stored = await readSweepDurations({ store, log: LOGGER });
 
@@ -705,8 +688,7 @@ describe('T-040h a quarantined runs.json answers the documented 503', () => {
 });
 
 describe('T-040g the sweep is the only requeue path', () => {
-    it('exports no single-run requeue wrapper that could byp… (+1 cases)', async () => {
-        // case: exports no single-run requeue wrapper that could bypass the budget
+    it('exports no single-run requeue wrapper that could bypass the budget', async () => {
         {
             // `requeueExpiredRun` charged the requeue budget and never dead-lettered,
             // so a caller reaching for it would requeue a run forever. The sweep's
@@ -719,7 +701,6 @@ describe('T-040g the sweep is the only requeue path', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: still parks a run whose budget is spent, through the sweep alone
         {
             const run = await strandClaim(71);
 

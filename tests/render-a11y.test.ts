@@ -326,8 +326,7 @@ async function renderSixTabs(input: {
 }
 
 describe('FR-080 / NFR-101 the six tabs render through the text path only', () => {
-    it('has no HTML sink in any module the tabs render from (+1 cases)', async () => {
-        // case: has no HTML sink in any module the tabs render from
+    it('has no HTML sink in any module the tabs render from', async () => {
         {
             const modules = readdirSync(resolve(import.meta.dirname, `../${SRC_DIR}`), { recursive: true })
                 .map((entry) => String(entry))
@@ -341,7 +340,6 @@ describe('FR-080 / NFR-101 the six tabs render through the text path only', () =
                 }
             }
         }
-        // case: hands a hostile title, login, and reason to the SDK as text
         {
             const rendered = await renderSixTabs();
             const text = rendered.strings.join('\n');
@@ -358,8 +356,7 @@ describe('FR-080 / NFR-101 the six tabs render through the text path only', () =
 });
 
 describe('FR-081 every control and row action has an accessible name', () => {
-    it('gives every button, field, select, banner, and list … (+2 cases)', async () => {
-        // case: gives every button, field, select, banner, and list a name
+    it('gives every button, field, select, banner, and list a name', async () => {
         {
             const rendered = await renderSixTabs();
             const namedKinds = ['mountButton', 'mountTextField', 'mountSelect', 'mountBanner', 'mountList'];
@@ -376,7 +373,6 @@ describe('FR-081 every control and row action has an accessible name', () => {
                 expect(String(name).trim(), `${entry.key} mounted an empty name`).not.toBe('');
             }
         }
-        // case: names every tab in the strip and every row in a list
         {
             const rendered = await renderSixTabs();
             const strip = rendered.log.find((entry) => entry.key === 'mountTabs');
@@ -395,7 +391,6 @@ describe('FR-081 every control and row action has an accessible name', () => {
                 }
             }
         }
-        // case: names a row-level action with the row it acts on
         {
             const row: RunRow = { ...hostileRun(), issueNumber: 412, repository: 'owner/name' };
 
@@ -415,8 +410,7 @@ function sdkFile(name: string): string {
 }
 
 describe('FR-082 the strip is associated, keyboard-operable, and truncates', () => {
-    it('stamps the tab↔body association in the shell that ow… (+2 cases)', () => {
-        // case: stamps the tab↔body association in the shell that owns it
+    it('stamps the tab↔body association in the shell that owns it', () => {
         {
             const source = readFileSync(resolve(import.meta.dirname, '../src/tabs.ts'), 'utf8');
 
@@ -425,7 +419,6 @@ describe('FR-082 the strip is associated, keyboard-operable, and truncates', () 
             expect(source).toContain("setAttribute('role', 'tabpanel')");
             expect(source).toContain("setAttribute('aria-labelledby', ");
         }
-        // case: operates the strip from the keyboard, moves focus, and traps nothing
         {
             const strip = sdkFile('tabs.js');
             const navigation = sdkFile('navigation.js');
@@ -440,7 +433,6 @@ describe('FR-082 the strip is associated, keyboard-operable, and truncates', () 
             expect(navigation).not.toMatch(/'Tab'/);
             expect(navigation).not.toMatch(/'Escape'/);
         }
-        // case: never wraps a tab label, so the strip keeps its height (NFR-107)
         {
             const style = sdkFile('style.js');
             const at = style.indexOf('.oc-sdk-tab {');
@@ -453,8 +445,7 @@ describe('FR-082 the strip is associated, keyboard-operable, and truncates', () 
 });
 
 describe('FR-083 state is carried by text as well as colour', () => {
-    it('gives every banner a title, and every state banner a… (+1 cases)', async () => {
-        // case: gives every banner a title, and every state banner a body too
+    it('gives every banner a title, and every state banner a body too', async () => {
         {
             const rendered = await renderSixTabs();
             const banners = rendered.log.filter((entry) => entry.key === 'mountBanner');
@@ -474,7 +465,6 @@ describe('FR-083 state is carried by text as well as colour', () => {
                 }
             }
         }
-        // case: says the state in words the operator can read
         {
             const rendered = await renderSixTabs();
             const text = rendered.strings.join('\n');
@@ -487,8 +477,7 @@ describe('FR-083 state is carried by text as well as colour', () => {
 });
 
 describe('FR-084 irreversible actions arm first, and confirm() does not exist', () => {
-    it('arms the removal, names the cascade, and only then s… (+1 cases)', async () => {
-        // case: arms the removal, names the cascade, and only then sends (AC-126)
+    it('arms the removal, names the cascade, and only then sends', async () => {
         {
             mounts.log.length = 0;
             const requests: GuestRequest[] = [];
@@ -534,7 +523,6 @@ describe('FR-084 irreversible actions arm first, and confirm() does not exist', 
             expect(requests.map((request) => request.method)).toContain('DELETE');
             rt.shell?.dispose();
         }
-        // case: states the cascade in words on the row itself (AC-126)
         {
             const rendered = await renderSixTabs({
                 setup: (rt) => {
@@ -551,8 +539,7 @@ describe('FR-084 irreversible actions arm first, and confirm() does not exist', 
 });
 
 describe('FR-085 a refusal names its cause and never echoes the value', () => {
-    it('keeps a refused credential-shaped display name out o… (+1 cases)', async () => {
-        // case: keeps a refused credential-shaped display name out of the render
+    it('keeps a refused credential-shaped display name out of the render', async () => {
         {
             const token = `ghp_${'refusald'.repeat(3)}`;
             const rendered = await renderSixTabs({
@@ -580,7 +567,6 @@ describe('FR-085 a refusal names its cause and never echoes the value', () => {
             expect(rt.state.accounts.displayNameError).not.toContain(token);
             expect(rendered.strings.join('\n')).not.toContain(token);
         }
-        // case: blocks a ledger write whose content is secret-shaped, instead of logging past it
         {
             const storage = createStorageDouble();
             const token = `ghp_${'ledgerxx'.repeat(3)}`;

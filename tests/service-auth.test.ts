@@ -62,8 +62,7 @@ function withBearer(service: TestService, authorization: string): Promise<Respon
 }
 
 describe('invariant 1 — byte-identical refusals (SEC-09)', () => {
-    it('refuses a same-length wrong-value credential with th… (+1 cases)', async () => {
-        // case: refuses a same-length wrong-value credential with the reference 401
+    it('refuses a same-length wrong-value credential with the reference 401', async () => {
         {
             const service = await startServiceForTest();
             const reference = await fetch(`${service.baseUrl}${HEALTH_PATH}`);
@@ -83,7 +82,6 @@ describe('invariant 1 — byte-identical refusals (SEC-09)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses wrong values of every other length the same way
         {
             const service = await startServiceForTest();
             const reference = await fetch(`${service.baseUrl}${HEALTH_PATH}`);

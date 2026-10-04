@@ -63,12 +63,10 @@ interface ServiceEntryModule {
 }
 
 describe('built panel bundle', () => {
-    it('exists where the manifest expects it (+5 cases)', () => {
-        // case: exists where the manifest expects it
+    it('exists where the manifest expects it', () => {
         {
             expect(existsSync(BUNDLE)).toBe(true);
         }
-        // case: is a classic IIFE rather than an ES module
         {
             const bundle = readFileSync(BUNDLE, UTF8);
             expect(bundle.startsWith('(()=>{')).toBe(true);
@@ -77,14 +75,12 @@ describe('built panel bundle', () => {
             expect(bundle).not.toMatch(/(^|\n)export\s/m);
             expect(bundle).not.toMatch(/(^|\n)import\s/m);
         }
-        // case: carries no GitHub token material
         {
             const bundle = readFileSync(BUNDLE, UTF8);
             for (const pattern of TOKEN_PATTERNS) {
                 expect(bundle).not.toMatch(pattern);
             }
         }
-        // case: is committed to the repository (006 AC-145, invariant 1)
         {
             // The host never compiles TypeScript for the panel either, so an
             // uncommitted bundle would install a shell with nothing behind it.
@@ -95,7 +91,6 @@ describe('built panel bundle', () => {
 
             expect(tracked.trim()).toBe(PANEL_BUNDLE_PATH);
         }
-        // case: ships the Bindings body (MVP blocker, 2026-09-27; re-cut by 005 T-009)
         {
             const bundle = readFileSync(BUNDLE, UTF8);
 
@@ -109,7 +104,6 @@ describe('built panel bundle', () => {
             // noun it used to lead with appears nowhere in the shipped bundle.
             expect(bundle).not.toContain('Repositories: ');
         }
-        // case: ships the six-tab shell and none of the spike controls it retired (005 T-010)
         {
             const bundle = readFileSync(BUNDLE, UTF8);
 
@@ -127,13 +121,11 @@ describe('built panel bundle', () => {
 });
 
 describe('panel html', () => {
-    it('loads the bundled script (+1 cases)', () => {
-        // case: loads the bundled script
+    it('loads the bundled script', () => {
         {
             const html = readFileSync(PANEL_HTML, UTF8);
             expect(html).toContain('<script src="main.js"></script>');
         }
-        // case: carries no inline secrets or external origins
         {
             const html = readFileSync(PANEL_HTML, UTF8);
             expect(html).not.toMatch(/(token|secret|password)\s*=/i);
@@ -484,8 +476,7 @@ describe('003 records carry no credential (AC-120, NFR-106)', () => {
 });
 
 describe('NFR-109 no HTML sink on a shipped artifact or a new field', () => {
-    it('keeps both committed bundles free of HTML sinks (+1 cases)', () => {
-        // case: keeps both committed bundles free of HTML sinks
+    it('keeps both committed bundles free of HTML sinks', () => {
         {
             for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
                 const text = readFileSync(bundle, UTF8);
@@ -494,7 +485,6 @@ describe('NFR-109 no HTML sink on a shipped artifact or a new field', () => {
                 }
             }
         }
-        // case: keeps every module that renders a 003 field on the text-only path
         {
             const sources = scanSources();
             const rendered = [
@@ -511,8 +501,7 @@ describe('NFR-109 no HTML sink on a shipped artifact or a new field', () => {
 });
 
 describe('AC-128 the no-GitHub-write scan covers every module (FR-002)', () => {
-    it('reads every source module, including every 003 addit… (+3 cases)', () => {
-        // case: reads every source module, including every 003 addition
+    it('reads every source module, including every 003 addition', () => {
         {
             const files = scanSources();
             expect(files.length).toBeGreaterThan(60);
@@ -522,7 +511,6 @@ describe('AC-128 the no-GitHub-write scan covers every module (FR-002)', () => {
                 expect(paths.has(module), `${module} was not scanned`).toBe(true);
             }
         }
-        // case: finds a GitHub API reference only in the read-only gateways
         {
             // The scan has to bite before it can be believed.
             expect(GITHUB_API.test('const url = new URL(API_ORIGIN + "/repos/acme/widget/issues")')).toBe(true);
@@ -533,7 +521,6 @@ describe('AC-128 the no-GitHub-write scan covers every module (FR-002)', () => {
                 .map((file) => file.path);
             expect(outsiders).toEqual([]);
         }
-        // case: finds no non-GET method in a gateway, where every GitHub call is built
         {
             expect(GITHUB_WRITE_METHOD.test("method: 'POST'")).toBe(true);
 
@@ -543,7 +530,6 @@ describe('AC-128 the no-GitHub-write scan covers every module (FR-002)', () => {
                 expect(file.text, `${file.path} builds a GitHub write`).not.toMatch(GITHUB_WRITE_METHOD);
             }
         }
-        // case: embeds no concrete dispatch token in either bundle
         {
             for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
                 expect(readFileSync(bundle, UTF8), `${bundle} embeds a dispatch token`).not.toMatch(CONCRETE_TOKEN);
@@ -792,8 +778,7 @@ function startingPromptPairs(auditBytes: string): readonly PromptPair[] {
 }
 
 describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
-    it('reads every 004 module in the static scans (+2 cases)', () => {
-        // case: reads every 004 module in the static scans
+    it('reads every 004 module in the static scans', () => {
         {
             const paths = new Set(scanSources().map((file) => file.path));
             for (const module of PROMPT_MODULES) {
@@ -809,7 +794,6 @@ describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
                 }
             }
         }
-        // case: carries the binding field exactly where 005 renders it (FR-051, SC-105)
         {
             // This assertion used to read "the panel never even names it": 004
             // shipped no editor, so `startingPrompt` had no business in the IIFE.
@@ -826,7 +810,6 @@ describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
             // refusal vocabulary does live.
             expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('startingPrompt');
         }
-        // case: introduces no suppression and no `any` into a 004 module (FR-005)
         {
             const sources = scanSources().filter((file) => PROMPT_MODULES.includes(file.path));
             expect(sources).toHaveLength(PROMPT_MODULES.length);
@@ -978,8 +961,7 @@ describe('004 the field is documented, and the editor it points at is the shippe
     /** The two operator pages that owe the field a section. */
     const pages: readonly string[] = ['README.md', 'specs/002-agent-event-extension/quickstart.md'];
 
-    it('states the set path, the cap, the literal rule, the … (+1 cases)', () => {
-        // case: states the set path, the cap, the literal rule, the refusal, and the pinned agent
+    it('states the set path, the cap, the literal rule, the refusal, and the pinned agent', () => {
         {
             for (const page of pages) {
                 const text = readFileSync(resolve(ROOT, page), UTF8);
@@ -989,7 +971,6 @@ describe('004 the field is documented, and the editor it points at is the shippe
                 expect(text, `${page} promises literal text`).toContain('literal');
             }
         }
-        // case: points at the shipped Bindings editor rather than promising a future one (FR-062)
         {
             for (const page of pages) {
                 const text = readFileSync(resolve(ROOT, page), UTF8);
@@ -1019,8 +1000,7 @@ describe('004 the field is documented, and the editor it points at is the shippe
  * ------------------------------------------------------------------------- */
 
 describe('T-032 the three permitted tier sites are the only sites (005 FR-051, AC-123)', () => {
-    it('ships the binding field and bakes no second author of the guidance (+2 cases)', () => {
-        // case: the shipped panel bundle carries the binding tier's one field
+    it('ships the binding field and bakes no second author of the guidance', () => {
         {
             const bundle = readFileSync(BUNDLE, UTF8);
 
@@ -1033,7 +1013,6 @@ describe('T-032 the three permitted tier sites are the only sites (005 FR-051, A
             expect(bundle).not.toContain('text sent to the agent verbatim');
             expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('text sent to the agent verbatim');
         }
-        // case: the panel sources hand-author exactly two prompt labels — the binding site and the account site
         {
             const labelled = scanSources()
                 .filter((file) => file.path.startsWith('src/'))
@@ -1045,7 +1024,6 @@ describe('T-032 the three permitted tier sites are the only sites (005 FR-051, A
             const account = scanSources().find((file) => file.path === 'src/accounts-rows.ts');
             expect(account?.text).toContain('Starting prompt for dispatches from this account');
         }
-        // case: the third site names itself from the descriptor the service sent
         {
             // Settings is the projected site: its row's label is composed
             // from `descriptor.name`, so the global tier has no hand-authored
@@ -1137,8 +1115,7 @@ function codeLinesOf(text: string): readonly string[] {
 }
 
 describe('006 the Settings edit surface ships in the panel bundle (T-028, invariant 1)', () => {
-    it('carries the confirmation, the failure causes, and th… (+1 cases)', () => {
-        // case: carries the confirmation, the failure causes, and the audit warning
+    it('carries the confirmation, the failure causes, and the audit warning', () => {
         {
             const bundle = readFileSync(BUNDLE, UTF8);
 
@@ -1146,7 +1123,6 @@ describe('006 the Settings edit surface ships in the panel bundle (T-028, invari
                 expect(bundle, `panel/main.js does not carry ${marker}`).toContain(marker);
             }
         }
-        // case: carries no credential shape in either bundle, with no exemption (NFR-102)
         {
             for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
                 const text = readFileSync(bundle, UTF8);
@@ -1161,15 +1137,13 @@ describe('006 the Settings edit surface ships in the panel bundle (T-028, invari
 });
 
 describe('006 the suite runs offline (T-028, AC-144, SC-112)', () => {
-    it('reads every test module rather than a sample (+3 cases)', () => {
-        // case: reads every test module rather than a sample
+    it('reads every test module rather than a sample', () => {
         {
             const files = testModules();
 
             expect(files.length).toBeGreaterThan(90);
             expect(files.some((file) => file.path === 'tests/support/service.ts')).toBe(true);
         }
-        // case: only ever fetches a locally bound address
         {
             const offenders: string[] = [];
             for (const file of testModules()) {
@@ -1188,7 +1162,6 @@ describe('006 the suite runs offline (T-028, AC-144, SC-112)', () => {
 
             expect(offenders).toEqual([]);
         }
-        // case: never imports a third-party HTTP client
         {
             const importers = testModules()
                 .filter((file) => HTTP_CLIENT_IMPORT.test(file.text))
@@ -1196,7 +1169,6 @@ describe('006 the suite runs offline (T-028, AC-144, SC-112)', () => {
 
             expect(importers).toEqual([]);
         }
-        // case: never reads a credential out of the environment (AC-144: no real token)
         {
             const readers = testModules()
                 .filter((file) => codeLinesOf(file.text).some((line) => CREDENTIAL_ENV.test(line)))

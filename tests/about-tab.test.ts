@@ -269,13 +269,11 @@ function phaseEntry(): LedgerEntry {
 }
 
 describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
-    it('reads the route the service registers, not a name pr… (+3 cases)', async () => {
-        // case: reads the route the service registers, not a name prose invented (T-036)
+    it('reads the route the service registers, not a name prose invented', async () => {
         {
             expect(HEALTH_PATH).toBe(healthRoute.path);
             expect(HEALTH_PATH).toBe('/health');
         }
-        // case: has the prose naming that same route in every document that claims it (T-036)
         {
             const claimed: readonly string[] = [
                 'specs/005-panel-ia/spec.md',
@@ -289,7 +287,6 @@ describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
                 expect(text, `${doc} does not name the registered route`).toContain('/health');
             }
         }
-        // case: shows exactly the version the service answered (AC-133)
         {
             const view = await mountAbout({ answer: healthyService });
             const manifestPath = resolve(import.meta.dirname, '../package.json');
@@ -300,7 +297,6 @@ describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
             expect(view.rt.state.aboutTab.version).toBe(SERVICE_VERSION);
             view.dispose();
         }
-        // case: declares no version-shaped literal anywhere in the panel source
         {
             const files = readdirSync(resolve(import.meta.dirname, '../src'), { recursive: true })
                 .map((entry) => `src/${String(entry)}`)
@@ -328,8 +324,7 @@ describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
 });
 
 describe('an unreachable service keeps the static content (AC-132, AC-134, FR-078)', () => {
-    it('prints the exact unreachable copy with no digit on t… (+1 cases)', async () => {
-        // case: prints the exact unreachable copy with no digit on the version line
+    it('prints the exact unreachable copy with no digit on the version line', async () => {
         {
             const view = await mountAbout({
                 answer: () => {
@@ -345,7 +340,6 @@ describe('an unreachable service keeps the static content (AC-132, AC-134, FR-07
             expect(view.strings.join('\n')).not.toMatch(VERSION_SHAPED);
             view.dispose();
         }
-        // case: keeps the identity content and names what could not be read
         {
             const view = await mountAbout({
                 answer: () => {
@@ -369,8 +363,7 @@ describe('an unreachable service keeps the static content (AC-132, AC-134, FR-07
 });
 
 describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)', () => {
-    it('renders the ledger as sequence, kind, and time — nev… (+3 cases)', async () => {
-        // case: renders the ledger as sequence, kind, and time — never entry detail
+    it('renders the ledger as sequence, kind, and time — never entry detail', async () => {
         {
             const view = await mountAbout({
                 answer: healthyService,
@@ -389,7 +382,6 @@ describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)'
             expect(text).not.toContain(CORRELATION);
             view.dispose();
         }
-        // case: offers no list, no select, and no input — only the two controls (FR-084)
         {
             const view = await mountAbout({ answer: healthyService });
             const keys = mounts.log.map((entry) => entry.key);
@@ -403,7 +395,6 @@ describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)'
             expect(view.created.map((element) => element.tagName)).not.toContain('input');
             view.dispose();
         }
-        // case: shows both schema versions and the phase record (FR-075)
         {
             const view = await mountAbout({
                 answer: healthyService,
@@ -417,7 +408,6 @@ describe('Diagnostics is read-only and credential-free (FR-075, FR-076, AC-129)'
             expect(text).toContain(`Phase record: mounted at ${STAMP} — read-only; this tab writes nothing.`);
             view.dispose();
         }
-        // case: carries no credential-shaped value into the rendered strings
         {
             const token = `ghp_${'abouttab'.repeat(4)}`;
             const view = await mountAbout({
@@ -448,8 +438,7 @@ const SHOW_LABEL = 'Diagnostics';
 const HIDE_LABEL = 'Hide diagnostics';
 
 describe('the repository link opens through the host (2026-10-01 scrub)', () => {
-    it('renders the address as a link wired to the SDK text … (+2 cases)', async () => {
-        // case: renders the address as a link wired to the SDK text path
+    it('renders the address as a link wired to the SDK text path', async () => {
         {
             const view = await mountAbout({ answer: healthyService });
             const link = lastProps(
@@ -461,7 +450,6 @@ describe('the repository link opens through the host (2026-10-01 scrub)', () => 
             expect(typeof link?.onOpenUrl).toBe('function');
             view.dispose();
         }
-        // case: hands the URL to host.openUrl and keeps the page where it is
         {
             const view = await mountAbout({ answer: healthyService });
 
@@ -471,7 +459,6 @@ describe('the repository link opens through the host (2026-10-01 scrub)', () => 
             expect(view.opened).toEqual([REPOSITORY_URL]);
             expect(view.rt.state.aboutTab.repoProblem).toBeNull();
         }
-        // case: lands a host refusal on the link line instead of swallowing it (FR-003)
         {
             const view = await mountAbout({
                 answer: healthyService,
@@ -488,8 +475,7 @@ describe('the repository link opens through the host (2026-10-01 scrub)', () => 
 });
 
 describe('Diagnostics sits behind a disclosure (2026-10-01 scrub)', () => {
-    it('starts closed, opens on its control, and its label s… (+1 cases)', async () => {
-        // case: starts closed, opens on its control, and its label says which it is
+    it('starts closed, opens on its control, and its label says which it is', async () => {
         {
             const view = await mountAbout({ answer: healthyService });
             const controlLabel = (): unknown => lastProps(
@@ -509,7 +495,6 @@ describe('Diagnostics sits behind a disclosure (2026-10-01 scrub)', () => {
             expect(controlLabel()).toBe(SHOW_LABEL);
             view.dispose();
         }
-        // case: mounts the record either way, so closing it hides nothing the page owes (FR-075)
         {
             const view = await mountAbout({
                 answer: healthyService,

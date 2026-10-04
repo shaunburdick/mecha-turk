@@ -314,8 +314,7 @@ function bindingsState(input: {
 }
 
 describe('T-022 the selected binding presents its own state, stamps, and scan (FR-053)', () => {
-    it('says a fresh binding has not been scanned, with a pe… (+3 cases)', () => {
-        // case: says a fresh binding has not been scanned, with a pending count of zero
+    it('says a fresh binding has not been scanned, with a pending count of zero', () => {
         {
             const detail = selectedBindingDetail(bindingsState({
                 binding: bindingFixture(),
@@ -328,7 +327,6 @@ describe('T-022 the selected binding presents its own state, stamps, and scan (F
             expect(detail).toContain(`created ${utcStamp(FIXTURE_TIMESTAMP)}`);
             expect(detail).toContain(`updated ${utcStamp(FIXTURE_TIMESTAMP)}`);
         }
-        // case: reports how long ago the last scan ran, and that it was clean
         {
             const detail = selectedBindingDetail(bindingsState({
                 binding: bindingFixture(),
@@ -338,7 +336,6 @@ describe('T-022 the selected binding presents its own state, stamps, and scan (F
 
             expect(detail).toContain('scan: 2m ago · ok');
         }
-        // case: carries the skip reason next to the stamp, and names a disabled row
         {
             const detail = selectedBindingDetail(bindingsState({
                 binding: bindingFixture({ state: 'disabled' }),
@@ -350,7 +347,6 @@ describe('T-022 the selected binding presents its own state, stamps, and scan (F
             expect(detail).toContain('auth-failed');
             expect(detail).toContain('2 pending');
         }
-        // case: says nothing at all when no binding is selected
         {
             expect(selectedBindingDetail(bindingsState({
                 binding: bindingFixture(),
@@ -362,8 +358,7 @@ describe('T-022 the selected binding presents its own state, stamps, and scan (F
 });
 
 describe('AC-112 the picker names every manual route and keeps the binding recoverable', () => {
-    it('renders the three registration routes and the recove… (+1 cases)', () => {
-        // case: renders the three registration routes and the recoverable state
+    it('renders the three registration routes and the recoverable state', () => {
         {
             const { dispose } = mountBindingsTab();
             const guidance = renderedStrings().find((line) => line.startsWith('Not listed?'));
@@ -375,7 +370,6 @@ describe('AC-112 the picker names every manual route and keeps the binding recov
             }
 
         }
-        // case: never offers to create a project anywhere in the panel source (FR-089)
         {
             const root = resolve(import.meta.dirname, '..', 'src');
             const modules = readdirSync(root, { recursive: true }).map(String);
@@ -389,8 +383,7 @@ describe('AC-112 the picker names every manual route and keeps the binding recov
 });
 
 describe('T-023 the Bindings tab speaks the product vocabulary (FR-020)', () => {
-    it('renders Bindings copy, never the retired noun, on ev… (+2 cases)', () => {
-        // case: renders Bindings copy, never the retired noun, on every control it mounts
+    it('renders Bindings copy, never the retired noun, on every control it mounts', () => {
         {
             const { dispose } = mountBindingsTab();
             const strings = renderedStrings();
@@ -400,7 +393,6 @@ describe('T-023 the Bindings tab speaks the product vocabulary (FR-020)', () => 
             expect(strings).toContain('Bindings');
             expect(strings.some((line) => line.includes('Repositories'))).toBe(false);
         }
-        // case: carries no service-tuning field name anywhere in the bindings modules (FR-059)
         {
             const root = resolve(import.meta.dirname, '..', 'src');
             const modules = readdirSync(root, { recursive: true })
@@ -420,7 +412,6 @@ describe('T-023 the Bindings tab speaks the product vocabulary (FR-020)', () => 
             expect(modules.length).toBeGreaterThan(0);
             expect(offenders).toEqual([]);
         }
-        // case: offers no account-removal or rotation control on this tab (FR-059, T-026)
         {
             const { dispose } = mountBindingsTab();
             const strings = renderedStrings();
@@ -468,8 +459,7 @@ function optionsOf(props: Record<string, unknown> | undefined): readonly { id: s
 }
 
 describe('T-022 the mention token in force, marked only when it differs (FR-057)', () => {
-    it('renders the value the service matches on, with no ov… (+5 cases)', () => {
-        // case: renders the value the service matches on, with no override mark
+    it('renders the value the service matches on, with no override mark', () => {
         {
             const state = {
                 ...bindingsState({ binding: bindingFixture(), status: statusFixture(), selected: true }),
@@ -482,7 +472,6 @@ describe('T-022 the mention token in force, marked only when it differs (FR-057)
             expect(view.override).toBe(false);
             expect(view.line).not.toContain('override');
         }
-        // case: marks the override when the binding matches on something else than the current login
         {
             // Upstream rename: the binding keeps the login it was bound under,
             // which is exactly what `mentionsLogin` goes on matching.
@@ -498,7 +487,6 @@ describe('T-022 the mention token in force, marked only when it differs (FR-057)
             expect(view.line).toContain('override');
             expect(view.line).toContain('@octocat-renamed');
         }
-        // case: claims no override when the account cannot be compared (FR-003: no invented mark)
         {
             const state = {
                 ...bindingsState({ binding: bindingFixture(), status: statusFixture(), selected: true }),
@@ -510,7 +498,6 @@ describe('T-022 the mention token in force, marked only when it differs (FR-057)
             expect(view.line).toBe(MATCHED_TOKEN_LINE);
             expect(view.override).toBe(false);
         }
-        // case: does not mark a case-only difference, because the service matches case-insensitively
         {
             const state = {
                 ...bindingsState({ binding: bindingFixture(), status: statusFixture(), selected: true }),
@@ -519,7 +506,6 @@ describe('T-022 the mention token in force, marked only when it differs (FR-057)
 
             expect(mentionTokenView(state).override).toBe(false);
         }
-        // case: defaults to @<login> of the account the add form is bound to
         {
             const state: BindingsTabState = {
                 ...initialBindings(),
@@ -533,7 +519,6 @@ describe('T-022 the mention token in force, marked only when it differs (FR-057)
             expect(view.line).toBe(MATCHED_TOKEN_LINE);
             expect(view.override).toBe(false);
         }
-        // case: offers no token until the draft is bound to an account
         {
             const view = mentionTokenView(initialBindings());
 
@@ -552,8 +537,7 @@ describe('T-022 the mention token in force, marked only when it differs (FR-057)
 });
 
 describe('T-022 a displayed bound account and a saved one can never disagree (PM ruling 5)', () => {
-    it('fixes the field to the selected binding own account … (+2 cases)', async () => {
-        // case: fixes the field to the selected binding own account in edit mode
+    it('fixes the field to the selected binding own account in edit mode', async () => {
         {
             const binding = bindingFixture();
             const state = {
@@ -572,7 +556,6 @@ describe('T-022 a displayed bound account and a saved one can never disagree (PM
                 { id: binding.accountNumericUserId, label: binding.accountLogin },
             ]);
         }
-        // case: lists the accounts available to bind in add mode, and never an unusable one
         {
             const state: BindingsTabState = {
                 ...initialBindings(),
@@ -589,7 +572,6 @@ describe('T-022 a displayed bound account and a saved one can never disagree (PM
             expect(field.disabled).toBe(false);
             expect(field.options).toEqual([{ id: '77331', label: LOGIN }]);
         }
-        // case: shows the account fixed on screen and saves exactly that account (ruling 5)
         {
             const binding = bindingFixture();
             const requests: GuestRequest[] = [];
@@ -662,8 +644,7 @@ function withSelectedRow(rt: ReturnType<typeof createTestRuntime>): void {
 }
 
 describe('T-036 the editor opens on request and states what it holds (FR-050, FR-053)', () => {
-    it('shows the list first, with New binding beside the ro… (+2 cases)', () => {
-        // case: shows the list first, with New binding beside the row controls and no Edit button
+    it('shows the list first, with New binding beside the row controls and no Edit button', () => {
         {
             const { rt, dispose } = mountBindingsTab({ setup: withSelectedRow });
             const strings = renderedStrings();
@@ -681,7 +662,6 @@ describe('T-036 the editor opens on request and states what it holds (FR-050, FR
             // The prompt is a field of this form, not a section with its own save.
             expect(strings).not.toContain('Save starting prompt');
         }
-        // case: opens on the row load, and reads Save changes while that row is loaded
         {
             const { rt, dispose } = mountBindingsTab({ setup: withSelectedRow });
 
@@ -700,7 +680,6 @@ describe('T-036 the editor opens on request and states what it holds (FR-050, FR
             expect(rt.state.bindings.editing).toBe(false);
             dispose();
         }
-        // case: states whether the loaded binding is enabled or disabled (2026-10-01 review)
         {
             const { rt, dispose } = mountBindingsTab({
                 setup: (runtime): void => {

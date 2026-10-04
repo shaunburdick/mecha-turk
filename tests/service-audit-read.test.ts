@@ -238,8 +238,7 @@ async function driveLifecycle(): Promise<Run> {
 }
 
 describe('T-032 one run reconstructs from its correlation identifier alone', () => {
-    it('returns every lifecycle row in order, on the run’s o… (+1 cases)', async () => {
-        // case: returns every lifecycle row in order, on the run’s own id, ending where the run stands
+    it('returns every lifecycle row in order, on the run’s own id, ending where the run stands', async () => {
         {
             const run = await driveLifecycle();
             expect(run.state).toBe(DISPATCHED_STATE);
@@ -292,7 +291,6 @@ describe('T-032 one run reconstructs from its correlation identifier alone', () 
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: excludes rows that are not about a run while keeping their own identifiers
         {
             await appendAudit(loop.store, {
                 eventType: 'consent',

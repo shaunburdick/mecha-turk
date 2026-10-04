@@ -154,8 +154,7 @@ function waitForExit(child: ChildProcess): Promise<number | null> {
 }
 
 describe('service entry (spawned bundle)', () => {
-    it('starts, answers the readiness probe, and drains on S… (+1 cases)', async () => {
-        // case: starts, answers the readiness probe, and drains on SIGTERM
+    it('starts, answers the readiness probe, and drains on SIGTERM', async () => {
         {
             home = await mkdtemp(join(tmpdir(), 'mecha-turk-entry-'));
             entry = spawn(process.execPath, [ENTRY], { env: buildEnv(home), stdio: ['ignore', 'pipe', 'pipe'] });
@@ -176,7 +175,6 @@ describe('service entry (spawned bundle)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses to start on a short service token, exit non-zero, log secret-free (SEC-02a)
         {
             home = await mkdtemp(join(tmpdir(), 'mecha-turk-entry-'));
             const shortToken = 'f'.repeat(TOKEN_FLOOR - 1);

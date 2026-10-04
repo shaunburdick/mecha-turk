@@ -247,8 +247,7 @@ function verifyBody(mounted: MountedHandoff): Record<string, unknown> | undefine
 const VARIANT_ATTRIBUTE = 'data-variant';
 
 describe('the group carries a submit control and no consent dialog (002 v1.9.0)', () => {
-    it('gives the submit button a real SDK variant, so it do… (+1 cases)', async () => {
-        // case: gives the submit button a real SDK variant, so it does not paint as bare text
+    it('gives the submit button a real SDK variant, so it does not paint as bare text', async () => {
         {
             const mounted = await mountHandoff({
                 name: 'the submit variant',
@@ -259,7 +258,6 @@ describe('the group carries a submit control and no consent dialog (002 v1.9.0)'
             // attribute the button keeps only its transparent base border.
             expect(mounted.submit.attribute(VARIANT_ATTRIBUTE)).toBe('default');
         }
-        // case: mounts neither an Accept nor a Decline decision anywhere in the group
         {
             const mounted = await mountHandoff({
                 name: 'the missing consent dialog',
@@ -279,8 +277,7 @@ describe('the group carries a submit control and no consent dialog (002 v1.9.0)'
 });
 
 describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
-    it('mounts exactly one optional non-credential input bes… (+4 cases)', async () => {
-        // case: mounts exactly one optional non-credential input beside the token
+    it('mounts exactly one optional non-credential input beside the token', async () => {
         {
             const mounted = await mountHandoff({
                 name: 'the expected-login field',
@@ -292,7 +289,6 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(mounted.input.attribute('type')).toBe('password');
             expect(mounted.expected.attribute('type')).toBe('text');
         }
-        // case: sends no expectedLogin member when the field is left empty (AC-141)
         {
             const mounted = await mountHandoff({
                 name: 'an empty expected login',
@@ -311,7 +307,6 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(mounted.input.value).toBe('');
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
         }
-        // case: sends the expected login the operator typed, trimmed
         {
             const mounted = await mountHandoff({
                 name: 'a typed expected login',
@@ -326,7 +321,6 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(verifyBody(mounted)?.expectedLogin).toBe('OctoCat-MT');
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
         }
-        // case: renders the mismatch refusal with its own copy and never the token (002 FR-009)
         {
             const refusal = JSON.stringify({
                 error: { code: 'account-rejected', message: 'contract-fixed' },
@@ -346,7 +340,6 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
             expect(currentHandoffToken()).toBeUndefined();
         }
-        // case: routes the same paste to the token-replacement path once a row arms it (FR-064)
         {
             const rotated = JSON.stringify({
                 numericUserId: CONNECTED_ID,

@@ -296,8 +296,7 @@ const THREE_ISSUES: readonly { readonly field: string; readonly remediation: str
 ];
 
 describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC-125)', () => {
-    it('sends every field and renders the configuration the … (+2 cases)', async () => {
-        // case: sends every field and renders the configuration the service returned
+    it('sends every field and renders the configuration the service returned', async () => {
         {
             const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 46_000 });
             const view = await mountSettings({
@@ -321,7 +320,6 @@ describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC
             expect(recordedStrings().join('\n')).toContain('Saved.');
             view.dispose();
         }
-        // case: AC-105: the pending marker names the boundary and is not cleared by the save
         {
             const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 46_000 });
             const view = await mountSettings({
@@ -335,7 +333,6 @@ describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC
             expect(pending).toEqual([{ field: 'intervalMs', boundary: 'next-cycle' }]);
             view.dispose();
         }
-        // case: AC-102: the new interval is announced for the next poll, and nothing is restarted
         {
             const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 120_000 });
             const view = await mountSettings({
@@ -357,8 +354,7 @@ describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC
 });
 
 describe('a refusal renders the service in the service\'s words (006 T-020, AC-107 – AC-112)', () => {
-    it('renders every issue in order, unrewritten, and names… (+3 cases)', async () => {
-        // case: renders every issue in order, unrewritten, and names no other resource
+    it('renders every issue in order, unrewritten, and names no other resource', async () => {
         {
             const view = await mountSettings({
                 answer: scriptedAnswer({
@@ -382,7 +378,6 @@ describe('a refusal renders the service in the service\'s words (006 T-020, AC-1
             expect(text).not.toContain('bindings list');
             view.dispose();
         }
-        // case: AC-110: an out-of-bounds value is sent, and refused there
         {
             const view = await mountSettings({
                 answer: scriptedAnswer({ put: { status: 422, body: refusalBody(THREE_ISSUES.slice(0, 1)) } }),
@@ -397,7 +392,6 @@ describe('a refusal renders the service in the service\'s words (006 T-020, AC-1
             expect(view.rt.state.settingsTab.edit.saveState).toBe('refused');
             view.dispose();
         }
-        // case: AC-109: every field shows the last configuration the service reported
         {
             const view = await mountSettings({
                 answer: scriptedAnswer({ put: { status: 422, body: refusalBody(THREE_ISSUES.slice(0, 1)) } }),
@@ -412,7 +406,6 @@ describe('a refusal renders the service in the service\'s words (006 T-020, AC-1
             expect(view.rt.state.settingsTab.edit.dirty).toEqual([]);
             view.dispose();
         }
-        // case: AC-108: no submitted value reaches the surface, storage, or a log line
         {
             const view = await mountSettings({
                 answer: scriptedAnswer({ put: { status: 422, body: refusalBody(THREE_ISSUES.slice(0, 1)) } }),
@@ -440,8 +433,7 @@ describe('a refusal renders the service in the service\'s words (006 T-020, AC-1
 });
 
 describe('nothing is written by looking; one activation writes once (AC-123, AC-124, AC-126)', () => {
-    it('AC-124: with no baseline, activating save sends noth… (+2 cases)', async () => {
-        // case: AC-124: with no baseline, activating save sends nothing
+    it('AC-124: with no baseline, activating save sends nothing', async () => {
         {
             const view = await mountSettings({
                 answer: () => {
@@ -455,7 +447,6 @@ describe('nothing is written by looking; one activation writes once (AC-123, AC-
             expect(view.rt.state.settingsTab.edit.saveState).toBe('idle');
             view.dispose();
         }
-        // case: AC-126: two rapid activations produce exactly one write
         {
             const view = await mountSettings({
                 answer: scriptedAnswer({ put: { status: 200, body: envelopeBody() } }),
@@ -467,7 +458,6 @@ describe('nothing is written by looking; one activation writes once (AC-123, AC-
             expect(view.requests.filter((request) => request.method === 'PUT')).toHaveLength(1);
             view.dispose();
         }
-        // case: AC-123: an unsaved edit survives another tab body mounting
         {
             const view = await mountSettings({ answer: scriptedAnswer({}) });
             typeInto('intervalMs', '45000');
@@ -512,13 +502,12 @@ describe('a write that could not happen is not a refusal (006 T-020, FR-061, FR-
 });
 
 describe('the twelfth row rides the descriptor (004 T-030; 006 FR-010, FR-014, FR-081)', () => {
-    it('mounts the prompt row with FR-064\'s state and the decla… (+2 cases)', async () => {
+    it('mounts the prompt row with FR-064\'s state and the declared guidance', async () => {
         const descriptor = configSchema().find((candidate) => candidate.name === 'startingPrompt');
         if (descriptor?.kind !== 'string') {
             throw new Error('the service projects no string descriptor for startingPrompt');
         }
 
-        // case: mounts the prompt row with FR-064's state and the declared guidance
         {
             const view = await mountSettings({ answer: scriptedAnswer({}) });
             const control = fieldProps('startingPrompt');
@@ -538,7 +527,6 @@ describe('the twelfth row rides the descriptor (004 T-030; 006 FR-010, FR-014, F
             expect(typeof control.onChange).toBe('function');
             view.dispose();
         }
-        // case: a set tier's value lands in that one control, and the rows keep the descriptor's order
         {
             const prompt = 'Review every change against the ticket before approving.';
             const view = await mountSettings({

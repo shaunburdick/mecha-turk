@@ -253,8 +253,7 @@ async function rowsOf(service: TestService, eventType: string): Promise<readonly
 }
 
 describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037, FR-087)', () => {
-    it('answers all five explicitly when the run queued with… (+3 cases)', async () => {
-        // case: answers all five explicitly when the run queued with no prompt
+    it('answers all five explicitly when the run queued with no prompt', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: null, snapshots: [assignment(1)] });
@@ -272,7 +271,6 @@ describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: carries the text for transport only, with the reference beside it
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(2)] });
@@ -292,7 +290,6 @@ describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: keeps a maximal batch inside the transport response cap
         {
             const service = await startService();
             const issues = Array.from({ length: 50 }, (_unused, index) => assignment(index + 1));
@@ -309,7 +306,6 @@ describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: leaves eligibility, the lease, and the claim row to 003 unchanged
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(3)] });
@@ -325,8 +321,7 @@ describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037
 });
 
 describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-052, AC-139)', () => {
-    it('names the binding and the fingerprint on both rows, … (+3 cases)', async () => {
-        // case: names the binding and the fingerprint on both rows, under the run’s id
+    it('names the binding and the fingerprint on both rows, under the run’s id', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(4)] });
@@ -354,7 +349,6 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: surfaces those rows from a correlation-filtered audit read (SC-124)
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(5)] });
@@ -378,7 +372,6 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: projects presence, fingerprint, and length — and no text — on the run row
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(6)] });
@@ -398,7 +391,6 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: projects a run queued with no prompt as false / null / null / null (AC-142)
         {
             const service = await startService();
             await seed({ service, prompt: null, snapshots: [assignment(7)] });

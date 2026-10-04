@@ -221,8 +221,7 @@ async function unwritableDataDir(): Promise<string> {
 }
 
 describe('ServiceConfig validation', () => {
-    it('accepts the shipped defaults unchanged (+5 cases)', async () => {
-        // case: accepts the shipped defaults unchanged
+    it('accepts the shipped defaults unchanged', async () => {
         {
             const result = validateConfig(DEFAULT_CONFIG);
 
@@ -230,7 +229,6 @@ describe('ServiceConfig validation', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: rejects every out-of-bounds value with a named remediation
         {
             for (const { field, value } of OUT_OF_BOUNDS) {
                 const result = validateConfig({ ...DEFAULT_CONFIG, [field]: value });
@@ -244,7 +242,6 @@ describe('ServiceConfig validation', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: reports every missing field in one pass
         {
             const result = validateConfig({ [INTERVAL_FIELD]: 60_000 });
 
@@ -258,7 +255,6 @@ describe('ServiceConfig validation', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: rejects a document that is not an object
         {
             const result = validateConfig('not a configuration');
 
@@ -269,7 +265,6 @@ describe('ServiceConfig validation', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: rejects an unknown field with a removal instruction
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, [INVENTED_FIELD]: 60_000 });
 
@@ -277,7 +272,6 @@ describe('ServiceConfig validation', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: withholds a secret-shaped field name instead of echoing it
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, [TOKEN_FIELD]: 1 });
 
@@ -290,8 +284,7 @@ describe('ServiceConfig validation', () => {
         }
     });
 
-    it('rejects a retry ceiling below the retry base (+5 cases)', async () => {
-        // case: rejects a retry ceiling below the retry base
+    it('rejects a retry ceiling below the retry base', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, retryBaseMs: 60_000, retryMaxMs: 5_000 });
 
@@ -302,7 +295,6 @@ describe('ServiceConfig validation', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: never echoes the submitted value in a remediation
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, intervalMs: ABSURD_INTERVAL });
 
@@ -315,7 +307,6 @@ describe('ServiceConfig validation', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: defaults the lease and result-deadline knobs to the documented bounds (T-008)
         {
             expect(DEFAULT_CONFIG.leaseMs).toBe(120_000);
             expect(DEFAULT_CONFIG.resultDeadlineMs).toBe(120_000);
@@ -323,7 +314,6 @@ describe('ServiceConfig validation', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: never offers a requeue-budget field (003 v1.3.0 / 006 Deferred)
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, requeueBudget: 3 });
 
@@ -334,7 +324,6 @@ describe('ServiceConfig validation', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: reads a configuration document written before the lease fields existed (T-008)
         {
             const result = parseStoredConfig(PRE_RUN_LAYER_CONFIG);
 
@@ -358,7 +347,6 @@ describe('ServiceConfig validation', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: still quarantines a stored document whose own values are unusable (T-008)
         {
             expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, leaseMs: 1 })).toBeNull();
             expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, requeueBudget: 3 })).toBeNull();
@@ -368,8 +356,7 @@ describe('ServiceConfig validation', () => {
 });
 
 describe('GET and PUT /v1/config', () => {
-    it('answers a fresh store with the defaults (+5 cases)', async () => {
-        // case: answers a fresh store with the defaults
+    it('answers a fresh store with the defaults', async () => {
         {
             const service = await startServiceForTest();
 
@@ -381,7 +368,6 @@ describe('GET and PUT /v1/config', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: persists a replacement and reads it back
         {
             const service = await startServiceForTest();
             const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000, logLevel: 'debug' as const };
@@ -397,7 +383,6 @@ describe('GET and PUT /v1/config', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: rejects a partial document with one remediation per missing field
         {
             const service = await startServiceForTest();
 
@@ -417,7 +402,6 @@ describe('GET and PUT /v1/config', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: rejects an unknown field rather than silently ignoring it
         {
             const service = await startServiceForTest();
 
@@ -432,7 +416,6 @@ describe('GET and PUT /v1/config', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses a body that is not valid JSON
         {
             const service = await startServiceForTest();
 
@@ -442,7 +425,6 @@ describe('GET and PUT /v1/config', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: reads a pre-existing configuration document without quarantining it (T-008)
         {
             const service = await startServiceForTest();
             await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_RUN_LAYER_CONFIG), 'utf8');
@@ -464,8 +446,7 @@ describe('GET and PUT /v1/config', () => {
         }
     });
 
-    it('round-trips a retuned lease and result deadline (T-0… (+1 cases)', async () => {
-        // case: round-trips a retuned lease and result deadline (T-008)
+    it('round-trips a retuned lease and result deadline', async () => {
         {
             const service = await startServiceForTest();
             const replacement = { ...DEFAULT_CONFIG, leaseMs: 45_000, resultDeadlineMs: 300_000 };
@@ -479,7 +460,6 @@ describe('GET and PUT /v1/config', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: answers 503 for both routes when the data directory is unusable
         {
             const service = await startServiceForTest({ dataDir: await unwritableDataDir() });
 
@@ -499,8 +479,7 @@ describe('GET and PUT /v1/config', () => {
 });
 
 describe('GET /v1/status', () => {
-    it('reports the documented skeleton on a healthy store (+2 cases)', async () => {
-        // case: reports the documented skeleton on a healthy store
+    it('reports the documented skeleton on a healthy store', async () => {
         {
             const service = await startServiceForTest();
 
@@ -525,7 +504,6 @@ describe('GET /v1/status', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: reflects a persisted interval in the polling state
         {
             const service = await startServiceForTest();
             const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000 };
@@ -538,7 +516,6 @@ describe('GET /v1/status', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: reports degraded and schema-less when the store is unavailable
         {
             const service = await startServiceForTest({ dataDir: await unwritableDataDir() });
 
@@ -594,8 +571,7 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
         },
     ];
 
-    it('refuses each documented bad value with its own remed… (+3 cases)', async () => {
-        // case: refuses each documented bad value with its own remediation and no echo
+    it('refuses each documented bad value with its own remediation and no echo', async () => {
         {
             for (const { case: shape, value, remediation } of REFUSALS) {
                 const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: value });
@@ -615,7 +591,6 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: stores the trimmed value so a save/load round trip is stable
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: PADDED_AGENT });
 
@@ -626,7 +601,6 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: accepts a blank baseline (006 FR-100(c) as amended) and still
         // refuses an absent or non-string member (FR-100(b), whole-document)
         {
             for (const blank of ['', '   ', '\t']) {
@@ -661,7 +635,6 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: an explicitly blank baseline round-trips, and the read-side
         // backfill never resurrects a name over it (absent vs present-but-empty)
         {
             const service = await startServiceForTest();
@@ -694,7 +667,6 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses a PUT that omits the field while the read fills it (FR-100(b), data-model §2)
         {
             const service = await startServiceForTest();
             await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_AGENT_CONFIG), 'utf8');
@@ -720,7 +692,6 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: leaves the stored value in force when a credential-shaped save is refused (AC-154)
         {
             const service = await startServiceForTest();
             const accepted = { ...DEFAULT_CONFIG, [AGENT_FIELD]: ACCEPTED_AGENT };
@@ -908,8 +879,7 @@ describe('startingPrompt — the global tier (004 FR-081, FR-083; 006 FR-041)', 
 });
 
 describe('GET /v1/config widens without changing what it already said (006 FR-020, contract §1)', () => {
-    it('reports source fidelity for all three reads, and [] … (+1 cases)', async () => {
-        // case: reports source fidelity for all three reads, and [] whenever source is not stored
+    it('reports source fidelity for all three reads, and [] whenever source is not stored', async () => {
         {
             const service = await startServiceForTest();
 
@@ -941,7 +911,6 @@ describe('GET /v1/config widens without changing what it already said (006 FR-02
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: carries one descriptor per documented field, in the validator\'s own order (AC-107)
         {
             const service = await startServiceForTest();
             const response = await service.call(CONFIG_PATH);
@@ -1032,8 +1001,7 @@ function refusedValueFor(descriptor: FieldDescriptor): unknown {
 }
 
 describe('the projection is the validator\'s own declaration (006 SC-101, SC-106)', () => {
-    it('moves together when a bound moves, and returns when … (+3 cases)', async () => {
-        // case: moves together when a bound moves, and returns when it is reverted (SC-101)
+    it('moves together when a bound moves, and returns when it is reverted', async () => {
         {
             expect(descriptorOf('intervalMs')).toMatchObject({ min: 15_000, max: 300_000 });
             expect(validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 }).ok).toBe(true);
@@ -1056,7 +1024,6 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: emits descriptors in exactly the order a full refusal reports issues
         {
             const candidate: Record<string, unknown> = {};
             for (const descriptor of configSchema()) {
@@ -1073,7 +1040,6 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: declares ten next-cycle, one immediate, and one next-dispatch over 006\'s twelve (SC-106)
         {
             const declared = configSchema()
                 .filter((descriptor) => SPEC_FIELDS.includes(descriptor.name))
@@ -1092,7 +1058,6 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: gives the string field no unit and no numeric bound, and the enum field the four levels
         {
             const agent = descriptorOf(AGENT_FIELD);
             expect(agent).toMatchObject({

@@ -245,12 +245,10 @@ function mapEntryCovers(entry: string, name: string): boolean {
 }
 
 describe('L2 module vocabulary: the renamed files are the only ones that exist (005 T-003)', () => {
-    it('reads a real panel source tree rather than an empty … (+3 cases)', () => {
-        // case: reads a real panel source tree rather than an empty directory
+    it('reads a real panel source tree rather than an empty directory', () => {
         {
             expect(panelModules().length).toBeGreaterThan(40);
         }
-        // case: has no src/repos*.ts and no src/runs*.ts module left behind (FR-024)
         {
             const retired = panelModules().filter((name) => RETIRED_MODULE_PATTERNS.some((pattern) => pattern.test(
                 name
@@ -258,7 +256,6 @@ describe('L2 module vocabulary: the renamed files are the only ones that exist (
 
             expect(retired).toEqual([]);
         }
-        // case: has every module the rename produced, so a reverted git mv fails here
         {
             const names = new Set(panelModules());
 
@@ -266,7 +263,6 @@ describe('L2 module vocabulary: the renamed files are the only ones that exist (
                 expect(names.has(expected), `${SRC_DIR}/${expected} must exist after the L2 rename`).toBe(true);
             }
         }
-        // case: fails on a retired name rather than passing vacuously
         {
             const candidates = ['bindings.ts', 'repos.ts', 'runs-ui.ts'];
             const reverted = candidates.filter((name) => RETIRED_MODULE_PATTERNS.some((pattern) => pattern.test(name)));
@@ -280,23 +276,19 @@ describe('every src/** import resolves to a file that exists (005 T-003)', () =>
     /** Repository-relative path the synthetic fixtures pretend to live at. */
     const SYNTHETIC_PATH = 'src/example.ts';
 
-    it('scans the panel modules rather than nothing (+3 cases)', () => {
-        // case: scans the panel modules rather than nothing
+    it('scans the panel modules rather than nothing', () => {
         {
             expect(scanModules([SRC_DIR]).length).toBeGreaterThan(40);
         }
-        // case: resolves every relative specifier in the tree
         {
             expect(unresolvedImports(scanModules([SRC_DIR]))).toEqual([]);
         }
-        // case: reports a specifier that names a file that is not there
         {
             const text = "import { thing } from './gone.ts';";
             const synthetic: readonly ScannedModule[] = [{ path: SYNTHETIC_PATH, text }];
 
             expect(unresolvedImports(synthetic)).toEqual([{ from: SYNTHETIC_PATH, specifier: './gone.ts' }]);
         }
-        // case: ignores package specifiers, which are the host SDK and Node
         {
             const text = "import { readFileSync } from 'node:fs';\nexport { thing } from './real.ts';";
 
@@ -306,8 +298,7 @@ describe('every src/** import resolves to a file that exists (005 T-003)', () =>
 });
 
 describe('the L4 domain vocabulary FR-022 retains is still present (005 T-003)', () => {
-    it('finds every retained term somewhere in the scanned s… (+1 cases)', () => {
-        // case: finds every retained term somewhere in the scanned source
+    it('finds every retained term somewhere in the scanned source', () => {
         {
             const corpus = scanModules(L4_SCAN_DIRS)
                 .map((module) => module.text)
@@ -319,7 +310,6 @@ describe('the L4 domain vocabulary FR-022 retains is still present (005 T-003)',
                 expect(corpus.includes(token), `${token} (${note}) must survive the L2 rename`).toBe(true);
             }
         }
-        // case: reads a corpus wide enough to matter
         {
             const modules = scanModules(L4_SCAN_DIRS);
 
@@ -331,19 +321,16 @@ describe('the L4 domain vocabulary FR-022 retains is still present (005 T-003)',
 });
 
 describe("AGENTS.md's panel module map lists every file src/ contains (005 T-003)", () => {
-    it('reads the map section rather than an empty one (+2 cases)', () => {
-        // case: reads the map section rather than an empty one
+    it('reads the map section rather than an empty one', () => {
         {
             expect(panelModuleMapEntries().length).toBeGreaterThan(20);
         }
-        // case: leaves no src module off the map
         {
             const entries = panelModuleMapEntries();
             const missing = panelModules().filter((name) => !entries.some((entry) => mapEntryCovers(entry, name)));
 
             expect(missing).toEqual([]);
         }
-        // case: treats a wildcard as a wildcard and an exact name as exact
         {
             expect(mapEntryCovers('handoff*.ts', 'handoff-status.ts')).toBe(true);
             expect(mapEntryCovers('handoff*.ts', 'session.ts')).toBe(false);
@@ -517,8 +504,7 @@ async function renderedSixTabs(): Promise<readonly string[]> {
 }
 
 describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', () => {
-    it('mounts all six tabs, so the scan is not vacuous (+4 cases)', async () => {
-        // case: mounts all six tabs, so the scan is not vacuous
+    it('mounts all six tabs, so the scan is not vacuous', async () => {
         {
             const strings = await renderedSixTabs();
 
@@ -527,7 +513,6 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
                 expect(strings).toContain(label);
             }
         }
-        // case: renders no retired noun in any of the six tabs
         {
             const rendered = await renderedSixTabs();
 
@@ -537,13 +522,11 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
             // every string the six tabs hand the SDK is scanned now.
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], rendered.join('\n'))).toEqual([]);
         }
-        // case: renders no retired noun in the row-level labels the tabs export
         {
             const labels = [RETRY_LABEL, RESOLVE_LABEL, RETURN_LABEL, AUDIT_BUTTON_LABEL].join('\n');
 
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], labels)).toEqual([]);
         }
-        // case: bites on every retired shape, so the scan cannot pass vacuously
         {
             const sample = 'the Runs list — the Repositories tab — Run shows a reason';
 
@@ -554,7 +537,6 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'Run OpenChamber on web')).toEqual([]);
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'runs.json runKey mt-run-1')).toEqual([]);
         }
-        // case: README.md names neither retired noun anywhere in it (AC-140)
         {
             // Read whole: the mapping table that used to be the one exempt
             // section left the readme with the product owner's 2026-10-01

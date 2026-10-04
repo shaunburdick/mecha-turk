@@ -61,8 +61,7 @@ describe('persistLedger recovery', () => {
 });
 
 describe('appendEntryAndPersist', () => {
-    it('appends the entry and lands it in storage without th… (+1 cases)', async () => {
-        // case: appends the entry and lands it in storage without the caller awaiting
+    it('appends the entry and lands it in storage without the caller awaiting', async () => {
         {
             const storage = createStorageDouble();
             const runtime = createTestRuntime(fakeHost({ storage: storage.storage }));
@@ -80,7 +79,6 @@ describe('appendEntryAndPersist', () => {
             expect(stored?.entries.at(-1)?.kind).toBe('lifecycle');
             expect(stored?.entries.at(-1)?.detail.phase).toBe('mounted');
         }
-        // case: never throws when the host refuses the write; it says so instead
         {
             const storage = createStorageDouble();
             const runtime = createTestRuntime(

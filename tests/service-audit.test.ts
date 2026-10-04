@@ -128,8 +128,7 @@ async function plantTrail(): Promise<void> {
 }
 
 describe('audit sequence and chain (M6, W2-2)', () => {
-    it('appends without ever re-reading the audit file (+2 cases)', async () => {
-        // case: appends without ever re-reading the audit file
+    it('appends without ever re-reading the audit file', async () => {
         {
             const store = await openStore({ dataDir });
             const reads = countReads(store);
@@ -148,7 +147,6 @@ describe('audit sequence and chain (M6, W2-2)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: continues a trail that existed before the store opened
         {
             await plantTrail();
             const store = await openStore({ dataDir });
@@ -170,7 +168,6 @@ describe('audit sequence and chain (M6, W2-2)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: serializes concurrent appends so seq stays unique and file-ordered
         {
             const store = await openStore({ dataDir });
 
@@ -210,8 +207,7 @@ function stampless(entry: AuditEntry): AuditEntry {
 }
 
 describe('chain join and entry composer (006 T-011)', () => {
-    it('serialises chained tasks so the second starts only a… (+2 cases)', async () => {
-        // case: serialises chained tasks so the second starts only after the first settles
+    it('serialises chained tasks so the second starts only after the first settles', async () => {
         {
             const store = await openStore({ dataDir });
             const order: string[] = [];
@@ -252,7 +248,6 @@ describe('chain join and entry composer (006 T-011)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: composes the entry appendAudit would write, without writing a line
         {
             const composing = await openStore({ dataDir });
             const appending = await openStore({ dataDir: join(tempRoot, 'appended-store') });
@@ -273,7 +268,6 @@ describe('chain join and entry composer (006 T-011)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: runs the writer’s redaction pass over a composed entry
         {
             const store = await openStore({ dataDir });
             const input: AuditInput = {

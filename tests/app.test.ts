@@ -176,8 +176,7 @@ describe('handlePagehide', () => {
 });
 
 describe('applySettings', () => {
-    it('records the snapshot and waits for a binding when no… (+2 cases)', () => {
-        // case: records the snapshot and waits for a binding when none is active
+    it('records the snapshot and waits for a binding when none is active', () => {
         {
             const runtime = createTestRuntime(fakeHost());
 
@@ -190,7 +189,6 @@ describe('applySettings', () => {
             expect(runtime.state.status.tone).toBe('info');
             expect(runtime.state.status.title).toBe(WAITING_FOR_BINDING);
         }
-        // case: takes no configuration from a record that still carries the card ids
         {
             const runtime = createTestRuntime(fakeHost());
             const cardShaped = settingsOf([
@@ -207,7 +205,6 @@ describe('applySettings', () => {
             expect(runtime.state.config).toBeNull();
             expect(runtime.state.status.title).toBe(WAITING_FOR_BINDING);
         }
-        // case: does not block while a binding is active
         {
             const runtime = createTestRuntime(fakeHost());
             runtime.state.bindings.bindings = [activeBinding()];
@@ -229,12 +226,10 @@ describe('applySettings', () => {
 });
 
 describe('the install-time GitHub card is retired, not dormant (owner order 2026-09-30)', () => {
-    it('keeps the retired card, poll, and connection machine… (+1 cases)', async () => {
-        // case: keeps the retired card, poll, and connection machinery unreachable from panel source
+    it('keeps the retired card, poll, and connection machinery unreachable from panel source', async () => {
         {
             expect(retiredSpikeCallers()).toEqual([]);
         }
-        // case: arms the relay from the bindings read, which needs no connection event
         {
             const runtime = createTestRuntime(fakeHost());
             runtime.state.bindings.bindings = [activeBinding()];
@@ -250,8 +245,7 @@ describe('the install-time GitHub card is retired, not dormant (owner order 2026
 });
 
 describe('loadLedger on remount', () => {
-    it('restores the stored evidence record so a reopened pa… (+1 cases)', async () => {
-        // case: restores the stored evidence record so a reopened panel can dispatch
+    it('restores the stored evidence record so a reopened panel can dispatch', async () => {
         {
             const evidence = serializeEvidence(testEvidence());
             const storage = createStorageDouble({ [EVIDENCE_STORAGE_KEY]: parseJsonValue(evidence) });
@@ -265,7 +259,6 @@ describe('loadLedger on remount', () => {
             expect(runtime.state.ledger.entries.at(-1)?.phase).toBe('mounted');
             expect(storage.values.has(LEDGER_STORAGE_KEY)).toBe(true);
         }
-        // case: refuses a stored evidence record that does not match the contract
         {
             const broken: JsonValue = { schemaVersion: 'extension-spike-1', repository: 42 };
             const storage = createStorageDouble({ [EVIDENCE_STORAGE_KEY]: broken });
@@ -301,8 +294,7 @@ function configureWithLoadedProjects(runtime: PanelRuntime): void {
 }
 
 describe('project selection', () => {
-    it('records the restored panel selection as this mount’s… (+3 cases)', async () => {
-        // case: records the restored panel selection as this mount’s choice
+    it('records the restored panel selection as this mount’s choice', async () => {
         {
             const runtime = createTestRuntime(fakeHost());
             runtime.state.projectSelection = OTHER_ID;
@@ -314,7 +306,6 @@ describe('project selection', () => {
             // 002 FR-041: settings resolve nothing, so no config appears from one.
             expect(runtime.state.config).toBeNull();
         }
-        // case: adopts a pick and stores it
         {
             const storage = createStorageDouble();
             const runtime = createTestRuntime(
@@ -327,7 +318,6 @@ describe('project selection', () => {
             expect(runtime.state.projectSelection).toBe(OTHER_ID);
             expect(storage.values.get(PROJECT_STORAGE_KEY)).toBe(OTHER_ID);
         }
-        // case: refuses a pick from outside the loaded list and stores nothing
         {
             const storage = createStorageDouble();
             const runtime = createTestRuntime(
@@ -341,7 +331,6 @@ describe('project selection', () => {
             expect(storage.values.has(PROJECT_STORAGE_KEY)).toBe(false);
             expect(runtime.state.projects.note).toContain('prj_invented');
         }
-        // case: keeps the pick in memory when the storage write is refused
         {
             const storage = createStorageDouble();
             const runtime = createTestRuntime(

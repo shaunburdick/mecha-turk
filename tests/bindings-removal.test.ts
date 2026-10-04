@@ -189,8 +189,7 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
         return { rt, requests };
     }
 
-    it('arms on the first click, names the cascade, and send… (+4 cases)', async () => {
-        // case: arms on the first click, names the cascade, and sends nothing (AC-126)
+    it('arms on the first click, names the cascade, and sends nothing', async () => {
         {
             const storage = createStorageDouble({ [ACCOUNTS_STORAGE_KEY]: [MIRROR_ENTRY] });
             const { rt, requests } = await removalRuntime(storage);
@@ -222,7 +221,6 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
             armAccountRemoval(rt, ACCOUNT_ID);
             expect(rt.state.accounts.removeArmed).toBe(ACCOUNT_ID);
         }
-        // case: deletes on the confirmation and renders its bindings disabled (AC-127)
         {
             const storage = createStorageDouble({ [ACCOUNTS_STORAGE_KEY]: [MIRROR_ENTRY] });
             const { rt, requests } = await removalRuntime(storage);
@@ -248,7 +246,6 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
             // The binding is present, disabled, and says why — never deleted.
             expect(rt.state.bindings.bindings).toHaveLength(1);
         }
-        // case: clears the account mirror from host.storage after the delete
         {
             const storage = createStorageDouble({ [ACCOUNTS_STORAGE_KEY]: [MIRROR_ENTRY] });
             const { rt } = await removalRuntime(storage);
@@ -258,7 +255,6 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
             const mirrored = storage.values.get(ACCOUNTS_STORAGE_KEY);
             expect(mirrored).toEqual([]);
         }
-        // case: shows the bindings refusal and keeps the account when the service refuses
         {
             /** The service's delete refusal exactly as the route answers it. */
             const refusalBody = JSON.stringify({
@@ -285,7 +281,6 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
                 { numericUserId: ACCOUNT_ID, login: LOGIN, displayName: null, usable: true },
             ]);
         }
-        // case: builds the forced delete path from the numeric id
         {
             expect(accountRemovePath(ACCOUNT_ID)).toBe(`/v1/accounts/${ACCOUNT_ID}?force=1`);
         }
@@ -343,8 +338,7 @@ function bindingsState(input: {
 }
 
 describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
-    it('sends every binding in one PUT and takes the answer … (+3 cases)', async () => {
-        // case: sends every binding in one PUT and takes the answer back (FR-050)
+    it('sends every binding in one PUT and takes the answer back', async () => {
         {
             const kept = bindingFixture({ bindingId: 'bnd-keep', repository: WIDGET_REPO });
             const { host, requests } = recordingService((request) => {
@@ -374,7 +368,6 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             expect(rt.state.bindings.bindings.map((binding) => binding.repository)).toEqual([WIDGET_REPO, 'acme/new']);
             expect(rt.state.bindings.note).toContain('Bound acme/new');
         }
-        // case: keeps the stored state when the service refuses a toggle (FR-054)
         {
             const { host, requests } = recordingService((request) => {
                 if (request.method === 'PUT' && request.path === BINDINGS_PATH) {
@@ -394,7 +387,6 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             expect(requests.some((request) => request.method === 'PUT')).toBe(true);
             expect(JSON.stringify(rt.state.bindings.bindings)).toBe(before);
         }
-        // case: leaves every other binding byte-identical when the submission is refused (AC-125)
         {
             const kept = bindingFixture({ bindingId: 'bnd-keep', repository: WIDGET_REPO });
             const other = bindingFixture({ bindingId: 'bnd-other', repository: OTHER_REPO });
@@ -421,7 +413,6 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             // The refusal names the field, never the value the operator typed.
             expect(rt.state.bindings.note).not.toContain('acme/new');
         }
-        // case: never issues a per-binding PATCH anywhere in the panel source (FR-050)
         {
             const root = resolve(import.meta.dirname, '..', 'src');
             const method = /\bPATCH\b/;
@@ -443,21 +434,18 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
 });
 
 describe('a binding disabled because its account was removed (FR-054)', () => {
-    it('names the removal on the row instead of showing an i… (+2 cases)', () => {
-        // case: names the removal on the row instead of showing an inert one
+    it('names the removal on the row instead of showing an inert one', () => {
         {
             const row = bindingRows(bindingsState({ binding: disabledBinding(), accounts: [] }))[0];
 
             expect(row?.leading).toBe('off');
         }
-        // case: says only "disabled" when the operator turned the binding off
         {
             const row = bindingRows(bindingsState({ binding: disabledBinding(), accounts: [REGISTERED] }))[0];
 
             expect(row?.subtitle).toContain('disabled');
             expect(row?.subtitle).not.toContain('account removed');
         }
-        // case: claims no removal while the accounts list was never read (FR-003)
         {
             const state = bindingsState({ binding: disabledBinding(), accounts: [], status: 'error' });
             const row = bindingRows(state)[0];

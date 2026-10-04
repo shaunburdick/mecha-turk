@@ -326,8 +326,7 @@ function firstSeqFor(input: {
 }
 
 describe('AC-115 every vocabulary entry is present with its required details', () => {
-    it('writes all seventeen types with the actor, decision, a… (+3 cases)', () => {
-        // case: writes all seventeen types with the actor, decision, and details the table names
+    it('writes all seventeen types with the actor, decision, and details the table names', () => {
         {
             const { trail } = driven();
             expect(new Set(trail.map((entry) => entry.eventType)).size).toBeGreaterThanOrEqual(
@@ -356,7 +355,6 @@ describe('AC-115 every vocabulary entry is present with its required details', (
                 }
             }
         }
-        // case: names the reference that joined after authorization as possibly unseen (FR-015)
         {
             const { trail } = driven();
             const coalesced = rowsOf(trail, COALESCED_ROW);
@@ -368,7 +366,6 @@ describe('AC-115 every vocabulary entry is present with its required details', (
                 presentAtAuthorization: false,
             });
         }
-        // case: records one refusal of each of the eight refusing operations (FR-003)
         {
             const { trail, refusals, adoptedRunId } = driven();
             expect(refusals).toHaveLength(REFUSING_OPERATIONS.length);
@@ -402,7 +399,6 @@ describe('AC-115 every vocabulary entry is present with its required details', (
                 expect(typeof row.details.priorState).toBe('string');
             }
         }
-        // case: records a blank-baseline read-back as its own row, with the absence and no expectation
         {
             const { trail, adoptedRunId } = driven();
             const [uncompared] = rowsOf(trail, UNCOMPARED_ROW);
@@ -433,8 +429,7 @@ describe('AC-115 every vocabulary entry is present with its required details', (
 });
 
 describe('FR-062 every lifecycle row carries the run correlation id', () => {
-    it('reports the run id byte-identically, never a freshly… (+1 cases)', () => {
-        // case: reports the run id byte-identically, never a freshly generated one (AC-116)
+    it('reports the run id byte-identically, never a freshly generated one', () => {
         {
             const { trail, adoptedRunId, createdRunId } = driven();
             const lifecycle = lifecycleRows(trail);
@@ -458,7 +453,6 @@ describe('FR-062 every lifecycle row carries the run correlation id', () => {
                 expect([adoptedRunId, createdRunId]).toContain(row.correlationId);
             }
         }
-        // case: orders the trail the way the transitions happened
         {
             const { trail, adoptedRunId, createdRunId } = driven();
             // The drive's own order: adoption, the claim that gave the refusals a

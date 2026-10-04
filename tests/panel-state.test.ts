@@ -31,8 +31,7 @@ function freshRuntime(): ReturnType<typeof createPanelRuntime> {
 }
 
 describe('createPanelRuntime (the shell starts on Status, FR-012, FR-015)', () => {
-    it('opens on Status with nothing mounted and nothing rea… (+2 cases)', () => {
-        // case: opens on Status with nothing mounted and nothing read
+    it('opens on Status with nothing mounted and nothing read', () => {
         {
             const rt = freshRuntime();
 
@@ -41,7 +40,6 @@ describe('createPanelRuntime (the shell starts on Status, FR-012, FR-015)', () =
             expect(rt.tabLastRead.size).toBe(0);
             expect(rt.shell).toBeNull();
         }
-        // case: carries no mounted body before the shell mounts one (FR-013)
         {
             const rt = freshRuntime();
 
@@ -52,7 +50,6 @@ describe('createPanelRuntime (the shell starts on Status, FR-012, FR-015)', () =
             expect(rt.aboutUi).toBeNull();
             expect(rt.handoffView).toBeNull();
         }
-        // case: never persists the active tab: a fresh runtime is always Status (FR-015)
         {
             const first = freshRuntime();
             first.activeTab = 'about';
@@ -66,15 +63,13 @@ describe('createPanelRuntime (the shell starts on Status, FR-012, FR-015)', () =
 });
 
 describe('the tab slices (005 T-007: one activation field, no second one)', () => {
-    it('gives the Bindings slice no field that could say wha… (+2 cases)', () => {
-        // case: gives the Bindings slice no field that could say what is showing
+    it('gives the Bindings slice no field that could say what is showing', () => {
         {
             const bindings = initialBindings();
 
             expect('activeTab' in bindings).toBe(false);
             expect(Object.keys(bindings)).not.toContain('runs');
         }
-        // case: gives the Dispatches slice its own filters and page (FR-042, FR-043)
         {
             const dispatches = initialDispatches();
 
@@ -84,7 +79,6 @@ describe('the tab slices (005 T-007: one activation field, no second one)', () =
             expect(dispatches.page.total).toBeNull();
             expect(dispatches.page.snapshotAt).toBeNull();
         }
-        // case: keeps the dispatches slice as its own panel-state slot, not a bindings one
         {
             const rt = freshRuntime();
 
@@ -96,8 +90,7 @@ describe('the tab slices (005 T-007: one activation field, no second one)', () =
 });
 
 describe('dispatch page transitions (005 data-model §3.2)', () => {
-    it('starts on the first page of the whole set (+2 cases)', () => {
-        // case: starts on the first page of the whole set
+    it('starts on the first page of the whole set', () => {
         {
             const page = initialDispatchListPage();
 
@@ -106,7 +99,6 @@ describe('dispatch page transitions (005 data-model §3.2)', () => {
             expect(page.limit).toBe(25);
             expect(page.hasMore).toBe(false);
         }
-        // case: resets to the first page on a filter or page-size change, keeping the size
         {
             const visited = {
                 ...initialDispatchListPage(),
@@ -127,7 +119,6 @@ describe('dispatch page transitions (005 data-model §3.2)', () => {
             expect(reset.total).toBeNull();
             expect(reset.snapshotAt).toBeNull();
         }
-        // case: builds its filters off by default: the whole set, unfiltered
         {
             expect(initialDispatchFilters()).toEqual({ bindingId: null, state: null });
         }

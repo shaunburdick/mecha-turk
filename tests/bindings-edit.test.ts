@@ -208,8 +208,7 @@ async function editorRuntime(service: TestService): Promise<ReturnType<typeof cr
 }
 
 describe('loading the selected binding into the editor (FR-053)', () => {
-    it('repopulates every field, and readDraft answers with … (+2 cases)', async () => {
-        // case: repopulates every field, and readDraft answers with the stored row
+    it('repopulates every field, and readDraft answers with the stored row', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -247,7 +246,6 @@ describe('loading the selected binding into the editor (FR-053)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: demands a selection instead of inventing a row to edit
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -260,7 +258,6 @@ describe('loading the selected binding into the editor (FR-053)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses a row whose worktree option the editor cannot render (FR-003)
         {
             const service = await startWithAccount();
             await seedRow(service, { ...panelRow(), worktreeOption: 'new:feature' });
@@ -278,8 +275,7 @@ describe('loading the selected binding into the editor (FR-053)', () => {
 });
 
 describe('saving an edited binding through the whole-file grant (FR-050)', () => {
-    it('round-trips the edited fields through the real servi… (+2 cases)', async () => {
-        // case: round-trips the edited fields through the real service
+    it('round-trips the edited fields through the real service', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -320,7 +316,6 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: keeps the row byte-identical and renders the remediation when the service refuses
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -355,7 +350,6 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: leaves the list untouched when the draft no longer reads (repository shape)
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -404,8 +398,7 @@ function otherRow(): PanelBinding {
 }
 
 describe('the row click is the Edit affordance (FR-050, FR-081)', () => {
-    it('loads on a row click, and another row click swaps th… (+1 cases)', async () => {
-        // case: loads on a row click, and another row click swaps the edit to that row
+    it('loads on a row click, and another row click swaps the edit to that row', async () => {
         {
             const { host } = recordingHost();
             const rt = createTestRuntime(host);
@@ -439,7 +432,6 @@ describe('the row click is the Edit affordance (FR-050, FR-081)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: routes the primary control to the save once the row is loaded
         {
             const { host, puts } = recordingHost();
             const rt = createTestRuntime(host);
@@ -467,8 +459,7 @@ describe('the row click is the Edit affordance (FR-050, FR-081)', () => {
 });
 
 describe('New binding opens the editor on an empty draft (2026-10-01 review)', () => {
-    it('selects nothing, empties every field, and opens the … (+1 cases)', async () => {
-        // case: selects nothing, empties every field, and opens the editor
+    it('selects nothing, empties every field, and opens the editor', async () => {
         {
             const rt = createTestRuntime(recordingHost().host);
             rt.state.bindings.status = 'ready';
@@ -491,7 +482,6 @@ describe('New binding opens the editor on an empty draft (2026-10-01 review)', (
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: closes again on cancel, with nothing written
         {
             const rt = createTestRuntime(recordingHost().host);
             rt.state.bindings.status = 'ready';

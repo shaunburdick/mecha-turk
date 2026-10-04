@@ -42,8 +42,7 @@ function fixtureLedger(): PanelLedger {
 }
 
 describe('buildMountContext', () => {
-    it('treats missing storage as a first generation (+1 cases)', () => {
-        // case: treats missing storage as a first generation
+    it('treats missing storage as a first generation', () => {
         {
             const context = buildMountContext(null);
 
@@ -54,7 +53,6 @@ describe('buildMountContext', () => {
                 priorCreatedAt: null,
             });
         }
-        // case: continues the generation of a stored ledger
         {
             const context = buildMountContext(fixtureLedger());
 
@@ -67,12 +65,10 @@ describe('buildMountContext', () => {
 });
 
 describe('analyzeLastCloseGap', () => {
-    it('has no baseline when storage was empty (+3 cases)', () => {
-        // case: has no baseline when storage was empty
+    it('has no baseline when storage was empty', () => {
         {
             expect(analyzeLastCloseGap({ prior: null, mountedAt: at(60) })).toBeNull();
         }
-        // case: has no baseline for an empty ledger
         {
             const empty = createLedger({
                 correlationId: CORRELATION,
@@ -83,7 +79,6 @@ describe('analyzeLastCloseGap', () => {
 
             expect(analyzeLastCloseGap({ prior: empty, mountedAt: at(60) })).toBeNull();
         }
-        // case: uses the recorded closed entry as the baseline
         {
             let ledger = fixtureLedger();
             ledger = recordPhase(ledger, { phase: 'closed', at: at(10) });
@@ -94,7 +89,6 @@ describe('analyzeLastCloseGap', () => {
             expect(gap?.closedAt).toBe(at(10));
             expect(gap?.gapMs).toBe(GAP_MS);
         }
-        // case: falls back to the last stored entry when no closed entry survived
         {
             let ledger = fixtureLedger();
             ledger = appendEntry(ledger, { at: at(5), kind: 'poll', detail: { inspected: 1 } });

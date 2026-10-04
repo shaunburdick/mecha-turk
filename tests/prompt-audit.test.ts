@@ -131,8 +131,7 @@ function bindingDocument(prompt: string | null): readonly ObservedBinding[] {
 }
 
 describe('T-004 recordPromptChanges: one row per change, never the text (FR-051, AC-139)', () => {
-    it('appends exactly one row per difference, carrying eve… (+5 cases)', async () => {
-        // case: appends exactly one row per difference, carrying every required detail key
+    it('appends exactly one row per difference, carrying every required detail key', async () => {
         {
             const store = await tempStore();
             const log = capturingLogger();
@@ -162,7 +161,6 @@ describe('T-004 recordPromptChanges: one row per change, never the text (FR-051,
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: never carries the prompt text in any row (FR-053)
         {
             const store = await tempStore();
             const log = capturingLogger();
@@ -183,7 +181,6 @@ describe('T-004 recordPromptChanges: one row per change, never the text (FR-051,
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: records set, changed, and cleared with chained previous fingerprints (SC-125)
         {
             const store = await tempStore();
             const log = capturingLogger();
@@ -216,7 +213,6 @@ describe('T-004 recordPromptChanges: one row per change, never the text (FR-051,
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: writes nothing when a second observation sees the same file (SC-125)
         {
             const store = await tempStore();
             const log = capturingLogger();
@@ -231,7 +227,6 @@ describe('T-004 recordPromptChanges: one row per change, never the text (FR-051,
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: drops a binding removed from the document without recording a change
         {
             const store = await tempStore();
             const log = capturingLogger();
@@ -254,7 +249,6 @@ describe('T-004 recordPromptChanges: one row per change, never the text (FR-051,
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: carries no credential-shaped string in the rows it writes (NFR-121)
         {
             const store = await tempStore();
             const log = capturingLogger();
@@ -274,8 +268,7 @@ describe('T-004 recordPromptChanges: one row per change, never the text (FR-051,
 });
 
 describe('T-004 the baseline survives a restart (FR-051, AC-139)', () => {
-    it('re-seeds from the rows just written and chains previ… (+1 cases)', async () => {
-        // case: re-seeds from the rows just written and chains previousFingerprint
+    it('re-seeds from the rows just written and chains previousFingerprint', async () => {
         {
             const dir = await mkdtemp(join(tmpdir(), 'prompt-restart-'));
             temporaryDirs.push(dir);
@@ -305,7 +298,6 @@ describe('T-004 the baseline survives a restart (FR-051, AC-139)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: starts from an empty baseline on a store with no prompt rows
         {
             const store = await tempStore();
             const log = capturingLogger();
@@ -416,8 +408,7 @@ async function accountRows(store: ServiceStore): Promise<readonly AuditEntry[]> 
 }
 
 describe('T-023 recordAccountPromptChanges: one row per account change, never the text (FR-088)', () => {
-    it('appends exactly one row per difference, with the contract\'s four details (+4 cases)', async () => {
-        // case: appends exactly one row per difference, carrying every detail key
+    it('appends exactly one row per difference, with the contract\'s four details', async () => {
         {
             const store = await tempStore();
             const log = capturingLogger();
@@ -449,7 +440,6 @@ describe('T-023 recordAccountPromptChanges: one row per account change, never th
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: records set, changed, and cleared with chained previous fingerprints
         {
             const store = await tempStore();
             const log = capturingLogger();
@@ -480,7 +470,6 @@ describe('T-023 recordAccountPromptChanges: one row per account change, never th
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: never carries the prompt text in any row (FR-053)
         {
             const store = await tempStore();
             const log = capturingLogger();
@@ -499,7 +488,6 @@ describe('T-023 recordAccountPromptChanges: one row per account change, never th
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: writes nothing when a second observation sees the same document (SC-125)
         {
             const store = await tempStore();
             const log = capturingLogger();
@@ -517,7 +505,6 @@ describe('T-023 recordAccountPromptChanges: one row per account change, never th
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: forgets a dropped or explicitly absent account, so a re-add reads as a fresh set
         {
             const droppedStore = await tempStore();
             const absentStore = await tempStore();
@@ -665,8 +652,7 @@ describe('T-023 an account append failure warns and still advances the baseline 
 const NOT_A_FINGERPRINT = 'previous value that was never a fingerprint';
 
 describe('both lanes seed their baseline only from an `mtp-` fingerprint (004 FR-053)', () => {
-    it('reads a junk recorded fingerprint as null, so it is never echoed forward (+1 case)', async () => {
-        // case: the binding lane refuses a recorded value that is not a fingerprint
+    it('reads a junk recorded fingerprint as null, so it is never echoed forward', async () => {
         {
             const store = await tempStore();
             const log = capturingLogger();
@@ -708,7 +694,6 @@ describe('both lanes seed their baseline only from an `mtp-` fingerprint (004 FR
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: the account lane refuses a recorded value that is not a fingerprint
         {
             const store = await tempStore();
             const log = capturingLogger();

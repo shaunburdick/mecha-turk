@@ -337,8 +337,7 @@ function issuePage(count: number, updatedAt: string): string {
 }
 
 describe('one configuration read per cycle (006 T-007, FR-055)', () => {
-    it('reads config.json exactly once, however many binding… (+1 cases)', async () => {
-        // case: reads config.json exactly once, however many bindings the cycle walks
+    it('reads config.json exactly once, however many bindings the cycle walks', async () => {
         {
             await writeBindings({
                 store,
@@ -373,7 +372,6 @@ describe('one configuration read per cycle (006 T-007, FR-055)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: degrades an unreadable document to the documented defaults, with one warn line
         {
             await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
             await writeAccount(store, fixtureAccount());
@@ -465,8 +463,7 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
     /** A page that fills a 12-item cap, so paging asks for a second page. */
     const FULL_PAGE = issuePage(SAVED_PER_PAGE, UPDATED_IN_WINDOW);
 
-    it('asks for per_page=12 and stops at two pages, never a… (+2 cases)', async () => {
-        // case: asks for per_page=12 and stops at two pages, never a third
+    it('asks for per_page=12 and stops at two pages, never a third', async () => {
         {
             const { poller, requested } = realPoller(FULL_PAGE);
 
@@ -490,7 +487,6 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: stops after the first page when it does not fill the cap
         {
             const { poller, requested } = realPoller(issuePage(SAVED_PER_PAGE - 1, UPDATED_IN_WINDOW));
 
@@ -509,7 +505,6 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never asks for more than the field maximum, even at the ceiling
         {
             const { poller, requested } = realPoller(issuePage(1, UPDATED_IN_WINDOW));
 

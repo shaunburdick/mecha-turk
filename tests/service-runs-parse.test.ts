@@ -291,8 +291,7 @@ async function readBack(document: unknown): Promise<JsonReadResult<RunsDocument>
 }
 
 describe('writer → reader round-trip (real bytes)', () => {
-    it('reads back exactly what the writer persisted (+3 cases)', async () => {
-        // case: reads back exactly what the writer persisted
+    it('reads back exactly what the writer persisted', async () => {
         {
             const document = fixtureDocument([
                 fixtureRun(),
@@ -314,7 +313,6 @@ describe('writer → reader round-trip (real bytes)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: reads back a stacked three-tier snapshot at its own stack bound (FR-085)
         {
             const body = 'x'.repeat(6_004);
             const snapshot = {
@@ -334,7 +332,6 @@ describe('writer → reader round-trip (real bytes)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: keeps all eight dispatch states readable, blocked family included
         {
             const states = [
                 'pending',
@@ -361,7 +358,6 @@ describe('writer → reader round-trip (real bytes)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses the file rather than half-reading it when one row is wrong
         {
             const result = await readBack(fixtureDocument([fixtureRun(), fixtureRun({ attempt: 0 })]));
 
@@ -476,8 +472,7 @@ describe('fail-closed document and row validation', () => {
         },
     ];
 
-    it('refuses every malformed document in the table (+5 cases)', async () => {
-        // case: refuses every malformed document in the table
+    it('refuses every malformed document in the table', async () => {
         {
             for (const { name, document } of broken) {
                 expect(parseRunsDocument(document), `must refuse: ${name}`).toBeNull();
@@ -487,7 +482,6 @@ describe('fail-closed document and row validation', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a row whose lease, reservation, session, or verification is malformed
         {
             const patches: readonly (readonly [string, unknown])[] = [
                 ['lease', { leaseId: '', holder: 'panel', issuedAt: STAMP, expiresAt: STAMP, attempt: 1 }],
@@ -522,7 +516,6 @@ describe('fail-closed document and row validation', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: accepts every nullable sub-object written as null, and as absent
         {
             expect(parseRun(fixtureRun())).not.toBeNull();
             expect(parseRun(without('lease', 'reservation', 'session', 'verification'))).not.toBeNull();
@@ -538,7 +531,6 @@ describe('fail-closed document and row validation', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses contradictory attempt history that records a session on a non-dispatched run
         {
             const createdSessionAttempt = {
                 ...attemptRecord(),
@@ -557,7 +549,6 @@ describe('fail-closed document and row validation', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses an attempt session id that conflicts with the run session pointer
         {
             const session = {
                 sessionId: 'ses_pointer',
@@ -585,7 +576,6 @@ describe('fail-closed document and row validation', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: accepts a blocked state whose reason the panel has never produced
         {
             const run = parseRun(fixtureRun({
                 state: 'blocked:policy', stateReason: 'no policy allowed this dispatch' }));
@@ -594,8 +584,7 @@ describe('fail-closed document and row validation', () => {
         }
     });
 
-    it('accepts a reference that records a comment id as its… (+1 cases)', async () => {
-        // case: accepts a reference that records a comment id as its origin
+    it('accepts a reference that records a comment id as its origin', async () => {
         {
             const reference = { ...fixtureReference(), kind: 'mention' as const, origin: 'comment:4242' as const };
             const run = parseRun(fixtureRun({ sourceReferences: [reference] }));
@@ -606,7 +595,6 @@ describe('fail-closed document and row validation', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: reads a capped run whose overflow is counted rather than hidden (T-038)
         {
             const capped = withReferences(MAX_SOURCE_REFERENCES + 7);
             const run = parseRun(capped);
@@ -641,8 +629,7 @@ function attributedReference(overrides: Partial<SourceReference> = {}): SourceRe
 }
 
 describe('the run model gains the actor and the policy shape (003 FR-079, FR-080)', () => {
-    it('round-trips both members on real bytes (+4 cases)', async () => {
-        // case: round-trips an attributed reference and both policy words
+    it('round-trips both members on real bytes', async () => {
         {
             const reference = attributedReference({ actorAttribution: 'subject-author' });
             const document = fixtureDocument([
@@ -662,7 +649,6 @@ describe('the run model gains the actor and the policy shape (003 FR-079, FR-080
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: reads a run stored before either member existed (003 FR-080's reach)
         {
             const row = without('actorPolicy');
             row.sourceReferences = [{ ...fixtureReference() }];
@@ -680,7 +666,6 @@ describe('the run model gains the actor and the policy shape (003 FR-079, FR-080
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses an unknown basis and an unusable login on a stored reference
         {
             const bases: readonly unknown[] = ['subject_author', 'none', '', 7, null];
             for (const actorAttribution of bases) {
@@ -704,7 +689,6 @@ describe('the run model gains the actor and the policy shape (003 FR-079, FR-080
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses an `actorPolicy` outside the closed two-word union
         {
             const stored: readonly unknown[] = ['Open', 'everyone', '', 1, {}, []];
             for (const actorPolicy of stored) {

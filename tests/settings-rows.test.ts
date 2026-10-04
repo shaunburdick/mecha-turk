@@ -492,8 +492,7 @@ function settingsSlice(overrides: Partial<SettingsTabState> = {}): SettingsTabSt
 }
 
 describe('the panel source carries no configuration literal (006 AC-106)', () => {
-    it('carries no unit phrase, no declaration-shaped bound,… (+4 cases)', async () => {
-        // case: carries no unit phrase, no declaration-shaped bound, and no level set
+    it('carries no unit phrase, no declaration-shaped bound, and no level set', async () => {
         {
             const sources = await panelSources();
             const offending = sources.filter((source) => {
@@ -504,7 +503,6 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
 
             expect(offending.map((source) => source.name)).toEqual([]);
         }
-        // case: carries the single documented default exception, pinned to the service default
         {
             const sources = await panelSources();
             const occurrences = sources.flatMap((source) =>
@@ -524,14 +522,12 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
             expect(occurrences[0]?.value).toBe(DEFAULT_CONFIG.expectedAgent);
             expect(DEFAULT_EXPECTED_AGENT).toBe(DEFAULT_CONFIG.expectedAgent);
         }
-        // case: never attaches a take-effect class to a field
         {
             const sources = await panelSources();
             const offending = sources.filter((source) => configurationLiteralsIn(source).attachedClasses.length > 0);
 
             expect(offending.map((source) => source.name)).toEqual([]);
         }
-        // case: never claims a value changes nothing in this build
         {
             const sources = await panelSources();
             const forbidden = /changes nothing in this build|no effect in this build/i;
@@ -543,7 +539,6 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
             // truth can be mistaken for the projection.
             expect(sources.filter((source) => source.text.includes('SETTINGS_FIELDS'))).toEqual([]);
         }
-        // case: bites: every rule flags a pasted stand-in
         {
             const found = configurationLiteralsIn(standInSnippet());
 
@@ -562,8 +557,7 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
 });
 
 describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () => {
-    it('renders twelve rows against the 006-only fixture and fourteen… (+6 cases)', () => {
-        // case: renders twelve rows against the 006-only fixture and fourteen against the combined one
+    it('renders twelve rows against the 006-only fixture and fourteen against the combined one', () => {
         {
             expect(settingsRows(specs006OnlyEnvelope())).toHaveLength(SPECS_006_FIELDS.length);
             const combined = settingsRows(combinedEnvelope());
@@ -572,7 +566,6 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             // projection, which is what lets 003's two fields arrive untouched.
             expect(combined.length).toBe(Object.keys(DEFAULT_CONFIG).length);
         }
-        // case: gives every one of 006\'s twelve fields its five attributes
         {
             const envelope = combinedEnvelope();
             const rows = settingsRows(envelope);
@@ -604,7 +597,6 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
                 expect(row?.text).toContain(`default ${String(descriptor?.default)}`);
             }
         }
-        // case: marks a row the stored document lacked as default, not as configured
         {
             const envelope = envelopeFor(envelopeBody({ defaultsApplied: ['expectedAgent'] }));
             const row = settingsRows(envelope).find((candidate) => candidate.field === 'expectedAgent');
@@ -615,7 +607,6 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             // baseline the operator never configured (FR-028, NFR-112).
             expect(row?.text).not.toContain('project-manager');
         }
-        // case: renders an unreadable value with its remediation and never a default (AC-116)
         {
             const rows = rowsFor(envelopeBody({ config: { intervalMs: 'soon', perPage: 12 } }));
             const interval = rows.find((row) => row.field === 'intervalMs');
@@ -630,7 +621,6 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             // The field beside it still renders — one bad field hides nothing.
             expect(rows.find((row) => row.field === 'perPage')?.text).toContain('bounds 1–30');
         }
-        // case: renders a member with no descriptor as this version not showing it (AC-115)
         {
             const rows = rowsFor(
                 envelopeBody({ config: { ...DEFAULT_CONFIG, expectedAgent: 'other-agent' }, fields: [] }),
@@ -643,7 +633,6 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             expect(agent?.text).toContain('other-agent');
             expect(agent?.text).not.toContain('bounds');
         }
-        // case: the prompt row arrives from the descriptor, first in the service's order (004 T-030)
         {
             const envelope = specs006OnlyEnvelope();
             const rows = settingsRows(envelope);
@@ -686,7 +675,6 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             expect(grown).toHaveLength(configSchema().length + 1);
             expect(grown[grown.length - 1]?.field).toBe('futureBudget');
         }
-        // case: an empty string field reads *not set* beside the declared format guidance (FR-064, R-4)
         {
             const descriptor = descriptorOf('startingPrompt', combinedEnvelope());
             if (descriptor.kind !== 'string') {
@@ -714,8 +702,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
 });
 
 describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)', () => {
-    it('mounts one control per declared field, named with it… (+8 cases)', async () => {
-        // case: mounts one control per declared field, named with its unit and boundary
+    it('mounts one control per declared field, named with its unit and boundary', async () => {
         {
             const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
             const controls = mounts.log.filter(
@@ -744,7 +731,6 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             )).toEqual([...LOG_LEVEL_VALUES]);
             view.dispose();
         }
-        // case: the string field's empty box reads *not set*, with the declared guidance under it (004 T-030)
         {
             const descriptor = descriptorOf('startingPrompt', combinedEnvelope());
             if (descriptor.kind !== 'string') {
@@ -788,7 +774,6 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect(typeof props.onChange).toBe('function');
             view.dispose();
         }
-        // case: a set tier puts the value in that same slot (004 T-030, 006 FR-081)
         {
             const prompt = 'Review every change against the ticket before approving.';
             const view = await mountSettings({
@@ -805,7 +790,6 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect(props.value).toBe(prompt);
             view.dispose();
         }
-        // case: `multiline` rides the descriptor, so the other string field stays single-line
         {
             const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
             const control = mounts.log.find(
@@ -823,7 +807,6 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect(props.rows).toBeUndefined();
             view.dispose();
         }
-        // case: gives an undocumented member a line, and no affordance at all (AC-115)
         {
             const view = await mountSettings({
                 answer: configAnswer(envelopeBody({ config: { ...DEFAULT_CONFIG, surprise: 1 } })),
@@ -838,7 +821,6 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             ))).toBe(true);
             view.dispose();
         }
-        // case: says what a save will do while one is possible (FR-045)
         {
             const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
 
@@ -849,7 +831,6 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect(view.requests.map((request) => `${request.method} ${request.path}`)).toEqual(['GET /v1/config']);
             view.dispose();
         }
-        // case: AC-132: with the service unreachable, keeps static content and names the cause
         {
             const view = await mountSettings({
                 answer: () => {
@@ -863,7 +844,6 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect(renderedRows(view.strings)).toEqual([]);
             view.dispose();
         }
-        // case: reads twice and never writes: the re-read is a read (FR-014, NFR-104)
         {
             const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
             expect(view.requests).toHaveLength(1);
@@ -880,7 +860,6 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             expect(view.requests.every((request) => request.method === 'GET')).toBe(true);
             view.dispose();
         }
-        // case: keeps the configured value for itself: the Status slice stays untouched (FR-039)
         {
             const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
 

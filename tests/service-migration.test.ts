@@ -191,8 +191,7 @@ async function seedLegacyQueue(): Promise<readonly { readonly id: string }[]> {
 }
 
 describe('runs.json first-read adoption', () => {
-    it('maps every legacy branch without changing queue byte… (+3 cases)', async () => {
-        // case: maps every legacy branch without changing queue bytes, windows, or quarantine state
+    it('maps every legacy branch without changing queue bytes, windows, or quarantine state', async () => {
         {
             const rows = await seedLegacyQueue();
             // The gate denies a run whose binding it cannot read (003 FR-076,
@@ -245,7 +244,6 @@ describe('runs.json first-read adoption', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: is idempotent across a second store handle and never repeats migration audit rows
         {
             await seedLegacyQueue();
             await ensureRunsAdopted({ store, log: LOGGER });
@@ -262,7 +260,6 @@ describe('runs.json first-read adoption', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: recovers a migration audit missed after the adopted run document was written
         {
             await seedLegacyQueue();
             const interruptedStore: ServiceStore = {
@@ -297,7 +294,6 @@ describe('runs.json first-read adoption', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses to re-adopt state-free run-linked rows when runs.json was lost
         {
             const event = createEvent(snapshot(77));
             const [linked] = await enqueueEvents({ store, log: LOGGER, incoming: [event] });

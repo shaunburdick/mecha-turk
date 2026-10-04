@@ -142,8 +142,7 @@ function stateWith(slot: { readonly lastScanAt: string | null; readonly lastErro
 }
 
 describe('parseStoredScanState (never-scanned slot, MVP fix 1)', () => {
-    it('round-trips the null lastScanAt the loop writes with… (+2 cases)', async () => {
-        // case: round-trips the null lastScanAt the loop writes with its skip reason
+    it('round-trips the null lastScanAt the loop writes with its skip reason', async () => {
         {
             // The operator's exact on-disk file, as it arrives after a JSON load.
             const stored = { bindings: { [BINDING_ID]: { lastScanAt: null, lastError: SKIP_REASON } } };
@@ -158,7 +157,6 @@ describe('parseStoredScanState (never-scanned slot, MVP fix 1)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: round-trips a completed scan stamp alongside its reason
         {
             const stored = { bindings: { [BINDING_ID]: { lastScanAt: SCANNED_AT, lastError: null } } };
 
@@ -168,7 +166,6 @@ describe('parseStoredScanState (never-scanned slot, MVP fix 1)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: still refuses a genuinely malformed slot so the store quarantines it
         {
             const malformed: readonly unknown[] = [
                 { bindings: { [BINDING_ID]: { lastScanAt: 1_758_950_400, lastError: null } } },
@@ -186,8 +183,7 @@ describe('parseStoredScanState (never-scanned slot, MVP fix 1)', () => {
 });
 
 describe('readScanState (real store, no more per-minute quarantine files)', () => {
-    it('reads the loop-written file in place, leaving no qua… (+1 cases)', async () => {
-        // case: reads the loop-written file in place, leaving no quarantine file behind
+    it('reads the loop-written file in place, leaving no quarantine file behind', async () => {
         {
             await plantScanState({ bindings: { [BINDING_ID]: { lastScanAt: null, lastError: SKIP_REASON } } });
             const { log, lines } = capturingLogger();
@@ -202,7 +198,6 @@ describe('readScanState (real store, no more per-minute quarantine files)', () =
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: quarantines a malformed file and answers an empty state instead
         {
             await plantScanState({ bindings: { [BINDING_ID]: { lastScanAt: 42 } } });
             const { log, lines } = capturingLogger();
@@ -217,8 +212,7 @@ describe('readScanState (real store, no more per-minute quarantine files)', () =
 });
 
 describe('windowFor (never-scanned opens a replay, scanned opens widened)', () => {
-    it('opens with no window when no scan ever completed — a… (+2 cases)', async () => {
-        // case: opens with no window when no scan ever completed — a full replay
+    it('opens with no window when no scan ever completed — a full replay', async () => {
         {
             // Product decision 2026-09-28: pre-binding assignments must work, so
             // the first scan lists every open issue instead of a createdAt
@@ -231,7 +225,6 @@ describe('windowFor (never-scanned opens a replay, scanned opens widened)', () =
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: opens at the recorded stamp minus the configured overlap (006 FR-059(a))
         {
             const scanned = stateWith({ lastScanAt: SCANNED_AT, lastError: null });
 
@@ -243,7 +236,6 @@ describe('windowFor (never-scanned opens a replay, scanned opens widened)', () =
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: opens with no window for a binding the state file never mentions
         {
             const scanned = stateWith(null);
 

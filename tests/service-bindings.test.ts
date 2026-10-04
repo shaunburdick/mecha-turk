@@ -162,8 +162,7 @@ async function plantScanState(
 }
 
 describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
-    it('answers rows the panel parser reads, with the never-… (+3 cases)', async () => {
-        // case: answers rows the panel parser reads, with the never-scanned slot intact
+    it('answers rows the panel parser reads, with the never-scanned slot intact', async () => {
         {
             const service = await startWithAccount();
             await grantBindings(service, [bindingFixture()]);
@@ -193,7 +192,6 @@ describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: parses the planted file in place, leaving no quarantine file behind (FIX 1)
         {
             const service = await startWithAccount();
             await grantBindings(service, [bindingFixture()]);
@@ -206,7 +204,6 @@ describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: carries status rows in the PUT answer so a grant cannot blank the rows
         {
             const service = await startWithAccount();
             await plantScanState(service, { lastScanAt: null, lastError: SKIP_REASON });
@@ -218,7 +215,6 @@ describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: keeps the registered credential out of the bindings answer
         {
             const service = await startWithAccount();
             await grantBindings(service, [bindingFixture()]);
@@ -231,8 +227,7 @@ describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
 });
 
 describe('PUT /v1/bindings (the M7 reviewRequest trigger)', () => {
-    it('stores a submitted reviewRequest flag and answers it… (+2 cases)', async () => {
-        // case: stores a submitted reviewRequest flag and answers it back
+    it('stores a submitted reviewRequest flag and answers it back', async () => {
         {
             const service = await startWithAccount();
             const binding = bindingFixture();
@@ -249,7 +244,6 @@ describe('PUT /v1/bindings (the M7 reviewRequest trigger)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: reads a binding stored before M7 as `false`, without quarantining the file
         {
             const service = await startWithAccount();
             // The fixture's triggers are the pre-M7 shape: no `reviewRequest` key.
@@ -266,7 +260,6 @@ describe('PUT /v1/bindings (the M7 reviewRequest trigger)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses a reviewRequest that is not a boolean, naming the field
         {
             const service = await startWithAccount();
             const binding = bindingFixture();
@@ -305,8 +298,7 @@ async function plantBindings(service: TestService, bindings: readonly unknown[])
 }
 
 describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–FR-019)', () => {
-    it('parses a file written before the field existed, with… (+4 cases)', async () => {
-        // case: parses a file written before the field existed, with no quarantine (AC-142)
+    it('parses a file written before the field existed, with no quarantine', async () => {
         {
             const service = await startWithAccount();
             // Exactly what a pre-004 installation holds: no `startingPrompt` key.
@@ -326,7 +318,6 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: reads a stored null as unset and a stored string as the prompt (FR-012, FR-017)
         {
             const service = await startWithAccount();
             const cleared = { ...bindingFixture(), bindingId: 'bnd-cleared', startingPrompt: null };
@@ -350,7 +341,6 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: quarantines a stored non-text prompt, logging the reason and yielding no bindings (AC-141)
         {
             for (const value of NON_TEXT_PROMPTS) {
                 const service = await startWithAccount();
@@ -378,7 +368,6 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: reports a bad prompt and a bad repository in one 422 (FR-027)
         {
             const service = await startWithAccount();
             const binding = { ...bindingFixture(), repository: BAD_REPOSITORY, startingPrompt: 42 };
@@ -406,7 +395,6 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses a credential-shaped prompt at the write boundary, storing nothing (AC-133)
         {
             const service = await startWithAccount();
             const secret = `ghp_${'e'.repeat(30)}`;
@@ -518,8 +506,7 @@ describe('PUT /v1/bindings: a refused write appends zero audit rows (AC-133)', (
 });
 
 describe('T-005 PUT /v1/bindings: omission preserves, an explicit value sets (AC-137)', () => {
-    it('preserves every stored prompt on a panel-shaped whol… (+3 cases)', async () => {
-        // case: preserves every stored prompt on a panel-shaped whole-file save (AC-137)
+    it('preserves every stored prompt on a panel-shaped whole-file save', async () => {
         {
             const service = await startWithAccount();
             await putBindings(service, [
@@ -547,7 +534,6 @@ describe('T-005 PUT /v1/bindings: omission preserves, an explicit value sets (AC
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: clears exactly the binding an explicit empty value names (AC-137)
         {
             const service = await startWithAccount();
             await putBindings(service, [
@@ -571,7 +557,6 @@ describe('T-005 PUT /v1/bindings: omission preserves, an explicit value sets (AC
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: refuses an invalid prompt with no write, no row, and the previous prompt in force
         {
             const service = await startWithAccount();
             await putBindings(service, [panelRow({ startingPrompt: STORED_PROMPT })]);
@@ -592,7 +577,6 @@ describe('T-005 PUT /v1/bindings: omission preserves, an explicit value sets (AC
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: writes exactly three rows across set, change, and clear, chained (SC-125)
         {
             const service = await startWithAccount();
 
@@ -619,8 +603,7 @@ describe('T-005 PUT /v1/bindings: omission preserves, an explicit value sets (AC
 });
 
 describe('T-005 a hand edit is observed once, by whoever actually made it (AC-137, SC-125)', () => {
-    it('records an out-of-panel edit once with actor service… (+1 cases)', async () => {
-        // case: records an out-of-panel edit once with actor service, and a racing PUT adds nothing
+    it('records an out-of-panel edit once with actor service, and a racing PUT adds nothing', async () => {
         {
             const service = await startWithAccount();
             await putBindings(service, [panelRow({ startingPrompt: STORED_PROMPT })]);
@@ -660,7 +643,6 @@ describe('T-005 a hand edit is observed once, by whoever actually made it (AC-13
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: writes zero rows when a restarted service sees an unchanged file
         {
             const first = await startWithAccount();
             await putBindings(first, [panelRow({ startingPrompt: STORED_PROMPT })]);
@@ -782,8 +764,7 @@ async function quarantines(service: TestService): Promise<readonly string[]> {
 }
 
 describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', () => {
-    it('reads a pre-field document with zero bytes rewritten… (+4 cases)', async () => {
-        // case: absent reads valid, the key stays omitted, and the file is byte-identical afterwards
+    it('absent reads valid, the key stays omitted, and the file is byte-identical afterwards', async () => {
         {
             const service = await startWithAccount();
             // Exactly what an installation from before this field holds.
@@ -801,7 +782,6 @@ describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', ()
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: ['Alice','bob'] round-trips byte-identically and matches case-insensitively
         {
             const service = await startWithAccount();
             await putBindings(service, [panelRow({ allowedUsers: TYPED_USERS })]);
@@ -822,7 +802,6 @@ describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', ()
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: an absent list is the open state, and an unreadable actor is nobody either way
         {
             const service = await startWithAccount();
             // A binding stored before the field existed *is* the open state, so
@@ -844,7 +823,6 @@ describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', ()
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: [] is refused, naming both honest alternatives, with nothing of it echoed
         {
             const service = await startWithAccount();
             await putBindings(service, [panelRow({ allowedUsers: TYPED_USERS })]);
@@ -871,7 +849,6 @@ describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', ()
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: accepts a [bot] login, the longest legal login, and a 42-entry list
         {
             const service = await startWithAccount();
             const answer = await putBindings(service, [
@@ -894,8 +871,7 @@ describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', ()
 });
 
 describe('002 FR-024 the allow-list refusals: one rule set, every issue at once', () => {
-    it('refuses a non-array and each bad element naming the field… (+2 cases)', async () => {
-        // case: a non-array and every bad element are refused, naming `allowedUsers`
+    it('a non-array and every bad element are refused, naming `allowedUsers`', async () => {
         {
             for (const [label, value] of NON_ARRAY_USERS) {
                 const service = await startWithAccount();
@@ -929,7 +905,6 @@ describe('002 FR-024 the allow-list refusals: one rule set, every issue at once'
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: a bad list and a bad repository arrive in one 422, and nothing is written
         {
             const service = await startWithAccount();
             await putBindings(service, [
@@ -954,7 +929,6 @@ describe('002 FR-024 the allow-list refusals: one rule set, every issue at once'
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: a hand-edited stored [] is refused on read, by the same rule set
         {
             const service = await startWithAccount();
             // The hand edit the contract forbids an operator from making: an empty

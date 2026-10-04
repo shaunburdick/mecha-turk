@@ -140,8 +140,7 @@ async function withRelay(rt: PanelRuntime, scenario: () => Promise<void> | void)
 }
 
 describe('relay arming (bind after mount / mount-time read failure)', () => {
-    it('arms when the first binding is created in an otherwi… (+3 cases)', async () => {
-        // case: arms when the first binding is created in an otherwise empty session
+    it('arms when the first binding is created in an otherwise empty session', async () => {
         {
             // The mount-time read answers an empty list, then the operator binds
             // a repository: the grant must arm what the mount could not see.
@@ -168,7 +167,6 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
                 expect(service.requests).toContain(`GET ${EVENTS_PENDING_PATH}`);
             });
         }
-        // case: arms on a later read after the mount-time bindings read failed
         {
             // First-run shape: the service is still spawning, so the mount-time
             // GET answers 503. A Refresh that later succeeds must join the loop.
@@ -191,7 +189,6 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
                 expect(rt.relayArmed).toBe(true);
             });
         }
-        // case: stays unarmed when a later read still answers no bindings
         {
             // The read succeeds, so the failure branch is ruled out: only an
             // empty list keeps the relay out of the loop.
@@ -208,7 +205,6 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
                 expect(service.requests).not.toContain(`GET ${EVENTS_PENDING_PATH}`);
             });
         }
-        // case: arms exactly once across a grant and a subsequent read
         {
             // `startRelayPolling` is idempotent: the second arming site must not
             // stack a second interval on the same runtime.

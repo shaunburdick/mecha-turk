@@ -662,8 +662,7 @@ function leaseOf(run: Run): string {
 }
 
 describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', () => {
-    it('moves the run to starting, records the reservation, … (+4 cases)', async () => {
-        // case: moves the run to starting, records the reservation, and answers the token
+    it('moves the run to starting, records the reservation, and answers the token', async () => {
         {
             const claimed = await seedAndClaim(1);
 
@@ -687,7 +686,6 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: derives the token from the run key and attempt, byte-for-byte
         {
             const claimed = await seedAndClaim(2);
             const outcome = await reserve(claimed);
@@ -703,7 +701,6 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: writes a dispatch.reserved row naming the lease, attempt, and attachment
         {
             const claimed = await seedAndClaim(3);
 
@@ -716,7 +713,6 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: arms the result deadline from the configured window
         {
             const claimed = await seedAndClaim(4);
 
@@ -729,7 +725,6 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: answers 404 for a run this service does not have
         {
             const outcome = await reserve({
                 correlationId: 'mt-run-000000000000000000000000',
@@ -742,8 +737,7 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
 });
 
 describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
-    it('refuses an expired lease as stale, without minting a… (+5 cases)', async () => {
-        // case: refuses an expired lease as stale, without minting anything
+    it('refuses an expired lease as stale, without minting anything', async () => {
         {
             const claimed = await seedAndClaim(5);
 
@@ -761,7 +755,6 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a lease belonging to another attempt
         {
             const claimed = await seedAndClaim(6);
 
@@ -775,7 +768,6 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a lease this run never held
         {
             const claimed = await seedAndClaim(7);
 
@@ -789,7 +781,6 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a second reserve as already-reserved, naming attempt and deadline
         {
             const claimed = await seedAndClaim(8);
             await reserve(claimed);
@@ -812,7 +803,6 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a leaseless dispatched run by naming the session, not the absent lease
         {
             // AC-112 on the natural path: a dispatched run holds **no lease** — an
             // applied result clears it — so the session check has to be asked before
@@ -837,7 +827,6 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a live-lease run that is not claimed as invalid-transition, naming the state
         {
             // Contract §1's verdict order is session → lease → reservation → state
             // (T-042e), so `invalid-transition` is reachable only for a run whose
@@ -858,8 +847,7 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         }
     });
 
-    it('refuses a leaseless run as stale, because the sessio… (+1 cases)', async () => {
-        // case: refuses a leaseless run as stale, because the session check finds no session first
+    it('refuses a leaseless run as stale, because the session check finds no session first', async () => {
         {
             // The other half of the ordering, and the honest answer: a run in
             // `failed`, `unconfirmed`, or `dead-lettered` holds no lease, so there is
@@ -882,7 +870,6 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: writes exactly one dispatch.refused row per refusal, naming the operation
         {
             const claimed = await seedAndClaim(10);
             await reserve({ ...claimed, now: AFTER_LEASE });
@@ -907,8 +894,7 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
 });
 
 describe('T-012 result settles the reservation in one write (FR-040, constraint)', () => {
-    it('records a session as dispatched, consumed, with a se… (+3 cases)', async () => {
-        // case: records a session as dispatched, consumed, with a session ref
+    it('records a session as dispatched, consumed, with a session ref', async () => {
         {
             const claimed = await seedAndClaim(11);
             const authorized = await reserve(claimed);
@@ -936,7 +922,6 @@ describe('T-012 result settles the reservation in one write (FR-040, constraint)
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: records a problem as failed and never as dispatched (FR-040, AC-113)
         {
             const claimed = await seedAndClaim(12);
             const authorized = await reserve(claimed);
@@ -962,7 +947,6 @@ describe('T-012 result settles the reservation in one write (FR-040, constraint)
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: writes a dispatch.result row whose decision is failed for a problem
         {
             const claimed = await seedAndClaim(13);
             const authorized = await reserve(claimed);
@@ -986,7 +970,6 @@ describe('T-012 result settles the reservation in one write (FR-040, constraint)
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: leaves the run retryable after a problem, not wedged
         {
             const claimed = await seedAndClaim(14);
             const authorized = await reserve(claimed);
@@ -1009,8 +992,7 @@ describe('T-012 result settles the reservation in one write (FR-040, constraint)
 });
 
 describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', () => {
-    it('is idempotent ten times over: one result row, nine d… (+5 cases)', async () => {
-        // case: is idempotent ten times over: one result row, nine duplicate rows, stable state
+    it('is idempotent ten times over: one result row, nine duplicate rows, stable state', async () => {
         {
             const claimed = await seedAndClaim(15);
             const authorized = await reserve(claimed);
@@ -1041,7 +1023,6 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a token this run never recorded, as stale
         {
             const claimed = await seedAndClaim(16);
             const authorized = await reserve(claimed);
@@ -1064,7 +1045,6 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a report carrying a superseded attempt
         {
             const claimed = await seedAndClaim(17);
             const authorized = await reserve(claimed);
@@ -1087,7 +1067,6 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a conflicting repeat rather than overwriting a recorded session
         {
             const claimed = await seedAndClaim(18);
             const authorized = await reserve(claimed);
@@ -1111,7 +1090,6 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a repeated problem carrying a different cause
         {
             const claimed = await seedAndClaim(19);
             const authorized = await reserve(claimed);
@@ -1130,7 +1108,6 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: applies an unconsumed report from starting even after the lease expired
         {
             const claimed = await seedAndClaim(25);
             const authorized = await reserve(claimed);
@@ -1152,8 +1129,7 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
         }
     });
 
-    it('applies an unconsumed report from unconfirmed, recon… (+1 cases)', async () => {
-        // case: applies an unconsumed report from unconfirmed, reconciling the run
+    it('applies an unconsumed report from unconfirmed, reconciling the run', async () => {
         {
             const claimed = await seedAndClaim(26);
             const authorized = await reserve(claimed);
@@ -1180,7 +1156,6 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a second reservation token over a newer one
         {
             const claimed = await seedAndClaim(27);
             const authorized = await reserve(claimed);
@@ -1206,8 +1181,7 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
 });
 
 describe('T-012 abandon is honest and retryable (FR-026)', () => {
-    it('records a reserved attempt that created no session a… (+2 cases)', async () => {
-        // case: records a reserved attempt that created no session as failed
+    it('records a reserved attempt that created no session as failed', async () => {
         {
             const claimed = await seedAndClaim(30);
             const authorized = await reserve(claimed);
@@ -1234,7 +1208,6 @@ describe('T-012 abandon is honest and retryable (FR-026)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: writes a dispatch.abandoned row with the no-session decision
         {
             const claimed = await seedAndClaim(31);
             const authorized = await reserve(claimed);
@@ -1259,7 +1232,6 @@ describe('T-012 abandon is honest and retryable (FR-026)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: is idempotent: a repeated abandon is a duplicate, not a second failure
         {
             const claimed = await seedAndClaim(32);
             const authorized = await reserve(claimed);
@@ -1284,8 +1256,7 @@ describe('T-012 abandon is honest and retryable (FR-026)', () => {
 });
 
 describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)', () => {
-    it('blocks from claimed under the live lease, consuming … (+5 cases)', async () => {
-        // case: blocks from claimed under the live lease, consuming nothing
+    it('blocks from claimed under the live lease, consuming nothing', async () => {
         {
             const claimed = await seedAndClaim(40);
 
@@ -1308,7 +1279,6 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: writes a run.blocked row naming the cause, prior state, and guidance
         {
             const claimed = await seedAndClaim(41);
 
@@ -1333,7 +1303,6 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: leaves a blocked run untouched by ten sweep ticks
         {
             const claimed = await seedAndClaim(42);
             await block({ claim: claimed, blockedReason: 'policy', detail: 'no policy profile matched' });
@@ -1352,7 +1321,6 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never records a blocked run as dispatched, even with a session-shaped id present
         {
             const claimed = await seedAndClaim(43);
 
@@ -1366,7 +1334,6 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a block under an expired lease, as stale
         {
             const claimed = await seedAndClaim(44);
 
@@ -1391,7 +1358,6 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a live-lease run that is not claimed as invalid-transition, naming the state
         {
             // Same shape as the reserve's: the lease is valid and current, so the
             // refusal is about the state rather than the authorization. A guard that
@@ -1433,8 +1399,7 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
 });
 
 describe('T-011..T-013 no audit row ever carries a dispatch token value (FR-061)', () => {
-    it('scans every row this wave writes for a token-shaped … (+1 cases)', async () => {
-        // case: scans every row this wave writes for a token-shaped string
+    it('scans every row this wave writes for a token-shaped string', async () => {
         {
             const reserved = await seedAndClaim(50);
             const authorized = await reserve(reserved);
@@ -1476,7 +1441,6 @@ describe('T-011..T-013 no audit row ever carries a dispatch token value (FR-061)
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: names each authorization by a distinct fingerprint
         {
             const first = await seedAndClaim(54);
             const firstToken = await reserve(first);
@@ -1503,8 +1467,7 @@ describe('T-011..T-013 no audit row ever carries a dispatch token value (FR-061)
 
 
 describe('T-011..T-013 every route answers the documented validation failures (contract §4)', () => {
-    it('refuses a reserve whose body contradicts the path, n… (+5 cases)', async () => {
-        // case: refuses a reserve whose body contradicts the path, naming the field
+    it('refuses a reserve whose body contradicts the path, naming the field', async () => {
         {
             // FR-051: the service mints the id; a panel that substitutes one is not
             // talking about the run it addressed, so the request is refused rather
@@ -1530,7 +1493,6 @@ describe('T-011..T-013 every route answers the documented validation failures (c
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a result carrying both a session and a problem
         {
             const service = await startTestService();
 
@@ -1556,7 +1518,6 @@ describe('T-011..T-013 every route answers the documented validation failures (c
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a result carrying neither a session nor a problem
         {
             const service = await startTestService();
 
@@ -1572,7 +1533,6 @@ describe('T-011..T-013 every route answers the documented validation failures (c
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses an abandon with no reason, since the row would be unreadable
         {
             const service = await startTestService();
 
@@ -1588,7 +1548,6 @@ describe('T-011..T-013 every route answers the documented validation failures (c
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a blocked reason outside the four declared causes
         {
             const service = await startTestService();
 
@@ -1613,7 +1572,6 @@ describe('T-011..T-013 every route answers the documented validation failures (c
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: accepts each of the five declared blocked reasons
         {
             const service = await startTestService();
 
@@ -1655,8 +1613,7 @@ describe('T-011..T-013 every route answers the documented validation failures (c
 });
 
 describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC-119)', () => {
-    it('answers 200 with auditWritten false and keeps the st… (+2 cases)', async () => {
-        // case: answers 200 with auditWritten false and keeps the state change when the append fails
+    it('answers 200 with auditWritten false and keeps the state change when the append fails', async () => {
         {
             const claimed = await seedAndClaim(80);
             const failing = {
@@ -1694,7 +1651,6 @@ describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: logs the failure naming the run, so the degradation is diagnosable
         {
             const claimed = await seedAndClaim(81);
             LOG_LINES.length = 0;
@@ -1726,7 +1682,6 @@ describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: reports auditWritten false for a refusal whose own row failed
         {
             const claimed = await seedAndClaim(82);
 
@@ -1757,8 +1712,7 @@ describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC
 });
 
 describe('T-012 one live authorization survives concurrent reserves (AC-109, AC-112)', () => {
-    it('lets exactly one of two concurrent reserves through (+1 cases)', async () => {
-        // case: lets exactly one of two concurrent reserves through
+    it('lets exactly one of two concurrent reserves through', async () => {
         {
             const claimed = await seedAndClaim(83);
 
@@ -1796,7 +1750,6 @@ describe('T-012 one live authorization survives concurrent reserves (AC-109, AC-
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: lets exactly one of two concurrent identical results through
         {
             const claimed = await seedAndClaim(84);
             const authorized = await reserve(claimed);
@@ -1949,7 +1902,6 @@ async function reserveAs(input: {
 
 describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)', () => {
     it('answers 409 actor-not-allowed, mints nothing, and leaves the run byte-identical', async () => {
-        // case: refuses the one denied actor, with the full detail set and no permitted login
         {
             await setPolicy([PERMITTED]);
             const claim = await seedAndClaim(90, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
@@ -1996,7 +1948,6 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: states a legacy basis's provenance, and asserts nothing false about
         // GitHub (002 NFR-011 as re-cut at v1.12.0)
         {
             await setPolicy([PERMITTED]);
@@ -2025,7 +1976,6 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses an unreadable actor even under the **open** policy (FR-080)
         {
             // `open` is permission for a named human actor, not for nobody: this
             // run's only reference records no attribution at all, which is only
@@ -2047,7 +1997,6 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a bot-shaped actor even when the list names it (FR-080)
         {
             // The `[bot]` entry is legal in the list (plan D7) and inert: no bot
             // event is ever created for it to admit (002 FR-045(a)/(c)), so a
@@ -2064,7 +2013,6 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
     });
 
     it('denies when the policy cannot be read, in one code (plan D15)', async () => {
-        // case: an absent bindings document is a denial, never a silent open policy
         {
             await rm(join(tempRoot, 'store', 'bindings.json'), { force: true });
             const { outcome } = await reserveAs({ issueNumber: 94, login: DENIED_DIRECT, basis: DIRECT_BASIS });
@@ -2093,7 +2041,6 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: a binding the run does not name is the other unreadable-policy case,
         // and says **which** one it was rather than blaming an unreadable file
         {
             await writeOpenBinding({ store, bindingId: 'bnd-somewhere-else' });
@@ -2113,7 +2060,6 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
 
 describe('003 v1.8.0 the admitted cases (FR-077, FR-079, AC-132)', () => {
     it('authorizes on one allowed reference and records the policy shape (FR-077, AC-132)', async () => {
-        // case: the open policy admits any readable human actor, and records `'open'`
         {
             await setPolicy(null);
             const { claim, outcome } = await reserveAs({ issueNumber: 96, login: DENIED_DIRECT, basis: DIRECT_BASIS });
@@ -2127,7 +2073,6 @@ describe('003 v1.8.0 the admitted cases (FR-077, FR-079, AC-132)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: a populated list admits the actor it names, and records `'restricted'`
         {
             await setPolicy([PERMITTED]);
             const { claim, outcome } = await reserveAs({ issueNumber: 97, login: PERMITTED, basis: DIRECT_BASIS });
@@ -2143,7 +2088,6 @@ describe('003 v1.8.0 the admitted cases (FR-077, FR-079, AC-132)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: a coalesced run is authorized on ONE allowed reference (FR-077, AC-133)
         {
             await setPolicy([PERMITTED]);
             const first = assignment(98, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
@@ -2318,7 +2262,6 @@ describe('003 v1.8.0 a truncated reference list is refused **and says so** (FR-0
 
 describe('003 v1.8.0 the verdict never pre-empts an existing one (FR-076, AC-130)', () => {
     it('answers already-dispatched and stale-lease on their own paths, not the gate', async () => {
-        // case: a run that already produced a session still names it (FR-022, AC-112)
         {
             const claim = await seedAndClaim(101, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
             const reserved = await reserve(claim);
@@ -2344,7 +2287,6 @@ describe('003 v1.8.0 the verdict never pre-empts an existing one (FR-076, AC-130
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: a stale lease is answered stale, not by a policy verdict
         {
             await setPolicy([PERMITTED]);
             const claim = await seedAndClaim(102, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });

@@ -386,8 +386,7 @@ describe('FR-005 / NFR-103 a pre-003 store boots through the upgraded panel and 
 });
 
 describe('NFR-102 / AC-129 no surface carries the credential in the store', () => {
-    it('keeps the planted token out of every rendered string… (+1 cases)', async () => {
-        // case: keeps the planted token out of every rendered string and every storage value
+    it('keeps the planted token out of every rendered string and every storage value', async () => {
         {
             const { loop, rt } = await bootUpgradedPanel();
             try {
@@ -407,7 +406,6 @@ describe('NFR-102 / AC-129 no surface carries the credential in the store', () =
                 await loop.shutdown();
             }
         }
-        // case: renders the starting prompt in exactly one place (SC-105)
         {
             const { loop, rt } = await bootUpgradedPanel();
             try {
@@ -462,8 +460,7 @@ describe('FR-002 / FR-089 the panel never writes to GitHub and never mutates the
 });
 
 describe('FR-025 / FR-026 no storage key is added, and the wire keeps its members', () => {
-    it('uses exactly the documented storage keys and never s… (+1 cases)', async () => {
-        // case: uses exactly the documented storage keys and never stores the active tab
+    it('uses exactly the documented storage keys and never stores the active tab', async () => {
         {
             const keys = new Set<string>();
             for (const text of panelSources()) {
@@ -478,7 +475,6 @@ describe('FR-025 / FR-026 no storage key is added, and the wire keeps its member
             expect([...keys].filter((key) => key.includes('tab'))).toEqual([]);
             expect(keys.size).toBeLessThanOrEqual(STORAGE_KEYS.length + 1);
         }
-        // case: keeps the `repositories` member the status document answers with (FR-026)
         {
             const loop = await startDispatchLoop();
             try {

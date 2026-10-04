@@ -285,8 +285,7 @@ async function trimRows(): Promise<readonly AuditEntry[]> {
 }
 
 describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', () => {
-    it('removes only unprotected rows, oldest first, across … (+3 cases)', async () => {
-        // case: removes only unprotected rows, oldest first, across all eighteen 003 event types
+    it('removes only unprotected rows, oldest first, across all eighteen 003 event types', async () => {
         {
             await plantSubjects();
             // Chain A: an opener that is not itself run-scoped, the eighteen
@@ -374,7 +373,6 @@ describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', (
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: keeps a chronologically ordered run\'s final-state row and creation row
         {
             // The order a dispatched run really writes in: detection opens the
             // chain, the run is created, the panel claims and reserves, the result
@@ -428,7 +426,6 @@ describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', (
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: protects account and binding rows only while their subject still exists
         {
             await plantSubjects();
             await plantTrail([
@@ -494,7 +491,6 @@ describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', (
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: writes nothing when both limits are satisfied
         {
             const rows = [
                 trailRow({ seq: 1, eventType: SERVICE_STARTED, correlationId: 'chain-fresh', timestamp: RECENT }),
@@ -518,8 +514,7 @@ describe('audit trim: the protected set survives (006 T-012, AC-146, SC-114)', (
 });
 
 describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
-    it('lands the trail at or below auditMaxEntries, countin… (+5 cases)', async () => {
-        // case: lands the trail at or below auditMaxEntries, counting its own trim row
+    it('lands the trail at or below auditMaxEntries, counting its own trim row', async () => {
         {
             await plantTrail(
                 Array.from({ length: 10 }, (_, index) =>
@@ -550,7 +545,6 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: stays at the cap on a second pass instead of oscillating one row per cycle
         {
             await plantTrail(
                 Array.from({ length: 10 }, (_, index) =>
@@ -577,7 +571,6 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never removes a protected row to satisfy a cap, and records the excess
         {
             const protectedRows = Array.from({ length: 8 }, (_, index) =>
                 trailRow({
@@ -618,7 +611,6 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: does not oscillate when the protected set sits exactly at the cap
         {
             // Six protected rows for a cap of six: after the first pass the trail
             // is those six plus the record of the removal, so the previous
@@ -663,7 +655,6 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: ages a previous trim row out under the day window while the cap leaves it alone
         {
             const protectedRows = Array.from({ length: 4 }, (_, index) =>
                 trailRow({
@@ -697,7 +688,6 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: writes nothing at all when every row is protected, however far over the cap
         {
             const rows = Array.from({ length: 6 }, (_, index) =>
                 trailRow({
@@ -727,8 +717,7 @@ describe('audit trim: the entry cap (006 T-012, FR-055)', () => {
 });
 
 describe('audit trim: durability (006 T-012, FR-053, FR-055)', () => {
-    it('leaves the file byte-identical and appends no row wh… (+3 cases)', async () => {
-        // case: leaves the file byte-identical and appends no row when the rewrite fails
+    it('leaves the file byte-identical and appends no row when the rewrite fails', async () => {
         {
             await plantTrail([
                 trailRow({ seq: 1, eventType: SERVICE_STARTED, correlationId: 'chain-a', timestamp: LONG_AGO }),
@@ -751,7 +740,6 @@ describe('audit trim: durability (006 T-012, FR-053, FR-055)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never renumbers seq across two consecutive passes
         {
             await plantTrail(
                 Array.from({ length: 12 }, (_, index) =>
@@ -784,7 +772,6 @@ describe('audit trim: durability (006 T-012, FR-053, FR-055)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: serializes with an append so a row written meanwhile survives the rewrite
         {
             await plantTrail(
                 Array.from({ length: 6 }, (_, index) =>
@@ -820,7 +807,6 @@ describe('audit trim: durability (006 T-012, FR-053, FR-055)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: records unreadable lines it erases, and leaves them alone when it does not trim
         {
             const rows = [
                 trailRow({ seq: 1, eventType: SERVICE_STARTED, correlationId: 'chain-torn-a', timestamp: LONG_AGO }),

@@ -367,8 +367,7 @@ interface HistoryAnswer {
 }
 
 describe('GET /v1/events (runs history)', () => {
-    it('projects every run newest-detected-first, field set … (+3 cases)', async () => {
-        // case: projects every run newest-detected-first, field set exactly as documented
+    it('projects every run newest-detected-first, field set exactly as documented', async () => {
         {
             const service = await startWithQueue([
                 fixtureEvent({ issueNumber: 1, detectedAt: '2026-09-27T00:01:00.000Z', kind: 'assignment' }),
@@ -406,7 +405,6 @@ describe('GET /v1/events (runs history)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: pages the history: 25 by default, 100 at most, and the oldest still reachable
         {
             const rows: QueuedEvent[] = [];
             for (let issueNumber = 1; issueNumber <= 105; issueNumber += 1) {
@@ -458,7 +456,6 @@ describe('GET /v1/events (runs history)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: keeps the claim route reachable beside the new literal route
         {
             // A legacy row has to be in the store *before* the service adopts it,
             // because adoption is one-shot per store handle by design (FR-005), so
@@ -481,7 +478,6 @@ describe('GET /v1/events (runs history)', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: keeps the registered credential and the account login out of the answer
         {
             const service = await startWithAccount();
             // A run of this suite's own making, so the answer is non-empty and the

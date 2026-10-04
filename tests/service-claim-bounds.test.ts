@@ -212,8 +212,7 @@ async function joinFullReferenceList(issueNumber: number): Promise<number> {
 }
 
 describe('T-039 the answer is bounded and the page is complete', () => {
-    it('answers 200 within the transport ceiling for two ful… (+2 cases)', async () => {
-        // case: answers 200 within the transport ceiling for two full-reference runs
+    it('answers 200 within the transport ceiling for two full-reference runs', async () => {
         {
             // Two runs, each with the review's measured ~167 KB shape: a full
             // 200-reference list where every delivery carries a max-length excerpt.
@@ -237,7 +236,6 @@ describe('T-039 the answer is bounded and the page is complete', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: answers 200 within the ceiling for 300 single-reference runs
         {
             await seed(300);
 
@@ -253,7 +251,6 @@ describe('T-039 the answer is bounded and the page is complete', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never exceeds the response ceiling the transport enforces
         {
             // The reserve is what makes the per-page budget safe: the rest of the
             // answer (status rows, envelope) has to fit in what is left.
@@ -264,8 +261,7 @@ describe('T-039 the answer is bounded and the page is complete', () => {
 });
 
 describe('T-039 no lease is stranded behind an answer the transport refuses', () => {
-    it('leases nothing the answer omits, and writes no claim… (+2 cases)', async () => {
-        // case: leases nothing the answer omits, and writes no claim row for it
+    it('leases nothing the answer omits, and writes no claim row for it', async () => {
         {
             await seed(MAX_CLAIMED_RUNS + 25);
 
@@ -297,7 +293,6 @@ describe('T-039 no lease is stranded behind an answer the transport refuses', ()
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: serves the deferred remainder on the next call, unchanged
         {
             await seed(MAX_CLAIMED_RUNS + 3);
 
@@ -317,7 +312,6 @@ describe('T-039 no lease is stranded behind an answer the transport refuses', ()
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: leases nothing and writes nothing when the whole answer is over budget
         {
             await seed(2);
             // A budget too small for even one run: the documented refusal path.
@@ -340,8 +334,7 @@ describe('T-039 no lease is stranded behind an answer the transport refuses', ()
 });
 
 describe('T-039 excerpt text is bounded with an explicit marker (FR-014, FR-013)', () => {
-    it('keeps every reference identity and marks an excerpt … (+3 cases)', async () => {
-        // case: keeps every reference identity and marks an excerpt that was not carried
+    it('keeps every reference identity and marks an excerpt that was not carried', async () => {
         {
             // One run whose references carry more excerpt text between them than the
             // per-run budget allows, built the way the store really builds one: an
@@ -396,7 +389,6 @@ describe('T-039 excerpt text is bounded with an explicit marker (FR-014, FR-013)
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: marks an over-long excerpt rather than carrying it whole
         {
             // A single delivery whose stored excerpt is past the per-reference
             // bound — only reachable through a store written by another path, which
@@ -427,7 +419,6 @@ describe('T-039 excerpt text is bounded with an explicit marker (FR-014, FR-013)
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: round-trips both markers through the answer unchanged
         {
             // The panel's context builder (T-020) reads these strings back; a
             // marker that changed shape on the wire would be read as source text.
@@ -443,7 +434,6 @@ describe('T-039 excerpt text is bounded with an explicit marker (FR-014, FR-013)
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: bounds one run excerpt text to the per-dispatch budget
         {
             // The budget FR-014 already fixes for the dispatch itself, applied to
             // the transport that feeds it — so no run can crowd out the page.

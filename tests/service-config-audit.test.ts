@@ -270,8 +270,7 @@ function idlePoller(): GitHubIssuePoller {
 }
 
 describe('an accepted write records exactly one applied row (006 T-015, AC-135, SC-109)', () => {
-    it('records one triple per changed field, ordered by nam… (+1 cases)', async () => {
-        // case: records one triple per changed field, ordered by name, with each class
+    it('records one triple per changed field, ordered by name, with each class', async () => {
         {
             const service = await startService();
 
@@ -302,7 +301,6 @@ describe('an accepted write records exactly one applied row (006 T-015, AC-135, 
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: records nothing for a write that changed nothing (006 T-015, AC-127, FR-048)
         {
             const service = await startService();
             const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000 };

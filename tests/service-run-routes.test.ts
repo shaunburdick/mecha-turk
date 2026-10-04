@@ -278,8 +278,7 @@ function bodyFor(operation: OperationFixture): Record<string, unknown> {
 }
 
 describe('T-015 every wave-3 route is registered and answers its method', () => {
-    it('serves every operation on its own path, and refuses … (+4 cases)', async () => {
-        // case: serves every operation on its own path, and refuses a wrong method with 405 and Allow
+    it('serves every operation on its own path, and refuses a wrong method with 405 and Allow', async () => {
         {
             const service = await startServiceForTest();
 
@@ -307,7 +306,6 @@ describe('T-015 every wave-3 route is registered and answers its method', () => 
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: runs every handler, not just the path guard (FR-051)
         {
             const service = await startServiceForTest();
 
@@ -333,7 +331,6 @@ describe('T-015 every wave-3 route is registered and answers its method', () => 
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: still serves the read-only event routes after the wave-3 registrations
         {
             const service = await startServiceForTest();
 
@@ -345,7 +342,6 @@ describe('T-015 every wave-3 route is registered and answers its method', () => 
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: keeps a wrong method on a literal route answered by its own methods
         {
             const service = await startServiceForTest();
 
@@ -356,7 +352,6 @@ describe('T-015 every wave-3 route is registered and answers its method', () => 
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: prefers a literal route over a parameterised sibling
         {
             const service = await startServiceForTest();
 
@@ -371,8 +366,7 @@ describe('T-015 every wave-3 route is registered and answers its method', () => 
 });
 
 describe('T-015 unknown paths and unrecognised run ids are distinct', () => {
-    it('answers an invented path with 404 not-found (+3 cases)', async () => {
-        // case: answers an invented path with 404 not-found
+    it('answers an invented path with 404 not-found', async () => {
         {
             const service = await startServiceForTest();
 
@@ -383,7 +377,6 @@ describe('T-015 unknown paths and unrecognised run ids are distinct', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: answers an unknown verb under the run prefix with 404, not 405
         {
             const service = await startServiceForTest();
 
@@ -396,7 +389,6 @@ describe('T-015 unknown paths and unrecognised run ids are distinct', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: answers a well-formed but unseeded run id with unknown-run, naming the distinction
         {
             const service = await startServiceForTest();
 
@@ -414,7 +406,6 @@ describe('T-015 unknown paths and unrecognised run ids are distinct', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: answers a delivery id on a run-scoped path with unknown-run
         {
             const service = await startServiceForTest();
 
@@ -440,8 +431,7 @@ describe('T-015 authentication runs before routing, unchanged', () => {
         ...READ_ROUTES,
     ];
 
-    it('refuses every run and read route with a missing or w… (+1 cases)', async () => {
-        // case: refuses every run and read route with a missing or wrong token, byte-identically
+    it('refuses every run and read route with a missing or wrong token, byte-identically', async () => {
         {
             const service = await startServiceForTest();
 
@@ -460,7 +450,6 @@ describe('T-015 authentication runs before routing, unchanged', () => {
         }
         await afterEachWork1();
         await afterEachWork1();
-        // case: answers an invented path with the same 401 a real one gets
         {
             const service = await startServiceForTest();
             const invented = await fetch(`${service.baseUrl}/v1/events/not-a-route`, { method: 'POST' });

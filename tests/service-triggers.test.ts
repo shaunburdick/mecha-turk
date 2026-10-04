@@ -492,8 +492,7 @@ async function scan(binding: BindingRecord, recorded: RecordedPoller): Promise<r
 }
 
 describe('mention detection (M6)', () => {
-    it('queues one event per human comment that mentions the… (+2 cases)', async () => {
-        // case: queues one event per human comment that mentions the account, keyed by comment id
+    it('queues one event per human comment that mentions the account, keyed by comment id', async () => {
         {
             const recorded = recordingPoller({
                 issues: [fixtureIssue()],
@@ -534,7 +533,6 @@ describe('mention detection (M6)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: skips bot authors, lookalike handles, and bodies that never mention the account
         {
             const recorded = recordingPoller({
                 issues: [fixtureIssue()],
@@ -573,7 +571,6 @@ describe('mention detection (M6)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never lists comments when the mention switch is off
         {
             const recorded = recordingPoller({ issues: [], comments: [] });
 
@@ -589,8 +586,7 @@ describe('mention detection (M6)', () => {
 });
 
 describe('issue-body mention detection (M6, operator product decision 2026-09-28)', () => {
-    it('queues one mention event with the fixed ~mention~bod… (+5 cases)', async () => {
-        // case: queues one mention event with the fixed ~mention~body id and a bounded excerpt
+    it('queues one mention event with the fixed ~mention~body id and a bounded excerpt', async () => {
         {
             const filler = 'lorem ipsum '.repeat(80);
             const body = `Hey ${MENTION_TOKEN.toUpperCase()} — the flux capacitor drifts.\n${filler}`;
@@ -625,7 +621,6 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: queues nothing for lookalikes, bots, unreadable authors, or an empty body
         {
             const recorded = recordingPoller({
                 issues: [
@@ -664,7 +659,6 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never reads an issue body when the mention switch is off
         {
             const recorded = recordingPoller({ issues: [fixtureIssue({ body: `please look ${MENTION_TOKEN}` })] });
 
@@ -681,7 +675,6 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: keeps an assignment and a body mention on one issue as two distinct, deduplicable events
         {
             const recorded = recordingPoller({
                 issues: [fixtureIssue({ body: `Hey ${MENTION_TOKEN}, please triage`, assignees: [ACCOUNT_LOGIN] })],
@@ -712,7 +705,6 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: coalesces a pull-request assignment and review request under the PR subject
         {
             const pullRequest = fixtureIssue({
                 issueNumber: 31,
@@ -747,7 +739,6 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: keeps a comment mention and a body mention on one issue as two distinct events
         {
             const recorded = recordingPoller({
                 issues: [fixtureIssue({ body: `details in the body, ${MENTION_TOKEN}` })],
@@ -788,8 +779,7 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
 });
 
 describe('mention and review detectors (unit)', () => {
-    it('matches the token case-insensitively and bounded on … (+3 cases)', async () => {
-        // case: matches the token case-insensitively and bounded on both sides
+    it('matches the token case-insensitively and bounded on both sides', async () => {
         {
             expect(mentionsLogin(`hey ${MENTION_TOKEN.toUpperCase()}`, ACCOUNT_LOGIN)).toBe(true);
             expect(mentionsLogin(`(${MENTION_TOKEN})`, ACCOUNT_LOGIN)).toBe(true);
@@ -803,7 +793,6 @@ describe('mention and review detectors (unit)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: reads a bot comment as a bot whatever the author field says
         {
             expect(isMentionComment(fixtureComment({
                 commentId: 701,
@@ -822,7 +811,6 @@ describe('mention and review detectors (unit)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: reads an issue-body mention the same way — author first, bounded token second
         {
             expect(isIssueBodyMention(fixtureIssue({ body: `hey ${MENTION_TOKEN}` }), ACCOUNT_LOGIN)).toBe(true);
             expect(isIssueBodyMention(fixtureIssue({ body: 'no handle here' }), ACCOUNT_LOGIN)).toBe(false);
@@ -841,7 +829,6 @@ describe('mention and review detectors (unit)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: matches a requested reviewer case-insensitively, and nobody else
         {
             expect(isReviewRequestPull(fixturePull({ pullNumber: 1, requestedReviewers: [
                 'OCTOCAT-MT'] }), ACCOUNT_LOGIN))
@@ -856,8 +843,7 @@ describe('mention and review detectors (unit)', () => {
 });
 
 describe('review-request detection (M7)', () => {
-    it('queues a review event with the PR head and base capt… (+1 cases)', async () => {
-        // case: queues a review event with the PR head and base captured, and lists no issues
+    it('queues a review event with the PR head and base captured, and lists no issues', async () => {
         {
             const recorded = recordingPoller({
                 pulls: [fixturePull({ pullNumber: 3, requestedReviewers: [ACCOUNT_LOGIN.toUpperCase()] })],
@@ -890,7 +876,6 @@ describe('review-request detection (M7)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: queues nothing for a pull request that does not ask this account
         {
             const recorded = recordingPoller({
                 pulls: [fixturePull({ pullNumber: 9, requestedReviewers: ['someone-else'] })],
@@ -907,8 +892,7 @@ describe('review-request detection (M7)', () => {
 });
 
 describe('event kind round-trip (nullable Slice-2 fields)', () => {
-    it('round-trips a review event with headSha and baseRef … (+2 cases)', async () => {
-        // case: round-trips a review event with headSha and baseRef intact
+    it('round-trips a review event with headSha and baseRef intact', async () => {
         {
             const snapshot: EventSnapshot = {
                 bindingId: REVIEW_BINDING,
@@ -941,7 +925,6 @@ describe('event kind round-trip (nullable Slice-2 fields)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: reads a row written before M7 — no headSha/baseRef at all — as null
         {
             const stored: Record<string, unknown> = {
                 ...createEvent({
@@ -978,7 +961,6 @@ describe('event kind round-trip (nullable Slice-2 fields)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: still refuses a row whose Slice-2 fields are not text
         {
             const event = createEvent({
                 bindingId: REVIEW_BINDING,

@@ -297,8 +297,7 @@ function stringsIn(log: readonly MountRecord[]): readonly string[] {
 }
 
 describe('every tab is a stack of blocks with a real heading', () => {
-    it('mounts at least one heading per section, and never s… (+2 cases)', async () => {
-        // case: mounts at least one heading per section, and never skips a level
+    it('mounts at least one heading per section, and never skips a level', async () => {
         {
             const { dom } = await renderSixTabs();
             const levels = dom.created
@@ -309,7 +308,6 @@ describe('every tab is a stack of blocks with a real heading', () => {
             expect(levels.every((level) => level === 2 || level === 3)).toBe(true);
             expect(levels).not.toContain(1);
         }
-        // case: hands each section heading to the SDK text path, so the scans still see it
         {
             const { log } = await renderSixTabs();
             const strings = stringsIn(log);
@@ -318,7 +316,6 @@ describe('every tab is a stack of blocks with a real heading', () => {
                 expect(strings, `${heading} never reached the SDK`).toContain(heading);
             }
         }
-        // case: keeps the strip contract the A3 pass pinned
         {
             expect(PANEL_HTML).toMatch(/#root > \* \{\s*flex-shrink: 0;\s*\}/);
             expect(PANEL_HTML).toMatch(/#root \{[^}]*display: flex;/);
@@ -380,8 +377,7 @@ describe('the Settings header is hidden over the single-column rail', () => {
         return cascadedDisplay({ rules: PANEL_RULES, element: settingsHead, media });
     }
 
-    it('reads the narrow default and the wide return as two … (+3 cases)', () => {
-        // case: reads the narrow default and the wide return as two distinct rules
+    it('reads the narrow default and the wide return as two distinct rules', () => {
         {
             const narrow = PANEL_RULES.filter(
                 (rule) => rule.media === null && rule.selectors.includes(SETTINGS_HEAD_SELECTOR),
@@ -395,7 +391,6 @@ describe('the Settings header is hidden over the single-column rail', () => {
             expect(mediaVariants(PANEL_RULES).some((media) => media.has(WIDE))).toBe(true);
             expect(mediaVariants(PANEL_RULES).some((media) => !media.has(WIDE))).toBe(true);
         }
-        // case: gives it `none` under every reading that carries no wide return
         {
             for (const media of mediaVariants(PANEL_RULES)) {
                 if (media.has(WIDE)) {
@@ -409,7 +404,6 @@ describe('the Settings header is hidden over the single-column rail', () => {
                 );
             }
         }
-        // case: gives it a grid under every reading that carries the wide return
         {
             for (const media of mediaVariants(PANEL_RULES)) {
                 if (!media.has(WIDE)) {
@@ -419,7 +413,6 @@ describe('the Settings header is hidden over the single-column rail', () => {
                 expect(settingsHeadDisplay(media), `settings head at ${[...media].join(', ')}`).toBe('grid');
             }
         }
-        // case: would not be hidden if the narrow default were stripped
         {
             const without = withoutNarrowDefault(PANEL_RULES);
 
@@ -433,8 +426,7 @@ describe('the Settings header is hidden over the single-column rail', () => {
 });
 
 describe('the Status tab renders structure instead of loose lines', () => {
-    it('renders definition rows and one card per prerequisit… (+1 cases)', async () => {
-        // case: renders definition rows and one card per prerequisite
+    it('renders definition rows and one card per prerequisite', async () => {
         {
             const { dom } = await renderSixTabs();
             const rows = dom.created.filter(
@@ -445,7 +437,6 @@ describe('the Status tab renders structure instead of loose lines', () => {
             expect(rows.length).toBeGreaterThanOrEqual(14);
             expect(cards).toHaveLength(5);
         }
-        // case: paints the three prerequisite states as toned chips carrying the state
         {
             const { log } = await renderSixTabs();
             const badges = log.filter((entry) => entry.key === 'mountBadge').map(
@@ -522,13 +513,11 @@ describe('exactly one tab body is in the layout', () => {
         });
     }
 
-    it('parses a real stylesheet rather than a fragment of o… (+3 cases)', () => {
-        // case: parses a real stylesheet rather than a fragment of one
+    it('parses a real stylesheet rather than a fragment of one', () => {
         {
             expect(rules.length).toBeGreaterThan(30);
             expect(mediaVariants(rules).length).toBeGreaterThan(1);
         }
-        // case: takes every hidden body out of the layout, under every media reading
         {
             for (const media of mediaVariants(rules)) {
                 for (const id of TAB_IDS) {
@@ -539,13 +528,11 @@ describe('exactly one tab body is in the layout', () => {
                 }
             }
         }
-        // case: leaves the active body in it, as the flex stack the shell needs
         {
             for (const media of mediaVariants(rules)) {
                 expect(displayOf({ id: 'status', hidden: false, media }), 'status shown').toBe('flex');
             }
         }
-        // case: would fail against the stylesheet as it was before either rule hid a body
         {
             const without = withoutHidingRules(rules, HIDING_SELECTORS);
 
@@ -634,8 +621,7 @@ function shapeProbe(shape: HiddenShape, hidden: boolean): ProbeElement {
  * from any stylesheet can reach an element the panel marked hidden.
  */
 describe('no element the panel hid is still painted', () => {
-    it('takes every hidden one out of the layout, under ever… (+2 cases)', () => {
-        // case: takes every hidden one out of the layout, under every media reading
+    it('takes every hidden one out of the layout, under every media reading', () => {
         {
             for (const media of mediaVariants(COMBINED_RULES)) {
                 const joined = [...media].join(', ');
@@ -649,7 +635,6 @@ describe('no element the panel hid is still painted', () => {
                 }
             }
         }
-        // case: paints each of them while the panel has not marked it hidden
         {
             for (const shape of HIDDEN_SHAPES) {
                 expect(
@@ -658,7 +643,6 @@ describe('no element the panel hid is still painted', () => {
                 ).toBe(shape.painted);
             }
         }
-        // case: would paint every one of them again if the `[hidden]` rule were stripped
         {
             const without = withoutHidingRules(COMBINED_RULES, ['[hidden]']);
 

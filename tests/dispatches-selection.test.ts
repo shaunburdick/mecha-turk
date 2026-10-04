@@ -249,8 +249,7 @@ function textIn(dom: FakeDom, text: string): HidableNode {
 }
 
 describe('the Selected dispatch block disappears when nothing is selected (Accounts rule)', () => {
-    it('takes the whole block, heading included, out of the … (+1 cases)', () => {
-        // case: takes the whole block, heading included, out of the layout
+    it('takes the whole block, heading included, out of the layout', () => {
         {
             const { dom, board } = mountBoard();
             const heading = textIn(dom, SELECTED_HEADING);
@@ -258,7 +257,6 @@ describe('the Selected dispatch block disappears when nothing is selected (Accou
             expect(isOutOfLayout(parentsOf(dom), heading)).toBe(true);
             expect(board.selectedBox.hidden).toBe(true);
         }
-        // case: keeps the read-failure note on screen while nothing is selected
         {
             const { dom, board } = mountBoard((rt) => {
                 rt.state.dispatches = { ...initialDispatches(), status: 'error', note: READ_FAILURE_NOTE };
@@ -272,8 +270,7 @@ describe('the Selected dispatch block disappears when nothing is selected (Accou
 });
 
 describe('a selected dispatch keeps every control its row opens', () => {
-    it('shows the block, the retry group, and the source-ref… (+1 cases)', () => {
-        // case: shows the block, the retry group, and the source-reference detail for a failed row
+    it('shows the block, the retry group, and the source-reference detail for a failed row', () => {
         {
             const { dom, board } = mountBoard((rt) => {
                 rt.state.dispatches = runsState({ state: 'failed', open: true });
@@ -290,7 +287,6 @@ describe('a selected dispatch keeps every control its row opens', () => {
             // than greying out, because a disabled control still promises a send.
             expect(board.resolveBox.hidden).toBe(true);
         }
-        // case: shows the resolve group, session-id field included, for an unconfirmed row
         {
             const { dom, board } = mountBoard((rt) => {
                 rt.state.dispatches = runsState({ state: 'unconfirmed', open: true });

@@ -257,8 +257,7 @@ async function seededRunId(): Promise<string> {
 }
 
 describe('T-017 the correlation filter is a byte-exact string equality', () => {
-    it('returns every run row, includes the detection rows, … (+1 cases)', async () => {
-        // case: returns every run row, includes the detection rows, and never a non-run row (FR-052, AC-118)
+    it('returns every run row, includes the detection rows, and never a non-run row', async () => {
         {
             const service = await startServiceForTest();
             const correlationId = await seededRunId();
@@ -300,7 +299,6 @@ describe('T-017 the correlation filter is a byte-exact string equality', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: answers an unknown id with 200 and zero entries, and never widens a near-miss
         {
             const service = await startServiceForTest();
             await seedRows({ correlationId: SEEDED_RUN_ID, count: 3 });
@@ -370,8 +368,7 @@ describe('T-017 pagination chains with no duplicate and no gap', () => {
 });
 
 describe('T-017 limit is clamped, never refused', () => {
-    it('takes the default, clamps both bounds, and treats a … (+1 cases)', async () => {
-        // case: takes the default, clamps both bounds, and treats a word as the default
+    it('takes the default, clamps both bounds, and treats a word as the default', async () => {
         {
             const service = await startServiceForTest();
             await seedRows({ correlationId: SEEDED_RUN_ID, count: CLAMP_ROWS });
@@ -396,7 +393,6 @@ describe('T-017 limit is clamped, never refused', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a cursor that is no sequence number, naming the field and not its value
         {
             const service = await startServiceForTest();
             await seedRows({ correlationId: SEEDED_RUN_ID, count: 3 });
@@ -417,8 +413,7 @@ describe('T-017 limit is clamped, never refused', () => {
 });
 
 describe('T-017 the transport rules hold on the audit path', () => {
-    it('answers a page that cannot fit the response cap with… (+3 cases)', async () => {
-        // case: answers a page that cannot fit the response cap with response-too-large, never a truncation
+    it('answers a page that cannot fit the response cap with response-too-large, never a truncation', async () => {
         {
             const service = await startServiceForTest();
             await seedRows({
@@ -443,7 +438,6 @@ describe('T-017 the transport rules hold on the audit path', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: requires the bearer token before routing, with no route oracle
         {
             const service = await startServiceForTest();
 
@@ -464,7 +458,6 @@ describe('T-017 the transport rules hold on the audit path', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: answers a wrong verb with 405 and an Allow header naming GET
         {
             const service = await startServiceForTest();
 
@@ -479,7 +472,6 @@ describe('T-017 the transport rules hold on the audit path', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: answers an unreadable trail with 503 storage-unavailable, not a 500
         {
             const service = await startServiceForTest({ unreadableTrail: true });
 
@@ -493,8 +485,7 @@ describe('T-017 the transport rules hold on the audit path', () => {
 });
 
 describe('T-017 entries come back as stored, projected by nothing', () => {
-    it('returns the stored row verbatim, with the whole docu… (+1 cases)', async () => {
-        // case: returns the stored row verbatim, with the whole documented member set
+    it('returns the stored row verbatim, with the whole documented member set', async () => {
         {
             const service = await startServiceForTest();
             const [seeded] = await seedRows({
@@ -530,7 +521,6 @@ describe('T-017 entries come back as stored, projected by nothing', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: sees a row appended after the last answer, with no repair step in between
         {
             // The trail this route reads is the same file the writer appends to —
             // no second copy, no derived index — so a row appended after the last

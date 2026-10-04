@@ -108,8 +108,7 @@ function runtimeWith(initial: Readonly<Record<string, JsonValue>> = {}): {
 }
 
 describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
-    it('reads a wiped or never-written key as an empty recor… (+3 cases)', async () => {
-        // case: reads a wiped or never-written key as an empty record
+    it('reads a wiped or never-written key as an empty record', async () => {
         {
             const { rt } = runtimeWith();
 
@@ -121,7 +120,6 @@ describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
                 expect(unacknowledgedAttempts(read.document)).toEqual([]);
             }
         }
-        // case: refuses a present document this build must not half-apply
         {
             const { rt } = runtimeWith({
                 [DISPATCH_STORAGE_KEY]: { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts: [{ attempt: 1 }] },
@@ -129,11 +127,9 @@ describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
 
             expect(await loadDispatchRecord(rt)).toEqual({ ok: false });
         }
-        // case: refuses an unknown schema version rather than guessing at it
         {
             expect(readDispatchRecord({ schemaVersion: 'dispatch-attempts-99', attempts: [] })).toBeNull();
         }
-        // case: reports a storage failure as unreadable rather than as "nothing to reconcile"
         {
             const rt = createTestRuntime(
                 fakeHost({
@@ -150,8 +146,7 @@ describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
 });
 
 describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
-    it('stores the outcome with acknowledged false, before a… (+3 cases)', async () => {
-        // case: stores the outcome with acknowledged false, before any report
+    it('stores the outcome with acknowledged false, before any report', async () => {
         {
             const { rt, storage } = runtimeWith();
 
@@ -179,7 +174,6 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 });
             }
         }
-        // case: stores a failure reason with no session id
         {
             const { rt } = runtimeWith();
 
@@ -201,7 +195,6 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 });
             }
         }
-        // case: refuses to persist a record its own parser would reject
         {
             const { rt, storage } = runtimeWith();
 
@@ -216,7 +209,6 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
             expect(written).toBe(false);
             expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
         }
-        // case: appends newest last so a remount replays attempts in order
         {
             const { rt } = runtimeWith();
             const record = async (attemptNumber: number): Promise<boolean> =>
@@ -241,8 +233,7 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
 });
 
 describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
-    it('flips the named attempt and leaves every other recor… (+1 cases)', async () => {
-        // case: flips the named attempt and leaves every other record alone
+    it('flips the named attempt and leaves every other record alone', async () => {
         {
             const { rt } = runtimeWith({
                 [DISPATCH_STORAGE_KEY]: stored(document([
@@ -260,7 +251,6 @@ describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
                 expect(read.document.attempts.map((entry) => entry.acknowledged)).toEqual([true, false, false]);
             }
         }
-        // case: changes nothing — and writes nothing — for an attempt it never recorded
         {
             const { rt, storage } = runtimeWith({
                 [DISPATCH_STORAGE_KEY]: stored(document([attempt({ attempt: 3, acknowledged: false })])),
@@ -273,8 +263,7 @@ describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
 });
 
 describe('cap and eviction (NFR-107, FR-024 durability)', () => {
-    it('holds at 50 by evicting the oldest acknowledged reco… (+2 cases)', () => {
-        // case: holds at 50 by evicting the oldest acknowledged record first
+    it('holds at 50 by evicting the oldest acknowledged record first', () => {
         {
             const full = document(
                 Array.from({ length: MAX_RECORDED_ATTEMPTS }, (_unused, index) =>
@@ -288,7 +277,6 @@ describe('cap and eviction (NFR-107, FR-024 durability)', () => {
             expect(capped.attempts.at(-1)?.attempt).toBe(99);
             expect(capped.attempts.at(-1)?.acknowledged).toBe(false);
         }
-        // case: never takes an unacknowledged record to make room
         {
             const mixed = document([
                 attempt({ attempt: 1, acknowledged: false }),
@@ -302,7 +290,6 @@ describe('cap and eviction (NFR-107, FR-024 durability)', () => {
             expect(capped.attempts[0]).toMatchObject({ attempt: 1, acknowledged: false });
             expect(capped.attempts.at(-1)?.attempt).toBe(99);
         }
-        // case: prefers the durability of an unacknowledged record over the count
         {
             // Nothing is acknowledged, so there is no victim the contract permits;
             // dropping one would destroy the only evidence a session exists.
@@ -320,21 +307,18 @@ describe('cap and eviction (NFR-107, FR-024 durability)', () => {
 });
 
 describe('redaction posture (T-019, research §R3)', () => {
-    it('passes a stored dispatch token byte-identically (+2 cases)', async () => {
-        // case: passes a stored dispatch token byte-identically
+    it('passes a stored dispatch token byte-identically', async () => {
         {
             const json = JSON.stringify(document([attempt()]));
 
             expect(() => assertRedacted(DISPATCH_STORAGE_KEY, json)).not.toThrow();
             expect(json).toContain(TOKEN);
         }
-        // case: still refuses a credential-shaped value sitting beside the token
         {
             const json = JSON.stringify(document([attempt({ reason: PAT })]));
 
             expect(() => assertRedacted(DISPATCH_STORAGE_KEY, json)).toThrow(RedactionError);
         }
-        // case: refuses to write a document the guard rejects
         {
             const { rt, storage } = runtimeWith({
                 // Hand-edited storage carrying a credential: the record still parses

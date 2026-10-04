@@ -358,8 +358,7 @@ describe('AC-118 a refused retry renders the service verdict and changes no row'
 });
 
 describe('FR-049 one action dispatch path and one correlation id per row', () => {
-    it('runs exactly one action when the same row is activat… (+2 cases)', async () => {
-        // case: runs exactly one action when the same row is activated twice
+    it('runs exactly one action when the same row is activated twice', async () => {
         {
             await loop.enqueue({ issueNumber: FAILED_ISSUE });
             await driveTo({ issueNumber: FAILED_ISSUE, state: 'failed' });
@@ -379,7 +378,6 @@ describe('FR-049 one action dispatch path and one correlation id per row', () =>
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: copies the correlation id from the selected row
         {
             await loop.enqueue({ issueNumber: FAILED_ISSUE });
             const rt = loop.mount();
@@ -397,7 +395,6 @@ describe('FR-049 one action dispatch path and one correlation id per row', () =>
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: says why the correlation id could not be copied
         {
             const clipboard = createTestRuntime(
                 fakeHost({ writeClipboard: () => Promise.reject(new Error(CLIPBOARD_FAILURE)) }),

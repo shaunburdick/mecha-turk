@@ -142,8 +142,7 @@ function runFixture(): Run {
 }
 
 describe('T-006 run-aware enqueue', () => {
-    it('coalesces assignment and body mention from one scan … (+5 cases)', async () => {
-        // case: coalesces assignment and body mention from one scan and correlates every audit row
+    it('coalesces assignment and body mention from one scan and correlates every audit row', async () => {
         {
             const added = await enqueue([assignment(12), bodyMention(12)]);
             const document = await readRunsDocument({ store, log: LOGGER });
@@ -168,7 +167,6 @@ describe('T-006 run-aware enqueue', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: joins a later-scan comment to the existing non-terminal run
         {
             await enqueue([assignment(14)]);
             await enqueue([commentMention(14, 42)]);
@@ -187,7 +185,6 @@ describe('T-006 run-aware enqueue', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: opens the next ordinal after the prior run has a recorded session
         {
             const [delivery] = await enqueue([assignment(16)]);
             const first = await readRunsDocument({ store, log: LOGGER });
@@ -246,7 +243,6 @@ describe('T-006 run-aware enqueue', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: heals a crash after runs.json by joining the redetected delivery once
         {
             let failQueueWrite = true;
             const interruptedStore: ServiceStore = {
@@ -282,7 +278,6 @@ describe('T-006 run-aware enqueue', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: serializes concurrent trigger deliveries on the shared queue/run chain
         {
             const scans = Array.from({ length: 10 }, (_unused, index) => enqueue([commentMention(20, index + 1)]));
             const concurrentClaim = claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
@@ -304,7 +299,6 @@ describe('T-006 run-aware enqueue', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: retains every reference up to the cap, then counts the overflow visibly (T-038)
         {
             // One assignment opens the run; 199 comment mentions fill it exactly.
             await enqueue([assignment(SUBJECT_ISSUE), ...Array.from(
@@ -380,8 +374,7 @@ describe('T-006 run-aware enqueue', () => {
 });
 
 describe('T-003 run transition invariants', () => {
-    it('permits one lease and one session for a run, refusin… (+1 cases)', async () => {
-        // case: permits one lease and one session for a run, refusing competing mutations
+    it('permits one lease and one session for a run, refusing competing mutations', async () => {
         {
             const fixture = runFixture();
             await writeRunsDocument({
@@ -456,7 +449,6 @@ describe('T-003 run transition invariants', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: never reuses an ordinal after terminal-run retention evicts old rows
         {
             let document = emptyRunsDocument();
             for (let ordinal = 0; ordinal < 501; ordinal += 1) {
@@ -491,8 +483,7 @@ describe('T-003 run transition invariants', () => {
 });
 
 describe('T-037 durable run creation audit intent', () => {
-    it('recovers a creation audit missed after the run and d… (+2 cases)', async () => {
-        // case: recovers a creation audit missed after the run and delivery writes
+    it('recovers a creation audit missed after the run and delivery writes', async () => {
         {
             let failAuditAppend = true;
             const interruptedStore: ServiceStore = {
@@ -528,7 +519,6 @@ describe('T-037 durable run creation audit intent', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: does not duplicate a creation audit when interrupted before retiring its intent
         {
             let runWrites = 0;
             const interruptedStore: ServiceStore = {
@@ -564,7 +554,6 @@ describe('T-037 durable run creation audit intent', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: refuses a pending run if attempt history already records a session
         {
             const run = runFixture();
             const dispatchedRun: Run = {

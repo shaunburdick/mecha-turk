@@ -133,8 +133,7 @@ function verifyHost(input: {
 }
 
 describe('verifySessionAgent (documented read-back, research §R3)', () => {
-    it('subscribes before it opens the session, then release… (+5 cases)', async () => {
-        // case: subscribes before it opens the session, then releases the subscription
+    it('subscribes before it opens the session, then releases the subscription', async () => {
         {
             const double = verifyHost({ onOpen: snapshot(EXPECTED_AGENT) });
 
@@ -152,7 +151,6 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
             expect(result.status).toBe('match');
             expect(double.unsubscribes()).toBe(1);
         }
-        // case: reports a match when the session agent equals the expected one
         {
             const double = verifyHost({ onOpen: snapshot(EXPECTED_AGENT) });
 
@@ -164,7 +162,6 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
 
             expect(result).toEqual({ status: 'match', agent: EXPECTED_AGENT, expected: EXPECTED_AGENT });
         }
-        // case: reports a mismatch when the session runs another agent
         {
             const double = verifyHost({ onOpen: snapshot('executor') });
 
@@ -177,7 +174,6 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
             expect(result).toEqual({ status: 'mismatch', agent: 'executor', expected: EXPECTED_AGENT });
             expect(double.unsubscribes()).toBe(1);
         }
-        // case: reports a mismatch when the snapshot carries no agent at all
         {
             const double = verifyHost({ onOpen: snapshot() });
 
@@ -189,7 +185,6 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
 
             expect(result).toEqual({ status: 'mismatch', agent: null, expected: EXPECTED_AGENT });
         }
-        // case: ignores snapshots for other sessions and times out on its own budget
         {
             const otherSession: SessionSnapshot = { id: 'ses_other', title: 'elsewhere', busy: false, agent: 'nobody' };
             const double = verifyHost({ onOpen: otherSession });
@@ -204,7 +199,6 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
             expect(result).toEqual({ status: 'timeout', expected: EXPECTED_AGENT, timeoutMs: TEST_TIMEOUT_MS });
             expect(double.unsubscribes()).toBe(1);
         }
-        // case: reports the session as unavailable when openSession refuses
         {
             const double = verifyHost({ openError: new Error('HOST_REJECTED') });
 
@@ -225,12 +219,10 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
         }
     });
 
-    it('defaults its budget to the documented 15 seconds (+1 cases)', async () => {
-        // case: defaults its budget to the documented 15 seconds
+    it('defaults its budget to the documented 15 seconds', async () => {
         {
             expect(AGENT_VERIFY_TIMEOUT_MS).toBe(15_000);
         }
-        // case: bounds a host whose openSession never answers with the same budget
         {
             // The read-back shares the relay's dispatch slot: an unanswered
             // context switch must cost the budget, not the whole loop.
@@ -250,15 +242,13 @@ describe('verifySessionAgent (documented read-back, research §R3)', () => {
 });
 
 describe('verificationNotice (warn-only copy)', () => {
-    it('shows a success banner for a match (+6 cases)', () => {
-        // case: shows a success banner for a match
+    it('shows a success banner for a match', () => {
         {
             const notice = verificationNotice({ status: 'match', agent: EXPECTED_AGENT, expected: EXPECTED_AGENT });
 
             expect(notice.tone).toBe('success');
             expect(notice.body).toContain(EXPECTED_AGENT);
         }
-        // case: names the observed agent and the expectation in the mismatch warning
         {
             const notice = verificationNotice({ status: 'mismatch', agent: 'executor', expected: EXPECTED_AGENT });
 
@@ -266,14 +256,12 @@ describe('verificationNotice (warn-only copy)', () => {
             expect(notice.body).toContain("session agent was 'executor'");
             expect(notice.body).toContain(`expected '${EXPECTED_AGENT}'`);
         }
-        // case: phrases the timeout against the real 15-second budget
         {
             const notice = verificationNotice({ status: 'timeout', expected: EXPECTED_AGENT, timeoutMs: 15_000 });
 
             expect(notice.tone).toBe('warning');
             expect(notice.body).toContain('within 15s');
         }
-        // case: redacts a failure problem before it reaches the banner
         {
             const notice = verificationNotice({
                 status: 'unavailable',
@@ -285,7 +273,6 @@ describe('verificationNotice (warn-only copy)', () => {
             expect(notice.body).not.toContain('ghp_abcdefghijklmnopqrstuvwx');
             expect(notice.body).toContain('[redacted:github-token-classic]');
         }
-        // case: states the observation without judging it when no baseline is configured
         {
             // 002 FR-029 as amended: the mismatch warning fires only when a real
             // baseline exists and differs, so a blank one is plain information.
@@ -297,7 +284,6 @@ describe('verificationNotice (warn-only copy)', () => {
             expect(notice.body).toContain('no comparison baseline is configured');
             expect(notice.body).not.toContain('mismatch');
         }
-        // case: reports an unreadable agent under no baseline without inventing an expectation
         {
             const notice = verificationNotice({ status: 'uncompared', agent: null, expected: '' });
 
@@ -305,7 +291,6 @@ describe('verificationNotice (warn-only copy)', () => {
             expect(notice.body).toContain('reported no agent');
             expect(notice.body).not.toContain("expected '");
         }
-        // case: drops the expected-agent clause when the timeout has no baseline
         {
             const notice = verificationNotice({ status: 'timeout', expected: '', timeoutMs: 15_000 });
 
@@ -415,8 +400,7 @@ async function recordedVerification(agent?: string, configBody?: string): Promis
 }
 
 describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
-    it('records agentVerified with the observed agent on a m… (+2 cases)', async () => {
-        // case: records agentVerified with the observed agent on a match
+    it('records agentVerified with the observed agent on a match', async () => {
         {
             const rt = await recordedVerification(EXPECTED_AGENT, baselineBody(EXPECTED_AGENT));
             const entry = rt.state.ledger.entries.at(-1);
@@ -429,7 +413,6 @@ describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
             expect(entry?.detail.baselineProvenance).toBe('configured');
             expect(rt.state.dispatches.agentNotice?.tone).toBe('success');
         }
-        // case: records a failed verification and warns without blocking on a mismatch
         {
             const rt = await recordedVerification('executor', baselineBody(EXPECTED_AGENT));
             const entry = rt.state.ledger.entries.at(-1);
@@ -441,7 +424,6 @@ describe('verifyAgentAfterDispatch (ledger + runs-area banner)', () => {
             expect(rt.state.dispatches.agentNotice?.body).toContain("session agent was 'executor'");
             // M9 is warn-only: the copy must say the session keeps running.
         }
-        // case: records the observation and *not* a verdict when no baseline is configured
         {
             // 002 FR-029 as amended: a blank or unreadable baseline means there
             // is nothing to compare against, so the read-back still reports the
@@ -656,8 +638,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
         return JSON.parse(body) as Record<string, unknown>;
     }
 
-    it('posts a match as evidence with its attempt and the b… (+6 cases)', async () => {
-        // case: posts a match as evidence with its attempt and the baseline it used
+    it('posts a match as evidence with its attempt and the baseline it used', async () => {
         {
             const report = await reported(EXPECTED_AGENT, baselineBody(EXPECTED_AGENT));
 
@@ -674,7 +655,6 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             });
             expect(report.rt.state.dispatches.agentNotice?.tone).toBe('success');
         }
-        // case: posts a mismatch as warn-only evidence and changes no run state
         {
             const report = await reported('executor', baselineBody(EXPECTED_AGENT));
             const body = reportBody(report);
@@ -687,14 +667,12 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(report.rt.state.dispatches.pendingAction).toBeNull();
             expect(report.rt.state.dispatches.busy).toBe(false);
         }
-        // case: posts an unreadable agent as no observation, with the note that says so
         {
             const body = reportBody(await reported(undefined, baselineBody(EXPECTED_AGENT)));
 
             expect(body.ok).toBe(false);
             expect(body.observedAgent).toBeNull();
         }
-        // case: reads a configured baseline from GET /v1/config and records it as configured
         {
             const report = await reported('planner', JSON.stringify({ config: { expectedAgent: '  planner  ' } }));
 
@@ -709,7 +687,6 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(entry?.detail.baselineProvenance).toBe('configured');
             expect(entry?.detail.agentVerified).toBe(true);
         }
-        // case: posts a blank baseline as *no comparison*, with `unset` provenance
         {
             // The document was read and the value is blank: the operator's own
             // statement that no baseline is configured (006 FR-100(b) as
@@ -732,7 +709,6 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(entry?.detail.verification).toBe('uncompared');
             expect(report.rt.state.dispatches.agentNotice?.tone).toBe('info');
         }
-        // case: answers a defaulted (blank) baseline when the config read does not
         {
             // 002 FR-029 case (ii): the field is absent, the document is
             // unreadable, or the service is unreachable — all three answer the
@@ -751,7 +727,6 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(entry?.detail.baselineProvenance).toBe('defaulted');
             expect(entry?.detail.verification).toBe('uncompared');
         }
-        // case: reads no usable baseline from a document that carries no usable value
         {
             const unusable = [
                 '{"config":{}}',
@@ -776,8 +751,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
         }
     });
 
-    it('never blocks for the baseline’s own absence: it repo… (+2 cases)', async () => {
-        // case: never blocks, and never claims a mismatch, for the baseline's own absence
+    it('never blocks, and never claims a mismatch, for the baseline\'s own absence', async () => {
         {
             // AC-023 / 002 FR-029 as amended: a missing baseline alone must not
             // produce `blocked:agent-mismatch` — and it does not even claim a
@@ -795,7 +769,6 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(report.rt.state.dispatches.rows).toEqual([]);
             expect(report.rt.state.dispatches.pendingAction).toBeNull();
         }
-        // case: still warns when the observed agent differs from a configured baseline
         {
             const report = await reported('executor', baselineBody(EXPECTED_AGENT));
 
@@ -803,7 +776,6 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             expect(report.rt.state.dispatches.agentNotice?.tone).toBe('warning');
             expect(report.rt.state.ledger.entries.at(-1)?.detail.baselineProvenance).toBe('configured');
         }
-        // case: never holds the relay tick while the read-back waits (AC-125)
         {
             // The host answers every service call but never delivers a session
             // snapshot: an awaited read-back would sit on its 15 s budget here.

@@ -471,7 +471,7 @@ function elementsCarrying(sentinel: string): readonly { readonly key: string }[]
 }
 
 describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six tabs', () => {
-    it('counts exactly one element carrying each tier sentinel (+2 cases)', async () => {
+    it('counts exactly one element carrying each tier sentinel', async () => {
         // Each tier is opened the way an operator opens it: the binding row
         // click loads that binding's text into the editor, the account row
         // click loads that account's into its field.
@@ -494,7 +494,6 @@ describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six ta
         handlers.selectBinding(EDITED_ID);
         selectAccountRow(rt, ACCOUNT_ID);
 
-        // case: each of the three tier values is carried by exactly one element
         {
             const dom = fakeDom();
             mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
@@ -525,7 +524,6 @@ describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six ta
             }
         }
 
-        // case: the counter itself answers 0 and 2 alike — it is not shaped to answer 1
         {
             // Nothing carries this: a vanished field would read this way
             // rather than the count agreeing with itself.
@@ -536,7 +534,6 @@ describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six ta
             expect(elementsCarrying(PROMPT_NOT_SET).length).toBeGreaterThan(1);
         }
 
-        // case: row summaries carry presence and length only — never a tier's text, never a fingerprint
         {
             const bindingSummary = bindingRows(rt.state.bindings);
             expect(bindingSummary[0]?.subtitle).toContain(
@@ -560,8 +557,7 @@ describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six ta
 });
 
 describe('004 FR-014 the save carries the prompt only where it was edited', () => {
-    it('omits the key from every row when no prompt was edit… (+2 cases)', async () => {
-        // case: omits the key from every row when no prompt was edited
+    it('omits the key from every row when no prompt was edited', async () => {
         {
             const service = echoService();
             const rt = createTestRuntime(service.host);
@@ -579,7 +575,6 @@ describe('004 FR-014 the save carries the prompt only where it was edited', () =
             // Asserted on the raw body: "the key is absent" is a fact about bytes.
             expect(putBody(service.requests)).not.toContain(PROMPT_KEY);
         }
-        // case: sends an explicit empty value on exactly the row whose prompt was cleared
         {
             const service = echoService();
             const rt = createTestRuntime(service.host);
@@ -608,7 +603,6 @@ describe('004 FR-014 the save carries the prompt only where it was edited', () =
             expect(rt.state.bindings.note).toBe(SAVED_NOTE);
             expect(rt.state.bindings.editorOpen).toBe(false);
         }
-        // case: omits the key from the save when the field was never touched
         {
             const service = echoService();
             const rt = createTestRuntime(service.host);
@@ -633,8 +627,7 @@ describe('004 FR-014 the save carries the prompt only where it was edited', () =
 });
 
 describe('AC-124 a refused prompt stays in force and is never reported as saved', () => {
-    it('renders the remediation at the field and keeps the s… (+1 cases)', async () => {
-        // case: renders the remediation at the field and keeps the stored prompt
+    it('renders the remediation at the field and keeps the stored prompt', async () => {
         {
             const requests: GuestRequest[] = [];
             const host = fakeHost({
@@ -668,7 +661,6 @@ describe('AC-124 a refused prompt stays in force and is never reported as saved'
             expect(rt.state.bindings.startingPromptDirty).toBe(true);
             expect(rt.state.bindings.note).not.toContain('saved');
         }
-        // case: clears the field-level refusal once the service accepts
         {
             const service = echoService();
             const rt = createTestRuntime(service.host);
@@ -870,8 +862,7 @@ describe('the prompt field takes input in both editor modes (005 FR-051, 004 FR-
 });
 
 describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-144)', () => {
-    it('conveys the five facts beside a field that validates nothing (+5 cases)', async () => {
-        // case: the five facts travel beside a selected row's field
+    it('conveys the five facts beside a field that validates nothing', async () => {
         {
             const { rt, handlers, service } = promptEditor({
                 rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS })],
@@ -889,7 +880,6 @@ describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-
             releaseBindings({ rt, handlers, service });
         }
 
-        // case: the guidance travels with the field in add mode too (FR-089)
         {
             const { rt, handlers, service } = promptEditor({
                 rows: [bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY })],
@@ -907,7 +897,6 @@ describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-
             releaseBindings({ rt, handlers, service });
         }
 
-        // case: an unset tier reads *not set*, a set one reads its text (FR-064)
         {
             const unset = promptEditor({
                 rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY })],
@@ -935,7 +924,6 @@ describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-
             releaseBindings(set);
         }
 
-        // case: the service stays the only validator — the field shapes nothing (plan D24)
         {
             const { rt, handlers, service } = promptEditor({
                 rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS })],
@@ -955,7 +943,6 @@ describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-
             releaseBindings({ rt, handlers, service });
         }
 
-        // case: the refusal takes the field's slot, and the guidance returns once the service accepts
         {
             const service = refuseThenAcceptService();
             const { rt, handlers } = promptEditor({
@@ -990,7 +977,6 @@ describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-
             releaseBindings({ rt, handlers, service });
         }
 
-        // case: the row summary carries presence and length only — never the text, never a fingerprint
         {
             const { rt, handlers, service } = promptEditor({
                 rows: [

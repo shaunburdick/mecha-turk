@@ -290,8 +290,7 @@ function rowFor(queue: readonly QueuedEvent[], issueNumber: number): QueuedEvent
 }
 
 describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
-    it('clears and marks an old terminal row while leaving e… (+5 cases)', async () => {
-        // case: clears and marks an old terminal row while leaving every other row alone
+    it('clears and marks an old terminal row while leaving every other row alone', async () => {
         {
             await plantQueue([
                 queuedRow({
@@ -360,7 +359,6 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: keeps the marker across a store round trip on a reopened handle
         {
             await plantQueue([
                 queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
@@ -382,7 +380,6 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: appends nothing when a pass clears nothing
         {
             await plantQueue([
                 queuedRow({ id: FRESH_DISPATCHED, detectedAt: FRESH_DETECTED, state: 'dispatched' }),
@@ -405,7 +402,6 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: is idempotent: a second pass clears nothing and records nothing
         {
             await plantQueue([
                 queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
@@ -426,7 +422,6 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: leaves the queue byte-identical and records nothing when the rewrite fails
         {
             await plantQueue([
                 queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
@@ -448,7 +443,6 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: honours the configured window rather than a hard-coded one
         {
             await plantQueue([
                 queuedRow({ id: OLD_DISPATCHED, detectedAt: OLD_DETECTED, state: 'dispatched' }),
@@ -467,8 +461,7 @@ describe('excerpt trim: what it clears (006 T-013, FR-057, AC-147)', () => {
 });
 
 describe('excerpt trim: the run-layer eligibility (006 T-032, FR-057, FR-052, FR-084)', () => {
-    it('clears an aged dispatched run, and refuses every oth… (+2 cases)', async () => {
-        // case: clears an aged dispatched run, and refuses every other run state beside it
+    it('clears an aged dispatched run, and refuses every other run state beside it', async () => {
         {
             const planted = await plantLinkedQueue(
                 [
@@ -545,7 +538,6 @@ describe('excerpt trim: the run-layer eligibility (006 T-032, FR-057, FR-052, FR
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: keeps a run-linked row\'s marker across a store round trip
         {
             await plantLinkedQueue([{ issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' }]);
 
@@ -563,7 +555,6 @@ describe('excerpt trim: the run-layer eligibility (006 T-032, FR-057, FR-052, FR
         await beforeEachWork1();
         await afterEachWork2();
         await beforeEachWork1();
-        // case: leaves every post-003 row alone while the run document is unreadable
         {
             await plantLinkedQueue([{ issueNumber: 1, detectedAt: OLD_DETECTED, runState: 'dispatched' }]);
             // Fail closed: a run document the store cannot parse answers "unknown",
