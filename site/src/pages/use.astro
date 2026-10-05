@@ -92,8 +92,8 @@ const stateMeaning: Readonly<Record<string, string>> = {
     </p>
 
     <p>
-        A dispatch that made <em>no</em> session is a different matter, and keeps its
-        <strong>Retry dispatch</strong> control. A retry returns the same dispatch to waiting under the
+        A dispatch that made <em>no</em> session is a different matter, and keeps its <strong>Retry dispatch</strong> control.
+        A retry returns the same dispatch to waiting under the
         same key with the attempt counted up — the same unit of work, retried, rather than a new one.
     </p>
 
@@ -118,8 +118,8 @@ const stateMeaning: Readonly<Record<string, string>> = {
 
     <p>
         The one state that waits is <strong>unconfirmed</strong>, and it is held there on purpose: a
-        session may exist, because intent was reported and no result arrived before the deadline. It is
-        <strong>never re-dispatched automatically</strong>. Only an explicit decision of yours — after
+        session may exist, because intent was reported and no result arrived before the deadline.
+        It is <strong>never re-dispatched automatically</strong>. Only an explicit decision of yours — after
         checking OpenChamber’s own session list — can move it, either by recording the session that was
         created or by returning it to waiting. Automatic re-dispatch would risk a second agent session for
         work that may already be running, which is the one outcome the single-use token exists to prevent.
@@ -158,9 +158,9 @@ const stateMeaning: Readonly<Record<string, string>> = {
         </li>
         <li>
             <strong>GitHub token scopes</strong> — checked fail-closed across every usable account: no
-            connected account means <em>not met</em>, an account missing a required read scope means
-            <em>not met</em>, an account whose scope check the panel cannot read means
-            <em>not checkable</em>, and every required read scope present means <em>met</em>. No surface
+            connected account means <em>not met</em>, an account missing a required read scope means <em>not met</em>,
+            an account whose scope check the panel cannot read means <em>not checkable</em>,
+            and every required read scope present means <em>met</em>. No surface
             reports write scopes, so read scopes decide the state and the remediation keeps the
             no-write-scopes instruction visible.
         </li>
@@ -172,11 +172,10 @@ const stateMeaning: Readonly<Record<string, string>> = {
     </ul>
 
     <p>
-        Any checkable prerequisite that is <em>not met</em> also raises a
-        <strong>Setup prerequisites need attention</strong> notice above the tab strip — outside the
-        section, so it cannot be switched away from, and naming the items and where their fixes live. A
-        <em>met</em> item never raises it, and neither does a <em>not checkable</em> one: nagging about
-        what the panel cannot read would teach you to ignore the banner.
+        Any checkable prerequisite that is <em>not met</em> also raises a <strong>Setup prerequisites need attention</strong> notice
+        above the tab strip — outside the section, so it cannot be switched away from, and naming the items and
+        where their fixes live. A <em>met</em> item never raises it, and neither does a <em>not checkable</em> one:
+        nagging about what the panel cannot read would teach you to ignore the banner.
     </p>
 
     <p>

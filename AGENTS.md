@@ -93,9 +93,11 @@ picture behind.
    so `network` is no longer requested at all. `contributes.service` must not
    gain a `permissions` key.
 4. **Kebab-case identity.** Manifest ids must match `^[a-z][a-z0-9-]*$`;
-   the panel id is `mecha-turk`, and `host.storage` keys are prefixed
-   `mecha-turk:` (`:project`, `:evidence`, `:ledger`). Renaming either is a
-   user-visible storage-namespace reset — treat as a breaking change.
+   the panel id is `mecha-turk`. Four of the five `host.storage` keys carry that
+   `mecha-turk:` prefix (`:project`, `:evidence`, `:ledger`, `:dispatches`); the
+   fifth, `accounts`, carries **no prefix at all** (`src/account-mirror.ts`).
+   Renaming either the id or a key is a user-visible storage-namespace reset —
+   treat as a breaking change, and grep `STORAGE_KEY` before claiming a count.
 5. **`SERVICE_VERSION` mirrors `package.json`.**
    `service/routes/health.ts` hardcodes the version and
    `tests/service-server.test.ts` pins them together.

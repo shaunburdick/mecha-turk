@@ -124,7 +124,7 @@ cd .. && npm run verify   # the repository's own gate
 
   - `npm run verify` at the root is **unchanged by this feature** and still means: build → lint → typecheck → test. It runs on Node ≥ 20.19 and takes a Node ≥ 22.12 for the site's own commands above.
   - Run the root gate **always**, because the site's build is not part of it.
-  - `npm test` runs the site's three `*.assertions.mjs` suites — the base-path join, the four generated tables, and the build-output contract. It is a **local loop step today**: the build job runs `check` and `build`, not `test`.
+  - `npm test` runs the site's `*.assertions.mjs` suites — the base-path join, the four generated tables, the build-output contract, and the prose-wrapping guard that walks every `.astro` template. It is a **local loop step today**: the build job runs `check` and `build`, not `test`. **That is a known gap**: a regression in any of these suites reaches a maintainer only when someone runs `npm test` locally, so until the build job also runs it, treat a green `check` and `build` as necessary and not sufficient for the site.
 
 ## 5. What happens when you open a pull request
 

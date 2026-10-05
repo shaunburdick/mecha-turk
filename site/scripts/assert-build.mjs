@@ -81,6 +81,63 @@ const IMAGE_EXTENSIONS = new Set([
 const PLACEHOLDER_TOKENS = ['todo', 'fixme', 'coming soon', 'lorem ipsum', 'placeholder', 'tbd', 'under construction'];
 
 /**
+ * A token matched **whole**, which is a different assertion from "matched somewhere".
+ *
+ * The first cut of this check asked whether the page contained the token at all, and
+ * that is a check the shipped prose fails: `service/config-schema.ts` states that the
+ * starting prompt is "sent to the agent verbatim, with no placeholders", the configure
+ * page renders that sentence verbatim, and AC-006 then rejected *the service promising
+ * that substitution does not happen*. A substring test also cannot tell a marker from
+ * the word inside `todos.json`, from `tbd` inside a longer identifier, or from a
+ * filename quoted in a code span — so a gate that fails on those is a gate a contributor
+ * learns to work around rather than one that catches an unfinished page.
+ *
+ * The boundary is a set of characters that would make the token *part of a longer
+ * name* rather than the name itself:
+ *
+ * - **Before**: a letter, digit, `_`, `.` or `-`. That covers `todos.json`, `.todo` and
+ *   `fixme-mode`, none of which is an unfinished marker. A `/` is deliberately *not* in
+ *   the set: in running prose a slash separates words far more often than it names a
+ *   directory, so exempting it would let `the panel/TBD path` through to buy an exemption
+ *   no real page needs. A gate's false *accept* is the expensive direction.
+ * - **After**: a letter, digit or `_` (so the plural `placeholders` is not a match), or a
+ *   `-` that continues into a word (`todo-list`), or a `.` that is *followed by* a word
+ *   (`todo.md`). A trailing `.` with nothing name-like after it is punctuation, which is
+ *   what `… fix this TODO.` ends with — that is still a marker and must still fail.
+ *
+ * The words of a multi-word token are joined by `[\s-]+` so `under-construction` matches
+ * the phrase as well as `under construction`.
+ */
+const TOKEN_LEADING = '(?<![a-z0-9_.-])';
+const TOKEN_TRAILING = '(?![a-z0-9_]|-\\w|\\.[a-z0-9])';
+
+/**
+ * Compile one token into the pattern that matches it whole.
+ *
+ * @param {string} token A word, or two words separated by a single space.
+ * @returns {string} A pattern matching the token only where it stands alone.
+ */
+function wholeWordPattern(token) {
+    const words = token
+        .split(' ')
+        .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('[\\s-]+');
+
+    return `${TOKEN_LEADING}${words}${TOKEN_TRAILING}`;
+}
+
+/**
+ * Every token compiled once, paired with the token a failure should quote.
+ *
+ * The patterns are written in lower case and are matched against lower-cased HTML, so
+ * there is no `i` flag: the case is handled by the one `toLowerCase()` at the use site
+ * rather than twice over. Compiled here rather than per page because this runs over five
+ * pages on every build and a pattern that is rebuilt seven times each time is a
+ * readability cost for nothing.
+ */
+const PLACEHOLDER_PATTERNS = PLACEHOLDER_TOKENS.map((token) => ({ token, pattern: new RegExp(wholeWordPattern(token)) }));
+
+/**
  * Attributes whose value the browser fetches or executes.
  *
  * This is the distinction the whole off-origin check turns on, and it is a
@@ -543,15 +600,17 @@ function assertThePage(page, html, base, origin, emitted) {
     // AC-005 and FR-076: the footer links the licence file in the repository.
     assertTheFooterLicenceLink(where, html, pageAddress, origin);
 
-    // FR-052 and AC-006: nothing unfinished survives into the output.
+    // FR-052 and AC-006: nothing unfinished survives into the output. Matched whole —
+    // see `TOKEN_LEADING` for why a substring test would refuse the shipped prose.
     const lowered = html.toLowerCase();
-    for (const token of PLACEHOLDER_TOKENS) {
+    for (const { token, pattern } of PLACEHOLDER_PATTERNS) {
         assert(
             'AC-006 no placeholder or unfinished marker',
-            !lowered.includes(token),
-            `${where}: contains "${token}" — FR-052 forbids a placeholder, a template marker or a "coming ` +
-                'soon" on any page. The vocabulary this gate looks for is: ' +
-                `${PLACEHOLDER_TOKENS.join(', ')}.`,
+            !pattern.test(lowered),
+            `${where}: carries "${token}" as a word of its own — FR-052 forbids a placeholder, a template ` +
+                'marker or a "coming soon" on any page. The vocabulary this gate looks for is: ' +
+                `${PLACEHOLDER_TOKENS.join(', ')}. A token inside a longer name — a plural, an identifier, a ` +
+                'filename — is not one of them and does not fail here.',
         );
     }
 }

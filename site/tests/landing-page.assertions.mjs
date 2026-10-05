@@ -64,32 +64,6 @@ const SECTIONS = [
 /** Every requirement FR-013 – FR-019 numbers, so a dropped section fails coverage. */
 const BLOCK_B = ['FR-013', 'FR-014', 'FR-015', 'FR-016', 'FR-017', 'FR-018', 'FR-019'];
 
-/**
- * The whitespace rule, in the two shapes a hand-wrapped line can break it.
- *
- * Astro drops the line break at a template boundary, so a break *beside* an inline
- * element costs the space the reader needed and the page renders "TheStatus" or
- * "Metadata,Issues". Text meeting text keeps its space (`—` at the end of one line
- * and a word at the start of the next still reads with a space), and a block
- * boundary discards the whitespace by design, so neither of those is a defect.
- *
- * The two shapes that are: an inline element opening a line whose predecessor is
- * not a block closer, and an inline element closing a line whose successor starts
- * with a word or another element.
- */
-const INLINE_ELEMENT = /^<(?:strong|code|em|a)\b/;
-const INLINE_CLOSER_AT_END = /<\/(?:strong|code|em|a)>[^\S\n]*$/;
-const WORD_OR_ELEMENT_START = /^(?:[A-Za-z0-9]|<(?:strong|code|em|a)\b)/;
-
-/**
- * A line that closes a block, or opens one: the whitespace at such a boundary is
- * dropped by design, so nothing can be lost there.
- */
-const BLOCK_BOUNDARY = {
-    ends: /<\/?(?:p|ul|ol|li|dl|dt|dd|section|table|tr|td|th|h[1-6])>$/,
-    starts: /^<(?:p|ul|ol|li|dl|dt|dd|section|table|tr|td|th|h[1-6])\b/,
-};
-
 /** FR-052 and AC-006: what an unfinished page carries. */
 const PLACEHOLDERS = ['todo', 'fixme', 'coming soon', 'lorem ipsum', 'placeholder', 'tbd', 'under construction'];
 
@@ -323,37 +297,9 @@ describe('the facts the page names are the facts the product ships', () => {
     });
 });
 
-describe('the page reads correctly', () => {
-    test('no word is glued to an inline element by the way this file is wrapped', () => {
-        // Astro drops the line break at a template boundary, so a hand-wrapped line
-        // renders "TheStatus" or "polling.Nothing" — the space vanishes in both
-        // directions: before an element that starts the next line, and after an
-        // element that ends this one. Nothing else in the site's gate can see it:
-        // the build stays green and the HTML is valid. This is the one assertion
-        // here that guards how the page reads rather than what it says, and it
-        // exists because the page shipped both directions of the defect while it
-        // was being written.
-        const lines = template().split('\n');
-        const glued = [];
-
-        for (const [index, line] of lines.entries()) {
-            const here = line.trimEnd();
-            const next = lines[index + 1]?.trim() ?? '';
-            if (here === '' || next === '' || BLOCK_BOUNDARY.ends.test(here) || BLOCK_BOUNDARY.starts.test(next)) {
-                continue;
-            }
-            // Punctuation beside the element does not save either case: `</code>,`
-            // followed by `<code>` still renders "Metadata,Issues" with no space
-            // after the comma, which is why the first shape asks only what the
-            // previous line *ends* in and the second only that the tag is last.
-            const elementOpensNextLine = INLINE_ELEMENT.test(next) && !BLOCK_BOUNDARY.ends.test(here);
-            const elementEndsThisLine = INLINE_CLOSER_AT_END.test(here) && WORD_OR_ELEMENT_START.test(next);
-
-            if (elementOpensNextLine || elementEndsThisLine) {
-                glued.push(`line ${index + 1} → ${index + 2}: "${here.slice(-30)}" | "${next.slice(0, 30)}"`);
-            }
-        }
-
-        assert.deepEqual(glued, [], 'a line break beside an inline element loses the space; keep each element inside one line');
-    });
-});
+// How the page *reads* — the space a hand-wrapped line loses beside an inline
+// element — is asserted for all five pages at once, in
+// `prose-wrapping.assertions.mjs`. This page had a private copy of that rule,
+// which is how it stayed clean while the install, configure and use pages shipped
+// the same defect eighteen, nine and six times respectively. The rule now lives
+// once, in `glued-words.mjs`, and the walk over `src/` is what covers it.

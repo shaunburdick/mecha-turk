@@ -46,9 +46,8 @@ const capabilityMeaning: Readonly<Record<string, string>> = {
 
     <p>
         Mecha Turk is an OpenChamber extension: a rail panel and a local service your own installation
-        runs. Nothing is hosted. This page covers adding it; the
-        <a href={withBase('/configure/')}>configure page</a> covers accounts, bindings, and the starting
-        prompt.
+        runs. Nothing is hosted. This page covers adding it; the <a href={withBase('/configure/')}>configure page</a> covers
+        accounts, bindings, and the starting prompt.
     </p>
 
     <h2>Add the extension</h2>
@@ -65,8 +64,7 @@ const capabilityMeaning: Readonly<Record<string, string>> = {
             shows you, and choose <strong>Allow and enable</strong>.
         </li>
         <li>
-            Click the <strong>Mecha Turk</strong> icon on the rail. The panel opens on
-            <strong>Status</strong>.
+            Click the <strong>Mecha Turk</strong> icon on the rail. The panel opens on <strong>Status</strong>.
         </li>
     </ol>
 
@@ -93,19 +91,19 @@ const capabilityMeaning: Readonly<Record<string, string>> = {
 
     <p>
         The VS Code and mobile builds of OpenChamber do not spawn extension services, so Mecha Turk is
-        unsupported there. On those surfaces the panel says so rather than pretending:
-        <strong>Status</strong> raises an <em>Unsupported surface</em> notice, reporting that polling,
-        credential custody, and the relay are not operating — and its <em>Desktop or web surface</em>
-        prerequisite line names the same consequence as its remediation.
+        unsupported there. On those surfaces the panel says so rather than pretending: <strong>Status</strong> raises
+        an <em>Unsupported surface</em> notice, reporting that polling, credential custody, and the relay are
+        not operating — and its <em>Desktop or web surface</em> prerequisite line names the same consequence
+        as its remediation.
     </p>
 
     <h2>Register a project before you bind</h2>
 
     <p>
         Every repository you bind needs an OpenChamber project registered for it, one per repository. The
-        extension never creates a project; OpenChamber registers them, by the command palette's
-        <em>Add project</em>, the sidebar's add button, or the folder browser. Registering one is the
-        first of the three steps on the <a href={withBase('/configure/')}>configure page</a>, and until
-        it is done a dispatch for that repository is refused rather than guessed at.
+        extension never creates a project; OpenChamber registers them, by the command palette's <em>Add project</em>,
+        the sidebar's add button, or the folder browser. Registering one is the first of the three steps on
+        the <a href={withBase('/configure/')}>configure page</a>, and until it is done a dispatch for that
+        repository is refused rather than guessed at.
     </p>
 </Layout>

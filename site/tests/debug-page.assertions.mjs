@@ -208,52 +208,6 @@ const SHIPPED_SYMPTOMS = [
     ...PANEL_PROBLEM_SHAPES,
 ];
 
-/**
- * A line whose own boundary is markup rather than prose.
- *
- * A `<td>` on its own line is a whole cell, and a break beside it separates elements rather than words, so
- * neither side of such a break can lose a space.
- */
-const BLOCK_LINE = /^<\/?(?:p|ul|ol|li|table|thead|tbody|tr|th|td|section|h1|h2|div|caption|Layout|SymptomCodes)\b|^<>$|^<\/>/;
-
-/** An inline element that opens a line, with no word of its own before it. */
-const INLINE_OPENS = /^<(?:code|strong|em|a|br)\b/;
-
-/** An inline element that closes a line, with no word of its own after it. */
-const INLINE_CLOSES = /<\/(?:code|strong|em|a)>$/;
-
-/**
- * The line breaks that would swallow the space beside an inline element.
- *
- * Astro drops the newline at a template boundary rather than rendering it as whitespace, so a line ending in
- * a word followed by a line opening with `<code>` prints them glued — and so does a line ending with
- * `</strong>` followed by one opening with a word. The build stays green and the markup is valid, so nothing
- * else in the gate can see it: this page shipped three of them while it was written, which is why it is
- * measured here rather than trusted to review.
- *
- * @param {string} source An `.astro` file's text.
- * @returns {string[]} One finding per break that loses a space, quoting both halves.
- */
-function gluedLineBreaks(source) {
-    const template = (source.split('\n---\n')[1] ?? source).split('\n');
-    const prose = template
-        .map((line) => line.trim())
-        .filter((line) => line !== '' && !line.startsWith('/*') && !line.startsWith('*') && !line.includes('{'));
-
-    const glued = [];
-    for (const [index, here] of prose.entries()) {
-        const next = prose[index + 1];
-        if (next === undefined || BLOCK_LINE.test(here) || BLOCK_LINE.test(next)) {
-            continue;
-        }
-        if (INLINE_OPENS.test(next) || INLINE_CLOSES.test(here)) {
-            glued.push(`${JSON.stringify(here.slice(-40))} → ${JSON.stringify(next.slice(0, 40))}`);
-        }
-    }
-
-    return glued;
-}
-
 const pageSource = readFileSync(join(SITE_ROOT, 'src', PAGE_SOURCE), 'utf8');
 const tableComponent = readFileSync(join(SITE_ROOT, 'src', TABLE_COMPONENT), 'utf8');
 
@@ -320,26 +274,12 @@ describe("the debug page's sources", () => {
         }
     });
 
-    test('lose no space to a line break beside an inline element', () => {
-        // Astro drops the newline at a template boundary, so a hand-wrapped line
-        // renders `ItsStatus` or `mecha-turk:prefix`. The build stays green, the
-        // markup is valid, and a reader is the only one who sees it.
-        assert.deepEqual(gluedLineBreaks(pageSource), [], 'each element keeps its neighbouring words on its own line');
-    });
-
-    test('bites on a line break that would glue a word to an element', () => {
-        // The negative case, over the shape that shipped three times on this page:
-        // the break after a word, and then the same text kept whole.
-        const wrapped = ['---', '<p>', '    Its', '    <strong>Status</strong> tab reports the state.', '</p>', ''].join('\n');
-        const whole = ['---', '<p>', '    Its <strong>Status</strong> tab reports the state.', '</p>', ''].join('\n');
-
-        assert.deepEqual(
-            gluedLineBreaks(wrapped),
-            ['"Its" → "<strong>Status</strong> tab reports the "'],
-            'the break is reported',
-        );
-        assert.deepEqual(gluedLineBreaks(whole), [], 'the same text kept whole is not');
-    });
+    // How the page *reads* — the space a hand-wrapped line loses beside an inline
+    // element — is asserted for all five pages at once, in
+    // `prose-wrapping.assertions.mjs`, from the one rule in `glued-words.mjs`.
+    // This page had a private copy of that rule, and so did the landing page;
+    // those two copies are why the install, configure and use pages shipped the
+    // same defect unguarded. The walk over `src/` is what covers it now.
 
     test('say what it would refuse to print', () => {
         // The three codes the page's own prose needs and `handoff-copy.ts` does not

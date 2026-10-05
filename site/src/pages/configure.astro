@@ -35,8 +35,8 @@ import { withBase } from '../data/site.ts';
     <p>
         Each repository you will bind needs an OpenChamber project registered for it, one per repository.
         No panel surface owns this step, because the extension cannot do it: there is no project-creation
-        call anywhere in it. OpenChamber registers a project by the command palette's
-        <em>Add project</em>, the sidebar's add button, or the folder browser.
+        call anywhere in it. OpenChamber registers a project by the command palette's <em>Add project</em>,
+        the sidebar's add button, or the folder browser.
     </p>
 
     <h2>2. Add a GitHub account, on the Accounts tab</h2>
@@ -65,13 +65,13 @@ import { withBase } from '../data/site.ts';
     </ul>
 
     <p>
-        Then paste a <strong>fine-grained, read-only</strong> personal access token into the
-        <em>GitHub token</em> field and choose <strong>Connect account</strong>. The token needs
-        <em>Metadata: read</em>, <em>Issues: read</em>, and <em>Pull requests: read</em>, plus
-        <em>Contents: read</em> only if you pass repository metadata to OpenChamber, and
-        <strong>no write scopes</strong> — an organization approval is needed where your organization
-        requires one. The token exists only in transit: it is never written to panel state, extension
-        storage, logs, or the audit trail. A success reads <code>Connected as &lt;your login&gt;</code>.
+        Then paste a <strong>fine-grained, read-only</strong> personal access token into
+        the <em>GitHub token</em> field and choose <strong>Connect account</strong>.
+        The token needs <em>Metadata: read</em>, <em>Issues: read</em>, and <em>Pull requests: read</em>,
+        plus <em>Contents: read</em> only if you pass repository metadata to OpenChamber, and <strong>no write scopes</strong>
+        — an organization approval is needed where your organization requires one.
+        The token exists only in transit: it is never written to panel state, extension storage, logs, or the
+        audit trail. A success reads <code>Connected as &lt;your login&gt;</code>.
     </p>
 
     <p>
@@ -89,9 +89,9 @@ import { withBase } from '../data/site.ts';
         account to <strong>Poll as account</strong>, and the project to dispatch into, picked from the
         existing projects. If your project is not in the list, the <em>Not listed?</em> line under the
         picker tells you to register it in OpenChamber first — the extension will not create one. Then
-        tick the triggers you want: <strong>Assignment</strong>, <strong>Mention</strong>, and
-        <strong>Review request</strong>. The mention token in force is derived from the bound account's
-        login and matches case-insensitively; the allowed-users field beside it restricts which logins
+        tick the triggers you want: <strong>Assignment</strong>, <strong>Mention</strong>,
+        and <strong>Review request</strong>. The mention token in force is derived from the bound
+        account's login and matches case-insensitively; the allowed-users field beside it restricts which logins
         may trigger dispatches from that repository, and a dispatch from anyone else is refused rather
         than run.
     </p>
@@ -169,8 +169,8 @@ import { withBase } from '../data/site.ts';
 
     <p>
         <strong>Restore defaults</strong> always arms, because it writes the documented defaults for the
-        whole document. The confirmation names every field the write will change, as
-        <code>current → default</code>, in the service's own field order — so you can see the exact scope
+        whole document. The confirmation names every field the write will change, as <code>current → default</code>,
+        in the service's own field order — so you can see the exact scope
         before it happens — and it carries the deletion block above for any retention limit the defaults
         happen to <em>lower</em>, because a default that trims more than your current setting deletes. A
         second activation writes; <strong>Cancel</strong> returns every field to the last values read. If
@@ -183,8 +183,8 @@ import { withBase } from '../data/site.ts';
     <p>
         In <code>config.json</code>, inside the service data directory that <strong>Status</strong> prints
         as its <em>Data directory</em> line — <code>~/.config/openchamber/mecha-turk/</code> by default.
-        The directory is created <code>0700</code> and every file the service writes is
-        <code>0600</code>, so the document is readable only by your own account and yours to back up. It
+        The directory is created <code>0700</code> and every file the service writes is <code>0600</code>,
+        so the document is readable only by your own account and yours to back up. It
         is a plain JSON file, which you can edit by hand and keep in a backup alongside your SSH keys.
     </p>
 
@@ -198,9 +198,9 @@ import { withBase } from '../data/site.ts';
 
     <p>
         <strong>There is no other way to configure this.</strong> No environment file, no environment
-        variable, and no manifest setting configures anything — the Settings tab and the
-        <code>GET</code>/<code>PUT /v1/config</code> endpoints behind it are the whole surface. The
-        environment variables the service does read are the host's own loopback port and bearer token,
+        variable, and no manifest setting configures anything — the Settings tab and the <code>GET</code>/<code>PUT /v1/config</code> endpoints
+        behind it are the whole surface. The environment variables the service does read are the host's
+        own loopback port and bearer token,
         which it requires and never offers as configuration.
     </p>
 
@@ -215,14 +215,14 @@ import { withBase } from '../data/site.ts';
 
     <ul>
         <li>
-            <strong>Global</strong> — every dispatch the service detects. Set it on the
-            <code>startingPrompt</code> row in <strong>Settings</strong>, in force for events detected
+            <strong>Global</strong> — every dispatch the service detects. Set it on the <code>startingPrompt</code> row
+            in <strong>Settings</strong>, in force for events detected
             from the next poll on; queued work keeps the snapshot it was queued with.
         </li>
         <li>
             <strong>Account</strong> — every dispatch polled by that GitHub account. Set it on that
-            account's <em>Starting prompt for dispatches from this account</em> field on
-            <strong>Accounts</strong>; the account's <strong>Save changes</strong> writes it, and leaving
+            account's <em>Starting prompt for dispatches from this account</em> field on <strong>Accounts</strong>;
+            the account's <strong>Save changes</strong> writes it, and leaving
             a member out of that save leaves its stored value alone.
         </li>
         <li>
@@ -235,17 +235,16 @@ import { withBase } from '../data/site.ts';
     <p>
         <strong>The tiers stack; they never replace one another.</strong> The order is fixed and most
         general first — <strong>global → account → binding</strong> — with exactly one blank line between
-        consecutive <em>set</em> tiers, all of it inside a single
-        <code>--- BEGIN OPERATOR STARTING PROMPT ---</code> fence, with the automatic event frame beneath
-        it. An <strong>unset tier contributes nothing at all</strong>: no empty line, no substitute text,
+        consecutive <em>set</em> tiers, all of it inside a single <code>--- BEGIN OPERATOR STARTING PROMPT ---</code> fence,
+        with the automatic event frame beneath it. An <strong>unset tier contributes nothing at all</strong>: no empty line, no substitute text,
         no note about its absence. A dispatch whose three tiers are all unset therefore carries no fence
         and is byte-identical to what Mecha Turk sent before the field existed.
     </p>
 
     <p>
         The delivered message carries <strong>no tier labels</strong>. Which tiers produced a dispatch is
-        recorded on that dispatch's row and in the audit as <code>promptSources</code> —
-        <code>global</code>, <code>account</code>, <code>binding</code> — never read back out of the text.
+        recorded on that dispatch's row and in the audit as <code>promptSources</code> — <code>global</code>, <code>account</code>, <code>binding</code>
+        — never read back out of the text.
         No default is invented at any tier: layering is the stacking of your text, never the product's
         own.
     </p>
@@ -256,9 +255,8 @@ import { withBase } from '../data/site.ts';
 
     <ul>
         <li>
-            <strong>The text is literal.</strong> There is no substitution:
-            <code>{'{number}'}</code>, <code>$var</code>, and <code>%s</code> arrive as exactly those
-            characters.
+            <strong>The text is literal.</strong> There is no substitution: <code>{'{number}'}</code>, <code>$var</code>,
+            and <code>%s</code> arrive as exactly those characters.
         </li>
         <li>
             <strong>It cannot select an agent.</strong> The session runs your pinned Default Agent, no
@@ -277,8 +275,8 @@ import { withBase } from '../data/site.ts';
             file, not in a log, not in an audit row.
         </li>
         <li>
-            <strong>Reserved markers are refused.</strong> A line beginning <code>--- BEGIN </code> or
-            <code>--- END </code> would imitate the composition's own containment structure, so it is
+            <strong>Reserved markers are refused.</strong> A line beginning <code>--- BEGIN </code> or <code>--- END </code> would
+            imitate the composition's own containment structure, so it is
             refused rather than delivered. Those two prefixes are the whole rule, so a marker added later
             is covered without a new one.
         </li>
@@ -288,8 +286,7 @@ import { withBase } from '../data/site.ts';
         That is the complete set of refusals — length, credential shape, reserved marker, and
         well-formedness. There is no content policy: what you say to your own agent is your own business.
         Each surface shows an explicit <strong>not set</strong> state while its tier is empty, never an
-        empty box that reads as an instruction the agent will receive, and clearing a field unsets
-        <strong>that tier only</strong>.
+        empty box that reads as an instruction the agent will receive, and clearing a field unsets <strong>that tier only</strong>.
     </p>
 
     <p>
@@ -300,8 +297,7 @@ import { withBase } from '../data/site.ts';
     </p>
 
     <p>
-        Reading a dispatch row, its states, and the controls that move them is on the
-        <a href={withBase('/use/')}>use page</a>; when one of them does not go through, the
-        <a href={withBase('/debug/')}>debug page</a> has the symptom table.
+        Reading a dispatch row, its states, and the controls that move them is on the <a href={withBase('/use/')}>use page</a>;
+        when one of them does not go through, the <a href={withBase('/debug/')}>debug page</a> has the symptom table.
     </p>
 </Layout>

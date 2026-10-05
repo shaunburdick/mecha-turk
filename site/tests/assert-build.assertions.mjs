@@ -267,6 +267,48 @@ const VIOLATIONS = [
     },
 ];
 
+/**
+ * The other half of AC-006: the marker's *shape*.
+ *
+ * The gate matches each token whole rather than as a substring, because a substring
+ * test fails the shipped prose — the configure page prints the service's own sentence
+ * "text sent to the agent verbatim, with no placeholders", and AC-006 was refusing the
+ * service for promising that substitution does not happen. Narrowing a check is only
+ * worth doing if what it used to catch still fails, so every entry here is a marker a
+ * reader would see as unfinished, in the two shapes that matter: a word standing alone,
+ * and a word followed by punctuation. Both must be refused.
+ *
+ * Each case asserts the *token* is named, so a failure says which marker slipped past
+ * rather than merely that something did.
+ */
+const MARKERS_THAT_MUST_FAIL = [
+    { name: 'a bare word', markup: '<p>TODO</p>' },
+    { name: 'a word with a colon', markup: '<p>TODO: name the two steps.</p>' },
+    { name: 'a word with a full stop', markup: '<p>Write this last. FIXME.</p>' },
+    { name: 'a word inside an em', markup: '<p>The <em>copy</em> is <strong>TBD</strong>.</p>' },
+    { name: 'a word after a slash, in prose', markup: '<p>Fix the panel/TBD path.</p>' },
+    { name: 'a hyphenated phrase', markup: '<p>Under-construction for now.</p>' },
+    { name: 'a spaced phrase across a line wrap', markup: '<p>\n    The page is\n    coming soon.\n</p>' },
+    { name: 'a word in a heading', markup: '<h2>Lorem ipsum</h2>' },
+    { name: 'a word after a slash', markup: '<p>Fix the panel/TBD path.</p>' },
+];
+
+/**
+ * The words that are *not* markers, in the shapes the shipped pages actually carry them.
+ *
+ * These are the cases that made a substring test unusable: a plural, an identifier, a
+ * filename, a sentence the service states about itself. A gate that refuses these is a
+ * gate a contributor routes around, and AC-006 would end up protecting nothing.
+ */
+const WORDS_THAT_MUST_PASS = [
+    { name: 'the plural of a marker', markup: '<p>with no placeholders; the text is sent verbatim</p>' },
+    { name: 'a marker inside a filename', markup: '<p>The file <code>todos.json</code> is not one.</p>' },
+    { name: 'a marker inside an identifier', markup: '<p>The field <code>todoCount</code> holds a number.</p>' },
+    { name: 'a hyphenated identifier', markup: '<p>It writes <code>tbd-rows.json</code> on disk.</p>' },
+    { name: 'a dotfile', markup: '<p>A <code>.todo</code> file, if one appears.</p>' },
+    { name: 'a dotted filename', markup: '<p>The store holds <code>todo.md</code> alongside.</p>' },
+];
+
 after(() => {
     for (const directory of temporaryDirectories) {
         rmSync(directory, { recursive: true, force: true });
@@ -300,6 +342,52 @@ describe('assert-build', () => {
             );
         });
     }
+
+    for (const marker of MARKERS_THAT_MUST_FAIL) {
+        test(`still refuses ${marker.name}`, () => {
+            // The narrowing is only sound if what it used to catch still fails, so each
+            // of these is measured rather than argued: the gate must exit non-zero and
+            // name the token, not merely fail on something.
+            const files = conformingOutput();
+            replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace('<p>Body copy.</p>', marker.markup));
+            const run = assertBuild(writeOutput(files));
+
+            assert.notEqual(run.status, 0, `the script accepted ${marker.markup}`);
+            assert.ok(
+                run.output.includes('AC-006 no placeholder or unfinished marker'),
+                `expected AC-006 to refuse ${marker.markup}, got:\n${run.output}`,
+            );
+        });
+    }
+
+    for (const word of WORDS_THAT_MUST_PASS) {
+        test(`accepts ${word.name}`, () => {
+            const files = conformingOutput();
+            replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace('<p>Body copy.</p>', word.markup));
+            const run = assertBuild(writeOutput(files));
+
+            assert.equal(run.status, 0, `the script refused ${word.markup}:\n${run.output}`);
+        });
+    }
+
+    test('refuses the service\'s own sentence that promises no placeholders are substituted', () => {
+        // The reason the match is a whole-word one, as a test rather than a note: this
+        // exact sentence is what the configure page prints from
+        // `service/config-schema.ts`, and a substring check on `placeholder` failed the
+        // shipped site over it. It must be accepted now — and `coming soon`, one word
+        // away, must still not be.
+        const files = conformingOutput();
+        replacePage(
+            files,
+            'configure/index.html',
+            pageOf(files, 'configure/index.html').replace(
+                '<p>Body copy.</p>',
+                '<p>text sent to the agent verbatim, with no placeholders; at most 2,000 code points</p>',
+            ),
+        );
+
+        assert.equal(assertBuild(writeOutput(files)).status, 0, "the service's own guidance is not a placeholder marker");
+    });
 
     test('names the file and the markup it refused, not just the assertion', () => {
         const files = conformingOutput();
