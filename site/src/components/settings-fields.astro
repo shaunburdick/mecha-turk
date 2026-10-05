@@ -1,0 +1,142 @@
+---
+/**
+ * The configure page's Settings field list (T-014, FR-028, FR-029, AC-009).
+ *
+ * Every value in this table is read off the service's own projection —
+ * `configSchema()`, which builds itself from `service/config.ts`'s
+ * `NUMERIC_BOUNDS`, `DEFAULT_CONFIG`, and `LOG_LEVEL_VALUES`. Nothing here
+ * restates a bound, a unit, a default, an accepted value, or a take-effect
+ * class, which is the same zero-literals posture `src/settings-rows.ts` took
+ * when it retired the panel's copy of the same numbers.
+ *
+ * The take-effect **words** are the one thing here that is prose rather than
+ * projection: the service sends a class token, and a reader needs a sentence.
+ * They are keyed by the service's closed vocabulary in `declarations.ts`, so a
+ * class the service adds without a line fails `astro check` rather than
+ * rendering `undefined` in a cell.
+ *
+ * A descriptor with no row would be a documented field the page does not list,
+ * so the count is derived from the projection and printed — the same
+ * cannot-disagree rule the permission table follows.
+ */
+import { CONFIG_FIELDS, TAKE_EFFECT_WORDS } from '../data/declarations.ts';
+import type { FieldDescriptor } from '../../../service/config-schema.ts';
+
+/** One row, resolved from a descriptor with nothing left to look up. */
+interface Row {
+    /** The documented member name. */
+    readonly name: string;
+    /** The unit the service declared, or its absence spelled out. */
+    readonly unit: string;
+    /** The bounds, accepted values, or format the service declared. */
+    readonly shape: string;
+    /** The documented default, with an empty string named as *unset*. */
+    readonly fallback: string;
+    /** When a change to this field takes effect, in the product's words. */
+    readonly takesEffect: string;
+    /** The kind discriminator, used only to group the table. */
+    readonly kind: FieldDescriptor['kind'];
+}
+
+/** The unit phrase to print, or the service's own absence of one. */
+function unitOf(field: FieldDescriptor): string {
+    return field.kind === 'integer' ? field.unit : 'unit none';
+}
+
+/** The bounds, accepted values, or format the service declared for one field. */
+function shapeOf(field: FieldDescriptor): string {
+    if (field.kind === 'integer') {
+        return `between ${field.min} and ${field.max} ${field.unit}`;
+    }
+
+    if (field.kind === 'enum') {
+        return `one of ${field.values.join(', ')}`;
+    }
+
+    return `${field.format} · at most ${field.maxLength} characters`;
+}
+
+/**
+ * A default that is the empty string is *unset*, which is the documented state
+ * of both text fields rather than a missing value. Printing it as empty would
+ * read as "set to nothing"; naming it is the difference between a state and an
+ * absence.
+ */
+function defaultOf(field: FieldDescriptor): string {
+    if (typeof field.default === 'string' && field.default === '') {
+        return 'empty — unset';
+    }
+
+    return String(field.default);
+}
+
+/**
+ * The fields the service declares, resolved row by row in the service's order.
+ *
+ * Built once, eagerly, so a descriptor this rendering cannot type throws at the
+ * point it is met instead of rendering a row with holes in it.
+ */
+const rows: readonly Row[] = CONFIG_FIELDS.map((field) => ({
+    name: field.name,
+    unit: unitOf(field),
+    shape: shapeOf(field),
+    fallback: defaultOf(field),
+    takesEffect: TAKE_EFFECT_WORDS[field.takesEffect],
+    kind: field.kind,
+}));
+
+/**
+ * The table's three groups, in the order a reader meets them.
+ *
+ * Three groups rather than the service's flat order because a reader scanning
+ * for the number they want to change is not helped by an interleaved list. Each
+ * group filters the rows above rather than declaring members of its own, so a
+ * field the service adds cannot fall between two groups.
+ */
+const GROUPS = [
+    { title: 'Text fields', kind: 'string' },
+    { title: 'Numbers', kind: 'integer' },
+    { title: 'Choice', kind: 'enum' },
+] as const satisfies readonly { title: string; kind: FieldDescriptor['kind'] }[];
+
+const grouped = GROUPS.map((group) => ({
+    title: group.title,
+    members: rows.filter((row) => row.kind === group.kind),
+})).filter((group) => group.members.length > 0);
+---
+
+<p>
+    The service declares {rows.length} fields. Every name, bound, unit, accepted value, default, and
+    take-effect class below is read from that declaration when this site is built.
+</p>
+
+{
+    grouped.map((group) => (
+        <section>
+            <h3>{group.title}</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Field</th>
+                        <th scope="col">Default</th>
+                        <th scope="col">Accepted</th>
+                        <th scope="col">When a change takes effect</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {group.members.map((row) => (
+                        <tr>
+                            <th scope="row">
+                                <code>{row.name}</code>
+                                <span> · {row.unit}</span>
+                            </th>
+                            <td>{row.fallback}</td>
+                            <td>{row.shape}</td>
+                            <td>{row.takesEffect}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </section>
+    ))
+}

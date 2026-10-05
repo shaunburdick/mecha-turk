@@ -10,12 +10,11 @@
  * follow is not a request the page makes, which is what FR-010 and NFR-003 are
  * about; nothing here is fetched on load.
  *
- * The repository address is a literal here for now. Wave 3's `data/product.ts`
- * becomes its home (FR-053's single-source rule applied to the product's own
- * identity), and the next change to this component should read it from there.
+ * Both addresses come from `data/product.ts`, the one module that holds the
+ * product's identity — the licence URL is derived there from the repository URL,
+ * so renaming the repository moves both links from one edit.
  */
-const REPOSITORY_URL = 'https://github.com/shaunburdick/mecha-turk';
-const LICENSE_URL = `${REPOSITORY_URL}/blob/main/LICENSE`;
+import { LICENSE_URL, REPOSITORY_URL } from '../data/product.ts';
 ---
 
 <footer>
