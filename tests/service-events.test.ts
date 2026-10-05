@@ -32,8 +32,8 @@
  *    queue still holds, pending or dispatched.
  */
 
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeAccount } from '../service/accounts/store.ts';
@@ -68,6 +68,7 @@ import { byText, byTextLoose } from './support/sort.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { scopeResults } from './support/verify.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** First fixture binding. */
 const BINDING_A = 'bnd-recover-a';
@@ -119,14 +120,14 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-events-'));
+    tempRoot = await makeTempTree('events');
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
 });
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**
@@ -1154,7 +1155,6 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             expect(answer.page.filter.bindingId).toBe('bnd-nothing');
         }
     });
-
 
     it('keeps the order stable when rows share a detection stamp', async () => {
         {

@@ -15,8 +15,8 @@
  * them. No network, no live host, no sleeps.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BINDINGS_FILE } from '../service/bindings.ts';
@@ -39,6 +39,7 @@ import type { ServiceStatusBody, StatusRepositoryRow } from '../service/routes/s
 import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamps the planted fixtures carry; arbitrary but stable. */
 const STAMP = '2026-09-28T10:00:00.000Z';
@@ -107,7 +108,7 @@ afterEach(async (): Promise<void> => {
         return;
     }
 
-    await rm(scratch, { recursive: true, force: true });
+    await removeTempTree(scratch);
     scratch = null;
 });
 
@@ -216,7 +217,7 @@ async function plantScanState(
  * @returns The unusable path, with its scratch parent removed after the test.
  */
 async function blockedDataDir(): Promise<string> {
-    scratch = await mkdtemp(join(tmpdir(), 'mecha-turk-status-blocked-'));
+    scratch = await makeTempTree('status-blocked');
     const blocker = join(scratch, 'blocker');
     await writeFile(blocker, 'i am a file', 'utf8');
 
@@ -485,7 +486,6 @@ describe('GET /v1/status repositories — one row per stored binding (005 FR-032
             expect(body.agentPin.lastVerification).toEqual({ available: false, reason: 'no-service-mirror' });
         }
     });
-
 
     it('refuses rather than inventing rows when the bindings themselves cannot be read', async () => {
         const service = await start();

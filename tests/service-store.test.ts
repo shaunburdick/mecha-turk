@@ -9,8 +9,8 @@
  */
 
 import { promises as fs } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isRecord } from '../service/json.ts';
@@ -23,6 +23,7 @@ import {
     SERVICE_SCHEMA_VERSION,
     StorageUnavailableError,
 } from '../service/store/index.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Filesystem mask covering the low nine mode bits (`rwx` for owner/group/other). */
 const PERMISSION_BASE = 0o1000;
@@ -62,14 +63,14 @@ let dataDir = '';
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-store-'));
+    tempRoot = await makeTempTree('store');
     dataDir = join(tempRoot, 'store');
     await mkdir(dataDir, { recursive: true });
 });
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**
@@ -232,7 +233,6 @@ describe('atomic json writes', () => {
             }
         }
     });
-
 
     it('ignores a leftover temporary file when reading', async () => {
         {

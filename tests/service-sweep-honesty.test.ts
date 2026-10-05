@@ -38,8 +38,8 @@
  * network, and no sleeping on a timer.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -60,6 +60,7 @@ import type { BindingRecord } from '../service/bindings.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { Run } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 const DETECTED_AT = '2026-09-28T12:00:00.000Z';
 const ONE_HOUR_LATER = '2026-09-28T13:00:00.000Z';
@@ -90,7 +91,7 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-honesty-'));
+    tempRoot = await makeTempTree('honesty');
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
     LOG_LINES.length = 0;
@@ -98,7 +99,7 @@ beforeEach(async (): Promise<void> => {
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /** Build an assignment detection for one issue on the fixture binding. */

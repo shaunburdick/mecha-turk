@@ -28,8 +28,6 @@
  * no network, and no sleeping on a timer.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -53,6 +51,7 @@ import { openStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { byText } from './support/sort.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamp every fixture uses, so no test ever waits on a clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
@@ -110,7 +109,7 @@ let store: ServiceStore;
  * sequence calls this again between them.
  */
 const openFixture = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-bounds-'));
+    tempRoot = await makeTempTree('bounds');
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
     LOG_LINES.length = 0;
@@ -121,7 +120,7 @@ beforeEach(openFixture);
 
 /** Remove the temp root the fixture opened. */
 const closeFixture = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 };
 
 afterEach(closeFixture);

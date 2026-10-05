@@ -23,8 +23,8 @@
  * in which the final-state row is *not* the chain's last row (003 FR-065).
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeAccount } from '../service/accounts/store.ts';
@@ -39,6 +39,7 @@ import type { ServiceConfig } from '../service/config.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/verify.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Injected service clock: every fixture ages against this instant. */
 const NOW = Date.parse('2026-09-30T00:00:00.000Z');
@@ -145,7 +146,7 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-trim-'));
+    tempRoot = await makeTempTree('trim');
     dataDir = join(tempRoot, 'store');
     await mkdir(dataDir, { recursive: true });
     store = await openStore({ dataDir });
@@ -153,7 +154,7 @@ beforeEach(async (): Promise<void> => {
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**

@@ -31,9 +31,8 @@
  * host.
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { nowIso } from '../src/ids.ts';
@@ -63,6 +62,7 @@ import { offlineVerifier } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** The header carrying a JSON body, spelled as HTTP requires it. */
 const CONTENT_TYPE_HEADER = 'content-type';
@@ -155,7 +155,7 @@ let running: TestService | null = null;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-wire-'));
+    tempRoot = await makeTempTree('wire');
     LOG_LINES.length = 0;
     running = null;
 });
@@ -167,7 +167,7 @@ afterEach(async (): Promise<void> => {
         running = null;
     }
 
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /** Build an assignment detection for one issue. */

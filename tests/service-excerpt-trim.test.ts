@@ -23,8 +23,8 @@
  *   idempotent rather than a row-per-cycle leak.
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -40,6 +40,7 @@ import type { RunState } from '../service/poll/runs-types.ts';
 import type { ServiceConfig } from '../service/config.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Injected service clock: every fixture ages against this instant. */
 const NOW = Date.parse('2026-09-30T00:00:00.000Z');
@@ -81,14 +82,14 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-excerpt-'));
+    tempRoot = await makeTempTree('excerpt');
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
 });
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**

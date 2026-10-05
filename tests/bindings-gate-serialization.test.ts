@@ -43,8 +43,6 @@
  * the **real** module, both over a temp store and a real account record.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { accountPath, BINDINGS_FILE } from '../service/accounts/store.ts';
@@ -64,6 +62,7 @@ import type { RouteContext, RouteRequest } from '../service/routes/types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { offlineVerifier } from './support/github.ts';
 import { CAPABILITIES } from './support/verify.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamp every fixture uses; no test waits on a clock (NFR-112). */
 const STAMP = '2026-10-03T09:00:00.000Z';
@@ -240,7 +239,7 @@ const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.pus
 
 /** Per-test setup: a fresh store, a live lease window, and no log noise. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-serialized-'));
+    tempRoot = await makeTempTree('serialized');
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, leaseMs: WINDOW_MS, resultDeadlineMs: WINDOW_MS });
     LOG_LINES.length = 0;
@@ -248,7 +247,7 @@ beforeEach(async (): Promise<void> => {
 
 /** Per-test teardown. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**

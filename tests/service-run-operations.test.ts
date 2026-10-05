@@ -25,8 +25,6 @@
  * sleeping, no network, no host.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -51,6 +49,7 @@ import type { EventSnapshot } from '../service/poll/events.ts';
 import type { DispatchAttempt, Run, RunState } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamp every fixture uses; no test ever waits on a clock. */
 const STAMP = '2026-09-28T09:00:00.000Z';
@@ -110,7 +109,7 @@ let store: ServiceStore;
  * sequence calls this again between them.
  */
 const openFixture = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-runops-'));
+    tempRoot = await makeTempTree('runops');
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     // The gate reads `bindings.json` at authorization and denies when it cannot
     // (003 FR-076); the open policy keeps every retry assertion here testing the
@@ -127,7 +126,7 @@ beforeEach(openFixture);
 
 /** Remove the temp root the fixture opened. */
 const closeFixture = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 };
 
 afterEach(closeFixture);

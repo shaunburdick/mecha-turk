@@ -16,8 +16,8 @@
  * (product decision, 2026-09-28: the first scan is a replay, not a baseline).
  */
 
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readdir, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createLogger } from '../service/log.ts';
@@ -28,6 +28,7 @@ import type { BindingRecord } from '../service/bindings.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type { ScanState } from '../service/poll/scan.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Binding id used by every fixture slot. */
 const BINDING_ID = 'bnd-quarantine';
@@ -58,14 +59,14 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-scan-'));
+    tempRoot = await makeTempTree('scan');
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
 });
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**

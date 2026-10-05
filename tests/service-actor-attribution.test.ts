@@ -45,8 +45,7 @@
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeAccount } from '../service/accounts/store.ts';
@@ -74,6 +73,7 @@ import type { GitHubIssuePoller, ListPace } from '../service/poll/poller-github.
 import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/verify.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /* -------------------------------------------------------------------- *
  * Constants and fixtures
@@ -495,7 +495,6 @@ function wireRow(input: {
     return `{ ${parts.join(', ')} }`;
 }
 
-
 /**
  * Serialize a whole page of rows.
  *
@@ -705,7 +704,6 @@ async function seed(input: {
     return { store, log, lines };
 }
 
-
 /**
  * Build a poller over one fake GitHub.
  *
@@ -743,11 +741,11 @@ function scanRoutes(input: {
 }
 
 beforeEach(async () => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-actor-read-'));
+    tempRoot = await makeTempTree('actor-read');
 });
 
 afterEach(async () => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /* -------------------------------------------------------------------- *

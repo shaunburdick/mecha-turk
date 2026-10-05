@@ -28,8 +28,8 @@
  * Offline: temp directories, a fake host environment, no GitHub, no network.
  */
 
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUDIT_FILE, appendAudit, readAuditEntries } from '../service/audit.ts';
@@ -44,6 +44,7 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller } from '../service/poll/poller-github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Path of the configuration resource. */
 const CONFIG_PATH = '/v1/config';
@@ -95,7 +96,7 @@ const running: TestService[] = [];
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-config-audit-'));
+    tempRoot = await makeTempTree('config-audit');
     dataDir = join(tempRoot, 'store');
     await mkdir(dataDir, { recursive: true });
 });
@@ -106,7 +107,7 @@ afterEach(async (): Promise<void> => {
         await service.shutdown();
     }
 
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /** One `PUT /v1/config` answer. */

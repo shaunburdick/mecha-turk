@@ -27,8 +27,6 @@
  * comments.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -64,6 +62,7 @@ import type { PollItemEvent } from '../service/poll/poller-events.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { byText } from './support/sort.ts';
 import { scopeResults } from './support/verify.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Binding id the mention fixtures bind. */
 const MENTION_BINDING = 'bnd-mention';
@@ -156,7 +155,7 @@ let logLines: string[];
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-triggers-'));
+    tempRoot = await makeTempTree('triggers');
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
     logLines = [];
@@ -170,7 +169,7 @@ beforeEach(async (): Promise<void> => {
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**
@@ -740,7 +739,6 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             expect(events[1]?.issueBodyExcerpt).toBe(`cc ${MENTION_TOKEN} — see above`);
         }
     });
-
 
     it('ignores an issue body the scan window has already passed', async () => {
         // The first cycle stamps the window at "now", which every fixture

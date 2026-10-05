@@ -1,7 +1,5 @@
 /** Durable run allocation, transitions, and coalescing (003 T-003/T-006). */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
@@ -30,6 +28,7 @@ import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 const STAMP = '2026-09-28T12:00:00.000Z';
 const HOLDER = 'panel-mount-1';
@@ -54,7 +53,7 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-run-enqueue-'));
+    tempRoot = await makeTempTree('run-enqueue');
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
     // The gate reads `bindings.json` at authorization and denies when it cannot
@@ -65,7 +64,7 @@ beforeEach(async (): Promise<void> => {
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /** Build an assignment fixture for one issue. */
@@ -345,7 +344,6 @@ describe('T-006 run-aware enqueue', () => {
             );
         }
     });
-
 
     it('refuses to read a run whose stored count cannot be reconciled (T-038)', async () => {
         await enqueue([assignment(23), commentMention(23, 9)]);

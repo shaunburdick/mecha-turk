@@ -10,8 +10,8 @@
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ACCOUNT_PROMPT_UPDATED_EVENT } from '../service/account-prompt-audit.ts';
@@ -35,6 +35,7 @@ import { fakeGitHub, scriptedVerifier, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { EndpointResponse, GitHubScript } from './support/github.ts';
 import type { TestService } from './support/service.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Credential registered with this suite's scans; deliberately un-prefixed. */
 const REGISTERED_TOKEN = `registered-persist-credential-${'p'.repeat(32)}`;
@@ -99,7 +100,7 @@ afterEach(async (): Promise<void> => {
     while (ownedDirs.length > 0) {
         const dir = ownedDirs.pop();
         if (dir !== undefined) {
-            await rm(dir, { recursive: true, force: true });
+            await removeTempTree(dir);
         }
     }
 });
@@ -240,7 +241,7 @@ async function readStoredAccount(dataDir: string): Promise<Record<string, unknow
  * @returns The absolute directory path.
  */
 async function sharedDataDir(): Promise<string> {
-    const dir = await mkdtemp(join(tmpdir(), 'mecha-turk-accounts-'));
+    const dir = await makeTempTree('accounts');
     ownedDirs.push(dir);
     await mkdir(dir, { recursive: true });
 
@@ -572,7 +573,6 @@ const CUSTODY_KEYS: readonly string[] = [
  */
 const RETIRED_SUFFIXES: readonly string[] = ['/display-name', '/starting-prompt'];
 
-
 /** One field refusal, as the `422 validation` envelope carries it. */
 interface Issue {
     /** The offending field, or `'body'` for a structural refusal. */
@@ -891,7 +891,6 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             expect(await readFile(file, 'utf8')).toBe(bytes);
         }
     });
-
 
     it('AC-128 plus FR-082 — rotation and login rename touch neither member', async () => {
         {
@@ -1217,7 +1216,6 @@ describe('PUT /v1/accounts/:numericUserId — invariant 6: the eleven custody ke
         }
     });
 
-
     it('withholds a member name that is not an identifier, and bounds one that is', async () => {
         const service = await startService({ user: USER_OK });
         await verifyOk(service);
@@ -1433,7 +1431,6 @@ describe('account.prompt-updated — one row per tier change, never the text (00
         }
     });
 
-
     it('a hand-edited account file is observed once with actor `service`', async () => {
         {
             const service = await startService({ user: USER_OK });
@@ -1481,7 +1478,6 @@ describe('account.prompt-updated — one row per tier change, never the text (00
             expect(await readFile(join(dataDir, ACCOUNTS_DIR, `${ACCOUNT_ID}.json`), 'utf8')).toContain(PROMPT);
         }
     });
-
 
     it('removes record and tier together and re-adds the account unset (AC-149)', async () => {
         const service = await startService({ user: USER_OK });

@@ -12,8 +12,8 @@
  * extending without a gap.)
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appendAudit, composeAudit, readAuditEntries, serializeAudit } from '../service/audit.ts';
@@ -21,6 +21,7 @@ import { openStore } from '../service/store/index.ts';
 import type { AuditEntry, AuditInput } from '../service/audit.ts';
 import type { NdjsonReadResult } from '../service/store/ndjson.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Store file the audit trail lives in. */
 const AUDIT_FILE = 'audit.ndjson';
@@ -39,14 +40,14 @@ let dataDir = '';
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-audit-'));
+    tempRoot = await makeTempTree('audit');
     dataDir = join(tempRoot, 'store');
     await mkdir(dataDir, { recursive: true });
 });
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**

@@ -44,8 +44,8 @@
  * cycle skips it (no poller, no network) and its window cannot move.
  */
 
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, readdir } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appendAudit, readAuditEntries } from '../service/audit.ts';
@@ -67,6 +67,7 @@ import type { ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/handoff.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamp every seeded row carries, so nothing here waits on a clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
@@ -120,7 +121,7 @@ let running: TestService | null = null;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-prompt-upgrade-'));
+    tempRoot = await makeTempTree('prompt-upgrade');
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
     running = null;
@@ -134,7 +135,7 @@ afterEach(async (): Promise<void> => {
         running = null;
     }
 
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /** The pre-004 binding: no prompt member anywhere, and `disabled` so no scan runs. */

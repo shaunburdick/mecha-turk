@@ -25,8 +25,8 @@
  *    the cycle's end and the wait is delayed, never caught up (002 FR-022).
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { writeAccount } from '../service/accounts/store.ts';
@@ -46,6 +46,7 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller, ListPace } from '../service/poll/poller-github.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/verify.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Fixture credential — never a real one, and never expected in a log line. */
 const FIXTURE_TOKEN = 'fixture-token-not-a-real-credential';
@@ -95,7 +96,7 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-backoff-'));
+    tempRoot = await makeTempTree('backoff');
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
 });
@@ -103,7 +104,7 @@ beforeEach(async (): Promise<void> => {
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
     vi.useRealTimers();
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**

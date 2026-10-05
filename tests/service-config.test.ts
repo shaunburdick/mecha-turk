@@ -14,8 +14,8 @@
  * the bindings and account save paths rather than restating it here.
  */
 
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -41,6 +41,7 @@ import { byText } from './support/sort.ts';
 import { offlineVerifier } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Path of the configuration resource. */
 const CONFIG_PATH = '/v1/config';
@@ -189,7 +190,7 @@ afterEach(async (): Promise<void> => {
         return;
     }
 
-    await rm(scratch, { recursive: true, force: true });
+    await removeTempTree(scratch);
     scratch = null;
 });
 
@@ -213,7 +214,7 @@ async function startServiceForTest(
  * @returns The unwritable data directory path.
  */
 async function unwritableDataDir(): Promise<string> {
-    scratch = await mkdtemp(join(tmpdir(), 'mecha-turk-blocked-'));
+    scratch = await makeTempTree('blocked');
     const blocker = join(scratch, 'blocker');
     await writeFile(blocker, 'i am a file', 'utf8');
 
@@ -290,7 +291,6 @@ describe('ServiceConfig validation', () => {
             }
         }
     });
-
 
     it('rejects a retry ceiling below the retry base', async () => {
         {
@@ -464,7 +464,6 @@ describe('GET and PUT /v1/config', () => {
             expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toEqual([]);
         }
     });
-
 
     it('round-trips a retuned lease and result deadline', async () => {
         {
@@ -1123,7 +1122,6 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
         }
     });
 
-
     it('round-trips the twelfth descriptor through the panel\'s closed parser', () => {
         const parsed = parseConfigEnvelope(
             JSON.stringify({
@@ -1197,7 +1195,7 @@ describe('logLevel is immediate (006 FR-033, FR-037, AC-103, SC-105)', () => {
                 lines.push(line);
             },
         });
-        const home = await mkdtemp(join(tmpdir(), 'mecha-turk-loglevel-'));
+        const home = await makeTempTree('loglevel');
         const dataDir = join(home, 'store');
         await mkdir(dataDir, { recursive: true });
         await writeFile(
@@ -1266,7 +1264,7 @@ describe('logLevel is immediate (006 FR-033, FR-037, AC-103, SC-105)', () => {
             expect(setAsideCount()).toBe(1);
         } finally {
             await handle.shutdown();
-            await rm(home, { recursive: true, force: true });
+            await removeTempTree(home);
         }
     });
 });

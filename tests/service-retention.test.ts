@@ -20,8 +20,8 @@
  * waiting of any kind — both boundaries are driven directly.
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -36,6 +36,7 @@ import type { GitHubIssuePoller, PollIssue } from '../service/poll/poller-github
 import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Path of the configuration resource. */
 const CONFIG_PATH = '/v1/config';
@@ -75,7 +76,7 @@ const running: TestService[] = [];
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-retention-'));
+    tempRoot = await makeTempTree('retention');
     dataDir = join(tempRoot, 'store');
     await mkdir(dataDir, { recursive: true });
 });
@@ -86,7 +87,7 @@ afterEach(async (): Promise<void> => {
         await service.shutdown();
     }
 
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**

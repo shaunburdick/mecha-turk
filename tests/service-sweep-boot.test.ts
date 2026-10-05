@@ -40,8 +40,8 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
+
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -53,6 +53,7 @@ import type { ClaimedRun } from '../service/poll/claim.ts';
 import type { SweepOutcome } from '../service/poll/sweep.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Path of the claim route the panel polls. */
 const CLAIM_PATH = '/v1/events/pending';
@@ -120,7 +121,7 @@ afterEach(async (): Promise<void> => {
         return;
     }
 
-    await rm(scratch, { recursive: true, force: true });
+    await removeTempTree(scratch);
     scratch = null;
 });
 
@@ -135,7 +136,7 @@ afterEach(async (): Promise<void> => {
  * @returns The data directory to start the service against.
  */
 async function seedStrandedClaim(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), 'mecha-turk-boot-sweep-'));
+    const root = await makeTempTree('boot-sweep');
     scratch = root;
     const dataDir = join(root, 'store');
     const store = await openStore({ dataDir });
@@ -289,7 +290,7 @@ describe('T-010 boot sweep ordering', () => {
 describe('T-045 the pass adopts under the stamp it judges with', () => {
     it('recovers the migration lease it mints, whatever clock the pass sampled', async () => {
         const fixture = sweepClockFixture();
-        const root = await mkdtemp(join(tmpdir(), 'mecha-turk-sweep-stamp-'));
+        const root = await makeTempTree('sweep-stamp');
         scratch = root;
         const dataDir = join(root, 'store');
         const store = await openStore({ dataDir });
@@ -341,7 +342,7 @@ describe('T-010 the periodic sweep', () => {
 
     it('stops on shutdown, leaving the timer to the process exit', async () => {
         {
-            const root = await mkdtemp(join(tmpdir(), 'mecha-turk-sweep-timer-'));
+            const root = await makeTempTree('sweep-timer');
             scratch = root;
             const store = await openStore({ dataDir: join(root, 'store') });
             const lines: string[] = [];
@@ -361,7 +362,7 @@ describe('T-010 the periodic sweep', () => {
 
 describe('T-010 a degraded start', () => {
     it('still answers the claim route when the store was unusable', async () => {
-        const blocked = await mkdtemp(join(tmpdir(), 'mecha-turk-boot-blocked-'));
+        const blocked = await makeTempTree('boot-blocked');
         scratch = blocked;
         const blocker = join(blocked, 'blocker');
         await writeFile(blocker, 'i am a file', 'utf8');

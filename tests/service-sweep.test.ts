@@ -22,8 +22,6 @@
  * property rather than a comment.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -43,6 +41,7 @@ import type { DispatchAttempt, Run, RunsDocument } from '../service/poll/runs-ty
 import type { ServiceStore } from '../service/store/index.ts';
 import type { SweepOutcome } from '../service/poll/sweep.ts';
 import { byText } from './support/sort.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Detections use this stamp; the sweep uses whatever the test injects. */
 const DETECTED_AT = '2026-09-28T12:00:00.000Z';
@@ -78,7 +77,7 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-sweep-'));
+    tempRoot = await makeTempTree('sweep');
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
     LOG_LINES.length = 0;
@@ -86,7 +85,7 @@ beforeEach(async (): Promise<void> => {
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /** Build an assignment detection for one issue. */

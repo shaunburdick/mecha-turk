@@ -16,8 +16,6 @@
  *    `blocked:` with an empty reason refuses, an unproduced reason parses.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -33,6 +31,7 @@ import { openStore } from '../service/store/index.ts';
 import type { JsonReadResult } from '../service/store/index.ts';
 import type { DispatchAttempt, Run, RunsDocument, SourceReference } from '../service/poll/runs-types.ts';
 import { runHistoryIndicatesSession } from '../service/poll/runs-document.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Store file this suite round-trips through, named as the run store names it. */
 const RUNS_FILE = 'runs.json';
@@ -54,13 +53,13 @@ let dataDir = '';
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-runs-parse-'));
+    tempRoot = await makeTempTree('runs-parse');
     dataDir = join(tempRoot, 'store');
 });
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**
@@ -562,7 +561,6 @@ describe('fail-closed document and row validation', () => {
             expect(run?.state).toBe('blocked:policy');
         }
     });
-
 
     it('accepts a reference that records a comment id as its origin', async () => {
         {

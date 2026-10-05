@@ -27,8 +27,8 @@
  * clock of our own, no network, no credential (FR-086).
  */
 
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeAccount } from '../service/accounts/store.ts';
@@ -48,6 +48,7 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller, ListPace, PollIssue } from '../service/poll/poller-github.ts';
 import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/verify.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** First fixture binding. */
 const BINDING_A = 'bnd-cycle-a';
@@ -96,14 +97,14 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-cycle-config-'));
+    tempRoot = await makeTempTree('cycle-config');
     dataDir = join(tempRoot, 'store');
     store = await openStore({ dataDir });
 });
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**

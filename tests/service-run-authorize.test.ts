@@ -26,8 +26,8 @@
  * no host.
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, rm } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -57,6 +57,7 @@ import type { Run } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamp every fixture uses; no test ever waits on a clock. */
 const STAMP = '2026-09-28T08:00:00.000Z';
@@ -153,7 +154,7 @@ let store: ServiceStore;
  * sequence calls this again between them.
  */
 const openFixture = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-authorize-'));
+    tempRoot = await makeTempTree('authorize');
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     await store.writeJson('config.json', { ...DEFAULT_CONFIG, leaseMs: LEASE_MS, resultDeadlineMs: LEASE_MS });
     // The gate reads `bindings.json` at authorization and denies when it cannot
@@ -172,7 +173,7 @@ beforeEach(openFixture);
 
 /** Remove the temp root the fixture opened. */
 const closeFixture = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 };
 
 afterEach(closeFixture);
@@ -250,7 +251,6 @@ function liveLease(): Run['lease'] {
         provenance: 'panel',
     };
 }
-
 
 /** Enqueue detections, one per issue. */
 async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {
@@ -841,7 +841,6 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         }
     });
 
-
     it('refuses a leaseless run as stale, because the session check finds no session first', async () => {
         {
             // The other half of the ordering, and the honest answer: a run in
@@ -1117,7 +1116,6 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
         }
     });
 
-
     it('applies an unconsumed report from unconfirmed, reconciling the run', async () => {
         {
             const claimed = await seedAndClaim(26);
@@ -1367,7 +1365,6 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
         }
     });
 
-
     it('writes exactly one run.blocked row for a guard refusal, carrying the run id', async () => {
         const claimed = await seedAndClaim(46);
 
@@ -1448,7 +1445,6 @@ describe('T-011..T-013 no audit row ever carries a dispatch token value (FR-061)
     });
 
 });
-
 
 describe('T-011..T-013 every route answers the documented validation failures (contract §4)', () => {
     it('refuses a reserve whose body contradicts the path, naming the field', async () => {
@@ -1577,7 +1573,6 @@ describe('T-011..T-013 every route answers the documented validation failures (c
             }
         }
     });
-
 
     it('refuses a body that is not a JSON object', async () => {
         const service = await startTestService();

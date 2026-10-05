@@ -24,8 +24,8 @@
  * audit writer, no network, no host, no sleeping.
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { newCorrelationId } from '../src/ids.ts';
@@ -39,6 +39,7 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** A well-formed run id the route must answer for even with no run behind it. */
 const SEEDED_RUN_ID = `mt-run-${'a'.repeat(24)}`;
@@ -105,7 +106,7 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-audit-route-'));
+    tempRoot = await makeTempTree('audit-route');
     dataDir = join(tempRoot, 'store');
     LOG_LINES.length = 0;
     running = null;
@@ -118,7 +119,7 @@ afterEach(async (): Promise<void> => {
         running = null;
     }
 
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /**

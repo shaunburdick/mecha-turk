@@ -21,8 +21,8 @@
  * fixture that expects rows on disk plants them before the service starts.
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EVENTS_FILE, createEvent, enqueueEvents } from '../service/poll/events.ts';
@@ -41,6 +41,7 @@ import type { RouteContext } from '../service/routes/types.ts';
 import { fakeGitHub, offlineVerifier, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Credential registered with this suite; never appears in any answer. */
 const REGISTERED_TOKEN = `runs-history-credential-${'q'.repeat(32)}`;
@@ -128,7 +129,7 @@ afterEach(async (): Promise<void> => {
     while (plantedRoots.length > 0) {
         const root = plantedRoots.pop();
         if (root !== undefined) {
-            await rm(root, { recursive: true, force: true });
+            await removeTempTree(root);
         }
     }
 });
@@ -284,7 +285,7 @@ async function storedQueue(service: TestService): Promise<readonly Record<string
  * @returns The running harness instance, registered for cleanup with its root.
  */
 async function startWithQueue(rows: readonly QueuedEvent[]): Promise<TestService> {
-    const root = await mkdtemp(join(tmpdir(), 'mecha-turk-history-'));
+    const root = await makeTempTree('history');
     plantedRoots.push(root);
     const dataDir = join(root, 'store');
     await mkdir(dataDir, { recursive: true });

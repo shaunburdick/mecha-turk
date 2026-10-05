@@ -12,10 +12,10 @@
 
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve as resolvePath } from 'node:path';
+
+import { resolve as resolvePath } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolvePath(import.meta.dirname, '..');
@@ -58,7 +58,7 @@ const resetFixture = async (): Promise<void> => {
         return;
     }
 
-    await rm(home, { recursive: true, force: true });
+    await removeTempTree(home);
     home = null;
 };
 
@@ -159,7 +159,7 @@ function waitForExit(child: ChildProcess): Promise<number | null> {
 describe('service entry (spawned bundle)', () => {
     it('starts, answers the readiness probe, and drains on SIGTERM', async () => {
         {
-            home = await mkdtemp(join(tmpdir(), 'mecha-turk-entry-'));
+            home = await makeTempTree('entry');
             entry = spawn(process.execPath, [ENTRY], { env: buildEnv(home), stdio: ['ignore', 'pipe', 'pipe'] });
             const port = await readListeningPort(entry);
 
@@ -179,7 +179,7 @@ describe('service entry (spawned bundle)', () => {
         await resetFixture();
         await resetFixture();
         {
-            home = await mkdtemp(join(tmpdir(), 'mecha-turk-entry-'));
+            home = await makeTempTree('entry');
             const shortToken = 'f'.repeat(TOKEN_FLOOR - 1);
             const env = buildEnv(home);
             env.OPENCHAMBER_SERVICE_TOKEN = shortToken;
