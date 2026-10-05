@@ -173,6 +173,17 @@ speckit commands in `.opencode/commands/` (`/speckit.plan`, `/speckit.tasks`,
 without an approved spec/plan pair, and run `npm run verify` at every wave
 boundary.
 
+**`tasks.md` is kept unconditionally**, and issue #15's rule — *keep it only for
+features touching more than 20 files* — was measured and found inapplicable here.
+The measurement cannot work from history: specs 003–006 all shipped in one
+commit (`1f2ed8c`), so the same commit sits in four features' file sets, and
+`002`'s `spec.md` is the production spec of record that every later feature
+amends, so its set is every feature's commits. 373 of 424 files are common to all
+five — the number a naive measure reports is the repo at that point, not the
+feature. All five features clear any reasonable reading of the threshold anyway,
+so the lists stay and the rule is recorded here rather than left to be
+re-derived.
+
 ## Git conventions
 
 - Protected: `main`, `master`, `develop` — branch (`001-feature-name`,
