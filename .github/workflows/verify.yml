@@ -60,6 +60,17 @@ jobs:
         run: npm ci
 
       - name: Run the repository gate
+        # `eslint .` is type-aware over the whole repository and needs between
+        # 1.5 and 2 GB of old space for this tree — measured, not guessed: the
+        # gate aborts with an OOM at `--max-old-space-size=1536` and passes at
+        # 2048, and `main` has the same profile as this branch, so this is a
+        # property of the repository's size rather than of any one change.
+        # Node's default ceiling lands just under the requirement on a
+        # GitHub-hosted runner, which makes the gate fail intermittently
+        # depending on what else the runner is doing. 4 GB is headroom over a
+        # measured floor, not a guess at one.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm run verify
 
       # AGENTS.md invariant 1, enforced by CI instead of by review: OpenChamber
