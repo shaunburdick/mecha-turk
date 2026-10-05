@@ -223,6 +223,42 @@ function viewOf(document: Record<string, unknown>): StatusView {
 }
 
 /**
+ * The view for a fixture with one member replaced — the pipeline twenty-odd
+ * assertions spell out, named once so a test reads as one line of arrangement.
+ *
+ * @param member - The member to replace.
+ * @param value - Its new value.
+ * @returns The parsed view.
+ */
+function viewForMember(member: string, value: unknown): StatusView {
+    return viewOf(withMember(member, value));
+}
+
+/**
+ * The view for the plain fixture document, with nothing overridden.
+ *
+ * @returns The parsed view.
+ */
+function defaultView(): StatusView {
+    return viewOf(statusFixture());
+}
+
+/**
+ * The parse verdict for a fixture with one member replaced.
+ *
+ * The counterpart to {@link viewForMember}: it returns `null` instead of
+ * throwing, which is what the rejection tests need and what {@link viewOf}
+ * cannot give them.
+ *
+ * @param member - The member to replace.
+ * @param value - Its new value.
+ * @returns The parsed view, or `null` when the fixture does not parse.
+ */
+function parseMember(member: string, value: unknown): StatusView | null {
+    return parseStatusView(bodyOf(withMember(member, value)));
+}
+
+/**
  * Build a host whose service answers the two reads the tab makes.
  *
  * @param statusBody - Body `GET /v1/status` answers with.
@@ -248,7 +284,7 @@ function runtimeAnswering(statusBody: string, configBody: string): PanelRuntime 
  */
 function pollingLinesFor(overrides: Record<string, unknown>, configured: number | null): readonly string[] {
     return pollingLines({
-        view: viewOf(statusFixture({ polling: pollingFixture(overrides) })),
+        view: viewOf({ ...statusFixture(), polling: pollingFixture(overrides) }),
         configured,
         nowMs: Date.parse(FUTURE_STAMP),
     });
@@ -275,6 +311,22 @@ function guidanceInput(
     registeredProjectIds: readonly string[] | null,
 ): { readonly bindings: readonly StatusBindingView[]; readonly registeredProjectIds: readonly string[] | null } {
     return { bindings, registeredProjectIds };
+}
+
+/**
+ * The guidance inputs for the fixture's own bindings.
+ *
+ * Every caller wants the default binding rows and varies only the registered
+ * ids, so the pairing is here rather than repeated.
+ *
+ * @param registeredProjectIds - Registered ids, or `null` when not loaded.
+ * @returns The inputs.
+ */
+function guidanceFor(registeredProjectIds: readonly string[] | null): {
+    readonly bindings: readonly StatusBindingView[];
+    readonly registeredProjectIds: readonly string[] | null;
+} {
+    return guidanceInput(guidanceBindings(), registeredProjectIds);
 }
 
 /**
@@ -354,9 +406,7 @@ function malformedAfterFirstRuntime(): PanelRuntime {
 
             reads += 1;
 
-            return reads > 1
-                ? { status: 200, body: '{"unexpected":"shape"}' }
-                : { status: 200, body: bodyOf(statusFixture()) };
+            return { status: 200, body: reads > 1 ? '{"unexpected":"shape"}' : bodyOf(statusFixture()) };
         },
     }));
 }
@@ -378,30 +428,26 @@ describe('parseStatusView (fail closed, AGENTS invariant 8)', () => {
             expect(parseStatusView('not json'), 'a body that is not JSON').toBeNull();
 
             for (const member of ['service', 'accounts', 'repositories', 'polling', 'agentPin', 'surface']) {
-                const document = statusFixture();
-                const partial: Record<string, unknown> = {};
-                for (const [key, value] of Object.entries(document)) {
-                    if (key !== member) {
-                        partial[key] = value;
-                    }
-                }
+                const partial = Object.fromEntries(
+                    Object.entries(statusFixture()).filter(([key]) => key !== member),
+                );
 
                 expect(parseStatusView(bodyOf(partial)), `a document missing ${member}`).toBeNull();
             }
 
             expect(
-                parseStatusView(bodyOf(withMember('service', serviceFixture({ uptimeMs: 'a while' })))),
+                parseMember('service', serviceFixture({ uptimeMs: 'a while' })),
                 'a partially typed service block',
             ).toBeNull();
 
-            const rate: StatusRateView = { remaining: null, usedLastHour: 0 } as unknown as StatusRateView;
+            const rate = { remaining: null, usedLastHour: 0 };
             expect(
-                parseStatusView(bodyOf(withMember('accounts', [accountFixture({ rate })]))),
+                parseMember('accounts', [accountFixture({ rate })]),
                 'an account row with an incomplete rate block',
             ).toBeNull();
 
             expect(
-                parseStatusView(bodyOf(withMember('repositories', [bindingFixture({ readable: 'yes' })]))),
+                parseMember('repositories', [bindingFixture({ readable: 'yes' })]),
                 'a binding row whose flags are not booleans',
             ).toBeNull();
 
@@ -533,7 +579,7 @@ describe('rate honesty (FR-034, AC-107)', () => {
             expect(rows[0]).toBe(`${ACCOUNT} (77331) — connected · not measured yet (0 used in the last hour)`);
         }
         {
-            expect(accountLines(viewOf(withMember('accounts', [])))).toEqual(['No accounts connected yet.']);
+            expect(accountLines(viewForMember('accounts', []))).toEqual(['No accounts connected yet.']);
         }
     });
 });
@@ -548,7 +594,7 @@ describe('binding rows (FR-032, AC-104, AC-105)', () => {
             expect(rows[0]).toContain('2 pending');
         }
         {
-            const rows = bindingLines(viewOf(withMember('repositories', [bindingFixture({ readable: false })])));
+            const rows = bindingLines(viewForMember('repositories', [bindingFixture({ readable: false })]));
 
             expect(rows).toHaveLength(1);
             expect(rows[0]).toContain('unreadable');
@@ -560,7 +606,7 @@ describe('binding rows (FR-032, AC-104, AC-105)', () => {
             expect(rows[0]).toContain('rate-limited');
         }
         {
-            expect(bindingLines(viewOf(withMember('repositories', [])))).toEqual(['No bindings yet.']);
+            expect(bindingLines(viewForMember('repositories', []))).toEqual(['No bindings yet.']);
         }
         {
             const degraded = statusFixture({
@@ -625,7 +671,7 @@ describe('the agent pin (FR-033, AC-106)', () => {
 describe('the two blocking notices (FR-035, FR-036, AC-108, AC-109)', () => {
     it('raises nothing for a document that is healthy', () => {
         {
-            expect(noticeStates(viewOf(statusFixture()))).toEqual({ unsupported: false, storageBlocked: false });
+            expect(noticeStates(defaultView())).toEqual({ unsupported: false, storageBlocked: false });
         }
         {
             expect(noticeStates(null)).toEqual({ unsupported: false, storageBlocked: false });
@@ -633,13 +679,13 @@ describe('the two blocking notices (FR-035, FR-036, AC-108, AC-109)', () => {
         {
             const service = serviceFixture({ storage: { writable: false } });
 
-            expect(noticeStates(viewOf(withMember('service', service)))).toEqual({
+            expect(noticeStates(viewForMember('service', service))).toEqual({
                 unsupported: false,
                 storageBlocked: true,
             });
         }
         {
-            expect(noticeStates(viewOf(withMember('surface', { supported: false })))).toEqual({
+            expect(noticeStates(viewForMember('surface', { supported: false }))).toEqual({
                 unsupported: true,
                 storageBlocked: false,
             });
@@ -650,10 +696,10 @@ describe('the two blocking notices (FR-035, FR-036, AC-108, AC-109)', () => {
 describe('the Status → picker link (FR-038)', () => {
     it('claims nothing while the host project list has not loaded', () => {
         {
-            expect(projectGuidanceLines(guidanceInput(guidanceBindings(), null))).toEqual([]);
+            expect(projectGuidanceLines(guidanceFor(null))).toEqual([]);
         }
         {
-            const lines = projectGuidanceLines(guidanceInput(guidanceBindings(), ['prj_other']));
+            const lines = projectGuidanceLines(guidanceFor(['prj_other']));
 
             expect(lines).toHaveLength(1);
             // The three manual routes belong to the picker alone (FR-038).
@@ -661,7 +707,7 @@ describe('the Status → picker link (FR-038)', () => {
             expect(lines[0]).not.toContain('sidebar');
         }
         {
-            expect(projectGuidanceLines(guidanceInput(guidanceBindings(), ['prj_42']))).toEqual([]);
+            expect(projectGuidanceLines(guidanceFor(['prj_42']))).toEqual([]);
         }
     });
 });
@@ -900,15 +946,13 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
         {
             for (const value of ['closed', 'OPEN', '', 1, null, undefined, ['open']]) {
                 expect(
-                    parseStatusView(bodyOf(withMember('repositories', [bindingFixture({ actorPolicy: value })]))),
+                    parseMember('repositories', [bindingFixture({ actorPolicy: value })]),
                     `actorPolicy ${JSON.stringify(value)}`,
                 ).toBeNull();
             }
             // …and the two legal words parse.
             for (const value of ['open', 'restricted']) {
-                const view = parseStatusView(
-                    bodyOf(withMember('repositories', [bindingFixture({ actorPolicy: value })])),
-                );
+                const view = parseMember('repositories', [bindingFixture({ actorPolicy: value })]);
                 expect(view?.bindings[0]?.actorPolicy, value).toBe(value);
             }
         }
@@ -968,10 +1012,10 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
             // consequence, and nothing that names a login, a repository, or an
             // act.
             {
-                const [line] = actorPolicyLines(viewOf(withMember('repositories', [
+                const [line] = actorPolicyLines(viewForMember('repositories', [
                     bindingFixture({ bindingId: 'bnd_a', repository: 'acme/one', actorPolicy: 'restricted' }),
                     bindingFixture({ bindingId: 'bnd_b', repository: 'acme/two', actorPolicy: 'open' }),
-                ])));
+                ]));
 
                 expect(line).toContain('1 of 2 enabled bindings has no allow-list');
                 expect(line).toContain('whoever the trigger lets act can start a session');
@@ -987,7 +1031,7 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
 
             // never `0 of 0` and never the vacuously-true positive statement.
             {
-                const [line] = actorPolicyLines(viewOf(withMember('repositories', [
+                const [line] = actorPolicyLines(viewForMember('repositories', [
                     bindingFixture({ bindingId: 'bnd_a', active: false, actorPolicy: 'open' }),
                     bindingFixture({
                         bindingId: 'bnd_b', repository: 'acme/two', active: false, actorPolicy: 'restricted',
@@ -995,7 +1039,7 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
                     bindingFixture({
                         bindingId: 'bnd_c', repository: THIRD_REPOSITORY, active: false, actorPolicy: 'open',
                     }),
-                ])));
+                ]));
 
                 expect(line).toContain('none of the 3 bindings is enabled');
                 expect(line).toContain('nothing can start a session right now');

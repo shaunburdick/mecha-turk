@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
-import type { Tone } from '@openchamber/sdk/ui';
+import type { ListItem, Tone } from '@openchamber/sdk/ui';
 import { createBindingsHandlers } from '../src/bindings-mount.ts';
 import { initialDispatches } from '../src/panel-state.ts';
 import { PLAIN_RUN_STATES } from '../src/run-state.ts';
@@ -158,6 +158,20 @@ type RouteTable = Readonly<Record<string, RouteAnswer>>;
  * @param overrides - Fields the test changes.
  * @returns A complete, valid row.
  */
+/** Hostile markup for the tests that prove the list primitive never evaluates it. */
+const HOSTILE_MARKER = '<img src=x onerror="steal()"> <script>alert(1)</script>';
+
+/**
+ * A `promptSources` slot holding markup, which the tier union forbids.
+ *
+ * The hostile-render test needs the value the type refuses, because the point
+ * of the test is that the slot is treated as untrusted text: the list primitive
+ * writes the subtitle through `textContent`, so the marker arrives verbatim and
+ * nothing evaluates it.
+ */
+// eslint-disable-next-line llm-core/no-type-system-bypass, llm-core/no-chained-type-assertions -- not a tier
+const untrustedTierText = [HOSTILE_MARKER] as unknown as readonly PromptSource[];
+
 function runFixture(overrides: Partial<RunRow> = {}): RunRow {
     return {
         id: RUN_ID,
@@ -232,6 +246,19 @@ function runsState(overrides: Partial<DispatchesState> = {}): DispatchesState {
 /** Body the service answers `GET /v1/events` with for the given rows. */
 function runsBody(rows: readonly RunRow[]): string {
     return JSON.stringify({ events: rows, page: pageMember(rows.length) });
+}
+
+/**
+ * The rendered rows for a single ready run.
+ *
+ * Every reference assertion here spells out the same four-deep fixture chain,
+ * so it is named once and each test reads as one line of arrangement.
+ *
+ * @param overrides - Members to override on the run.
+ * @returns The rows the panel renders.
+ */
+function rowsForRun(overrides: Partial<RunRow> = {}): ListItem[] {
+    return dispatchRows(runsState({ rows: [runFixture(overrides)], status: 'ready' }));
 }
 
 /** A service double: recorded `METHOD path` calls plus a swappable table. */
@@ -333,14 +360,16 @@ describe('parseDispatchesBody (the service projection, round-tripped)', () => {
             ];
 
             for (const state of states) {
-                expect(parseDispatchesBody(runsBody([runFixture({ state })]))?.[0]?.state).toBe(state);
+                const parsed = parseDispatchesBody(runsBody([runFixture({ state })]));
+                expect(parsed?.[0]?.state).toBe(state);
             }
         }
         {
             const refused = ['in-flight', 'blocked:', 'blocked:Project-Missing', 'blocked:a b', 'telepathy'];
 
             for (const state of refused) {
-                expect(parseDispatchesBody(JSON.stringify({ events: [{ ...runFixture(), state }] }))).toBeNull();
+                const body = JSON.stringify({ events: [{ ...runFixture(), state }] });
+                expect(parseDispatchesBody(body)).toBeNull();
             }
         }
         {
@@ -428,15 +457,15 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
             expect(rows[0]?.subtitle).toContain('[redacted:github-token-classic]');
         }
         {
-            const retries = (state: RunRow['state']): boolean =>
+            const canRetry = (state: RunRow['state']): boolean =>
                 runAffordance(runFixture({ state })).action === 'retry';
-            expect(retries(FAILED_STATE)).toBe(true);
-            expect(retries(BLOCKED_PROJECT_STATE)).toBe(true);
-            expect(retries(BLOCKED_BINDING_STATE)).toBe(true);
+            expect(canRetry(FAILED_STATE)).toBe(true);
+            expect(canRetry(BLOCKED_PROJECT_STATE)).toBe(true);
+            expect(canRetry(BLOCKED_BINDING_STATE)).toBe(true);
             // The fifth declared cause retries on exactly the same terms (FR-078):
             // the service re-checks the live policy and refuses with its own
             // reason until it clears, which is what every other cause does.
-            expect(retries(BLOCKED_ACTOR_STATE)).toBe(true);
+            expect(canRetry(BLOCKED_ACTOR_STATE)).toBe(true);
 
             const notRetryable: readonly RunRow['state'][] = [
                 'pending',
@@ -447,7 +476,7 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
                 DEAD_LETTERED_STATE,
             ];
             for (const state of notRetryable) {
-                expect(retries(state), state).toBe(false);
+                expect(canRetry(state), state).toBe(false);
             }
         }
         {
@@ -474,7 +503,8 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
         }
         {
             expect(dispatchesStatusText(runsState({ status: 'ready' }))).toBe(DISPATCHES_EMPTY_STATUS);
-            expect(dispatchesStatusText(runsState({ status: 'ready', rows: [runFixture()] }))).toBe(
+            const oneRow = runsState({ status: 'ready', rows: [runFixture()] });
+            expect(dispatchesStatusText(oneRow)).toBe(
                 // The count is the range line's to state (FR-042); this lede
                 // carries the order and the selection hint only.
                 'newest first · select a row to open or retry',
@@ -518,10 +548,7 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
             expect(rows[0]?.subtitle).toBe(`acme/widget · ${hostile} · not dispatched yet · prompt not set`);
         }
         {
-            const rows = dispatchRows(runsState({
-                rows: [runFixture({ sourceReferences: [referenceFixture()], referenceCount: 1 })],
-                status: 'ready',
-            }));
+            const rows = rowsForRun({ sourceReferences: [referenceFixture()], referenceCount: 1 });
 
             // 005 FR-094: the reference names its actor, and a run stored before
             // attribution says *actor not recorded* rather than naming nobody.
@@ -566,22 +593,19 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
             expect(rows[0]?.subtitle).toContain(hostile);
         }
         {
-            const rows = dispatchRows(runsState({
-                rows: [runFixture({
-                    sourceReferences: [
-                        referenceFixture(),
-                        referenceFixture({
-                            deliveryId: 'evt-acme~widget~7~comment',
-                            kind: 'mention',
-                            origin: 'comment:4242',
-                            detectedAt: RIDER_DETECTED_AT,
-                            presentAtAuthorization: false,
-                        }),
-                    ],
-                    referenceCount: 2,
-                })],
-                status: 'ready',
-            }));
+            const rows = rowsForRun({
+                sourceReferences: [
+                    referenceFixture(),
+                    referenceFixture({
+                        deliveryId: 'evt-acme~widget~7~comment',
+                        kind: 'mention',
+                        origin: 'comment:4242',
+                        detectedAt: RIDER_DETECTED_AT,
+                        presentAtAuthorization: false,
+                    }),
+                ],
+                referenceCount: 2,
+            });
             const subtitle = rows[0]?.subtitle ?? '';
 
             expect(subtitle).toContain('2 reasons · assignment 2026-09-28 09:00');
@@ -592,15 +616,12 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
 
     it('states the reasons the reference cap kept off the list', () => {
         {
-            const rows = dispatchRows(runsState({
-                rows: [runFixture({
-                    sourceReferences: [referenceFixture()],
-                    referenceCount: 3,
-                    referencesNotRetained: 2,
-                    referencesTruncated: true,
-                })],
-                status: 'ready',
-            }));
+            const rows = rowsForRun({
+                sourceReferences: [referenceFixture()],
+                referenceCount: 3,
+                referencesNotRetained: 2,
+                referencesTruncated: true,
+            });
 
             expect(rows[0]?.subtitle).toContain('3 reasons · assignment 2026-09-28 09:00 · actor not recorded');
             expect(rows[0]?.subtitle).toContain('+2 more reasons not listed');
@@ -712,7 +733,7 @@ describe('T-028 the row’s prompt line (sources, fingerprint, length — never 
             // takes. The list primitive writes the subtitle through `textContent`,
             // so the marker arrives verbatim: no escaping hides it from the
             // operator, and no path could evaluate it.
-            const marker = '<img src=x onerror="steal()"> <script>alert(1)</script>';
+            const marker = HOSTILE_MARKER;
             const rows = dispatchRows(runsState({
                 rows: [{
                     ...runFixture({
@@ -720,7 +741,7 @@ describe('T-028 the row’s prompt line (sources, fingerprint, length — never 
                         promptFingerprint: FINGERPRINT,
                         promptLength: 12,
                     }),
-                    promptSources: [marker] as unknown as readonly PromptSource[],
+                    promptSources: untrustedTierText,
                 }],
                 status: 'ready',
             }));
@@ -846,9 +867,8 @@ describe('003 v1.8.0 the blocked actor-not-allowed row (FR-078)', () => {
             expect(affordance.reason).not.toMatch(/@|permitted:/);
         }
         {
-            // The generic clause is honest about a cause this build does not
-            // produce, and the table keeps answering for a state from a future
-            // build (FR-074) rather than guessing a control.
+            // The generic clause keeps answering for a state a future build may produce
+            // (FR-074) rather than guessing a control for one it does not.
             const unknown = runAffordance({ state: 'blocked:not-yet-produced' });
             expect(unknown.action).toBe('retry');
             expect(unknown.reason).toContain('not-yet-produced');
@@ -1391,7 +1411,8 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             const items = auditItems(auditState({ status: 'ready', correlationId: RUN_ID, rows: rows ?? [] }));
             expect(items).toHaveLength(AUDIT_ROW_LIMIT);
 
-            const loud = parseAuditBody(auditBody([auditEntry({ reason: null, details: { blob: 'x'.repeat(500) } })]));
+            const blob = 'x'.repeat(500);
+            const loud = parseAuditBody(auditBody([auditEntry({ reason: null, details: { blob } })]));
             const subtitle = auditItems(auditState({ status: 'ready', correlationId: RUN_ID, rows: loud ?? [] }))[0]
                 ?.subtitle ?? '';
             expect(subtitle.endsWith('…')).toBe(true);
@@ -1513,13 +1534,10 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
         // all** — GitHub named the identity that performed the act, so there is
         // nothing to qualify (005 FR-094 as re-cut at v1.13.0)
         {
-            const rows = dispatchRows(runsState({
-                rows: [runFixture({
-                    sourceReferences: [referenceFixture({ actorLogin: ALLOWED_LOGIN, actorAttribution: 'direct' })],
-                    referenceCount: 1,
-                })],
-                status: 'ready',
-            }));
+            const rows = rowsForRun({
+                sourceReferences: [referenceFixture({ actorLogin: ALLOWED_LOGIN, actorAttribution: 'direct' })],
+                referenceCount: 1,
+            });
 
             expect(rows[0]?.subtitle).toContain(`actor ${ALLOWED_LOGIN}`);
             expect(rows[0]?.subtitle).not.toContain(SUBJECT_AUTHOR_BASIS);
@@ -1531,16 +1549,13 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
 
         // in force when it was written — and claims nothing about GitHub
         {
-            const rows = dispatchRows(runsState({
-                rows: [runFixture({
-                    sourceReferences: [referenceFixture({
-                        actorLogin: LEGACY_ACTOR_LOGIN,
-                        actorAttribution: LEGACY_BASIS,
-                    })],
-                    referenceCount: 1,
+            const rows = rowsForRun({
+                sourceReferences: [referenceFixture({
+                    actorLogin: LEGACY_ACTOR_LOGIN,
+                    actorAttribution: LEGACY_BASIS,
                 })],
-                status: 'ready',
-            }));
+                referenceCount: 1,
+            });
             const subtitle = rows[0]?.subtitle ?? '';
 
             expect(subtitle).toContain(`actor ${LEGACY_ACTOR_LOGIN}`);
@@ -1589,10 +1604,7 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
         }
 
         {
-            const [rendered] = dispatchRows(runsState({
-                rows: [runFixture({ sourceReferences: [referenceFixture()], referenceCount: 1 })],
-                status: 'ready',
-            }));
+            const [rendered] = rowsForRun({ sourceReferences: [referenceFixture()], referenceCount: 1 });
 
             // Absence is named, never filled in: printing a plausible login
             // would record an inference as a fact (002 FR-024).
