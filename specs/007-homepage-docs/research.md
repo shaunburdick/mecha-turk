@@ -418,3 +418,46 @@ Two of these are traps rather than lists. The `blocked:` family is **open** — 
 `tests/docs-sync.test.ts` currently asserts the README names six tabs, `GET /v1/config`, `expectedAgent`, `project-manager`, `config.json`, `operator-backable`, and "expected GitHub login", and that both bound documents exceed 1,500 characters. FR-049 moves every one of those claims to the page that owns it. **They will fail, and that is the requirement doing its job** — the alternative would be a README that keeps a summary of everything and the site beside it, which is the multi-home problem 007 exists to end.
 
 The work is a **restructure, not a deletion**: the test's `PAGES` list gains the site, and each assertion becomes per-surface. The README is checked for the summary it now is; the site pages are checked for the detail they now carry. **No assertion is weakened** — each one moves to the surface the prose moved to, and the amended FR-042's tie-break is added: where a claim appears in two of the three bound documents, the site governs and the other two must not contradict it. This is named as its own task (T-031) rather than left to be discovered as a red suite.
+
+---
+
+## 8. Corrections and the index of measured findings (added 2026-10-05, Wave 4)
+
+Everything above is retained as written. §7.1 carries **one false claim**, corrected here rather than edited in place, and §7's four load-bearing measurements are indexed below so a later phase reads them here instead of rediscovering them.
+
+### 8.1 Correction: the strip-leading-slash `new URL` form is correct under **one** setting of three, not two
+
+§7.1 measured the three settings correctly in its table and then drew the wrong conclusion from its own data. The sentence to correct is §7.1's:
+
+> routes every internal link through the strip-leading-slash `new URL` form, which is correct under either setting.
+
+**It is correct under exactly one of the three.** `new URL('install/', new URL('/mecha-turk', origin))` resolves against `/mecha-turk` *as though it were a file*, so the trailing segment replaces it and the result is `/install/` — the base dropped, with no warning, under both `trailingSlash: 'ignore'` (Astro's default) and `trailingSlash: 'never'`. That is the same row of §7.1's own table, three lines above the sentence that misread it. §7.1's *other* judgement in that paragraph — that naive concatenation is "correct under exactly one setting of three" — is right, and it is true of the `new URL` form too.
+
+**No code is at risk, and none was ever at risk.** The shipped helper, `site/src/data/site.ts`'s `underBase`, does not use that form as written:
+
+```ts
+const directory = `${baseUrl.replace(/\/+$/, '')}/`;   // normalise the base to a directory form first
+const relative = pagePath.replace(/^\/+/, '');          // strip the path's leading slash
+const joined = new URL(relative, `${RESOLUTION_ORIGIN}${directory}`);
+```
+
+Normalising the base means the join is correct under **all three** settings of `trailingSlash`, and it carries the query and fragment across (the documentation pages link to their own sections by anchor). `site/tests/base-path.assertions.mjs` exercises the join against every spelling of the base without needing a build, so the property is under test rather than asserted in a comment. §7.1's *decision* — keep `trailingSlash: 'always'` **and** route every link through the helper — stands unchanged; only the description of what the helper buys was wrong.
+
+`quickstart.md` §3a repeated the same claim, and it has been tightened there to say "correct under all three settings" and point at this section.
+
+### 8.2 The four measurements, in one place
+
+Each is already recorded with its evidence in §7. This is the index, and the consequence each one imposes on whoever touches it next:
+
+| Finding | Recorded | Measured | What it obliges |
+| --- | --- | --- | --- |
+| **`actions/configure-pages` has no `static_site_generator: astro` input.** It accepts `nuxt`, `next`, `gatsby`, `sveltekit`; anything else hits a `throw` that the action's own `try/catch` downgrades to a warning | §7.7 | the action's `action.yml` and `src/set-pages-config.js` on `main` | **Omit the input.** Passing `astro` would emit a permanent warning on every deploy and achieve nothing — a failure mode that survives review precisely because it is not one. The action is still used, for enabling the site and exporting the outputs the deploy step reports the address from |
+| **`astro check` prompts to install `@astrojs/check` and exits 0** when that dependency is absent; `typescript` is in the same boat | §7.2 | `npm install astro@7.3.5`, then `npx astro check`, with nobody to answer the prompt | **Both stay exact devDependencies from the first commit.** In CI that shape is a job reporting success without having type-checked anything — a silent pass on the site's *only* gate |
+| **`import.meta.env.BASE_URL`'s trailing slash comes from `trailingSlash`, not `base`**, so a join against the un-normalised value is correct under one setting of three and silently drops the base under the other two | §7.1, corrected by §8.1 | three builds, one per setting | **Keep `trailingSlash: 'always'` *and* keep the normalising helper.** Either alone leaves a way to break every link on the site, quietly; the build-output assertion catches it, but the two together mean a contributor changing the setting does not have to know that |
+| **`eslint .` walks into dot-directories; `eslint .agents` does not** | §7.8 | an `.mjs` probe at `.agents/probe.mjs`, linted both ways | **Keep `.agents/**` beside `site/**` in the root `ignores`.** Today's markdown-only content produces a warning rather than an error, so the root gate is green *by luck*; the first `.ts` or `.mjs` file dropped there would otherwise be a root-gate failure on a file nobody in this repository authored |
+
+A fifth measurement is recorded in the same style and is the one with a home: **§7.5's finding that a site subproject can import the repository root's `package.json` cleanly** is the mechanism behind FR-048 and FR-053 — the site's enumerations are *generated*, not retyped, which is what makes AC-008 and AC-009 checkable rather than aspirational.
+
+### 8.3 One stale cross-reference in this file, noted rather than edited
+
+The header line above reads *"**and §6, added in Phase 4**"*, but §6 is *"What was deliberately **not** researched"* (phases 1–3) and the Phase-4 section is **§7**. The pointer is one section short. It is left as written — this file is append-only above this line, and the target is unmistakable from the section heading — but a reader arriving from that header should go to §7.

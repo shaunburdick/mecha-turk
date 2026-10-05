@@ -10,11 +10,11 @@ How to build, preview, and check the documentation site locally, and what CI wil
 
 | You need | Version | Why |
 | --- | --- | --- |
-| **Node** | **≥ 22.12.0** for the site | The site's build tool requires it. |
+| **Node** | **≥ 22.12.0** for the site | `astro@7.3.5` declares it in its own `engines` — measured, not assumed ([research.md](research.md) §1.4). |
 | Node | ≥ 20.19.0 for the repository root | The root `package.json` declares this floor. |
-| npm | ≥ 9.6.5 | The site's build tool declares this floor. |
+| npm | ≥ 9.6.5 | The same `engines` block: the site's build tool declares this floor. |
 
-**Two different floors, on purpose.** The repository's root floor is `>=20.19.0` because that is what the OpenChamber installable manifest advertises, and raising it is issue #17 — out of scope here. The site's floor is higher because its build tool requires it. If you are on Node 20, you can still run the repository's own gate; you just cannot build the site until you move to Node 22.12 or newer. CI uses Node 24 for both.
+**Two different floors, on purpose** (FR-008). The repository's root floor is `>=20.19.0` because that is what the OpenChamber installable manifest advertises, and **raising it is issue #17 — this feature does not change it**. The site's floor is higher because its build tool requires it: `npm view astro@latest engines` answers `{ npm: '>=9.6.5', node: '>=22.12.0' }`, and one root manifest cannot advertise `>=20.19.0` and hold a dependency that refuses to install below `>=22.12.0` ([research.md](research.md) §1.4, §2). If you are on Node 20, you can still run the repository's own gate; you just cannot build the site until you move to Node 22.12 or newer. CI uses Node 24 for both.
 
 > Verify: `node --version`. If it is below `v22.12.0`, use a version manager (`nvm`, `mise`, `asdf`, `volta`) to select a newer release before continuing.
 
@@ -105,7 +105,7 @@ The site is published at a **subpath** — `https://shaunburdick.github.io/mecha
 | unset (Astro's default) | `/mecha-turk` — no trailing slash | `/install/` — **the base is gone** |
 | `'always'` | `/mecha-turk/` | `/mecha-turk/install/` |
 
-So the site sets `trailingSlash: 'always'`, which is also what the published `/install/` address needs, **and** uses a link helper that is correct under either setting. If you add a page, extend the page list in `site/src/data/site.ts` and nothing else; if you change `trailingSlash`, run step 3's grep and the build's assertion step before you push.
+So the site sets `trailingSlash: 'always'`, which is also what the published `/install/` address needs, **and** uses a link helper that is correct under all three settings — see the correction in [research.md](research.md) §8 for why the obvious join is not, and what the shipped helper does instead. If you add a page, extend the page list in `site/src/data/site.ts` and nothing else; if you change `trailingSlash`, run step 3's grep and the build's assertion step before you push.
 
 > Verify: step 3's grep finds nothing, and `npm run build` — which ends with the build-output assertion — fails loudly if a link, an asset, or a page count is wrong. Research.md §7.1 has the measured table and §7.4 explains why the check lives on the output rather than in a review.
 
@@ -113,16 +113,18 @@ So the site sets `trailingSlash: 'always'`, which is also what the published `/i
 
 - Page sources are Markdown or component files inside the site directory. Navigation, the footer, and the base path live in the site's layout and configuration — **change those once, not per page**.
 - **The base path is declared in exactly one place** (FR-005). If the repository is ever renamed, that one place is the only edit the site's address needs.
-- Before opening a pull request, run all three:
+- Before opening a pull request, run all four:
 
 ```sh
 npm run check      # type-check the site
-npm run build      # build it
+npm run build      # build it, then assert the built output
+npm test           # the site's own assertions (node --test)
 cd .. && npm run verify   # the repository's own gate
 ```
 
   - `npm run verify` at the root is **unchanged by this feature** and still means: build → lint → typecheck → test. It runs on Node ≥ 20.19 and takes a Node ≥ 22.12 for the site's own commands above.
   - Run the root gate **always**, because the site's build is not part of it.
+  - `npm test` runs the site's three `*.assertions.mjs` suites — the base-path join, the four generated tables, and the build-output contract. It is a **local loop step today**: the build job runs `check` and `build`, not `test`.
 
 ## 5. What happens when you open a pull request
 
@@ -163,5 +165,5 @@ The permissions, the pinned action SHAs, and the address the deployment publishe
 | The workflow's permissions contract, and the published address | [contracts/pages-workflow.md](./contracts/pages-workflow.md) |
 | The shape of the published output, and what is asserted about it | [contracts/site-build-output.md](./contracts/site-build-output.md) |
 | Which of features 002 and 005 this amends, and how | [changelog.md](./changelog.md) |
-| How to install, verify, and read Mecha Turk (operator walkthrough) | [../002-agent-event-extension/quickstart.md](../002-agent-event-extension/quickstart.md) |
+| How to build and verify the panel and service (the contributor walkthrough; operator documentation moved to the site) | [../002-agent-event-extension/quickstart.md](../002-agent-event-extension/quickstart.md) |
 | Repository layout, invariants, and contributor workflow | [../../AGENTS.md](../../AGENTS.md) |

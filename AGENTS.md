@@ -1,7 +1,8 @@
 # AGENTS.md — working on Mecha Turk
 
 Guide for AI agents and humans changing this repository. Users install and
-operate the extension from [README.md](README.md); everything below is about
+operate the extension from the documentation site published at
+<https://shaunburdick.github.io/mecha-turk/>; everything below is about
 building it safely.
 
 ## What this is
@@ -22,8 +23,10 @@ and review must state alignment with it.
 │                          # accounts/, poll/, store/ — stdlib-only, no framework
 ├── src/                  # panel logic, one responsibility per module
 ├── tests/                # vitest suites + support/ fakes (fake host, DOM helpers)
+├── site/                 # the documentation site (Astro) — its own manifest, lockfile,
+│                          # Node floor and gate; the root verify does NOT reach it
 ├── specs/002-agent-event-extension/      # production spec (the product's source of truth)
-├── README.md             # user-facing (install, configure, operate)
+├── README.md             # identity, and a link to the published documentation
 ├── .specify/             # constitution + spec-kit scripts/templates
 └── .opencode/commands/   # speckit slash commands
 ```
