@@ -98,8 +98,11 @@ const DELETES_HISTORY = 'deletes history';
 /** The label of the non-primary restore control (006 FR-016). */
 const RESTORE_LABEL = 'Restore defaults';
 
+/** The configuration as stored, with every field at its default. */
+const STORED_CONFIG: Record<string, unknown> = { ...DEFAULT_CONFIG };
+
 /** One `GET /v1/config` body, assembled the way the service sends it. */
-function envelopeBody(config: Record<string, unknown> = { ...DEFAULT_CONFIG }): string {
+function envelopeBody(config: Record<string, unknown> = STORED_CONFIG): string {
     return JSON.stringify({ config, fields: configSchema(), source: 'stored', defaultsApplied: [] });
 }
 

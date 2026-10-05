@@ -71,13 +71,16 @@ function pullEntry(): Record<string, unknown> {
     }`) as Record<string, unknown>;
 }
 
+/** The `user` object a healthy entry carries. */
+const HUMAN_USER = { login: HUMAN_LOGIN, type: HUMAN_TYPE };
+
 /**
  * One issues-list entry with every field the reader requires.
  *
  * @param user - The `user` object as the wire carries it, or a value to test.
  * @returns The raw element, parsed as GitHub's list endpoint answers it.
  */
-function issueEntry(user: unknown = { login: HUMAN_LOGIN, type: HUMAN_TYPE }): Record<string, unknown> {
+function issueEntry(user: unknown = HUMAN_USER): Record<string, unknown> {
     return JSON.parse(`{
         "number": 7,
         "title": "Flux capacitor drifts",
@@ -96,7 +99,7 @@ function issueEntry(user: unknown = { login: HUMAN_LOGIN, type: HUMAN_TYPE }): R
  * @param user - The `user` object as the wire carries it, or a value to test.
  * @returns The raw element, parsed as GitHub's endpoint answers it.
  */
-function commentEntry(user: unknown = { login: HUMAN_LOGIN, type: HUMAN_TYPE }): Record<string, unknown> {
+function commentEntry(user: unknown = HUMAN_USER): Record<string, unknown> {
     return JSON.parse(`{
         "id": 501,
         "issue_url": "https://api.github.com/repos/acme/widget/issues/7",

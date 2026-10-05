@@ -121,6 +121,9 @@ function bodyFor(overrides: Record<string, unknown> = {}): string {
     return answerBody([], pageMember(overrides));
 }
 
+/** No filter on either axis: the state the pane mounts in. */
+const NO_FILTERS: DispatchesState['filters'] = { bindingId: null, state: null };
+
 /**
  * Build a section state with the paging position a test needs.
  *
@@ -130,7 +133,7 @@ function bodyFor(overrides: Record<string, unknown> = {}): string {
  */
 function section(
     page: DispatchesState['page'] = initialDispatchListPage(),
-    filters: DispatchesState['filters'] = { bindingId: null, state: null },
+    filters: DispatchesState['filters'] = NO_FILTERS,
 ): DispatchesState {
     return { ...initialDispatches(), page, filters };
 }

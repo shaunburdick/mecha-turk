@@ -206,50 +206,57 @@ function parseArgs(argv) {
         help: false,
     };
 
+    // `index` is stepped by hand for the options that take a value, so each one
+    // that consumes the next argument ends in `continue` rather than a `break`
+    // out of a `switch` nested in the loop.
     for (let index = 0; index < argv.length; index++) {
         const argument = argv[index];
 
-        switch (argument) {
-            case '--out': {
-                options.outDir = optionValue(argv, index);
-                index++;
+        if (argument === '--out') {
+            options.outDir = optionValue(argv, index);
+            index++;
 
-                break;
-            }
-            case '--width': {
-                options.width = Number(optionValue(argv, index));
-                index++;
-
-                break;
-            }
-            case '--max-height': {
-                options.maxHeight = Number(optionValue(argv, index));
-                index++;
-
-                break;
-            }
-            case '--session': {
-                options.session = optionValue(argv, index);
-                index++;
-
-                break;
-            }
-            case '--no-full': {
-                options.full = false;
-
-                break;
-            }
-            case '--help': {
-                options.help = true;
-
-                break;
-            }
-            default: { if (argument.startsWith('-')) {
-                throw new Error(`unknown option ${argument}\n${USAGE}`);
-            }
-            options.tabs.push(argument);
-            }
+            continue;
         }
+
+        if (argument === '--width') {
+            options.width = Number(optionValue(argv, index));
+            index++;
+
+            continue;
+        }
+
+        if (argument === '--max-height') {
+            options.maxHeight = Number(optionValue(argv, index));
+            index++;
+
+            continue;
+        }
+
+        if (argument === '--session') {
+            options.session = optionValue(argv, index);
+            index++;
+
+            continue;
+        }
+
+        if (argument === '--no-full') {
+            options.full = false;
+
+            continue;
+        }
+
+        if (argument === '--help') {
+            options.help = true;
+
+            continue;
+        }
+
+        if (argument.startsWith('-')) {
+            throw new Error(`unknown option ${argument}\n${USAGE}`);
+        }
+
+        options.tabs.push(argument);
     }
 
     return options;

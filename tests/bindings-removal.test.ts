@@ -439,9 +439,10 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             const root = resolve(import.meta.dirname, '..', 'src');
             const method = /\bPATCH\b/;
             const modules = readdirSync(root, { recursive: true }).map(String);
+            const sources = modules.filter((entry) => entry.endsWith('.ts'));
             const offenders: string[] = [];
 
-            for (const name of modules.filter((entry) => entry.endsWith('.ts'))) {
+            for (const name of sources) {
                 const lines = readFileSync(resolve(root, name), 'utf8').split('\n');
                 for (const line of lines) {
                     if (method.test(line)) {

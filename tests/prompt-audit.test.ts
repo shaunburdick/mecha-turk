@@ -373,7 +373,11 @@ const ACCOUNT_ROW_ID = '77331';
 
 /** One account document holding a single prompt value. */
 function accountDocument(prompt: string | null): readonly ObservedAccount[] {
-    return [prompt === null ? { numericUserId: ACCOUNT_ROW_ID } : { numericUserId: ACCOUNT_ROW_ID, startingPrompt: prompt }];
+    return [
+        prompt === null
+            ? { numericUserId: ACCOUNT_ROW_ID }
+            : { numericUserId: ACCOUNT_ROW_ID, startingPrompt: prompt },
+    ];
 }
 
 /**

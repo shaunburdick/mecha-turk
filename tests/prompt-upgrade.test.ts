@@ -838,9 +838,9 @@ describe('T-036 arrival writes nothing (FR-018, FR-089, SC-128, AC-131, AC-142)'
         // is the only file set aside (SC-128 counts zeros for *valid*
         // documents; this one is not valid, and is refused closed).
         const entries = await readdir(dataDir);
-        const setAside = entries.filter((entry) => entry.includes('.corrupt-'));
-        expect(setAside).toHaveLength(1);
-        const [asideName] = setAside;
+        const asideNames = entries.filter((entry) => entry.includes('.corrupt-'));
+        expect(asideNames).toHaveLength(1);
+        const [asideName] = asideNames;
         if (asideName === undefined) {
             throw new Error('the refusal set no file aside');
         }

@@ -307,7 +307,7 @@ function matchesNth(argument: string, element: ProbeElement): boolean {
 
     const parsed = Number.parseInt(trimmed, 10);
 
-    return Number.isNaN(parsed) ? true : position === parsed;
+    return Number.isNaN(parsed) || position === parsed;
 }
 
 /**

@@ -336,11 +336,11 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
             expect(answer.bindings).toHaveLength(2);
 
             const clearedRow = answer.bindings.find((row) => row.bindingId === 'bnd-cleared');
-            const setRow = answer.bindings.find((row) => row.bindingId === 'bnd-set');
+            const storedRow = answer.bindings.find((row) => row.bindingId === 'bnd-set');
             // A stored `null` reads exactly like absence: the key is not invented.
             expect(clearedRow !== undefined && 'startingPrompt' in clearedRow).toBe(false);
             // The configuration read is the only read that returns the text (FR-012).
-            expect(setRow?.startingPrompt).toBe(STORED_PROMPT);
+            expect(storedRow?.startingPrompt).toBe(STORED_PROMPT);
 
             const entries = await readdir(service.dataDir);
             expect(entries.filter((entry) => entry.includes('.corrupt-'))).toEqual([]);

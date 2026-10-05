@@ -74,8 +74,11 @@ const inertHandlers: PanelHandlers = {
     copyProjectId: (): void => undefined,
 };
 
+/** The configuration as stored, with every field at its default. */
+const STORED_CONFIG: Record<string, unknown> = { ...DEFAULT_CONFIG };
+
 /** One `GET /v1/config` body, assembled the way the service sends it. */
-function envelopeBody(config: Record<string, unknown> = { ...DEFAULT_CONFIG }): string {
+function envelopeBody(config: Record<string, unknown> = STORED_CONFIG): string {
     return JSON.stringify({ config, fields: configSchema(), source: 'stored', defaultsApplied: [] });
 }
 

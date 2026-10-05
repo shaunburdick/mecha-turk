@@ -1697,7 +1697,7 @@ describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC
             });
 
             expect(outcome.status).toBe(REFUSED);
-            expect(outcome.status === REFUSED ? outcome.auditWritten : true).toBe(false);
+            expect(outcome.status !== REFUSED || !outcome.auditWritten).toBe(true);
             // Nothing moved either way.
             expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe('claimed');
         }

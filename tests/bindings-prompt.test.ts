@@ -597,8 +597,8 @@ describe('004 FR-014 the save carries the prompt only where it was edited', () =
             const body = JSON.parse(raw) as { readonly bindings?: readonly Record<string, unknown>[] };
             const rows = body.bindings ?? [];
             expect(rows).toHaveLength(2);
-            expect(rows[0] === undefined ? false : Object.hasOwn(rows[0], 'startingPrompt')).toBe(true);
-            expect(rows[1] === undefined ? true : Object.hasOwn(rows[1], 'startingPrompt')).toBe(false);
+            expect(rows[0] !== undefined && Object.hasOwn(rows[0], 'startingPrompt')).toBe(true);
+            expect(rows[1] !== undefined && !Object.hasOwn(rows[1], 'startingPrompt')).toBe(true);
             expect(rt.state.bindings.startingPromptDirty).toBe(false);
             expect(rt.state.bindings.note).toBe(SAVED_NOTE);
             expect(rt.state.bindings.editorOpen).toBe(false);

@@ -75,7 +75,12 @@ afterEach(resetFixture);
  * @returns The environment to spawn the bundle with.
  */
 function buildEnv(tempHome: string): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = { PATH: process.env.PATH,  HOME: tempHome,  OPENCHAMBER_SERVICE_PORT: OS_ASSIGNED_PORT,  OPENCHAMBER_SERVICE_TOKEN: TOKEN, };
+    const env: NodeJS.ProcessEnv = {
+        PATH: process.env.PATH,
+        HOME: tempHome,
+        OPENCHAMBER_SERVICE_PORT: OS_ASSIGNED_PORT,
+        OPENCHAMBER_SERVICE_TOKEN: TOKEN,
+    };
 
     return env;
 }

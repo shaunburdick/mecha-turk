@@ -456,16 +456,16 @@ describe('T-027 the closed reader refuses the `promptSources` it cannot stand be
             }
         }
         {
-            const noList = claimEntry({ ...PRESENT_ENTRY });
-            delete noList.promptSources;
+            const deletedSources = claimEntry({ ...PRESENT_ENTRY });
+            delete deletedSources.promptSources;
 
-            expect(parseOne(noList)).toBeNull();
+            expect(parseOne(deletedSources)).toBeNull();
         }
         {
-            const unsetNoList = claimEntry();
-            delete unsetNoList.promptSources;
+            const bareEntryWithoutSources = claimEntry();
+            delete bareEntryWithoutSources.promptSources;
 
-            expect(parseOne(unsetNoList)).toBeNull();
+            expect(parseOne(bareEntryWithoutSources)).toBeNull();
         }
         {
             expect(parseOne(claimEntry({ ...PRESENT_ENTRY, promptSources: null }))).toBeNull();
@@ -1003,7 +1003,8 @@ describe('T-034 the budget suite (FR-085, FR-035, AC-145, AC-147, SC-132)', () =
             expect(quotedWith.length).toBeLessThan(quotedWithout.length);
             expect(withReservation).toContain(EXCERPT_TRUNCATION_MARKER);
             expect(withoutReservation).not.toContain(EXCERPT_TRUNCATION_MARKER);
-            for (const line of quotedWith.split('\n').map((part) => part.trim()).filter((part) => part !== '')) {
+            const excerptLines = quotedWith.split('\n').map((part) => part.trim()).filter((part) => part !== '');
+            for (const line of excerptLines) {
                 if (line.includes(' · ')) {
                     continue; // the reference's heading line carries no excerpt
                 }

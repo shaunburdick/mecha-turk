@@ -198,8 +198,9 @@ describe('the configuration is editable in exactly one tab (006 AC-141, SC-113, 
     it('mounts every documented field as a control in Settings, and nowhere else', async () => {
         {
             const renders = await renderAllTabs(runtime());
+            const otherTabs = renders.filter((entry) => entry.id !== 'settings');
 
-            for (const render of renders.filter((entry) => entry.id !== 'settings')) {
+            for (const render of otherTabs) {
                 expect(configurationLabels(render), `${render.id} rendered a configuration control`).toEqual([]);
             }
 

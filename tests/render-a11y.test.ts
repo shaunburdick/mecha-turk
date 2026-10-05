@@ -385,9 +385,11 @@ describe('FR-081 every control and row action has an accessible name', () => {
             const strip = rendered.log.find((entry) => entry.key === 'mountTabs');
             const items = (strip?.props as { readonly items?: readonly { readonly label?: string }[] }).items ?? [];
 
+            const listMounts = rendered.log.filter((candidate) => candidate.key === 'mountList');
+
             expect(items.map((item) => item.label)).toEqual([...TAB_IDS].map((id) => labelOf(id)));
 
-            for (const entry of rendered.log.filter((candidate) => candidate.key === 'mountList')) {
+            for (const entry of listMounts) {
                 const props = entry.props as {
                     readonly ariaLabel?: string;
                     readonly items?: readonly { readonly title?: string }[];

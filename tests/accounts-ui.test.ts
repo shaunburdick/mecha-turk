@@ -856,13 +856,13 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
         {
             const set = accountFixture({ startingPrompt: ACCOUNT_PROMPT });
             const unset = accountFixture({});
-            const setRow = accountRows(accountsState({ accounts: [set] }))[0];
-            const unsetRow = accountRows(accountsState({ accounts: [unset] }))[0];
+            const withPromptRow = accountRows(accountsState({ accounts: [set] }))[0];
+            const withoutPromptRow = accountRows(accountsState({ accounts: [unset] }))[0];
 
-            expect(setRow?.subtitle).toContain(`prompt set · ${ACCOUNT_PROMPT.length} chars`);
-            expect(setRow?.subtitle).not.toContain(ACCOUNT_PROMPT);
-            expect(setRow?.subtitle).not.toContain('mtp-');
-            expect(unsetRow?.subtitle).toContain('prompt not set');
+            expect(withPromptRow?.subtitle).toContain(`prompt set · ${ACCOUNT_PROMPT.length} chars`);
+            expect(withPromptRow?.subtitle).not.toContain(ACCOUNT_PROMPT);
+            expect(withPromptRow?.subtitle).not.toContain('mtp-');
+            expect(withoutPromptRow?.subtitle).toContain('prompt not set');
             // The detail line is a summary too — presence, never the text.
             expect(accountDetail(accountsState({ accounts: [set] }), set)).toContain('prompt set');
             expect(accountDetail(accountsState({ accounts: [set] }), set)).not.toContain(ACCOUNT_PROMPT);

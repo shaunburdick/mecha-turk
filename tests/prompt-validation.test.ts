@@ -58,11 +58,11 @@ const AUTHORIZATION_SHAPE = 'Authorization: abcdefghijklmnop';
 const CAP = STARTING_PROMPT_MAX_CODE_POINTS;
 
 /** Control characters, built without embedding raw bytes in this source file. */
-const NUL = String.fromCharCode(0);
-const BELL = String.fromCharCode(7);
-const ESCAPE = String.fromCharCode(27);
-const DELETE = String.fromCharCode(127);
-const C1_CONTROL = String.fromCharCode(155);
+const NUL = String.fromCodePoint(0);
+const BELL = String.fromCodePoint(7);
+const ESCAPE = String.fromCodePoint(27);
+const DELETE = String.fromCodePoint(127);
+const C1_CONTROL = String.fromCodePoint(155);
 
 /** Temporary directories this suite opened, drained between tests. */
 const temporaryDirs: string[] = [];

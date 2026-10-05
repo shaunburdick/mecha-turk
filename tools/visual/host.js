@@ -115,10 +115,10 @@ function panelDoc() {
 }
 const storage = new Map([[LEDGER_KEY, { schemaVersion: 'dispatch-attempts-1', attempts: [] }]]);
 
-let themeMode = LIGHT;
-let harnessError = null;
-let routes = {};
-let projects = null;
+// One object rather than four `let` bindings: the bridge is driven from a
+// `message` handler that fills this in and a control surface that reads it back
+// later, so the state has a shape a reader can hold in their head.
+const state = { themeMode: LIGHT, harnessError: null, routes: {}, projects: null };
 
 /** The envelope every host→guest message travels in. */
 function envelope(type) {
@@ -143,7 +143,7 @@ function refuse(id, problem) {
 /** The `ready` payload: a complete host theme plus the surface description. */
 function readyPayload() {
     return {
-        theme: { mode: themeMode, tokens: themeMode === LIGHT ? LIGHT_THEME : DARK_THEME },
+        theme: { mode: state.themeMode, tokens: state.themeMode === LIGHT ? LIGHT_THEME : DARK_THEME },
         locale: 'en-US',
         directory: null,
         session: null,
@@ -192,7 +192,7 @@ function answerStorage(message) {
 function answerServiceRequest(message) {
     const path = String(message.payload.path).split('?', 1)[0];
     const key = `${message.payload.method} ${path}`;
-    const route = routes.get(key);
+    const route = state.routes.get(key);
 
     if (route === undefined) {
         const body = { error: { code: 'not-found', message: `harness: no fixture for ${key}` } };
@@ -208,7 +208,7 @@ function answerWorkspace(message) {
     const kind = message.payload?.kind;
 
     if (kind === 'projects') {
-        return reply(message.id, projects);
+        return reply(message.id, state.projects);
     }
 
     const shared = { projectId: message.payload?.projectId ?? null };
@@ -546,19 +546,19 @@ async function stretch(height) {
 
 /** Switch the host theme the panel paints from, and re-ready the guest. */
 function setTheme(mode) {
-    themeMode = mode === DARK ? DARK : LIGHT;
+    state.themeMode = mode === DARK ? DARK : LIGHT;
     sendReady();
 
-    return themeMode;
+    return state.themeMode;
 }
 
 /** Boot the bridge: load fixtures, then let the frame load the panel. */
 async function boot() {
     const { routes: table, projects: list, error } = await loadFixtures();
-    harnessError = error;
-    routes = table;
-    projects = list;
-    globalThis.__MT_HARNESS_ERROR__ = harnessError;
+    state.harnessError = error;
+    state.routes = table;
+    state.projects = list;
+    globalThis.__MT_HARNESS_ERROR__ = state.harnessError;
     frame.src = frame.dataset.src;
 }
 
@@ -569,7 +569,7 @@ void boot();
 /** The control surface `shot.js` drives over `agent-browser eval`. */
 globalThis.__MT__ = {
     booted,
-    error: () => harnessError,
+    error: () => state.harnessError,
     activeTab,
     measure,
     align,

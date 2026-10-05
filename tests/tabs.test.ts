@@ -213,8 +213,9 @@ describe('mountTabShell (the six-tab shell, 005 FR-010)', () => {
             expect(strip.labels).toEqual(LABELS);
             expect(strip.buttons).toHaveLength(6);
             expect(rt.activeTab).toBe('status');
+            const idleIds = TAB_IDS.filter((tab) => tab !== 'status');
             expect(bodyOf(root, 'status')?.hidden).toBe(false);
-            for (const id of TAB_IDS.filter((tab) => tab !== 'status')) {
+            for (const id of idleIds) {
                 expect(bodyOf(root, id)?.hidden).toBe(true);
             }
 

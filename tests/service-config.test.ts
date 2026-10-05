@@ -1199,7 +1199,11 @@ describe('logLevel is immediate (006 FR-033, FR-037, AC-103, SC-105)', () => {
             'utf8',
         );
 
-        const hostEnv: Record<string, string | undefined> = { HOME: home,  OPENCHAMBER_SERVICE_PORT: '0',  OPENCHAMBER_SERVICE_TOKEN: BEARER_TOKEN, };
+        const hostEnv: Record<string, string | undefined> = {
+            HOME: home,
+            OPENCHAMBER_SERVICE_PORT: '0',
+            OPENCHAMBER_SERVICE_TOKEN: BEARER_TOKEN,
+        };
         const handle = await startService({
             env: readServiceEnv(hostEnv),
             dataDir,

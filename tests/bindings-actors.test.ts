@@ -1347,11 +1347,13 @@ describe('AC-148 one derivation over all eight subsets of the three switches (00
             // `reviewRequest`, and that is what the field's helper must describe.
             const added = editor({ rows: [] });
             added.handlers.newBinding();
-            const addHelper = String(listFieldProps().helper);
+            const newBindingHelper = String(listFieldProps().helper);
 
-            expect(addHelper).toBe(allowedUsersGuidance({ assignment: true, mention: false, reviewRequest: true }));
-            expect(addHelper).toContain('request a review from the account on a pull request');
-            expect(addHelper).not.toContain('mention the account');
+            expect(newBindingHelper).toBe(
+                allowedUsersGuidance({ assignment: true, mention: false, reviewRequest: true }),
+            );
+            expect(newBindingHelper).toContain('request a review from the account on a pull request');
+            expect(newBindingHelper).not.toContain('mention the account');
             release(added);
 
             // Edit mode: the loaded row's own switches, which differ from the
@@ -1367,7 +1369,7 @@ describe('AC-148 one derivation over all eight subsets of the three switches (00
             const editHelper = String(listFieldProps().helper);
 
             expect(editHelper).toBe(allowedUsersGuidance(MENTION_ONLY));
-            expect(editHelper).not.toBe(addHelper);
+            expect(editHelper).not.toBe(newBindingHelper);
             release(edited);
         }
     });
